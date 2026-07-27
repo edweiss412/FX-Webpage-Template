@@ -210,6 +210,9 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // the residual "-2" is itself a day number and trips the leftover check anyway. The
       // singular form is kept as the more conservative choice, not as a pinned invariant.
       ["Days 1-2, May 5, 2026", "a plural day span"],
+      // R6 HIGH: same month-day, different YEAR. One pair, and four-digit years evade the
+      // day-number check because no word boundary exists inside them.
+      ["May 5, 2026 / May 5, 2027", "the same month-day in two years"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];
@@ -298,6 +301,17 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["DAY 2 — Tuesday, May 5, 2026", "2026-05-05"],
       ["Tuesday, May 5, 2026 (Show Day)", "2026-05-05"],
       ["Tuesday, May 5, 2026 | Ballroom A", "2026-05-05"],
+      // R6 LOW: the corpus list claimed seven labels and held six, omitting this one from
+      // tests/crew/agendaDayForToday.test.ts:23. It passed anyway, but a guard that says
+      // "the corpus" must actually be the corpus.
+      ["Wednesday , June 2 5 , 202 5", "2025-06-25"],
+      // R6 MEDIUM: month PREFIXES used to match, so a venue or track name disabled folding for
+      // the whole extraction. These are the exact words the reviewer named.
+      ["Tuesday, May 5, 2026 — Marriott", "2026-05-05"],
+      ["Tuesday, May 5, 2026 - Marketing Summit", "2026-05-05"],
+      ["Tuesday, May 5, 2026 (Augusta Room)", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — Decision Makers Panel", "2026-05-05"],
+      ["Tuesday, May 5, 2026 at 9:00 AM", "2026-05-05"], // a clock time is not a day number
     ];
     for (const [label, iso] of corpus) {
       const r = visibleAgendaDaysForViewer(

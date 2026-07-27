@@ -28,36 +28,56 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  */
 const WEEKDAYS = /\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\b/gi;
 
-/** Any month name, used to detect a SECOND month reference in the leftover text. */
-const MONTH_NAME = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i;
+/**
+ * A SECOND month reference in the leftover text.
+ *
+ * EXACT month names, never prefixes. An earlier version allowed any suffix
+ * (`/(jan|feb|mar|...)[a-z]*\.?/`) and so matched Marriott, Marketing, Junior, Novel, Decision,
+ * Augusta and Octagon — review R6 (MEDIUM) caught it. A venue or track name in a day heading
+ * would have disabled folding for that whole extraction, silently and in production.
+ */
+const MONTH_NAME = new RegExp(
+  `\\b(${Object.keys(MONTHS)
+    .sort((a, b) => b.length - a.length)
+    .join("|")})\\.?\\b`,
+  "i",
+);
+/** Clock times: their minutes would otherwise read as a day number. */
+const TIME_OF_DAY = /\b\d{1,2}:\d{2}\s*(am|pm)?/gi;
 /** Any 1-2 digit number, with or without an ordinal suffix. Years are removed before this runs. */
 const DAY_NUMBER = /\b\d{1,2}(st|nd|rd|th)?\b/i;
 
 /**
  * Can this label be attributed to exactly ONE day?
  *
- * WHITELIST, not blacklist, and that inversion is the point. The previous version enumerated
- * signals that indicate a second day, and review found a new shape for six consecutive rounds --
- * two full dates, then a second weekday name, then an ordinal ("the 6th"), then a month-day with
- * no year ("/ May 6"). Every fix was correct and every one was another instance. A list of known
- * ways to say "another day" cannot be finished; the set of ways English writes a date is not
- * bounded by what a reviewer has thought of yet.
+ * HOW IT WORKS: find the single month-day pair, blank out every occurrence of it, drop years and
+ * clock times, allow one weekday name and one ordinal-position phrase ("Day 1"), then require what
+ * remains to contain nothing day-shaped — no second month name, number, ordinal, or weekday.
  *
- * So this asks the opposite question. Find the one month-day pair, remove every occurrence of it,
- * allow a single weekday name, and require what remains to contain NOTHING
- * day-shaped. Anything left over -- another month name, another number, an ordinal, a second
- * weekday -- means the label says something about days that this function did not understand, and
- * an ununderstood label is not safe to fold.
+ * WHAT IT IS NOT, stated plainly because an earlier revision of this comment claimed otherwise and
+ * review R6 (HIGH) was right to reject the claim: **this is not a whitelist.** It rejects residual
+ * text matching known day-shaped patterns; it does not require residual text to be recognised. So
+ * arbitrary prose passes, and "Tuesday, May 5, 2026 and the following day" is folded as a plain
+ * May 5 row. A true whitelist — one that only accepts a remainder it can parse — would reject
+ * every real heading carrying a venue, track, or session name, which is most of them. That
+ * trade is why this rule is shaped the way it is, and it is a genuine limitation rather than an
+ * oversight.
  *
- * Over-firing is the intended direction: a false positive costs a fully expanded agenda, which is
- * today's behaviour and what spec §1.1 calls acceptable. A false negative hides the day the viewer
- * came to see. Verified against the real corpus, including pdfjs glyph-split forms like
- * "Tuesday, March 2 4 , 202 6" (tests/crew/agendaDayForToday.test.ts), which collapse first and
- * pass.
+ * WHY IT IS STILL WORTH HAVING: six distinct counterexamples across review rounds R2-R5 were all
+ * of the form "the label names a second day in a way the previous check did not recognise". This
+ * closes every mechanical form of that — a second date, a second weekday, an ordinal, a month-day
+ * without a year, the same month-day in two years — and leaves only free prose, which is tracked
+ * as `BL-AGENDA-PROSE-SECOND-DAY`.
  *
- * Zero pairs deliberately returns false: that is the unparseable case, and the null guard in the
- * caller owns it. Claiming it here would make that guard unreachable -- twice already in this file
- * a broader check upstream has silently killed a narrower one downstream.
+ * Over-firing is the intended failure direction: a false positive costs a fully expanded agenda,
+ * which is today's behaviour and what spec §1.1 calls acceptable, while a false negative hides the
+ * day the viewer came to see. But over-firing is not free — it silently disables the feature — so
+ * the realistic-single-day corpus in agendaViewerDays.test.ts guards that side, and it is what
+ * caught month PREFIXES matching Marriott, Marketing, Augusta and Octagon.
+ *
+ * Zero month-day pairs deliberately returns false: that is the unparseable case, and the null
+ * guard in the caller owns it. Claiming it here would make that guard unreachable — twice in this
+ * file a broader check upstream has silently killed a narrower one downstream.
  */
 function isAmbiguousLabel(dayLabel: string): boolean {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
@@ -73,6 +93,13 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   if (pairs.size === 0) return false; // unparseable -- the caller's null guard owns this
   if (pairs.size > 1) return true;
 
+  // Same month-day in two different YEARS is two calendar days, and the pair key deliberately
+  // drops the year (so "May 5, 2026 / May 6" counts as two). Review R6 (HIGH) found the hole
+  // that leaves: "May 5, 2026 / May 5, 2027" is one pair, and both years evade the day-number
+  // check because no word boundary exists inside a four-digit token.
+  const years = new Set(collapsed.match(/\b\d{4}\b/g) ?? []);
+  if (years.size > 1) return true;
+
   // Blank out every occurrence of the single date, then the year, then ONE weekday name.
   let rest = "";
   let cursor = 0;
@@ -81,6 +108,7 @@ function isAmbiguousLabel(dayLabel: string): boolean {
     cursor = b;
   }
   rest += collapsed.slice(cursor);
+  rest = rest.replace(/\b\d{4}\b/g, " ").replace(TIME_OF_DAY, " ");
 
   // "Day 1 - Tuesday, May 5, 2026" is one day, and its "1" is an ordinal POSITION in the show,
   // not a second date. Found by sweeping realistic single-day spellings for over-fire: the

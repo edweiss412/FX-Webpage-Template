@@ -668,6 +668,29 @@ so nothing is merge-blocked. It fails only for whoever runs it by hand on one of
 **Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
 retiring spec itself, where the old name is legitimate history.
 
+### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
+
+**Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** very low · **Class:** FEATURE REACH
+
+`isAmbiguousLabel` (`lib/crew/agendaViewerDays.ts`) rejects residual text that MATCHES known
+day-shaped patterns; it does not require residual text to be recognised. Free prose therefore passes:
+`"Tuesday, May 5, 2026 and the following day"` folds as a plain May 5 row, so a viewer assigned May 6
+loses it if a separate May 6 row exists.
+
+**Why not closed.** A true whitelist — accepting only a remainder the code can parse — would reject
+every heading carrying a venue, track, or session name, which is most real headings. Review R6
+measured the over-fire side of that trade directly: month PREFIXES matched Marriott, Marketing,
+Junior, Novel, Decision, Augusta and Octagon, which would have disabled folding for whole
+extractions. The rule is deliberately positioned as the strictest thing that does not break ordinary
+labels.
+
+**Closed already, mechanically:** a second full date, a second weekday name, an ordinal ("the 6th"),
+a month-day without a year ("/ May 6"), and the same month-day in two years — the six
+counterexamples from rounds R2-R6.
+
+**Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
+6-PDF corpus first; today every label there is a clean single date.
+
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
