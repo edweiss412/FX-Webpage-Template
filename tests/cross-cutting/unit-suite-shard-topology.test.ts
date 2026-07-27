@@ -212,12 +212,12 @@ describe("unit-suite matrix topology", () => {
   // The exactly-once claim is scoped: under VITEST_EXCLUDE_ENV_BOUND=1 (which BOTH
   // jobs set) the env-bound files are excluded from serial and run ZERO times
   // here. That is intended — each is gated elsewhere (x-audits runs them directly)
-  // — so the honest invariant is "exactly once, EXCEPT the env-bound three."
+  // — so the honest invariant is "exactly once, EXCEPT the env-bound files."
   //
   // The latent hazard the exclusion asymmetry creates: envBoundExcludes is applied
   // only to the serial project. An env-bound file added inside a PARALLEL dir
   // would therefore NOT be excluded — it would run in the no-DB leg, in the very
-  // environment it was excluded for needing. All three currently live in serial
+  // environment it was excluded for needing. Both currently live in serial
   // dirs; this pins that they stay there.
   it("every env-bound exclude lives in a SERIAL dir (the exclusion is serial-only)", () => {
     for (const g of ENV_BOUND_EXCLUDES) {
