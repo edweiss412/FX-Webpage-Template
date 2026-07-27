@@ -289,3 +289,205 @@ describe("multiple findings", () => {
     ]);
   });
 });
+
+// ─── T1: identity module, DB-free half ──────────────────────────────────────
+// Spec docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md §3.1.
+import {
+  buildPgCronUnreachableMessage,
+  execPsqlRedacted,
+  redactDsn,
+  resolvePgCronMode,
+} from "@/tests/db/_validationTargetIdentity";
+
+const SENTINEL_DSN = "postgresql://u:SENTINELPW@127.0.0.1:1/x";
+
+describe("redactDsn", () => {
+  test("scrubs the DSN wherever it appears — argv-echo leak (R2-1)", () => {
+    const msg = `psql failed: command psql ${SENTINEL_DSN} -qAt exited 2 (${SENTINEL_DSN})`;
+    const out = redactDsn(msg, SENTINEL_DSN);
+    expect(out).not.toContain("SENTINELPW");
+    expect(out).toContain("<TEST_DATABASE_URL redacted>");
+  });
+
+  test("DSN-free text passes through unchanged", () => {
+    expect(redactDsn("nothing secret here", SENTINEL_DSN)).toBe("nothing secret here");
+  });
+});
+
+describe("execPsqlRedacted", () => {
+  test("a failing invocation never leaks the DSN — execFileSync embeds argv verbatim (R2-1)", () => {
+    // Dead loopback port: fails without any database, exercising the real failure path.
+    let thrown: Error | null = null;
+    try {
+      execPsqlRedacted(SENTINEL_DSN, ["-qAtc", "select 1"]);
+    } catch (e) {
+      thrown = e as Error;
+    }
+    expect(thrown, "dead-port psql must throw").not.toBeNull();
+    const everything = `${thrown!.message}\n${thrown!.stack ?? ""}`;
+    expect(everything).not.toContain("SENTINELPW");
+  });
+});
+
+describe("buildPgCronUnreachableMessage", () => {
+  test("the CI-unreachable message never carries the DSN (R3-1)", () => {
+    const msg = buildPgCronUnreachableMessage(SENTINEL_DSN);
+    expect(msg).not.toContain("SENTINELPW");
+    expect(msg).toMatch(/psql is unreachable/i);
+  });
+});
+
+describe("resolvePgCronMode", () => {
+  const REMOTE = "postgresql://postgres.ref:pw@aws-1.pooler.supabase.com:5432/postgres";
+  const LOOPBACK_OVERRIDE = "postgresql://postgres:postgres@127.0.0.1:1/postgres";
+
+  test("exact 'validation' target consumes testDatabaseUrl", () => {
+    const r = resolvePgCronMode({
+      target: "validation",
+      testDatabaseUrl: REMOTE,
+      localTestDatabaseUrl: undefined,
+    });
+    expect(r).toEqual({ mode: "validation", dbUrl: REMOTE });
+  });
+
+  test("validation target without a DSN refuses (existing refusal preserved)", () => {
+    expect(() =>
+      resolvePgCronMode({
+        target: "validation",
+        testDatabaseUrl: undefined,
+        localTestDatabaseUrl: undefined,
+      }),
+    ).toThrow(/TEST_DATABASE_URL/);
+  });
+
+  test("local mode IGNORES a remote testDatabaseUrl — the ambient dev-box exposure (R4-1)", () => {
+    for (const target of [undefined, "", "local"]) {
+      const r = resolvePgCronMode({
+        target,
+        testDatabaseUrl: REMOTE,
+        localTestDatabaseUrl: undefined,
+      });
+      expect(r.mode).toBe("local");
+      expect(r.dbUrl).toBe("postgresql://postgres:postgres@127.0.0.1:54322/postgres");
+    }
+  });
+
+  test("local mode honors a loopback localTestDatabaseUrl override (R5-1)", () => {
+    const r = resolvePgCronMode({
+      target: undefined,
+      testDatabaseUrl: REMOTE,
+      localTestDatabaseUrl: LOOPBACK_OVERRIDE,
+    });
+    expect(r).toEqual({ mode: "local", dbUrl: LOOPBACK_OVERRIDE });
+  });
+
+  test("a misspelled target THROWS — unknown modes never downgrade (R3-2)", () => {
+    for (const target of ["validaton", "Validation", "prod"]) {
+      expect(() =>
+        resolvePgCronMode({
+          target,
+          testDatabaseUrl: REMOTE,
+          localTestDatabaseUrl: undefined,
+        }),
+      ).toThrow(/PG_CRON_COVERAGE_TARGET/);
+    }
+  });
+});
+
+// ─── T1/T3: attachment tripwires ────────────────────────────────────────────
+// Helper unit tests prove helpers; these prove the CALL SITES stay wired (plan §Attachment
+// tripwires). They are TRIPWIRES — silent detachment becomes a red diff — while the runtime DO
+// guard is the actual per-connection enforcement.
+import { readFileSync } from "node:fs";
+
+const PARITY_PATH = "tests/db/validation-schema-parity.test.ts";
+const PGCRON_PATH = "tests/cross-cutting/pg-cron-coverage.test.ts";
+
+/** Strip import statements (incl. multi-line) so an import occurrence cannot fake call order. */
+function stripImports(src: string): string {
+  return src.replace(/^import\b[\s\S]*?from\s+"[^"]*";?\s*$/gm, "");
+}
+
+function countOf(hay: string, needle: string): number {
+  return hay.split(needle).length - 1;
+}
+
+/** Extract a named function's body by brace matching (for the canConnect exemption). */
+function functionBody(src: string, name: string): string {
+  const start = src.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`function ${name} not found`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  throw new Error(`unbalanced braces in ${name}`);
+}
+
+describe("attachment tripwires — validation-schema-parity consumer", () => {
+  const src = readFileSync(PARITY_PATH, "utf8");
+  const noImports = stripImports(src);
+
+  test("assertValidationIdentity( is the FIRST validation-targeting call", () => {
+    const first = noImports.indexOf("assertValidationIdentity(");
+    expect(first, "identity assert must be present").toBeGreaterThan(-1);
+    for (const later of ["withValidationIdentityGuard(", "execPsqlRedacted("]) {
+      const idx = noImports.indexOf(later);
+      expect(idx, `${later} must be present`).toBeGreaterThan(-1);
+      expect(first, `${later} must come after the identity assert`).toBeLessThan(idx);
+    }
+  });
+
+  test("guard + redacted runner wired at both psql layers", () => {
+    expect(countOf(noImports, "withValidationIdentityGuard(")).toBeGreaterThanOrEqual(2);
+    expect(countOf(noImports, "execPsqlRedacted(")).toBeGreaterThanOrEqual(2);
+  });
+
+  test("no raw psql exec outside the exempt canConnect probe", () => {
+    const withoutCanConnect = src.replace(functionBody(src, "canConnect"), "");
+    expect(withoutCanConnect).not.toContain('execFileSync("psql"');
+  });
+});
+
+describe("attachment tripwires — pg-cron consumer", () => {
+  const src = readFileSync(PGCRON_PATH, "utf8");
+  const noImports = stripImports(src);
+
+  test("mode resolution routes through resolvePgCronMode exactly once", () => {
+    expect(countOf(noImports, "resolvePgCronMode(")).toBe(1);
+    expect(countOf(noImports, "assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)")).toBe(
+      1,
+    );
+  });
+
+  test("env vars are read ONLY at the resolver call site", () => {
+    // The single allowed read of each is the resolver-argument site; count total occurrences.
+    expect(countOf(noImports, "process.env.TEST_DATABASE_URL")).toBe(1);
+    expect(countOf(noImports, "process.env.PG_CRON_COVERAGE_TARGET")).toBe(1);
+    expect(countOf(noImports, "process.env.LOCAL_TEST_DATABASE_URL")).toBe(1);
+  });
+
+  test("assertValidationIdentity( precedes every guarded/redacted call", () => {
+    const first = noImports.indexOf("assertValidationIdentity(");
+    expect(first).toBeGreaterThan(-1);
+    for (const later of ["withValidationIdentityGuard(", "execPsqlRedacted("]) {
+      const idx = noImports.indexOf(later);
+      expect(idx, `${later} must be present`).toBeGreaterThan(-1);
+      expect(first).toBeLessThan(idx);
+    }
+  });
+
+  test("messages and probes carry the redaction + tri-state machinery", () => {
+    expect(countOf(noImports, "buildPgCronUnreachableMessage(")).toBe(1);
+    expect(countOf(noImports, "redactDsn(")).toBeGreaterThanOrEqual(1);
+    expect(noImports).toContain("identity_mismatch");
+  });
+
+  test("no raw psql exec anywhere — every psql routes through execPsqlRedacted", () => {
+    expect(src).not.toContain('execFileSync("psql"');
+  });
+});

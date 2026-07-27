@@ -27,7 +27,12 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const SUITE = "tests/cross-cutting/pg-cron-coverage.test.ts";
-/** A port nothing listens on, so `psql` cannot connect. */
+/**
+ * A LOOPBACK port nothing listens on, so `psql` cannot connect. Injected via
+ * LOCAL_TEST_DATABASE_URL — the only DSN variable local pg-cron mode reads (spec
+ * 2026-07-26-driveid-guard-cluster-design §3.1; TEST_DATABASE_URL is ignored there), and
+ * loopback because assertLocalDbUrlIfSet admits nothing else.
+ */
 const DEAD_DB = "postgresql://postgres:postgres@127.0.0.1:59999/postgres";
 
 type Run = { status: number; output: string };
@@ -96,7 +101,13 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
     // while losing both anti-vacuity checks on the real runner.
     // Kills the `isCi = false` bypass: no source pattern is consulted, only
     // whether the suite actually refuses to succeed.
-    const run = runSuite({ CI: "true", TEST_DATABASE_URL: DEAD_DB });
+    // PG_CRON_COVERAGE_TARGET pinned: the child inherits ambient process.env, so an ambient
+    // "validation" on the invoking shell would otherwise reroute this control (spec §3.1).
+    const run = runSuite({
+      CI: "true",
+      PG_CRON_COVERAGE_TARGET: "local",
+      LOCAL_TEST_DATABASE_URL: DEAD_DB,
+    });
     expect(run.status, "CI + unreachable DB must FAIL").not.toBe(0);
     expect(run.output).toMatch(/psql is unreachable/i);
   }, 300_000);
@@ -104,7 +115,11 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
   it("still skips locally when the database is unreachable", () => {
     // The local path exists for a developer with no database running, and must
     // not be collateral damage of the CI hardening.
-    const run = runSuite({ CI: undefined, TEST_DATABASE_URL: DEAD_DB });
+    const run = runSuite({
+      CI: undefined,
+      PG_CRON_COVERAGE_TARGET: "local",
+      LOCAL_TEST_DATABASE_URL: DEAD_DB,
+    });
     expect(run.status, "no CI + unreachable DB must still pass").toBe(0);
     expect(run.output).toMatch(/skipped/i);
   }, 300_000);
@@ -113,7 +128,7 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
     // Kills the sentinel bypass: a counted-but-empty case with the six real
     // ones skipped would leave the count non-zero but drop the PASSED total.
     // The floor is the full case set, so skipping any of them reds this.
-    const run = runSuite({ CI: "true" });
+    const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" });
     expect(run.status, "CI + reachable DB must pass").toBe(0);
     const passed = passedNames(run.output);
     // Require each live case BY NAME. A count would be satisfied by swapping

@@ -265,3 +265,61 @@ describe("Drive-ID coverage guard (live)", () => {
     expect(new Set(columns.map((c) => c.schema))).toEqual(new Set(["public", "dev"]));
   });
 });
+
+// ─── T1: identity module, DB-bound negative controls ────────────────────────
+// Spec docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md §3.1.
+// These run against the LOCAL stack, whose system_identifier ≠ the pinned validation value —
+// which is exactly what makes them negative controls that run on every dev box and in CI.
+import {
+  assertValidationIdentity,
+  withValidationIdentityGuard,
+  VALIDATION_SYSTEM_IDENTIFIER,
+} from "@/tests/db/_validationTargetIdentity";
+
+describe("validation target identity (negative controls vs the local stack)", () => {
+  test.skipIf(!dbUp)(
+    "assertValidationIdentity(LOCAL) throws the MISMATCH shape with both identifiers",
+    () => {
+      // Failure mode: a compare weakened to substring/prefix, or the constant pinned to local.
+      let thrown: Error | null = null;
+      try {
+        assertValidationIdentity(LOCAL_URL);
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown, "local stack must not satisfy the validation pin").not.toBeNull();
+      expect(thrown!.message).toContain("MISMATCH");
+      expect(thrown!.message).toContain(VALIDATION_SYSTEM_IDENTIFIER);
+      expect(thrown!.message).toMatch(/system_identifier (\d+)/);
+      expect(thrown!.message).not.toContain("infra");
+    },
+  );
+
+  test("an unreachable host throws the INFRA shape, never the mismatch shape", () => {
+    // Failure mode: infra faults masquerading as "wrong database" (or vice versa).
+    let thrown: Error | null = null;
+    try {
+      assertValidationIdentity("postgresql://postgres:postgres@127.0.0.1:1/postgres");
+    } catch (e) {
+      thrown = e as Error;
+    }
+    expect(thrown).not.toBeNull();
+    expect(thrown!.message).toContain("infra");
+    expect(thrown!.message).not.toContain("MISMATCH");
+  });
+
+  test.skipIf(!dbUp)(
+    "a guarded statement ABORTS on the local stack — the guard rides the same connection",
+    async () => {
+      // Failure mode: a guard block that executes but never raises (dropped `raise`, wrong
+      // comparison type), or a guard detached from the statement it protects.
+      let aborted = false;
+      try {
+        await sql!.unsafe(withValidationIdentityGuard("select 1"), []);
+      } catch (e) {
+        aborted = /validation identity guard/.test(String((e as Error).message));
+      }
+      expect(aborted, "guarded select must abort with the guard exception").toBe(true);
+    },
+  );
+});

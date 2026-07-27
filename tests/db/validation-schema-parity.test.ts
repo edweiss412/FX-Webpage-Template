@@ -44,6 +44,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertValidationIdentity,
+  execPsqlRedacted,
+  withValidationIdentityGuard,
+} from "@/tests/db/_validationTargetIdentity";
+import {
   INTROSPECT_PUBLIC_COLUMNS_SQL,
   diffManifestAgainstLive,
   manifestFromRows,
@@ -57,6 +62,15 @@ import {
 const MANIFEST_PATH = "supabase/__generated__/schema-manifest.json";
 const MIGRATIONS_DIR = "supabase/migrations";
 const LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+// ── Target binding (spec 2026-07-26-driveid-guard-cluster-design §3.1) ──────
+// Runs BEFORE any helper below can touch the target: when this suite is pointed at validation
+// (TEST_DATABASE_URL set), the connected cluster must BE validation. A mismatch fails the whole
+// file at collection with the discriminable two-identifier message — no later layer runs against
+// an unproven target. Locally (unset) the local target is deliberate and nothing asserts.
+if (process.env.TEST_DATABASE_URL !== undefined && process.env.TEST_DATABASE_URL.trim() !== "") {
+  assertValidationIdentity(process.env.TEST_DATABASE_URL);
+}
 
 function loadManifest(): SchemaManifest {
   return JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
@@ -95,13 +109,16 @@ function localFreshnessDbUrl(): string {
 const PSQL_CONNECT_TIMEOUT_S = "10";
 const PSQL_PROCESS_TIMEOUT_MS = 30_000;
 
-function introspectManifest(dbUrl: string): SchemaManifest {
-  const stdout = execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
-    input: INTROSPECT_PUBLIC_COLUMNS_SQL,
-    encoding: "utf8",
-    timeout: PSQL_PROCESS_TIMEOUT_MS,
-    env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
-  });
+/**
+ * `guarded` binds the introspection to the validation cluster ON ITS OWN CONNECTION (the DO
+ * guard aborts under ON_ERROR_STOP if a multi-host/failover DSN routed this psql elsewhere).
+ * Layer 3 introspects the LOCAL stack and passes false — the local target is deliberate.
+ */
+function introspectManifest(dbUrl: string, guarded: boolean): SchemaManifest {
+  const sql = guarded
+    ? withValidationIdentityGuard(INTROSPECT_PUBLIC_COLUMNS_SQL)
+    : INTROSPECT_PUBLIC_COLUMNS_SQL;
+  const stdout = execPsqlRedacted(dbUrl, ["-qAt"], sql);
   return manifestFromRows(parsePsqlRows(stdout));
 }
 
@@ -177,7 +194,9 @@ describe("validation-schema-parity", () => {
       );
     }
     const manifest = loadManifest();
-    const live = introspectManifest(dbUrl);
+    // Guarded exactly when the target is validation (TEST_DATABASE_URL set); the local
+    // fallback target is deliberate and must not be identity-bound.
+    const live = introspectManifest(dbUrl, process.env.TEST_DATABASE_URL !== undefined);
     const { missingTables, missingColumns } = diffManifestAgainstLive(manifest, live);
 
     const report = [
@@ -205,7 +224,7 @@ describe("validation-schema-parity", () => {
       return; // skip
     }
     const committed = readFileSync(MANIFEST_PATH, "utf8");
-    const fresh = serializeManifest(introspectManifest(local));
+    const fresh = serializeManifest(introspectManifest(local, false));
     expect(
       fresh,
       `${MANIFEST_PATH} does not match a fresh introspection of the local DB. ` +
@@ -259,20 +278,16 @@ describe("validation-schema-parity", () => {
           `TEST_DATABASE_URL to the validation session-pooler URL.`,
       );
     }
-    const stdout = execFileSync(
-      "psql",
-      [
-        raw,
-        "-qAtc",
+    // Guarded on its own connection: the DO block aborts before the conname read if this psql
+    // landed anywhere but validation (spec §3.1).
+    const stdout = execPsqlRedacted(
+      raw,
+      ["-qAt"],
+      withValidationIdentityGuard(
         "select conname from pg_constraint where conname like " +
           "'%\\_drive\\_file\\_id\\_nonblank' and connamespace = 'public'::regnamespace " +
           "and contype = 'c'",
-      ],
-      {
-        encoding: "utf8",
-        timeout: PSQL_PROCESS_TIMEOUT_MS,
-        env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
-      },
+      ),
     );
     const live = new Set(
       stdout
