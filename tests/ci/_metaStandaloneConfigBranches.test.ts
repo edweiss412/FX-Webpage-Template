@@ -48,7 +48,12 @@ describe("standalone config testMatch has no stale branches", () => {
     // A string matcher is a GLOB: this one looks like a regex and matches no
     // file at all, but parsed into two believable branch names.
     expect(() =>
-      branchesOf({ isRegExp: false, testMatchSource: "(a|b)\\.spec\\.ts", env: {}, reporter: null }),
+      branchesOf({
+        isRegExp: false,
+        testMatchSource: "(a|b)\\.spec\\.ts",
+        env: {},
+        reporter: null,
+      }),
     ).toThrow(/not a RegExp/i);
     expect(() => branchesOf(re("something-else"))).toThrow(/unrecognised testMatch shape/i);
     for (const bad of ["a[|]b", "a\\|b", "a\\d", "a.*", "^a", "a{2}", "a\\\\b"]) {

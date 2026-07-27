@@ -25,10 +25,10 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
-async function lookupSeed(): Promise<{ slug: string }> {
+async function lookupSeed(): Promise<{ slug: string; shareToken: string }> {
   const res = await admin
     .from("shows")
-    .select("slug")
+    .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
   if (res.error || !res.data) {
@@ -36,12 +36,27 @@ async function lookupSeed(): Promise<{ slug: string }> {
       `report-modal.spec: seed show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}`,
     );
   }
-  return { slug: res.data.slug as string };
+  // The crew route's shareToken is a REQUIRED path segment since the M11.5
+  // picker pivot (there is no slug-only mirror); resolve it the way
+  // crew-page.spec.ts does rather than hardcoding a token that a re-seed
+  // would rotate.
+  const tokenRes = await admin
+    .from("show_share_tokens")
+    .select("share_token")
+    .eq("show_id", res.data.id as string)
+    .limit(1)
+    .maybeSingle();
+  if (tokenRes.error || !tokenRes.data?.share_token) {
+    throw new Error(
+      `report-modal.spec: no share_token for seed show (run \`pnpm db:seed\`). error=${tokenRes.error?.message ?? "no row"}`,
+    );
+  }
+  return { slug: res.data.slug as string, shareToken: tokenRes.data.share_token as string };
 }
 
 test.describe("ReportModal (crew footer surface)", () => {
   test("opens, submits, surfaces success", async ({ page }) => {
-    const { slug } = await lookupSeed();
+    const { slug, shareToken } = await lookupSeed();
     await signInAs(page, ADMIN_FIXTURE);
 
     // Mock the route — we DON'T want the e2e to depend on §A's real
@@ -61,7 +76,7 @@ test.describe("ReportModal (crew footer surface)", () => {
       });
     });
 
-    await page.goto(`/show/${slug}`);
+    await page.goto(`/show/${slug}/${shareToken}`);
 
     // The trigger button mounts in the footer.
     const trigger = page.getByTestId("report-button-trigger");
@@ -78,8 +93,13 @@ test.describe("ReportModal (crew footer surface)", () => {
 
     // Success state.
     await expect(page.getByTestId("report-modal-success")).toBeVisible();
-    // Admin surface — view-on-GitHub link is rendered.
-    await expect(page.getByTestId("report-modal-success-link")).toBeVisible();
+    // Crew surface — the view-on-GitHub link is admin-only
+    // (components/shared/ReportModal.tsx gates it on surface === "admin"),
+    // so even an admin identity on the crew page gets the neutral copy.
+    await expect(page.getByTestId("report-modal-success-link")).toHaveCount(0);
+    await expect(page.getByTestId("report-modal-success")).toContainText(
+      "Thanks, we'll take a look.",
+    );
 
     // Submit body shape — pins the wire contract.
     expect(capturedBody).toMatchObject({
@@ -95,7 +115,7 @@ test.describe("ReportModal (crew footer surface)", () => {
   });
 
   test("transient 502 → modal stays open with neutral copy → retry succeeds", async ({ page }) => {
-    const { slug } = await lookupSeed();
+    const { slug, shareToken } = await lookupSeed();
     await signInAs(page, ADMIN_FIXTURE);
 
     let callCount = 0;
@@ -116,7 +136,7 @@ test.describe("ReportModal (crew footer surface)", () => {
       }
     });
 
-    await page.goto(`/show/${slug}`);
+    await page.goto(`/show/${slug}/${shareToken}`);
     await page.getByTestId("report-button-trigger").click();
     await page.getByTestId("report-modal-textarea").fill("retry test");
     await page.getByTestId("report-modal-submit").click();
@@ -132,7 +152,7 @@ test.describe("ReportModal (crew footer surface)", () => {
   });
 
   test("close + reopen on 502 shows resume banner with persisted draft", async ({ page }) => {
-    const { slug } = await lookupSeed();
+    const { slug, shareToken } = await lookupSeed();
     await signInAs(page, ADMIN_FIXTURE);
 
     await page.route("**/api/report", async (route) => {
@@ -143,7 +163,7 @@ test.describe("ReportModal (crew footer surface)", () => {
       });
     });
 
-    await page.goto(`/show/${slug}`);
+    await page.goto(`/show/${slug}/${shareToken}`);
     await page.getByTestId("report-button-trigger").click();
     await page.getByTestId("report-modal-textarea").fill("persisted text");
     await page.getByTestId("report-modal-submit").click();
@@ -160,7 +180,7 @@ test.describe("ReportModal (crew footer surface)", () => {
   });
 
   test("explicit Start-a-new-report rotates key after confirming warning", async ({ page }) => {
-    const { slug } = await lookupSeed();
+    const { slug, shareToken } = await lookupSeed();
     await signInAs(page, ADMIN_FIXTURE);
 
     const keys: string[] = [];
@@ -183,7 +203,7 @@ test.describe("ReportModal (crew footer surface)", () => {
       }
     });
 
-    await page.goto(`/show/${slug}`);
+    await page.goto(`/show/${slug}/${shareToken}`);
     await page.getByTestId("report-button-trigger").click();
     await page.getByTestId("report-modal-textarea").fill("first attempt");
     await page.getByTestId("report-modal-submit").click();
