@@ -7,6 +7,8 @@ import {
   classifyWatchError,
   isGrantTooShort,
   redactWatchError,
+  DRIVE_CALL_TIMEOUT_MS,
+  REFRESH_RUN_BUDGET_MS,
   REAP_ID_LOG_CAP,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
@@ -432,27 +434,35 @@ async function defaultWatchFolder(args: {
   webhookSecret: string;
   nowMs: number;
 }): Promise<{ id: string; resourceId: string; expiration: string }> {
-  const response = await getDriveClient().files.watch({
-    fileId: args.folderId,
-    requestBody: {
-      id: args.channelId,
-      type: "web_hook",
-      address: webhookPublicUrl(),
-      token: args.webhookSecret,
-      // Ask for Google's documented maximum for the `files` resource. Omitting
-      // this yields their 1-hour default, which is what left every lease being
-      // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
-      // — seconds here would request an expiry decades in the past. Google
-      // documents the 1h default ONLY for an OMITTED expiration, so do not
-      // expect that fallback to rescue a units regression: an explicit past
-      // timestamp is undefined territory (rejection, or a channel that is
-      // already expired on arrival). Whole-diff R9 finding 3 — the earlier
-      // comment asserted the fallback and would have sent diagnosis the wrong
-      // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
-      // is what actually pins the units.
-      expiration: String(args.nowMs + WATCH_TTL_MS),
+  const response = await getDriveClient().files.watch(
+    {
+      fileId: args.folderId,
+      requestBody: {
+        id: args.channelId,
+        type: "web_hook",
+        address: webhookPublicUrl(),
+        token: args.webhookSecret,
+        // Ask for Google's documented maximum for the `files` resource. Omitting
+        // this yields their 1-hour default, which is what left every lease being
+        // renewed at the instant it expired (spec §1.2). MILLISECONDS as a string
+        // — seconds here would request an expiry decades in the past. Google
+        // documents the 1h default ONLY for an OMITTED expiration, so do not
+        // expect that fallback to rescue a units regression: an explicit past
+        // timestamp is undefined territory (rejection, or a channel that is
+        // already expired on arrival). Whole-diff R9 finding 3 — the earlier
+        // comment asserted the fallback and would have sent diagnosis the wrong
+        // way. The `expiration` assertion in tests/drive/watchExpiration.test.ts
+        // is what actually pins the units.
+        expiration: String(args.nowMs + WATCH_TTL_MS),
+      },
     },
-  });
+    // Spec §3.3.1, the idiom proven at lib/drive/fetch.ts:359. `timeout` is a
+    // gaxios-7 per-call budget that fires via AbortSignal.timeout and aborts the
+    // socket itself, so no separate `signal` is passed. `retry: false` is
+    // load-bearing: gaxios has its own retry layer, and without it this budget
+    // is multiplied by that layer's attempts and bounds nothing.
+    { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false },
+  );
   const data = response.data;
   if (!data.id || !data.resourceId || !data.expiration) {
     throw new Error("Drive files.watch response missing id/resourceId/expiration");
@@ -469,12 +479,15 @@ async function defaultStopChannel(channel: {
   resourceId: string | null;
 }): Promise<void> {
   if (!channel.resourceId) return;
-  await getDriveClient().channels.stop({
-    requestBody: {
-      id: channel.id,
-      resourceId: channel.resourceId,
+  await getDriveClient().channels.stop(
+    {
+      requestBody: {
+        id: channel.id,
+        resourceId: channel.resourceId,
+      },
     },
-  });
+    { timeout: DRIVE_CALL_TIMEOUT_MS, retry: false },
+  );
 }
 
 async function subscribeWithTx(
@@ -825,7 +838,27 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
 
   const subscribe =
     deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId));
-  for (const row of renewable) {
+  const runStartedMs = now().getTime();
+  for (const [index, row] of renewable.entries()) {
+    // Stop STARTING rows once the budget is spent. This does not bound the
+    // in-flight iteration — a pre-iteration check cannot bound the iteration it
+    // admits — so the honest bound on a run is the budget plus one worst-case
+    // iteration (see T_EXEC_BUDGET_MS's comment).
+    if (now().getTime() - runStartedMs >= REFRESH_RUN_BUDGET_MS) {
+      const remaining = renewable.slice(index);
+      for (const skippedRow of remaining) {
+        failures.push({ folderId: skippedRow.watchedFolderId, operation: "run_budget" });
+      }
+      void log.warn("refresh-watch run budget exhausted", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_RUN_BUDGET_EXHAUSTED",
+        processedCount: index,
+        remainingCount: remaining.length,
+        elapsedMs: now().getTime() - runStartedMs,
+        budgetMs: REFRESH_RUN_BUDGET_MS,
+      });
+      break;
+    }
     try {
       const result = await subscribe(row.watchedFolderId);
       if (result.outcome === "active") {
