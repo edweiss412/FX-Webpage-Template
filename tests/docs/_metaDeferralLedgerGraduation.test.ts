@@ -321,13 +321,34 @@ describe("backlog ledger graduation", () => {
     // directly after the prefix. A mid-line /i match fires on narrative
     // ("NARROWED — NOT closed", "…which graduated when it shipped"), both
     // live false positives found when the unanchored form was tried.
-    const TERMINAL =
-      /^\s*(?:\*\*)?Status:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
+    // One union for every matcher (r13 — the lists had drifted per-matcher,
+    // and two states this very file documents as graduations were missing
+    // from all of them: OBSOLETE — the watch-diagnostic entry closed as
+    // OBSOLETE against a deleted surface — and REFUTED, the sharehub entry's
+    // archived state).
+    const TERMINAL_WORDS =
+      "CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED";
+    const TERMINAL = new RegExp(
+      `^\\s*(?:\\*\\*)?Status:?(?:\\*\\*)?\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
+      "i",
+    );
     // Filed-lines too (both passes independently: BL-HEADER-PROBE-RESIDUAL-
     // VACUITY carried its terminal state on a "**Filed:** … **Closed:** …"
     // line with no Status line at all).
-    const FILED_TERMINAL =
-      /^\s*(?:\*\*)?Filed:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
+    const FILED_TERMINAL = new RegExp(
+      `^\\s*(?:\\*\\*)?Filed:?(?:\\*\\*)?\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
+      "i",
+    );
+    // r13: the documented "**Filed:** … **Closed:** …" shape never matched
+    // FILED_TERMINAL — that regex requires the terminal word DIRECTLY after
+    // the Filed prefix, but the closure arrives as a second bold FIELD later
+    // on the line. Match a bold segment containing a terminal word anywhere
+    // on the Filed line; bold narrative stays rare there and the PARTIAL
+    // guard still applies.
+    const FILED_FIELD_TERMINAL = new RegExp(
+      `\\*\\*[^*\\n]*\\b(${TERMINAL_WORDS})\\b[^*\\n]*\\*\\*`,
+      "i",
+    );
     // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
     // line let two other spellings of the same claim through — a closure as a
     // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
@@ -338,13 +359,14 @@ describe("backlog ledger graduation", () => {
     // claim also matches unbolded ALL-CAPS ("SHIPPED …" as the first line) —
     // unbolded lowercase prose is NOT matched, since an open entry's first
     // line legitimately narrates ("Resolved only as part of BL-…" style).
-    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
+    const HEADING_TERMINAL = new RegExp(`—\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`, "i");
     // Bold opening claim: any case ("**Resolved.**"). Bare opening claim:
     // ALL-CAPS only, so narrating prose cannot false-positive.
-    const OPENING_TERMINAL_BOLD =
-      /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
-    const OPENING_TERMINAL_BARE =
-      /^\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/;
+    const OPENING_TERMINAL_BOLD = new RegExp(
+      `^\\s*\\*\\*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
+      "i",
+    );
+    const OPENING_TERMINAL_BARE = new RegExp(`^\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`);
     const offenders: string[] = [];
     // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
     // same optional bracket the shoutyIds matcher already accepts.
@@ -365,7 +387,9 @@ describe("backlog ledger graduation", () => {
       const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
       const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/i.test(l)) ?? "";
       const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
-      const filedHit = !/PARTIAL/i.test(filedLine) && FILED_TERMINAL.test(filedLine);
+      const filedHit =
+        !/PARTIAL/i.test(filedLine) &&
+        (FILED_TERMINAL.test(filedLine) || FILED_FIELD_TERMINAL.test(filedLine));
       const headingHit = !/PARTIAL/i.test(headingLine) && HEADING_TERMINAL.test(headingLine);
       const openingHit =
         !/PARTIAL/i.test(openingLine) &&
@@ -390,8 +414,14 @@ describe("backlog ledger graduation", () => {
       // status-line rule above.
       if (/PARTIAL/i.test(heading)) continue;
       // Union of both 2026-07-27 passes: the em-dash-anchored any-case form
-      // (SUPERSEDED/DONE included) plus a bare ✅ anywhere in the heading.
-      if (/—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i.test(heading) || /✅/.test(heading))
+      // plus a bare ✅ anywhere in the heading. Same word union as the
+      // status-line test (r13: OBSOLETE/REFUTED joined there; keep in sync).
+      if (
+        /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED)\b/i.test(
+          heading,
+        ) ||
+        /✅/.test(heading)
+      )
         offenders.push(id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);

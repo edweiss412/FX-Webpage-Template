@@ -36,7 +36,8 @@
  * still read live so fixture-tree edits stay tracked.
  */
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 import ts from "typescript";
 
@@ -115,6 +116,27 @@ function tsconfigExcludes(root: string): string[] {
  * file. No include-glob dependence — tsconfig `fileNames` proved twice (r9
  * roots, r10 extensions) to be narrower than what Next actually compiles.
  */
+/**
+ * An artifact dir earns its skip only while git tracks NOTHING inside it
+ * (r13): the names are conventions, not guarantees — a COMMITTED
+ * `coverage/sheetAlias.tsx` is first-party source an app consumer can import
+ * (`@/coverage/sheet`), and skipping it on the name alone reopened the
+ * unscanned-importable-tree class the r12 exclude validation closed. `.git`
+ * stays unconditional: git never tracks files under its own metadata dir.
+ */
+const untrackedCache = new Map<string, boolean>();
+function isUntrackedArtifactDir(root: string, rel: string): boolean {
+  if (rel === ".git") return true;
+  const cached = untrackedCache.get(rel);
+  if (cached !== undefined) return cached;
+  const tracked = execFileSync("git", ["ls-files", "--", rel], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  untrackedCache.set(rel, tracked === "");
+  return tracked === "";
+}
+
 function walkedFiles(root: string): string[] {
   const excludes = tsconfigExcludes(root);
   const out: string[] = [];
@@ -122,9 +144,20 @@ function walkedFiles(root: string): string[] {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       const rel = full.slice(root.length + 1);
-      if (excludes.some((e) => rel === e || rel.startsWith(`${e}/`))) continue;
+      // Same tracked-nothing soundness rule for the non-tests excludes
+      // (node_modules, .next*) as for ARTIFACT_DIRS: a tracked file under
+      // them would be importable first-party source, so the skip lapses.
+      // tests/-rooted excludes keep their skip while tracked — their import
+      // channel is what the everywhere tests/-import ban closes.
+      const excluded = excludes.find((e) => rel === e || rel.startsWith(`${e}/`));
+      if (
+        excluded !== undefined &&
+        (excluded.startsWith("tests/") || isUntrackedArtifactDir(root, excluded))
+      )
+        continue;
       if (statSync(full).isDirectory()) {
-        if (rel === entry && ARTIFACT_DIRS.has(entry)) continue;
+        if (rel === entry && ARTIFACT_DIRS.has(entry) && isUntrackedArtifactDir(root, rel))
+          continue;
         walk(full);
       } else if (SOURCE_EXTS.some((ext) => entry.endsWith(ext))) {
         out.push(full);
@@ -313,10 +346,14 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
       }
       // tests/-import boundary (r10; widened r11 to every non-exempt tree —
       // the carve's soundness depends on tests/ code having no import path
-      // into the shipped graph, direct or bridged).
+      // into the shipped graph, direct or bridged). BARE specifiers count
+      // too (r13): with a tsconfig `baseUrl`, `import … from "tests/x"` is a
+      // legal root-relative form that resolveSpecifier reports as unresolved;
+      // baseUrl is also pinned absent below, and flagging the bare spelling
+      // costs nothing when it cannot resolve.
       if (testsImportBanned) {
-        const resolved = resolveSpecifier(spec.text, fileName);
-        if (resolved !== null && (resolved === "tests" || resolved.startsWith("tests/"))) {
+        const resolved = resolveSpecifier(spec.text, fileName) ?? posix.normalize(spec.text);
+        if (resolved === "tests" || resolved.startsWith("tests/")) {
           out.push(`non-exempt file imports from tests/ (carve laundering channel): ${snip(node)}`);
         }
       }
@@ -442,6 +479,69 @@ function nextConfigAliasOffenders(src: string): string[] {
     ts.forEachChild(node, visit);
   };
   visit(sf);
+  return out;
+}
+
+/**
+ * First-party modules reachable from next.config.ts (r13): the alias scan is
+ * worthless if it stops at the entry file — a helper `lib/nextResolution.ts`
+ * can hold the literal `resolveAlias` object while next.config.ts merely
+ * imports and spreads it. BFS over relative / `@/` specifiers (bare package
+ * imports are node_modules territory); every reached file gets the same
+ * cooked-spelling scan. Standard Next resolution candidates: exact,
+ * +extension, +/index.
+ */
+function configReachableFiles(root: string): string[] {
+  const exts = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"];
+  const resolveLocal = (spec: string, fromRel: string): string | null => {
+    const base = resolveSpecifier(spec, fromRel);
+    if (base === null) return null;
+    const candidates = [
+      base,
+      ...exts.map((e) => base + e),
+      ...exts.map((e) => `${base}/index${e}`),
+    ];
+    for (const c of candidates) {
+      const full = join(root, c);
+      if (existsSync(full) && statSync(full).isFile()) return c;
+    }
+    return null;
+  };
+  const queue = ["next.config.ts"];
+  const seen = new Set<string>(queue);
+  const out: string[] = [];
+  while (queue.length > 0) {
+    const rel = queue.shift()!;
+    out.push(rel);
+    const src = readFileSync(join(root, rel), "utf8");
+    const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const visit = (node: ts.Node): void => {
+      let spec: string | null = null;
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier !== undefined &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      )
+        spec = node.moduleSpecifier.text;
+      else if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+        node.arguments[0] !== undefined &&
+        ts.isStringLiteral(node.arguments[0])
+      )
+        spec = node.arguments[0].text;
+      if (spec !== null) {
+        const resolved = resolveLocal(spec, rel);
+        if (resolved !== null && !seen.has(resolved)) {
+          seen.add(resolved);
+          queue.push(resolved);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
   return out;
 }
 
@@ -648,6 +748,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('import { W } from "@/tests/helpers/W";', "docs/examples/demo.ts"),
     ).toHaveLength(1);
+    // r13 — BARE root-relative specifier (the shape a tsconfig baseUrl would
+    // legalize) is flagged too; baseUrl itself is pinned absent below.
+    expect(
+      classNameViolations('import { W } from "tests/helpers/W";', "components/consumer.tsx"),
+    ).toHaveLength(1);
     // r11 — the phrase count has the same escape blindness the NAME prefilter
     // had; hiddenPhraseCount sees through cooked literals:
     expect(hiddenPhraseCount('const a = "Open the source \\u0073heet";', "lib/x.ts")).toBe(1);
@@ -697,24 +802,41 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     const root = join(__dirname, "..", "..", "..");
     const raw = ts.readConfigFile(join(root, "tsconfig.json"), ts.sys.readFile);
     expect(raw.error).toBeUndefined();
-    const paths = (raw.config as { compilerOptions?: { paths?: Record<string, string[]> } })
-      .compilerOptions?.paths;
-    expect(paths).toEqual({ "@/*": ["./*"] });
+    const compilerOptions = (
+      raw.config as { compilerOptions?: { paths?: Record<string, string[]>; baseUrl?: string } }
+    ).compilerOptions;
+    expect(compilerOptions?.paths).toEqual({ "@/*": ["./*"] });
+    // r13: a `baseUrl` makes BARE specifiers root-relative — `import … from
+    // "tests/x"` or "components/admin/…" would resolve without `./` or `@/`,
+    // outside both shapes resolveSpecifier knows. The bare tests/ spelling is
+    // also flagged directly, but the pin keeps the whole class shut.
+    expect(compilerOptions?.baseUrl).toBeUndefined();
     // Node subpath imports (`#…` specifiers) resolve through package.json —
-    // the same laundry with a different config file.
+    // the same laundry with a different config file. r13: `exports` is the
+    // same mechanism outward (a self-referencing package import
+    // `fx-webpage-template/sheet` can remap to any file), and `browser` is a
+    // legacy remap field; all three stay absent.
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
       string,
       unknown
     >;
     expect(pkg.imports).toBeUndefined();
+    expect(pkg.exports).toBeUndefined();
+    expect(pkg.browser).toBeUndefined();
     // Next-level aliasing (turbopack `resolveAlias`, webpack
     // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
     // is code, so the pin is an AST scan for any cooked alias spelling or
     // statically unclearable computed access (r12 — see
     // nextConfigAliasOffenders; a raw regex missed escape spellings and
-    // intermediate bindings).
-    const nextConfig = readFileSync(join(root, "next.config.ts"), "utf8");
-    expect(nextConfigAliasOffenders(nextConfig)).toEqual([]);
+    // intermediate bindings). r13: the scan covers every first-party module
+    // REACHABLE from next.config.ts, not just the entry file — a helper can
+    // hold the alias literal while the entry merely spreads it.
+    const reachable = configReachableFiles(root);
+    expect(reachable, "the config graph starts at the entry").toContain("next.config.ts");
+    const configOffenders = reachable.flatMap((rel) =>
+      nextConfigAliasOffenders(readFileSync(join(root, rel), "utf8")).map((v) => `${rel}: ${v}`),
+    );
+    expect(configOffenders).toEqual([]);
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and
     // prose-comment mentions are not.
