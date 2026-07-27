@@ -26,6 +26,7 @@
 
 import { FolderOpen, ExternalLink, RotateCcw, Check, TriangleAlert } from "lucide-react";
 import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
+import type { WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
@@ -122,9 +123,14 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
 export function DriveConnectionPanel({
   health,
   now,
+  watchState = null,
 }: {
   health: DriveConnectionHealth;
   now: Date;
+  /** Reconnect-ladder bookkeeping (backoff spec §3.6). Optional and null-safe:
+   *  the page's separate service-role read supplies it; a failed read passes
+   *  null and the sentence simply does not render. */
+  watchState?: WatchSurfaceState | null;
 }) {
   const isPositive = !("kind" in health) && health.health === "positive";
   const folderName = "kind" in health ? null : health.folderName;
@@ -282,8 +288,57 @@ export function DriveConnectionPanel({
               </button>
             </form>
           </div>
+          {/* Next-attempt sentence (backoff spec §3.6): same visibility condition
+              as the Retry control, and only while the ladder is in play. Plain
+              column-flow sibling AFTER the re-run-setup row - the row's desktop
+              variant is a non-wrapping space-between pair, so the sentence gets
+              its own block line here instead. Server-rendered; no timer. */}
+          {showRetry && watchState?.lastAttemptOutcome === "failed" ? (
+            <p
+              data-testid="drive-connection-next-attempt"
+              className="wrap-break-word text-sm text-text-subtle"
+            >
+              {watchState.nextAttemptAt && isFutureIso(watchState.nextAttemptAt) ? (
+                <>
+                  Trying again at{" "}
+                  <time dateTime={watchState.nextAttemptAt} suppressHydrationWarning>
+                    {formatNextAttempt(watchState.nextAttemptAt)}
+                  </time>
+                </>
+              ) : (
+                <>Trying again shortly</>
+              )}
+              {reconnectCountClause(watchState.consecutiveFailures)}
+            </p>
+          ) : null}
         </div>
       </div>
     </section>
   );
+}
+
+/** Same shape as formatStagedAt (components/admin/StagedReviewCard.tsx:104-113):
+ *  module-local per spec §3.6, NaN guard renders the raw ISO string. Duplicated
+ *  from the bell line deliberately - the spec keeps per-surface local formatters
+ *  rather than minting a shared helper (plan review r2 finding 11). */
+function formatNextAttempt(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function isFutureIso(iso: string): boolean {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return true;
+  return ms > Date.now();
+}
+
+function reconnectCountClause(count: number): string {
+  if (count <= 0) return "";
+  return count === 1 ? " · 1 reconnect attempt so far" : ` · ${count} reconnect attempts so far`;
 }

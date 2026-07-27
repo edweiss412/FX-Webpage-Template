@@ -13,7 +13,9 @@ import { BellActionRow } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 import type { WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 
-const FUTURE_ISO = "2026-07-27T16:45:00.000Z";
+// Far future so the viewer-clock (real Date.now) future/past branch is
+// deterministic for years; the formatter output is still derived, not hardcoded.
+const FUTURE_ISO = "2030-01-01T16:45:00.000Z";
 const PAST_ISO = "2026-07-27T01:00:00.000Z";
 
 // Spec §3.6: the formatStagedAt shape — month, day, hour, minute.
