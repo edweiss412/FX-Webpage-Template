@@ -76,6 +76,7 @@ describe("Settings next-attempt sentence (spec §3.6, class 12)", () => {
       expect(line()!.textContent).toBe(
         `Trying again at ${formatted(FUTURE_ISO)} · 2 reconnect attempts so far`,
       );
+      expect(line()!.querySelector("span.tabular-nums")?.textContent).toBe("2");
     },
   );
 

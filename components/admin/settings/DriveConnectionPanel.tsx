@@ -288,30 +288,30 @@ export function DriveConnectionPanel({
               </button>
             </form>
           </div>
-          {/* Next-attempt sentence (backoff spec §3.6): same visibility condition
-              as the Retry control, and only while the ladder is in play. Plain
-              column-flow sibling AFTER the re-run-setup row - the row's desktop
-              variant is a non-wrapping space-between pair, so the sentence gets
-              its own block line here instead. Server-rendered; no timer. */}
-          {showRetry && watchState?.lastAttemptOutcome === "failed" ? (
-            <p
-              data-testid="drive-connection-next-attempt"
-              className="wrap-break-word text-sm text-text-subtle"
-            >
-              {watchState.nextAttemptAt && isFutureIso(watchState.nextAttemptAt) ? (
-                <>
-                  Trying again at{" "}
-                  <time dateTime={watchState.nextAttemptAt} suppressHydrationWarning>
-                    {formatNextAttempt(watchState.nextAttemptAt)}
-                  </time>
-                </>
-              ) : (
-                <>Trying again shortly</>
-              )}
-              {reconnectCountClause(watchState.consecutiveFailures)}
-            </p>
-          ) : null}
         </div>
+        {/* Next-attempt sentence (backoff spec §3.6): same visibility condition
+            as the Retry control, and only while the ladder is in play. A
+            column-flow SIBLING of the re-run-setup row - inside it, the desktop
+            justify-between would shove the buttons to center and hang this at
+            the right edge (impeccable critique P1). Server-rendered; no timer. */}
+        {showRetry && watchState?.lastAttemptOutcome === "failed" ? (
+          <p
+            data-testid="drive-connection-next-attempt"
+            className="min-w-0 wrap-break-word text-sm text-text-subtle"
+          >
+            {watchState.nextAttemptAt && isFutureIso(watchState.nextAttemptAt) ? (
+              <>
+                Trying again at{" "}
+                <time dateTime={watchState.nextAttemptAt} suppressHydrationWarning>
+                  {formatNextAttempt(watchState.nextAttemptAt)}
+                </time>
+              </>
+            ) : (
+              <>Trying again shortly</>
+            )}
+            {reconnectCountClause(watchState.consecutiveFailures)}
+          </p>
+        ) : null}
       </div>
     </section>
   );
@@ -338,7 +338,14 @@ function isFutureIso(iso: string): boolean {
   return ms > Date.now();
 }
 
-function reconnectCountClause(count: number): string {
-  if (count <= 0) return "";
-  return count === 1 ? " · 1 reconnect attempt so far" : ` · ${count} reconnect attempts so far`;
+function reconnectCountClause(count: number) {
+  if (count <= 0) return null;
+  return (
+    <>
+      {" · "}
+      {/* DESIGN.md tabular-figures mandate covers counts, not just <time>. */}
+      <span className="tabular-nums">{count}</span>
+      {count === 1 ? " reconnect attempt so far" : " reconnect attempts so far"}
+    </>
+  );
 }

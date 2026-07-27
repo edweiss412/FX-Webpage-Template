@@ -69,6 +69,9 @@ describe("bell next-attempt line (spec §3.6, classes 11/19)", () => {
     // the one layout contract: w-full forces its own visual line in the
     // flex-wrap action row (spec Dimensional Invariants).
     expect(line.className).toContain("w-full");
+    // DESIGN.md tabular-figures mandate: the count is wrapped, the <time> is
+    // covered by the global `time` selector.
+    expect(line.querySelector("span.tabular-nums")?.textContent).toBe("2");
     const time = line.querySelector("time")!;
     expect(time.getAttribute("datetime")).toBe(FUTURE_ISO);
   });

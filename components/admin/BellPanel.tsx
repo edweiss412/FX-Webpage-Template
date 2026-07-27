@@ -396,7 +396,7 @@ export function BellActionRow({
       {isWatch && !entry.isHealth && entry.watchState?.lastAttemptOutcome === "failed" ? (
         <p
           data-testid={`bell-next-attempt-${entry.alertId}`}
-          className="w-full wrap-break-word text-sm text-text-subtle"
+          className="mt-1 w-full wrap-break-word text-sm text-text-subtle"
         >
           {entry.watchState.nextAttemptAt && isFutureIso(entry.watchState.nextAttemptAt) ? (
             <>
@@ -439,9 +439,16 @@ function isFutureIso(iso: string): boolean {
 }
 
 /** 0 → omitted entirely (never "0 reconnect attempts"); 1 → singular. */
-function reconnectCountClause(count: number): string {
-  if (count <= 0) return "";
-  return count === 1 ? " · 1 reconnect attempt so far" : ` · ${count} reconnect attempts so far`;
+function reconnectCountClause(count: number) {
+  if (count <= 0) return null;
+  return (
+    <>
+      {" · "}
+      {/* DESIGN.md tabular-figures mandate covers counts, not just <time>. */}
+      <span className="tabular-nums">{count}</span>
+      {count === 1 ? " reconnect attempt so far" : " reconnect attempts so far"}
+    </>
+  );
 }
 
 /** Thin wrapper: the call site keeps using `ActionCell` while the row itself is
