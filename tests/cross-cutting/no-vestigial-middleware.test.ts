@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { stripCommentsSafely } from "../_shared/stripComments";
+import ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -34,12 +36,10 @@ const CANDIDATE_FILES = ["middleware.ts", "middleware.js", "proxy.ts", "proxy.js
 function isNoOpPassThrough(source: string): boolean {
   // Strip block comments, line comments, blank lines, imports, runtime-config exports.
   // What remains is the "real" body.
-  const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+  const stripped = stripCommentsSafely(source, ts.ScriptKind.TS)
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .filter((line) => !line.startsWith("//"))
     .filter((line) => !line.startsWith("import "))
     .filter((line) => !/^export\s+const\s+runtime\s*=/.test(line))
     .filter((line) => !/^export\s+const\s+config\s*=/.test(line))

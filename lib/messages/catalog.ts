@@ -361,12 +361,12 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     crewFacing: null,
-    followUp: "Auto-retry hourly; admin Retry now; Eric if escalated",
+    followUp: "Auto-retry with backoff; admin Retry now; Eric if escalated",
     helpfulContext:
-      "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
+      "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
     title: "Live updates need attention",
     longExplanation:
-      "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost; at worst, edits take a few minutes longer to appear instead of showing up instantly. The system retries the connection automatically every hour, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
+      "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost; at worst, edits take a few minutes longer to appear instead of showing up instantly. The system keeps retrying the connection on its own, waiting longer between attempts the longer it fails, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
     helpHref: "/help/errors#WATCH_CHANNEL_ORPHANED",
   },
   WEBHOOK_TOKEN_INVALID: {

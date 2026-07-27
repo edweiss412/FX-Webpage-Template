@@ -8,73 +8,6 @@ Last reconciled: 2026-07-25 — the three phantom-gap items graduated on `feat/s
 
 ---
 
-## Drive-ID coverage guard — deliberately-undone parts (2026-07-25)
-
-Filed per the owner's scope decision during `fix/secondary-drive-id-nonblank`. The guard shipped in
-its minimal form — one live census query, a pure auditor, an empty exemption list, running in
-`unit-suite-db` (a worker of the required `unit-suite` aggregator). Four mechanisms were deliberately
-NOT built, each after adversarial review showed the attempted version was defeatable. Spec §10 and
-§11: `docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md`.
-
-**Read the provenance before picking any of these up.** Seven spec rounds and three plan rounds
-(55 findings) are the analysis behind them; the reason each is open is that the obvious fix was tried
-and shown not to work, not that nobody thought about it.
-
-### BL-DRIVEID-CENSUS-QUERY-SELF-CHECK — detect a census-query regression that silently narrows the audited set
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
-
-If `lib/driveIdCoverage/introspect.ts`'s census query stops returning a column — a narrowed name
-predicate, a changed schema list, an added filter — that column is absent from both the census and the
-audit, and the suite is green. Four mechanisms were tried and each defeated: a required-tuple set and a
-`>= 23` count floor (both pass at exactly today's size once the census legitimately grows), a committed
-census artifact with a shape contract (a truncated artifact satisfied it), and a broad-predicate
-`broadCount` cross-check (vacuous — every `drive_file_id` match also matches `drive`, so narrowing the
-primary predicate left both assertions true).
-
-**Fix (when prioritized):** a genuinely independent source of truth — derive the column set a second
-way (`pg_attribute` rather than `information_schema`) and require the two to agree — or a mutation test
-that narrows the query and asserts the suite goes red. Today's control is code review of ~15 lines.
-
-### BL-VALIDATION-PARITY-DEFINITION-MATCH — validation parity still matches on bare constraint NAMES
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
-
-`tests/db/validation-schema-parity.test.ts:256-284` asserts validation contains each expected
-`conname`. Constraint names are unique per TABLE, not per schema (measured), so a same-named constraint
-on a different public table satisfies it — as does one with the right name and a weakened definition
-such as `CHECK (true)`. The 2026-07-25 change extended that test's parse and count but deliberately did
-not re-architect it.
-
-**Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
-against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
-
-### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` and `pg-cron-validation-parity` cannot prove which database they connected to
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
-
-A libpq URI's authority is not its effective target: `?host=` / `hostaddr=` query parameters and
-duplicate keyword-form fields override it. A `TEST_DATABASE_URL` displaying the validation project's
-pooler authority can therefore connect to a loopback or any other database and pass every
-authority-based check. Affects the whole job, predates the 2026-07-25 change.
-
-**Fix (when prioritized):** interrogate the CONNECTED server for an identity fact rather than parsing
-the DSN string. Note an authority-parsing check (`postgres.<ref>` username + `*.pooler.supabase.com`
-host) was drafted and rejected during review as theatre against precisely this bypass —
-`scripts/lib/validation-target.ts`'s helpers do not fit either, since they validate an HTTPS Supabase
-API URL, not a Postgres DSN.
-
-### BL-DRIVEID-BEHAVIORAL-COVERAGE — 16 of 23 constrained Drive-ID columns have no execution probe
-
-**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
-
-`tests/db/driveFileIdNonblank.db.test.ts` behaviorally probes 7 of the 23 constrained columns
-(3 pre-existing + the 4 added 2026-07-25); the rest are covered by declaration only — the live guard
-proves a canonical CHECK is DECLARED, not that it BEHAVES. Mechanical, bounded, unglamorous: each
-addition needs an insert shape satisfying that table's NOT NULL siblings and composite keys.
-
----
-
 ## Admin lifecycle e2e (2026-07-24, share-link-chrome-backlog review r4)
 
 ### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
@@ -441,27 +374,13 @@ next mutation-file-touching PR or the next post-merge nightly triage.
 
 ---
 
-## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on four shipped defects)
-
-**Status:** OPEN, **blocked** · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 after five cross-model adversarial rounds
-
-Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
-
-**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
-
-**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
-
-**Unblocked 2026-07-26 (still OPEN, and its prescriptions still need re-deriving).** All four prerequisite entries below were fixed by the watch-renewal-lifecycle PR, and the decisive one is cleared: refresh no longer retries an expired folder at all (the reap removes it from the renewal query) and no longer touches a non-configured one, so **reconcile's `!live` branch is now the single retry surface** — precisely where a ladder attaches. Note `BL-WATCH-DRIVE-CALL-TIMEOUT` was NARROWED rather than closed: the credential fetch is still unbounded, so any timing claim a ladder makes is still parameterised by something unenforced. The constants and cadence in the retained design were falsified across five rounds and must be re-derived, not resumed.
-
-The original blocker analysis, for context: refresh, not reconcile, was the dominant retry path, and it was ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
-
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
 **Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
 
-**What stays open:** the per-job smoke-test residue (spec §9), and the target-binding ceiling below — this job inherits `BL-VALIDATION-TARGET-BINDING`, since a DSN substring check cannot prove which database `psql` connected to (libpq `host`/`hostaddr` can override the displayed authority).
+**What stays open:** the per-job smoke-test residue (spec §9). The target-binding ceiling this entry used to inherit closed 2026-07-27: the connected cluster's `system_identifier` is now pinned and re-proven by a DO guard on every query's own connection (`feat/driveid-guard-cluster`, `docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md` §3.1) — a DSN substring check proves nothing, and no longer has to.
 
 **Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
 
@@ -1155,18 +1074,6 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 **Status:** OPEN · **Severity:** LOW · **Class:** as above, weaker variant.
 
 `components/admin/PublishedToggle.tsx:59` anchors an error banner `absolute inset-x-0 top-full` inside the clipping panel. Unlike the share hub it carries NO cap and NO internal scroller, so it cannot strand content in a hidden scroll tail — the failure mode the registry exists for — but a long enough error could still be visually cut at the clip edge. Error-only and momentary (`components/admin/PublishedToggle.tsx:55`), hence out of scope for the placement migration.
-
-## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way
-
-**Status:** OPEN (2026-07-26, destruct-thumb-order whole-diff R19) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
-
-Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
-
-**Measured impact:** the JSDoc line `* Wraps every route under /admin/*` in `app/admin/layout.tsx` opens a span that runs to the next `*/` far below. All **six** live `className` sites in that file disappear from the scan, so any guard using that helper silently reports nothing for it. Verified: a dead `text-subtle` class planted at `app/admin/layout.tsx:191` was invisible to a scanner using the old helper and is caught by the fixed one.
-
-**Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
-
-**Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 

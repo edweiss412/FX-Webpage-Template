@@ -274,7 +274,17 @@ const HELP_LINK =
  * props-only presentational split would have lost behaviour. `ActionCell` below is
  * a thin wrapper kept so the call site is unchanged.
  */
-export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
+export function BellActionRow({
+  entry,
+  onRefetch,
+  viewerIsDeveloper = false,
+}: {
+  entry: BellEntry;
+  onRefetch: () => void;
+  /** Optional so existing harnesses and non-developer surfaces stay unchanged;
+   *  gates only the watch row's telemetry deep link (backoff spec §3.6 D6). */
+  viewerIsDeveloper?: boolean;
+}) {
   const [resolving, setResolving] = useState(false);
   const isWatch = entry.code === WATCH_CODE;
 
@@ -305,34 +315,39 @@ export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetc
       data-testid={`bell-action-cell-${entry.alertId}`}
       className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1"
     >
-      {entry.isHealth ? (
+      {entry.isHealth || (isWatch && viewerIsDeveloper) ? (
         <a
-          href="/admin/dev/telemetry#health"
+          // Health rows keep their #health anchor; the watch arm lands on the
+          // UNFILTERED telemetry page - the relevant events span four source
+          // values and loadAppEvents filters by exact match, so a source param
+          // would hide three of them (backoff spec §3.6 D6).
+          href={entry.isHealth ? "/admin/dev/telemetry#health" : "/admin/dev/telemetry"}
           data-testid={`bell-telemetry-${entry.alertId}`}
           className={LINK_CTA}
         >
           View in telemetry <span aria-hidden="true">↗</span>
         </a>
-      ) : entry.actions.length > 0 ? (
-        entry.actions.map((action, i) => (
-          <a
-            key={action.href}
-            href={action.href}
-            data-testid={`bell-action-${entry.alertId}-${i}`}
-            {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className={LINK_CTA}
-          >
-            {action.label}
-            {action.external ? <span aria-hidden="true"> ↗</span> : null}
-            {action.external ? (
-              <>
-                {" "}
-                <NewTabHint />
-              </>
-            ) : null}
-          </a>
-        ))
       ) : null}
+      {!entry.isHealth && entry.actions.length > 0
+        ? entry.actions.map((action, i) => (
+            <a
+              key={action.href}
+              href={action.href}
+              data-testid={`bell-action-${entry.alertId}-${i}`}
+              {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className={LINK_CTA}
+            >
+              {action.label}
+              {action.external ? <span aria-hidden="true"> ↗</span> : null}
+              {action.external ? (
+                <>
+                  {" "}
+                  <NewTabHint />
+                </>
+              ) : null}
+            </a>
+          ))
+        : null}
       {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
           Retry form (idempotent — no two-tap confirm). Pending state derives
           from useFormStatus inside RetryWatchButton, so the button re-enables
@@ -372,15 +387,92 @@ export function BellActionRow({ entry, onRefetch }: { entry: BellEntry; onRefetc
             : resolveActionLabels(entry.code).idle}
         </button>
       )}
+      {/* Next-attempt line (backoff spec §3.6): renders ONLY while the reconnect
+          ladder is in play (last attempt failed). `w-full` wraps it onto its own
+          visual line inside this flex-wrap row - Tailwind v4 does not stretch
+          flex items, and without it the sentence would inline beside Dismiss.
+          Server-rendered snapshot; deliberately no client timer (Transition
+          Inventory: B↔C updates on the next bell refresh). */}
+      {isWatch && !entry.isHealth && entry.watchState?.lastAttemptOutcome === "failed" ? (
+        <p
+          data-testid={`bell-next-attempt-${entry.alertId}`}
+          className="mt-1 w-full wrap-break-word text-sm text-text-subtle"
+        >
+          {entry.watchState.nextAttemptAt && isFutureIso(entry.watchState.nextAttemptAt) ? (
+            Number.isFinite(Date.parse(entry.watchState.nextAttemptAt)) ? (
+              <>
+                Trying again at{" "}
+                <time dateTime={entry.watchState.nextAttemptAt} suppressHydrationWarning>
+                  {formatNextAttempt(entry.watchState.nextAttemptAt)}
+                </time>
+              </>
+            ) : (
+              // Unparseable timestamp: keep the raw string visible for
+              // diagnosis, but never mint an invalid dateTime attribute
+              // (impeccable audit P3).
+              <>Trying again at {entry.watchState.nextAttemptAt}</>
+            )
+          ) : (
+            <>Trying again shortly</>
+          )}
+          {reconnectCountClause(entry.watchState.consecutiveFailures)}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+/** Same shape as formatStagedAt (components/admin/StagedReviewCard.tsx:104-113):
+ *  module-local, NaN-parse guard renders the raw ISO string, never
+ *  "Invalid Date". The viewer-clock comparison here is cosmetic only - the
+ *  backoff GATE compares in the database clock domain (backoff spec D8). */
+function formatNextAttempt(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function isFutureIso(iso: string): boolean {
+  const ms = Date.parse(iso);
+  // Unparseable timestamps take the "at <raw>" arm so the raw string stays
+  // visible for diagnosis rather than being masked by "shortly".
+  if (!Number.isFinite(ms)) return true;
+  return ms > Date.now();
+}
+
+/** 0 → omitted entirely (never "0 reconnect attempts"); 1 → singular. */
+function reconnectCountClause(count: number) {
+  if (count <= 0) return null;
+  return (
+    <>
+      {" · "}
+      {/* DESIGN.md tabular-figures mandate covers counts, not just <time>. */}
+      <span className="tabular-nums">{count}</span>
+      {count === 1 ? " reconnect attempt so far" : " reconnect attempts so far"}
+    </>
   );
 }
 
 /** Thin wrapper: the call site keeps using `ActionCell` while the row itself is
  *  reachable from a harness. Behaviour parity is pinned by
  *  tests/components/admin/bellActionRow.export.test.tsx. */
-function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
-  return <BellActionRow entry={entry} onRefetch={onRefetch} />;
+function ActionCell({
+  entry,
+  onRefetch,
+  viewerIsDeveloper = false,
+}: {
+  entry: BellEntry;
+  onRefetch: () => void;
+  viewerIsDeveloper?: boolean;
+}) {
+  return (
+    <BellActionRow entry={entry} onRefetch={onRefetch} viewerIsDeveloper={viewerIsDeveloper} />
+  );
 }
 
 // Message-text renderer (WI-3 + WI-4). ROLE_FLAGS_NOTICE with ≥2 structured
@@ -432,12 +524,14 @@ function ActiveRow({
   readCleared,
   onMarkRead,
   onRefetch,
+  viewerIsDeveloper = false,
 }: {
   entry: BellEntry;
   now: Date;
   readCleared: boolean;
   onMarkRead: () => void;
   onRefetch: () => void;
+  viewerIsDeveloper?: boolean;
 }) {
   const { title, message } = rowCopy(entry.code);
   // helpHref (WI-2): the catalog's longform education link, moved from ActionCell
@@ -585,7 +679,7 @@ function ActiveRow({
           </div>
         ) : null}
         {suppressChip ? null : <IdentityChip entry={entry} />}
-        <ActionCell entry={entry} onRefetch={onRefetch} />
+        <ActionCell entry={entry} onRefetch={onRefetch} viewerIsDeveloper={viewerIsDeveloper} />
       </div>
       {/* Show-page nav gutter (spec §4.1): a SLUG predicate, not an
           identity-map-kind predicate — e.g. BRANCH_PROTECTION_* codes carry
@@ -1040,6 +1134,7 @@ export function BellPanel({
                             readCleared={readClearedIds.has(entry.alertId)}
                             onMarkRead={() => markRead(entry)}
                             onRefetch={() => void load(true)}
+                            viewerIsDeveloper={viewerIsDeveloper}
                           />
                         </div>
                       ))}
@@ -1055,6 +1150,7 @@ export function BellPanel({
                         readCleared={readClearedIds.has(entry.alertId)}
                         onMarkRead={() => markRead(entry)}
                         onRefetch={() => void load(true)}
+                        viewerIsDeveloper={viewerIsDeveloper}
                       />
                     </div>
                   ))}

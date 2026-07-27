@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -51,161 +53,15 @@ function walkTsTsx(dir: string, found: string[] = []): string[] {
   return found;
 }
 
-function stripComments(src: string): string {
-  type Frame =
-    | { mode: "code" | "single" | "double" | "template" | "line" | "block" }
-    | { mode: "templateExpression"; braceDepth: number };
-
-  const out: string[] = [];
-  let i = 0;
-  const stack: Frame[] = [{ mode: "code" }];
-  const top = (): Frame => stack[stack.length - 1] ?? { mode: "code" };
-
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-    const frame = top();
-
-    if (frame.mode === "code" || frame.mode === "templateExpression") {
-      if (c === "/" && next === "/") {
-        stack.push({ mode: "line" });
-        i += 2;
-        continue;
-      }
-      if (c === "/" && next === "*") {
-        stack.push({ mode: "block" });
-        i += 2;
-        continue;
-      }
-      if (c === "'") {
-        stack.push({ mode: "single" });
-        out.push(c);
-        i++;
-        continue;
-      }
-      if (c === '"') {
-        stack.push({ mode: "double" });
-        out.push(c);
-        i++;
-        continue;
-      }
-      if (c === "`") {
-        stack.push({ mode: "template" });
-        out.push(c);
-        i++;
-        continue;
-      }
-      if (frame.mode === "templateExpression" && c === "{") {
-        frame.braceDepth++;
-        out.push(c);
-        i++;
-        continue;
-      }
-      if (frame.mode === "templateExpression" && c === "}") {
-        if (frame.braceDepth > 0) {
-          frame.braceDepth--;
-        } else {
-          stack.pop();
-        }
-        out.push(c);
-        i++;
-        continue;
-      }
-      out.push(c ?? "");
-      i++;
-      continue;
-    }
-
-    if (frame.mode === "line") {
-      if (c === "\n") {
-        out.push("\n");
-        stack.pop();
-      }
-      i++;
-      continue;
-    }
-
-    if (frame.mode === "block") {
-      if (c === "*" && next === "/") {
-        stack.pop();
-        i += 2;
-        continue;
-      }
-      if (c === "\n") out.push("\n");
-      i++;
-      continue;
-    }
-
-    if (frame.mode === "single") {
-      if (c === "\\") {
-        out.push(c ?? "");
-        if (next) out.push(next);
-        i += 2;
-        continue;
-      }
-      if (c === "'") stack.pop();
-      out.push(c ?? "");
-      i++;
-      continue;
-    }
-
-    if (frame.mode === "double") {
-      if (c === "\\") {
-        out.push(c);
-        if (next) out.push(next);
-        i += 2;
-        continue;
-      }
-      if (c === '"') stack.pop();
-      out.push(c ?? "");
-      i++;
-      continue;
-    }
-
-    if (frame.mode === "template") {
-      if (c === "\\") {
-        out.push(c);
-        if (next) out.push(next);
-        i += 2;
-        continue;
-      }
-      if (c === "$" && next === "{") {
-        out.push(c, next);
-        stack.push({ mode: "templateExpression", braceDepth: 0 });
-        i += 2;
-        continue;
-      }
-      if (c === "`") stack.pop();
-      out.push(c ?? "");
-      i++;
-    }
-  }
-
-  return out.join("");
+/** Synthetic sources in the pins below are TSX-shaped. */
+function stripSyntheticSource(src: string): string {
+  return stripCommentsForFile(src, "synthetic.tsx");
 }
 
 function isClientComponent(src: string): boolean {
-  let i = 0;
-
-  while (i < src.length) {
-    while (i < src.length && /\s/.test(src[i] ?? "")) i++;
-
-    if (src.startsWith("//", i)) {
-      const nl = src.indexOf("\n", i);
-      i = nl === -1 ? src.length : nl + 1;
-      continue;
-    }
-
-    if (src.startsWith("/*", i)) {
-      const end = src.indexOf("*/", i + 2);
-      i = end === -1 ? src.length : end + 2;
-      continue;
-    }
-
-    break;
-  }
-
-  return /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(src.slice(i));
+  // Strip comments (shared module), then the first non-whitespace token is the first
+  // real statement — no hand-rolled comment-skipping needed.
+  return /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(stripSyntheticSource(src).trimStart());
 }
 
 function findViolations(files: string[]): string[] {
@@ -216,7 +72,7 @@ function findViolations(files: string[]): string[] {
     if (file.endsWith("lib/time/now.ts")) continue;
     if (isClientComponent(src)) continue;
 
-    const strippedLines = stripComments(src).split("\n");
+    const strippedLines = stripCommentsForFile(src, file).split("\n");
     const originalLines = src.split("\n");
 
     for (let i = 0; i < strippedLines.length; i++) {
@@ -289,7 +145,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
       "export function f() { return 1; }",
     ].join("\n");
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(false);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(false);
   });
 
   it("comment-stripping: real new Date() OUTSIDE a comment IS flagged", () => {
@@ -298,37 +154,37 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
       "const x = new Date(); // a real call",
     ].join("\n");
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(true);
   });
 
-  it("string-literal containing '//' (URL) does NOT cause new Date() after it to be stripped", () => {
+  it("string-literal containing a URL does NOT cause new Date() after it to be stripped", () => {
     const synthetic = 'const url = "https://example.test"; const t = new Date();\n';
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(true);
   });
 
   it("real // comment after a string literal IS stripped", () => {
     const synthetic = 'const url = "https://example.test"; // a comment with new Date()\n';
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(false);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(false);
   });
 
   it("template-literal interpolation: `${new Date()}` IS flagged", () => {
     const synthetic = "const label = `${new Date()}`;\n";
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(true);
   });
 
   it("template-literal interpolation: nested template inside `${...}` works recursively", () => {
     const synthetic = "const label = `outer ${`inner ${new Date()}`} done`;\n";
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(true);
   });
 
   it("template-literal interpolation: comment inside `${...}` IS stripped", () => {
     const synthetic = "const label = `${ /* mention new Date() */ realCall() }`;\n";
 
-    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(false);
+    expect(/\bnew Date\(\s*\)/.test(stripSyntheticSource(synthetic))).toBe(false);
   });
 
   it("comment-stripping: multi-line block comment preserves newline count for waiver alignment", () => {
@@ -340,7 +196,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
       " */",
       "const x = new Date(); // ACTUAL violation",
     ].join("\n");
-    const strippedLines = stripComments(original).split("\n");
+    const strippedLines = stripSyntheticSource(original).split("\n");
     const originalLines = original.split("\n");
 
     expect(strippedLines.length).toBe(originalLines.length);

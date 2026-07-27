@@ -8,6 +8,7 @@
  * these tests (spec §8).
  */
 import { describe, it, expect } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { safeDougFacingTemplate } from "@/lib/admin/attentionItems";
@@ -143,14 +144,12 @@ describe("production callers pass the correct scope", () => {
     // EVERY call in the file, not just the first (whole-diff review finding 2):
     // a correct first call could otherwise mask a second one with the wrong
     // scope, silently suppressing the bell's lead hint.
-    const calls = allCallArgs(readFileSync(file, "utf8"));
+    const calls = allCallArgs(stripCommentsForFile(readFileSync(file, "utf8"), file));
     expect(calls.length, `${file} no longer calls deriveAlertMessageParams`).toBeGreaterThan(0);
     for (const args of calls) {
       // The scope must be the FINAL argument, not merely present somewhere in
       // the argument text: a comment or an earlier argument could satisfy that.
       const parts = args
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\/\/[^\n]*/g, "")
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);

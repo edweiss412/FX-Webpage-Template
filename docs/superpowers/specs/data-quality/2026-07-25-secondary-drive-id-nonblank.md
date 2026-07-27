@@ -572,21 +572,21 @@ Lands in the same PR as `supabase/migrations/**`:
 Stated because four review rounds showed earlier drafts' claims outrunning their mechanism. Each is a
 deliberate acceptance, and each has a filed follow-up in §11 where follow-up is warranted.
 
-1. **Behavioral proof is a SAMPLE.** §4.2's templates prove a constraint was *declared* in canonical
+1. **Behavioral proof is a SAMPLE.** **[CLOSED 2026-07-27 by `2026-07-26-driveid-guard-cluster-design.md` §3.4 — registry-enforced total, 23/23.]** §4.2's templates prove a constraint was *declared* in canonical
    form; only execution proves it rejects blanks. §4.3 measures **7 of 23** constrained columns
    carrying an execution probe after this change, up from 3 of 19. The other 16 are declaration-only.
-2. **A census-query regression is not self-detecting** (R2-3, R3-2, R3-4, R4-1). If the query stops
+2. **A census-query regression is not self-detecting** (R2-3, R3-2, R3-4, R4-1). **[CLOSED 2026-07-27 by `2026-07-26-driveid-guard-cluster-design.md` §3.3 — dual-source cross-check; the identical-two-site residue stays with review.]** If the query stops
    returning a column — a narrowed name predicate, a changed schema list, an added filter — that
    column is simply absent from both the census and the audit, and the suite is green. Four rounds of
    floors and cross-checks failed to close this, and the user's scope decision was to stop trying and
    say so. The control is code review of the census query itself, which is ~15 lines in one file.
 3. **An exemption row can silence the guard permanently.** §4.5's four rules catch stale and
    malformed rows, not unjustified ones. The list ships empty; every future row lands in a diff.
-4. **Validation parity still matches on bare constraint NAMES** (R4-4). The existing test asserts
+4. **Validation parity still matches on bare constraint NAMES** (R4-4). **[CLOSED 2026-07-27 by `2026-07-26-driveid-guard-cluster-design.md` §3.2 — the auditor now runs against validation; the conname layer remains as the migration-anchored complement.]** The existing test asserts
    validation contains each expected `conname` (`tests/db/validation-schema-parity.test.ts:256-284`);
    a same-named constraint on another public table, or one with a weakened definition, satisfies it.
    This spec extends that test's parse and count (§4.4) and deliberately does not re-architect it.
-5. **`validation-schema-parity` cannot prove which database it connected to** (R3-1). A libpq URI's
+5. **`validation-schema-parity` cannot prove which database it connected to** (R3-1). **[CLOSED 2026-07-27 by `2026-07-26-driveid-guard-cluster-design.md` §3.1 — system_identifier pin + per-connection DO guard.]** A libpq URI's
    authority is not its effective target — `?host=` / `hostaddr=` and duplicate keyword fields
    override it. Pre-existing, affects the whole job, explicitly not fixed here; an earlier draft's
    authority-parsing check would have been theatre against exactly this bypass.
@@ -609,7 +609,9 @@ all-migrations-applied database, on the PR that introduces it. Every clause is l
 ## 11. Filed follow-ups
 
 Per the user's scope decision (2026-07-25), the work this spec deliberately does not do is filed
-rather than dropped. The plan lands these entries in the same PR.
+rather than dropped. The plan lands these entries in the same PR. **All four graduated 2026-07-27,
+closed by `2026-07-26-driveid-guard-cluster-design.md` (`feat/driveid-guard-cluster`); rows kept
+for provenance.**
 
 | id | `BACKLOG.md` entry | source |
 | -- | ------------------ | ------ |

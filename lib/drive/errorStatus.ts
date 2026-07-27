@@ -4,7 +4,7 @@
  * Extracted so callers that only need "what status did this error carry?" do
  * not have to import `lib/drive/fetch.ts`, which pulls in
  * `exportSheetToMarkdown` and therefore the `xlsx` package — real cold-start and
- * bundle cost for a path like the hourly watch cron that just wants to tell a
+ * bundle cost for a path like the 15-minute watch cron that just wants to tell a
  * 404 from everything else (spec §3.1.4). Absence of an import CYCLE does not
  * make that free.
  *

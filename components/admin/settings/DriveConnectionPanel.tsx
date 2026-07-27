@@ -26,6 +26,7 @@
 
 import { FolderOpen, ExternalLink, RotateCcw, Check, TriangleAlert } from "lucide-react";
 import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
+import type { WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
@@ -122,9 +123,14 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
 export function DriveConnectionPanel({
   health,
   now,
+  watchState = null,
 }: {
   health: DriveConnectionHealth;
   now: Date;
+  /** Reconnect-ladder bookkeeping (backoff spec §3.6). Optional and null-safe:
+   *  the page's separate service-role read supplies it; a failed read passes
+   *  null and the sentence simply does not render. */
+  watchState?: WatchSurfaceState | null;
 }) {
   const isPositive = !("kind" in health) && health.health === "positive";
   const folderName = "kind" in health ? null : health.folderName;
@@ -283,7 +289,64 @@ export function DriveConnectionPanel({
             </form>
           </div>
         </div>
+        {/* Next-attempt sentence (backoff spec §3.6, amended per impeccable
+            audit): same visibility condition as the Retry control, and only
+            while the ladder is in play. A column-flow SIBLING of the
+            re-run-setup row - inside it, the desktop justify-between would
+            shove the buttons to center (critique P1). This is a SERVER
+            component, so an absolute local-time render would show the SERVER's
+            timezone forever (audit P1) - the wait renders RELATIVE to the
+            page's injected `now` instead, which is timezone-free and
+            deterministic. */}
+        {showRetry && watchState?.lastAttemptOutcome === "failed" ? (
+          <p
+            data-testid="drive-connection-next-attempt"
+            className="min-w-0 wrap-break-word text-sm text-text-subtle"
+          >
+            {(() => {
+              const wait = formatWaitUntil(watchState.nextAttemptAt, now);
+              return wait ? (
+                <>
+                  Trying again in{" "}
+                  <time dateTime={watchState.nextAttemptAt ?? undefined}>{wait}</time>
+                </>
+              ) : (
+                <>Trying again shortly</>
+              );
+            })()}
+            {reconnectCountClause(watchState.consecutiveFailures)}
+          </p>
+        ) : null}
       </div>
     </section>
+  );
+}
+
+/** Future-wait phrasing off the page's injected clock (impeccable audit P1:
+ *  this is a server component, so locale/timezone formatting would render the
+ *  SERVER's zone; a relative wait has no zone at all). Returns null for a
+ *  past, missing, or unparseable next-attempt - those all read "shortly".
+ *  Ladder cap is 2h, so hours phrasing tops out small. */
+function formatWaitUntil(iso: string | null, now: Date): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const deltaMin = Math.ceil((ms - now.getTime()) / 60_000);
+  if (deltaMin < 1) return null;
+  if (deltaMin < 60) return `${deltaMin} min`;
+  const hours = Math.floor(deltaMin / 60);
+  const rem = deltaMin % 60;
+  return rem === 0 ? `${hours} hr` : `${hours} hr ${rem} min`;
+}
+
+function reconnectCountClause(count: number) {
+  if (count <= 0) return null;
+  return (
+    <>
+      {" · "}
+      {/* DESIGN.md tabular-figures mandate covers counts, not just <time>. */}
+      <span className="tabular-nums">{count}</span>
+      {count === 1 ? " reconnect attempt so far" : " reconnect attempts so far"}
+    </>
   );
 }

@@ -44,6 +44,24 @@ const infraRegistry = [
     contract: "watch transaction-port faults become DriveWatchInfraError",
   },
   {
+    helper: "recordAttemptFailure",
+    path: "lib/drive/watch.ts",
+    contract:
+      "state-write faults surface as DriveWatchInfraError via callWatchTx; swallowed at the subscribe layer into attempt:null + the DRIVE_WATCH_STATE_WRITE_FAILED forensic warn (backoff spec §3.3a)",
+  },
+  {
+    helper: "recordAttemptSuccess",
+    path: "lib/drive/watch.ts",
+    contract:
+      "state-write faults surface as DriveWatchInfraError via callWatchTx; swallowed at the subscribe layer into attempt:null + the DRIVE_WATCH_STATE_WRITE_FAILED forensic warn (backoff spec §3.3a)",
+  },
+  {
+    helper: "readReconcileGate",
+    path: "lib/drive/watch.ts",
+    contract:
+      "reconcile gate-read faults become DriveWatchInfraError via callWatchTx; reconcile maps them to the state_read fault (backoff spec §3.4 step 2)",
+  },
+  {
     helper: "refreshWatchSubscriptions",
     path: "lib/drive/watch.ts",
     contract:

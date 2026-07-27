@@ -129,6 +129,16 @@
     "watched_folder_id",
     "webhook_secret"
   ],
+  "drive_watch_reconcile_state": [
+    "consecutive_failures",
+    "last_attempt_at",
+    "last_attempt_outcome",
+    "last_error_class",
+    "last_error_message",
+    "next_attempt_at",
+    "updated_at",
+    "watched_folder_id"
+  ],
   "email_deliveries": [
     "attempt_count",
     "channel",

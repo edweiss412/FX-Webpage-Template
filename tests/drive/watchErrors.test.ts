@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   classifyWatchError,
   redactWatchError,
-  ESCALATION_THRESHOLD,
+  ESCALATION_AFTER_MS,
   STALE_PENDING_MAX_AGE_MS,
 } from "@/lib/drive/watchErrors";
 import { DriveWatchInfraError } from "@/lib/drive/watch";
@@ -63,7 +63,7 @@ describe("redactWatchError", () => {
 
 describe("constants", () => {
   test("single source of truth values (spec §2)", () => {
-    expect(ESCALATION_THRESHOLD).toBe(3);
+    expect(ESCALATION_AFTER_MS).toBe(10_800_000);
     expect(STALE_PENDING_MAX_AGE_MS).toBe(3_600_000);
   });
 });

@@ -8,6 +8,79 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## Drive-ID coverage guard — deliberately-undone parts (2026-07-25) — ✅ RESOLVED (2026-07-27)
+
+All four closed by `feat/driveid-guard-cluster` per
+`docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md`: the
+system_identifier pin + per-connection DO guard (target binding), the auditor-on-validation
+layer (definition match), the dual-source census cross-check (self-check), and the
+registry-enforced behavioral probes (23/23 columns).
+
+Filed per the owner's scope decision during `fix/secondary-drive-id-nonblank`. The guard shipped in
+its minimal form — one live census query, a pure auditor, an empty exemption list, running in
+`unit-suite-db` (a worker of the required `unit-suite` aggregator). Four mechanisms were deliberately
+NOT built, each after adversarial review showed the attempted version was defeatable. Spec §10 and
+§11: `docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md`.
+
+**Read the provenance before picking any of these up.** Seven spec rounds and three plan rounds
+(55 findings) are the analysis behind them; the reason each is open is that the obvious fix was tried
+and shown not to work, not that nobody thought about it.
+
+### BL-DRIVEID-CENSUS-QUERY-SELF-CHECK — detect a census-query regression that silently narrows the audited set
+
+**Status:** RESOLVED 2026-07-27 (`feat/driveid-guard-cluster`) · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+If `lib/driveIdCoverage/introspect.ts`'s census query stops returning a column — a narrowed name
+predicate, a changed schema list, an added filter — that column is absent from both the census and the
+audit, and the suite is green. Four mechanisms were tried and each defeated: a required-tuple set and a
+`>= 23` count floor (both pass at exactly today's size once the census legitimately grows), a committed
+census artifact with a shape contract (a truncated artifact satisfied it), and a broad-predicate
+`broadCount` cross-check (vacuous — every `drive_file_id` match also matches `drive`, so narrowing the
+primary predicate left both assertions true).
+
+**Fix (when prioritized):** a genuinely independent source of truth — derive the column set a second
+way (`pg_attribute` rather than `information_schema`) and require the two to agree — or a mutation test
+that narrows the query and asserts the suite goes red. Today's control is code review of ~15 lines.
+
+### BL-VALIDATION-PARITY-DEFINITION-MATCH — validation parity still matches on bare constraint NAMES
+
+**Status:** RESOLVED 2026-07-27 (`feat/driveid-guard-cluster`) · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+`tests/db/validation-schema-parity.test.ts:256-284` asserts validation contains each expected
+`conname`. Constraint names are unique per TABLE, not per schema (measured), so a same-named constraint
+on a different public table satisfies it — as does one with the right name and a weakened definition
+such as `CHECK (true)`. The 2026-07-25 change extended that test's parse and count but deliberately did
+not re-architect it.
+
+**Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
+against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
+
+### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` and `pg-cron-validation-parity` cannot prove which database they connected to
+
+**Status:** RESOLVED 2026-07-27 (`feat/driveid-guard-cluster`) · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
+
+A libpq URI's authority is not its effective target: `?host=` / `hostaddr=` query parameters and
+duplicate keyword-form fields override it. A `TEST_DATABASE_URL` displaying the validation project's
+pooler authority can therefore connect to a loopback or any other database and pass every
+authority-based check. Affects the whole job, predates the 2026-07-25 change.
+
+**Fix (when prioritized):** interrogate the CONNECTED server for an identity fact rather than parsing
+the DSN string. Note an authority-parsing check (`postgres.<ref>` username + `*.pooler.supabase.com`
+host) was drafted and rejected during review as theatre against precisely this bypass —
+`scripts/lib/validation-target.ts`'s helpers do not fit either, since they validate an HTTPS Supabase
+API URL, not a Postgres DSN.
+
+### BL-DRIVEID-BEHAVIORAL-COVERAGE — 16 of 23 constrained Drive-ID columns have no execution probe
+
+**Status:** RESOLVED 2026-07-27 (`feat/driveid-guard-cluster`) · **Severity:** low · **Class:** TEST COVERAGE
+
+`tests/db/driveFileIdNonblank.db.test.ts` behaviorally probes 7 of the 23 constrained columns
+(3 pre-existing + the 4 added 2026-07-25); the rest are covered by declaration only — the live guard
+proves a canonical CHECK is DECLARED, not that it BEHAVES. Mechanical, bounded, unglamorous: each
+addition needs an insert shape satisfying that table's NOT NULL siblings and composite keys.
+
+---
+
 ## Secondary-name Drive-ID columns — deferred from the drive_file_id nonblank CHECK (2026-07-02) — ✅ RESOLVED (2026-07-25)
 
 **Resolved by** `supabase/migrations/20260725000000_secondary_drive_id_nonblank.sql`, spec
@@ -784,6 +857,24 @@ Morph guards say "Confirm: X" while panel confirms say bare "Confirm revoke|rese
 
 ---
 
+## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels — ✅ RESOLVED (2026-07-27)
+
+**Status:** ✅ RESOLVED (2026-07-27) · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 · **Unblocked:** 2026-07-26 · **Shipped:** `feat/watch-reconcile-backoff` (PR #620)
+
+**Resolved by** the `feat/watch-reconcile-backoff` PR: migrations `supabase/migrations/20260727000000_drive_watch_reconcile_state.sql` + `supabase/migrations/20260727000001_reschedule_refresh_watch.sql`, spec `docs/superpowers/specs/observability/2026-07-26-watch-reconcile-backoff-v2-design.md` (v2 — constants and cadence re-derived on the post-lifecycle tree, per the unblock note), plan + close-out at `docs/superpowers/plans/2026-07-26-watch-reconcile-backoff/`. Ships the full ratified Option-C scope: 15-minute `fxav_cron_refresh_watch` cadence (`7,22,37,52 * * * *`), the `drive_watch_reconcile_state` table with the `watch_backoff_ms` SQL ladder, write-iff-attempt bookkeeping inside `subscribeToWatchedFolder` (reconcile + admin Retry opt in; refresh and onboarding never touch the ladder), duration-based escalation (`ESCALATION_AFTER_MS`, 3h), and field-split surfacing (Doug: next-attempt line on bell + Settings; developer: observe CLI columns + telemetry deep link). The retained 2026-07-24 design stays DEFERRED as the analysis record. Residuals unchanged: `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED` still parameterises every timing claim; `BL-WATCH-DRIVE-CALL-TIMEOUT` stays NARROWED.
+
+Original entry follows for provenance:
+
+Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
+
+**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
+
+**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
+
+**Unblocked 2026-07-26 (still OPEN, and its prescriptions still need re-deriving).** All four prerequisite entries below were fixed by the watch-renewal-lifecycle PR, and the decisive one is cleared: refresh no longer retries an expired folder at all (the reap removes it from the renewal query) and no longer touches a non-configured one, so **reconcile's `!live` branch is now the single retry surface** — precisely where a ladder attaches. Note `BL-WATCH-DRIVE-CALL-TIMEOUT` was NARROWED rather than closed: the credential fetch is still unbounded, so any timing claim a ladder makes is still parameterised by something unenforced. The constants and cadence in the retained design were falsified across five rounds and must be re-derived, not resumed.
+
+The original blocker analysis, for context: refresh, not reconcile, was the dominant retry path, and it was ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
+
 ## Watch renewal lifecycle — reap, folder scope, atomic alert (2026-07-26) — ✅ RESOLVED
 
 **Resolved by** the `fix/watch-renewal-lifecycle` PR: migration `supabase/migrations/20260726000000_drive_watch_expired_status.sql`, spec `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md`, plan `docs/superpowers/plans/observability/2026-07-26-watch-renewal-lifecycle.md`.
@@ -852,3 +943,17 @@ This is the **#479 failure class repeating** — a spec living in no CI-run proj
 A hand-rolled SQL scanner was tried for exactly this and abandoned after nine review rounds of lexical corners (comments, dollar quoting, identifier case and quoting, name resolution, `search_path`, stored function bodies) — see the header of `tests/cron/samplingPeriodParity.test.ts`. **Do not reinstate regex-based SQL parsing.**
 
 **Fix direction:** apply migrations to a throwaway Postgres in CI and read `cron.job` from it, so PostgreSQL does the parsing on the BRANCH's SQL. The `supabase-local-bootstrap` path already boots a local instance; the pg_cron migrations are GUC-guarded and held aside there, so this needs a variant that enables them.
+
+## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way — ✅ RESOLVED (2026-07-26)
+
+**Status:** RESOLVED (2026-07-26, branch `refactor/stripcomments-shared`) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
+
+**Resolution:** One TS-parser-backed module, `tests/_shared/stripComments.ts` (`commentRanges`/`stripCommentsSafely` promoted from `_newTabScan` with a required `ts.ScriptKind` — the TSX hardcode mis-parsed plain-`.ts` generic arrows — plus `stripSqlComments` with dollar-span-as-code + nesting, `stripCssComments`, `stripMdxComments`, and an extension router `stripCommentsForFile`). The adversarial-review sweeps grew the inventory from 17 to 54 rows across 52 files (named strippers, inline replace chains, char scanners, line-start skip filters, SQL/CSS/YAML/dotenv variants); 45 migrated, 9 kept with reasoned site-granular allowlist rows. `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` walks `tests/**` and flags five idiom families on comment-stripped source (fails-by-default; negative plants pin each family, including a renamed char-loop and an alternate regex spelling). Spec: `docs/superpowers/specs/2026-07-26-stripcomments-shared-design.md`. Triage found no real pre-existing violations — every guard stayed green post-migration; the A6 line-number skew (deletion collapsing multi-line comments) was silently FIXED by offset-preserving blanking.
+
+Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
+
+**Measured impact:** the JSDoc line `* Wraps every route under /admin/*` in `app/admin/layout.tsx` opens a span that runs to the next `*/` far below. All **six** live `className` sites in that file disappear from the scan, so any guard using that helper silently reports nothing for it. Verified: a dead `text-subtle` class planted at `app/admin/layout.tsx:191` was invisible to a scanner using the old helper and is caught by the fixed one.
+
+**Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
+
+**Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.

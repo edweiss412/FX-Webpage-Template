@@ -31,6 +31,7 @@ import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { nowDate } from "@/lib/time/now";
 import { fetchDriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
+import { readWatchSurfaceState, type WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 import { fetchEmbeddedAdminEmails } from "@/lib/admin/embeddedAdminEmails";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { DriveConnectionPanel } from "@/components/admin/settings/DriveConnectionPanel";
@@ -127,6 +128,22 @@ export default async function AdminSettingsPage() {
     alertOnAutoPublishInitial = toNotifyInitial(autoPublishAlertRead);
   }
 
+  // Reconnect-ladder bookkeeping for the Drive panel (backoff spec §3.6): a
+  // SEPARATE service-role read - the health loader uses the session-scoped
+  // client, which cannot see the fully-private state table. The helper's typed
+  // infra_error (or a missing folder id) maps to null HERE, deliberately: the
+  // sentence just does not render, and the panel is otherwise unchanged.
+  let watchState: WatchSurfaceState | null = null;
+  const healthFolderId = "kind" in driveHealth ? null : driveHealth.folderId;
+  if (healthFolderId) {
+    try {
+      const stateResult = await readWatchSurfaceState(healthFolderId);
+      watchState = stateResult !== null && "kind" in stateResult ? null : stateResult;
+    } catch {
+      watchState = null;
+    }
+  }
+
   return (
     <main data-testid="admin-settings-page" className="flex w-full flex-col">
       {/* M12.6: the page header (and its full-bleed divider) spans the FULL
@@ -141,7 +158,7 @@ export default async function AdminSettingsPage() {
         data-testid="admin-settings-content"
         className="flex w-full max-w-3xl flex-col gap-section-gap"
       >
-        <DriveConnectionPanel health={driveHealth} now={now} />
+        <DriveConnectionPanel health={driveHealth} now={now} watchState={watchState} />
 
         <AdministratorsSection
           result={adminEmails}

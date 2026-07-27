@@ -343,7 +343,7 @@ app/
   api/auth/redeem-link/route.ts # JWT → cookie exchange (§7.2)
   api/cron/sync/route.ts # 5-min cron (§5.1)
   api/cron/keepalive/route.ts # daily Supabase ping (§5.1)
-  api/cron/refresh-watch/route.ts # hourly watch renewal (§5.5.1)
+  api/cron/refresh-watch/route.ts # 15-min watch renewal (§5.5.1)
   api/cron/gc-watch/route.ts # hourly GC (§5.5.6)
   api/cron/diagram-gc/route.ts # hourly diagram blob GC (§6.11)
   api/cron/asset-recovery/route.ts # snapshot recovery (§5.2)
