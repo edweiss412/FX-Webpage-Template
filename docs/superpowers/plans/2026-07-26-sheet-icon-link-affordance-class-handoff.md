@@ -6,7 +6,7 @@
 
 Closes BL-HEADER-LINK-AFFORDANCE-CLASS items 1/3/4/5/6 (item 2 closed earlier by PR #592), plus the fourth class member the backlog missed (Step3ReviewModal).
 
-- components/admin/SheetIconLink.tsx (new): the ONE icon-only sheet link — 20px `size-5` glyph, 44×44 asymmetric `::before` overlay (12px vertical, 10px heading-side, 14px trailing), `text-text` rest / `text-text-strong` hover+active (colour-only, no transform), container-matched ring offsets, one aria phrasing with `.trim()` fallback.
+- components/admin/SheetIconLink.tsx (new): the ONE icon-only sheet link — 16px `size-4` glyph in a 20px `size-5` anchor box, 44×44 asymmetric `::before` overlay (12px vertical, 10px heading-side, 14px trailing), `text-text` rest / `text-text-strong` hover+active (colour-only, no transform), container-matched ring offsets, one aria phrasing with `.trim()` fallback.
 - Site A (`step3ReviewSections.tsx`): consumes it; wrong-precedent comment deleted; phrasing gains "in Google Sheets"; sub-block (Diagrams) 44px tap floors now top-level-only.
 - Site B (`PublishedReviewModal.tsx`) + Site D (`Step3ReviewModal.tsx`): consume it; title rows `gap-1`→`gap-2.5` + `min-h-tap-min` + link `mr-0.5` (spec §5.1 containment recipe — net-zero height change, the boxed anchor already supplied 44px).
 - Skeleton (`ShowReviewModalSkeleton.tsx`): slot mirrors the 20px-box-in-floored-row shape.

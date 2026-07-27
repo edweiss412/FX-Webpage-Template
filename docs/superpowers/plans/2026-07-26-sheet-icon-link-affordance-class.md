@@ -81,11 +81,11 @@ No registry meta-test applies — no Supabase call boundary, sentinel text, admi
   - aria with subject / whitespace-only fallback / `.trim()` (pass `"  X  "`, expect `for X`).
   - `target="_blank"`, `rel="noopener noreferrer"`, `<a>` tag, testid passthrough.
   - Icon: svg present, `aria-hidden="true"`, `size-4`; the link's accessible name has no icon noise.
-  - Whole-token-set EQUALITY (spec §7.6): rendered className token set equals exactly base ∪ ring-offset variant ∪ passed className tokens.
+  - Whole-token-set EQUALITY (spec §7.6): rendered className token set equals exactly base ∪ ring-offset variant ∪ passed className tokens. _(SUPERSEDED post-execution by the ratified impeccable-audit P2 amendment: the variant is now the per-backdrop BACKDROP_SKIN literal — spec §3. This checklist records what was executed; the spec is canonical for the current contract.)_
   - `className={null as unknown as string}` → no `null` token (the `?? ""` append, spec §3).
   - `ringOffset` variants: each emits its literal, not the other's.
   - RED command: `pnpm exec vitest run tests/components/admin/sheetIconLink.test.tsx` — expected failure: module-not-found on the component import (every test red).
-- [ ] **Step 2 (GREEN):** Implement components/admin/SheetIconLink.tsx per spec §3 (props, trim/fallback aria builder, RING_OFFSET lookup with full literals, single base class literal, `?? ""` append, lucide `ExternalLink`). Same command green (expected: all tests pass).
+- [ ] **Step 2 (GREEN):** Implement components/admin/SheetIconLink.tsx per spec §3 (props, trim/fallback aria builder, RING_OFFSET lookup with full literals, single base class literal, `?? ""` append, lucide `ExternalLink`). Same command green (expected: all tests pass). _(SUPERSEDED post-execution: the RING_OFFSET lookup became the backdrop-matched BACKDROP_SKIN lookup — ratified impeccable-audit P2 amendment, spec §3. Do not re-implement as written here.)_
 - [ ] **Step 3:** Commit `feat(admin): shared SheetIconLink icon-only sheet-link component` (RED/GREEN counts in body).
 
 ### Task 2: Site A adoption — section header
@@ -109,7 +109,7 @@ No registry meta-test applies — no Supabase call boundary, sentinel text, admi
 - Modify: `tests/e2e/section-header-layout.layout.spec.ts` (G4/level-4 matrix expectations)
 
 - [ ] **Step 1 (RED):** Sub-cell height expectations become `< TAP_MIN ∧ ≥ 24` (the `size-6` sub chip — a collapsed row cannot pass) at all five widths (spec §7.9). RED command: the Task 2 playwright command — expected failure: G4 cells still measure 44px.
-- [ ] **Step 2 (GREEN):** Gate `min-h-tap-min` (line 932) and `sm:min-h-tap-min` (line 930) on `!sub`; guard comment ties the floor to link-bearing headers (spec §4.1). Command green.
+- [ ] **Step 2 (GREEN):** Gate `min-h-tap-min` (line 932) and `sm:min-h-tap-min` (line 930) on `!sub`; guard comment ties the floor to link-bearing headers (spec §4.1). Command green. _(SUPERSEDED post-execution: the gate became link-keyed — dropped only when `sub && sheetHref === null` — ratified impeccable-audit P2 amendment, spec §4.1 item 6. Do not re-implement as written here.)_
 - [ ] **Step 3:** Commit `fix(admin): sub-block section headers drop the 44px tap floor`.
 
 ### Task 4: Site B adoption — PublishedReviewModal + skeleton companions

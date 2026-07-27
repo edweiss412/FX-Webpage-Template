@@ -180,6 +180,17 @@ const BACKLOG_GRADUATED = [
     id: "BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET",
     provenance: "feat/section-header-rebuild-phantom-spacers",
   },
+  // 2026-07-27 sheet-icon-link close-out sweep: both had been closed in place
+  // in spellings the terminal-status guard could not see (a bold opening claim
+  // and a heading suffix) — the guard was widened in the same commit.
+  {
+    id: "BL-HEADER-LINK-AFFORDANCE-CLASS",
+    provenance: "feat/sheet-icon-link-affordance-class",
+  },
+  {
+    id: "BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED",
+    provenance: "PR4 of the CI-dark cluster",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
@@ -272,17 +283,30 @@ describe("backlog ledger graduation", () => {
     // The status line is the entry's own claim about itself.
     const backlog = read("BACKLOG.md");
     const TERMINAL = /^\s*(?:\*\*)?(?:Status|Filed):?(?:\*\*)?[^\n]*?\b(CLOSED|WITHDRAWN|RESOLVED)\b/;
+    // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
+    // line let two other spellings of the same claim through — a closure as a
+    // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
+    // ("**CLOSED 2026-07-26** by …"). Both are still the entry's own claim
+    // about itself, so both count; deeper body lines stay out of scope for the
+    // same reason as before (entries legitimately DISCUSS closure).
+    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED)\b/;
+    const OPENING_TERMINAL = /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED)\b/i;
     const offenders: string[] = [];
     const headings = [...backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)/gm)];
     for (const [i, h] of headings.entries()) {
       const start = h.index!;
       const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
       const section = backlog.slice(start, end);
+      const lines = section.split("\n");
+      const headingLine = lines[0] ?? "";
+      const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
       // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
       // records what shipped and what did not. Only a bare terminal counts.
-      const statusLine = section.split("\n").find((l) => /^\s*(?:\*\*)?Status/.test(l)) ?? "";
-      if (/PARTIAL/i.test(statusLine)) continue;
-      if (TERMINAL.test(statusLine)) offenders.push(h[1]!);
+      const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/.test(l)) ?? "";
+      const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
+      const headingHit = !/PARTIAL/i.test(headingLine) && HEADING_TERMINAL.test(headingLine);
+      const openingHit = !/PARTIAL/i.test(openingLine) && OPENING_TERMINAL.test(openingLine);
+      if (statusHit || headingHit || openingHit) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
