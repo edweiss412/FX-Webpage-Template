@@ -15,6 +15,7 @@ import {
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
   WATCH_TTL_MS,
+  type WatchErrorClass,
 } from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
 import { getActiveWatchedFolder as defaultGetActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
@@ -108,13 +109,50 @@ export type WatchTx = {
   sweepStalePending(cutoffIso: string): Promise<string[]>;
   hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
   resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string): Promise<void>;
+  /**
+   * Backoff spec §3.3a statement (A): record a completed-and-failed reconnect
+   * attempt. Single atomic upsert; the increment and the ladder wait are
+   * computed by Postgres against the STORED row (public.watch_backoff_ms), so
+   * concurrent writers cannot clobber each other with stale in-memory counts.
+   */
+  recordAttemptFailure(
+    folderId: string,
+    errorClass: WatchErrorClass,
+    errorMessage: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string }>;
+  /** Backoff spec §3.3a statement (B): a completed-and-succeeded attempt resets
+   *  the ladder and clears the error columns. */
+  recordAttemptSuccess(
+    folderId: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string }>;
+  /**
+   * Backoff gate read (spec §3.4 step 2 / D8): `waiting` is computed by the
+   * DATABASE clock (`next_attempt_at > now()`), the same clock the §3.3a
+   * writers use, so app-clock skew can neither bypass nor extend a wait.
+   */
+  readReconcileGate(
+    folderId: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string; waiting: boolean } | null>;
 };
 
 export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
 
+/** The §3.3a state write's `returning` values. `null` means no state write
+ *  landed: always for a `recordAttempt: false` caller, and for an opt-in
+ *  caller exactly when the write itself failed (self-logged as
+ *  DRIVE_WATCH_STATE_WRITE_FAILED at the swallow site). */
+export type SubscribeAttempt = { consecutiveFailures: number; nextAttemptAt: string } | null;
+
 export type SubscribeResult =
-  | { outcome: "active"; channelId: string }
-  | { outcome: "orphaned"; channelId: string; reason: SubscribeOrphanReason };
+  | { outcome: "active"; channelId: string; attempt: SubscribeAttempt }
+  | {
+      outcome: "orphaned";
+      channelId: string;
+      reason: SubscribeOrphanReason;
+      errorClass: WatchErrorClass;
+      errorMessage: string;
+      attempt: SubscribeAttempt;
+    };
 
 export type SubscribeDeps = {
   tx?: WatchTx;
@@ -129,6 +167,13 @@ export type SubscribeDeps = {
   }) => Promise<{ id: string; resourceId: string; expiration: string }>;
   /** Injectable clock (epoch ms) so the requested `expiration` is testable. */
   now?: () => number;
+  /**
+   * Opt-in to §3.3a attempt recording. Default false: of the five production
+   * call paths, only reconcile's reconnect branch and the admin Retry action
+   * are attempts on the ladder — renewal of a live channel (refresh) and
+   * onboarding's first subscribe must never touch it (spec §3.3a caller table).
+   */
+  recordAttempt?: boolean;
 };
 
 export type RefreshDeps = {
@@ -506,6 +551,90 @@ class PostgresWatchTx implements WatchTx {
       [folderId, nowIso],
     );
   }
+
+  /** Snake_case + Date come back from postgres.js; the port contract is
+   *  camelCase with an ISO STRING (backoff spec §3.3a row-shape mapping). */
+  private static attemptRow(row: {
+    consecutive_failures: number;
+    next_attempt_at: string | Date;
+  }): { consecutiveFailures: number; nextAttemptAt: string } {
+    return {
+      consecutiveFailures: Number(row.consecutive_failures),
+      nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
+    };
+  }
+
+  async recordAttemptFailure(
+    folderId: string,
+    errorClass: WatchErrorClass,
+    errorMessage: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string }> {
+    const rows = await this.rows<{ consecutive_failures: number; next_attempt_at: string | Date }>(
+      `
+        insert into public.drive_watch_reconcile_state as st
+               (watched_folder_id, consecutive_failures, last_attempt_at, next_attempt_at,
+                last_attempt_outcome, last_error_class, last_error_message, updated_at)
+        values ($1, 1, now(), now() + (public.watch_backoff_ms(1) || ' milliseconds')::interval,
+                'failed', $2, $3, now())
+        on conflict (watched_folder_id) do update
+           set consecutive_failures = st.consecutive_failures + 1,
+               last_attempt_at      = now(),
+               next_attempt_at      = now() + (public.watch_backoff_ms(st.consecutive_failures + 1)
+                                               || ' milliseconds')::interval,
+               last_attempt_outcome = 'failed',
+               last_error_class     = excluded.last_error_class,
+               last_error_message   = excluded.last_error_message,
+               updated_at           = now()
+        returning consecutive_failures, next_attempt_at
+      `,
+      [folderId, errorClass, errorMessage],
+    );
+    return PostgresWatchTx.attemptRow(rows[0]!);
+  }
+
+  async recordAttemptSuccess(
+    folderId: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string }> {
+    const rows = await this.rows<{ consecutive_failures: number; next_attempt_at: string | Date }>(
+      `
+        insert into public.drive_watch_reconcile_state as st
+               (watched_folder_id, consecutive_failures, last_attempt_at, next_attempt_at,
+                last_attempt_outcome, last_error_class, last_error_message, updated_at)
+        values ($1, 0, now(), now(), 'succeeded', null, null, now())
+        on conflict (watched_folder_id) do update
+           set consecutive_failures = 0,
+               last_attempt_at      = now(),
+               next_attempt_at      = now(),
+               last_attempt_outcome = 'succeeded',
+               last_error_class     = null,
+               last_error_message   = null,
+               updated_at           = now()
+        returning consecutive_failures, next_attempt_at
+      `,
+      [folderId],
+    );
+    return PostgresWatchTx.attemptRow(rows[0]!);
+  }
+
+  async readReconcileGate(
+    folderId: string,
+  ): Promise<{ consecutiveFailures: number; nextAttemptAt: string; waiting: boolean } | null> {
+    const rows = await this.rows<{
+      consecutive_failures: number;
+      next_attempt_at: string | Date;
+      waiting: boolean;
+    }>(
+      `
+        select consecutive_failures, next_attempt_at, next_attempt_at > now() as waiting
+          from public.drive_watch_reconcile_state
+         where watched_folder_id = $1
+      `,
+      [folderId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { ...PostgresWatchTx.attemptRow(row), waiting: row.waiting };
+  }
 }
 
 /**
@@ -637,7 +766,7 @@ async function subscribeWithTx(
   await callWatchTx("drive_watch_channels.insert_pending", () =>
     tx.insertPending({ id: channelId, watchedFolderId: folderId, webhookSecret }),
   );
-  return { outcome: "active", channelId };
+  return { outcome: "active", channelId, attempt: null };
 }
 
 async function activateWithTx(
@@ -665,7 +794,7 @@ async function activateWithTx(
       new Error("activation matched no pending row"),
     );
   }
-  return { outcome: "active", channelId: watch.id };
+  return { outcome: "active", channelId: watch.id, attempt: null };
 }
 
 /**
@@ -690,6 +819,47 @@ export async function markWatchOrphanedWithTx(
       context,
     }),
   );
+}
+
+/**
+ * Backoff spec §3.3a: run one state-write statement, swallowing its failure into
+ * `attempt: null` plus a forensic warn — the write must never change the
+ * subscribe outcome, and the warn is the GUARANTEED record of a failed write
+ * (caller-side observation has blind arms; spec R3 finding 1).
+ */
+async function recordAttemptSafe(
+  runTx: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>,
+  statement: "record_attempt_failure" | "record_attempt_success",
+  folderId: string,
+  errorClass?: WatchErrorClass,
+  errorMessage?: string,
+): Promise<SubscribeAttempt> {
+  try {
+    if (statement === "record_attempt_failure") {
+      return await runTx((tx) =>
+        callWatchTx("drive_watch_reconcile_state.record_attempt", () =>
+          tx.recordAttemptFailure(folderId, errorClass ?? "db", errorMessage ?? ""),
+        ),
+      );
+    }
+    return await runTx((tx) =>
+      callWatchTx("drive_watch_reconcile_state.record_attempt", () =>
+        tx.recordAttemptSuccess(folderId),
+      ),
+    );
+  } catch (err) {
+    // Bound to a local FIRST so `log.warn(` stays contiguous for the §12.4
+    // producer scan stripper, same as the grant-too-short emit above.
+    const emitted = log.warn("drive watch state write failed", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_STATE_WRITE_FAILED",
+      watchedFolderId: folderId,
+      statement,
+      errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err), {}),
+    });
+    void emitted.catch(() => {});
+    return null;
+  }
 }
 
 export async function subscribeToWatchedFolder(
@@ -725,6 +895,11 @@ export async function subscribeToWatchedFolder(
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
       webhookSecret,
     });
+    // §3.3a: the attempt record lands FIRST, before finalization, so a
+    // markOrphaned/alert-upsert throw cannot lose it (ordering, not heroics).
+    const attempt = deps.recordAttempt
+      ? await recordAttemptSafe(runTx, "record_attempt_failure", folderId, errorClass, errorMessage)
+      : null;
     await runTx((tx) =>
       markWatchOrphanedWithTx(tx, channelId, {
         watched_folder_id: folderId,
@@ -741,11 +916,26 @@ export async function subscribeToWatchedFolder(
       channelId,
       errorClass,
     });
-    return { outcome: "orphaned", channelId, reason: "watch_create_failed" };
+    return {
+      outcome: "orphaned",
+      channelId,
+      reason: "watch_create_failed",
+      errorClass,
+      errorMessage,
+      attempt,
+    };
   }
 
   try {
-    const activated = await runTx((tx) => activateWithTx(tx, folderId, watch));
+    const activatedBase = await runTx((tx) => activateWithTx(tx, folderId, watch));
+    // §3.3a statement (B): post-commit, so a state-write fault can never undo
+    // or misreport a genuinely live activation.
+    const activated: SubscribeResult = {
+      ...activatedBase,
+      attempt: deps.recordAttempt
+        ? await recordAttemptSafe(runTx, "record_attempt_success", folderId)
+        : null,
+    };
     // Finding #19: durable per-channel lifecycle event on the single activation-
     // success chokepoint. Every activation route (initial subscribe, refresh
     // renewal, reconcile recovery, admin manual-retry) funnels through here, so
@@ -818,6 +1008,10 @@ export async function subscribeToWatchedFolder(
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
       webhookSecret,
     });
+    // §3.3a: attempt record FIRST (Drive was called), before finalization.
+    const attempt = deps.recordAttempt
+      ? await recordAttemptSafe(runTx, "record_attempt_failure", folderId, errorClass, errorMessage)
+      : null;
     await runTx((tx) =>
       markWatchOrphanedWithTx(
         tx,
@@ -847,6 +1041,9 @@ export async function subscribeToWatchedFolder(
       outcome: "orphaned",
       channelId: watch.id,
       reason: "activate_failed_after_watch_created",
+      errorClass,
+      errorMessage,
+      attempt,
     };
   }
 }
@@ -953,7 +1150,7 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
   if ("kind" in folderRead && folderRead.kind === "infra_error") {
     // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion-race
     // residual, and the lease already absorbs a transient read failure (a
-    // channel is due ~6h before expiry against an hourly cron).
+    // channel is due ~6h before expiry against the 15-minute cron).
     void log.warn("refresh-watch configured-folder read failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_FOLDER_READ_FAILED",
@@ -1204,6 +1401,9 @@ export type ReconcileOutcome =
   | "recovered"
   | "still_orphaned"
   | "renewal_failing"
+  // In-memory cycle outcome ONLY - never persisted; the state table's
+  // last_attempt_outcome is deliberately narrower (backoff spec §3.2).
+  | "backoff_waiting"
   | "vacuous"
   | "infra_error";
 export type ReconcileResult = {
@@ -1211,6 +1411,11 @@ export type ReconcileResult = {
   sweptPending: number;
   escalated: boolean;
   faults: string[];
+  /** Ladder bookkeeping for the route body and the Doug surfaces: from the
+   *  §3.3a attempt on an attempt cycle, from the gate row on a
+   *  `backoff_waiting` cycle, null otherwise (backoff spec §3.4 step 5). */
+  nextAttemptAt: string | null;
+  consecutiveFailures: number | null;
 };
 export type ReconcileDeps = {
   tx?: WatchTx;
@@ -1263,11 +1468,25 @@ export async function reconcileWatchChannels(
     folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
   } catch {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   if ("kind" in folder && folder.kind === "infra_error") {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   if ("kind" in folder) {
     // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
@@ -1285,6 +1504,8 @@ export async function reconcileWatchChannels(
       sweptPending,
       escalated: false,
       faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
     };
   }
 
@@ -1298,7 +1519,14 @@ export async function reconcileWatchChannels(
     );
   } catch {
     faults.push("channel_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   const renewalFailed =
     refresh.orphaned.includes(folder.folderId) ||
@@ -1324,6 +1552,8 @@ export async function reconcileWatchChannels(
       sweptPending,
       escalated: false,
       faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
     };
   }
 
@@ -1331,32 +1561,77 @@ export async function reconcileWatchChannels(
   //    already had its attempt via refresh; a second call would double the
   //    occurrence_count cadence — spec §3.2.3).
   let outcome: ReconcileOutcome = live ? "renewal_failing" : "still_orphaned";
+  let nextAttemptAt: string | null = null;
+  let consecutiveFailures: number | null = null;
   if (!live) {
+    // Backoff gate (backoff spec §3.4 step 2 / D8): consulted ONLY here, where
+    // no lease is left to expire (I2), with `waiting` computed by the DATABASE
+    // clock so it shares the §3.3a writers' clock domain. No row → not waiting.
+    let waiting = false;
     try {
-      const result = await (deps.subscribeToWatchedFolder ?? subscribeToWatchedFolder)(
-        folder.folderId,
+      const gate = await runTx((tx) =>
+        callWatchTx("drive_watch_reconcile_state.read_gate", () =>
+          tx.readReconcileGate(folder.folderId),
+        ),
       );
-      if (result.outcome === "active") {
-        // The channel IS healthy the moment subscribe returns active — set
-        // recovered BEFORE attempting resolve, so a resolve-write fault can
-        // never route a recovered channel into the escalation branch
-        // (plan-R2 finding 1: false Sentry/email on a healthy watch).
-        outcome = "recovered";
-        try {
-          await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
-          await runTx((tx) =>
-            callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
-              tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
-            ),
-          );
-        } catch {
-          faults.push("alert_resolve_write");
-        }
-      } else if (result.reason === "activate_failed_after_watch_created") {
-        faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+      if (gate) {
+        nextAttemptAt = gate.nextAttemptAt;
+        consecutiveFailures = gate.consecutiveFailures;
+        waiting = gate.waiting;
       }
     } catch {
-      faults.push("subscribe_infra");
+      faults.push("state_read");
+      return {
+        outcome: "infra_error",
+        sweptPending,
+        escalated: false,
+        faults,
+        nextAttemptAt: null,
+        consecutiveFailures: null,
+      };
+    }
+    if (waiting) {
+      // Suppress exactly one Drive call. Escalation still runs below
+      // (backoff_waiting is an unhealthy outcome), and recovery still happens
+      // on the next non-waiting cycle.
+      outcome = "backoff_waiting";
+    } else {
+      try {
+        const result = await (
+          deps.subscribeToWatchedFolder ??
+          ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true }))
+        )(folder.folderId);
+        // §3.3a observer: a RETURNED result with attempt === null means the
+        // state write failed (this caller always opts in). A thrown flow has no
+        // result; the swallow-site warn is its record.
+        if (result.attempt === null) {
+          faults.push("state_write");
+        } else {
+          nextAttemptAt = result.attempt.nextAttemptAt;
+          consecutiveFailures = result.attempt.consecutiveFailures;
+        }
+        if (result.outcome === "active") {
+          // The channel IS healthy the moment subscribe returns active — set
+          // recovered BEFORE attempting resolve, so a resolve-write fault can
+          // never route a recovered channel into the escalation branch
+          // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+          outcome = "recovered";
+          try {
+            await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+            await runTx((tx) =>
+              callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+                tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+              ),
+            );
+          } catch {
+            faults.push("alert_resolve_write");
+          }
+        } else if (result.reason === "activate_failed_after_watch_created") {
+          faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+        }
+      } catch {
+        faults.push("subscribe_infra");
+      }
     }
   }
 
@@ -1369,7 +1644,13 @@ export async function reconcileWatchChannels(
   // named fault, and a residual throw maps to escalation_helper here
   // (recorded-not-thrown, plan-R3 finding 1).
   let escalated = false;
-  if (outcome === "still_orphaned" || outcome === "renewal_failing") {
+  if (
+    outcome === "still_orphaned" ||
+    outcome === "renewal_failing" ||
+    // backing off suppresses the Drive call, never the escalation check
+    // (backoff spec §3.4 step 4).
+    outcome === "backoff_waiting"
+  ) {
     try {
       const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
         folderId: folder.folderId,
@@ -1387,5 +1668,7 @@ export async function reconcileWatchChannels(
     sweptPending,
     escalated,
     faults,
+    nextAttemptAt,
+    consecutiveFailures,
   };
 }

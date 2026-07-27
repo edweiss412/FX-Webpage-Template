@@ -1,7 +1,7 @@
 // Spec: docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md §3.1.4
 //
 // The reason `driveErrorStatus`'s shape reader was extracted to a leaf module is
-// keeping the spreadsheet-export stack out of the hourly watch cron. NO
+// keeping the spreadsheet-export stack out of the 15-minute watch cron. NO
 // behavioural test can observe that: importing the full helper from
 // `lib/drive/fetch.ts` classifies every 404 shape identically and passes every
 // other assertion in the suite. Only an import-graph assertion discriminates.
@@ -67,7 +67,7 @@ describe("watch cron import graph", () => {
     const packages = transitivePackages(join(REPO_ROOT, "lib/drive/watch.ts"));
     expect(
       [...packages].filter((p) => p === "xlsx"),
-      "The hourly watch cron must not load the spreadsheet-export stack. This " +
+      "The 15-minute watch cron must not load the spreadsheet-export stack. This " +
         "usually means something imported lib/drive/fetch.ts (which pulls in " +
         "exportSheetToMarkdown -> xlsx) instead of the leaf status-shape reader.",
     ).toEqual([]);

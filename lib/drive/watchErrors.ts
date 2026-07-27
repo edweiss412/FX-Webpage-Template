@@ -2,10 +2,10 @@
 // Pure helpers for the watch-channel health feature (spec §2, §3.1).
 // MUST stay import-free of lib/drive/watch.ts (watch.ts imports this module).
 
-export type WatchErrorClass = "config" | "drive_api" | "db";
+export const WATCH_ERROR_CLASSES = ["config", "drive_api", "db"] as const;
+export type WatchErrorClass = (typeof WATCH_ERROR_CLASSES)[number];
 
 // Spec §2 named constants — the single definition; tests and consumers import these.
-export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
 /**
@@ -63,8 +63,26 @@ export const RENEWAL_LIFE_FRACTION = 0.75;
 // the predicate is sampled on a fixed cron tick: a purely proportional trigger
 // is unsafe on short grants (spec §2.1).
 export const RENEWAL_MIN_LEAD_MS = 7_200_000;
+
+// Reconnect ladder (spec 2026-07-26-watch-reconcile-backoff-v2 §2.1/§3.3): the
+// Nth consecutive failed reconnect attempt waits BACKOFF_LADDER_MS[min(N, len) - 1]
+// before the next one; the final rung repeats indefinitely.
+export const BACKOFF_LADDER_MS = [900_000, 1_800_000, 3_600_000, 7_200_000] as const;
+// Literal tuple index (not computed) so noUncheckedIndexedAccess yields `number`,
+// not `number | undefined`. The constants test asserts equality with .at(-1) so a
+// ladder-length change cannot silently desync this.
+export const BACKOFF_MAX_MS: number = BACKOFF_LADDER_MS[3];
+
+// Escalate once an unresolved WATCH_CHANNEL_ORPHANED has persisted this long.
+// Duration replaces the retired count-based trigger (deleted in the escalation task).
+export const ESCALATION_AFTER_MS = 10_800_000;
+
+// The only two values a completed subscribe attempt can persist (spec §3.2) -
+// deliberately narrower than ReconcileOutcome.
+export const ATTEMPT_OUTCOMES = ["failed", "succeeded"] as const;
+export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
 // How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
-export const SAMPLING_PERIOD_MS = 3_600_000;
+export const SAMPLING_PERIOD_MS = 900_000;
 // PARTLY enforceable, as of the watch-renewal-lifecycle work. What IS enforced:
 // the renewal loop stops STARTING new rows once this much time has elapsed
 // (REFRESH_RUN_BUDGET_MS aliases it), and each Drive request carries

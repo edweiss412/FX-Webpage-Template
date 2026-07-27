@@ -34,6 +34,7 @@ export type {
   QueryDeferredResult,
   WatchFilters,
   WatchRow,
+  WatchStateRow,
   QueryWatchResult,
 } from "./types";
 export {

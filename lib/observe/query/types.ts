@@ -173,6 +173,15 @@ export type WatchRow = {
   supersededAt: string | null;
   stoppedAt: string | null;
 };
+export type WatchStateRow = {
+  watchedFolderId: string;
+  consecutiveFailures: number;
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+  lastAttemptOutcome: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+};
 export type QueryWatchResult =
-  | { kind: "ok"; rows: WatchRow[] }
+  | { kind: "ok"; rows: WatchRow[]; stateRows: WatchStateRow[] }
   | { kind: "infra_error"; message: string };

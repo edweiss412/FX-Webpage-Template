@@ -9,6 +9,7 @@ import type {
   SyncLogRow,
   DeferredRow,
   WatchRow,
+  WatchStateRow,
 } from "@/lib/observe/query";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 
@@ -125,13 +126,28 @@ export function formatDeferred(rows: DeferredRow[], json: boolean): string {
     )
     .join("\n");
 }
-export function formatWatch(rows: WatchRow[], json: boolean): string {
-  if (json) return JSON.stringify(rows);
-  if (rows.length === 0) return "(no rows)";
-  return rows
-    .map(
-      (r) =>
-        `${r.status.padEnd(10)}  ${r.id.padEnd(36)}  ${r.watchedFolderId.padEnd(44)}  ${r.expiresAt ?? "-"}  ${r.createdAt}`,
+export function formatWatch(
+  rows: WatchRow[],
+  json: boolean,
+  stateRows: WatchStateRow[] = [],
+): string {
+  if (json) return JSON.stringify(stateRows.length > 0 ? { rows, stateRows } : rows);
+  const channels =
+    rows.length === 0
+      ? "(no rows)"
+      : rows
+          .map(
+            (r) =>
+              `${r.status.padEnd(10)}  ${r.id.padEnd(36)}  ${r.watchedFolderId.padEnd(44)}  ${r.expiresAt ?? "-"}  ${r.createdAt}`,
+          )
+          .join("\n");
+  if (stateRows.length === 0) return channels;
+  // Reconcile-state companion section (backoff spec §3.6 D10): the retry
+  // bookkeeping is per-folder, not per-channel, so it renders as its own block.
+  const state = stateRows
+    .map((s) =>
+      `${s.watchedFolderId.padEnd(44)}  failures=${s.consecutiveFailures}  next=${s.nextAttemptAt ?? "-"}  last=${s.lastAttemptOutcome ?? "-"}  class=${s.lastErrorClass ?? "-"}  ${s.lastErrorMessage ?? ""}`.trimEnd(),
     )
     .join("\n");
+  return `${channels}\n\nreconcile state:\n${state}`;
 }

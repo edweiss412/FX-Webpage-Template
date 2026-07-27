@@ -1565,8 +1565,8 @@ export const SPEC_CODES = {
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
     "dougFacing": "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
-    "followUp": "Auto-retry hourly; admin Retry now; Eric if escalated",
-    "helpfulContext": "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
+    "followUp": "Auto-retry with backoff; admin Retry now; Eric if escalated",
+    "helpfulContext": "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
   },
   "WEBHOOK_HEADERS_MISSING": {
     "crewFacing": null,

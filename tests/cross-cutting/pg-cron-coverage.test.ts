@@ -78,6 +78,7 @@ const CANONICAL_JOBS = (
 const SCHEDULE_MIGRATION_PATHS = [
   "supabase/migrations/20260527000003_schedule_cron_jobs.sql",
   "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql",
+  "supabase/migrations/20260727000001_reschedule_refresh_watch.sql",
 ];
 
 const REQUIRED_NOTIFY_JOBS = [
@@ -307,7 +308,10 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     }
 
     const timeoutOccurrences = scheduledSql.match(/timeout_milliseconds\s*:=\s*300000/g) ?? [];
-    expect(timeoutOccurrences).toHaveLength(CANONICAL_JOBS.length);
+    // +1: 20260727000001 re-declares refresh-watch's command body when it moves
+    // the job to the 15-minute schedule, so its timeout literal appears twice
+    // across the registered migrations (backoff spec §3.1).
+    expect(timeoutOccurrences).toHaveLength(CANONICAL_JOBS.length + 1);
   });
 
   // Layer 0a — pg_net extension installed (T2.1)

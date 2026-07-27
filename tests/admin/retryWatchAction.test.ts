@@ -123,7 +123,9 @@ describe("retryWatchSubscriptionFormAction", () => {
 
     await retryWatchSubscriptionFormAction(new FormData());
 
-    expect(subscribeToWatchedFolderSpy).toHaveBeenCalledWith("folder-123");
+    expect(subscribeToWatchedFolderSpy).toHaveBeenCalledWith("folder-123", {
+      recordAttempt: true,
+    });
     // anti-tautology: assert the resolve SPY args, not DOM.
     expect(resolveAdminAlertSpy).toHaveBeenCalledTimes(1);
     expect(resolveAdminAlertSpy).toHaveBeenCalledWith({

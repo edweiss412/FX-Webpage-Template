@@ -129,6 +129,9 @@ const BACKLOG_GRADUATED = [
   { id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
   // behind the skipped picker-flow e2e stubs, all fixed in that branch.
+  // feat/watch-reconcile-backoff (2026-07-27): the deferred backoff half shipped
+  // once the four lifecycle prerequisites cleared it.
+  { id: "BL-WATCH-RECONCILE-BACKOFF", provenance: "feat/watch-reconcile-backoff" },
   { id: "BL-PICKER-BOOTSTRAP-HOST-FLIP", provenance: "fix/picker-flow-app-bugs" },
   { id: "BL-PICKER-GATE-SKIP-MISMATCH", provenance: "fix/picker-flow-app-bugs" },
   { id: "BL-PICKER-CLAIMED-ROW-NEXT-DROP", provenance: "fix/picker-flow-app-bugs" },

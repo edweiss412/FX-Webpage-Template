@@ -857,6 +857,24 @@ Morph guards say "Confirm: X" while panel confirms say bare "Confirm revoke|rese
 
 ---
 
+## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels — ✅ RESOLVED (2026-07-27)
+
+**Status:** ✅ RESOLVED (2026-07-27) · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 · **Unblocked:** 2026-07-26 · **Shipped:** `feat/watch-reconcile-backoff` (PR #620)
+
+**Resolved by** the `feat/watch-reconcile-backoff` PR: migrations `supabase/migrations/20260727000000_drive_watch_reconcile_state.sql` + `supabase/migrations/20260727000001_reschedule_refresh_watch.sql`, spec `docs/superpowers/specs/observability/2026-07-26-watch-reconcile-backoff-v2-design.md` (v2 — constants and cadence re-derived on the post-lifecycle tree, per the unblock note), plan + close-out at `docs/superpowers/plans/2026-07-26-watch-reconcile-backoff/`. Ships the full ratified Option-C scope: 15-minute `fxav_cron_refresh_watch` cadence (`7,22,37,52 * * * *`), the `drive_watch_reconcile_state` table with the `watch_backoff_ms` SQL ladder, write-iff-attempt bookkeeping inside `subscribeToWatchedFolder` (reconcile + admin Retry opt in; refresh and onboarding never touch the ladder), duration-based escalation (`ESCALATION_AFTER_MS`, 3h), and field-split surfacing (Doug: next-attempt line on bell + Settings; developer: observe CLI columns + telemetry deep link). The retained 2026-07-24 design stays DEFERRED as the analysis record. Residuals unchanged: `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED` still parameterises every timing claim; `BL-WATCH-DRIVE-CALL-TIMEOUT` stays NARROWED.
+
+Original entry follows for provenance:
+
+Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
+
+**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
+
+**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
+
+**Unblocked 2026-07-26 (still OPEN, and its prescriptions still need re-deriving).** All four prerequisite entries below were fixed by the watch-renewal-lifecycle PR, and the decisive one is cleared: refresh no longer retries an expired folder at all (the reap removes it from the renewal query) and no longer touches a non-configured one, so **reconcile's `!live` branch is now the single retry surface** — precisely where a ladder attaches. Note `BL-WATCH-DRIVE-CALL-TIMEOUT` was NARROWED rather than closed: the credential fetch is still unbounded, so any timing claim a ladder makes is still parameterised by something unenforced. The constants and cadence in the retained design were falsified across five rounds and must be re-derived, not resumed.
+
+The original blocker analysis, for context: refresh, not reconcile, was the dominant retry path, and it was ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
+
 ## Watch renewal lifecycle — reap, folder scope, atomic alert (2026-07-26) — ✅ RESOLVED
 
 **Resolved by** the `fix/watch-renewal-lifecycle` PR: migration `supabase/migrations/20260726000000_drive_watch_expired_status.sql`, spec `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md`, plan `docs/superpowers/plans/observability/2026-07-26-watch-renewal-lifecycle.md`.

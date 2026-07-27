@@ -59,7 +59,7 @@ async function foldersProductionWouldRenew(configuredFolderId: string): Promise<
     now: () => NOW,
     subscribeToWatchedFolder: async (folderId: string) => {
       attempted.push(folderId);
-      return { outcome: "active" as const, channelId: `renewed-${folderId}` };
+      return { outcome: "active" as const, channelId: `renewed-${folderId}`, attempt: null };
     },
     // §3.2 renews only the configured folder, so the harness must say which one
     // it is — otherwise this would perform the real service-role settings read
@@ -77,7 +77,7 @@ async function statusAfterRefresh(id: string, folderId: string): Promise<string>
     now: () => NOW,
     subscribeToWatchedFolder: async (attemptedFolder: string) => {
       attempted.push(attemptedFolder);
-      return { outcome: "active" as const, channelId: "x" };
+      return { outcome: "active" as const, channelId: "x", attempt: null };
     },
     getActiveWatchedFolder: async () => ({ folderId, folderName: null }),
   });
@@ -142,7 +142,7 @@ describe("renewal predicate, through the production path (§3.2)", () => {
     // is due at 4h elapsed. Under a proportional-only predicate it would not be
     // due until 4.5h, i.e. noticed later and with less margin. (An earlier
     // comment claimed it would be sampled AFTER expiry — false even on the
-    // idealised hourly model, where the next tick lands by 5.5h; R6 finding 3.)
+    // idealised fixed-period model, where the next tick lands by 5.5h; R6 finding 3.)
     const created = new Date(NOW.getTime() - 4 * HOUR);
     const expires = new Date(NOW.getTime() + 2 * HOUR);
     await insertActive("rp-floor", "renewpred-floor", created, expires);
