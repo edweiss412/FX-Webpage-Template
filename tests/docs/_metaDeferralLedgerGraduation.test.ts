@@ -121,6 +121,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // 2026-07-27 reconciliation: three shipped entries were annotated terminal
+  // in place rather than moved — one as "CLOSED" in the heading, one as
+  // "RESOLVED" in the heading, one as a SHIPPED status line. All three shapes
+  // were invisible to the status-line check as it stood; the heading and
+  // SHIPPED assertions below now cover them.
+  { id: "BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED", provenance: "feat/ci-lifecycle-gallery" },
+  { id: "BL-HEADER-PROBE-RESIDUAL-VACUITY", provenance: "test/header-probe-residual-closure" },
+  { id: "BL-AGENDA-PERDAY-VIEWER-FILTER", provenance: "feat/agenda-perday-viewer-fold" },
   // feat/scan-sse-null-code (2026-07-27, PR #621): PR4 of the BL-NULLCODE-STAMP-BATCH-2
   // residual sweep — the scan SSE terminal body now carries the cataloged code.
   { id: "BL-SCAN-SSE-BODY-NULL-CODE", provenance: "feat/scan-sse-null-code" },
@@ -191,10 +199,10 @@ const BACKLOG_GRADUATED = [
     id: "BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED",
     provenance: "PR4 of the CI-dark cluster",
   },
-  {
-    id: "BL-CI-STALE-BRANCH-PROTECTION-COMMENT",
-    provenance: "PR2 of the CI-dark cluster",
-  },
+  // BL-CI-STALE-BRANCH-PROTECTION-COMMENT is deliberately NOT here: this
+  // branch graduated it, mainline #628 kept it in place the same day
+  // (sub-entry of a still-open parent section), and the merge reverted the
+  // graduation per #628's keep. It lives in HEADING_TERMINAL_EXEMPT instead.
   // Surfaced by the widened guard itself after the rebase onto 2026-07-27
   // main: closed in place upstream with the heading-suffix spelling.
   {
@@ -286,6 +294,17 @@ describe("backlog ledger graduation", () => {
     },
   );
 
+  // Terminal-in-place exemptions (mainline #628): ids deliberately kept in
+  // the open queue with a terminal marking, each carrying its rationale in
+  // the entry body. Shared by the status/opening test and the heading test.
+  const HEADING_TERMINAL_EXEMPT = new Set([
+    // Sub-entry of the still-open "Descoped from the CI-dark coverage
+    // cluster" section, kept in place deliberately — its entry records the
+    // rationale ("sub-entry of a still-open parent section, not a
+    // standalone item").
+    "BL-CI-STALE-BRANCH-PROTECTION-COMMENT",
+  ]);
+
   it("no active backlog entry carries a terminal status", () => {
     // The defect this reconciliation cleaned up, made structural. The
     // no-overlap invariant above cannot see it: an entry annotated CLOSED in
@@ -300,7 +319,9 @@ describe("backlog ledger graduation", () => {
     // The status line is the entry's own claim about itself.
     const backlog = read("BACKLOG.md");
     // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
-    // "Resolved / shipped / superseded" as the archive-bound states (r5).
+    // "Resolved / shipped / superseded" as the archive-bound states (r5;
+    // mainline #628 added SHIPPED independently the same day — BL-AGENDA-
+    // PERDAY-VIEWER-FILTER sat as "**Status:** ✅ SHIPPED in PR #610").
     // Case-insensitive (r6: `**Status:** Shipped` is the same claim in
     // titlecase) but ANCHORED — the terminal word must BE the status value,
     // directly after the prefix. A mid-line /i match fires on narrative
@@ -308,6 +329,9 @@ describe("backlog ledger graduation", () => {
     // live false positives found when the unanchored form was tried.
     const TERMINAL =
       /^\s*(?:\*\*)?Status:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
+    // Filed-lines too (both passes independently: BL-HEADER-PROBE-RESIDUAL-
+    // VACUITY carried its terminal state on a "**Filed:** … **Closed:** …"
+    // line with no Status line at all).
     const FILED_TERMINAL =
       /^\s*(?:\*\*)?Filed:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
     // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
@@ -340,6 +364,10 @@ describe("backlog ledger graduation", () => {
       const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
       // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
       // records what shipped and what did not. Only a bare terminal counts.
+      // Mainline #628's deliberate keep: an exempted id may sit terminal in
+      // place with its rationale in the entry (sub-entry of a still-open
+      // parent). Same exemption set as the dedicated heading test below.
+      if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
       const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
       const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/i.test(l)) ?? "";
       const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
@@ -351,6 +379,28 @@ describe("backlog ledger graduation", () => {
       if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
+  });
+
+  it("no active backlog entry heading carries a terminal status", () => {
+    // 2026-07-27 reconciliation: two shipped entries sat in the open queue with
+    // the terminal state in their HEADING ("— CLOSED 2026-07-26 …",
+    // "— ✅ RESOLVED (…)"), which the status-line check above cannot see. Same
+    // drift, different spelling, so the guard grows a heading pass.
+    const backlog = read("BACKLOG.md");
+    const offenders: string[] = [];
+    for (const h of backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
+      const id = h[1]!;
+      if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
+      const heading = h[0]!;
+      // PARTIALLY CLOSED in a heading would be a real open state, same as the
+      // status-line rule above.
+      if (/PARTIAL/i.test(heading)) continue;
+      // Union of both 2026-07-27 passes: the em-dash-anchored any-case form
+      // (SUPERSEDED/DONE included) plus a bare ✅ anywhere in the heading.
+      if (/—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i.test(heading) || /✅/.test(heading))
+        offenders.push(id);
+    }
+    expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {

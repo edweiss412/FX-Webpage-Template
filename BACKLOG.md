@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-27 — five in-place closures graduated on `feat/sheet-icon-link-affordance-class` (BL-HEADER-LINK-AFFORDANCE-CLASS, BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED, BL-CI-STALE-BRANCH-PROTECTION-COMMENT, post-rebase BL-HEADER-PROBE-RESIDUAL-VACUITY, and BL-AGENDA-PERDAY-VIEWER-FILTER once SHIPPED/SUPERSEDED joined the terminal set); all five were spelled in ways the Status-line guard could not see (heading suffix / bold opening claim), so `tests/docs/_metaDeferralLedgerGraduation.test.ts` was widened to inspect the entry heading and opening line too. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass).
+Last reconciled: 2026-07-27 (merge of two parallel same-day passes) — mainline #628 graduated three in-place-terminal entries (`BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` PR #615, `BL-HEADER-PROBE-RESIDUAL-VACUITY` PR #617 — its one live follow-up rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` — and `BL-AGENDA-PERDAY-VIEWER-FILTER` PR #610), corrected `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim (the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing), kept `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` deliberately (sub-entry of a still-open parent; rationale in the entry), and hardened the graduation meta-test against terminal HEADINGS and SHIPPED status lines. `feat/sheet-icon-link-affordance-class` independently graduated the same three plus its own closure `BL-HEADER-LINK-AFFORDANCE-CLASS`, widening the meta-test to heading-suffix and opening-line spellings (SUPERSEDED/DONE in the terminal set, anchored + case-insensitive). The merge deduplicated the double-graduated archive copies (mainline provenance kept), unioned both meta-test widenings, and reverted this branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` per #628's deliberate keep. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
 
 ---
 
@@ -39,17 +39,23 @@ Cheap partial if it ever bites in practice: strip a trailing occurrence from the
 
 The sub-block is always linkless and never flagged (its chrome provider sets no sectionId/dfid), so nothing in its header is tappable — yet `sm:min-h-tap-min` gives it the same 44px one-row shape as its parent section at `sm`+, leaving subordination to a 4px-smaller chip and 2px-smaller text. Candidates: drop the floor for `sub` at `sm`+ (`sm:min-h-0` — the narrow-mode fix already filed as item 6 applies the same conditional idea), or an `sm:pl-*` indent nesting it under its parent. Confirm-only sibling note (P3): a linkless+PILLED row would sit 32px right of a linked row's pill at `sm`+, but that combination appears unreachable in production (Diagrams is never flagged; "report" carries no pill) — verify before treating as real.
 
-## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
+## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
+
+**Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`)
+
+`section-header-visual` (`.github/workflows/section-header-visual.yml`) runs as an unfiltered PR gate, but it is NOT in branch protection's required-context set, so a red run is a visible failing check that does not block merge at the GitHub layer. Deliberate at ship time: the spec ratifies promotion as a follow-up after observed-green runs, not part of that branch (`docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` §1.1). Same class as the required-set note in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`: an owner GitHub-settings action, not repo code — the live required set held twelve contexts when last measured (2026-07-26). **Trigger:** observed-green soak of `section-header-visual` on merged PRs, then the owner adds the context.
+
+## BL-HEADER-FONT-FALLBACK-WRAP — the admin tree loads no Inter, so a bare-Linux client gets a much wider fallback
 
 **Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, surfaced by real CI). **Class:** typography robustness. **Effort:** S (load the font) or M (make the affected rows font-independent).
 
-`app/globals.css` sets `--font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`, and **nothing loads Inter** — there is no `@font-face` rule and no `next/font` import anywhere. Every named entry after it is a system face, so a client with none of them (Chrome on a bare Linux install, which is what a GitHub Actions runner is) falls through to generic `sans-serif` and gets DejaVu Sans. DejaVu is substantially wider than SF Pro.
+`app/globals.css` sets `--font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`, and **nothing on the admin tree loads Inter** — no `@font-face` rule, no `next/font` import under `app/admin/` or the root layout. (CORRECTED 2026-07-27, reconciliation: the original claim "no `next/font` import anywhere" was wrong at filing — `app/show/[slug]/layout.tsx:31-37` has imported Inter via `next/font/google` since `8f4ad9c12`, 2026-05-03. That import defines `--font-inter` on the crew page shell, but nothing consumes `var(--font-inter)`, and `--font-sans` names the literal family `"Inter"`, which `next/font`'s hashed `@font-face` family name does not obviously satisfy — whether crew pages actually render Inter is UNVERIFIED; browser-check it when picking this up. The CI measurement below was on the admin-modal harness, which the crew import does not touch.) Every named entry after it is a system face, so a client with none of them (Chrome on a bare Linux install, which is what a GitHub Actions runner is) falls through to generic `sans-serif` and gets DejaVu Sans. DejaVu is substantially wider than SF Pro.
 
 Measured consequence: the event-detail group title "Wardrobe & key moments" fills the 240px narrowest real row unaided under DejaVu, so it wraps to two lines (33.59px vs 16.8px) where SF Pro leaves 22.94px of room for the decorative rule beside it. The `min-w-4` floor that is free on every targeted device is not free there.
 
 **This is narrow, not theoretical.** Every device the product actually targets resolves an earlier entry in the stack — iOS/macOS `-apple-system`, Android `ui-sans-serif`, Windows `Segoe UI` — so no crew member or admin sees the DejaVu rendering. It is reachable only on a desktop Linux browser lacking all six named faces.
 
-**Work, either of:** (a) self-host the intended face and add an `@font-face` (or a `next/font` import), which makes every measurement in this repo font-deterministic and retires a whole class of local-vs-CI divergence; or (b) leave the stack alone and make the affected rows font-independent — `whitespace-nowrap` plus truncation on the closed-set group titles, so a wide fallback shortens the label instead of adding a line.
+**Work, either of:** (a) self-host the intended face and add an `@font-face` (or a `next/font` import — the crew layout's is the template, but note it must actually be BOUND to `--font-sans`, which the existing one is not), which makes every measurement in this repo font-deterministic and retires a whole class of local-vs-CI divergence; or (b) leave the stack alone and make the affected rows font-independent — `whitespace-nowrap` plus truncation on the closed-set group titles, so a wide fallback shortens the label instead of adding a line.
 
 **Do not "fix" this by widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts`.** That test pins its own font to the Arial / Liberation Sans metric-compatible pair for exactly one measurement, deliberately and with the reason in a comment, so the floor assertion reads the same on macOS, Windows and the Ubuntu runner. Relaxing it instead would hide this entry's finding.
 
@@ -224,7 +230,16 @@ dark-exclusion incident.
 
 **If picked up:** the sound fix is to compare the CI run's own reported test count against a committed baseline, i.e. verify in the environment rather than predict it locally.
 
-_A sub-entry formerly here (BL-CI-STALE-BRANCH-PROTECTION-COMMENT, the stale branch-protection comment docs fix) was resolved 2026-07-26 by PR2 of the CI-dark cluster and has graduated to [BACKLOG-archive.md](./BACKLOG-archive.md) with full provenance._
+### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
+
+**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
+the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
+`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
+`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
+third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
+check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
