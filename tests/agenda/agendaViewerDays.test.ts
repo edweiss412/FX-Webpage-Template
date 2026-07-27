@@ -238,6 +238,25 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["05/05/2026 / 05/05/2027", "slash on both sides"],
       ["2026-05-05 / May 5, 2027", "ISO first, month-led second"],
       ["05/05/26 / 05/05/27", "two-digit years"],
+      // R10 HIGH: two-digit and apostrophe years in the NAME-based forms. The slash form already
+      // normalized them, so omitting these was an inconsistency inside the accepted domain.
+      // NOTE the dates: these must fall INSIDE the fixture's aggregate (May 4-7). A first draft
+      // used May 8, which is outside it -- so R was empty, the matcher returned `all` for that
+      // reason alone, and every one of these passed without exercising the year logic at all.
+      // Mutating the fix is what exposed it: reverting two-digit support left them green.
+      // ORDER MATTERS in these, and getting it wrong made a first draft vacuous twice over.
+      // The dates must fall inside the fixture's aggregate (May 4-7), AND the four-digit year
+      // must come FIRST: with "May 5, '26" leading, `parseIsoFromDayLabel` skips the apostrophe
+      // form and resolves the row to 2027, which is not in R, so completeness fails open before
+      // the year signal is ever consulted. Both drafts passed while the fix was reverted.
+      ["May 5, 2026 / May 5, '27", "apostrophe year, month-led"],
+      ["May 5, 2026 / May 5, 27", "bare two-digit year, month-led"],
+      ["May 5, 2026 / 5 May 27", "bare two-digit year, day-first"],
+      ["May 5, 2026 / 5 May '27", "apostrophe year, day-first"],
+      // R10 HIGH: "Sat" matched NOTHING -- the alternation required the full "satur", so the
+      // one weekday whose short form was missing let a second day through in both positions.
+      ["Sat / Tuesday, May 5, 2026", "leading Sat"],
+      ["Tuesday, May 5, 2026 / Sat", "trailing Sat"],
       ["May 5, 2026 / 6 May 2026", "a day-first second date"],
       ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
       // LEADING second-day references. Found by sweeping the positional rule's blind side
@@ -326,6 +345,8 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     // including the pdfjs glyph-split forms where a day or year arrives with spaces inside it.
     const corpus: [string, string][] = [
       ["Friday, Sept. 18, 2026", "2026-09-18"],
+      ["Sat, May 5, 2026", "2026-05-05"], // the abbreviation must still FOLD on its own
+      ["Saturday, May 5, 2026", "2026-05-05"],
       ["Monday, May 4, 2026", "2026-05-04"],
       ["Thursday, October 9, 202 5", "2025-10-09"], // year split by pdfjs
       ["Tuesday May 13,2024", "2024-05-13"], // no comma after the weekday

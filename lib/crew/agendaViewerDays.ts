@@ -26,7 +26,10 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  * "how many". Kept adjacent so the two regexes are visibly the same shape; if the shared one
  * changes, this must change with it, which the mixed-format test pins.
  */
-const WEEKDAY_SOURCE = "\\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\\b";
+// `sat(ur)?` — the standard "Sat" abbreviation matched NOTHING while every other weekday had
+// its short form, because the alternation required the full "satur" (review R10). Both the
+// distinct-weekday count and the trailing check inherited the gap.
+const WEEKDAY_SOURCE = "\\b(mon|tues?|wed(nes)?|thur?s?|fri|sat(ur)?|sun)(day)?\\b";
 const WEEKDAYS = new RegExp(WEEKDAY_SOURCE, "gi");
 /** Non-global twin: `.test()` on a /g regex is stateful and skips every other call. */
 const WEEKDAYS_ANY = new RegExp(WEEKDAY_SOURCE, "i");
@@ -63,6 +66,10 @@ const WEEKDAYS_ANY = new RegExp(WEEKDAY_SOURCE, "i");
  * guard in the caller owns it. Claiming it here would make that guard unreachable — twice in this
  * file a broader check upstream has silently killed a narrower one downstream.
  */
+/** "26" and "2026" are the same year. One normalizer so every date shape agrees. */
+const norm4 = (y: string | undefined): string | undefined =>
+  y === undefined ? undefined : y.length === 2 ? `20${y}` : y;
+
 function isAmbiguousLabel(dayLabel: string): boolean {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
 
@@ -87,8 +94,11 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   )) {
     const mo = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
     if (mo) {
-      const after = collapsed.slice(m.index! + m[0]!.length).match(/^\s*,?\s*(\d{4})\b/);
-      add(`${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, after?.[1]);
+      // Two-digit and apostrophe years ("May 8, 26", "May 8, '26") count too. The slash form
+      // already normalized them, so omitting them here was an inconsistency INSIDE the accepted
+      // domain, not a scope boundary (review R10).
+      const after = collapsed.slice(m.index! + m[0]!.length).match(/^\s*,?\s*'?(\d{4}|\d{2})\b/);
+      add(`${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, norm4(after?.[1]));
     }
   }
   // Day-first REQUIRES a year, and that is not cosmetic. Without it the pattern is just
@@ -97,13 +107,13 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   // date into four ordinary headings and unfolding them. Found by re-reading the function whole
   // rather than by a failing test, which is why the corpus cases below now cover it.
   for (const m of collapsed.matchAll(
-    /\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})\b/g, // "6 May 2026"
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*'?(\d{4}|\d{2})\b/g, // "6 May 2026"
   )) {
     const mo = MONTHS[m[2]!.toLowerCase().replace(/\.$/, "")];
-    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m, m[3]);
+    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m, norm4(m[3]));
   }
   for (const m of collapsed.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g)) {
-    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, m[3]!.padStart(4, "20")); // "05/06/2026"
+    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, norm4(m[3])); // "05/06/2026"
   }
   for (const m of collapsed.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
     add(`${m[2]}-${m[3]}`, m, m[1]); // ISO "2026-05-06"

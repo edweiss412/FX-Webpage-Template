@@ -205,13 +205,38 @@ describe("agenda fold — refresh reconciliation (spec §5.2)", () => {
     ]);
   });
 
-  it("EVERY row collapsed is a reachable state and still renders every row", () => {
-    // The compound state review R9 listed: nothing is the viewer's, so nothing is marked, and
-    // `kind:"all"` expands rather than leaving an empty-looking section.
+  it("EVERY row collapsed still renders every row, with no empty state", () => {
+    // Review R10 (MEDIUM) caught the first version of this test asserting nothing it claimed:
+    // it passed `{ kind: "all" }`, which OPENS every row, then checked only the row count and
+    // the absence of markers -- so it never created the all-collapsed state and stayed green
+    // even with every row forced open. The name described one state and the fixture built the
+    // opposite.
+    //
+    // All-collapsed is reachable only by the USER: the viewer's row starts open, and they close
+    // it. What must hold then is that the section still shows every day with its label and
+    // count, rather than collapsing to something that looks broken or empty.
     const { container } = render(
-      <AgendaScheduleBlock extraction={ext(3)} viewerDays={{ kind: "all" }} />,
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
     );
+    const rows = [...container.querySelectorAll("details")] as HTMLDetailsElement[];
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    rows.forEach((r) => (r.open = false));
+    expect(openStates(container), "the user can close every row").toEqual([false, false, false]);
+
+    // Every row is still present, labelled, and counted -- nothing vanishes when nothing is open.
     expect(container.querySelectorAll("details")).toHaveLength(3);
-    expect(container.querySelectorAll("[data-testid^='agenda-day-marker-']")).toHaveLength(0);
+    expect(container.querySelectorAll("summary h3")).toHaveLength(3);
+    for (const i of [0, 1, 2]) {
+      const c = container.querySelector(`[data-testid="agenda-day-count-${i}"]`);
+      expect(c, `row ${i} keeps its count while collapsed`).not.toBeNull();
+      // Presence alone is too weak: `hidden` leaves the node in the DOM and jsdom computes no
+      // visibility, so a mutation adding `hidden={!isOpen(di)}` passed a presence-only check.
+      // The attribute IS observable here; actual painted visibility is asserted in the browser
+      // spec, which is the division of labour this repo uses for every jsdom/CSS boundary.
+      expect(c!.hasAttribute("hidden"), `row ${i} count is not hidden while collapsed`).toBe(false);
+    }
+    // The viewer's row is still identifiable even though it is now closed.
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).not.toBeNull();
   });
 });
