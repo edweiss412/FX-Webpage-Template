@@ -4,7 +4,13 @@ import { describe, expect, test } from "vitest";
 import ts from "typescript";
 
 import { codeProducerLiterals } from "@/lib/messages/__internal__/codeProducers";
-import { AUDITABLE_MUTATIONS, SANCTIONED_CODES, NEW_FORENSIC_CODES } from "./_auditableMutations";
+import {
+  AUDITABLE_MUTATIONS,
+  SANCTIONED_CODES,
+  NEW_FORENSIC_CODES,
+  GRADUATED_TO_CATALOG,
+} from "./_auditableMutations";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 // Registry-walk structural guard for the durable admin-mutation audit trail.
 // Every registered mutation route MUST emit a logAdminOutcome with its outcome
@@ -348,7 +354,27 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
     // the snapshot RPC. 37 − 4 = 33.
     expect(NULLCODE_BATCH2_STAMPS.length).toBe(33);
     expect(new Set(codes).size).toBe(33);
-    for (const c of codes) expect(NEW_FORENSIC_CODES.has(c), `${c} must be registered`).toBe(true);
+    // A stamp code lives in exactly one ledger: forensic-only, or graduated into
+    // the §12.4 catalog (the stamp itself stays pinned either way).
+    for (const c of codes)
+      expect(
+        NEW_FORENSIC_CODES.has(c) || GRADUATED_TO_CATALOG.has(c),
+        `${c} must be registered (forensic or graduated)`,
+      ).toBe(true);
+  });
+
+  test("graduated codes are cataloged, disjoint from the forensic set, and real producers", () => {
+    // Guards the graduation hatch itself: a code moved here to dodge the
+    // Assertion-4 leak scan without an actual catalog row fails loudly.
+    expect(GRADUATED_TO_CATALOG.size).toBeGreaterThan(0);
+    const producers = codeProducerLiterals();
+    for (const c of GRADUATED_TO_CATALOG) {
+      expect(NEW_FORENSIC_CODES.has(c), `${c} cannot be both forensic-only and graduated`).toBe(
+        false,
+      );
+      expect(c in MESSAGE_CATALOG, `graduated ${c} must have a MESSAGE_CATALOG row`).toBe(true);
+      expect(producers.has(c), `graduated ${c} must actually be a §12.4 producer`).toBe(true);
+    }
   });
 
   for (const row of NULLCODE_BATCH2_STAMPS) {

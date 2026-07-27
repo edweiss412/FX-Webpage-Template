@@ -21,7 +21,8 @@
  *
  * AC-10.2: every documented success/failure path renders via messageFor — never
  * a raw §12.4 code (AGENTS.md invariant 5). Mid-run failures arrive as a
- * terminal { ok:false, code:null } → the generic copy (no raw code).
+ * terminal { ok:false, code:"ONBOARDING_SCAN_FAILED" } → that row's cataloged
+ * copy; a null or unrecognized code still falls back to the generic copy.
  *
  * WIZARD_SESSION_SUPERSEDED_DURING_SCAN is admin-log-only (spec §12.4:2693): the
  * client routes the "superseded" outcome through router.refresh(), never copy.

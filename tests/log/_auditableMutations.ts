@@ -664,7 +664,10 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "WIZARD_STAGED_UNAPPROVE_FAILED",
   "WIZARD_STAGED_DISCARD_SUPERSEDED_ALERT_WRITE_FAILED",
   "WIZARD_STAGED_DISCARD_FAILED",
-  "ONBOARDING_SCAN_FAILED",
+  // ONBOARDING_SCAN_FAILED graduated OUT of this set (BL-SCAN-SSE-BODY-NULL-CODE):
+  // it is now a cataloged §12.4 code whose scan-route SSE result body is a
+  // legitimate producer. The forensic log.error stamp remains and is still
+  // pinned by NULLCODE_BATCH2_STAMPS in _metaAdminOutcomeContract.test.ts.
   "PENDING_INGESTION_RETRY_SUPERSEDED_ALERT_WRITE_FAILED",
   "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
   "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
@@ -734,4 +737,18 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   // failure, and an RPC returned/thrown non-40001 error.
   "PULL_SHEET_OVERRIDE_RESCAN_FAILED",
   "PULL_SHEET_OVERRIDE_RPC_FAILED",
+]);
+
+// Codes stamped by BL-NULLCODE-STAMP-BATCH-2 that have since GRADUATED into the
+// §12.4 catalog: the forensic log stamp remains (still pinned row-by-row by
+// NULLCODE_BATCH2_STAMPS in _metaAdminOutcomeContract.test.ts), but the code is
+// now ALSO a legitimate user-facing producer, so it is excluded from
+// NEW_FORENSIC_CODES and therefore from the Assertion-4 leak scan. Graduation is
+// honest by construction: the contract test asserts each member is DISJOINT from
+// NEW_FORENSIC_CODES and carries a MESSAGE_CATALOG row, so this set cannot be
+// used to smuggle an uncataloged code past the leak scan.
+export const GRADUATED_TO_CATALOG: ReadonlySet<string> = new Set([
+  // BL-SCAN-SSE-BODY-NULL-CODE (PR #621): the scan SSE terminal result body
+  // emits it to the wizard client; catalog + §12.4 row landed in lockstep.
+  "ONBOARDING_SCAN_FAILED",
 ]);
