@@ -411,7 +411,7 @@ No zombie columns.
 
 - Reconcile-as-single-retry-surface: established by the lifecycle PR's measured reap (48→24 calls/day, lifecycle design §1.2) and re-verified against `lib/drive/watch.ts:1334-1361` on this branch's base commit.
 - `raised_at` dedup survival: re-verified against the RPC body 2026-07-26 (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql:48-69`).
-- Cron collision map: enumerated from all eleven live schedules (both scheduling migrations + `20260504000001` + `20260629000002`), not a sample.
+- Cron collision map: enumerated from all ten live schedules (§2.1 — nine `fxav_cron_*` + `app_events_prune`), not a sample.
 - `ESCALATION_THRESHOLD` reader set: three grep hits, all named in §2.1.
 - No race state machine in prose: the one concurrency surface (two writers, one row) is closed by single atomic statements evaluated by Postgres, pinned by a real-DB concurrency test (§6 16d).
 
