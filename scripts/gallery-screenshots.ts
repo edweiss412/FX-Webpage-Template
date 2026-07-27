@@ -149,6 +149,15 @@ export function prepareRun(
   };
 }
 
+/**
+ * §5 identity guard predicate: EXACT label equality after trimming — substring
+ * containment would admit a wrong scenario whose label contains the expected
+ * one (whole-diff review scope-A finding 1).
+ */
+export function scenarioLabelMatches(actual: string, expected: string): boolean {
+  return actual.trim() === expected;
+}
+
 /** §5 identity guard: the error a label mismatch raises before any shot is taken. */
 export function buildScenarioMismatchError(
   id: string,
@@ -233,7 +242,8 @@ export function loadPriorIndex(
   try {
     rawText = read(path);
   } catch (error) {
-    return { prior: null, warning: `prior index at ${path} is unreadable (${String(error)})` };
+    const oneLine = String(error).replace(/\s*\n\s*/g, " ");
+    return { prior: null, warning: `prior index at ${path} is unreadable (${oneLine})` };
   }
   if (rawText === null) return { prior: null, warning: null };
 
@@ -252,21 +262,49 @@ export function loadPriorIndex(
   return { prior: parsed, warning: null };
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function isNullableString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
 function isGalleryIndex(value: unknown): value is GalleryIndex {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  if (typeof v.generatedAt !== "string" || !Array.isArray(v.scenarios)) return false;
+  if (!isIsoTimestamp(v.generatedAt)) return false;
+  const viewport = v.viewport as Record<string, unknown> | undefined;
+  if (
+    typeof viewport !== "object" ||
+    viewport === null ||
+    typeof viewport.width !== "number" ||
+    typeof viewport.height !== "number"
+  ) {
+    return false;
+  }
+  if (!Array.isArray(v.themes) || !v.themes.every((t) => t === "light" || t === "dark")) {
+    return false;
+  }
+  if (!Array.isArray(v.excluded) || !Array.isArray(v.scenarios)) return false;
   return v.scenarios.every((s) => {
     if (typeof s !== "object" || s === null) return false;
     const e = s as Record<string, unknown>;
     const files = e.files as Record<string, unknown> | undefined;
     return (
       typeof e.id === "string" &&
-      typeof e.capturedAt === "string" &&
+      typeof e.label === "string" &&
+      typeof e.tier === "number" &&
+      typeof e.group === "string" &&
+      Array.isArray(e.codes) &&
+      e.codes.every((c) => typeof c === "string") &&
+      isIsoTimestamp(e.capturedAt) &&
       typeof files === "object" &&
       files !== null &&
       typeof files.light === "string" &&
-      typeof files.dark === "string"
+      typeof files.dark === "string" &&
+      isNullableString(files.lightOverflow) &&
+      isNullableString(files.darkOverflow)
     );
   });
 }
@@ -289,7 +327,10 @@ export function reconcile(
   const capturedIds = new Set(captured.map((e) => e.id));
   const disk = new Set(filesOnDisk);
 
-  const survivors: GalleryIndexEntry[] = [...captured];
+  // Captured entries are catalog-derived in practice, but the invariant is
+  // enforced here too: an id outside the current rendered set never reaches the
+  // index (scope-A finding 2) — its files fall into the unreferenced delete set.
+  const survivors: GalleryIndexEntry[] = captured.filter((e) => catalogById.has(e.id));
   const filesToDelete = new Set<string>();
 
   for (const entry of prior?.scenarios ?? []) {
@@ -574,10 +615,16 @@ export async function captureGallery(): Promise<void> {
           await gotoScenario(page, plan.baseUrl, scenario.id);
 
           // §5 identity guard: catches resolveInitialScenario's silent
-          // fallback-to-index-0 against a stale :3004 server build.
-          const controlsText = await page.locator(CONTROLS_SELECTOR).innerText();
-          if (!controlsText.includes(scenario.label)) {
-            throw buildScenarioMismatchError(scenario.id, scenario.label, controlsText);
+          // fallback-to-index-0 against a stale :3004 server build. Reads the
+          // aria-live label span (position span, then label span —
+          // SwitcherControls.tsx) and demands EXACT equality: substring
+          // containment would admit a superstring label.
+          const labelText = await page
+            .locator(`${CONTROLS_SELECTOR} [aria-live="polite"] span`)
+            .last()
+            .innerText();
+          if (!scenarioLabelMatches(labelText, scenario.label)) {
+            throw buildScenarioMismatchError(scenario.id, scenario.label, labelText);
           }
 
           await waitForQuiescence(page, { waitForSelector: DIALOG_SELECTOR });

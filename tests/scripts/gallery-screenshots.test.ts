@@ -16,6 +16,7 @@ import {
   prepareRun,
   reconcile,
   runGallerySweep,
+  scenarioLabelMatches,
   type GalleryFsAdapter,
   type GalleryIndex,
   type GalleryIndexEntry,
@@ -116,6 +117,15 @@ describe("buildScenarioMismatchError", () => {
   });
 });
 
+describe("scenarioLabelMatches", () => {
+  it("exact match only - a superstring label must NOT pass (guard soundness)", () => {
+    expect(scenarioLabelMatches("Multiple holds", "Multiple holds")).toBe(true);
+    expect(scenarioLabelMatches("  Multiple holds \n", "Multiple holds")).toBe(true);
+    expect(scenarioLabelMatches("Multiple holds pending review", "Multiple holds")).toBe(false);
+    expect(scenarioLabelMatches("Other", "Multiple holds")).toBe(false);
+  });
+});
+
 describe("deriveIndexEntries", () => {
   it("yields one entry per rendered scenario with derived names and injected capturedAt", () => {
     const entries = deriveIndexEntries(partition.rendered, NOW);
@@ -192,6 +202,44 @@ describe("loadPriorIndex", () => {
     expect(out.prior).toBeNull();
     expect(out.warning).toContain("x/index.json");
     expect(out.warning).not.toContain("\n");
+  });
+
+  it("a multiline read error still yields a ONE-LINE warning", () => {
+    const out = loadPriorIndex(() => {
+      throw new Error("EACCES\n  at somewhere\n  at elsewhere");
+    }, "x/index.json");
+    expect(out.warning).toContain("x/index.json");
+    expect(out.warning).not.toContain("\n");
+  });
+
+  it("rejects entries with invalid capturedAt, wrong-typed fields, or missing root fields", () => {
+    // Structurally loose clone type: the whole point is writing INVALID shapes.
+    type LooseIndex = {
+      generatedAt: unknown;
+      themes?: unknown;
+      viewport?: unknown;
+      excluded?: unknown;
+      scenarios: {
+        capturedAt: unknown;
+        codes: unknown;
+        tier: unknown;
+        files: { lightOverflow: unknown };
+      }[];
+    };
+    const good = JSON.parse(validIndex) as LooseIndex;
+    const mutate = (fn: (d: LooseIndex) => void) => {
+      const d = JSON.parse(JSON.stringify(good)) as LooseIndex;
+      fn(d);
+      return loadPriorIndex(() => JSON.stringify(d), "x/index.json");
+    };
+    expect(mutate((d) => (d.scenarios[0]!.capturedAt = "not-a-date")).prior).toBeNull();
+    expect(mutate((d) => (d.generatedAt = "yesterday")).prior).toBeNull();
+    expect(mutate((d) => delete d.themes).prior).toBeNull();
+    expect(mutate((d) => delete d.viewport).prior).toBeNull();
+    expect(mutate((d) => (d.excluded = "nope")).prior).toBeNull();
+    expect(mutate((d) => (d.scenarios[0]!.codes = "A")).prior).toBeNull();
+    expect(mutate((d) => (d.scenarios[0]!.tier = "one")).prior).toBeNull();
+    expect(mutate((d) => (d.scenarios[0]!.files.lightOverflow = 7)).prior).toBeNull();
   });
 
   it("malformed JSON and schema-invalid JSON -> null prior + warning", () => {
@@ -307,6 +355,21 @@ describe("reconcile", () => {
     );
     expect(out.index.scenarios.some((e) => e.id === "alpha")).toBe(false);
   });
+
+  it("a captured entry whose id is not in the rendered catalog is pruned and its files deleted", () => {
+    const disk = ["ghost-light.webp", "ghost-dark.webp", "beta-light.webp", "beta-dark.webp"];
+    const out = reconcile(
+      null,
+      [entryFor("ghost"), entryFor("beta")],
+      renderedCatalog,
+      disk,
+      [],
+      NOW,
+    );
+    expect(out.index.scenarios.map((e) => e.id)).toEqual(["beta"]);
+    expect(out.filesToDelete).toContain("ghost-light.webp");
+    expect(out.filesToDelete).toContain("ghost-dark.webp");
+  });
 });
 
 describe("runGallerySweep (recording-fake protocol order)", () => {
@@ -379,6 +442,16 @@ describe("runGallerySweep (recording-fake protocol order)", () => {
       }
     }
 
+    // Rename DIRECTION: always staging → canonical, never the reverse (a
+    // canonical→staging rename would mutate the artifact yet pass a
+    // destination-only check).
+    for (const o of ops) {
+      if (o.op === "rename") {
+        expect(o.from, "rename source must be staged").toContain(".staging");
+        expect(o.to, "rename target must be canonical").not.toContain(".staging");
+      }
+    }
+
     const lastRename = ops.map((o) => o.op).lastIndexOf("rename");
     const strayDelete = ops.findIndex((o) => o.op === "delete" && o.path.includes("stray.webp"));
     const indexWrite = ops.findIndex((o) => o.op === "write" && o.path.endsWith("index.json"));
@@ -398,10 +471,17 @@ describe("runGallerySweep (recording-fake protocol order)", () => {
   it("mid-capture abort leaves every canonical path untouched", async () => {
     const fake = makeFake({ canonical: ["keep-light.webp"], staging: [] });
     await expect(runFull(fake, { abortAt: 1 })).rejects.toThrow("mid-capture abort");
+    // An aborted run never reaches finalize: NO renames at all (either
+    // direction — a canonical→staging rename would also be a mutation), no
+    // index write, and every write/delete confined to staging.
+    expect(fake.ops.filter((o) => o.op === "rename")).toEqual([]);
     for (const o of fake.ops) {
-      if (o.op === "write" || o.op === "rename" || o.op === "delete") {
-        const touched = o.op === "rename" ? o.to : o.path;
-        expect(touched, `canonical path mutated by ${o.op}`).toContain(".staging");
+      if (o.op === "write") {
+        expect(o.path, "aborted-run write outside staging").toContain(".staging");
+        expect(o.path.endsWith("index.json"), "index write after abort").toBe(false);
+      }
+      if (o.op === "delete") {
+        expect(o.path, "aborted-run delete outside staging").toContain(".staging");
       }
     }
   });
