@@ -348,7 +348,7 @@ function findLogErrorWarnCalls(
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   const codes = NULLCODE_BATCH2_STAMPS.map((r) => r.code);
 
-  test("33 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
+  test("33 rows, all codes distinct + each registered (forensic or graduated)", () => {
     // Task 13 retired 4 per-show-page forensic codes (CREW_LOOKUP_FAILED/THREW,
     // INTERNAL_PARSE_WARNINGS_READ_FAILED/THREW) — those direct reads moved into
     // the snapshot RPC. 37 − 4 = 33.
