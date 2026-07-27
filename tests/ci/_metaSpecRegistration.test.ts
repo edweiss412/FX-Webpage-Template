@@ -194,23 +194,36 @@ function walkFiles(dir: string): string[] {
 /**
  * Invocation census core (pure — the fixtures `it` below pins every
  * adversarial form). Shell cannot be faithfully parsed by regex, so the
- * design is FAIL-CLOSED: any construct the classifier cannot handle lands in
- * `problems` and reds the census, instead of silently recording the default
- * config (the R1–R3 fail-open class). Loud constructs: a `playwright test`
- * token outside command position (echo arguments, heredoc-adjacent text), a
- * --config/-c flag orphaned from every recognized invocation (quoted
- * separators, redirections, or escapes re-splitting the line), an escaped
- * separator or heredoc in playwright-test-mentioning text, and a
- * playwright-wrapping package script invoked with a FORWARDED config flag
- * (`pnpm run test:e2e --config other.ts` composes across two strings the
- * per-string census cannot join). Within a recognized invocation the LAST
- * config flag wins — commander semantics, empirically verified against the
- * installed playwright (bogus first --config + real second lists the full
- * standalone suite). Full-line comments never execute and are skipped.
+ * design is FAIL-CLOSED along two axes:
+ *
+ * 1. PLAIN lines (no quote, backslash, `$`, or backtick) are auto-classified:
+ *    invocations are recognized only at COMMAND POSITION (optional env-var
+ *    prefixes, optional `pnpm exec `/`npx `); within one the LAST config flag
+ *    wins (commander semantics, empirically verified: bogus first --config +
+ *    real second lists the full standalone suite); a `playwright test` token
+ *    outside command position, a config flag orphaned from every recognized
+ *    invocation (redirections re-splitting the line), or a heredoc in
+ *    playwright-test-mentioning text is a loud problem.
+ * 2. COMPLEX lines — any quote, backslash, `$`, or backtick on a line that
+ *    mentions the word `playwright` at all — are NEVER auto-classified:
+ *    quoting can hide a flag from any regex the classifier AND its orphan
+ *    accounting share (`"--config=x"`), expansion can synthesize one at
+ *    runtime ($VAR, $(...), backticks), and token construction can disguise
+ *    the command word itself (`"playwright" test`). Each such line must
+ *    appear VERBATIM (whitespace-normalized) in the registry with its
+ *    human-declared config contributions; an unregistered complex line and a
+ *    stale registry row are both loud problems.
+ *
+ * Package-script forwarding (`pnpm|npm|yarn|bun [run] <script> ... --config
+ * other.ts` where <script> transitively invokes `playwright test`) composes
+ * an invocation across two strings the per-string census cannot join, so a
+ * forwarded config flag is a loud problem. Full-line comments never execute
+ * and are skipped.
  */
 export function censusInvocations(
   texts: string[],
   pwScriptNames: string[],
+  complexRegistry: Record<string, readonly string[]> = {},
 ): { invoked: Set<string>; problems: string[] } {
   const invoked = new Set<string>();
   const problems: string[] = [];
@@ -219,17 +232,20 @@ export function censusInvocations(
   ];
   const cmdPos = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|npx\s+)?playwright\s+test\b/;
   const mentionsRe = /\bplaywright\s+test\b/;
+  const complexRe = /['"\\$`]/;
+  const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
+  const usedKeys = new Set<string>();
   const fwd =
     pwScriptNames.length > 0
       ? new RegExp(
-          `\\bpnpm\\s+(?:run\\s+)?(?:${pwScriptNames
+          `\\b(?:pnpm|npm|yarn|bun)\\s+(?:run\\s+)?(?:${pwScriptNames
             .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
             .join("|")})(?:\\s|$)([^\\n]*)`,
         )
       : null;
   for (const raw of texts) {
-    if (mentionsRe.test(raw) && raw.includes("<<")) {
-      problems.push(`heredoc in a text mentioning "playwright test": ${raw.slice(0, 120)}`);
+    if (/\bplaywright\b/.test(raw) && raw.includes("<<")) {
+      problems.push(`heredoc in a text mentioning playwright: ${raw.slice(0, 120)}`);
       continue;
     }
     for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
@@ -239,11 +255,22 @@ export function censusInvocations(
         problems.push(`config flag forwarded through a package script: ${line.trim()}`);
         continue;
       }
-      if (!mentionsRe.test(line)) continue;
-      if (/\\[;&|]/.test(line)) {
-        problems.push(`escaped shell separator near an invocation: ${line.trim()}`);
+      if (!/\bplaywright\b/.test(line)) continue;
+      if (complexRe.test(line)) {
+        const key = normalize(line);
+        const declared = complexRegistry[key];
+        if (declared === undefined) {
+          problems.push(
+            `complex shell construct (quote/backslash/$/backtick) on a playwright-mentioning ` +
+              `line — declare it in the complex-invocation registry: ${key}`,
+          );
+        } else {
+          usedKeys.add(key);
+          for (const c of declared) invoked.add(c);
+        }
         continue;
       }
+      if (!mentionsRe.test(line)) continue;
       const lineFlagCount = configFlags(line).length;
       let consumed = 0;
       for (const segment of line.split(/[;&|]+/)) {
@@ -260,6 +287,11 @@ export function censusInvocations(
       if (consumed !== lineFlagCount) {
         problems.push(`config flag orphaned from every recognized invocation: ${line.trim()}`);
       }
+    }
+  }
+  for (const key of Object.keys(complexRegistry)) {
+    if (!usedKeys.has(key)) {
+      problems.push(`stale complex-invocation registry row (no source line matches): ${key}`);
     }
   }
   return { invoked, problems };
@@ -349,6 +381,35 @@ describe("spec registration detector (spec §3.1)", () => {
     ).toEqual([]);
   });
 
+  /**
+   * Complex-invocation registry: every source line that mentions the word
+   * `playwright` AND carries a quote, backslash, `$`, or backtick, keyed by
+   * its whitespace-normalized text, mapped to the configs the line's own
+   * direct invocations contribute (script bodies reached via `pnpm <script>`
+   * are censused separately from package.json, so wrapper lines declare []).
+   * Fail-closed both ways: an unregistered complex line reds the census, and
+   * a stale row (matching no source line) reds it too. When editing one of
+   * these commands, update its row in the same commit.
+   */
+  const COMPLEX_INVOCATION_REGISTRY: Record<string, readonly string[]> = {
+    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"':
+      ["playwright.config.ts"],
+    'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
+      ["playwright.config.ts"],
+    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
+      ["playwright.config.ts"],
+    'docker run --rm --platform linux/amd64 --network host -v "$PWD:/work" -w /work -e CI=true mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"':
+      [],
+    'git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)" -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner after the M12.2 B1 /admin chrome redesign (screenshots-regen workflow_dispatch job), so the bytes match the screenshots-drift gate capture environment."':
+      [],
+    'docker run --rm --platform linux/amd64 -v "$PWD:/work" -w /work -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts --update-snapshots"':
+      ["tests/e2e/visual.config.ts"],
+    'docker run --rm --platform linux/amd64 -v "$PWD:/work" -w /work -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts"':
+      ["tests/e2e/visual.config.ts"],
+    'git commit -m "test(admin): regen section-header visual baselines (amd64 CI runner)" -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner (section-header-visual-regen workflow_dispatch job), so the bytes match the section-header-visual gate capture environment. Push a validating commit to run the gate on these baselines."':
+      [],
+  };
+
   it("census core: adversarial forms either classify correctly or fail loud (never fail open)", () => {
     const c = (t: string, names: string[] = []) => censusInvocations([t], names);
     // Last config flag wins — commander semantics, empirically verified: a
@@ -372,6 +433,27 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(c("pnpm test:e2e --config=ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
     expect(c("bash <<EOF\nplaywright test --config ghost.ts\nEOF").problems).not.toEqual([]);
     expect(c("playwright test tests/a.spec.ts \\; --config ghost.ts").problems).not.toEqual([]);
+    // R4 families: quoting can hide a flag from the classifier AND its orphan
+    // accounting; expansion synthesizes flags at runtime; token construction
+    // disguises the command word; non-pnpm runners forward too. All loud.
+    expect(c('playwright test --config a.ts "--config=ghost.ts"').problems).not.toEqual([]);
+    expect(c("playwright test '-cghost.ts'").problems).not.toEqual([]);
+    expect(c("playwright test $PWCFG").problems).not.toEqual([]);
+    expect(c('playwright test "${ARGS[@]}"').problems).not.toEqual([]);
+    expect(c("playwright test `cat cfg`").problems).not.toEqual([]);
+    expect(c("playwright test --confi'g'=ghost.ts").problems).not.toEqual([]);
+    expect(c('"playwright" test --config ghost.ts').problems).not.toEqual([]);
+    expect(c("npm run test:e2e -- --config ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
+    expect(c("yarn test:e2e --config ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
+    expect(c("bun run test:e2e --config=ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
+    // A registered complex line contributes exactly its declared configs; a
+    // stale registry row (matching no source line) is itself loud.
+    const dockerLine =
+      'docker run -e CI=true img bash -lc "pnpm exec playwright test --config x.ts"';
+    const reg = censusInvocations([dockerLine], [], { [dockerLine]: ["x.ts"] });
+    expect(reg.problems).toEqual([]);
+    expect([...reg.invoked]).toEqual(["x.ts"]);
+    expect(censusInvocations(["echo hi"], [], { [dockerLine]: ["x.ts"] }).problems).not.toEqual([]);
     // Plain redirects with no config flag stay classifiable (default config).
     expect(c("playwright test > out.log 2>&1").problems).toEqual([]);
     expect([...c("playwright test > out.log 2>&1").invoked]).toEqual(["playwright.config.ts"]);
@@ -392,10 +474,28 @@ describe("spec registration detector (spec §3.1)", () => {
         for (const step of j.steps ?? []) if (typeof step.run === "string") texts.push(step.run);
       }
     }
+    // Transitive closure: a script whose body invokes another playwright-
+    // wrapping script (via any runner) is itself playwright-wrapping — the
+    // multi-hop forwarding route composes the same way the one-hop route does.
+    const esc = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pwScriptNames = Object.keys(scripts).filter((n) =>
       /\bplaywright\s+test\b/.test(scripts[n] ?? ""),
     );
-    const { invoked, problems } = censusInvocations(texts, pwScriptNames);
+    for (;;) {
+      const re = new RegExp(
+        `\\b(?:pnpm|npm|yarn|bun)\\s+(?:run\\s+)?(?:${pwScriptNames.map(esc).join("|")})(?:\\s|$)`,
+      );
+      const next = Object.keys(scripts).filter(
+        (n) => !pwScriptNames.includes(n) && re.test(scripts[n] ?? ""),
+      );
+      if (next.length === 0) break;
+      pwScriptNames.push(...next);
+    }
+    const { invoked, problems } = censusInvocations(
+      texts,
+      pwScriptNames,
+      COMPLEX_INVOCATION_REGISTRY,
+    );
     expect(
       problems,
       "shell constructs the census cannot faithfully classify — rewrite the invocation " +
