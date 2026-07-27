@@ -55,3 +55,15 @@ export const TOTAL_SESSIONS = AGENDA_DAYS.reduce((n, d) => n + d.sessions.length
 export const OPEN_ROW_SESSIONS = AGENDA_DAYS[0]!.sessions.length;
 
 export const TOTAL_DAYS = AGENDA_DAYS.length;
+
+/**
+ * DISCLOSED LIMIT: neither harness passes `label`.
+ *
+ * That is faithful to the admin caller, which passes `label={null}` explicitly
+ * (step3ReviewSections.tsx:3232) -- and `label` defaults to null and renders under a
+ * `label ? ... : null`, so undefined and null are the same render. For crew it reproduces
+ * the SINGLE-PDF case, since ScheduleSection.tsx:205 passes a label only when
+ * `agendaPdfCount > 1`. The multi-PDF badge above the day rows is therefore unmeasured
+ * here. It is a pre-existing element that the fold does not touch, so covering it is not
+ * this change's job -- but it is a gap, not an accident.
+ */

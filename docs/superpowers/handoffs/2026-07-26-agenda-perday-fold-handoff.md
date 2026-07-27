@@ -50,6 +50,50 @@ own docstring still said "day labels here are `<h3>`" while the only remaining "
 comment*. The docstring was then updated, since a comment asserting what the code stopped honouring is what
 made this findable and would otherwise make the next one invisible.
 
+## Whole-diff cross-model review — round 1 findings and dispositions
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | HIGH | Completeness proved every restriction DATE was located, not that every ROW's ownership was known | **FIXED** `402040b52` |
+| 2 | HIGH | `resolveKeyTimes` can receive malformed `showDays` | **PRE-EXISTING**, evidence below |
+| 3 | MEDIUM | The session count was gated on the initial state while `<details>` toggles at runtime | **FIXED** `7089b873f` |
+| 4 | MEDIUM | A second harness still transcribed the pre-fold markup | **FIXED** `b695d49c7`, and it was worse than reported |
+| 5 | LOW | The chevron rotation had no open-vs-closed assertion | **FIXED** `7089b873f` |
+
+**#1 was the dangerous one and it reproduced exactly.** The reviewer's input
+`["Tuesday, May 5, 2026", "Day 1 continued", "Wednesday, May 6, 2026"]` with a May 5
+assignment returned `{rows:[0]}`: May 5 *is* located, so `|L| == |R|` and completeness
+passed, while row 1 folded unmarked. If that row continues May 5 it is the viewer's own day
+being hidden — the worst outcome this feature can produce, and the third distinct way this
+rule has produced it. Any unparseable row now fails the whole extraction open.
+
+**#2 is pre-existing and this diff does not widen it.** `resolveKeyTimes` calls
+`visibleShowDays` at `ScheduleSection.tsx:152`; that call and its two siblings are on
+`origin/main`, and `ScheduleSection.tsx:117` is untouched here. Recorded so a later round
+does not re-derive it.
+
+**#4 understated what was there.** `tests/e2e/agendaBreakdown.layout.spec.ts` was not green
+while drifting — it was **dark**. Its registry row read `UNSEEN`: no workflow, no script,
+and Playwright's default config matches no standalone spec, so `playwright test <path>`
+answers "No tests found." Nothing had ever run it, and it had rotted twice: it transcribed
+the pre-fold structure, *and* it selected on `[data-session-kind="normal"]`, an attribute
+the component has never emitted. The harness invented that attribute to label its own
+hand-written markup and then asserted against it, so the wrap comparison measured two
+elements the application does not render. Pointed at the real component it failed
+immediately — including `expect(n).toBe(2)` against a true count of 3, a literal that could
+only pass while the harness was wrong.
+
+That is exactly the failure the host workflow's own header warns about ("A dark spec rots"),
+on a spec it names. Both harnesses now render the real component, every expected count is
+derived from one shared fixture, and the spec is wired into `pnpm test:e2e:agenda-layout`
+plus the workflow's paths filter with its row moved to `PATH_GATED`. Rendering the real
+component is worth nothing if nothing runs it.
+
+**A class sweep should have caught #4 and did not.** The first sweep searched the harness I
+was editing and the specs the workflow already ran; it never asked which specs run at all.
+"Where else is this component transcribed?" and "which of those files does CI execute?" are
+two different questions, and only the second one surfaces a dark spec.
+
 ## Known limits, disclosed rather than defended
 
 - **The layout spec is PATH-GATED, not PR-blocking.** It runs when its filter matches the spec, its renderer,
