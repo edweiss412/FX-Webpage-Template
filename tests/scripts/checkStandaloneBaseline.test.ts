@@ -82,7 +82,12 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     expect(run(["--report", report([A_REPORT, B_REPORT], 2), "--baseline", bl])).not.toBe(0);
   });
 
-  it("counts a spec with an empty tests[] as zero executed tests (exact-sum contract)", () => {
+  it("a spec with an empty tests[] executed nothing — its file drops from run membership (red)", () => {
+    // Originally pinned as "file stays, contributes zero" (exact-sum). The
+    // skipped-test repair tightened the run-report side: zero executed tests
+    // IS the narrowing the guard exists to catch, whatever shape produced it,
+    // so the file drops from executed membership and reds against a baseline
+    // that lists it.
     const dir = mkdtempSync(join(tmpdir(), "empty-tests-"));
     const p = join(dir, "report.json");
     writeFileSync(
@@ -99,7 +104,61 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
         ],
       }),
     );
-    expect(run(["--report", p, "--baseline", baseline([A, B], 1)])).toBe(0);
+    expect(run(["--report", p, "--baseline", baseline([A, B], 1)])).not.toBe(0);
+  });
+
+  it("rejects a report where a test SKIPPED instead of executing (status: 'skipped' does not count)", () => {
+    // The narrowing vector the count exists to catch, in its skip form: an
+    // environment-conditioned test.skip/fixme keeps the file AND the test
+    // entry in the report while executing nothing. Playwright's json reporter
+    // marks the outcome status "skipped"; counting it as executed would let
+    // zero execution match the baseline.
+    const dir = mkdtempSync(join(tmpdir(), "skipped-tests-"));
+    const p = join(dir, "report.json");
+    writeFileSync(
+      p,
+      JSON.stringify({
+        config: { rootDir: join(ROOT, "tests", "e2e") },
+        suites: [
+          {
+            file: A_REPORT,
+            suites: [],
+            specs: [
+              {
+                file: A_REPORT,
+                title: "t",
+                tests: [{ status: "expected" }, { status: "skipped", results: [] }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(run(["--report", p, "--baseline", baseline([A], 2)])).not.toBe(0);
+  });
+
+  it("rejects a report where a file's EVERY test skipped (file drops from executed membership)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "all-skipped-"));
+    const p = join(dir, "report.json");
+    writeFileSync(
+      p,
+      JSON.stringify({
+        config: { rootDir: join(ROOT, "tests", "e2e") },
+        suites: [
+          {
+            file: A_REPORT,
+            suites: [],
+            specs: [{ file: A_REPORT, title: "t", tests: [{ status: "skipped", results: [] }] }],
+          },
+          {
+            file: B_REPORT,
+            suites: [],
+            specs: [{ file: B_REPORT, title: "t", tests: [{ status: "expected" }] }],
+          },
+        ],
+      }),
+    );
+    expect(run(["--report", p, "--baseline", baseline([A, B], 2)])).not.toBe(0);
   });
 
   it("rejects a missing report file", () => {

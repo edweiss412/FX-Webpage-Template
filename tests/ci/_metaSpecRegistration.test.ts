@@ -104,6 +104,23 @@ describe("standalone-e2e.yml comparison step (spec §4.1 structural pinning)", (
     }
     expect(wf).not.toHaveProperty("defaults");
   });
+
+  it("no env: at any level, and no PLAYWRIGHT_* text anywhere (reporter-path integrity)", () => {
+    // PLAYWRIGHT_JSON_OUTPUT_FILE takes precedence over the config's
+    // outputFile and resolves from the CWD (1.59.1 lib/reporters/base.js,
+    // resolveFromEnv before the configDir branch), so an env block anywhere
+    // in this workflow could re-split the reporter/comparator path pair the
+    // resolution pin above guards. Step-level env on the two pinned steps is
+    // already forbidden; this closes the workflow- and job-level routes, and
+    // the raw-text sweep catches an override smuggled through any other step.
+    expect(wf).not.toHaveProperty("env");
+    for (const j of Object.values(wf.jobs as Record<string, unknown>)) {
+      expect(j).not.toHaveProperty("env");
+    }
+    for (const s of steps) expect(s).not.toHaveProperty("env");
+    const raw = readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8");
+    expect(raw).not.toMatch(/PLAYWRIGHT_/);
+  });
 });
 
 /**
@@ -146,6 +163,13 @@ function walkFiles(dir: string): string[] {
   return out;
 }
 
+function probeEnv(config: string): NodeJS.ProcessEnv {
+  const { SECTION_HEADER_VISUAL_CONTAINER: _ambient, ...stripped } = process.env;
+  return config === "tests/e2e/visual.config.ts"
+    ? { ...stripped, SECTION_HEADER_VISUAL_CONTAINER: "1" }
+    : stripped;
+}
+
 function resolvedFiles(config: string): Set<string> {
   const out = execFileSync(
     "pnpm",
@@ -158,9 +182,15 @@ function resolvedFiles(config: string): Set<string> {
       encoding: "utf8",
       // visual.config.ts refuses to LOAD on a bare host (its byte-pinned
       // baselines are container-only; tests/e2e/visual.config.ts:25). --list
-      // executes nothing and compares no bytes, so satisfying the gate here
-      // keeps membership observation total without weakening the run-time refusal.
-      env: { ...process.env, SECTION_HEADER_VISUAL_CONTAINER: "1" },
+      // executes nothing and compares no bytes, so satisfying the gate FOR
+      // THAT CONFIG ONLY keeps membership observation total without weakening
+      // the run-time refusal. Every other config probes with the marker
+      // STRIPPED (not merely un-set: an ambient export would leak in through
+      // process.env): membership observed here must match what the config's
+      // real invocation sees, and none of the other invocations carry the
+      // marker — a config that conditioned membership on it would otherwise
+      // appear registered while running dark.
+      env: probeEnv(config),
     },
   );
   const json = JSON.parse(out.slice(out.indexOf("{")));
@@ -233,11 +263,19 @@ describe("spec registration detector (spec §3.1)", () => {
     }
     const invoked = new Set<string>();
     for (const raw of texts) {
-      // Normalize shell line continuations so a multiline invocation reads as one line.
+      // Normalize shell line continuations so a multiline invocation reads as
+      // one line, then split each line on SHELL separators (&&, ||, ;, |) so a
+      // compound line contributes every invocation it carries, not just the
+      // first — `playwright test --config a && playwright test` is two
+      // invocations, the second of them the default config. Whitespace between
+      // the flag and its value is matched as a run (tabs, doubled spaces), not
+      // a single literal space.
       for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
-        if (!/\bplaywright test\b/.test(line)) continue;
-        const m = line.match(/(?:--config|-c)[ =](\S+)/);
-        invoked.add(m?.[1] ?? "playwright.config.ts");
+        for (const segment of line.split(/&&|\|\||;|\|/)) {
+          if (!/\bplaywright\s+test\b/.test(segment)) continue;
+          const m = segment.match(/(?:--config|-c)(?:=|\s+)(\S+)/);
+          invoked.add(m?.[1] ?? "playwright.config.ts");
+        }
       }
     }
     expect([...invoked].sort()).toEqual([...CONFIGS].sort());

@@ -42,7 +42,7 @@ const toRepoPosix = (rootDir, file) => {
   return relative(ROOT, real).split(sep).join("/");
 };
 
-function membership(json) {
+function membership(json, { executedOnly = false } = {}) {
   const rootDir = json?.config?.rootDir;
   if (typeof rootDir !== "string") fail("report has no config.rootDir");
   const files = new Set();
@@ -51,8 +51,19 @@ function membership(json) {
     for (const s of suites ?? []) {
       walk(s.suites);
       for (const spec of s.specs ?? []) {
+        // Run reports (executedOnly): a test whose outcome status is
+        // "skipped" executed nothing — an environment-conditioned
+        // test.skip/fixme keeps the file and the test entry while narrowing
+        // to zero execution, so it must not count, and a file whose every
+        // test skipped must drop from executed membership. --list output
+        // marks EVERY test "skipped" (nothing runs), so list-side membership
+        // counts all entries.
+        const counted = executedOnly
+          ? (spec.tests ?? []).filter((t) => t.status !== "skipped")
+          : (spec.tests ?? []);
+        if (executedOnly && counted.length === 0) continue;
         files.add(toRepoPosix(rootDir, spec.file));
-        total += (spec.tests ?? []).length;
+        total += counted.length;
       }
     }
   };
@@ -117,7 +128,7 @@ function compareReport(path) {
   } catch (e) {
     fail(`cannot read report ${path}: ${e}`);
   }
-  compare(membership(json), "run report");
+  compare(membership(json, { executedOnly: true }), "run report");
 }
 
 const knownFlags = new Set(["--report", "--list-check", "--write", "--baseline"]);
