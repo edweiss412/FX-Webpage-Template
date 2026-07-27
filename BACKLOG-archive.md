@@ -1025,6 +1025,10 @@ at `tests/ci/_metaSpecRegistration.test.ts` ("spec registration detector (spec �
 verified with three filename shapes (spec-ts, spec-cts, and test-mjs variants). The live instance it caught,
 `tests/e2e/report-modal.spec.ts`, was dispositioned per spec §3.2.
 
+> **Historical (pre-resolution) text below, preserved verbatim.** The "cannot see a spec that was
+> never listed" gap it describes is exactly what the shipped detector above closes, and the
+> **Trigger** at the end no longer applies.
+
 `standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
 adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
 caught the stale `overrideableField.layout`), but cannot see a spec that was never listed.
@@ -1056,6 +1060,11 @@ a real Actions run — URL in the PR body. The parent spec's §10b ceiling parag
 supersession note.
 
 **Do not re-derive this analysis.** Four adversarial rounds converged here; the measurements are below.
+
+> **Historical (pre-resolution) text below, preserved verbatim.** The gap it calls unpatched is
+> closed by the shipped comparator described above; the "404 tests across 30 files" figure predates
+> the fix (the committed baseline is now 440 tests), and the **If picked up** fix is exactly what
+> shipped.
 
 `tests/ci/_standaloneConfigProbe.ts` proves that under the environment it can construct, `tests/e2e/standalone.config.ts` resolves to exactly the 30 spec files whose allowlist rows PR #609 deleted. Membership comes from Playwright's own `--list`, so `projects[].testMatch`, `testIgnore`, `testDir`, `projects: []`, and `grep`/`grepInvert` are all resolved by Playwright rather than modelled, and a companion assertion requires that resolved set to equal what the top-level `testMatch` declares (verified by mutation: a project-level `testMatch` reds it).
 
