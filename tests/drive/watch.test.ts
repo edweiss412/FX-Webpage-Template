@@ -352,7 +352,13 @@ function reconcileDeps(tx: FakeWatchTx, over: Record<string, unknown> = {}) {
     getActiveWatchedFolder: vi.fn().mockResolvedValue({ folderId: "folder-1", folderName: "F" }),
     resolveAdminAlert: vi.fn().mockResolvedValue(undefined),
     maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [] }),
-    subscribeToWatchedFolder: vi.fn().mockResolvedValue({ outcome: "active", channelId: "c", attempt: null }),
+    subscribeToWatchedFolder: vi
+      .fn()
+      .mockResolvedValue({
+        outcome: "active",
+        channelId: "c",
+        attempt: { consecutiveFailures: 0, nextAttemptAt: "2026-05-09T12:00:00.000Z" },
+      }),
     ...over,
   };
 }
@@ -809,7 +815,14 @@ describe("Drive watch lifecycle", () => {
       if (kind === "active") return { outcome: "active", channelId: "a", attempt: null } as const;
       if (kind === "infra")
         throw new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down"));
-      return { outcome: "orphaned", channelId: "c", reason: kind } as const;
+      return {
+        outcome: "orphaned",
+        channelId: "c",
+        reason: kind,
+        errorClass: "drive_api",
+        errorMessage: "fixture",
+        attempt: null,
+      } as const;
     });
 
     const result = await refreshWatchSubscriptions({
@@ -1056,7 +1069,14 @@ describe("reconcileWatchChannels", () => {
 
     const result = await reconcileWatchChannels(NO_REFRESH, deps);
 
-    expect(result).toEqual({ outcome: "healthy", sweptPending: 0, escalated: false, faults: [] });
+    expect(result).toEqual({
+      outcome: "healthy",
+      sweptPending: 0,
+      escalated: false,
+      faults: [],
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    });
     expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
@@ -1110,7 +1130,14 @@ describe("reconcileWatchChannels", () => {
 
     const result = await reconcileWatchChannels(NO_REFRESH, deps);
 
-    expect(result).toEqual({ outcome: "vacuous", sweptPending: 0, escalated: false, faults: [] });
+    expect(result).toEqual({
+      outcome: "vacuous",
+      sweptPending: 0,
+      escalated: false,
+      faults: [],
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    });
     expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
@@ -1130,7 +1157,14 @@ describe("reconcileWatchChannels", () => {
 
     const result = await reconcileWatchChannels(NO_REFRESH, deps);
 
-    expect(result).toEqual({ outcome: "recovered", sweptPending: 0, escalated: false, faults: [] });
+    expect(result).toEqual({
+      outcome: "recovered",
+      sweptPending: 0,
+      escalated: false,
+      faults: [],
+      nextAttemptAt: "2026-05-09T12:00:00.000Z",
+      consecutiveFailures: 0,
+    });
     expect(deps.subscribeToWatchedFolder).toHaveBeenCalledTimes(1);
     expect(deps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
     expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
@@ -1153,6 +1187,9 @@ describe("reconcileWatchChannels", () => {
         outcome: "orphaned",
         channelId: "c",
         reason: "watch_create_failed",
+        errorClass: "drive_api",
+        errorMessage: "fixture",
+        attempt: { consecutiveFailures: 1, nextAttemptAt: "2026-05-09T12:15:00.000Z" },
       }),
     });
 
@@ -1174,6 +1211,9 @@ describe("reconcileWatchChannels", () => {
         outcome: "orphaned",
         channelId: "c",
         reason: "activate_failed_after_watch_created",
+        errorClass: "drive_api",
+        errorMessage: "fixture",
+        attempt: { consecutiveFailures: 1, nextAttemptAt: "2026-05-09T12:15:00.000Z" },
       }),
     });
 
@@ -1393,6 +1433,9 @@ describe("reconcileWatchChannels", () => {
         outcome: "orphaned",
         channelId: "c",
         reason: "watch_create_failed",
+        errorClass: "drive_api",
+        errorMessage: "fixture",
+        attempt: { consecutiveFailures: 1, nextAttemptAt: "2026-05-09T12:15:00.000Z" },
       }),
       maybeEscalateWatchOrphaned: vi.fn().mockRejectedValue(new Error("boom")),
     });
@@ -1440,6 +1483,9 @@ describe("reconcileWatchChannels", () => {
         outcome: "orphaned",
         channelId: "c",
         reason: "watch_create_failed",
+        errorClass: "drive_api",
+        errorMessage: "fixture",
+        attempt: { consecutiveFailures: 1, nextAttemptAt: "2026-05-09T12:15:00.000Z" },
       }),
       maybeEscalateWatchOrphaned: vi
         .fn()
@@ -2709,5 +2755,239 @@ describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", ()
       }).catch(() => {});
     }
     expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backoff gate in reconcile's !live branch (backoff spec §3.4; §6 classes 16a
+// and 6). The gate is consulted ONLY when no live channel exists (I2), its
+// verdict is computed in the DB clock domain (D8; FakeWatchTx returns the
+// canned `waiting` verbatim), and `backoff_waiting` suppresses exactly one
+// Drive call — never the escalation check.
+// ---------------------------------------------------------------------------
+describe("reconcile backoff gate (spec §3.4, 16a)", () => {
+  const FUTURE_ISO = "2026-05-09T12:15:00.000Z";
+
+  test("!live + waiting → backoff_waiting, zero subscribes, zero writes, escalation still runs", async () => {
+    const tx = new FakeWatchTx();
+    tx.gateRow = { consecutiveFailures: 2, nextAttemptAt: FUTURE_ISO, waiting: true };
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("backoff_waiting");
+    expect(result.nextAttemptAt).toBe(FUTURE_ISO);
+    expect(result.consecutiveFailures).toBe(2);
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(tx.attemptRecords).toEqual([]);
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalledTimes(1);
+  });
+
+  test("!live + not waiting → subscribe attempted", async () => {
+    const tx = new FakeWatchTx();
+    tx.gateRow = {
+      consecutiveFailures: 1,
+      nextAttemptAt: "2026-05-09T11:00:00.000Z",
+      waiting: false,
+    };
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(deps.subscribeToWatchedFolder).toHaveBeenCalledTimes(1);
+  });
+
+  test("!live + NO gate row → subscribe attempted (not waiting)", async () => {
+    const tx = new FakeWatchTx();
+    tx.gateRow = null;
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(deps.subscribeToWatchedFolder).toHaveBeenCalledTimes(1);
+  });
+
+  test("live paths NEVER read the gate (I2 structural pin) - both live cells EXECUTED", async () => {
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    // live + clean → healthy
+    const tx1 = new FakeWatchTx();
+    seedLiveActive(tx1, "folder-1");
+    const deps1 = reconcileDeps(tx1);
+    const healthy = await reconcileWatchChannels(NO_REFRESH, deps1);
+    expect(healthy.outcome).toBe("healthy");
+    expect(tx1.operations.some((o) => o.startsWith("readReconcileGate"))).toBe(false);
+    // live + renewalFailed → renewal_failing
+    const tx2 = new FakeWatchTx();
+    seedLiveActive(tx2, "folder-1");
+    const deps2 = reconcileDeps(tx2);
+    const failing = await reconcileWatchChannels(
+      { refreshed: [], orphaned: ["folder-1"], failures: [] },
+      deps2,
+    );
+    expect(failing.outcome).toBe("renewal_failing");
+    expect(tx2.operations.some((o) => o.startsWith("readReconcileGate"))).toBe(false);
+  });
+
+  test("gate read fault → state_read fault, infra_error, no subscribe, no write", async () => {
+    const tx = new FakeWatchTx();
+    tx.failGateRead = true;
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("infra_error");
+    expect(result.faults).toContain("state_read");
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(tx.attemptRecords).toEqual([]);
+  });
+
+  test("completed attempt with attempt:null → state_write fault, infra_error (spec §3.3a observer)", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "watch_create_failed",
+        errorClass: "drive_api",
+        errorMessage: "m",
+        attempt: null,
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("infra_error");
+    expect(result.faults).toContain("state_write");
+  });
+
+  test("recovered cycle carries the attempt bookkeeping into the result", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "active",
+        channelId: "c",
+        attempt: { consecutiveFailures: 0, nextAttemptAt: "2026-05-09T12:00:00.000Z" },
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("recovered");
+    expect(result.consecutiveFailures).toBe(0);
+    expect(result.nextAttemptAt).toBe("2026-05-09T12:00:00.000Z");
+  });
+
+  test("failed attempt still escalates and reports still_orphaned with ladder fields", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "watch_create_failed",
+        errorClass: "drive_api",
+        errorMessage: "m",
+        attempt: { consecutiveFailures: 3, nextAttemptAt: "2026-05-09T13:00:00.000Z" },
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("still_orphaned");
+    expect(result.consecutiveFailures).toBe(3);
+    expect(result.nextAttemptAt).toBe("2026-05-09T13:00:00.000Z");
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Class 17 (fault-vs-attempt independence) and class 7 half a (refresh writes
+// no state) — backoff spec §6.
+describe("fault-vs-attempt independence (spec §6 class 17)", () => {
+  const ORPHANED_WITH_ATTEMPT = {
+    outcome: "orphaned" as const,
+    channelId: "c",
+    reason: "watch_create_failed" as const,
+    errorClass: "drive_api" as const,
+    errorMessage: "fixture",
+    attempt: { consecutiveFailures: 3, nextAttemptAt: "2026-05-09T13:00:00.000Z" },
+  };
+
+  test.each([
+    "escalation_helper",
+    "guard_read",
+    "guard_write",
+    "pref_read",
+    "recipients_read",
+    "email_send",
+    "alert_row_read",
+  ])("post-attempt escalation fault %s → infra_error AND the attempt bookkeeping survives", async (faultName) => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue(ORPHANED_WITH_ATTEMPT),
+      maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [faultName] }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("infra_error");
+    expect(result.faults).toContain(faultName);
+    expect(result.consecutiveFailures).toBe(3); // the §3.3a write already landed
+  });
+
+  test("alert_resolve_write after a recovered attempt → infra_error, attempt bookkeeping survives", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "active",
+        channelId: "c",
+        attempt: { consecutiveFailures: 0, nextAttemptAt: "2026-05-09T12:00:00.000Z" },
+      }),
+      resolveAdminAlert: vi.fn().mockRejectedValue(new Error("resolve down")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("infra_error");
+    expect(result.faults).toContain("alert_resolve_write");
+    expect(result.consecutiveFailures).toBe(0);
+  });
+});
+
+describe("refresh writes no state (spec §6 class 7, deps-spy half)", () => {
+  test("a failing renewal subscribe performs ZERO state writes", async () => {
+    const tx = new FakeWatchTx();
+    // an active row inside its renewal window so the loop attempts it
+    tx.rows.push({
+      id: "due-1",
+      status: "active",
+      watchedFolderId: "folder-1",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(tx.now.getTime() - 23 * 3_600_000).toISOString(),
+      expiresAt: new Date(tx.now.getTime() + 3_600_000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned" as const,
+        channelId: "c",
+        reason: "watch_create_failed" as const,
+        errorClass: "drive_api" as const,
+        errorMessage: "fixture",
+        attempt: null,
+      }),
+      getActiveWatchedFolder: async () => ({ folderId: "folder-1", folderName: null }),
+    });
+    expect(tx.attemptRecords).toEqual([]);
   });
 });

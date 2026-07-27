@@ -1394,6 +1394,9 @@ export type ReconcileOutcome =
   | "recovered"
   | "still_orphaned"
   | "renewal_failing"
+  // In-memory cycle outcome ONLY - never persisted; the state table's
+  // last_attempt_outcome is deliberately narrower (backoff spec §3.2).
+  | "backoff_waiting"
   | "vacuous"
   | "infra_error";
 export type ReconcileResult = {
@@ -1401,6 +1404,11 @@ export type ReconcileResult = {
   sweptPending: number;
   escalated: boolean;
   faults: string[];
+  /** Ladder bookkeeping for the route body and the Doug surfaces: from the
+   *  §3.3a attempt on an attempt cycle, from the gate row on a
+   *  `backoff_waiting` cycle, null otherwise (backoff spec §3.4 step 5). */
+  nextAttemptAt: string | null;
+  consecutiveFailures: number | null;
 };
 export type ReconcileDeps = {
   tx?: WatchTx;
@@ -1453,11 +1461,11 @@ export async function reconcileWatchChannels(
     folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
   } catch {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
   }
   if ("kind" in folder && folder.kind === "infra_error") {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
   }
   if ("kind" in folder) {
     // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
@@ -1475,6 +1483,8 @@ export async function reconcileWatchChannels(
       sweptPending,
       escalated: false,
       faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
     };
   }
 
@@ -1488,7 +1498,7 @@ export async function reconcileWatchChannels(
     );
   } catch {
     faults.push("channel_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
   }
   const renewalFailed =
     refresh.orphaned.includes(folder.folderId) ||
@@ -1514,6 +1524,8 @@ export async function reconcileWatchChannels(
       sweptPending,
       escalated: false,
       faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
     };
   }
 
@@ -1521,32 +1533,70 @@ export async function reconcileWatchChannels(
   //    already had its attempt via refresh; a second call would double the
   //    occurrence_count cadence — spec §3.2.3).
   let outcome: ReconcileOutcome = live ? "renewal_failing" : "still_orphaned";
+  let nextAttemptAt: string | null = null;
+  let consecutiveFailures: number | null = null;
   if (!live) {
+    // Backoff gate (backoff spec §3.4 step 2 / D8): consulted ONLY here, where
+    // no lease is left to expire (I2), with `waiting` computed by the DATABASE
+    // clock so it shares the §3.3a writers' clock domain. No row → not waiting.
+    let waiting = false;
     try {
-      const result = await (deps.subscribeToWatchedFolder ?? subscribeToWatchedFolder)(
-        folder.folderId,
+      const gate = await runTx((tx) =>
+        callWatchTx("drive_watch_reconcile_state.read_gate", () =>
+          tx.readReconcileGate(folder.folderId),
+        ),
       );
-      if (result.outcome === "active") {
-        // The channel IS healthy the moment subscribe returns active — set
-        // recovered BEFORE attempting resolve, so a resolve-write fault can
-        // never route a recovered channel into the escalation branch
-        // (plan-R2 finding 1: false Sentry/email on a healthy watch).
-        outcome = "recovered";
-        try {
-          await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
-          await runTx((tx) =>
-            callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
-              tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
-            ),
-          );
-        } catch {
-          faults.push("alert_resolve_write");
-        }
-      } else if (result.reason === "activate_failed_after_watch_created") {
-        faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+      if (gate) {
+        nextAttemptAt = gate.nextAttemptAt;
+        consecutiveFailures = gate.consecutiveFailures;
+        waiting = gate.waiting;
       }
     } catch {
-      faults.push("subscribe_infra");
+      faults.push("state_read");
+      return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
+    }
+    if (waiting) {
+      // Suppress exactly one Drive call. Escalation still runs below
+      // (backoff_waiting is an unhealthy outcome), and recovery still happens
+      // on the next non-waiting cycle.
+      outcome = "backoff_waiting";
+    } else {
+      try {
+        const result = await (deps.subscribeToWatchedFolder ??
+          ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true })))(
+          folder.folderId,
+        );
+        // §3.3a observer: a RETURNED result with attempt === null means the
+        // state write failed (this caller always opts in). A thrown flow has no
+        // result; the swallow-site warn is its record.
+        if (result.attempt === null) {
+          faults.push("state_write");
+        } else {
+          nextAttemptAt = result.attempt.nextAttemptAt;
+          consecutiveFailures = result.attempt.consecutiveFailures;
+        }
+        if (result.outcome === "active") {
+          // The channel IS healthy the moment subscribe returns active — set
+          // recovered BEFORE attempting resolve, so a resolve-write fault can
+          // never route a recovered channel into the escalation branch
+          // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+          outcome = "recovered";
+          try {
+            await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+            await runTx((tx) =>
+              callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+                tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+              ),
+            );
+          } catch {
+            faults.push("alert_resolve_write");
+          }
+        } else if (result.reason === "activate_failed_after_watch_created") {
+          faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+        }
+      } catch {
+        faults.push("subscribe_infra");
+      }
     }
   }
 
@@ -1559,7 +1609,13 @@ export async function reconcileWatchChannels(
   // named fault, and a residual throw maps to escalation_helper here
   // (recorded-not-thrown, plan-R3 finding 1).
   let escalated = false;
-  if (outcome === "still_orphaned" || outcome === "renewal_failing") {
+  if (
+    outcome === "still_orphaned" ||
+    outcome === "renewal_failing" ||
+    // backing off suppresses the Drive call, never the escalation check
+    // (backoff spec §3.4 step 4).
+    outcome === "backoff_waiting"
+  ) {
     try {
       const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
         folderId: folder.folderId,
@@ -1577,5 +1633,7 @@ export async function reconcileWatchChannels(
     sweptPending,
     escalated,
     faults,
+    nextAttemptAt,
+    consecutiveFailures,
   };
 }

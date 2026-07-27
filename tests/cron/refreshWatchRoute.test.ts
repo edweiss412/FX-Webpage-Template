@@ -23,6 +23,8 @@ const HEALTHY_RECONCILE = {
   sweptPending: 0,
   escalated: false,
   faults: [],
+  nextAttemptAt: null,
+  consecutiveFailures: null,
 };
 
 function authedRequest(): NextRequest {
@@ -71,12 +73,18 @@ describe("/api/cron/refresh-watch — HTTP contract", () => {
       refreshed: ["folder-1"],
       refreshOrphaned: [],
       refreshFailures: 0,
-      reconcile: { outcome: "healthy", sweptPending: 0, escalated: false },
+      reconcile: {
+        outcome: "healthy",
+        sweptPending: 0,
+        escalated: false,
+        nextAttemptAt: null,
+        consecutiveFailures: null,
+      },
     });
     expect(watchMock.reconcileWatchChannels).toHaveBeenCalledWith(CLEAN_REFRESH);
   });
 
-  test.each(["still_orphaned", "renewal_failing", "vacuous"] as const)(
+  test.each(["still_orphaned", "renewal_failing", "vacuous", "backoff_waiting"] as const)(
     "200 ok — reconcile outcome %s is NOT 5xx (handled degradation must not page every 15 minutes)",
     async (outcome) => {
       watchMock.refreshWatchSubscriptions.mockResolvedValue(CLEAN_REFRESH);
@@ -177,4 +185,54 @@ describe("/api/cron/refresh-watch — HTTP contract", () => {
     expect(body.reconcile.outcome).toBe("recovered");
     expect(body.reconcile.faults).toBeUndefined();
   });
+
+  test("body carries the ladder fields on a backoff_waiting cycle (backoff spec §3.4 step 5)", async () => {
+    watchMock.refreshWatchSubscriptions.mockResolvedValue(CLEAN_REFRESH);
+    watchMock.reconcileWatchChannels.mockResolvedValue({
+      outcome: "backoff_waiting",
+      sweptPending: 0,
+      escalated: false,
+      faults: [],
+      nextAttemptAt: "2026-07-27T12:15:00.000Z",
+      consecutiveFailures: 3,
+    });
+    const { GET } = await import("@/app/api/cron/refresh-watch/route");
+
+    const response = await GET(authedRequest());
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.reconcile).toEqual({
+      outcome: "backoff_waiting",
+      sweptPending: 0,
+      escalated: false,
+      nextAttemptAt: "2026-07-27T12:15:00.000Z",
+      consecutiveFailures: 3,
+    });
+  });
+
+  test.each(["state_read", "state_write"] as const)(
+    "500 infra — new fault %s reports infra_error with faults present",
+    async (faultName) => {
+      watchMock.refreshWatchSubscriptions.mockResolvedValue(CLEAN_REFRESH);
+      watchMock.reconcileWatchChannels.mockResolvedValue({
+        outcome: "infra_error",
+        sweptPending: 0,
+        escalated: false,
+        faults: [faultName],
+        nextAttemptAt: null,
+        consecutiveFailures: null,
+      });
+      const { GET } = await import("@/app/api/cron/refresh-watch/route");
+
+      const response = await GET(authedRequest());
+
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.ok).toBe(false);
+      expect(body.reconcile.outcome).toBe("infra_error");
+      expect(body.reconcile.faults).toEqual([faultName]);
+    },
+  );
 });
