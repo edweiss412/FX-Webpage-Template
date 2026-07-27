@@ -162,7 +162,7 @@ published, last_seen_modified_time, last_sync_status) values ('11111111-1111-411
 | 8 | public.pending_syncs.drive_file_id | no | pending_syncs_drive_file_id_nonblank | parse_result, source_kind, staged_modified_time, warning_summary | '{}'::jsonb, 'manual', now(), '' | — |
 | 9 | public.pending_ingestions.drive_file_id | no | pending_ingestions_drive_file_id_nonblank | drive_file_name, last_error_code, last_error_message | 'f.xlsx', 'CODE', 'msg' | — |
 | 10 | public.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_choices, staged_id, staged_modified_time, triggered_review_items | 'tester', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, gen_random_uuid(), now(), '[]'::jsonb | — |
-| 11 | public.deferred_ingestions.drive_file_id | no | deferred_ingestions_drive_file_id_nonblank | deferred_kind | 'permanent_ignore' | — |
+| 11 | public.deferred_ingestions.drive_file_id | no | deferred_ingestions_drive_file_id_nonblank | deferred_kind, wizard_session_id | 'permanent_ignore', gen_random_uuid() | — |
 | 12 | public.onboarding_scan_manifest.drive_file_id | no | onboarding_scan_manifest_drive_file_id_nonblank | folder_id, mime_type, name, status, wizard_session_id | 'folder', 'application/vnd.google-apps.spreadsheet', 'n', 'staged', gen_random_uuid() | — |
 | 13 | public.pending_snapshot_uploads.drive_file_id | no | pending_snapshot_uploads_drive_file_id_nonblank | asset_count, show_id, snapshot_revision_id, temp_prefix | 0, '11111111-1111-4111-8111-111111111111'::uuid, gen_random_uuid(), 'tmp/' | SHOW_SETUP(public) |
 | 14 | public.revision_race_cooldowns.drive_file_id | no | revision_race_cooldowns_drive_file_id_nonblank | raced_head_revision_id | 'rev1' | — |
@@ -175,6 +175,15 @@ published, last_seen_modified_time, last_sync_status) values ('11111111-1111-411
 | 21 | dev.shows.drive_file_id | no | shows_drive_file_id_nonblank | slug, title, client_label, template_version | 'dfidnb-dev-slug-' \|\| gen_random_uuid(), 'T', 'Acme Corp', 'v4' | — |
 | 22 | dev.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_choices, staged_id, staged_modified_time, triggered_review_items | 'tester', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, gen_random_uuid(), now(), '[]'::jsonb | — |
 | 23 | dev.sync_log.drive_file_id | YES | sync_log_drive_file_id_nonblank | status | 'ok' | — |
+
+**Every row above was executed against the live local stack in one rolled-back transaction
+(2026-07-27, `validate-probe-rows.sql` in the session scratchpad): all 16 new valid-inserts
+accepted.** That run caught and fixed one shape error pre-review: `deferred_ingestions` carries
+`deferred_ingestions_deferred_by_scope_check` (`wizard_session_id IS NOT NULL OR
+deferred_by_email IS NOT NULL`), so row 11 supplies `wizard_session_id` even though the column
+is nullable-with-no-default. Because every sibling CHECK is satisfied by the validated shapes, a
+blank probed column trips ONLY the claimed nonblank constraint — the `constraint_name` rejection
+binding is deterministic.
 
 Implementation notes pinned by the introspection: `pending_syncs.source_kind` CHECK admits
 `'manual'` (both schemas); `deferred_ingestions.deferred_kind` admits `'permanent_ignore'`;
