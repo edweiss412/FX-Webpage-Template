@@ -196,10 +196,36 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
   test("never returns an empty subset", () => {
     // The empty subset is the dangerous value: "fold iff my index is absent" would fold
     // every day including the viewer's. The matcher must return { kind: "all" } instead.
+    // Labels must PARSE. An unparseable fixture ("Day 1") is caught by the
+    // unidentifiable-row guard first, so this stopped exercising the empty-R path it names --
+    // found by mutating the guard and watching this test stay green.
     for (const restriction of [[], ["2026-12-31"]]) {
-      const r = visibleAgendaDaysForViewer(ext(["Day 1"]), viewerDates(restriction), restriction);
+      const r = visibleAgendaDaysForViewer(
+        ext(["Tuesday, May 5, 2026"]),
+        viewerDates(restriction),
+        restriction,
+      );
       expect(r.kind === "subset" && r.rows.size === 0).toBe(false);
+      expect(r).toEqual({ kind: "all" });
     }
+  });
+
+  test("a viewer day that NO row mentions fails open, even when every row parses", () => {
+    // The completeness rule's own case, isolated. Every label here parses and none is
+    // ambiguous, so neither the unidentifiable-row guard nor the multi-date guard fires --
+    // completeness is the ONLY thing standing between this input and a subset.
+    //
+    // Found by mutation: deleting the `located.size !== R.size` clause left all 16 tests green,
+    // because the guards added in later review rounds fire first on every other fixture. A rule
+    // nothing exercises is a rule a future refactor deletes.
+    const r = visibleAgendaDaysForViewer(
+      ext(["Tuesday, May 5, 2026"]),
+      viewerDates(["2026-05-05", "2026-05-06"]),
+      ["2026-05-05", "2026-05-06"],
+    );
+    // The viewer works May 6 and this PDF has no May 6 block at all -- partial knowledge, so
+    // the spec's fail-open-on-partial-resolution rule applies (spec §3, constraint 3).
+    expect(r).toEqual({ kind: "all" });
   });
 
   test("a low-confidence or empty extraction folds nothing", () => {
