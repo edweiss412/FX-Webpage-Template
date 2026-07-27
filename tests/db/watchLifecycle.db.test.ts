@@ -145,6 +145,20 @@ describe("promotion supersedes the prior folder's channels (spec §3.2.4)", () =
     // else to $1 while every textual assertion above still matched, retiring
     // the promoted folder's own channels.
     expect(body.match(/\[promoted\]/g) ?? []).toHaveLength(2);
+    // ...and the placeholder each array actually FILLS. Counting `[promoted]`
+    // twice proves only that two single-element arrays are passed somewhere;
+    // changing either predicate to `$2` left every assertion above green while
+    // the live route threw on an unbound parameter (whole-diff R5 finding 3).
+    const statements = body
+      .split("update public.drive_watch_channels")
+      .slice(1)
+      .map((chunk) => chunk.slice(0, chunk.indexOf("[promoted]")));
+    expect(statements).toHaveLength(2);
+    for (const statement of statements) {
+      expect(statement).toMatch(/watched_folder_id is distinct from \$1\b/);
+      // Exactly one placeholder, so $1 is unambiguously the one `[promoted]` fills.
+      expect(statement.match(/\$\d+/g)).toEqual(["$1"]);
+    }
   });
 
   test("committed: prior folder's active -> superseded, pending -> orphaned, new folder untouched", async () => {
@@ -297,6 +311,44 @@ describe("orphaning persists the Drive resourceId (whole-diff R2 finding 1)", ()
       select resource_id from public.drive_watch_channels where id = ${id}
     `;
     expect(rows[0]?.resource_id).toBe("kept-resource");
+  });
+});
+
+describe("a stopped row that never reached Drive stays recordable (R5 finding 1)", () => {
+  afterEach(cleanup);
+
+  test("null resource id: the row reopens to orphaned and stores the late id", async () => {
+    const id = `${PREFIX}reopen`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'stopped', ${PREFIX + "f"}, 's', null)
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    await sql.begin(async (tx) => {
+      await createPostgresWatchTx(tx as never).markOrphaned(id, "late-resource");
+    });
+
+    const rows = await sql<{ status: string; resource_id: string | null }[]>`
+      select status, resource_id from public.drive_watch_channels where id = ${id}
+    `;
+    expect(rows[0]).toMatchObject({ status: "orphaned", resource_id: "late-resource" });
+  });
+
+  test("a stopped row that already HAS a resource id is not reopened", async () => {
+    const id = `${PREFIX}really-stopped`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'stopped', ${PREFIX + "g"}, 's', 'stopped-at-drive')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    await sql.begin(async (tx) => {
+      await createPostgresWatchTx(tx as never).markOrphaned(id, "late-resource");
+    });
+
+    const rows = await sql<{ status: string; resource_id: string | null }[]>`
+      select status, resource_id from public.drive_watch_channels where id = ${id}
+    `;
+    expect(rows[0]).toMatchObject({ status: "stopped", resource_id: "stopped-at-drive" });
   });
 });
 

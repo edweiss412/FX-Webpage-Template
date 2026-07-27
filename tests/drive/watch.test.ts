@@ -94,11 +94,26 @@ class FakeWatchTx {
   async markOrphaned(id: string, resourceId?: string | null) {
     this.orphanedResourceIds.push([id, resourceId]);
     this.operations.push(`markOrphaned:${id}`);
-    // Mirrors production's `status = 'pending'` filter
-    // (lib/drive/watch.ts markOrphaned). A permissive fake would mask
-    // BL-WATCH-EXPIRED-ACTIVE-ROW, which IS that filter.
-    const row = this.rows.find((existing) => existing.id === id && existing.status === "pending");
-    if (row) row.status = "orphaned";
+    // Mirrors production's predicate EXACTLY (lib/drive/watch.ts markOrphaned),
+    // including the third arm that reopens a `stopped` row which never actually
+    // reached Drive. A permissive fake would mask BL-WATCH-EXPIRED-ACTIVE-ROW,
+    // which IS this filter; a stale one — this mirrored only `pending` after
+    // production had widened to `pending`/`orphaned` — silently stops testing
+    // the arms it omits.
+    const row = this.rows.find(
+      (existing) =>
+        existing.id === id &&
+        (existing.status === "pending" ||
+          existing.status === "orphaned" ||
+          (existing.status === "stopped" &&
+            existing.resourceId === null &&
+            resourceId !== null &&
+            resourceId !== undefined)),
+    );
+    if (row) {
+      row.status = "orphaned";
+      row.resourceId = resourceId ?? row.resourceId;
+    }
   }
 
   // Mirrors PostgresWatchTx.expireDeadActive EXACTLY, including the two-arm
@@ -736,16 +751,28 @@ describe("Drive watch lifecycle", () => {
     });
 
     expect(subscribe).toHaveBeenCalledTimes(1);
-    if (bucket === "refreshed") expect(result.refreshed).toEqual(["folder-x"]);
-    else if (bucket === "orphaned") expect(result.orphaned).toEqual(["folder-x"]);
-    else {
-      expect(result.failures).toEqual([
-        {
-          folderId: "folder-x",
-          operation: kind === "infra" ? "subscribe" : "activate_pending",
-        },
-      ]);
-    }
+    // The WHOLE result, not just the expected bucket. Asserting one bucket lets
+    // a dropped `continue` put the same folder in two of them, and reconcile
+    // reads every bucket — it would report renewal_failing on a folder that
+    // renewed successfully (whole-diff R5 finding 2).
+    const expected = {
+      refreshed: bucket === "refreshed" ? ["folder-x"] : [],
+      orphaned: bucket === "orphaned" ? ["folder-x"] : [],
+      failures:
+        bucket === "failures"
+          ? [
+              {
+                folderId: "folder-x",
+                operation: kind === "infra" ? "subscribe" : "activate_pending",
+              },
+            ]
+          : [],
+    };
+    expect({
+      refreshed: result.refreshed,
+      orphaned: result.orphaned,
+      failures: result.failures,
+    }).toEqual(expected);
   });
 
   test("refresh catches a list_expiring DB failure into the typed failures channel (never rejects)", async () => {
@@ -2188,9 +2215,12 @@ describe("GC loop controls are behaviourally pinned (whole-diff R4)", () => {
       }),
     });
 
-    // Only the per-folder index differs; all three rows share one folder, so
-    // the loop admits the first and refuses the rest.
-    expect(result.failures.filter((f) => f.operation === "run_budget").length).toBeGreaterThan(0);
+    // EXACT counts. The clock lands on exactly REFRESH_RUN_BUDGET_MS, so a
+    // comparison relaxed from `>=` to `>` admits a second row and still leaves
+    // one failure plus the telemetry emit — `toBeGreaterThan(0)` could not see
+    // it (whole-diff R5 finding 4).
+    expect(result.refreshed).toHaveLength(1);
+    expect(result.failures.filter((f) => f.operation === "run_budget")).toHaveLength(2);
     expect(logRecords.some((r) => r.code === "DRIVE_WATCH_RUN_BUDGET_EXHAUSTED")).toBe(true);
   });
 });
@@ -2210,4 +2240,62 @@ test("GC asks the port for at most GC_CANDIDATES_PER_PASS rows", async () => {
   await gcWatchChannels({ tx: tx as never });
 
   expect(seen).toEqual([GC_CANDIDATES_PER_PASS]);
+});
+
+describe("markOrphaned reopens a stopped row that never reached Drive (R5 finding 1)", () => {
+  test("a stopped row with NO resource id reopens and records the id", async () => {
+    // A subscribe that stalls in the unbounded credential fetch outlives the
+    // young-orphan window; GC then marks it stopped WITHOUT calling Drive,
+    // because it has nothing to stop. When the call finally returns a resource
+    // id, this is the last chance to record it — otherwise the Drive channel is
+    // live for its whole lease and nothing in the database can stop it.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "stalled",
+      status: "stopped",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: null,
+      expiresAt: tx.now.toISOString(),
+    });
+
+    await tx.markOrphaned("stalled", "late-resource");
+
+    const row = tx.rows.find((r) => r.id === "stalled")!;
+    expect(row.status).toBe("orphaned");
+    expect(row.resourceId).toBe("late-resource");
+  });
+
+  test("a stopped row that HAS a resource id is left alone", async () => {
+    // That row was genuinely stopped at Drive — GC had an id to call with.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "really-stopped",
+      status: "stopped",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: "already-stopped",
+      expiresAt: tx.now.toISOString(),
+    });
+
+    await tx.markOrphaned("really-stopped", "late-resource");
+
+    expect(tx.rows.find((r) => r.id === "really-stopped")!.status).toBe("stopped");
+  });
+
+  test("a stopped row is NOT reopened when no resource id is supplied", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "no-id",
+      status: "stopped",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: null,
+      expiresAt: tx.now.toISOString(),
+    });
+
+    await tx.markOrphaned("no-id");
+
+    expect(tx.rows.find((r) => r.id === "no-id")!.status).toBe("stopped");
+  });
 });

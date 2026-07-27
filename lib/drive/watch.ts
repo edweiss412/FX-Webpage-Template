@@ -255,7 +255,22 @@ class PostgresWatchTx implements WatchTx {
            set status = 'orphaned',
                resource_id = coalesce($2, resource_id)
          where id = $1
-           and status in ('pending', 'orphaned')
+           and (
+             status in ('pending', 'orphaned')
+             -- A stopped row holding NO resource id was never stopped at
+             -- Drive: GC skipped the call precisely because it had nothing to
+             -- stop. If a subscribe that stalled past the young-orphan window
+             -- later returns a resource id, this is the ONLY chance to record
+             -- it, so the row reopens to orphaned and GC stops it on a later
+             -- pass. Without this arm the credential fetch's admitted
+             -- unboundedness turns into a live Drive channel we can never stop
+             -- (whole-diff R5 finding 1). The guard is resource_id is null,
+             -- so a genuinely stopped row — which necessarily HAD a resource
+             -- id for GC to call with — never matches. The ::text cast is
+             -- required: a bare $2 in a null test gives Postgres no type to
+             -- infer, and the statement fails at PREPARE, not at runtime.
+             or (status = 'stopped' and resource_id is null and $2::text is not null)
+           )
       `,
       [id, resourceId ?? null],
     );
@@ -1010,12 +1025,13 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       ),
     );
     const stopped: string[] = [];
-    // Bound the pass. Candidates are ordered oldest-first and capped, and the
+    // Bound the pass. Candidates arrive in status tiers — rows needing no Drive
+    // call first — shuffled WITHIN each tier, and capped; the
     // loop also stops on elapsed time: a `superseded` row whose stop keeps
     // failing is retried forever BY DESIGN, so without both bounds ~20 such
-    // rows would consume the GC cron's 300s window and — being the oldest —
-    // would be served first on every subsequent pass, starving every expired
-    // and orphaned row behind them (whole-diff finding 1).
+    // rows would consume the GC cron's 300s window and, under a deterministic
+    // order, would be served first on every subsequent pass, starving every
+    // expired and orphaned row behind them (whole-diff finding 1).
     const nowMs = deps.now ?? (() => Date.now());
     const gcStartedMs = nowMs();
     let attempted = 0;
