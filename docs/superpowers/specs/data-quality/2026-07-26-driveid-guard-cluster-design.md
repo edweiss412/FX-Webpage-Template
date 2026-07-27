@@ -29,7 +29,7 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `tests/db/validation-schema-parity.test.ts` | EDIT — identity assert; new drive-id audit layer vs validation |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation`; resolver-routed mode + header comment rewrite |
 | `tests/cross-cutting/pgCronCiVacuity.test.ts` | EDIT — dead-endpoint injection moves to loopback `LOCAL_TEST_DATABASE_URL` (§3.1, R5-1) |
-| `tests/db/_localDbUrlScan.ts` | EDIT (if needed) — extend scan scope to the cross-cutting `LOCAL_TEST_DATABASE_URL` reader (§3.1) |
+| `tests/db/_metaLocalDbUrlGuard.test.ts` | EDIT — guarded-reader census 56 → 57 + message (§3.1, R6-1; the scanner itself needs no change — it already walks all of `tests/`) |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
 | parent spec §10/§11 | EDIT — status notes pointing here (see §9) |
 
@@ -191,17 +191,23 @@ IDENTITY-UNGUARDED against whatever the DSN reaches. The pure resolver
 (`unreachableDbFailure` is the template, `lib/driveIdCoverage/introspect.ts:103-119`) removes the
 DSN from the decision entirely:
 
-`resolvePgCronMode({ target, testDatabaseUrl })` →
+`resolvePgCronMode({ target, testDatabaseUrl, localTestDatabaseUrl })` →
 
 - `target === "validation"` → `{ mode: "validation", dbUrl: testDatabaseUrl }` (throwing the
   existing refusals if the DSN or ref env is missing/empty). Every query on this path is
   per-connection identity-guarded, so DSN games are answered by the guard, not by parsing.
-- `target` unset, empty, or `"local"` → `{ mode: "local", dbUrl:
-  assertLocalDbUrl(localTestDatabaseUrl ?? LOCAL_LOOPBACK_URL) }`. Local mode joins the
-  established local-DB class (R5 finding 1): the override var is `LOCAL_TEST_DATABASE_URL` —
-  loopback-enforced by `assertLocalDbUrl` (`tests/db/_localDbUrl.ts`), governed by the
+- `target` unset, empty, or `"local"` → `{ mode: "local", dbUrl: localTestDatabaseUrl ??
+  LOCAL_LOOPBACK_URL }`. Local mode joins the established local-DB class (R5 finding 1): the
+  override var is `LOCAL_TEST_DATABASE_URL`, and — so the existing scanner recognizes the guard
+  in its established shape (R6 finding 1: `tests/db/_localDbUrlScan.ts` recognizes only direct
+  calls to the imported guard at the reading file) — the SINGLE env read at the pg-cron call
+  site is wrapped directly: `localTestDatabaseUrl:
+  assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)`. The value reaching the pure
+  resolver is therefore already loopback-enforced (`tests/db/_localDbUrl.ts`), governed by the
   `_metaLocalDbUrlGuard` structural regime, absent from `.env.local`, and already the var every
-  `*.db.test.ts` uses for exactly this purpose. `TEST_DATABASE_URL` is IGNORED in local mode, so
+  `*.db.test.ts` uses for exactly this purpose. The scanner already walks all of `tests/`
+  recursively — no scan-scope change; the lockstep edit is the guarded-reader census in
+  `tests/db/_metaLocalDbUrlGuard.test.ts:393-403` (56 → 57, message updated). `TEST_DATABASE_URL` is IGNORED in local mode, so
   an ambient remote DSN (the `.env.local` dev-box case, or a workflow that dropped the target
   line but kept the secret) can never be reached unguarded — retiring the pre-existing exposure
   where a dev-box run with ambient `TEST_DATABASE_URL` ran pg-cron live assertions against
@@ -210,7 +216,14 @@ DSN from the decision entirely:
   `tests/cross-cutting/pgCronCiVacuity.test.ts:107` currently inject their dead endpoint via
   `TEST_DATABASE_URL`; they switch to `LOCAL_TEST_DATABASE_URL` with a dead LOOPBACK endpoint
   (loopback host, port 1), which `assertLocalDbUrl` admits and nothing answers — both controls
-  keep proving fail/skip, now against the variable local mode actually reads.
+  keep proving fail/skip, now against the variable local mode actually reads. And because the
+  vacuity harness's child inherits ambient `process.env`
+  (`tests/cross-cutting/pgCronCiVacuity.test.ts:45`), ALL THREE local-mode child invocations —
+  the CI-fail control at `tests/cross-cutting/pgCronCiVacuity.test.ts:99`, the local-skip
+  control at `tests/cross-cutting/pgCronCiVacuity.test.ts:107`, and the reachable control at
+  `tests/cross-cutting/pgCronCiVacuity.test.ts:116` — explicitly pin
+  `PG_CRON_COVERAGE_TARGET: "local"`, so an ambient `validation` target on the invoking shell
+  cannot reroute them (R6 finding 2).
 - any OTHER target string (misspelling) → THROW. Unknown mode names never downgrade.
 
 DB-free unit tests cover all five cases; the negative controls are the misspelled-target throw
@@ -443,7 +456,7 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 | guarded query lands on a non-validation connection | multi-host / failover DSN | in-script `DO` guard aborts under `ON_ERROR_STOP` (§3.1) |
 | psql invocation fails, DSN in argv | any failure incl. forced identity aborts | shared runner rethrows with DSN redacted (§3.1, R2-1) |
 | suite-constructed message embeds `databaseUrl` | pg-cron CI throw / local warn | both rewritten redacted; sentinel test covers the builder (§3.1, R3-1) |
-| `PG_CRON_COVERAGE_TARGET` unset/empty/`local` with ambient remote DSN | fail-open bypass of guards | local mode uses the hardcoded loopback URL; the remote DSN is never touched (§3.1, R3-2/R4-1) |
+| `PG_CRON_COVERAGE_TARGET` unset/empty/`local` with ambient remote DSN | fail-open bypass of guards | local mode reads only the `assertLocalDbUrlIfSet`-guarded override or the loopback constant; the remote DSN is never touched (§3.1, R3-2/R4-1/R6-3) |
 | `PG_CRON_COVERAGE_TARGET` misspelled | unknown mode | `resolvePgCronMode` throws — never downgrades (§3.1) |
 | env vars read outside the resolver | detached helper | source-structural binding test red (§3.1, R4-2) |
 | pg-cron reachability probe hits wrong cluster | identity abort in probe | tri-state `identity_mismatch`, reported as identity failure, never "unreachable" (§3.1, R2-3) |

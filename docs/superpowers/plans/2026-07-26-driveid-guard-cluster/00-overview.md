@@ -30,9 +30,11 @@ The spec is canonical. Where this plan and the spec disagree, the spec wins.
 **EXTENDS:** `tests/db/validation-schema-parity.test.ts` (identity assert + audit layer, spec
 §3.1/§3.2) · `tests/cross-cutting/pg-cron-coverage.test.ts` (identity assert, spec §3.1).
 
-**SUBJECT TO:** `tests/db/_metaLocalDbUrlGuard.test.ts` — every `tests/db/` file reading
+**SUBJECT TO:** `tests/db/_metaLocalDbUrlGuard.test.ts` — every file reading
 `process.env.LOCAL_TEST_DATABASE_URL` must route through `assertLocalDbUrl`
-(`tests/db/_localDbUrlScan.ts:29`); the probes suite already does and keeps doing so. Invariant 9
+(`tests/db/_localDbUrlScan.ts:29`); the probes suite already does and keeps doing so, and
+pg-cron's resolver JOINS this class (spec §3.1, R5-1 — scan scope extended to the cross-cutting
+reader if needed). Invariant 9
 (`tests/auth/_metaInfraContract.test.ts`) **N/A** — no Supabase client call added (raw `postgres`
 / psql only). Invariant 10 **N/A** — no route, no server action; test-only mutations inside
 always-rolled-back transactions.
@@ -92,18 +94,25 @@ timeouts.
    - constructed messages: the pg-cron CI-unreachable message builder, invoked with the sentinel
      DSN, contains no sentinel (spec §3.1, R3-1). Failure mode: reintroduced raw `databaseUrl`
      interpolation in a suite-built message.
-   - `resolvePgCronMode` five cases (spec §3.1, R3-2 redesigned per R4-1 — NO DSN judgment):
-     `"validation"` → validation mode consuming `testDatabaseUrl` (existing refusals if
-     missing); unset / `""` / `"local"` → local mode with the HARDCODED loopback URL, supplied
-     remote `testDatabaseUrl` IGNORED (negative control asserts the returned dbUrl is the
-     loopback constant even when a remote DSN is passed); any other string → THROW. Failure
-     modes: misspelled workflow target silently downgrading; ambient dev-box
-     `TEST_DATABASE_URL` reaching a remote cluster from local mode.
-   - source-structural resolver binding (spec §3.1, R4-2): scan
-     `tests/cross-cutting/pg-cron-coverage.test.ts` source — `process.env.PG_CRON_COVERAGE_TARGET`
-     and `process.env.TEST_DATABASE_URL` appear ONLY as `resolvePgCronMode` arguments;
-     `coverageTarget`/`databaseUrl` derive only from its return. Failure mode: resolver exists,
-     passes its unit tests, and nothing calls it.
+   - `resolvePgCronMode` five cases (spec §3.1, R3-2 redesigned per R4-1/R5-1 — NO DSN
+     judgment): `"validation"` → validation mode consuming `testDatabaseUrl` (existing refusals
+     if missing); unset / `""` / `"local"` → local mode with
+     `assertLocalDbUrl(localTestDatabaseUrl ?? LOCAL_LOOPBACK_URL)` — supplied remote
+     `testDatabaseUrl` IGNORED (negative control: returned dbUrl is the loopback value even when
+     a remote `testDatabaseUrl` is passed; a loopback `localTestDatabaseUrl` IS honored); any
+     other string → THROW. Failure modes: misspelled workflow target silently downgrading;
+     ambient dev-box `TEST_DATABASE_URL` reaching a remote cluster from local mode.
+   - source-structural resolver binding (spec §3.1, R4-2/R5-1): scan
+     `tests/cross-cutting/pg-cron-coverage.test.ts` source — `process.env.PG_CRON_COVERAGE_TARGET`,
+     `process.env.TEST_DATABASE_URL`, and `process.env.LOCAL_TEST_DATABASE_URL` appear ONLY as
+     `resolvePgCronMode` arguments; `coverageTarget`/`databaseUrl` derive only from its return.
+     Failure mode: resolver exists, passes its unit tests, and nothing calls it.
+   - pgCronCiVacuity controls re-pointed (spec §3.1, R5-1): dead-endpoint injection via
+     `LOCAL_TEST_DATABASE_URL` = loopback port 1; both controls (CI-fail at
+     `tests/cross-cutting/pgCronCiVacuity.test.ts:99`, local-skip at `:107`) stay red-proving.
+     `_metaLocalDbUrlGuard` scan scope extended to the cross-cutting reader if not already
+     covered (`tests/db/_localDbUrlScan.ts`). Rewrite the pg-cron header mode comment (`:27-29`)
+     and both vacuity-control comments (spec §9).
 2. GREEN: implement `tests/db/_validationTargetIdentity.ts` — pinned constant,
    `assertValidationIdentity` (two discriminable error shapes; timeout posture of
    `validation-schema-parity.test.ts:95-96`), `withValidationIdentityGuard(sql)` prepending the
