@@ -42,6 +42,11 @@ const toRepoPosix = (rootDir, file) => {
   return relative(ROOT, real).split(sep).join("/");
 };
 
+// Playwright's json reporter emits exactly these outcome statuses. An outcome
+// with a MISSING or unknown status must fail closed rather than count as
+// executed — a schema-malformed report could otherwise match the baseline.
+const KNOWN_OUTCOME_STATUSES = new Set(["expected", "unexpected", "flaky", "skipped"]);
+
 function membership(json, { executedOnly = false } = {}) {
   const rootDir = json?.config?.rootDir;
   if (typeof rootDir !== "string") fail("report has no config.rootDir");
@@ -59,7 +64,15 @@ function membership(json, { executedOnly = false } = {}) {
         // marks EVERY test "skipped" (nothing runs), so list-side membership
         // counts all entries.
         const counted = executedOnly
-          ? (spec.tests ?? []).filter((t) => t.status !== "skipped")
+          ? (spec.tests ?? []).filter((t) => {
+              if (!KNOWN_OUTCOME_STATUSES.has(t?.status)) {
+                fail(
+                  `run report outcome with unknown status ${JSON.stringify(t?.status)} ` +
+                    `in ${spec.file} — refusing to classify (fail-closed)`,
+                );
+              }
+              return t.status !== "skipped";
+            })
           : (spec.tests ?? []);
         if (executedOnly && counted.length === 0) continue;
         files.add(toRepoPosix(rootDir, spec.file));

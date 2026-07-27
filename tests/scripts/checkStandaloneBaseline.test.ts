@@ -161,6 +161,26 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     expect(run(["--report", p, "--baseline", baseline([A, B], 2)])).not.toBe(0);
   });
 
+  it("rejects a report outcome with a MISSING or unknown status (fail-closed, never executed)", () => {
+    // A schema-malformed run report must not slip through as executed: under
+    // the old `status !== "skipped"` predicate, both a missing status and a
+    // novel one ("passed" is the classic wrong guess for Playwright's
+    // "expected") counted as executed and MATCHED the baseline below — so
+    // exit 0 here is exactly the fail-open this pin exists to catch.
+    for (const tests of [[{}], [{ status: "passed" }]]) {
+      const dir = mkdtempSync(join(tmpdir(), "unknown-status-"));
+      const p = join(dir, "report.json");
+      writeFileSync(
+        p,
+        JSON.stringify({
+          config: { rootDir: join(ROOT, "tests", "e2e") },
+          suites: [{ file: A_REPORT, suites: [], specs: [{ file: A_REPORT, title: "t", tests }] }],
+        }),
+      );
+      expect(run(["--report", p, "--baseline", baseline([A], 1)])).not.toBe(0);
+    }
+  });
+
   it("rejects a missing report file", () => {
     expect(run(["--report", "/nonexistent/report.json", "--baseline", baseline([A], 2)])).not.toBe(
       0,
