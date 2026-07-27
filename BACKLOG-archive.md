@@ -805,3 +805,20 @@ This is the **#479 failure class repeating** — a spec living in no CI-run proj
 **Known blocker for a whole-config job:** `packlist-rescan-recovery.spec.ts` shells out to `pnpm dlx esbuild@0.28.0` (network fetch at test time) and fails locally on a cold/offline dlx cache — pin or vendor that dependency before putting it in a required job.
 
 **Trigger:** next milestone touching `tests/e2e/**` layout harnesses, or any adversarial round that flags real-browser coverage.
+
+---
+
+## BL-CRON-REGISTRY-MIGRATION-PARITY — ✅ RESOLVED (2026-07-26) — no CI-running check ties a new migration to the cron registry
+
+**RESOLVED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry's premise was WRONG and that is the interesting part: it said the fix "needs a variant that enables them", believing CI holds the pg_cron migrations aside permanently. `scripts/ci/supabase-local-bootstrap.sh` holds them aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`. `unit-suite-db` has therefore always had a Postgres whose `cron.job` rows were produced by PostgreSQL parsing the branch's SQL — the exact parity check asked for, with no new infrastructure and no SQL scanner (which this entry explicitly forbade). The suite was simply excluded from CI via `ENV_BOUND_EXCLUDES`, so it ran locally and nowhere else. Un-excluded, plus two anti-vacuity mechanisms (CI throws on unreachable psql; a live-case counter refuses an all-static run), plus a `pg-cron-validation-parity` job for the persistent validation project. See spec `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §5.
+
+**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+
+`pg-cron-jobs.json` is the canonical machine-readable cron contract, and constants are pinned against it. Nothing that runs in CI checks that the MIGRATIONS agree with it:
+
+- `pg-cron-coverage.test.ts` has a static migration check, but it reads two hard-coded historical paths and asserts `scheduledSql.toContain(job.schedule)` over their concatenated text — `fxav_cron_notify_digest` and `fxav_cron_refresh_watch` share `0 * * * *`, so one can change while the assertion still finds the string. It also does not run at all (`BL-PG-CRON-COVERAGE-UNRUN`).
+- Its live check reads the DEPLOYED validation row, so a migration sitting unapplied on a branch is invisible until after deploy.
+
+A hand-rolled SQL scanner was tried for exactly this and abandoned after nine review rounds of lexical corners (comments, dollar quoting, identifier case and quoting, name resolution, `search_path`, stored function bodies) — see the header of `tests/cron/samplingPeriodParity.test.ts`. **Do not reinstate regex-based SQL parsing.**
+
+**Fix direction:** apply migrations to a throwaway Postgres in CI and read `cron.job` from it, so PostgreSQL does the parsing on the BRANCH's SQL. The `supabase-local-bootstrap` path already boots a local instance; the pg_cron migrations are GUC-guarded and held aside there, so this needs a variant that enables them.
