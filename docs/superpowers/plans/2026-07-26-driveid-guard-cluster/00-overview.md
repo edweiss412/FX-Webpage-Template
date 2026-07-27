@@ -17,7 +17,7 @@ The spec is canonical. Where this plan and the spec disagree, the spec wins.
 | **Transition-audit task** | **N/A.** No component. |
 | **Meta-test inventory** | Declared below. |
 | **e2e harness-readiness checklist** | **N/A.** No Playwright spec added or modified. |
-| **`echo >>` discipline** | Applies to T6 (doc edits) — `Edit`/`Write` only, never shell append. |
+| **`echo >>` discipline** | Applies to T5 (doc edits) — `Edit`/`Write` only, never shell append. |
 | **Typecheck pasted snippets** | Done pre-dispatch; every snippet below compiled under the repo tsconfig via `pnpm tsc --noEmit` on the assembled files. |
 
 ### Meta-test inventory
@@ -30,11 +30,17 @@ The spec is canonical. Where this plan and the spec disagree, the spec wins.
 **EXTENDS:** `tests/db/validation-schema-parity.test.ts` (identity assert + audit layer, spec
 §3.1/§3.2) · `tests/cross-cutting/pg-cron-coverage.test.ts` (identity assert, spec §3.1).
 
+**EXTENDS (2):** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — its `BACKLOG_GRADUATED`
+registry gains the four cluster IDs, so deleting an entry from `BACKLOG.md` without archiving it
+goes red (plan-R1 finding 7; the bare test alone does not prove THESE entries graduated).
+
 **SUBJECT TO:** `tests/db/_metaLocalDbUrlGuard.test.ts` — every file reading
-`process.env.LOCAL_TEST_DATABASE_URL` must route through `assertLocalDbUrl`
-(`tests/db/_localDbUrlScan.ts:29`); the probes suite already does and keeps doing so, and
-pg-cron's resolver JOINS this class (spec §3.1, R5-1 — scan scope extended to the cross-cutting
-reader if needed). Invariant 9
+`process.env.LOCAL_TEST_DATABASE_URL` must route through an imported guard call
+(`assertLocalDbUrl` / `assertLocalDbUrlIfSet`, accepted names at `tests/db/_localDbUrlScan.ts:28`;
+env-var constant at `tests/db/_localDbUrlScan.ts:29`); the probes suite already does and keeps
+doing so, and pg-cron's call-site `assertLocalDbUrlIfSet` wrap JOINS this class (spec §3.1). The
+scanner needs NO edit — it already walks all of `tests/` recursively; the lockstep is the census
+bump 56 → 57 (`tests/db/_metaLocalDbUrlGuard.test.ts:393-403`). Invariant 9
 (`tests/auth/_metaInfraContract.test.ts`) **N/A** — no Supabase client call added (raw `postgres`
 / psql only). Invariant 10 **N/A** — no route, no server action; test-only mutations inside
 always-rolled-back transactions.
@@ -42,9 +48,10 @@ always-rolled-back transactions.
 ### Vitest / CI wiring (verified 2026-07-26)
 
 - `tests/db/**` runs in the serial project → CI `unit-suite-db` (required aggregator worker). The
-  NEW files are `_`-prefixed helpers (`_validationTargetIdentity.ts`, `_censusRunner.ts`) — helper
-  convention already established in `tests/db/`, not matched as test files. No `testMatch` or
-  workflow path-filter changes needed.
+  ONLY new files are the spec-§0 `_`-prefixed helpers (`_validationTargetIdentity.ts`,
+  `_censusRunner.ts`) — helper convention already established in `tests/db/`, not matched as
+  test files. NO new test files: every new test lands in an existing suite named in spec §0
+  (plan-R1 finding 2). No `testMatch` or workflow path-filter changes needed.
 - `tests/db/validation-schema-parity.test.ts` also runs via `test:audit:validation-schema-parity`
   (`package.json:42`) in the `validation-schema-parity` x-audits job; `pg-cron-coverage.test.ts`
   via `test:audit:pg-cron-validation` (`package.json:65`) in `pg-cron-validation-parity`. Both
@@ -74,161 +81,187 @@ timeouts.
 
 ---
 
-## Tasks (TDD each; commit per task, conventional commits)
+## Module APIs (defined once; every task below conforms — plan-R1 findings 3 and 4)
 
-### T1 — identity module + per-connection target binding (spec §3.1)
+**`tests/db/_validationTargetIdentity.ts`** (identity module, spec §0) exports:
 
-1. RED: new `tests/db/validationTargetIdentity.test.ts` (serial project):
-   - `assertValidationIdentity(LOCAL_URL)` rejects with the MISMATCH error (local identifier ≠
-     pinned; message contains both identifiers + remediation text). Failure mode caught: a future
-     edit that weakens the compare to substring/prefix, or pins the local identifier.
-   - unreachable host (`postgresql://postgres:postgres@127.0.0.1:1/postgres`) rejects with the
-     INFRA-shaped error, never the mismatch error. Failure mode: infra faults masquerading as
-     "wrong database" (or vice versa) — the two must stay discriminable.
-   - `withValidationIdentityGuard("select 1")` run against the LOCAL stack aborts with the guard
-     exception (spec §3.1 negative control). Failure mode: a guard block that executes but never
-     raises (e.g. dropped `raise`, wrong comparison type).
-   - redaction: force a failure through the shared psql runner with a sentinel-password DSN
-     (`postgresql://u:SENTINELPW@127.0.0.1:1/x`) and assert `SENTINELPW` appears NOWHERE in the
-     thrown error (spec §3.1, R2-1). Failure mode: `execFileSync` argv echo leaking credentials.
-   - constructed messages: the pg-cron CI-unreachable message builder, invoked with the sentinel
-     DSN, contains no sentinel (spec §3.1, R3-1). Failure mode: reintroduced raw `databaseUrl`
-     interpolation in a suite-built message.
-   - `resolvePgCronMode` five cases (spec §3.1, R3-2 redesigned per R4-1/R5-1 — NO DSN
-     judgment): `"validation"` → validation mode consuming `testDatabaseUrl` (existing refusals
-     if missing); unset / `""` / `"local"` → local mode with
-     `assertLocalDbUrl(localTestDatabaseUrl ?? LOCAL_LOOPBACK_URL)` — supplied remote
-     `testDatabaseUrl` IGNORED (negative control: returned dbUrl is the loopback value even when
-     a remote `testDatabaseUrl` is passed; a loopback `localTestDatabaseUrl` IS honored); any
-     other string → THROW. Failure modes: misspelled workflow target silently downgrading;
-     ambient dev-box `TEST_DATABASE_URL` reaching a remote cluster from local mode.
-   - source-structural resolver binding (spec §3.1, R4-2/R5-1): scan
-     `tests/cross-cutting/pg-cron-coverage.test.ts` source — `process.env.PG_CRON_COVERAGE_TARGET`,
-     `process.env.TEST_DATABASE_URL`, and `process.env.LOCAL_TEST_DATABASE_URL` appear ONLY as
-     `resolvePgCronMode` arguments; `coverageTarget`/`databaseUrl` derive only from its return.
-     Failure mode: resolver exists, passes its unit tests, and nothing calls it.
-   - pgCronCiVacuity controls re-pointed (spec §3.1, R5-1/R6-2): dead-endpoint injection via
-     `LOCAL_TEST_DATABASE_URL` = loopback port 1; ALL THREE child invocations (CI-fail `:99`,
-     local-skip `:107`, reachable `:116`) explicitly pin `PG_CRON_COVERAGE_TARGET: "local"`
-     (child inherits ambient env at `:45-46`). Rewrite the pg-cron header mode comment
-     (`:27-29`) and both vacuity-control comments (spec §9).
-   - scanner-shape guard (spec §3.1, R6-1): the single `LOCAL_TEST_DATABASE_URL` read in
-     `pg-cron-coverage.test.ts` is wrapped at the call site in `assertLocalDbUrlIfSet(...)`
-     (`tests/db/_localDbUrl.ts:77`), passed to the pure resolver; guarded-reader census
-     `tests/db/_metaLocalDbUrlGuard.test.ts:393-403` bumps 56 → 57 with message row.
-2. GREEN: implement `tests/db/_validationTargetIdentity.ts` — pinned constant,
-   `assertValidationIdentity` (two discriminable error shapes; timeout posture of
-   `validation-schema-parity.test.ts:95-96`), `withValidationIdentityGuard(sql)` prepending the
-   `DO` guard block (constant interpolated once, no second literal), and the REDACTING psql
-   runner (rethrows any failure with the DSN replaced by `<TEST_DATABASE_URL redacted>`) that
-   every validation-targeting call below uses.
-3. Wire per spec §3.1 binding contract: `validation-schema-parity.test.ts` — first validation
-   test runs `assertValidationIdentity`; layer-2 `introspectManifest` and the CHECK-parity call
-   route through the redacting runner with `withValidationIdentityGuard`-wrapped SQL when
-   `TEST_DATABASE_URL` is set; `canConnect` stays guard-EXEMPT with the spec's comment.
-   `pg-cron-coverage.test.ts` — mode resolution replaced by `resolvePgCronMode` (fail-closed);
-   every live query under the validation gate (`:157-171`) wrapped + redacted; the two raw
-   `databaseUrl` message emissions (`:174-183`, `:184-190`) rewritten redacted;
-   `livePsqlReachable` (`:115-124`) becomes tri-state
-   (`reachable`/`identity_mismatch`/`unreachable`), classifying the guard exception text, and the
-   CI gate reports `identity_mismatch` as an identity failure, never "unreachable". Verify vs
-   live validation: `TEST_DATABASE_URL=<validation> pnpm test:audit:validation-schema-parity`
-   green; mutate pinned constant last digit → red mismatch (then revert).
-4. Commit `test(db): bind every validation-targeting query to the cluster identity`.
+- `VALIDATION_SYSTEM_IDENTIFIER` (string constant);
+- `assertValidationIdentity(dbUrl)` — psql probe, two discriminable error shapes;
+- `withValidationIdentityGuard(sql)` — prepends the `DO` guard block;
+- `execPsqlRedacted(dbUrl, args, input?)` — the redacting psql runner (spec §3.1, R2-1);
+- `redactDsn(message, dbUrl)` — pure string redactor `execPsqlRedacted` uses; ALSO used by
+  pg-cron's message builders so constructed messages share the mechanism (R3-1);
+- `resolvePgCronMode({ target, testDatabaseUrl, localTestDatabaseUrl })` — pure, five cases
+  (spec §3.1);
+- `buildPgCronUnreachableMessage(dbUrl)` — the CI-unreachable message builder, redacted via
+  `redactDsn` (its sentinel test lives with the resolver tests).
 
-### T2 — census runner extraction + injective tuple key (mechanical enabler)
+**`tests/db/_censusRunner.ts`** (census runner, spec §0) exports:
 
-1. Extract `censusInPinnedTx` from `driveIdCoverage.db.test.ts:105-129` to
-   `tests/db/_censusRunner.ts`, parameterized by client handle; suite imports it. Export
-   `censusTupleKey = JSON.stringify([schema, table, column])` and `EXPECTED_DEV_CENSUS` (six
-   tuples) from the same module (spec §3.2/§3.3, R2-2).
-   No behavior change to the live suite: `pnpm vitest run tests/db/driveIdCoverage.db.test.ts`
-   green before and after (negative control + canaries are the behavioral pins).
-2. RED→GREEN: collision negative control in the DB-free unit suite
-   (`tests/db/driveIdCoverage.test.ts`): `public.a."b.drive_file_id"` vs
-   `public."a.b".drive_file_id` produce DISTINCT `censusTupleKey`s. Failure mode: a future
-   refactor to dot-joined keys silently collapsing quoted identifiers.
-3. Commit `refactor(db): extract the pinned-tx census runner; injective tuple key`.
+- `censusInPinnedTx(sql, opts?) → { columns, columnsPgCatalog, constraints, searchPath }` — ONE
+  explicit transaction on ONE connection: `set local search_path`, in-tx `current_setting`
+  assert, then `opts.preambleSql` statements (T4 passes the identity `DO` block here, satisfying
+  spec §3.1 "guard inside its own census tx"), then BOTH census queries and the constraint query.
+  Both censuses come from the SAME transaction by construction — no caller can split them
+  (plan-R1 finding 4).
+- `censusTupleKey({schema, table, column})` — JSON-encoded tuple key (spec §3.3);
+- `diffCensusSources(a, b) → { onlyA, onlyB }` — the ONE comparator, keyed by `censusTupleKey`;
+  the production cross-check asserts both arrays empty, the negative control asserts a non-empty
+  diff THROUGH THE SAME FUNCTION — weakening the comparator to length/subset breaks both
+  (plan-R1 finding 5);
+- `EXPECTED_DEV_CENSUS` (six tuples, spec §3.2).
 
-### T3 — dual-source census self-check (spec §3.3)
+Exemption/registry hygiene logic for the probes suite is a pure function
+`auditProbeRegistry({censusColumns, probes, exemptions}) → findings[]` in
+`tests/db/_censusRunner.ts` too — DB-free-testable with synthetic inputs, mirroring
+`auditDriveIdCoverage`'s pure split (plan-R1 finding 6). Findings kinds: `unprobed_tuple`,
+`stale_probe`, `constraint_mismatch` (missing OR non-canonical definition for the claimed
+column), `nullable_mismatch`, `empty_reason`, `duplicate_exemption`, `stale_exemption`,
+`probe_exemption_overlap`.
 
-1. RED: in `driveIdCoverage.db.test.ts`, add the DUAL-SOURCE CROSS-CHECK test importing
-   `CENSUS_COLUMNS_PG_CATALOG_SQL` (does not exist yet → suite fails to compile = red).
-   Assertion: `(schema,table,column)` tuple set from the information_schema census set-equals the
-   pg_catalog census, both taken inside the SAME pinned tx. Failure mode caught: any single-site
-   narrowing of either query (predicate, schema list, added filter, relkind drift).
-2. RED (second test): cross-check negative control — run the pg_catalog SQL with the predicate
-   text-replaced to `'drive_file_idX'` (string substitution on the exported constant, asserted to
-   have actually changed it) → resulting tuple set is empty/strict-subset AND set-equality against
-   the primary census FAILS. Failure mode: a cross-check comparator weakened to subset/length.
-3. GREEN: add `CENSUS_COLUMNS_PG_CATALOG_SQL` to `lib/driveIdCoverage/introspect.ts` — fully
-   literal (own `in ('public','dev')`, own `~ 'drive_file_id'`, `relkind in ('r','p')`,
-   `attnum > 0`, `not attisdropped`), with the independence comment on BOTH queries forbidding
-   deduplication (spec §3.3).
-4. Commit `feat(db): dual-source census cross-check for the Drive-ID guard`.
+## Tasks (TDD each; strict RED first; commit per task, conventional commits)
 
-### T4 — auditor-on-validation layer (spec §3.2)
+### T1 — identity module: constants, guard, redaction, resolver, builder (spec §3.1)
 
-1. RED-by-construction: new layer in `validation-schema-parity.test.ts` gated on
-   `TEST_DATABASE_URL` (skip unset, throw set-but-empty — existing posture): open `postgres`
-   client; run the §3.1 guard block inside the census tx BEFORE the census queries; shared census
-   runner; `auditDriveIdCoverage(..., DRIVE_ID_COVERAGE_EXEMPTIONS)` `.toEqual([])`;
-   manifest-derived public membership (every manifest column matching the census regex appears in
-   the validation census public slice); `EXPECTED_DEV_CENSUS` SET-EQUALITY on the dev slice (six
-   committed tuples in `_censusRunner.ts`, spec §3.2 — both directions red). All set comparisons
-   key by `censusTupleKey` (spec AC-7). Bite-proofs: the
-   local suite's negative control covers the auditor; one-off manual runs with (a) the
-   manifest-membership regex mutated to a non-matching literal and (b) one tuple removed from
-   `EXPECTED_DEV_CENSUS` → each red (recorded in task log, then reverted).
-2. GREEN vs validation: `TEST_DATABASE_URL=<validation> pnpm test:audit:validation-schema-parity`.
+1. RED: in `tests/db/driveIdCoverage.test.ts` (DB-free), write FIRST — imports fail to compile
+   until step 2 (genuine red):
+   - `redactDsn`: sentinel-password DSN (`postgresql://u:SENTINELPW@127.0.0.1:1/x`) → sentinel
+     absent from output; DSN-free messages pass through unchanged.
+   - `execPsqlRedacted` against the sentinel DSN (dead loopback port — no DB needed): rejects,
+     and `SENTINELPW` appears NOWHERE in the thrown error (message, stack, argv echo). Failure
+     mode: `execFileSync` argv leak (R2-1, reviewer probe-confirmed).
+   - `buildPgCronUnreachableMessage(sentinelDsn)`: no sentinel in output (R3-1).
+   - `resolvePgCronMode` five cases incl. both negative controls: remote `testDatabaseUrl`
+     ignored in local mode; misspelled target throws (R4-1/R5-1). Failure modes: fail-open
+     downgrade; ambient remote DSN reached from local mode.
+   - source-structural binding: `tests/cross-cutting/pg-cron-coverage.test.ts` reads the three
+     env vars ONLY as `resolvePgCronMode` arguments / inside the `assertLocalDbUrlIfSet` wrap,
+     and derives `coverageTarget`/`databaseUrl` only from the resolver return (R4-2). It asserts
+     the FINAL contract, which is why the pg-cron rewiring is part of THIS task (step 4) rather
+     than a later one — the binding test stays red until the consumer is actually rewired, and
+     never passes against an unused helper.
+2. GREEN: implement `tests/db/_validationTargetIdentity.ts` (API above).
+3. RED (DB-required, `tests/db/driveIdCoverage.db.test.ts`): `assertValidationIdentity(LOCAL)`
+   rejects with the MISMATCH shape (both identifiers + remediation in message); dead-port DSN
+   rejects with the INFRA shape, never mismatch; `withValidationIdentityGuard("select 1")` on the
+   LOCAL stack aborts with the guard exception. Failure modes: weakened compare; conflated
+   infra/mismatch; guard that never raises.
+4. GREEN: wire consumers.
+   - `tests/db/validation-schema-parity.test.ts`: first validation-targeting test runs
+     `assertValidationIdentity`; layer-2 introspection + CHECK-parity route through
+     `execPsqlRedacted` with `withValidationIdentityGuard`-wrapped SQL when `TEST_DATABASE_URL`
+     is set; `canConnect` stays exempt with the spec's comment.
+   - `tests/cross-cutting/pg-cron-coverage.test.ts`: mode resolution replaced by
+     `resolvePgCronMode` (env reads only at its call site; `LOCAL_TEST_DATABASE_URL` wrapped in
+     `assertLocalDbUrlIfSet` — census in `_metaLocalDbUrlGuard.test.ts:393-403` bumps 56 → 57);
+     every live query under validation mode wrapped + redacted; the two raw `databaseUrl`
+     emissions (`tests/cross-cutting/pg-cron-coverage.test.ts:174-183` via
+     `buildPgCronUnreachableMessage`, and the local warn at
+     `tests/cross-cutting/pg-cron-coverage.test.ts:184-190` via `redactDsn`); reachability probe
+     tri-state (`reachable`/`identity_mismatch`/`unreachable`, actual span
+     `tests/cross-cutting/pg-cron-coverage.test.ts:118-129`), identity mismatch reported as
+     identity failure; header comment `:27-29` rewritten (spec §9).
+   - `tests/cross-cutting/pgCronCiVacuity.test.ts`: dead endpoint via `LOCAL_TEST_DATABASE_URL`
+     loopback port 1; ALL THREE child invocations (`:99`, `:107`, `:116`) pin
+     `PG_CRON_COVERAGE_TARGET: "local"`; control comments rewritten (spec §9).
+5. Verify: `pnpm vitest run tests/db/driveIdCoverage.test.ts tests/db/driveIdCoverage.db.test.ts
+   tests/cross-cutting/pgCronCiVacuity.test.ts tests/db/_metaLocalDbUrlGuard.test.ts` green;
+   `TEST_DATABASE_URL=<validation> pnpm test:audit:validation-schema-parity` green; mutate the
+   pinned constant's last digit → red mismatch → revert.
+6. Commit `test(db): bind every validation-targeting query to the cluster identity`.
+
+### T2 — census runner: extraction, tuple key, comparator, dual-source (specs §3.2/§3.3)
+
+1. RED (DB-free, `tests/db/driveIdCoverage.test.ts`): collision negative control — imports
+   `censusTupleKey` (does not exist → compile red); `public.a."b.drive_file_id"` vs
+   `public."a.b".drive_file_id` produce DISTINCT keys. Failure mode: dot-joined key collapse.
+2. RED (same file): `diffCensusSources` on synthetic inputs — disjoint sets → both arrays
+   populated; equal sets → both empty. Failure mode: comparator weakened to length/subset.
+3. GREEN: implement `tests/db/_censusRunner.ts` (API above), including
+   `CENSUS_COLUMNS_PG_CATALOG_SQL` in `lib/driveIdCoverage/introspect.ts` (fully literal, own
+   predicate + schema list, `relkind in ('r','p')`, no-dedup comments on BOTH queries) and the
+   `introspect.ts:7-10` header rewrite (spec §9). Migrate `driveIdCoverage.db.test.ts` to the
+   shared runner — suite green before and after (negative control + canaries pin behavior).
+4. RED (DB, `driveIdCoverage.db.test.ts`): DUAL-SOURCE CROSS-CHECK via `diffCensusSources` over
+   ONE `censusInPinnedTx` result — red until step 3's pg_catalog query is correct (written
+   against a deliberately-wrong stub first: predicate `'drive_file_idX'` in the stub → the test
+   proves the comparator bites, then the real query lands). Negative control: run the pg_catalog
+   SQL with the narrowed predicate inline and assert `diffCensusSources` (SAME function) reports
+   a non-empty diff.
+5. Verify + commit `refactor(db): shared pinned-tx census runner, injective tuple key,
+   dual-source cross-check`.
+
+### T3 — auditor-on-validation layer (spec §3.2)
+
+1. RED against live validation: new layer in `validation-schema-parity.test.ts` (gated on
+   `TEST_DATABASE_URL`; `postgres` client; `censusInPinnedTx(client, { preambleSql: [guard] })`).
+   Written RED-first for real: `EXPECTED_DEV_CENSUS` ships EMPTY in this step, so the dev-slice
+   set-equality FAILS against live validation (six unexpected tuples) — run
+   `TEST_DATABASE_URL=<validation> pnpm test:audit:validation-schema-parity` and record the red.
+   Also in this step: manifest floor asserts the manifest-derived expected set is NON-EMPTY
+   before membership (plan-R1 finding 1's vacuity note — a broken regex yields an empty
+   expected set and must be red, not vacuously green), then membership of every derived tuple in
+   the validation public slice via `censusTupleKey`; audit layer
+   `auditDriveIdCoverage(...) → []`.
+2. GREEN: fill `EXPECTED_DEV_CENSUS` with the six measured tuples → validation run green.
 3. Commit `feat(db): definition-based Drive-ID audit against the validation project`.
 
-### T5 — behavioral probe registry (spec §3.4)
+### T4 — behavioral probe registry (spec §3.4)
 
-1. Restructure `driveFileIdNonblank.db.test.ts` to the `DRIVE_ID_PROBES` registry (spec §3.4
-   type: `schema`/`table`/`column`/`nullable`/`constraintName`/`siblings`/`siblingValues`/
-   optional `setup` — NO free-form insert; the generator constructs
-   `insert into ${schema}.${table} (${siblings}, ${column}) values (${siblingValues}, $1)`).
-   Port the 7 existing probes as rows (keep their comments). Generated per-row tests: reject
-   ''/'   '/'\t' asserting `code === '23514'` AND `constraint_name === row.constraintName` AND
-   `schema_name`/`table_name` match the claim (driver fields measured, spec §2 item 5); accept
-   valid; nullable → accept NULL. Failure mode caught: a row claiming tuple X while probing Y, or
-   passing on a 23514 raised by an unrelated CHECK. Suite green with 7 rows.
-2. RED: completeness meta-test — every live census tuple ∈ registry ∪ `PROBE_EXEMPTIONS` → fails
-   listing exactly the 16 missing tuples. Same test verifies per-row `constraintName` (exists on
-   the claimed table with definition exactly `canonicalBare/Nullable(column)`) and `nullable`
-   against the live census, rejects probes∩exemptions overlap (R1-4), and rejects registry rows
-   for non-census tuples (stale-probe guard). All membership keyed by `censusTupleKey` (AC-7). Bite-proofs in-run: temporarily mislabel one row's
-   `constraintName`, temporarily add a bogus tuple row — each red, then reverted.
-3. GREEN: add the 16 rows using the plan-time shapes (§Plan-time introspection). FK parents via
-   row `setup` inside the same rolled-back transaction, zero residue.
-4. Adopt `unreachableDbFailure` (CI fail-not-skip) in this suite, mirroring
-   `driveIdCoverage.db.test.ts:79-91`.
-5. Commit `feat(db): registry-enforced behavioral probes for every Drive-ID column`.
+1. RED (DB-free): `auditProbeRegistry` synthetic-input tests, one per finding kind — including
+   `constraint_mismatch` for BOTH a missing name and a right-named `CHECK (true)` definition,
+   `nullable_mismatch` for a false claim, `probe_exemption_overlap`, `empty_reason`,
+   `duplicate_exemption`, `stale_exemption`, `stale_probe`, `unprobed_tuple`. Compile-red first
+   (function does not exist), then behavior-red per kind. Failure modes: each hygiene rule
+   individually deletable without a test going red (plan-R1 finding 6).
+2. GREEN: implement `auditProbeRegistry`.
+3. Restructure `driveFileIdNonblank.db.test.ts` to the registry; port the 7 existing probes;
+   generated per-row tests assert `code === '23514'` AND
+   `constraint_name`/`schema_name`/`table_name` match the row (spec §2 item 5); valid accepts;
+   nullable rows accept NULL; row `setup` runs in the same rolled-back tx.
+4. RED (the load-bearing one): completeness meta-test — `auditProbeRegistry` over the LIVE
+   census (via shared runner) with the 7-row registry → red listing exactly the 16 unprobed
+   tuples (recorded in the task log).
+5. GREEN: add the 16 rows from §Plan-time introspection (FK parents via `setup`; `sync_holds`
+   uses `kind='undo_override'` with `proposed_value` NULL; enum values as inventoried).
+6. Adopt `unreachableDbFailure` (CI fail-not-skip) in this suite, mirroring
+   `tests/db/driveIdCoverage.db.test.ts:79-91` — bound structurally: the DB-free suite asserts
+   this file's source contains the module-scope `unreachableDbFailure` call + throw (same
+   source-scan mechanism as the resolver binding; removing the call goes red — plan-R1
+   finding 6 last bullet).
+7. Verify + commit `feat(db): registry-enforced behavioral probes for every Drive-ID column`.
 
-### T6 — doc lockstep (spec §9)
+### T5 — backlog graduation with executable proof (spec §9; plan-R1 findings 1 and 7)
 
-1. Graduate the four entries from repo-root `BACKLOG.md` → `BACKLOG-archive.md` (move, statused
-   RESOLVED with spec path; `tests/docs/_metaDeferralLedgerGraduation.test.ts` green).
-2. Parent spec §10 items 1/2/4/5 + §11 rows: one-line "closed by" notes. `BL-PG-CRON-COVERAGE-UNRUN`
-   inheritance sentence updated.
-3. Retire the two falsified comments (spec §9, R3-4): rewrite
-   `lib/driveIdCoverage/introspect.ts:7-10` (dual-source cross-check is now the mechanical
-   control; review remains for the identical-two-site residue) and the x-audits "INHERITED
-   CEILING" block (`.github/workflows/x-audits.yml:365-370`) (identity guard proves the target).
-4. `pnpm spec:lint` on both spec docs: no new hard failures.
-5. Commit `docs: graduate the four Drive-ID guard backlog entries`.
+1. RED: add the four IDs (`BL-DRIVEID-CENSUS-QUERY-SELF-CHECK`,
+   `BL-VALIDATION-PARITY-DEFINITION-MATCH`, `BL-VALIDATION-TARGET-BINDING`,
+   `BL-DRIVEID-BEHAVIORAL-COVERAGE`) to `BACKLOG_GRADUATED` in
+   `tests/docs/_metaDeferralLedgerGraduation.test.ts` FIRST → red (entries still live in
+   `BACKLOG.md`; registry demands archive rows). Failure mode: entries deleted without archival,
+   or graduation claimed without the move.
+2. GREEN: move the four entries to `BACKLOG-archive.md` (RESOLVED + spec path + provenance);
+   update the `BL-PG-CRON-COVERAGE-UNRUN` inheritance sentence; parent spec §10 items 1/2/4/5 +
+   §11 rows get "closed by" notes; x-audits "INHERITED CEILING" block rewritten
+   (`.github/workflows/x-audits.yml:365-370`).
+3. `pnpm spec:lint` both spec docs — no new hard failures. Commit
+   `docs: graduate the four Drive-ID guard backlog entries`.
 
-### T7 — close-out
+### T6 — close-out
 
-1. Full local suite (`pnpm test` equivalent used by CI legs) green; targeted audit scripts green.
+1. Full local suite green (`pnpm test:fast` + the serial db project, per CI legs); targeted
+   audit scripts green.
 2. Whole-diff cross-model review (fresh-eyes posture) → APPROVE.
-3. Push, PR, real CI green — including an `x-audits` run on the PR (fires on `pull_request`) with
-   the two validation jobs green; `workflow_dispatch` re-run if needed.
+3. Push, PR, real CI green — AND an `x-audits` `workflow_dispatch` run observed green before
+   merge, UNCONDITIONALLY (spec AC-6; the PR-triggered run does not substitute — plan-R1
+   finding 8).
 4. Merge, fast-forward main, `git rev-list --left-right --count main...origin/main` == `0  0`.
 
 ## Task order rationale
 
-T1 first: every later validation-touching run inherits the identity guarantee. T2 before T3/T4/T5
-(all three consume the shared runner). T5's meta-test lands AFTER its registry port so the RED it
-produces is the genuine 16-tuple gap, not a refactor artifact.
+T1 first: every later validation-touching run inherits the identity guarantee, and the vacuity
+controls stay coherent within one commit. T2 before T3/T4 (both consume the runner + comparator +
+key). T3's dev-census RED is real (empty list vs live validation). T4's completeness RED is the
+genuine 16-tuple gap. T5's RED is the registry-before-move ordering. Six tasks, not the draft's
+seven: the identity module and its pg-cron consumer merged into T1 because the source-structural
+binding test asserts the final contract and forces co-location; doc lockstep and graduation
+consolidated into T5.
