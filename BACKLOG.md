@@ -249,7 +249,8 @@ discovered dark, which is the event this would have prevented.
 `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
 `VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
 file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
-while passing locally.
+while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
+mechanism this entry is about remains).
 
 Three formulations failed:
 
@@ -386,7 +387,9 @@ The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, i
 
 **What stays open:** the per-job smoke-test residue (spec §9), and the target-binding ceiling below — this job inherits `BL-VALIDATION-TARGET-BINDING`, since a DSN substring check cannot prove which database `psql` connected to (libpq `host`/`hostaddr` can override the displayed authority).
 
-`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It is excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there says it "runs against the validation project (like validation-schema-parity)". **Nothing runs it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
+**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
 
 So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
 
