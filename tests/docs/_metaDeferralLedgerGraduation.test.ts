@@ -188,33 +188,27 @@ const BACKLOG_GRADUATED = [
     id: "BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET",
     provenance: "feat/section-header-rebuild-phantom-spacers",
   },
-  // 2026-07-27 sheet-icon-link close-out sweep: both had been closed in place
-  // in spellings the terminal-status guard could not see (a bold opening claim
-  // and a heading suffix) — the guard was widened in the same commit.
+  // 2026-07-27 sheet-icon-link close-out sweep: closed in place in a spelling
+  // the terminal-status guard could not see (a bold opening claim) — the
+  // guard was widened in the same branch. The three companion graduations
+  // that sweep also caught (E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED,
+  // HEADER-PROBE-RESIDUAL-VACUITY, AGENDA-PERDAY-VIEWER-FILTER) were
+  // independently graduated by mainline #628 and are listed above with
+  // mainline provenance.
   {
     id: "BL-HEADER-LINK-AFFORDANCE-CLASS",
     provenance: "feat/sheet-icon-link-affordance-class",
-  },
-  {
-    id: "BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED",
-    provenance: "PR4 of the CI-dark cluster",
   },
   // BL-CI-STALE-BRANCH-PROTECTION-COMMENT is deliberately NOT here: this
   // branch graduated it, mainline #628 kept it in place the same day
   // (sub-entry of a still-open parent section), and the merge reverted the
   // graduation per #628's keep. It lives in HEADING_TERMINAL_EXEMPT instead.
-  // Surfaced by the widened guard itself after the rebase onto 2026-07-27
-  // main: closed in place upstream with the heading-suffix spelling.
+  // fix/lifecycle-transitions-roundtrip-flake (2026-07-27). The round-trip
+  // flake reached five consecutive CI greens; the spec is wired and its
+  // allowlist row deleted.
   {
-    id: "BL-HEADER-PROBE-RESIDUAL-VACUITY",
-    provenance: "test/header-probe-residual-closure",
-  },
-  // Surfaced by the r5 SHIPPED/SUPERSEDED widening: shipped in place upstream
-  // with a "retained for the decision record" note — the record lives on in
-  // the archive, greppable by id.
-  {
-    id: "BL-AGENDA-PERDAY-VIEWER-FILTER",
-    provenance: "PR #610",
+    id: "BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE",
+    provenance: "fix/lifecycle-transitions-roundtrip-flake",
   },
 ] as const;
 

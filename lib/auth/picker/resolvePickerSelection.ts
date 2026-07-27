@@ -1,4 +1,5 @@
 import { decodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
+import { log, serializeError } from "@/lib/log";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -35,6 +36,28 @@ type CrewEmailRow = {
 
 const INFRA_ERROR = { kind: "infra_error", code: "PICKER_RESOLVER_LOOKUP_FAILED" } as const;
 
+/**
+ * Fail-closed observability, mirroring resolveShowPageAccess's helper: the
+ * typed infra_error result is the contract, but a silent return here hid a
+ * missing PICKER_COOKIE_SIGNING_KEY in a CI workflow env for months — every
+ * crew visit failed closed and nothing named the boundary
+ * (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE, run 30236837082: 40/40
+ * fail-closed attempts, all attributed only one level up). Never throws;
+ * never alters the returned result.
+ */
+function infraError(
+  site: string,
+  detail?: unknown,
+): { kind: "infra_error"; code: "PICKER_RESOLVER_LOOKUP_FAILED" } {
+  void log.warn("picker selection resolver failed closed:", {
+    source: "auth.picker.resolvePickerSelection",
+    code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    site,
+    ...(detail === undefined ? {} : { error: serializeError(detail) }),
+  });
+  return INFRA_ERROR;
+}
+
 export async function resolvePickerSelection(input: {
   showId: string;
   cookie: string | undefined;
@@ -42,8 +65,8 @@ export async function resolvePickerSelection(input: {
   let key: string;
   try {
     key = pickerCookieSigningKey();
-  } catch {
-    return INFRA_ERROR;
+  } catch (err) {
+    return infraError("cookie_key", err);
   }
 
   const env = decodePickerCookie(input.cookie, key);
@@ -55,18 +78,18 @@ export async function resolvePickerSelection(input: {
   let serviceRole: ReturnType<typeof createSupabaseServiceRoleClient>;
   try {
     serviceRole = createSupabaseServiceRoleClient();
-  } catch {
-    return INFRA_ERROR;
+  } catch (err) {
+    return infraError("service_role_client", err);
   }
 
   let sessionEmail: string | null = null;
   try {
     const authClient = await createSupabaseServerClient();
     const { data, error } = await authClient.rpc("auth_email_canonical");
-    if (error) return INFRA_ERROR;
+    if (error) return infraError("auth_email", error);
     sessionEmail = typeof data === "string" ? data : null;
-  } catch {
-    return INFRA_ERROR;
+  } catch (err) {
+    return infraError("auth_email_threw", err);
   }
 
   let showRow: ShowRow | null = null;
@@ -76,10 +99,10 @@ export async function resolvePickerSelection(input: {
       .select("picker_epoch, published, archived")
       .eq("id", input.showId)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
-    if (error) return INFRA_ERROR;
+    if (error) return infraError("show_read", error);
     showRow = data;
-  } catch {
-    return INFRA_ERROR;
+  } catch (err) {
+    return infraError("show_read_threw", err);
   }
 
   if (!showRow) return { kind: "no_selection" };
@@ -96,10 +119,10 @@ export async function resolvePickerSelection(input: {
       .eq("id", entry.id)
       .eq("show_id", input.showId)
       .maybeSingle()) as { data: CrewRow | null; error: unknown };
-    if (error) return INFRA_ERROR;
+    if (error) return infraError("crew_read", error);
     crewRow = data;
-  } catch {
-    return INFRA_ERROR;
+  } catch (err) {
+    return infraError("crew_read_threw", err);
   }
 
   if (!crewRow) {
@@ -136,10 +159,10 @@ export async function resolvePickerSelection(input: {
         .select("email")
         .eq("id", entry.id)
         .single()) as { data: CrewEmailRow | null; error: unknown };
-      if (error) return INFRA_ERROR;
+      if (error) return infraError("crew_email_read", error);
       rowEmail = typeof data?.email === "string" ? data.email : null;
-    } catch {
-      return INFRA_ERROR;
+    } catch (err) {
+      return infraError("crew_email_read_threw", err);
     }
     if (rowEmail !== sessionEmail) {
       return {
