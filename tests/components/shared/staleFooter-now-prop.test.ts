@@ -15,6 +15,7 @@
  * `components/` to confirm callers thread the `now` prop explicitly.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -55,11 +56,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
 
   it("StaleFooter source no longer contains the `now ?? new Date()` default branch", () => {
     const src = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
-    const stripped = src
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .split("\n")
-      .map((line) => line.replace(/\/\/.*$/, ""))
-      .join("\n");
+    const stripped = stripCommentsForFile(src, "components/shared/StaleFooter.tsx");
     expect(stripped).not.toMatch(/\bnow\s*\?\?\s*new Date\s*\(/);
   });
 
@@ -103,11 +100,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
       // don't false-positive the JSX-opener scan. Naive but sufficient here:
       // the file's real code does not contain "//" inside string literals
       // that would survive this pass (verified by C.4 lexer in Task C.4).
-      const src = raw
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .split("\n")
-        .map((line) => line.replace(/\/\/.*$/, ""))
-        .join("\n");
+      const src = stripCommentsForFile(raw, "components/shared/StaleFooter.tsx");
       let m: RegExpExecArray | null;
       while ((m = openerRe.exec(src)) !== null) {
         const attrs = m[1] ?? "";

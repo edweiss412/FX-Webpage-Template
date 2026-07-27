@@ -7,19 +7,16 @@
  * pg_advisory_xact_lock, that no `for update` token appears before the first advisory-lock token.
  */
 import { readFileSync } from "node:fs";
+import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 const MIGRATION = join(process.cwd(), "supabase/migrations/20260608000003_undo_change_rpc.sql");
 
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
-}
-
 describe("undo_change migration — advisory-lock-before-row-lock order (PF11)", () => {
   it("no FOR UPDATE precedes the first pg_advisory_xact_lock in any lock-taking body", () => {
-    const src = stripComments(readFileSync(MIGRATION, "utf8"));
+    const src = stripSqlComments(readFileSync(MIGRATION, "utf8"));
     const functionBlocks = [
       ...src.matchAll(
         /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,

@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -403,9 +404,9 @@ describe("secondary Drive-ID nonblank CHECK migration", () => {
     // everything to the next newline, and there are none left, so the optional comment group can
     // consume the entire file up to any later `begin;` — a migration whose only `begin;` sits
     // INSIDE a comment, with live DDL before it, would pass (whole-diff R1 finding 4).
-    const statements = raw
+    const statements = stripSqlComments(raw)
       .split("\n")
-      .map((l) => l.replace(/--.*$/, "").trim())
+      .map((l) => l.trim())
       .filter((l) => l !== "");
     expect(statements[0], "the FIRST executable statement must be `begin;`").toMatch(/^begin;$/i);
     expect(

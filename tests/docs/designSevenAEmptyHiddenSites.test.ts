@@ -13,6 +13,7 @@
  * TravelSection while §7a still listed only OverviewSection and ScheduleDayRow.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -34,17 +35,11 @@ function walk(dir: string, out: string[] = []): string[] {
  * that does not apply the idiom, and the reverse — documentation could be correct
  * while a stray mention failed the run.
  */
-function stripNonCode(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments, incl. JSDoc
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ") // line comments, not `https://`
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " "); // JSX comments
-}
 
 /** Files applying the §7a idiom, as basenames (the doc names components, not paths). */
 function componentsUsingEmptyHidden(): string[] {
   return walk(COMPONENTS)
-    .filter((f) => stripNonCode(readFileSync(f, "utf8")).includes("empty:hidden"))
+    .filter((f) => stripCommentsForFile(readFileSync(f, "utf8"), f).includes("empty:hidden"))
     .map((f) => f.slice(COMPONENTS.length + 1))
     .sort();
 }

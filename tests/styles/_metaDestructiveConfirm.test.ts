@@ -13,7 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { walk, stripComments, tokensOf } from "./_classScanUtils";
+import { walk, stripCommentsForFile, tokensOf } from "./_classScanUtils";
 
 type Kind = "morph" | "panel" | "exempt-non-confirm";
 type Row = { file: string; index: number; note: string; kind: Kind };
@@ -131,7 +131,7 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
   for (const root of ["components", "app"]) {
     for (const file of walk(root)) {
       let n = 0;
-      stripComments(readFileSync(file, "utf8"))
+      stripCommentsForFile(readFileSync(file, "utf8"), file)
         .split("\n")
         .forEach((line, i) => {
           const tokens = tokensOf(line);
@@ -238,22 +238,14 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    * declaration could go unseen. Measured on this repo: app/admin/layout.tsx has 3
    * comment opens and 1 close before its own className. Judge each line instead; a
    * declaration is a single line here, so nothing is lost by not spanning. */
-  const declaresArmRevert = (source: string) =>
-    DECL.test(
-      source
-        .split("\n")
-        .filter((line) => {
-          const t = line.trim();
-          return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
-        })
-        .join("\n"),
-    );
+  const declaresArmRevert = (source: string, filePath: string) =>
+    DECL.test(stripCommentsForFile(source, filePath));
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
     for (const root of ["components", "app", "lib"]) {
       for (const file of walk(root)) {
-        if (declaresArmRevert(readFileSync(file, "utf8"))) declaring.push(file);
+        if (declaresArmRevert(readFileSync(file, "utf8"), file)) declaring.push(file);
       }
     }
     // Equality, not "at most one": `<= 1` would pass on zero, proving nothing.

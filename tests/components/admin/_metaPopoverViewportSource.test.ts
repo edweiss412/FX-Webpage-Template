@@ -20,6 +20,7 @@
  * second consumer (ShareHub) go unnoticed for a full review round.
  */
 import { describe, expect, it } from "vitest";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -74,8 +75,6 @@ function walk(dir: string, acc: string[]): string[] {
 }
 
 /** Block comments, then line comments (the `[^:]` guard spares `https://`). */
-const stripComments = (src: string): string =>
-  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 /** Every `from "..."` specifier, imports AND re-exports, with its clause. */
 function specifiersOf(code: string): { spec: string; clause: string }[] {
@@ -124,40 +123,84 @@ const importsCorePlacement = (file: string, code: string): boolean =>
   );
 
 const sourceFiles = ROOTS.flatMap((r) => walk(join(REPO_ROOT, r), []));
-const codeOf = (f: string): string => stripComments(readFileSync(f, "utf8"));
+const rawCache = new Map<string, string>();
+const rawOf = (f: string): string => {
+  let v = rawCache.get(f);
+  if (v === undefined) {
+    v = readFileSync(f, "utf8");
+    rawCache.set(f, v);
+  }
+  return v;
+};
+const strippedCache = new Map<string, string>();
+const strippedSourceOf = (f: string): string => {
+  let v = strippedCache.get(f);
+  if (v === undefined) {
+    v = stripCommentsForFile(rawOf(f), f);
+    strippedCache.set(f, v);
+  }
+  return v;
+};
+/** Sound fast path (whole-diff R1 F2 replaced a raw-first predicate test, which was
+ *  unsound: `window/* gap *\/.innerWidth` matches stripped text but not raw). The
+ *  prefilter uses only CONTIGUOUS fragments — identifiers and module-specifier path
+ *  segments cannot be split by a comment, so any stripped-source predicate match
+ *  requires one of these to appear verbatim in raw. */
+// "place"/"position" (not "popover/") are the necessary specifier fragments: a
+// RELATIVE import ("./place") still resolves to the core but never contains
+// "popover/" (whole-diff R2 F1). Substring match — wider parse set, still sound.
+// Specifier tails keep their closing quote/extension dot — still a necessary
+// contiguous fragment of any core-resolving specifier ("./place" contains `place"`),
+// but no longer matches every `.replace(` in the repo (CI-timeout regression).
+const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|(?:place|position)["'`.]/;
+const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
+  MAY_MATCH.test(rawOf(f)) && test(strippedSourceOf(f));
 
-const consumers = sourceFiles.filter((f) => importsModule(f, codeOf(f), CANONICAL.place));
+const consumers = sourceFiles.filter((f) =>
+  matchesStripped(f, (c) => importsModule(f, c, CANONICAL.place)),
+);
 
 describe("popover placement consumers read the visible viewport, not the layout viewport", () => {
-  it("discovers EXACTLY the two known consumers", () => {
+  it("prefilter accepts relative core specifiers and comment-gap viewport reads (regression pins)", () => {
+    // Reverting MAY_MATCH to a "popover/"-shaped token turns these red (R2 F1 / R3).
+    expect(MAY_MATCH.test('export * from "./place";')).toBe(true);
+    expect(MAY_MATCH.test('import { x } from "./position";')).toBe(true);
+    expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
+  });
+
+  it("discovers EXACTLY the two known consumers", { timeout: 60_000 }, () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();
     expect(rels).toEqual(
       ["components/admin/HoverHelp.tsx", "components/admin/showpage/ShareHub.tsx"].sort(),
     );
   });
 
-  it("only lib/popover/place.ts imports the placement core, repo-wide", () => {
+  it("only lib/popover/place.ts imports the placement core, repo-wide", { timeout: 60_000 }, () => {
     const direct = sourceFiles
-      .filter((f) => importsCorePlacement(f, codeOf(f)))
+      .filter((f) => matchesStripped(f, (c) => importsCorePlacement(f, c)))
       .map((f) => relative(REPO_ROOT, f))
       .filter((rel) => !CORE_IMPORT_ALLOWLIST.has(rel));
     expect(direct).toEqual([]);
   });
 
-  it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", () => {
-    const offenders = sourceFiles
-      .filter((f) => READS_LAYOUT_VIEWPORT.test(codeOf(f)))
-      .map((f) => relative(REPO_ROOT, f))
-      .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
-    expect(offenders).toEqual([]);
-  });
+  it(
+    "no scanned file reads the LAYOUT viewport (import-independent, repo-wide)",
+    { timeout: 60_000 },
+    () => {
+      const offenders = sourceFiles
+        .filter((f) => matchesStripped(f, (c) => READS_LAYOUT_VIEWPORT.test(c)))
+        .map((f) => relative(REPO_ROOT, f))
+        .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
+      expect(offenders).toEqual([]);
+    },
+  );
 
   it("the allowlist has no stale rows", () => {
     for (const [rel] of LAYOUT_VIEWPORT_ALLOWLIST) {
       const abs = join(REPO_ROOT, rel);
       expect(sourceFiles.includes(abs), `${rel} is allowlisted but no longer exists`).toBe(true);
       expect(
-        READS_LAYOUT_VIEWPORT.test(codeOf(abs)),
+        READS_LAYOUT_VIEWPORT.test(strippedSourceOf(abs)),
         `${rel} is allowlisted but no longer reads the layout viewport`,
       ).toBe(true);
     }
@@ -192,7 +235,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
   it.each(consumers.map((f) => [relative(REPO_ROOT, f), f] as const))(
     "%s does not read window.innerWidth/innerHeight",
     (_rel, file) => {
-      expect(codeOf(file)).not.toMatch(READS_LAYOUT_VIEWPORT);
+      expect(strippedSourceOf(file)).not.toMatch(READS_LAYOUT_VIEWPORT);
     },
   );
 });

@@ -24,6 +24,9 @@
  * dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { readFileSync } from "node:fs";
+import ts from "typescript";
+
+import { stripCommentsSafely } from "../_shared/stripComments";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -44,7 +47,7 @@ const readRaw = (wf: string): string =>
  * than no guard, so the trailing form is stripped too — quote-aware, since a `#`
  * inside a quoted scalar is data, not a comment.
  */
-function stripComments(yaml: string): string {
+function stripYamlComments(yaml: string): string {
   return yaml
     .split("\n")
     .map((line) => {
@@ -66,37 +69,7 @@ function stripComments(yaml: string): string {
     .join("\n");
 }
 
-const read = (wf: string): string => stripComments(readRaw(wf));
-
-/** Drop `//` and block comments, preserving string and regex literals. */
-function stripTsComments(src: string): string {
-  let out = "";
-  let i = 0;
-  while (i < src.length) {
-    const two = src.slice(i, i + 2);
-    if (two === "//") {
-      const nl = src.indexOf("\n", i);
-      i = nl === -1 ? src.length : nl;
-      continue;
-    }
-    if (two === "/*") {
-      const close = src.indexOf("*/", i + 2);
-      i = close === -1 ? src.length : close + 2;
-      continue;
-    }
-    const ch = src[i]!;
-    if (ch === '"' || ch === "'" || ch === "`") {
-      let j = i + 1;
-      while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1;
-      out += src.slice(i, j + 1);
-      i = j + 1;
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
+const read = (wf: string): string => stripYamlComments(readRaw(wf));
 
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
 function pathsIgnoreBlock(wf: string): string {
@@ -157,8 +130,9 @@ describe("picker-flow e2e CI wiring", () => {
     // Comments stripped first: a commented-out `// testMatch: /(picker-flow|…)/`
     // above a live one marked the project as claiming the spec, while the real
     // run collected zero picker tests.
-    const config = stripTsComments(
+    const config = stripCommentsSafely(
       readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
+      ts.ScriptKind.TS,
     );
     const claiming = config
       .split(/\n\s*name:\s*"/)

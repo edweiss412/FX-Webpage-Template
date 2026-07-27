@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { DECLARED_UI_LABELS, UI_LABEL_EXCEPTIONS } from "./_uiLabelExceptions";
@@ -259,8 +260,8 @@ function extractCandidates(filePath: string, content: string): Candidate[] {
  * shipped label would surface as a test failure (rather than the silent
  * false-positive class this strip eliminates).
  */
-export function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*$/gm, "$1");
+function stripProductionSource(source: string, filePath: string): string {
+  return stripCommentsForFile(source, filePath);
 }
 
 function buildProductionHaystack(): string {
@@ -268,7 +269,7 @@ function buildProductionHaystack(): string {
   let haystack = "";
   for (const f of files) {
     try {
-      haystack += "\n" + stripComments(readFileSync(f, "utf8"));
+      haystack += "\n" + stripProductionSource(readFileSync(f, "utf8"), f);
     } catch {
       // skip unreadable files
     }
@@ -482,7 +483,7 @@ describe("Help MDX UI-label crosswalk: comment-stripping regression (R8)", () =>
       "export const realThing = 'something-else';",
     ].join("\n");
     expect(synthetic).toContain("UniqueFakeLabelXYZ");
-    expect(stripComments(synthetic)).not.toContain("UniqueFakeLabelXYZ");
+    expect(stripProductionSource(synthetic, "synthetic.tsx")).not.toContain("UniqueFakeLabelXYZ");
   });
 
   it("a label that appears in JSX text / string literal IS preserved by the strip", () => {
@@ -490,11 +491,11 @@ describe("Help MDX UI-label crosswalk: comment-stripping regression (R8)", () =>
       "// commented-out RealShippedLabel reference",
       "export function Btn() { return <button>RealShippedLabel</button>; }",
     ].join("\n");
-    expect(stripComments(synthetic)).toContain("RealShippedLabel");
+    expect(stripProductionSource(synthetic, "synthetic.tsx")).toContain("RealShippedLabel");
   });
 
   it('URL-style "https://" inside a string literal survives the line-comment strip', () => {
     const synthetic = "export const url = 'https://example.com/x';";
-    expect(stripComments(synthetic)).toContain("https://example.com/x");
+    expect(stripProductionSource(synthetic, "synthetic.tsx")).toContain("https://example.com/x");
   });
 });

@@ -10,14 +10,11 @@
  * replace-function migration will automatically supersede the previous one.
  */
 import { readFileSync, readdirSync } from "node:fs";
+import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
 const MIGRATIONS_DIR = join(ROOT, "supabase/migrations");
-
-function stripSqlComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
-}
 
 const BODY_RE =
   /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i;

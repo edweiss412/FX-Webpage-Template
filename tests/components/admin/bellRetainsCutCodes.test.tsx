@@ -23,6 +23,7 @@
  * that would introduce a second one.
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -156,7 +157,7 @@ describe("the bell's own exclusion mechanism keeps them", () => {
     // which is what an added literal would look like regardless of how the
     // argument is assembled. Comments stripped so prose about the codes is not
     // read as a filter.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const code = stripCommentsForFile(src, "lib/admin/bellFeed.ts");
     for (const cut of CUT_FROM_MODAL) {
       expect(code, `bellFeed must not name ${cut}`).not.toContain(cut);
     }

@@ -56,6 +56,7 @@
  *       collapsed infra → benign" — the existing row in this file fails.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { resetLogSink, setLogSink } from "@/lib/log";
@@ -235,10 +236,10 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
 const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE = /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
 
 function braceDelta(line: string): number {
-  const withoutLineComment = line.replace(/\/\/.*$/, "");
-  return (
-    (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length
-  );
+  // Input lines come from comment-STRIPPED source (see the call site), so brace
+  // counting needs no comment handling — and a "//" inside a string no longer
+  // truncates the line (the R2 F3 refutation case).
+  return (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
 }
 
 function supabaseConstructorCallsOutsideTry(source: string): Array<{ line: number; text: string }> {
@@ -324,7 +325,7 @@ describe("META infra-failure contract", () => {
 
     test("registered Supabase client constructors are inside try blocks", () => {
       const violations = SUPABASE_CONSTRUCTOR_CONTRACT_FILES.flatMap((file) => {
-        const source = readFileSync(file, "utf8");
+        const source = stripCommentsForFile(readFileSync(file, "utf8"), file);
         return supabaseConstructorCallsOutsideTry(source).map((violation) => ({
           file,
           ...violation,
