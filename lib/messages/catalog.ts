@@ -2113,6 +2113,19 @@ export const MESSAGE_CATALOG = {
       "This appears when setup tries to stage a parse for a sheet that the live folder sync is already processing. To avoid clobbering the live row, the wizard's stage is skipped. Resolve the live row from the dashboard: either Apply or Discard it, then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
   },
+  ONBOARDING_SCAN_FAILED: {
+    code: "ONBOARDING_SCAN_FAILED",
+    dougFacing:
+      "The folder scan hit a problem partway through and couldn't finish. Run the scan again from this step; if it keeps failing, text Eric.",
+    crewFacing: null,
+    followUp: "Doug → run the scan again; Eric → check the scan log by requestId if it recurs",
+    helpfulContext:
+      "Usually a temporary problem reading the folder from Google Drive. Anything the failed run already staged is re-checked and replaced when you run the scan again, and nothing reaches any crew page until setup completes.",
+    title: "The folder scan stopped partway",
+    longExplanation:
+      "This appears when the setup scan of your Drive folder stops on an unexpected error before finishing, most often a temporary Google Drive problem while listing the folder or reading a sheet. Anything the failed run already staged is re-checked and replaced by the next run, and nothing reaches any crew page until setup completes. Run the scan again from the same step; if it fails repeatedly, text Eric so he can check the scan log for this run.",
+    helpHref: "/help/errors#ONBOARDING_SCAN_FAILED",
+  },
   ONBOARDING_SHEET_UNREADABLE: {
     code: "ONBOARDING_SHEET_UNREADABLE",
     resolution: "manual",

@@ -710,6 +710,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → wait; Eric → fix",
     "helpfulContext": "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes; if it persists, message Eric.",
   },
+  "ONBOARDING_SCAN_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "The folder scan hit a problem partway through and couldn't finish. Run the scan again from this step; if it keeps failing, text Eric.",
+    "followUp": "Doug → run the scan again; Eric → check the scan log by requestId if it recurs",
+    "helpfulContext": "Usually a temporary problem reading the folder from Google Drive. Anything the failed run already staged is re-checked and replaced when you run the scan again, and nothing reaches any crew page until setup completes.",
+  },
   "ONBOARDING_SCAN_REVIEW": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ was found in your folder. Review the parse before activating this folder.",
