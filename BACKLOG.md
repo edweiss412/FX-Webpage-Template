@@ -903,7 +903,9 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 ## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way
 
-**Status:** OPEN (2026-07-26, destruct-thumb-order whole-diff R19) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
+**Status:** RESOLVED (2026-07-26, branch `refactor/stripcomments-shared`) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
+
+**Resolution:** One TS-parser-backed module, `tests/_shared/stripComments.ts` (`commentRanges`/`stripCommentsSafely` promoted from `_newTabScan` with a required `ts.ScriptKind` — the TSX hardcode mis-parsed plain-`.ts` generic arrows — plus `stripSqlComments` with dollar-span-as-code + nesting, `stripCssComments`, `stripMdxComments`, and an extension router `stripCommentsForFile`). The adversarial-review sweeps grew the inventory from 17 to 54 rows across 52 files (named strippers, inline replace chains, char scanners, line-start skip filters, SQL/CSS/YAML/dotenv variants); 45 migrated, 9 kept with reasoned site-granular allowlist rows. `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` walks `tests/**` and flags five idiom families on comment-stripped source (fails-by-default; negative plants pin each family, including a renamed char-loop and an alternate regex spelling). Spec: `docs/superpowers/specs/2026-07-26-stripcomments-shared-design.md`. Triage found no real pre-existing violations — every guard stayed green post-migration; the A6 line-number skew (deletion collapsing multi-line comments) was silently FIXED by offset-preserving blanking.
 
 Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
 

@@ -68,10 +68,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
   { file: "tests/log/mutationSurface/exemptions.ts", family: "startswith-filter", marker: "//", reason: "E9: comment-READER — searches leading comments for the no-telemetry marker" },
 ];
 
-/** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
- *  a whole file at once — spec §5.3a). Task 47 deletes the emptied constant. */
-export const PENDING_MIGRATIONS: string[] = [
-];
 
 export type ScanEntry = { rel: string; src: string };
 
@@ -114,7 +110,7 @@ describe("single-source comment stripping (spec §4)", () => {
       rel: relative(ROOT, abs),
       src: readFileSync(abs, "utf8"),
     }));
-    const offenders = offendersOf(entries, STANDING_ALLOWLIST, PENDING_MIGRATIONS);
+    const offenders = offendersOf(entries, STANDING_ALLOWLIST, []);
     expect(
       offenders,
       `local comment-handling idioms found — import tests/_shared/stripComments, or add a reasoned STANDING_ALLOWLIST row:\n${offenders.join("\n")}`,
