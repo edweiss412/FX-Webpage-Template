@@ -64,13 +64,23 @@ export async function queryWatchChannels(filters: WatchFilters): Promise<QueryWa
         stoppedAt: r.stopped_at,
       }),
     );
-    const { data: stateData, error: stateError } = await supabase
-      .from("drive_watch_reconcile_state")
-      .select(STATE_SELECT)
-      .order("watched_folder_id", { ascending: true })
-      .limit(50);
-    if (stateError)
-      return { kind: "infra_error", message: "drive_watch_reconcile_state read failed" };
+    // Own try/catch so a THROWN state read is attributed to its own table,
+    // never reported as a channels failure (whole-diff review). Ordered by
+    // updated_at DESC: abandoned-folder rows persist by design, so an
+    // alphabetical order could push the currently-failing folder past the cap.
+    let stateData: unknown;
+    try {
+      const stateRes = await supabase
+        .from("drive_watch_reconcile_state")
+        .select(STATE_SELECT)
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (stateRes.error)
+        return { kind: "infra_error", message: "drive_watch_reconcile_state read failed" };
+      stateData = stateRes.data;
+    } catch {
+      return { kind: "infra_error", message: "drive_watch_reconcile_state read threw" };
+    }
     const stateRows = ((stateData ?? []) as unknown as RawStateRow[]).map(
       (r): WatchStateRow => ({
         watchedFolderId: r.watched_folder_id,

@@ -166,11 +166,26 @@ describe("queryWatchChannels", () => {
     expect(state.stateSelectArg).toContain("watched_folder_id");
     expect(state.stateSelectArg).not.toContain("webhook_secret");
   });
-  it("state read returned-error and thrown paths → module's typed infra_error", async () => {
+  it("state read returned-error and thrown paths → typed infra_error attributed to the STATE table", async () => {
     state.stateError = { message: "boom" };
-    expect((await queryWatchChannels({})).kind).toBe("infra_error");
+    const returned = await queryWatchChannels({});
+    expect(returned.kind).toBe("infra_error");
+    expect(returned.kind === "infra_error" ? returned.message : "").toBe(
+      "drive_watch_reconcile_state read failed",
+    );
     state.stateError = null;
     state.stateThrows = true;
-    expect((await queryWatchChannels({})).kind).toBe("infra_error");
+    const thrown = await queryWatchChannels({});
+    expect(thrown.kind).toBe("infra_error");
+    // whole-diff review: a thrown state read must never masquerade as a
+    // channels failure.
+    expect(thrown.kind === "infra_error" ? thrown.message : "").toBe(
+      "drive_watch_reconcile_state read threw",
+    );
+  });
+  it("state rows are read newest-updated first so the failing folder cannot fall past the cap", async () => {
+    await queryWatchChannels({});
+    const order = state.calls.find((c) => c.method === "drive_watch_reconcile_state.order")!;
+    expect(order.args).toEqual(["updated_at", { ascending: false }]);
   });
 });

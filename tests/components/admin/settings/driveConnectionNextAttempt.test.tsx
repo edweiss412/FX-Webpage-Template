@@ -125,6 +125,60 @@ describe("Settings next-attempt sentence (spec §3.6, class 12)", () => {
     expect(line()).toBeNull();
   });
 
+  it("PAST nextAttemptAt (before the injected now) → 'shortly' variant", () => {
+    render(
+      <DriveConnectionPanel
+        health={warnHealth("watch_expired")}
+        now={NOW}
+        watchState={state({ nextAttemptAt: "2026-06-01T11:59:00.000Z" })}
+      />,
+    );
+    expect(line()!.textContent).toBe("Trying again shortly · 2 reconnect attempts so far");
+  });
+
+  it("lastAttemptOutcome null (row exists, no attempt yet) → absent", () => {
+    render(
+      <DriveConnectionPanel
+        health={warnHealth("watch_expired")}
+        now={NOW}
+        watchState={state({ lastAttemptOutcome: null })}
+      />,
+    );
+    expect(line()).toBeNull();
+  });
+
+  it.each([
+    "sync_drive_error",
+    "sync_sheet_unavailable",
+    "sync_parse_error",
+    "sync_shrink_held",
+    "sync_unknown",
+    "stale_severe",
+    "stale_moderate",
+  ] as const)("absent for non-watch warn reason %s even with a failed state", (reason) => {
+    render(<DriveConnectionPanel health={warnHealth(reason)} now={NOW} watchState={state()} />);
+    expect(line()).toBeNull();
+  });
+
+  it("absent for the infra_error health arm", () => {
+    render(
+      <DriveConnectionPanel health={{ kind: "infra_error" }} now={NOW} watchState={state()} />,
+    );
+    expect(line()).toBeNull();
+  });
+
+  it("sentinel scan: developer-tier error fields never render even if smuggled onto the state", () => {
+    const smuggled = {
+      ...state(),
+      lastErrorClass: "drive_api_SENTINEL",
+      lastErrorMessage: "boom_SENTINEL_message",
+    } as unknown as WatchSurfaceState;
+    const { container } = render(
+      <DriveConnectionPanel health={warnHealth("watch_expired")} now={NOW} watchState={smuggled} />,
+    );
+    expect(container.textContent).not.toContain("SENTINEL");
+  });
+
   it("absent for a positive fleet even with a stale failed row (mixed-outcome race residue)", () => {
     const health: DriveConnectionHealth = {
       health: "positive",

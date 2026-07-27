@@ -685,6 +685,8 @@ describe("loadBellFeed watchState wiring (backoff spec §3.6)", () => {
     const watch = result.entries.find((e) => e.code === "WATCH_CHANNEL_ORPHANED")!;
     expect(watch.watchState).toEqual(STATE);
     expect(watchSurfaceMock.readSpy).toHaveBeenCalledWith("folder-1");
+    // Whole-diff review: the loader contract is ONE state read per feed load.
+    expect(watchSurfaceMock.readSpy).toHaveBeenCalledTimes(1);
   });
 
   test("helper infra_error → watchState null, feed intact (render-boundary mapping)", async () => {

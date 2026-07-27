@@ -105,6 +105,18 @@ describe("drive_watch_reconcile_state writes through PostgresWatchTx (spec §3.3
     });
   });
 
+  it("gate verdict SQL is strictly-greater in the DB clock domain (boundary pin)", async () => {
+    // The normative predicate is `next_attempt_at > now()` (spec D8). A DB
+    // wall-clock test cannot hold `now()` at exact equality, so the literal is
+    // pinned at the source level and the past-due arm behaviorally.
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("lib/drive/watch.ts", "utf8")).toContain("next_attempt_at > now() as waiting");
+    await sqlA`insert into drive_watch_reconcile_state (watched_folder_id, next_attempt_at)
+               values (${RUN + "-due"}, now() - interval '1 millisecond')`;
+    const gate = await txA.readReconcileGate(`${RUN}-due`);
+    expect(gate!.waiting).toBe(false);
+  });
+
   it("readReconcileGate returns waiting boolean + ISO string against the real DB", async () => {
     await failVia(txA, F6);
     const gate = await txA.readReconcileGate(F6);

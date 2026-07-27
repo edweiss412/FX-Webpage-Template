@@ -7,15 +7,22 @@
  * SAME toLocaleString options literal the spec mandates — never hardcoded.
  */
 import { render, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { BellActionRow } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 import type { WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 
-// Far future so the viewer-clock (real Date.now) future/past branch is
-// deterministic for years; the formatter output is still derived, not hardcoded.
-const FUTURE_ISO = "2030-01-01T16:45:00.000Z";
+// Clock FROZEN (whole-diff review: a wall-clock-relative fixture fails after
+// its date passes) - the future/past branch reads Date.now, so pin it.
+const FROZEN_NOW = new Date("2026-07-27T12:00:00.000Z");
+beforeAll(() => {
+  vi.useFakeTimers({ now: FROZEN_NOW, toFake: ["Date"] });
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
+const FUTURE_ISO = "2026-07-27T16:45:00.000Z";
 const PAST_ISO = "2026-07-27T01:00:00.000Z";
 
 // Spec §3.6: the formatStagedAt shape — month, day, hour, minute.
@@ -110,6 +117,20 @@ describe("bell next-attempt line (spec §3.6, classes 11/19)", () => {
 
   it("watchState absent (legacy shape) → absent", () => {
     expect(lineIn(renderRow(watchEntry()))).toBeNull();
+  });
+
+  it("lastAttemptOutcome null (row exists, no attempt yet) → absent", () => {
+    expect(lineIn(renderRow(watchEntry({ watchState: state({ lastAttemptOutcome: null }) })))).toBeNull();
+  });
+
+  it("sentinel scan: developer-tier error fields never render even if smuggled onto the state", () => {
+    const smuggled = {
+      ...state(),
+      lastErrorClass: "drive_api_SENTINEL",
+      lastErrorMessage: "boom_SENTINEL_message",
+    } as unknown as WatchSurfaceState;
+    const row = renderRow(watchEntry({ watchState: smuggled }));
+    expect(row.textContent).not.toContain("SENTINEL");
   });
 
   it("non-watch entry never renders the line even with state present", () => {

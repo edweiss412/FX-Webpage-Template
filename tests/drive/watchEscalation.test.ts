@@ -203,6 +203,14 @@ describe("duration-based escalation trigger (backoff spec §3.5, class 8)", () =
     expect(r.escalated).toBe(true);
   });
 
+  test("fires at EXACTLY the window boundary (>= is normative; > would stay green without this pin)", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(ESCALATION_AFTER_MS), occurrence_count: 1 }),
+    );
+    expect(r.escalated).toBe(true);
+  });
+
   test("does NOT fire below the window even at occurrence_count 99 - the decoupling", async () => {
     const r = await maybeEscalateWatchOrphaned(
       INPUT,
