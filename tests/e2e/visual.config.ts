@@ -41,7 +41,11 @@ export default defineConfig({
   expect: {
     toHaveScreenshot: { maxDiffPixels: 0, threshold: 0 },
   },
-  snapshotPathTemplate: "{testFileDir}/{testFileName}-snapshots/{arg}{ext}",
+  // {snapshotDir} (absolute; defaults to testDir), NOT {testFileDir}: the
+  // latter is the test file's dir RELATIVE to testDir — empty for a file at
+  // the testDir root — which resolved the whole template to filesystem root
+  // (second gate run of PR #617 expected /section-header-visual.spec.ts-snapshots/).
+  snapshotPathTemplate: "{snapshotDir}/{testFileName}-snapshots/{arg}{ext}",
   projects: [
     {
       name: "visual-chromium",
