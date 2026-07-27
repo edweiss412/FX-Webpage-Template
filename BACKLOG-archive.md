@@ -981,3 +981,23 @@ The `selectIdentity` claimed-row rejection logged only a forensic `PICKER_IDENTI
 **Resolved by:** `test/alert-action-links-e2e`, PR6 (last) of the 2026-07-24 BL-NULLCODE-STAMP-BATCH-2 residual sweep.
 
 `tests/e2e/alert-action-links.spec.ts` seeds one unresolved `admin_alerts` row per `ALERT_ACTIONS` code (derived from `ALERT_ACTION_CODES` with a set-equality guard, so a 21st code fails by name) plus one negative row per null-return shape, and asserts the rendered anchors in a live app. Renderer census correction recorded in the spec header: the bell (non-health, non-inbox-routed), the attention banner (footer action + external-only destination chip), and the health panel carry registry links; AttentionMenu no longer renders per-item action anchors, so the item's four-renderer claim was down to three by ship time. External hrefs asserted verbatim with target/rel and never followed; every internal link's DECLARED fragment must resolve to a real element on the landed route (mutation-verified: re-pointing RESYNC_SHRINK_HELD at the dead `#resync` reds exactly that assertion). Wired into crew-e2e.yml's run line + desktop-chromium testMatch with a PATH_GATED_BY_EXCLUSION coverage row (crew-section-toggle precedent). The item's paired one-time validation-deployment smoke click-through was NOT performed by this PR — it is a deploy-time manual step and remains with Eric.
+
+---
+
+## BL-CHILDLESS-GROWABLE-STATIC-GUARD — static guard against childless growable flex items — ✅ RESOLVED (2026-07-26)
+
+**Status:** CLOSED 2026-07-26, shipped on `feat/childless-growable-static-guard` · **How it closed.** The revival followed the entry's own mandate: walker first (census v2 over `components/` + `app/` at `396416778`: 79 growable candidates, 0 in the banned shape), output defined an allowlist of four shapes. Spec `docs/superpowers/specs/2026-07-26-childless-growable-static-guard-design.md` converged APPROVE after 8 adversarial rounds (26 findings); the guard shipped as `tests/styles/_childlessGrowableScan.ts` + `tests/styles/_metaChildlessGrowable.test.ts` (live gate green, two-row component registry, four-token paint set, zero exemptions). The original entry follows for provenance.
+
+**Filed:** 2026-07-25 (branch `feat/section-header-rebuild-phantom-spacers`, DESCOPED from that branch's spec §6 after three adversarial rounds). **Class:** layout hardening (structural defense). **Effort:** M — the cost is the rule, not the walker.
+
+The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by two executable oracles (`tests/e2e/pusher-alignment.layout.spec.ts`, `tests/e2e/section-header-layout.layout.spec.ts`) and by the phantom-gap probe mounts. Neither sees a SIXTH site written tomorrow: the probe only reaches surfaces it is mounted on, and both layout specs name their rows explicitly. A source-scanning guard would fail-by-default on a new one.
+
+**Why it is not written yet, and what a future attempt must clear.** Three rounds could not converge a rule that agreed with its own prototype. The written rule selected 27 registry rows; the prototype walker selected 17. The disagreements were all real ambiguity in "childless" and "growable", not implementation bugs:
+
+- `flex-1` on an element whose only child is a conditional that renders `null` in some states is childless SOMETIMES — a static scan cannot evaluate the condition, and both "always flag" and "never flag" produce false results on live code.
+- A growable element that PAINTS (the `h-px bg-border` hairline) is not the defect; the defect is a growable element that paints nothing. Distinguishing them statically means reasoning about which utility classes produce a painted box, which is an open-ended list.
+- The `style={{ flex: … }}` prop form has no className to match, so a className-only rule is fail-open on it — and that is exactly the escape hatch a class-sweep guard exists to close.
+
+Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
+
+**Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.

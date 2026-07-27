@@ -160,6 +160,12 @@ const BACKLOG_GRADUATED = [
   { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
   // 2026-07-25: shipped, not reconciled -- PR #592 closed it by implementing it.
   { id: "BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y", provenance: "fix/newtab-announcement-family" },
+  // feat/childless-growable-static-guard (2026-07-26): the guard shipped as
+  // tests/styles/_childlessGrowableScan.ts + _metaChildlessGrowable.test.ts.
+  {
+    id: "BL-CHILDLESS-GROWABLE-STATIC-GUARD",
+    provenance: "feat/childless-growable-static-guard",
+  },
   // feat/section-header-rebuild-phantom-spacers (2026-07-25). The three
   // phantom-gap items, all repaid in that branch.
   {

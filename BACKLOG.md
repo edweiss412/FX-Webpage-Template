@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-25 — the three phantom-gap items graduated on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
+Last reconciled: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard` (guard shipped as `tests/styles/_childlessGrowableScan.ts` + `tests/styles/_metaChildlessGrowable.test.ts`). Prior: 2026-07-25 — the three phantom-gap items graduated on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass). All seven had been annotated CLOSED / WITHDRAWN / RESOLVED in place rather than moved, which is the drift this header exists to catch; `tests/docs/_metaDeferralLedgerGraduation.test.ts` now fails on a terminal status in this file, so the class cannot silently reopen.
 
 ---
 
@@ -104,22 +104,6 @@ Measured consequence: the event-detail group title "Wardrobe & key moments" fill
 **Work, either of:** (a) self-host the intended face and add an `@font-face` (or a `next/font` import), which makes every measurement in this repo font-deterministic and retires a whole class of local-vs-CI divergence; or (b) leave the stack alone and make the affected rows font-independent — `whitespace-nowrap` plus truncation on the closed-set group titles, so a wide fallback shortens the label instead of adding a line.
 
 **Do not "fix" this by widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts`.** That test pins its own font to the Arial / Liberation Sans metric-compatible pair for exactly one measurement, deliberately and with the reason in a comment, so the floor assertion reads the same on macOS, Windows and the Ubuntu runner. Relaxing it instead would hide this entry's finding.
-
-## BL-CHILDLESS-GROWABLE-STATIC-GUARD — static guard against childless growable flex items
-
-**Filed:** 2026-07-25 (branch `feat/section-header-rebuild-phantom-spacers`, DESCOPED from that branch's spec §6 after three adversarial rounds). **Class:** layout hardening (structural defense). **Effort:** M — the cost is the rule, not the walker.
-
-The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by two executable oracles (`tests/e2e/pusher-alignment.layout.spec.ts`, `tests/e2e/section-header-layout.layout.spec.ts`) and by the phantom-gap probe mounts. Neither sees a SIXTH site written tomorrow: the probe only reaches surfaces it is mounted on, and both layout specs name their rows explicitly. A source-scanning guard would fail-by-default on a new one.
-
-**Why it is not written yet, and what a future attempt must clear.** Three rounds could not converge a rule that agreed with its own prototype. The written rule selected 27 registry rows; the prototype walker selected 17. The disagreements were all real ambiguity in "childless" and "growable", not implementation bugs:
-
-- `flex-1` on an element whose only child is a conditional that renders `null` in some states is childless SOMETIMES — a static scan cannot evaluate the condition, and both "always flag" and "never flag" produce false results on live code.
-- A growable element that PAINTS (the `h-px bg-border` hairline) is not the defect; the defect is a growable element that paints nothing. Distinguishing them statically means reasoning about which utility classes produce a painted box, which is an open-ended list.
-- The `style={{ flex: … }}` prop form has no className to match, so a className-only rule is fail-open on it — and that is exactly the escape hatch a class-sweep guard exists to close.
-
-Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
-
-**Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
 ## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
 
