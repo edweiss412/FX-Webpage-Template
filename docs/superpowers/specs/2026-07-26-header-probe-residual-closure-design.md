@@ -1,6 +1,6 @@
 # Section-header probe residual closure — width-chain completion + pixel-baseline gate
 
-**Date:** 2026-07-26 · **Backlog:** `BL-HEADER-PROBE-RESIDUAL-VACUITY` (BACKLOG.md §"four adversarial-review findings the section-header probes do not close") · **Branch:** `test/header-probe-residual-closure`
+**Date:** 2026-07-26 · **Backlog:** `BL-HEADER-PROBE-RESIDUAL-VACUITY` (BACKLOG.md §"four adversarial-review findings the section-header probes do not close") · **Branch:** `test/header-probe-residual-closure` · **Status:** APPROVED — Codex adversarial review R3 (spec) + R4 (plan), plus one ratified post-R3 §3.3 amendment (state isolation + per-state theme reapply, from plan rounds 1/3)
 
 <!-- spec-lint: not-ui — test-and-CI-only change; no component, page, or token edits, so no Dimensional Invariants / Transition Inventory apply -->
 
