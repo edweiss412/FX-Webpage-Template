@@ -191,6 +191,80 @@ function walkFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * Invocation census core (pure — the fixtures `it` below pins every
+ * adversarial form). Shell cannot be faithfully parsed by regex, so the
+ * design is FAIL-CLOSED: any construct the classifier cannot handle lands in
+ * `problems` and reds the census, instead of silently recording the default
+ * config (the R1–R3 fail-open class). Loud constructs: a `playwright test`
+ * token outside command position (echo arguments, heredoc-adjacent text), a
+ * --config/-c flag orphaned from every recognized invocation (quoted
+ * separators, redirections, or escapes re-splitting the line), an escaped
+ * separator or heredoc in playwright-test-mentioning text, and a
+ * playwright-wrapping package script invoked with a FORWARDED config flag
+ * (`pnpm run test:e2e --config other.ts` composes across two strings the
+ * per-string census cannot join). Within a recognized invocation the LAST
+ * config flag wins — commander semantics, empirically verified against the
+ * installed playwright (bogus first --config + real second lists the full
+ * standalone suite). Full-line comments never execute and are skipped.
+ */
+export function censusInvocations(
+  texts: string[],
+  pwScriptNames: string[],
+): { invoked: Set<string>; problems: string[] } {
+  const invoked = new Set<string>();
+  const problems: string[] = [];
+  const configFlags = (s: string) => [
+    ...s.matchAll(/(?:^|\s)(?:--config(?:=|\s+)|-c(?:=|\s+)?)(\S+)/g),
+  ];
+  const cmdPos = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|npx\s+)?playwright\s+test\b/;
+  const mentionsRe = /\bplaywright\s+test\b/;
+  const fwd =
+    pwScriptNames.length > 0
+      ? new RegExp(
+          `\\bpnpm\\s+(?:run\\s+)?(?:${pwScriptNames
+            .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")})(?:\\s|$)([^\\n]*)`,
+        )
+      : null;
+  for (const raw of texts) {
+    if (mentionsRe.test(raw) && raw.includes("<<")) {
+      problems.push(`heredoc in a text mentioning "playwright test": ${raw.slice(0, 120)}`);
+      continue;
+    }
+    for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
+      if (/^\s*#/.test(line)) continue;
+      const forwarded = fwd?.exec(line);
+      if (forwarded && configFlags(forwarded[1] ?? "").length > 0) {
+        problems.push(`config flag forwarded through a package script: ${line.trim()}`);
+        continue;
+      }
+      if (!mentionsRe.test(line)) continue;
+      if (/\\[;&|]/.test(line)) {
+        problems.push(`escaped shell separator near an invocation: ${line.trim()}`);
+        continue;
+      }
+      const lineFlagCount = configFlags(line).length;
+      let consumed = 0;
+      for (const segment of line.split(/[;&|]+/)) {
+        const trimmed = segment.trim();
+        if (!mentionsRe.test(trimmed)) continue;
+        if (!cmdPos.test(trimmed)) {
+          problems.push(`"playwright test" outside command position: ${trimmed}`);
+          continue;
+        }
+        const flags = configFlags(segment);
+        consumed += flags.length;
+        invoked.add(flags.at(-1)?.[1] ?? "playwright.config.ts");
+      }
+      if (consumed !== lineFlagCount) {
+        problems.push(`config flag orphaned from every recognized invocation: ${line.trim()}`);
+      }
+    }
+  }
+  return { invoked, problems };
+}
+
 function probeEnv(config: string): NodeJS.ProcessEnv {
   const { SECTION_HEADER_VISUAL_CONTAINER: _ambient, ...stripped } = process.env;
   return config === "tests/e2e/visual.config.ts"
@@ -275,9 +349,38 @@ describe("spec registration detector (spec §3.1)", () => {
     ).toEqual([]);
   });
 
+  it("census core: adversarial forms either classify correctly or fail loud (never fail open)", () => {
+    const c = (t: string, names: string[] = []) => censusInvocations([t], names);
+    // Last config flag wins — commander semantics, empirically verified: a
+    // bogus first --config followed by the real one lists the full suite.
+    expect([...c("playwright test --config a.ts --config b.ts").invoked]).toEqual(["b.ts"]);
+    // Attached short form + single-& compound (both R2 fail-open forms).
+    expect([...c("playwright test -ca.ts & playwright test").invoked].sort()).toEqual([
+      "a.ts",
+      "playwright.config.ts",
+    ]);
+    // Env-var-prefixed command position is still command position.
+    expect([...c("CI=1 FOO=bar playwright test -c x.ts").invoked]).toEqual(["x.ts"]);
+    // A full-line comment never executes and contributes nothing.
+    expect(c("# playwright test --config ghost.ts").invoked.size).toBe(0);
+    expect(c("# playwright test --config ghost.ts").problems).toEqual([]);
+    // Every construct the classifier cannot faithfully parse FAILS LOUD:
+    expect(c("echo playwright test --config ghost.ts").problems).not.toEqual([]);
+    expect(c("pnpm exec playwright test 2>&1 --config ghost.ts").problems).not.toEqual([]);
+    expect(c("playwright test -g 'a|b' --config ghost.ts").problems).not.toEqual([]);
+    expect(c("pnpm run test:e2e --config ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
+    expect(c("pnpm test:e2e --config=ghost.ts", ["test:e2e"]).problems).not.toEqual([]);
+    expect(c("bash <<EOF\nplaywright test --config ghost.ts\nEOF").problems).not.toEqual([]);
+    expect(c("playwright test tests/a.spec.ts \\; --config ghost.ts").problems).not.toEqual([]);
+    // Plain redirects with no config flag stay classifiable (default config).
+    expect(c("playwright test > out.log 2>&1").problems).toEqual([]);
+    expect([...c("playwright test > out.log 2>&1").invoked]).toEqual(["playwright.config.ts"]);
+  });
+
   it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const texts: string[] = Object.values(pkg.scripts as Record<string, string>);
+    const scripts = pkg.scripts as Record<string, string>;
+    const texts: string[] = Object.values(scripts);
     const wfDir = join(ROOT, ".github", "workflows");
     for (const wfPath of readdirSync(wfDir).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
@@ -289,28 +392,15 @@ describe("spec registration detector (spec §3.1)", () => {
         for (const step of j.steps ?? []) if (typeof step.run === "string") texts.push(step.run);
       }
     }
-    const invoked = new Set<string>();
-    for (const raw of texts) {
-      // Normalize shell line continuations so a multiline invocation reads as
-      // one line, then split each line on SHELL separators — [;&|]+ covers
-      // `;`, `|`, `&&`, `||`, AND a single `&` (background job), any of which
-      // starts a new invocation — so a compound line contributes every
-      // invocation it carries, not just the first. The config flag must parse
-      // in EVERY form playwright's commander accepts — `--config PATH`,
-      // `--config=PATH`, `-c PATH`, `-c=PATH`, and the attached short form
-      // `-cPATH` (verified against the installed playwright: -cPATH lists the
-      // full standalone suite) — because any unparsed form records the segment
-      // as the default config, a fail-open census row that set equality can
-      // never catch. `(?:^|\s)` anchors the flag to a token boundary so `-c`
-      // inside a word or another flag cannot match.
-      for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
-        for (const segment of line.split(/[;&|]+/)) {
-          if (!/\bplaywright\s+test\b/.test(segment)) continue;
-          const m = segment.match(/(?:^|\s)(?:--config(?:=|\s+)|-c(?:=|\s+)?)(\S+)/);
-          invoked.add(m?.[1] ?? "playwright.config.ts");
-        }
-      }
-    }
+    const pwScriptNames = Object.keys(scripts).filter((n) =>
+      /\bplaywright\s+test\b/.test(scripts[n] ?? ""),
+    );
+    const { invoked, problems } = censusInvocations(texts, pwScriptNames);
+    expect(
+      problems,
+      "shell constructs the census cannot faithfully classify — rewrite the invocation " +
+        "or extend censusInvocations deliberately (fail-closed by design)",
+    ).toEqual([]);
     expect([...invoked].sort()).toEqual([...CONFIGS].sort());
 
     const belt = walkFiles(ROOT)
