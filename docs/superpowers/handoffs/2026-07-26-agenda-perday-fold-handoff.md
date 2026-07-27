@@ -174,10 +174,12 @@ a survivor.
 
 ## Known limits, disclosed rather than defended
 
-- **~~The layout spec is PATH-GATED, not PR-blocking.~~ SUPERSEDED — it is now PR-blocking.** This
+- **~~The layout spec is PATH-GATED, not PR-blocking.~~ SUPERSEDED — it now runs on every PR.** This
   bullet described the wiring this PR originally built. `origin/main` then retired seven per-feature
   workflows for one unfiltered `standalone-e2e.yml`, so both agenda specs run on EVERY PR and their
-  allowlist rows were deleted (the registry's `shadowing` check fails on an allowlisted spec that is
+  allowlist rows were deleted. Precisely: **runs on every PR is not the same as merge-blocking** —
+  review R4 (LOW) caught this bullet overstating it. No e2e job is among branch protection's twelve
+  required contexts, so enforcement here is procedural (the registry's `shadowing` check fails on an allowlisted spec that is
   covered). Kept, struck through, because review R3 caught the un-struck version still asserting
   `PATH_GATED` two paragraphs after the merge account said the opposite.
 - **jsdom cannot see visibility.** Adding `hidden` to the marker leaves all 12 jsdom tests green. Documented

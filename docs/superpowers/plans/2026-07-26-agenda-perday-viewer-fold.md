@@ -1,5 +1,26 @@
 # Agenda per-viewer day folding (option C) — Implementation Plan
 
+> ## AS SHIPPED — authoritative over anything below it
+>
+> This document was written before implementation and revised across seven pre-code review rounds
+> plus four whole-diff rounds. Body text that contradicts this table is superseded; the body is
+> retained because the reasoning is the point, but **where they disagree, this table is correct.**
+> Added after review R4 enumerated five contradictions that survived being fixed one at a time —
+> a per-instance sweep kept generating the next one, so the class is closed with a single
+> authority instead.
+>
+> | Contested point | AS SHIPPED |
+> | --- | --- |
+> | Matcher input | Takes **raw JSONB** and normalizes internally via `normalizeAgendaExtraction`, mirroring `agendaSessionsForToday`. Body text requiring an already-normalized extraction is superseded. |
+> | Matcher output | **Row indices** — `{kind:"all"} \| {kind:"subset"; rows: ReadonlySet<number>}`. Never dates: `AgendaDay.date` is always null in production (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor). |
+> | Positional fallback | **Not implemented, deliberately.** Ratified in §3; tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Every other passage requiring it is superseded. |
+> | Throw contract of the hoist | `visibleShowDays` is total, but the hoisted block is wrapped in **capture-and-rethrow** anyway, because the matcher normalizes raw JSONB. The rethrow happens inside the render callback so `WrappedSection` still records its ledger entry and renders the tile fallback. Passages calling the hoisted work non-throwing describe `visibleShowDays` alone, not the block. |
+> | Unrestricted viewer (`dateRestriction.kind === "none"`) | `{kind:"all"}` — every day expanded, **no marker**. The two readings in the body ("every day is theirs" / "no day is theirs") reach the same place: nothing distinguishes one day, so THE MARKER RULE suppresses the marker. "Every day is theirs" is the accurate one. |
+> | CI wiring | `.github/workflows/standalone-e2e.yml` runs the WHOLE standalone config **unfiltered on every PR**; both agenda specs are covered with **no allowlist row**. Every instruction to edit the retired modal-header workflow, add a `paths:` entry, or set a `PATH_GATED` row is superseded. |
+> | CI enforcement strength | Runs on every PR, but **not merge-blocking**: no e2e job is among branch protection's twelve required contexts. Enforcement is procedural. |
+
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A crew member who works one day of a four-day show stops having to scan the whole show's agenda. Their day renders expanded and marked; the other days fold to one-line disclosure rows they can open. When no day resolves for them, everything expands — the pre-change behaviour — because a silently folded own-day is the worst outcome this feature can produce.

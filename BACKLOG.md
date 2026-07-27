@@ -613,8 +613,12 @@ does not reproduce.
 entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
 error is worth naming: the hook count came from `grep -c` over the whole 4000-line
 `step3ReviewSections.tsx` and was attributed to the component. Measured properly,
-`AgendaBreakdown` is **236 lines with 4 hook call sites** (`useContext`, `useEffect`,
-`useLayoutEffect`).
+`AgendaBreakdown` is **225 lines with 4 hook call sites in its own body** — `useContext` x1,
+`useEffect` x2, `useLayoutEffect` x1. Method, so the number is checkable rather than asserted:
+brace-match the function body from `export function AgendaBreakdown(` and count `use[A-Z]\w*(`.
+Review R4 reported nine (adding three `useState` and two `useRef`); those do not appear anywhere
+between this function and the next export, `PublishedAgendaList`. Child components it renders have
+their own hooks — the relevant number for harness cost is the ones this component owns.
 
 The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
 modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
@@ -700,7 +704,7 @@ New `admin_alert` code → the ~9-surface lockstep fan-out applies (catalog row,
 >
 > 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
 >    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because `AgendaDay.date` is
->    always null in production (`lib/parser/extractAgendaSchedule.ts:653` is its sole constructor).
+>    always null in production (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor).
 > 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
 >    implement the positional fallback. Ratified at
 >    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
