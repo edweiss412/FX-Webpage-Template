@@ -738,10 +738,16 @@ retiring spec itself, where the old name is legitimate history.
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** very low · **Class:** FEATURE REACH
 
-`isAmbiguousLabel` (`lib/crew/agendaViewerDays.ts`) rejects residual text that MATCHES known
-day-shaped patterns; it does not require residual text to be recognised. Free prose therefore passes:
-`"Tuesday, May 5, 2026 and the following day"` folds as a plain May 5 row, so a viewer assigned May 6
-loses it if a separate May 6 row exists.
+`isAmbiguousLabel` (`lib/crew/agendaViewerDays.ts`) fires on SPECIFIC day-shaped signals — a second
+date, a second weekday, a `Day N` count, a plural span, a spoken ordinal — judged by both count and
+position. It does not require the rest of the label to be recognised, so free prose passes. Verified
+still true at PR #610 close-out, after the rule was rewritten three times:
+
+    "Tuesday, May 5, 2026 and the following day"   folds as a plain May 5 row
+    "Tuesday, May 5, 2026 plus the next day"       folds
+    "Tuesday, May 5, 2026 (two-day block)"         folds
+
+A viewer assigned May 6 loses that row if a separate May 6 row exists.
 
 **Why not closed.** A true whitelist — accepting only a remainder the code can parse — would reject
 every heading carrying a venue, track, or session name, which is most real headings. Review R6
@@ -750,9 +756,12 @@ Junior, Novel, Decision, Augusta and Octagon, which would have disabled folding 
 extractions. The rule is deliberately positioned as the strictest thing that does not break ordinary
 labels.
 
-**Closed already, mechanically:** a second full date, a second weekday name, an ordinal ("the 6th"),
-a month-day without a year ("/ May 6"), and the same month-day in two years — the six
-counterexamples from rounds R2-R6.
+**Closed already, mechanically** — eleven distinct forms across rounds R2-R10, listed so nobody
+re-reports one as new: a second full date; a second weekday name; an ordinal ("the 6th"); a
+month-day without a year ("/ May 6"); the same month-day in two years, in ANY pairing of shapes;
+slash, ISO and day-first dates; two ordinal-position phrases ("Day 1 / Day 2"); a plural day span
+("Days 1-2"); the `Sat` abbreviation; and every one of those in LEADING position as well as
+trailing. What remains is prose that names a day without any of those tokens.
 
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
