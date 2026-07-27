@@ -281,7 +281,9 @@ times and is not attempted.
   step; (c) neither step carries step-level `if:`, `env:`, `continue-on-error`, `shell:`, or
   `working-directory:`; (d) the workflow keeps a bare `pull_request` trigger (no `paths:`,
   `paths-ignore:`, `types:`, `branches:`, or `branches-ignore:`), and the job has no `needs:`,
-  no `strategy.matrix`, no job-level `continue-on-error`, and no `defaults.run.shell` /
+  no `strategy.matrix`, no job-level `continue-on-error`, no `environment:` (adversarial R6
+  F2: a protected environment can hold the job on manual approval so it never runs on an
+  ordinary PR), and no `defaults.run.shell` /
   `defaults.run.working-directory` override at any level (adversarial R2 F3 classes). The
   json-reporter declaration is pinned by OBSERVATION: the `_standaloneConfigProbe`-style
   import asserts the evaluated config's `reporter` includes the json entry with the exact
@@ -342,9 +344,16 @@ sound, and every non-node_modules candidate file is parsed. The parse cost is bo
 measured at plan time by re-running the §2.6 prototype without its (unsound) pre-filter. The
 parse — not a regex over the file — decides placement in the prologue, so the
 regex-comment-stripping class (`feedback_regex_comment_stripping_does_not_survive_tsx`) stays
-dead. Guard case (e) in §5.5 pins the single-quote form; guard case (g) pins that the
-escape-spelled `"use\x20server"` form DOES stub, with the SWC probe as the recorded oracle
-for why.
+dead. **Zero-diagnostics requirement (adversarial R6 F1):** the resolver stubs a module ONLY
+when the parse produced no syntax diagnostics; a directive module whose source fails to parse
+cleanly is a hard bundle-time ERROR, never a stub — TypeScript's recovering parser cooks
+literals SWC rejects (octal-escape directives are invalid in module code) and recovers past
+trailing garbage SWC refuses, so stubbing a diagnostic-bearing module could mask a production
+build failure. Fail-closed matches production, which also fails. Guard case (e) in §5.5 pins
+the single-quote form; guard case (g) pins that the escape-spelled `"use\x20server"` form
+DOES stub, with the SWC probe as the recorded oracle for why; guard case (h) pins both
+diagnostic-bearing counterexamples (octal-escape directive; valid directive with trailing
+garbage) as bundle FAILURES.
 
 ### §5.2 The stub
 
@@ -484,13 +493,15 @@ additionally requires, on the parsed workflow: a BARE `pull_request` trigger —
 ordinary PRs; other triggers such as `schedule` may coexist, the `pull_request` KEY itself
 must be bare); no job-level `if:` other than the exact schedule-exclusion literal
 `github.event_name != 'schedule'`; no `needs:` on the job; no `strategy.matrix` conditioning;
-no `continue-on-error` at STEP OR JOB level; no `working-directory` on the step and no
+no job-level `environment:` (a protected environment gates the job on approval — adversarial
+R6 F2); no `continue-on-error` at STEP OR JOB level; no `working-directory` on the step and no
 `defaults.run.working-directory` at workflow or job level (a redirected cwd re-points the
 package alias and the relative test path); and no `defaults.run.shell` override at workflow or
 job level. These are the same execution-override classes the existing scanner already
 disqualifies (`tests/ci/_workflowCoverageScan.ts:141` and
 `tests/ci/_workflowCoverageScan.ts:197` regions); the verifier reuses that machinery rather
-than re-deriving it.
+than re-deriving it, EXTENDED with the `environment:` class, which the scanner's current
+disqualifier set omits (adversarial R6 F2).
 
 **The script and its alias are behaviorally pinned (adversarial R2 F4).** A unit-suite test
 (i) asserts the `package.json` `run-excluded` script is EXACTLY `node
@@ -560,7 +571,7 @@ no shared surface between PR-C and #613.
 | tests/ci/\_metaSpecRegistration.test.ts | created — test-shaped disk files ⊆ three-config union ∪ dark-allowlist; invocation-census + filename-belt config tripwire; shadow/stale row checks; standalone baseline (files + totalTests) == local resolution; `standalone-e2e.yml` baseline-step structural pinning (§4.1) | PR-A |
 | tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed `{files, totalTests}`; `--write` regen; pinned CI-side comparison step in `standalone-e2e.yml`; behavioral rejection test for the script (three mismatch classes exit non-zero) | PR-A |
 | tests/ci/\_metaEnvBoundExclusionCoverage.test.ts + scripts/run-excluded-test.mjs | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal `pnpm run-excluded` step verification; workflow/job qualification via the scanner's disqualification classes incl. job-level continue-on-error and working-directory redirection; alias-mapping pin + behavioral rejection test for the script (zero-passed / all-skipped / failed reports exit non-zero); dark rows are red | PR-B |
-| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(g) | PR-C |
+| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(h) | PR-C |
 | shared directive-plugin module (under `tests/e2e/helpers/`) | created — consumed by the bundleLiveEntry child script AND `tests/e2e/_step3ReviewModalBundle.mjs`, whose regex `useServerElision` is deleted (§5.3a) | PR-C |
 | `tests/e2e/_metaLiveEntryToolchain.test.ts` | edited — assertions follow the CLI→child-script move; `_step3ReviewModalBundle.mjs` exemption rationale rewritten; binary ban unchanged | PR-C |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | edited — packlist row deleted (PR-C); `report-modal` row premise restored or replaced per §3.2 (PR-A) | PR-A, PR-C |
