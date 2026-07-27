@@ -361,6 +361,13 @@ jobs:
     # template verbatim (TEST_DATABASE_URL only) yields a job that throws before
     # reaching a single live assertion — it would look wired and prove nothing.
     # The project ref is not a secret: it appears in tracked AGENTS.md.
+    #
+    # INHERITED CEILING, stated so this job is not read as proving more than it
+    # does: the suite checks that TEST_DATABASE_URL *contains* the ref, which
+    # does not prove which database psql actually connected to — libpq `host` /
+    # `hostaddr` parameters can override the displayed authority. That is
+    # BL-VALIDATION-TARGET-BINDING, pre-existing and shared with
+    # validation-schema-parity, not introduced here.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 12

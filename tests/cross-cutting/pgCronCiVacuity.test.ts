@@ -46,9 +46,15 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
     // Requires the whole mechanism, not just the identifier: an earlier
     // version of this assertion matched a bare `liveCaseCount` declaration and
     // passed while nothing incremented or checked it.
-    expect(source, "live cases must be counted as they run").toMatch(/liveCaseCount \+= 1/);
+    // Delegation and counting live in _liveCaseCounter.ts and are pinned
+    // BEHAVIOURALLY by liveCaseCounter.test.ts — a source scan could not catch
+    // the wrapper dropping its `fn()` call, which left every guard green while
+    // each case ran nothing. Here we pin only that the suite uses that module.
+    expect(source, "live cases must be counted by the tested wrapper").toMatch(
+      /makeLiveCaseCounter\(liveDbTest\)/,
+    );
     expect(source, "CI must refuse a run with zero live cases").toMatch(
-      /afterAll\([\s\S]{0,300}isCi && liveCaseCount === 0[\s\S]{0,200}throw new Error/,
+      /afterAll\([\s\S]{0,300}isCi && liveCaseCount\(\) === 0[\s\S]{0,200}throw new Error/,
     );
     // …and every live case must go through the counting wrapper, or the count
     // undercounts and the check is weaker than it appears. Scoped to

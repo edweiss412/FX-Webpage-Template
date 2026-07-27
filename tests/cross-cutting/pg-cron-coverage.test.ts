@@ -45,6 +45,8 @@ import { describe, expect, test, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { makeLiveCaseCounter } from "./_liveCaseCounter";
 import { cronPeriodMs } from "../helpers/cronPeriod";
 
 // Canonical job table — read from the sibling JSON in the M12.1 plan dir so the
@@ -129,19 +131,15 @@ const isCi = Boolean(process.env.CI);
 const liveDbTest = coverageTarget === "validation" || livePsqlReachable ? test : test.skip;
 
 /**
- * Live cases that actually EXECUTED. The second vacuity shape: psql reachable
- * so nothing throws, but every live case filtered out for some other reason,
- * leaving only the static assertions to report green. Counted at run time
- * rather than inferred, and checked in afterAll below.
+ * Live cases that actually EXECUTED, so CI can refuse an all-static run. The
+ * second vacuity shape: psql reachable so nothing throws, but every live case
+ * filtered out, leaving only static assertions to report green.
+ *
+ * The wrapper lives in its own module so its delegation is behaviourally
+ * tested — inline, an adversarial round showed that deleting its `fn()` call
+ * left every guard green while each case ran nothing.
  */
-let liveCaseCount = 0;
-
-/** Wraps a live case so its execution is observable. */
-const liveCase = (name: string, fn: () => void): void =>
-  void liveDbTest(name, () => {
-    liveCaseCount += 1;
-    fn();
-  });
+const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
@@ -185,7 +183,7 @@ beforeAll(() => {
 afterAll(() => {
   // CI un-excluded this suite precisely to get live assertions; a run that
   // asserted only static facts would restore the exact darkness PR3 removed.
-  if (isCi && liveCaseCount === 0) {
+  if (isCi && liveCaseCount() === 0) {
     throw new Error(
       "pg-cron-coverage: CI is set but ZERO live-DB cases executed — the suite " +
         "would be reporting success on static assertions alone.",

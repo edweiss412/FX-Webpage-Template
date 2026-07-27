@@ -49,7 +49,7 @@ not re-architect it.
 **Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
 against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
 
-### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` cannot prove which database it connected to
+### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` and `pg-cron-validation-parity` cannot prove which database they connected to
 
 **Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
 
@@ -380,7 +380,11 @@ The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, i
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+
+**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
+
+**What stays open:** the per-job smoke-test residue (spec §9), and the target-binding ceiling below — this job inherits `BL-VALIDATION-TARGET-BINDING`, since a DSN substring check cannot prove which database `psql` connected to (libpq `host`/`hostaddr` can override the displayed authority).
 
 `tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It is excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there says it "runs against the validation project (like validation-schema-parity)". **Nothing runs it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
 
