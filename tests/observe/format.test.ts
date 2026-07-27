@@ -289,3 +289,44 @@ describe("formatWatch", () => {
     expect(jsonOut[0].expiresAt).toBeNull();
   });
 });
+
+describe("formatWatch reconcile-state section (backoff spec §3.6 D10)", () => {
+  const watchRow = {
+    id: "w1",
+    status: "active",
+    watchedFolderId: "folder-abc",
+    expiresAt: "2026-07-10T00:00:00.000Z",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    activatedAt: "2026-07-01T00:00:00.000Z",
+    supersededAt: null,
+    stoppedAt: null,
+  };
+  const stateRow = {
+    watchedFolderId: "folder-abc",
+    consecutiveFailures: 3,
+    nextAttemptAt: "2026-07-27T12:15:00.000Z",
+    lastAttemptAt: "2026-07-27T12:00:00.000Z",
+    lastAttemptOutcome: "failed",
+    lastErrorClass: "drive_api",
+    lastErrorMessage: "channel create failed",
+  };
+
+  test("table output renders the state block with every column", () => {
+    const out = formatWatch([watchRow], false, [stateRow]);
+    expect(out).toContain("reconcile state:");
+    expect(out).toContain("failures=3");
+    expect(out).toContain("next=2026-07-27T12:15:00.000Z");
+    expect(out).toContain("last=failed");
+    expect(out).toContain("class=drive_api");
+    expect(out).toContain("channel create failed");
+  });
+  test("json output carries both row sets", () => {
+    const parsed = JSON.parse(formatWatch([watchRow], true, [stateRow]));
+    expect(parsed.rows).toEqual([watchRow]);
+    expect(parsed.stateRows).toEqual([stateRow]);
+  });
+  test("no state rows → output identical to the legacy shape", () => {
+    expect(formatWatch([watchRow], false, [])).not.toContain("reconcile state:");
+    expect(JSON.parse(formatWatch([watchRow], true, []))).toEqual([watchRow]);
+  });
+});

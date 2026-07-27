@@ -36,7 +36,7 @@ const deps = {
   queryPublishedWarnings: async () => ({ kind: "ok" as const, rows: [] }),
   querySyncLog: async () => ({ kind: "ok" as const, rows: [] }),
   queryDeferred: async () => ({ kind: "ok" as const, rows: [] }),
-  queryWatchChannels: async () => ({ kind: "ok" as const, rows: [] }),
+  queryWatchChannels: async () => ({ kind: "ok" as const, rows: [], stateRows: [] }),
   env: { SUPABASE_URL: "http://127.0.0.1:54321", SUPABASE_SECRET_KEY: "k" },
   nowMs: 0,
 };
@@ -288,7 +288,7 @@ describe("runObserve", () => {
         ...deps,
         queryIngestFailures: async (filters) => {
           captured = filters;
-          return { kind: "ok" as const, rows: [] };
+          return { kind: "ok" as const, rows: [], stateRows: [] };
         },
       });
       expect(r.exitCode).toBe(0);
@@ -314,7 +314,7 @@ describe("runObserve", () => {
         ...deps,
         queryPublishedWarnings: async (filters) => {
           captured = filters;
-          return { kind: "ok" as const, rows: [] };
+          return { kind: "ok" as const, rows: [], stateRows: [] };
         },
       });
       expect(r.exitCode).toBe(0);
@@ -340,7 +340,7 @@ describe("runObserve", () => {
         ...deps,
         querySyncLog: async (filters) => {
           captured = filters;
-          return { kind: "ok" as const, rows: [] };
+          return { kind: "ok" as const, rows: [], stateRows: [] };
         },
       });
       expect(r.exitCode).toBe(0);
@@ -367,7 +367,7 @@ describe("runObserve", () => {
         ...deps,
         queryDeferred: async (filters) => {
           captured = filters;
-          return { kind: "ok" as const, rows: [] };
+          return { kind: "ok" as const, rows: [], stateRows: [] };
         },
       });
       expect(r.exitCode).toBe(0);
@@ -393,7 +393,7 @@ describe("runObserve", () => {
         ...deps,
         queryWatchChannels: async (filters) => {
           captured = filters;
-          return { kind: "ok" as const, rows: [] };
+          return { kind: "ok" as const, rows: [], stateRows: [] };
         },
       });
       expect(r.exitCode).toBe(0);
