@@ -260,7 +260,7 @@ function chromeFor(c: (typeof CELLS)[number]): Step3SectionChrome {
 /** One cell, rendered in a container pinned to the width the spec measures at. */
 function cellMarkup(c: (typeof CELLS)[number], widthPx: number): string {
   return renderToStaticMarkup(
-    <div data-cell={c.cell} style={{ width: `${widthPx}px`, paddingTop: "1px" }}>
+    <div data-cell={c.cell} style={{ width: `${widthPx}px` }}>
       <Step3SectionChromeContext.Provider value={chromeFor(c)}>
         <BreakdownSection testId={`cell-${c.cell}`} label={c.heading} count={c.count}>
           <div />
