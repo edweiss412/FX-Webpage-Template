@@ -781,3 +781,27 @@ Morph guards say "Confirm: X" while panel confirms say bare "Confirm revoke|rese
 **Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** low · **Class:** UI A11Y
 
 `RecentAutoAppliedStrip` renders the aggregate outcome only when `failed > 0`; an all-success bulk undo self-heals visually (rows drop on revalidate) but emits no `role="status"` confirmation for SR users. Net-new affordance beyond spec §6 F2's ratified failure-only alert. DEFERRED.md DESTRUCT-3. Trigger: bundled with BL-DESTRUCT-CONFIRM-COPY-HARMONIZE or an SR-user report.
+
+---
+
+## BL-STANDALONE-CONFIG-CI-DARK — the standalone real-browser specs run in no CI job — ✅ RESOLVED (2026-07-26)
+
+**Status:** CLOSED 2026-07-26 (PR2 of the CI-dark coverage cluster) · **Severity:** MEDIUM (test-coverage integrity) · **Class:** CI WIRING — pre-existing, surfaced by the `modal-header-reconciliation` close-out (2026-07-19)
+
+**How it closed.** `.github/workflows/standalone-e2e.yml` runs the WHOLE config unfiltered on every PR (404 tests, 3.3 min, no webServer / Supabase / build), and the seven per-feature workflows that existed only because nothing ran the config are deleted. All 30 members lost their allowlist rows, verified against the scanner's own output rather than a hand list.
+
+The structural guard proposed below shipped in the form that could be made SOUND: `tests/ci/_metaStandaloneConfigBranches.test.ts` pins that every `testMatch` branch resolves to an existing spec (the check is total — the branch list is finite and each entry resolves or does not). The converse direction, detecting a self-contained spec never REGISTERED in the config, could not be given a sound definition after four adversarial rounds and is filed separately as `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`. An honest gap beats a guard that catches only what it happens to recognize.
+
+Spec: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §4.
+
+`tests/e2e/standalone.config.ts` holds ~19 self-contained real-browser specs (the `*.layout` family, `statusStripToggleLayout`, `blocked-row-resolver-transitions`, `collapse-panel-morph`, `packlist-rescan-recovery`, `skeletonBandParity`, …). **No workflow invoked that config, and Playwright's default `playwright.config.ts` matches none of those files under any project.** Consequences: `pnpm exec playwright test tests/e2e/<one>.spec.ts` reports `No tests found` (the failure looks like a bad path, not a missing project), and the specs are runnable ONLY by someone who already knows to pass `--config=tests/e2e/standalone.config.ts`. They went green once at authoring time and were never run again in CI.
+
+This is the **#479 failure class repeating** — a spec living in no CI-run project drifted silently and broke on `main` once the Step 3 client graph changed. The lesson memo is "a dark spec in an unrun project rots."
+
+**Partially closed (2):** `.github/workflows/destructive-layout-e2e.yml` now runs `pendingDiscardReal.layout` + `pendingDiscardReflow.layout`, and `.github/workflows/modal-header-layout-e2e.yml` runs the four modal-header-family specs — `published-review-modal.layout`, `skeletonBandParity`, `statusStripToggleLayout`, `step3-review-modal.layout` — via `pnpm test:e2e:modal-header`, with `workflow_dispatch` enabled. **The other ~13 remain dark.**
+
+**Fix:** wire the remainder into CI (either extend the new workflow's spec list job-by-job, or add a job that runs the whole standalone config), then add a **structural guard** so the class cannot silently reopen: a meta-test asserting every `tests/e2e/*.spec.ts` is matched by at least one project in `playwright.config.ts` OR by `standalone.config.ts` AND named in some workflow's run list. Fails-by-default, so a NEW standalone spec that nothing runs breaks CI at authoring time instead of rotting.
+
+**Known blocker for a whole-config job:** `packlist-rescan-recovery.spec.ts` shells out to `pnpm dlx esbuild@0.28.0` (network fetch at test time) and fails locally on a cold/offline dlx cache — pin or vendor that dependency before putting it in a required job.
+
+**Trigger:** next milestone touching `tests/e2e/**` layout harnesses, or any adversarial round that flags real-browser coverage.

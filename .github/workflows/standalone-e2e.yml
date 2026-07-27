@@ -1,0 +1,71 @@
+name: standalone-e2e
+
+# Runs the WHOLE of tests/e2e/standalone.config.ts on every PR.
+#
+# What this replaces: seven per-feature workflows, each of which existed
+# because the standalone config is an explicit allow-list that no general CI
+# job invoked, so each newly-written spec needed its own workflow to run at
+# all. That pattern reproduced faster than it could be cleaned up — a sixth
+# instance landed while the spec retiring it was being written, and a seventh
+# by the time this branch opened. One unfiltered job ends the pattern instead
+# of retiring instances of it.
+#
+# NO path filter, deliberately and by force rather than preference.
+# tests/ci/_workflowCoverageScan.ts:105 disqualifies any workflow carrying
+# `paths:` OR `paths-ignore:` — a filtered job does not run on every PR, so
+# its specs stay dark in the coverage guard's eyes. A coarse filter here would
+# leave every member allowlisted while looking like coverage. Ratified
+# precedent: docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md:128.
+#
+# The run command must stay EXACTLY as written below. The scanner recognizes
+# one literal string as covering a whole config
+# (tests/ci/_workflowCoverageScan.ts WHOLE_CONFIG_RE); any deviation — an
+# added --reporter, a --shard, a named spec — makes this job claim NOTHING,
+# and the allowlist rows deleted alongside it would leave those specs
+# silently dark. Do not add a trailing `| tee`/`| cat`/`| grep` either: the
+# scanner reads a trailing pipe as exit-code suppression.
+#
+# No webServer, no Supabase, no build: every member boots its own node:http
+# server in beforeAll, and the config supplies the two module-load env
+# fallbacks that used to live in modal-header-layout-e2e.yml's `env:`.
+#
+# Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  standalone-e2e:
+    runs-on: ubuntu-latest
+    # Measured 1.9 min for the whole config on a clean worktree; 20 leaves
+    # headroom for a cold browser download without masking a hang.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      - name: Run the whole standalone config
+        run: pnpm exec playwright test --config tests/e2e/standalone.config.ts
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
