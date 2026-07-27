@@ -365,7 +365,13 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
         // a paused link renders crew-show-paused-root instead, so the welcome
         // appearing IS the republish signal.
         await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-checked", "true");
+        // Same 30s budget as the OFF flip above: this is a server action plus
+        // router.refresh(), and the default 5s expect window was the ONLY
+        // failure across five consecutive local runs (4/5, "Expected: true /
+        // Received: false" — the round-trip simply had not landed yet). No
+        // retry here: the click is post-hydration by construction, and wrapping
+        // a mutation in a retry is the defect this file just removed.
+        await expect(toggle).toHaveAttribute("aria-checked", "true", { timeout: 30_000 });
         await crewPage.goto(crewUrl);
         await expect(crewPage.getByTestId("crew-show-paused-root")).not.toBeVisible({
           timeout: 10_000,
