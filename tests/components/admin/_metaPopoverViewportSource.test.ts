@@ -20,6 +20,7 @@
  * second consumer (ShareHub) go unnoticed for a full review round.
  */
 import { describe, expect, it } from "vitest";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -74,8 +75,6 @@ function walk(dir: string, acc: string[]): string[] {
 }
 
 /** Block comments, then line comments (the `[^:]` guard spares `https://`). */
-const stripComments = (src: string): string =>
-  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 /** Every `from "..."` specifier, imports AND re-exports, with its clause. */
 function specifiersOf(code: string): { spec: string; clause: string }[] {
@@ -124,9 +123,9 @@ const importsCorePlacement = (file: string, code: string): boolean =>
   );
 
 const sourceFiles = ROOTS.flatMap((r) => walk(join(REPO_ROOT, r), []));
-const codeOf = (f: string): string => stripComments(readFileSync(f, "utf8"));
+const strippedSourceOf = (f: string): string => stripCommentsForFile(readFileSync(f, "utf8"), f);
 
-const consumers = sourceFiles.filter((f) => importsModule(f, codeOf(f), CANONICAL.place));
+const consumers = sourceFiles.filter((f) => importsModule(f, strippedSourceOf(f), CANONICAL.place));
 
 describe("popover placement consumers read the visible viewport, not the layout viewport", () => {
   it("discovers EXACTLY the two known consumers", () => {
@@ -138,7 +137,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
 
   it("only lib/popover/place.ts imports the placement core, repo-wide", () => {
     const direct = sourceFiles
-      .filter((f) => importsCorePlacement(f, codeOf(f)))
+      .filter((f) => importsCorePlacement(f, strippedSourceOf(f)))
       .map((f) => relative(REPO_ROOT, f))
       .filter((rel) => !CORE_IMPORT_ALLOWLIST.has(rel));
     expect(direct).toEqual([]);
@@ -146,7 +145,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
 
   it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", () => {
     const offenders = sourceFiles
-      .filter((f) => READS_LAYOUT_VIEWPORT.test(codeOf(f)))
+      .filter((f) => READS_LAYOUT_VIEWPORT.test(strippedSourceOf(f)))
       .map((f) => relative(REPO_ROOT, f))
       .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
     expect(offenders).toEqual([]);
@@ -157,7 +156,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
       const abs = join(REPO_ROOT, rel);
       expect(sourceFiles.includes(abs), `${rel} is allowlisted but no longer exists`).toBe(true);
       expect(
-        READS_LAYOUT_VIEWPORT.test(codeOf(abs)),
+        READS_LAYOUT_VIEWPORT.test(strippedSourceOf(abs)),
         `${rel} is allowlisted but no longer reads the layout viewport`,
       ).toBe(true);
     }
@@ -192,7 +191,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
   it.each(consumers.map((f) => [relative(REPO_ROOT, f), f] as const))(
     "%s does not read window.innerWidth/innerHeight",
     (_rel, file) => {
-      expect(codeOf(file)).not.toMatch(READS_LAYOUT_VIEWPORT);
+      expect(strippedSourceOf(file)).not.toMatch(READS_LAYOUT_VIEWPORT);
     },
   );
 });
