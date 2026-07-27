@@ -350,7 +350,7 @@ export async function handleOnboardingScan(
           requestId: scanRequestId,
           error,
         });
-        emit({ type: "result", body: { ok: false, code: null } });
+        emit({ type: "result", body: { ok: false, code: "ONBOARDING_SCAN_FAILED" } });
       } finally {
         try {
           controller.close();

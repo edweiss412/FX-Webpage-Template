@@ -957,3 +957,11 @@ Structural guards across the suite strip comments before scanning source, and **
 **Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
 
 **Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
+
+---
+
+## BL-SCAN-SSE-BODY-NULL-CODE — onboarding scan SSE result body emitted a user-facing `code:null` — ✅ RESOLVED (2026-07-27)
+
+**Resolved by:** `feat/scan-sse-null-code` (PR #621), PR4 of the 2026-07-24 BL-NULLCODE-STAMP-BATCH-2 residual sweep.
+
+The scan route's mid-run-throw catch logged a forensic `ONBOARDING_SCAN_FAILED` but emitted `{ ok:false, code:null }` to the wizard client, forcing the generic fallback copy. The string was promoted to a real §12.4 code as the three-way lockstep in one commit (master-spec §12.4 row + helpfulContext map, `pnpm gen:spec-codes`, `lib/messages/catalog.ts` predicate row) plus the route emit and `Step2Verify` `RECOGNIZED_CODES`, so the operator now gets the cataloged copy and a HelpAffordance. The code graduated out of `NEW_FORENSIC_CODES` via the new `GRADUATED_TO_CATALOG` ledger (tests/log/\_auditableMutations.ts), whose contract test pins disjointness, catalog-row presence, and producer presence; the forensic log stamp remains pinned by `NULLCODE_BATCH2_STAMPS`.

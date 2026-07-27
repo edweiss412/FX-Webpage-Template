@@ -491,6 +491,38 @@ describe("Step2Verify", () => {
     expect(container.textContent ?? "").not.toContain("null");
   });
 
+  test("terminal {ok:false, code:ONBOARDING_SCAN_FAILED} renders the cataloged copy, not the generic fallback", async () => {
+    // BL-SCAN-SSE-BODY-NULL-CODE: the scan route's catch now emits a cataloged
+    // §12.4 code instead of null. This is the assertion that fails if the code
+    // is left out of RECOGNIZED_CODES — copyForCode would silently fall back to
+    // GENERIC_VERIFY_ERROR and the operator loses the specific copy.
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        ndjson(
+          { type: "listed", total: 1 },
+          { type: "result", body: { ok: false, code: "ONBOARDING_SCAN_FAILED" } },
+        ),
+      ]),
+    );
+    const { getByTestId, findByTestId, container } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    const err = await findByTestId("wizard-step2-error");
+    // Derived from the catalog, not hardcoded — the contract is "the DOM shows
+    // the catalog row's dougFacing", whatever that copy is revised to say.
+    const expected = MESSAGE_CATALOG.ONBOARDING_SCAN_FAILED.dougFacing;
+    expect(expected).toBeTruthy();
+    expect(err.textContent ?? "").toContain(expected);
+    // The generic fallback must NOT be what rendered.
+    expect(err.textContent ?? "").not.toContain("contact the developer");
+    // No raw §12.4 code leaks into visible text (invariant 5 / x2).
+    expect(container.textContent ?? "").not.toContain("ONBOARDING_SCAN_FAILED");
+  });
+
   test("consolidated into ONE card: the live progress block lives inside the scan form (no second card)", async () => {
     // Before consolidation the scan form and the live-progress readout were two
     // separate stacked cards. They now share the single bordered form card — the

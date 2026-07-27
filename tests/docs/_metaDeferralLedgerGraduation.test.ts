@@ -121,6 +121,9 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/scan-sse-null-code (2026-07-27, PR #621): PR4 of the BL-NULLCODE-STAMP-BATCH-2
+  // residual sweep — the scan SSE terminal body now carries the cataloged code.
+  { id: "BL-SCAN-SSE-BODY-NULL-CODE", provenance: "feat/scan-sse-null-code" },
   // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },

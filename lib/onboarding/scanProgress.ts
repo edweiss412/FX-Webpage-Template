@@ -20,9 +20,10 @@ export type ScanProgressEvent =
 /**
  * Terminal-event body. Superset of OnboardingScanResponseBody (completed |
  * schema_missing | superseded, scanResponse.ts) PLUS the mid-run-failure shape
- * that body cannot model. `code` widens to string | null so the route's
- * mid-run-failure `{ ok:false, code:null }` fits and the client's
- * copyForCode(null) returns the generic copy (no raw code).
+ * that body cannot model. `code` widens to string | null: the route's mid-run
+ * failure emits the cataloged `{ ok:false, code:"ONBOARDING_SCAN_FAILED" }`,
+ * and null stays in the type for clients defending against a body that lost
+ * its code (copyForCode(null) renders the generic copy, never a raw code).
  */
 export type ScanResultBody = OnboardingScanResponseBody | { ok: false; code: string | null };
 
