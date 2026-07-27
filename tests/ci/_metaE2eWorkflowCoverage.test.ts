@@ -46,13 +46,15 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
-  "tests/e2e/admin-lifecycle-transitions.spec.ts": UNSEEN,
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/admin-lifecycle-transitions.spec.ts":
+    "NOT wired 2026-07-26 by MEASUREMENT, not neglect: spec §6.1 sets acceptance at five consecutive green runs and pre-ratifies staying dark otherwise (an admitted flake is worse than a known gap). Best measured 4/5 locally, plus one real-CI failure on the Published-toggle round-trip (Expected false, Received true after 30s). Its two DETERMINISTIC breaks ARE fixed in that PR — a retired-testid assertion and an unreachable compound case — and the pre-hydration swallow is repaired, so what remains is one flaky case rather than a spec that failed every run. BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE",
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
-  "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
+  "tests/e2e/attention-modal-gallery.spec.ts":
+    "runs in dev-gate-e2e.yml, which is workflow_dispatch + DAILY SCHEDULE (2026-07-26). A schedule is not PR-blocking-capable per the scanner contract, so this row stays — but the spec is no longer unrun: a break is now bounded to 24h instead of until someone remembers to dispatch. Three serialized cold builds make a per-PR trigger too heavy; ratified B1-D4. BL-DEV-GATE-GALLERY-SPEC-ROT",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,

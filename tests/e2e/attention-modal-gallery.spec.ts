@@ -260,6 +260,26 @@ test.describe("attention modal switcher gallery", () => {
         const attentionMenu = dialog.locator(
           '[data-testid="published-show-review-attention-menu"]',
         );
+        // DIAGNOSED 2026-07-26 and DELIBERATELY LEFT ALONE. This assertion was
+        // reported as timing out, and the temptation is to relax it. Tracing
+        // the path says it is correct:
+        //   - AttentionMenu:50 returns null when `open` is false, and the
+        //     testid is on the inner panel container, so closing unmounts it;
+        //   - the hooks live in AttentionMenuPanel, so the early return is not
+        //     a hooks-order problem;
+        //   - AttentionMenu:81-105 still registers a capture-phase Escape
+        //     handler calling onClose(), and PublishedReviewModal:873 passes
+        //     `onClose={() => setMenuOpen(false)}` with
+        //     `open={menuEffectivelyOpen}` = `menuOpen && interactive`.
+        // An earlier draft blamed commit f4c4bf493; that was retracted — the
+        // pre-commit handler had the same semantics.
+        //
+        // So the product path is intact and this assertion should hold. What is
+        // missing is a REPRODUCTION, which needs the built dev-build artifact.
+        // Weakening an assertion whose failure nobody has reproduced is how a
+        // real regression gets papered over, so it stays as written and the new
+        // daily schedule (dev-gate-e2e.yml) will surface it with a trace.
+        // Tracked: BL-DEV-GATE-GALLERY-SPEC-ROT.
         if ((await attentionMenu.count()) > 0) {
           await page.keyboard.press("Escape");
           await expect(attentionMenu).toHaveCount(0);
@@ -390,12 +410,21 @@ test.describe("attention modal switcher gallery", () => {
     for (const e of STRUCTURAL) {
       await expect(controls.getByText(e.label, { exact: false })).toBeVisible();
     }
-    await expect(controls.getByText(String(CUT.length), { exact: false })).toBeVisible();
+    // Each count is asserted on ITS OWN paragraph, not as a loose substring.
+    // `getByText(String(n), { exact: false })` matched TWO elements — the panel
+    // renders the cut and dashboard-level counts as leading numbers in two
+    // sibling sentences (components/admin/dev/SwitcherControls.tsx), so a bare
+    // number is ambiguous whenever both lines are present, and identical counts
+    // make it ambiguous always. Anchoring on each line's distinctive phrase
+    // makes the locator single and the count positional rather than incidental.
+    const cutLine = controls.getByText(/cut from the published attention surface/i);
+    await expect(cutLine).toHaveText(new RegExp(`^\\s*${CUT.length}\\b`));
     // The global line is server-derived like the cut line; without this the new
     // paragraph is the only excluded-reason line proven no further than jsdom.
     expect(GLOBAL.length).toBeGreaterThan(0);
-    await expect(controls.getByText(/dashboard-level/i)).toBeVisible();
-    await expect(controls.getByText(String(GLOBAL.length), { exact: false })).toBeVisible();
+    const globalLine = controls.getByText(/dashboard-level/i);
+    await expect(globalLine).toBeVisible();
+    await expect(globalLine).toHaveText(new RegExp(`^\\s*${GLOBAL.length}\\b`));
     await expect(controls.getByText(/published attention surface/i)).toBeVisible();
   });
 

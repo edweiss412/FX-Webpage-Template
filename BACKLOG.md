@@ -77,7 +77,13 @@ addition needs an insert shape satisfying that table's NOT NULL siblings and com
 
 ## Admin lifecycle e2e (2026-07-24, share-link-chrome-backlog review r4)
 
-### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED
+### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
+
+**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename.
+
+The proposed fix below (**"replace the assertion with whatever now carries the crew-link-off copy"**) was investigated and **rejected on evidence**: nothing carries it. The nearest surviving string is a rotation confirmation in a different control, and `admin-current-share-link-unavailable` is an _error_ state gated on `published`. Everything below this line is the ORIGINAL entry, kept as provenance — its "It does not run" and "Fix:" paragraphs describe the pre-2026-07-26 state, not the current one.
+
+**Note on the host spec:** `admin-lifecycle-transitions.spec.ts` is still NOT wired into a workflow — see `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. This particular assertion can no longer rot further (it is gone), but the file remains CI-dark.
 
 `tests/e2e/admin-lifecycle-transitions.spec.ts:305` asserts `admin-share-link-inactive` contains "The crew link is inactive while this show is unpublished." That testid was RETIRED by the share-hub consolidation (`docs/superpowers/specs/2026-07-20-share-hub-design.md:106` lists it under Removed); no production module emits it, and current unit tests assert its absence. The spec would fail if it ran.
 
@@ -286,6 +292,38 @@ Current state of the other two entries, both invisible to any check built so far
 job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
 `tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
 dark-exclusion incident.
+
+### BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE — the Published-toggle round-trip case is not yet five-greens stable
+
+**Status:** OPEN · **Severity:** MEDIUM (blocks wiring an otherwise-repaired spec) · **Class:** e2e flake · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
+
+**Do not re-derive this analysis.** Measurements below.
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts` was matched by the `mobile-safari` project and named by no workflow. PR4 repaired both of its DETERMINISTIC breaks and stopped short of wiring it, per spec §6.1's pre-ratified fallback: acceptance is five consecutive green runs, and "if it cannot reach that, it stays dark with a recorded reason. An admitted flake is worse than a known gap."
+
+**Fixed and shipped:**
+
+- The assertion on `admin-share-link-inactive` (retired by `d7fa48b9a`) is deleted — it failed every run, so no flake work could ever have reached five greens.
+- The compound "Archive armed while another action refreshes" case is retired: the ShareHub backdrop makes its premise unreachable (see `BL-ARCHIVE-ARMED-CONCURRENT-REFRESH`).
+- The pre-hydration click-swallow is fixed properly — `waitForHydration` drives the ShareHub kebab (client-only, writes nothing, safe to retry), then the mutation is dispatched exactly once. An earlier attempt retried the mutation itself and was measurably wrong: a slow unpublish let the retry click the refreshed OFF toggle and dispatch a REPUBLISH.
+
+**What remains:** the "Published toggle round-trip" case. Best measured **4/5 locally**; the single failure was `Expected "true" / Received "false"` on the ON flip, which is why that assertion now carries the same 30s budget as the OFF flip. A subsequent real-CI run then failed the OFF flip with `Expected "false" / Received "true"` after 30s.
+
+**Local runs cannot currently settle it:** this box carried load average **16–21** with a sibling worktree mutating the SAME local Supabase, so failing cases move between runs for reasons unrelated to the spec (`element(s) not found` for the review modal is the shared-fixture signature). A clean measurement needs either an idle box or a CI loop.
+
+**If picked up:** re-run the CI job five times (`gh run rerun`) rather than trusting local runs, and if the round-trip case is still not stable, investigate whether the unpublish server action plus `router.refresh()` can exceed 30s under CI load — the toggle stays `aria-busy` and `disabled` throughout, so the state simply has not landed.
+
+### BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — no case covers an armed Archive during a refresh from another source
+
+**Status:** OPEN · **Severity:** LOW · **Class:** test coverage gap · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts` had a "compound: Archive armed while another action refreshes → no torn state" case. It was removed because its premise became **structurally unreachable**, not because the invariant stopped mattering.
+
+**Measured:** the run fails with `share-hub-backdrop ... subtree intercepts pointer events`. The armed Archive control lives inside the ShareHub popover (`components/admin/showpage/ShareHub.tsx:929`), and while that popover is open it renders a `fixed inset-0 z-20` backdrop (`components/admin/showpage/ShareHub.tsx:631-642`) covering every control outside it — including the StatusStrip published-toggle the case dispatched. Closing the popover to reach the toggle unmounts the armed control. Mutually exclusive by design, introduced by `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9 composition rules (T3)`.
+
+**The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
+
+**If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
 
 ### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
 
@@ -568,6 +606,8 @@ The 2026-07-03 and 2026-07-25 sweeps (`BL-COPY-CRON-SWEEP`, `-2`) both removed j
 ---
 
 ## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted
+
+> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
 
 **Status:** OPEN · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25)
 
@@ -914,6 +954,8 @@ Structural guards across the suite strip comments before scanning source, and **
 **Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
+
+> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
 
