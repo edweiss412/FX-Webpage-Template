@@ -710,6 +710,14 @@ test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 3
     m.neighbours!.map((n) => n.name),
     "title, eyebrow, subline, chip and close all measured",
   ).toEqual(expect.arrayContaining(["title", "eyebrow", "subline", "chip", "close"]));
+  // SATURATION IS ASSERTED, not assumed (whole-diff review F3): the long title
+  // must push the link against the chip clearance — trailing edge (overlay
+  // right minus its 14px reach) to the chip within mr-0.5(2) + gap-3(12) + TOL.
+  const chip = m.neighbours!.find((n) => n.name === "chip")!;
+  expect(
+    chip.left - (m.overlay!.right - 14),
+    "saturated title leaves <= 14px+TOL to the chip",
+  ).toBeLessThanOrEqual(14 + 1);
   for (const n of m.neighbours!) {
     expect(n.right - n.left, `${n.name} rect non-degenerate (width)`).toBeGreaterThan(0);
     expect(n.bottom - n.top, `${n.name} rect non-degenerate (height)`).toBeGreaterThan(0);
@@ -717,6 +725,32 @@ test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 3
     const h = Math.min(m.overlay!.bottom, n.bottom) - Math.max(m.overlay!.top, n.top);
     expect(Math.max(0, w) * Math.max(0, h), `overlay does not cover the ${n.name}`).toBe(0);
   }
+  // elementFromPoint spot check (whole-diff review F2): only a hit test proves
+  // paint order and stacking leave the 44×44 target clickable.
+  const hits = await page.evaluate(
+    ({ sel, box }) => {
+      const link = document.querySelector(`[data-testid="${sel}"]`);
+      const probe = (x: number, y: number) => {
+        const hit = document.elementFromPoint(x, y);
+        return hit !== null && (hit === link || (link?.contains(hit) ?? false));
+      };
+      return [
+        probe((box.left + box.right) / 2, (box.top + box.bottom) / 2),
+        probe(box.left + 1, box.top + 1),
+        probe(box.right - 1, box.top + 1),
+        probe(box.left + 1, box.bottom - 1),
+        probe(box.right - 1, box.bottom - 1),
+      ];
+    },
+    { sel: tid("sheetlink"), box: m.overlay! },
+  );
+  expect(hits, "overlay centre + corners all hit the link").toEqual([
+    true,
+    true,
+    true,
+    true,
+    true,
+  ]);
 });
 
 test("§9.1 sheet footer safe-area @ 390: paddingBottom ≥ base padding + stylesheet mechanism", async ({

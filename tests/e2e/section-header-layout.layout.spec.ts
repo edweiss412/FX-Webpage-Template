@@ -1101,11 +1101,26 @@ test("wide inline: overlay clears pill, count and heading @ 640", async ({ page 
     expect(m.error, `fixture shape (${cell})`).toBeNull();
     if (m.error !== null) return;
     // G1-flagged carries the inline pill (pilled order); G1-clean has none
-    // (no-pill order) — between them both sm+ neighbour orders are covered.
+    // (no-pill order). Only the PILL case has executable adjacency (whole-diff
+    // review F3): the pill sits at gap-2.5 + sm:ml-0.5 = 12px from the link
+    // box by construction, asserted below so the intersection check cannot be
+    // green-washed by free space. The no-pill case IS free space (name
+    // left-aligned, flex-1 slack) — a containment proof, documented as such,
+    // never claimed saturated.
     for (const n of m.neighbours!) {
       expect(n.right - n.left, `${cell}: ${n.name} non-degenerate (width)`).toBeGreaterThan(0);
       expect(n.bottom - n.top, `${cell}: ${n.name} non-degenerate (height)`).toBeGreaterThan(0);
       expect(intersectionArea(m.overlay!, n), `${cell}: overlay does not cover ${n.name}`).toBe(0);
+    }
+    if (cell === "G1-flagged") {
+      const pill = m.neighbours!.find((n) => n.name === "pill")!;
+      // Overlay left edge = link.left - 10; pill sits 12px left of the link
+      // box, so pill.right must be within ~2px+TOL of the overlay's left edge.
+      expect(
+        m.overlay!.left - pill.right,
+        "pill adjacency: the 12px clearance really is the measured gap",
+      ).toBeLessThanOrEqual(2 + 1);
+      expect(m.overlay!.left - pill.right, "pill never overlaps").toBeGreaterThanOrEqual(0);
     }
   }
 });

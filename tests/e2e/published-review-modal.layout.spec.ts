@@ -717,6 +717,15 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         m.neighbours!.map((n) => n.name),
         "title, subline, cluster and close all measured",
       ).toEqual(expect.arrayContaining(["title", "subline", "cluster-first", "close"]));
+      // SATURATION IS ASSERTED, not assumed (whole-diff review F3): the long
+      // title must actually push the link against the cluster clearance —
+      // trailing edge to cluster-first box within mr-0.5(2) + gap-3(12) + TOL.
+      // Free flex space here would green-wash every action-side intersection.
+      const clusterFirst = m.neighbours!.find((n) => n.name === "cluster-first")!;
+      expect(
+        clusterFirst.left - (m.overlay!.right - 14),
+        `saturated title leaves <= 14px+TOL to the cluster @ ${width}`,
+      ).toBeLessThanOrEqual(14 + 1);
       for (const n of m.neighbours!) {
         expect(n.right - n.left, `${n.name} rect non-degenerate (width)`).toBeGreaterThan(0);
         expect(n.bottom - n.top, `${n.name} rect non-degenerate (height)`).toBeGreaterThan(0);
@@ -727,6 +736,33 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           `overlay does not cover the ${n.name} @ ${width}`,
         ).toBe(0);
       }
+      // elementFromPoint spot check (whole-diff review F2): geometry says the
+      // 44×44 target exists; only a hit test says paint order, clipping, and
+      // stacking leave it CLICKABLE. Centre + four corners, 1px inside.
+      const hits = await page.evaluate(
+        ({ base, box }) => {
+          const link = document.querySelector(`[data-testid="${base}-sheetlink"]`);
+          const probe = (x: number, y: number) => {
+            const hit = document.elementFromPoint(x, y);
+            return hit !== null && (hit === link || (link?.contains(hit) ?? false));
+          };
+          return [
+            probe((box.left + box.right) / 2, (box.top + box.bottom) / 2),
+            probe(box.left + 1, box.top + 1),
+            probe(box.right - 1, box.top + 1),
+            probe(box.left + 1, box.bottom - 1),
+            probe(box.right - 1, box.bottom - 1),
+          ];
+        },
+        { base: BASE, box: m.overlay! },
+      );
+      expect(hits, `overlay centre + corners all hit the link @ ${width}`).toEqual([
+        true,
+        true,
+        true,
+        true,
+        true,
+      ]);
     });
   }
 
