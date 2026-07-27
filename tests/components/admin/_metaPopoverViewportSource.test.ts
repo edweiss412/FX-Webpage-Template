@@ -146,7 +146,10 @@ const strippedSourceOf = (f: string): string => {
  *  prefilter uses only CONTIGUOUS fragments — identifiers and module-specifier path
  *  segments cannot be split by a comment, so any stripped-source predicate match
  *  requires one of these to appear verbatim in raw. */
-const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|popover\//;
+// "place"/"position" (not "popover/") are the necessary specifier fragments: a
+// RELATIVE import ("./place") still resolves to the core but never contains
+// "popover/" (whole-diff R2 F1). Substring match — wider parse set, still sound.
+const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|place|position/;
 const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
   MAY_MATCH.test(rawOf(f)) && test(strippedSourceOf(f));
 
