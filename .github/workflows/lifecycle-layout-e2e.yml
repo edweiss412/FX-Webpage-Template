@@ -14,6 +14,13 @@ name: Lifecycle layout e2e (mobile-safari)
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      transitions_repeats:
+        description: >-
+          Measurement loop: repeat the transitions round-trip case this many
+          times (--repeat-each, retries=0, trace=on). "1" = normal full run.
+        required: false
+        default: "1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -22,7 +29,9 @@ concurrency:
 jobs:
   lifecycle-layout-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 35 (was 25): headroom for the workflow_dispatch measurement loop
+    # (transitions_repeats × ~60s round-trip samples on top of the PR duty).
+    timeout-minutes: 35
     env:
       # Same env contract as crew-e2e.yml: the app (lib/supabase/server.ts /
       # browser.ts default to "" and THROW if unset) + the test runner
@@ -79,29 +88,34 @@ jobs:
       - run: pnpm exec playwright install chromium webkit
       - name: Run admin lifecycle layout e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
-      # admin-lifecycle-transitions is NOT wired here yet, deliberately, and the
-      # reason is measured rather than assumed. Spec §6.1 sets acceptance at
-      # FIVE CONSECUTIVE GREEN RUNS and pre-ratifies the fallback: "if it cannot
-      # reach that, it stays dark with a recorded reason. An admitted flake is
-      # worse than a known gap."
-      #
-      # Best measured: 4/5 locally, and this job failed once in real CI on the
-      # "Published toggle round-trip" case (Expected "false", Received "true" —
-      # the unpublish had not landed inside a 30s window). Local runs could not
-      # settle it either: this box carried load average 16-21 with a sibling
-      # worktree mutating the SAME local Supabase, so the failing cases move
-      # between runs for reasons unrelated to the spec.
-      #
-      # What DID land in this PR: the retired `admin-share-link-inactive`
-      # assertion is deleted, the unreachable compound Archive case is retired,
-      # and the pre-hydration swallow is fixed properly (prove hydration on a
-      # non-mutating control, then dispatch the mutation exactly once). Those
-      # took the spec from "fails every run" to "one flaky case", which is what
-      # makes the remaining gap small enough to state precisely.
-      #
-      # Tracked: BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE.
+      # admin-lifecycle-transitions (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE):
+      # the round-trip flake was traced to a CLIENT-side wedge, not CI slowness —
+      # the unpublish action POST returned 200 {ok:true} in 237ms with the
+      # published:false tree in-body, yet the toggle sat aria-busy="true" for the
+      # full 30s while the page kept answering assertion polls (run 30233337644
+      # retry1 trace). The transitions step below carries the normal PR run; the
+      # workflow_dispatch `transitions_repeats` input turns it into the
+      # measurement loop (repeat-each, retries=0, trace=on) that spec §6.1's
+      # five-consecutive-greens acceptance is measured with.
+      - name: Run admin lifecycle transitions e2e (mobile-safari, :3000 only)
+        env:
+          # workflow_dispatch input only (write-access callers); still validated
+          # numeric below before interpolation.
+          REPEATS: ${{ github.event.inputs.transitions_repeats || '1' }}
+        run: |
+          case "$REPEATS" in
+            ''|*[!0-9]*) echo "transitions_repeats must be numeric, got: $REPEATS" >&2; exit 2 ;;
+          esac
+          if [ "$REPEATS" = "1" ]; then
+            pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts
+          else
+            pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts \
+              -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on
+          fi
       - name: Upload Playwright traces/report (diagnosis artifact)
-        if: failure()
+        # Dispatch runs are measurement runs — keep traces from GREEN samples
+        # too (a wedge that self-recovers inside the budget is still evidence).
+        if: failure() || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: lifecycle-layout-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
