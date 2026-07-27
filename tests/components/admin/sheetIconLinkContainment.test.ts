@@ -491,58 +491,112 @@ function nextConfigAliasOffenders(src: string): string[] {
  * cooked-spelling scan. Standard Next resolution candidates: exact,
  * +extension, +/index.
  */
-function configReachableFiles(root: string): string[] {
+/**
+ * FAIL-CLOSED since r14: the r13 collector silently IGNORED whatever it could
+ * not model — `module.require(...)`, a specifier resolving to `.json` or a
+ * directory `package.json#main`, a dynamic argument — and an ignored edge in
+ * a config graph is an unscanned alias location. The inversion: every
+ * specifier-bearing form is collected (import/export declarations,
+ * `import =`, `import()`, bare `require()`, and ANY `<expr>.require()`
+ * property call); a non-literal specifier is an offense outright; a local
+ * specifier that resolves to a source file is enqueued, one that resolves to
+ * `.json` is scanned for alias-spelled KEYS, and one that resolves to a
+ * directory package or does not resolve at all is an offense. Bare
+ * specifiers stay node_modules territory — pinned real by the
+ * no-local-protocol-deps and no-workspace-packages assertions in the
+ * resolver test — except `module`/`node:module`, whose `createRequire` is a
+ * resolver escape hatch and is denied in config space.
+ */
+function configReachableFiles(root: string): { files: string[]; offenders: string[] } {
   const exts = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"];
-  const resolveLocal = (spec: string, fromRel: string): string | null => {
-    const base = resolveSpecifier(spec, fromRel);
-    if (base === null) return null;
-    const candidates = [
-      base,
-      ...exts.map((e) => base + e),
-      ...exts.map((e) => `${base}/index${e}`),
-    ];
-    for (const c of candidates) {
-      const full = join(root, c);
-      if (existsSync(full) && statSync(full).isFile()) return c;
+  const jsonAliasKeys = (value: unknown, rel: string): string[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const found: string[] = [];
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (k === "resolveAlias" || k === "alias") found.push(`alias key "${k}" in ${rel}`);
+      found.push(...jsonAliasKeys(v, rel));
     }
-    return null;
+    return found;
   };
   const queue = ["next.config.ts"];
   const seen = new Set<string>(queue);
-  const out: string[] = [];
+  const files: string[] = [];
+  const offenders: string[] = [];
   while (queue.length > 0) {
     const rel = queue.shift()!;
-    out.push(rel);
+    files.push(rel);
     const src = readFileSync(join(root, rel), "utf8");
     const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
-      let spec: string | null = null;
+      let specNode: ts.Expression | null = null;
+      let specifierBearing = false;
       if (
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-        node.moduleSpecifier !== undefined &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      )
-        spec = node.moduleSpecifier.text;
-      else if (
+        node.moduleSpecifier !== undefined
+      ) {
+        specifierBearing = true;
+        specNode = node.moduleSpecifier;
+      } else if (
+        ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference)
+      ) {
+        specifierBearing = true;
+        specNode = node.moduleReference.expression;
+      } else if (
         ts.isCallExpression(node) &&
         (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-          (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
-        node.arguments[0] !== undefined &&
-        ts.isStringLiteral(node.arguments[0])
-      )
-        spec = node.arguments[0].text;
-      if (spec !== null) {
-        const resolved = resolveLocal(spec, rel);
-        if (resolved !== null && !seen.has(resolved)) {
-          seen.add(resolved);
-          queue.push(resolved);
-        }
+          (ts.isIdentifier(node.expression) && node.expression.text === "require") ||
+          (ts.isPropertyAccessExpression(node.expression) &&
+            node.expression.name.text === "require"))
+      ) {
+        specifierBearing = true;
+        specNode = node.arguments[0] ?? null;
+      }
+      if (!specifierBearing) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      if (specNode === null || !ts.isStringLiteralLike(specNode)) {
+        offenders.push(`${rel}: dynamic module specifier in config graph — cannot be cleared`);
+        ts.forEachChild(node, visit);
+        return;
+      }
+      const spec = specNode.text;
+      const base = resolveSpecifier(spec, rel);
+      if (base === null) {
+        // Bare specifier: node_modules territory (pinned in the resolver
+        // test), except the createRequire escape hatch.
+        if (spec === "module" || spec === "node:module")
+          offenders.push(`${rel}: createRequire source "${spec}" in config graph`);
+        ts.forEachChild(node, visit);
+        return;
+      }
+      const candidates = [
+        base,
+        ...exts.map((e) => base + e),
+        ...exts.map((e) => `${base}/index${e}`),
+        `${base}.json`,
+        `${base}/index.json`,
+      ];
+      const hit = candidates.find((c) => {
+        const full = join(root, c);
+        return existsSync(full) && statSync(full).isFile();
+      });
+      if (hit === undefined) {
+        offenders.push(
+          `${rel}: local specifier "${spec}" does not resolve to a scannable file — cannot be cleared`,
+        );
+      } else if (hit.endsWith(".json")) {
+        offenders.push(...jsonAliasKeys(JSON.parse(readFileSync(join(root, hit), "utf8")), hit));
+      } else if (!seen.has(hit)) {
+        seen.add(hit);
+        queue.push(hit);
       }
       ts.forEachChild(node, visit);
     };
     visit(sf);
   }
-  return out;
+  return { files, offenders };
 }
 
 describe("sheet-link phrase containment (spec §7.10)", () => {
@@ -823,6 +877,17 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(pkg.imports).toBeUndefined();
     expect(pkg.exports).toBeUndefined();
     expect(pkg.browser).toBeUndefined();
+    // r14: bare specifiers are "node_modules territory" only while no
+    // dependency resolves to a local path — a `file:`/`link:`/`workspace:`
+    // dependency maps a bare name onto first-party disk, and a
+    // pnpm-workspace `packages:` list would do the same for whole trees.
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies"] as const) {
+      const deps = (pkg[field] ?? {}) as Record<string, string>;
+      const local = Object.entries(deps).filter(([, v]) => /^(?:file|link|workspace):/.test(v));
+      expect(local, `${field} has no local-protocol entries`).toEqual([]);
+    }
+    const workspaceYaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
+    expect(workspaceYaml).not.toMatch(/^\s*packages\s*:/m);
     // Next-level aliasing (turbopack `resolveAlias`, webpack
     // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
     // is code, so the pin is an AST scan for any cooked alias spelling or
@@ -830,12 +895,19 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // nextConfigAliasOffenders; a raw regex missed escape spellings and
     // intermediate bindings). r13: the scan covers every first-party module
     // REACHABLE from next.config.ts, not just the entry file — a helper can
-    // hold the alias literal while the entry merely spreads it.
+    // hold the alias literal while the entry merely spreads it. r14: the
+    // collector is fail-closed — dynamic specifiers, unresolvable local
+    // specifiers, directory packages, createRequire sources, and alias keys
+    // in reached .json files all surface as offenders instead of being
+    // silently skipped.
     const reachable = configReachableFiles(root);
-    expect(reachable, "the config graph starts at the entry").toContain("next.config.ts");
-    const configOffenders = reachable.flatMap((rel) =>
-      nextConfigAliasOffenders(readFileSync(join(root, rel), "utf8")).map((v) => `${rel}: ${v}`),
-    );
+    expect(reachable.files, "the config graph starts at the entry").toContain("next.config.ts");
+    const configOffenders = [
+      ...reachable.offenders,
+      ...reachable.files.flatMap((rel) =>
+        nextConfigAliasOffenders(readFileSync(join(root, rel), "utf8")).map((v) => `${rel}: ${v}`),
+      ),
+    ];
     expect(configOffenders).toEqual([]);
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and

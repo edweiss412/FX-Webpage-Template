@@ -63,6 +63,14 @@ import { describe, expect, it } from "vitest";
 // `ABC`, because giving back the `-` or `/` satisfies the lookahead. Capturing
 // greedily over a class that INCLUDES lowercase removes the escape route — the
 // match cannot end early at a boundary character, so the whole word is judged.
+/**
+ * The archive-bound terminal states, ONE union for every matcher in this file
+ * (r13 added OBSOLETE + REFUTED; r14 hoisted it to module scope after the
+ * dedicated heading test was found repeating the literal — the exact
+ * per-matcher drift the union exists to prevent).
+ */
+const TERMINAL_WORDS = "CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED";
+
 const HAS_LOWERCASE = /[a-z]/;
 
 /**
@@ -326,8 +334,6 @@ describe("backlog ledger graduation", () => {
     // from all of them: OBSOLETE — the watch-diagnostic entry closed as
     // OBSOLETE against a deleted surface — and REFUTED, the sharehub entry's
     // archived state).
-    const TERMINAL_WORDS =
-      "CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED";
     const TERMINAL = new RegExp(
       `^\\s*(?:\\*\\*)?Status:?(?:\\*\\*)?\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
       "i",
@@ -417,9 +423,7 @@ describe("backlog ledger graduation", () => {
       // plus a bare ✅ anywhere in the heading. Same word union as the
       // status-line test (r13: OBSOLETE/REFUTED joined there; keep in sync).
       if (
-        /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED)\b/i.test(
-          heading,
-        ) ||
+        new RegExp(`—\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`, "i").test(heading) ||
         /✅/.test(heading)
       )
         offenders.push(id);
