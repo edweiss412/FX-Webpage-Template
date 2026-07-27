@@ -564,9 +564,16 @@ describe("backoff gate (spec §3.4, 16a)", () => {
     await reconcileWatchChannels(cleanRefresh, deps);
     expect(subSpy).toHaveBeenCalledTimes(1);
   });
-  it("live paths NEVER read the gate (I2 structural pin)", async () => {
-    // live + clean → healthy ; live + renewalFailed → renewal_failing
-    expect(tx.readReconcileGate).not.toHaveBeenCalled();
+  it("live paths NEVER read the gate (I2 structural pin) - both live cells EXECUTED", async () => {
+    // live + clean → healthy
+    tx.hasLiveActiveChannel.mockResolvedValueOnce(true);
+    const healthy = await reconcileWatchChannels(cleanRefresh, deps);
+    expect(healthy.outcome).toBe("healthy");
+    // live + renewalFailed → renewal_failing
+    tx.hasLiveActiveChannel.mockResolvedValueOnce(true);
+    const failing = await reconcileWatchChannels(refreshWithFailureFor("f"), deps);
+    expect(failing.outcome).toBe("renewal_failing");
+    expect(tx.readReconcileGate).not.toHaveBeenCalled(); // across BOTH executions
   });
   it("gate read fault → state_read fault, infra_error, no subscribe", async () => {
     tx.readReconcileGate.mockRejectedValueOnce(new DriveWatchInfraError("drive_watch_reconcile_state.read_gate", "down"));
@@ -629,25 +636,31 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 - [ ] **Step 1: Failing tests (class 8)** — in the escalation suite (fixtures gain `raised_at`):
 
 ```ts
-// Fixtures/harness per the existing suite (tests/drive/watchEscalation.test.ts);
-// each case injects `now` (new EscalationDeps.now) and a raised_at derived from
-// ESCALATION_AFTER_MS. `depsWith(alertOverrides)` = the suite's existing deps
-// builder with the alert row overridden.
+// Real harness identifiers (tests/drive/watchEscalation.test.ts:14-26): makeDeps(over)
+// + the suite's ALERT(over) fixture builder + inline input objects. ALERT() gains
+// raised_at (this task's fixture change); deps gain the new `now` member.
+const NOW = new Date("2026-07-27T12:00:00Z");
 const at = (ageMs: number) => new Date(NOW.getTime() - ageMs).toISOString();
-it("fires at raised_at age >= window even at occurrence_count 1", async () => {
-  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(ESCALATION_AFTER_MS + 60_000), occurrence_count: 1 }));
+const INPUT = { folderId: "folder-1", folderName: "F" };
+const clocked = (alertOver: Record<string, unknown>) =>
+  makeDeps({
+    now: () => NOW,
+    readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT(alertOver)),
+  });
+test("fires at raised_at age >= window even at occurrence_count 1", async () => {
+  const r = await maybeEscalateWatchOrphaned(INPUT, clocked({ raised_at: at(ESCALATION_AFTER_MS + 60_000), occurrence_count: 1 }));
   expect(r.escalated).toBe(true);
 });
-it("does NOT fire below the window even at occurrence_count 99 - the decoupling", async () => {
-  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(ESCALATION_AFTER_MS - 60_000), occurrence_count: 99 }));
+test("does NOT fire below the window even at occurrence_count 99 - the decoupling", async () => {
+  const r = await maybeEscalateWatchOrphaned(INPUT, clocked({ raised_at: at(ESCALATION_AFTER_MS - 60_000), occurrence_count: 99 }));
   expect(r.escalated).toBe(false);
 });
-it("config class fires at age 0", async () => {
-  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(0), context: { error_class: "config" } }));
+test("config class fires at age 0", async () => {
+  const r = await maybeEscalateWatchOrphaned(INPUT, clocked({ raised_at: at(0), context: { error_class: "config" } }));
   expect(r.escalated).toBe(true);
 });
-it("future raised_at (skew) does not fire", async () => {
-  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(-3_600_000), occurrence_count: 99 }));
+test("future raised_at (skew) does not fire", async () => {
+  const r = await maybeEscalateWatchOrphaned(INPUT, clocked({ raised_at: at(-3_600_000), occurrence_count: 99 }));
   expect(r.escalated).toBe(false);
 });
 ```
@@ -680,8 +693,14 @@ it("the retired count-threshold identifier appears nowhere (spec §2.1, class 9)
 
 ```ts
 it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async () => {
-  await retryWatchFormAction(makeRetryFormData()); // match the suite's existing action call + fixture helpers at tests/admin/retryWatchAction.test.ts:100-130
-  expect(subscribeMock).toHaveBeenCalledWith(FOLDER_ID, expect.objectContaining({ recordAttempt: true }));
+  // Real suite identifiers (tests/admin/retryWatchAction.test.ts:28-58):
+  // hoisted subscribeToWatchedFolderSpy module-mocks lib/drive/watch;
+  // the action takes a bare FormData; the suite's folder fixture is "folder-123".
+  await retryWatchSubscriptionFormAction(new FormData());
+  expect(subscribeToWatchedFolderSpy).toHaveBeenCalledWith(
+    "folder-123",
+    expect.objectContaining({ recordAttempt: true }),
+  );
 });
 ```
 
