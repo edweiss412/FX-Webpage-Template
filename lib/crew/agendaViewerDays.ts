@@ -107,27 +107,41 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   }
   if (attachedYears.size > 1) return true;
 
-  // POSITION IS THE RULE FOR EVERYTHING ELSE, and it is what replaced a set of "more than one
-  // of X" thresholds. Those broke whenever the primary date lacked the token: "May 5, 2026 /
-  // Wednesday" has exactly ONE weekday and "May 5, 2026 / Day 2" exactly ONE Day-N, so a
-  // count-based rule read both as unambiguous (review R8).
+  // COUNT **AND** POSITION. Both were tried alone across review rounds R4-R8 and each is
+  // insufficient in a way the other covers:
   //
-  // What actually separates them is WHERE the token sits. Text BEFORE the date qualifies it --
-  // "Tuesday, May 5, 2026", "Day 1 - Tuesday, May 5, 2026". Text AFTER introduces something new
-  // -- "... / Wednesday", "... / Day 2", "... and the 6th". Trailing day-talk is the signal.
+  //   counting alone   missed "May 5, 2026 / Wednesday" -- ONE weekday, because the primary
+  //                    date carries none, so no "more than one" threshold fires (R8).
+  //   position alone   misses "Wednesday / Tuesday, May 5, 2026" -- the second day LEADS the
+  //                    date, so examining only trailing text sees nothing. Found by sweeping
+  //                    leading forms after the positional rewrite; five such labels leaked.
+  //
+  // So a day-token is ambiguous if it appears more than once ANYWHERE, or if it appears at all
+  // AFTER the date. Text before the date may qualify it ("Tuesday, ...", "Day 1 - ..."); a
+  // SECOND such token cannot be qualifying anything.
   const lastSpanEnd = Math.max(...spans.map(([, end]) => end));
-  const trailing = collapsed.slice(lastSpanEnd).replace(/^[^A-Za-z0-9]*\d{4}\b/, "");
+  const trailing = collapsed.slice(lastSpanEnd);
 
-  if (WEEKDAYS_ANY.test(trailing)) return true; // SIGNAL 3 -- a weekday after the date
-  // SIGNAL 4 -- a Day-N phrase. Position-sensitive for the SINGULAR ("Day 1 - <date>" qualifies
-  // the date; "<date> / Day 2" adds one), but a PLURAL span covers two days wherever it sits,
-  // so "Days 1-2, May 5, 2026" is ambiguous despite leading. Caught by an existing test the
-  // moment position alone was applied to both.
-  if (/\bdays\s*#?\s*\d/i.test(collapsed)) return true;
-  if (/\bday\s*#?\s*\d/i.test(trailing)) return true;
-  // SIGNAL 5 -- a spoken ordinal date after it. An ordinal followed by a noun modifies that
-  // noun ("The 8th Floor", "The 2nd Session") and is not a date.
-  return /\b\d{1,2}(st|nd|rd|th)\b(?!\s+[A-Za-z])/i.test(trailing);
+  const weekdaysAll = new Set(
+    (collapsed.match(WEEKDAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)),
+  );
+  if (weekdaysAll.size > 1) return true; // "Wednesday / Tuesday, ...", "Wed-Thu, ...", "Mon/Tue"
+  if (WEEKDAYS_ANY.test(trailing)) return true; // "... / Wednesday"
+
+  if (/\bdays\s*#?\s*\d/i.test(collapsed)) return true; // a plural span, wherever it sits
+  const dayNs = collapsed.match(/\bday\s*#?\s*\d{1,2}\b/gi) ?? [];
+  if (dayNs.length > 1) return true; // "... Day 1 / Day 2"
+  if (/\bday\s*#?\s*\d/i.test(trailing)) return true; // "... / Day 2"
+
+  // A spoken ordinal date, anywhere. An ordinal FOLLOWED BY A NOUN modifies that noun
+  // ("The 8th Floor", "The 2nd Session") and is not a date; that lookahead is the whole
+  // discriminator, and it is why this can safely scan the entire label rather than the tail.
+  // The follower must be CAPITALIZED to count as the noun being modified. An earlier version
+  // excluded any following word, which also swallowed "the 6th and Tuesday, May 5, 2026" -- a
+  // real second-day reference whose only signal is this ordinal. Note the missing /i flag: with
+  // it, `[A-Z]` would match lowercase too and the lookahead would exclude everything, so the
+  // ordinal suffixes are spelled in both cases instead.
+  return /\b\d{1,2}(?:st|nd|rd|th|ST|ND|RD|TH)\b(?!\s+[A-Z])/.test(collapsed);
 }
 
 export function visibleAgendaDaysForViewer(

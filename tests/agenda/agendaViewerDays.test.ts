@@ -227,6 +227,16 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["May 5, 2026 / 6 May 2026", "a day-first second date"],
       ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
       ["May 5, 2026 / Day 2", "a trailing Day-N, the label's only one"],
+      // LEADING second-day references. Found by sweeping the positional rule's blind side
+      // before review reported it: examining only trailing text sees none of these.
+      ["Wednesday / Tuesday, May 5, 2026", "a second weekday BEFORE the date"],
+      ["Wed–Thu, Tuesday, May 5, 2026", "an abbreviated weekday span, leading"],
+      ["Mon/Tue, May 5, 2026", "a slashed weekday pair, leading"],
+      ["Wednesday the 6th / Tuesday, May 5, 2026", "a leading spoken ordinal date"],
+      // The ordinal is the ONLY signal here: one weekday, no second date, nothing trailing.
+      // Pins the whole-label ordinal scan, which the case above cannot (it is caught by the
+      // two-weekday rule first).
+      ["the 6th and Tuesday, May 5, 2026", "a leading ordinal, no other signal"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];
@@ -312,6 +322,10 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // rejected it until an over-fire sweep caught it: the "1" reads as a day number unless
       // the ordinal-position phrase is removed first. Singular only -- see the Days 1-2 case.
       ["Day 1 - Tuesday, May 5, 2026", "2026-05-05"],
+      // "Day 2 - <date>" folds too, and deliberately. A leading ordinal-position phrase NAMES
+      // the date it precedes -- "the show's second day, which is Tuesday" -- so treating Day 2
+      // differently from Day 1 would be incoherent. Listed because a sweep of leading forms
+      // initially classed this as a leak; the expectation was wrong, not the rule.
       ["DAY 2 — Tuesday, May 5, 2026", "2026-05-05"],
       ["Tuesday, May 5, 2026 (Show Day)", "2026-05-05"],
       ["Tuesday, May 5, 2026 | Ballroom A", "2026-05-05"],
