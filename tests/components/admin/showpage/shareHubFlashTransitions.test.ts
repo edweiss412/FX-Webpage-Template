@@ -22,6 +22,7 @@
  * split as the shipped step3 flash (step3ReviewModal.transitions.test.tsx:723-741).
  */
 import { readFileSync } from "node:fs";
+import { stripCssComments } from "../../../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +30,10 @@ import { SHARE_LINK_FLASH_MS } from "@/components/admin/showpage/ShareHub";
 
 const ROOT = process.cwd();
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
+// Comment-stripped for brace counting only (space-blanked, offsets preserved, so an
+// index found in the RAW text lands on the same byte here). The byte-for-byte
+// normative-block search stays on RAW: its block includes its own CSS comment.
+const GLOBALS_CSS_CODE = stripCssComments(GLOBALS_CSS);
 const SHARE_HUB_SRC = readFileSync(join(ROOT, "components/admin/showpage/ShareHub.tsx"), "utf8");
 
 /**
@@ -61,11 +66,6 @@ function depthAt(css: string, index: number): number {
     }
     if (ch === '"' || ch === "'") {
       quote = ch;
-      continue;
-    }
-    if (ch === "/" && css[i + 1] === "*") {
-      const close = css.indexOf("*/", i + 2);
-      i = close === -1 ? css.length : close + 1;
       continue;
     }
     if (ch === "{") depth++;
@@ -124,8 +124,8 @@ describe("share-link cue motion contract (N0/N1)", () => {
 
     // Self-check first: a scanner that miscounts would make the assertion below
     // meaningless, so require the whole file to balance before trusting it.
-    expect(depthAt(GLOBALS_CSS, GLOBALS_CSS.length), "stylesheet braces do not balance").toBe(0);
-    expect(depthAt(GLOBALS_CSS, at), "normative block is nested inside an at-rule").toBe(0);
+    expect(depthAt(GLOBALS_CSS_CODE, GLOBALS_CSS_CODE.length), "stylesheet braces do not balance").toBe(0);
+    expect(depthAt(GLOBALS_CSS_CODE, at), "normative block is nested inside an at-rule").toBe(0);
   });
 
   it("N1: nothing ELSE in the stylesheet mentions the cue", () => {
