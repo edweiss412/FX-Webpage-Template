@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -51,9 +52,6 @@ const expectedBoundaryChecks: readonly ExpectedBoundaryCheck[] = [
   { table: "admin_bell_state", column: "admin_email", nullability: "not-null" },
 ] as const;
 
-function stripSqlComments(sql: string): string {
-  return sql.replace(/--.*$/gm, "");
-}
 
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
