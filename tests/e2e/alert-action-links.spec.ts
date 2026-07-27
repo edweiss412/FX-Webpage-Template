@@ -334,9 +334,23 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
   for (const [route, targets] of routes) {
     // waitUntil "commit" + tolerated abort: the show route performs a
     // client-side history replace on load, which can abort the navigation's
-    // own load event (observed intermittently as net::ERR_ABORTED). The
-    // assertions below carry the real waits.
-    await page.goto(route, { waitUntil: "commit" }).catch(() => {});
+    // own load event (observed intermittently as net::ERR_ABORTED). Only that
+    // abort is tolerated (review R3: a catch-all lets a failed navigation pass
+    // the asserts below against the PREVIOUS route's page, which also renders
+    // admin-layout and matches the broad /admin URL guard); any other failure
+    // rethrows, and after a tolerated abort the URL must have left the prior
+    // page — proof the replacement navigation committed.
+    const urlBeforeGoto = page.url();
+    try {
+      await page.goto(route, { waitUntil: "commit" });
+    } catch (err) {
+      if (!String(err).includes("net::ERR_ABORTED")) throw err;
+      await expect
+        .poll(() => page.url(), {
+          message: `navigation to ${route} must commit after tolerated ERR_ABORTED`,
+        })
+        .not.toBe(urlBeforeGoto);
+    }
     await expect(page.getByTestId("admin-layout")).toBeVisible();
     for (const { fragment, code } of targets) {
       if (fragment) {
