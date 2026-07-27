@@ -552,7 +552,7 @@ Commit body records the RED and GREEN counts from Steps 5/7.
 - [ ] **Step 1: Apply the six edits, verbatim scope from spec §5**
 
 1. `DESIGN.md:344` pattern intro gains one sentence: "This column shape is the **below-`sm`** treatment; at `sm`+ the same tree flattens to one left-aligned row (spec `docs/superpowers/specs/2026-07-26-section-header-wide-inline.md`)."
-2. The "column, not a row" and `pr-header-link-slot` bullets gain "(below `sm`)" qualifiers, and a NEW bullet is added to the same list (spec §5.1 requires a bullet, not intro prose — plan R1 f5): "**At `sm`+ the wrappers flatten, and the floor moves.** Both wrapper divs take `sm:contents`; `display: contents` removes their boxes, so any `min-h-*` they carried silently stops applying — the 44px floor MUST ride the outer element (`sm:min-h-tap-min`). The glyph orders last (`sm:order-1`) with `sm:ml-0.5` so its `before:-inset-3` hit overlay stays tangent to the inline pill instead of bleeding 2px into it." 
+2. The "column, not a row" and `pr-header-link-slot` bullets gain "(below `sm`)" qualifiers, and a NEW bullet is added to the same list (spec §5.1 requires a bullet, not intro prose — plan R1 f5): "**At `sm`+ the wrappers flatten, and the floor moves.** Both wrapper divs take `sm:contents`; `display: contents` removes their boxes, so any `min-h-*` they carried silently stops applying — the 44px floor MUST ride the outer element (`sm:min-h-tap-min`). The glyph orders last (`sm:order-1`) with `sm:ml-0.5` so its `before:-inset-3` hit overlay stays tangent to the inline pill instead of bleeding 2px into it."
 3. `DESIGN.md:352`: widths become 320/375/430/640/1280 and the sentence gains the 2026-07-26 spec pointer.
 4. `DESIGN.md:201` token row appends: "(narrow-only as of 2026-07-26: at `sm`+ the name is left-aligned and no compensation applies)".
 5. Old spec `:35` and `:36` each gain a trailing sentence: "**Superseded at `sm`+** by `2026-07-26-section-header-wide-inline.md` (owner re-decision); stands below `sm`."
@@ -569,7 +569,7 @@ git commit --no-verify -m "docs: width-qualify the centred-header pattern; super
 
 ### Task 3: Impeccable dual-gate (invariant 8)
 
-- [ ] **Step 1:** Run `/impeccable critique` on the diff (canonical v3 setup: `context.mjs` context load, register read). 
+- [ ] **Step 1:** Run `/impeccable critique` on the diff (canonical v3 setup: `context.mjs` context load, register read).
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff.
 - [ ] **Step 3:** Fix P0/P1 findings or defer via `DEFERRED.md` with rationale; re-run affected suites; commit as `fix(admin): impeccable dispositions` if any change lands. Record findings + dispositions for the handoff/PR body.
 

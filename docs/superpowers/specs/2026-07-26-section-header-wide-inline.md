@@ -1,6 +1,6 @@
 # Section header: inline row at `sm`+ (2026-07-26)
 
-**Status:** spec, awaiting adversarial review.
+**Status:** APPROVED (Codex adversarial review R5, 2026-07-26, after 4 repair rounds).
 **Branch:** `feat/section-header-wide-inline`.
 **Follow-up to:** `docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md` (PR #605). Owner-directed rescope, 2026-07-26.
 

@@ -821,7 +821,9 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * padding — so the paddings are subtracted from the computed style.
    *
    * §5 separates GUARANTEED links (this batch adds the class: outer column, header
-   * line, pill line) from ASSERTED-ONLY ones (pre-existing, not modified here).
+   * line, pill line — the latter two below `sm` only; at `sm`+ both wrappers are
+   * deliberately boxless and their links are replaced by counted checks, spec
+   * 2026-07-26 §4.2 rows L-N) from ASSERTED-ONLY ones (pre-existing, not modified here).
    * Both are checked; the distinction is about attribution, not coverage — an
    * asserted-only failure means an upstream regression, not a defect in this batch.
    */
@@ -1078,20 +1080,24 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       expect(found.error, "modal shape").toBeNull();
       if (found.error !== null) return;
 
-      // Non-vacuity, tied to the tree rather than to a hardcoded floor. Each card
-      // contributes five named links — pane -> registry, registry -> breakdown,
-      // breakdown -> panel card, breakdown -> header block, header block -> header
-      // line — so the total must scale with the number of cards. A walk that
-      // collapsed to one card, or to one link, fails here.
+      // Non-vacuity, tied to the tree rather than to a hardcoded floor. Below `sm`
+      // each card contributes five named links — pane -> registry, registry ->
+      // breakdown, breakdown -> panel card, breakdown -> header block, header
+      // block -> header line; at `sm`+ the fifth is replaced by the counted
+      // boxless check (LINK_FLOOR below) — so the total must scale with the
+      // number of cards. A walk that collapsed to one card, or to one link,
+      // fails here.
       expect(found.cards, `the modal rendered its panel cards [@ ${width}]`).toBeGreaterThan(1);
       // NOT `cards === registrySections`. 12 cards over 11 sections is correct — the
       // Diagrams sub-block renders a card inside another section — and that equality
       // was the same wrong shape twice over: it fails on a correct tree, and when it
       // does hold it does not mean one card per section. The per-section coverage
       // assertion below is what actually carries that claim.
-      // Every card walked its own chain. Five is the floor per card — pane ->
-      // registry, registry -> ... -> panel card, breakdown -> ... -> header block,
-      // header block -> header line — and a deeper section legitimately reports more.
+      // Every card walked its own chain. The floor per card is five below `sm`
+      // (pane -> registry, registry -> ... -> panel card, breakdown -> ... ->
+      // header block, header block -> header line) and four at `sm`+ (the header
+      // line is boxless; its check is counted separately) — a deeper section
+      // legitimately reports more.
       expect(found.perCard.length, `every panel card was walked [@ ${width}]`).toBe(found.cards);
       // Per SECTION: each expected section contributed at least one card, so a
       // section losing its card cannot be masked by another contributing two
@@ -1127,7 +1133,9 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       );
       // Every pill line that EXISTS was measured — `hasPillLine` used to be computed
       // and discarded, so a later section's pill line could lose full width without
-      // any assertion seeing it (review round 1).
+      // any assertion seeing it (review round 1). At `sm`+ "measured" means the
+      // row-band check (the wrapper is boxless), so the equality keeps its shape
+      // in both modes.
       expect(found.pillLinesMeasured, `every pill line present was measured [@ ${width}]`).toBe(
         found.pillLinesPresent,
       );

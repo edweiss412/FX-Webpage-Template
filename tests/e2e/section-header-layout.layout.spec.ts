@@ -243,7 +243,8 @@ test("hairline floor @ 240px row", async ({ page }) => {
 });
 
 /**
- * T2 — the 15-cell header matrix, at the four measured widths.
+ * T2 — the 15-cell header matrix, at the five measured widths (320/375/430
+ * stacked; 640/1280 the sm+ inline row).
  *
  * CELL MEMBERSHIP IS ASSERTED FIRST, before any geometry. Every cell carries a
  * distinct heading text and its expected link/pill/heading-level identity, so 15
