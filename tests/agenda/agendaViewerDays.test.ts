@@ -174,6 +174,45 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     }
   });
 
+  test("a label naming a second day WITHOUT a second full date is ambiguous", () => {
+    // Whole-diff review R4, HIGH -- the fifth counterexample, and the one that showed a
+    // date-shaped guard is not enough. "Wednesday the 6th" carries no Month-day-year token, so
+    // counting full dates saw ONE unambiguous May 5 row and folded it for a Wednesday viewer,
+    // while the label plainly covers their day.
+    //
+    // Worth recording: my own property test missed this too, because its ground-truth scanner
+    // also only recognises full dates. An independent reimplementation is only as good as the
+    // shapes it knows about.
+    const r = visibleAgendaDaysForViewer(
+      ext(["Tuesday, May 5, 2026 / Wednesday the 6th", "Wednesday, May 6, 2026"]),
+      viewerDates(["2026-05-06"]),
+      ["2026-05-06"],
+    );
+    expect(r).toEqual({ kind: "all" });
+  });
+
+  test("each ambiguity signal fires on its own", () => {
+    // One case per signal, so deleting any single one reds a test rather than being masked by
+    // the others -- the dead-guard failure this suite already hit once.
+    const cases: [string, string][] = [
+      // No weekday names and no ordinal, so the date-count signal is the ONLY one that can
+      // fire. The obvious spelling ("Tuesday, May 5 / Wednesday, May 6") also trips the
+      // weekday signal, which left the date-count guard deletable with every test still
+      // green -- the same dead-guard shape this suite hit once already.
+      ["May 5, 2026 / May 6, 2026", "two full dates, no weekday words"],
+      ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
+      ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
+    ];
+    for (const [label, why] of cases) {
+      const r = visibleAgendaDaysForViewer(
+        ext([label, "Thursday, May 7, 2026"]),
+        viewerDates(["2026-05-05"]),
+        ["2026-05-05"],
+      );
+      expect(r, `${why}: "${label}" must fail open`).toEqual({ kind: "all" });
+    }
+  });
+
   test("a single date repeated within one label is NOT ambiguous", () => {
     // The over-fire guard. "Tuesday, May 5, 2026 (May 5, 2026 rehearsal)" names one DATE
     // twice; treating any second regex hit as ambiguity would fail open on a row that is

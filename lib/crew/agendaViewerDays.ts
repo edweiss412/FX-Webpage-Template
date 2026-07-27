@@ -26,6 +26,36 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  * "how many". Kept adjacent so the two regexes are visibly the same shape; if the shared one
  * changes, this must change with it, which the mixed-format test pins.
  */
+const WEEKDAYS = /\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\b/gi;
+/** "the 6th", "21st" -- a day reference the full Month-day-year scan cannot see. */
+const ORDINAL_DAY = /\b\d{1,2}(st|nd|rd|th)\b/i;
+
+/**
+ * Does this label point at more than one day?
+ *
+ * Three independent signals, because review found each of the first two insufficient on its own:
+ *
+ *  1. more than one distinct full date            "May 5, 2026 / May 6, 2026"     (R2 HIGH)
+ *  2. more than one distinct weekday name         "May 5, 2026 / Wednesday ..."   (R4 HIGH)
+ *  3. any ordinal day reference                   "... / Wednesday the 6th"       (R4 HIGH)
+ *
+ * The R4 counterexample is why 2 and 3 exist: "Tuesday, May 5, 2026 / Wednesday the 6th" carries
+ * exactly ONE full date, so signal 1 saw an unambiguous May 5 row and folded it for a Wednesday
+ * viewer -- while the label plainly covers their day.
+ *
+ * These are heuristics and they over-fire; that is the intended direction. A false positive costs
+ * the viewer a fully expanded agenda, which is today's behaviour and what spec §1.1 calls
+ * acceptable. A false negative hides the day they came to see.
+ */
+function isAmbiguousLabel(dayLabel: string): boolean {
+  if (distinctLabelDates(dayLabel) > 1) return true;
+  if (ORDINAL_DAY.test(dayLabel)) return true;
+  const weekdays = new Set(
+    (dayLabel.match(WEEKDAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)),
+  );
+  return weekdays.size > 1;
+}
+
 function distinctLabelDates(dayLabel: string): number {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
   const found = new Set<string>();
@@ -82,7 +112,7 @@ export function visibleAgendaDaysForViewer(
   // DISTINCT dates, not regex hits: a label may repeat one date ("Tuesday, May 5, 2026
   // (May 5, 2026 rehearsal)") and is still perfectly identifiable. Counting hits would fail
   // open on chatty labels and quietly disable the feature.
-  if (extraction.days.some((day) => distinctLabelDates(day.dayLabel) > 1)) return ALL;
+  if (extraction.days.some((day) => isAmbiguousLabel(day.dayLabel))) return ALL;
 
   // The sheet and the PDF disagree about which dates exist: this extraction carries a block
   // for a date the viewer is assigned that the show's own dates do not contain. That is

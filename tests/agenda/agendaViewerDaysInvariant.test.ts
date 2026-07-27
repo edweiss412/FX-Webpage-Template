@@ -37,6 +37,13 @@ const ext = (labels: string[]) => ({
  * Every date a label mentions — an INDEPENDENT reimplementation, not a call into the module under
  * test. If it shared `parseIsoFromDayLabel` it would inherit "first match only", which is exactly
  * the defect that produced the R2 HIGH, and the test would confirm the bug instead of catching it.
+ *
+ * KNOWN CEILING, and the reason this file is not sufficient on its own. It recognises only full
+ * `Month day, year` tokens, so it is blind to a label that names a second day in prose
+ * ("… / Wednesday the 6th"). Review R4 found exactly that input, and this search did NOT flag it —
+ * the implementation and the ground truth were blind in the same place. An independent
+ * reimplementation is only as independent as the shapes it knows about. The weekday-name and
+ * ordinal signals are pinned by explicit cases in agendaViewerDays.test.ts instead.
  */
 function trueDates(label: string): string[] {
   const M: Record<string, number> = {
@@ -84,6 +91,8 @@ const VOCAB = [
   "Foo 5, 2026 / May 6, 2026", // the two scans disagree here
   "May 5, 2026 - May 7, 2026",
   "2 6 May 5, 2026", // pdfjs glyph-split digits
+  "Tuesday, May 5, 2026 / Wednesday the 6th", // R4 HIGH: a second day in prose, no second date
+  "May 5, 2026 / May 6, 2026", // two dates, no weekday words
   "Day 1",
   "continued", // R1 HIGH: unidentifiable row between identifiable ones
   "",
