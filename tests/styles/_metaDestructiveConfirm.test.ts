@@ -13,7 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { walk, stripComments, tokensOf } from "./_classScanUtils";
+import { walk, stripCommentsForFile, tokensOf } from "./_classScanUtils";
 
 type Kind = "morph" | "panel" | "exempt-non-confirm";
 type Row = { file: string; index: number; note: string; kind: Kind };
@@ -131,7 +131,7 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
   for (const root of ["components", "app"]) {
     for (const file of walk(root)) {
       let n = 0;
-      stripComments(readFileSync(file, "utf8"))
+      stripCommentsForFile(readFileSync(file, "utf8"), file)
         .split("\n")
         .forEach((line, i) => {
           const tokens = tokensOf(line);

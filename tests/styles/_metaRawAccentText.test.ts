@@ -5,7 +5,7 @@
 // files fail by default.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { stripComments, stripCommentsForFile, tokensOf, walk } from "./_classScanUtils";
+import { stripCommentsForFile, tokensOf, walk } from "./_classScanUtils";
 
 const ROOTS = ["components", "app"];
 // file:reason rows; EMPTY at ship (spec §4.4a).
@@ -70,7 +70,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
   it("wizard: no 10px + text-text-faint pairing (spec §4.2 eyebrow class)", () => {
     const violations: string[] = [];
     for (const file of walk("components/admin/wizard")) {
-      stripComments(readFileSync(file, "utf8"))
+      stripCommentsForFile(readFileSync(file, "utf8"), file)
         .split("\n")
         .forEach((line, i) => {
           if (line.includes("text-text-faint") && line.includes("text-[10px]")) {

@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 // Both verified exports: walk at tests/styles/_classScanUtils.ts:7,
 // stripComments at tests/styles/_classScanUtils.ts:15.
-import { walk, stripComments } from "../styles/_classScanUtils";
+import { walk, stripCommentsForFile } from "../styles/_classScanUtils";
 
 const ROOT = process.cwd();
 const SOURCE_DIRS = ["app", "components", "lib", "scripts"];
@@ -36,7 +36,7 @@ function callSites(symbol: string): { file: string; count: number }[] {
   const out: { file: string; count: number }[] = [];
   for (const file of sourceFiles()) {
     // stripComments so a mention in a docstring is not a call site.
-    const src = stripComments(readFileSync(file, "utf8"));
+    const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
     // Exclude the DECLARATION: `export function safeDougFacingTemplate(`
     // otherwise matches and the defining file counts one too many.
     const withoutDecl = src.replace(
@@ -88,7 +88,7 @@ describe("attention-items call topology", () => {
       const rel = file.replace(`${ROOT}/`, "");
       // The catalog DECLARES the field; attentionItems is its one consumer.
       if (rel === "lib/messages/catalog.ts") continue;
-      const src = stripComments(readFileSync(file, "utf8"));
+      const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
       if (src.includes("dougFacingShowScoped")) readers.push(rel);
     }
     expect(
@@ -102,7 +102,7 @@ describe("attention-items call topology", () => {
     // Rather than teach it to resolve aliases, forbid the alias form.
     const offenders: string[] = [];
     for (const file of sourceFiles()) {
-      const src = stripComments(readFileSync(file, "utf8"));
+      const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
       for (const sym of ["safeDougFacingTemplate", "deriveAttentionItems"]) {
         if (new RegExp(`\\b${sym}\\s+as\\s+\\w+`).test(src)) {
           offenders.push(`${file.replace(`${ROOT}/`, "")} aliases ${sym}`);
