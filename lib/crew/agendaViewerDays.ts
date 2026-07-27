@@ -82,6 +82,13 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   }
   rest += collapsed.slice(cursor);
 
+  // "Day 1 - Tuesday, May 5, 2026" is one day, and its "1" is an ordinal POSITION in the show,
+  // not a second date. Found by sweeping realistic single-day spellings for over-fire: the
+  // whitelist rejected it, which would have silently unfolded a very common agenda heading.
+  // Singular deliberately, as the conservative choice. Not load-bearing on its own: "Days 1-2"
+  // stays ambiguous via its residual "-2" even if this were widened to allow the plural.
+  rest = rest.replace(/\bday\s+\d{1,2}\b/gi, " ");
+
   const weekdays = rest.match(WEEKDAYS) ?? [];
   if (new Set(weekdays.map((w) => w.toLowerCase().slice(0, 3))).size > 1) return true;
   rest = rest.replace(WEEKDAYS, " ");

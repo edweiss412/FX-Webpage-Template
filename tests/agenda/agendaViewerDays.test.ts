@@ -204,6 +204,12 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // one weekday, no ordinal -- invisible to all three signals until date counting dropped
       // the year requirement.
       ["Tuesday, May 5, 2026 / May 6", "a second month-day with no year"],
+      // A plural day span must not be folded. Note precisely WHY this passes, because the
+      // obvious reading is wrong: it is not the strip's singular `\bday\s` restriction doing
+      // the work. Mutation-checked -- widening the strip to `days?` leaves this green, because
+      // the residual "-2" is itself a day number and trips the leftover check anyway. The
+      // singular form is kept as the more conservative choice, not as a pinned invariant.
+      ["Days 1-2, May 5, 2026", "a plural day span"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];
@@ -285,6 +291,13 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["Tuesday May 13,2024", "2024-05-13"], // no comma after the weekday
       ["Tuesday, March 2 4 , 202 6", "2026-03-24"], // day AND year split
       ["Wednesday, March 2 5, 2026", "2026-03-25"], // day split
+      // "Day N - <date>" is one of the commonest agenda headings there is, and the whitelist
+      // rejected it until an over-fire sweep caught it: the "1" reads as a day number unless
+      // the ordinal-position phrase is removed first. Singular only -- see the Days 1-2 case.
+      ["Day 1 - Tuesday, May 5, 2026", "2026-05-05"],
+      ["DAY 2 — Tuesday, May 5, 2026", "2026-05-05"],
+      ["Tuesday, May 5, 2026 (Show Day)", "2026-05-05"],
+      ["Tuesday, May 5, 2026 | Ballroom A", "2026-05-05"],
     ];
     for (const [label, iso] of corpus) {
       const r = visibleAgendaDaysForViewer(
