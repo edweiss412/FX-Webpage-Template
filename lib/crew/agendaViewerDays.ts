@@ -12,11 +12,29 @@
  * silently hides a day the viewer works while looking entirely normal on screen.
  */
 import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
-import { parseIsoFromDayLabel } from "@/lib/crew/agendaDayForToday";
+import { MONTHS, parseIsoFromDayLabel } from "@/lib/crew/agendaDayForToday";
 
 export type ViewerAgendaDays = { kind: "all" } | { kind: "subset"; rows: ReadonlySet<number> };
 
 const ALL: ViewerAgendaDays = { kind: "all" };
+
+/**
+ * How many DISTINCT calendar dates a day label names.
+ *
+ * Deliberately re-implements `parseIsoFromDayLabel`'s scan with the /g flag rather than
+ * calling it, because that function's contract is "the first date" and this one's question is
+ * "how many". Kept adjacent so the two regexes are visibly the same shape; if the shared one
+ * changes, this must change with it, which the mixed-format test pins.
+ */
+function distinctLabelDates(dayLabel: string): number {
+  const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
+  const found = new Set<string>();
+  for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*,?\s*(\d{4})\b/g)) {
+    const month = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
+    if (month) found.add(`${m[3]}-${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+  }
+  return found.size;
+}
 
 export function visibleAgendaDaysForViewer(
   /**
@@ -53,6 +71,18 @@ export function visibleAgendaDaysForViewer(
   const R = new Set(viewerDates);
 
   const parsed = extraction.days.map((day) => parseIsoFromDayLabel(day.dayLabel));
+
+  // A row that names MORE THAN ONE distinct date cannot be assigned to a single day, and
+  // `parseIsoFromDayLabel` hides that: it calls `.match()` without /g, so it reports only the
+  // FIRST date it finds. A combined row like
+  //   "Tuesday, May 5, 2026 / Wednesday, May 6, 2026"
+  // reports itself as May 5, so a May 6 viewer folds it -- while it explicitly covers May 6.
+  // Every row parses, so the unidentifiable-row guard below cannot see this.
+  //
+  // DISTINCT dates, not regex hits: a label may repeat one date ("Tuesday, May 5, 2026
+  // (May 5, 2026 rehearsal)") and is still perfectly identifiable. Counting hits would fail
+  // open on chatty labels and quietly disable the feature.
+  if (extraction.days.some((day) => distinctLabelDates(day.dayLabel) > 1)) return ALL;
 
   // The sheet and the PDF disagree about which dates exist: this extraction carries a block
   // for a date the viewer is assigned that the show's own dates do not contain. That is

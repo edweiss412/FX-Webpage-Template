@@ -130,6 +130,38 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     expect(r).toEqual({ kind: "all" });
   });
 
+  test("a row naming TWO dates is unidentifiable, even though it parses", () => {
+    // Whole-diff review R2, HIGH. parseIsoFromDayLabel calls .match() WITHOUT /g, so it
+    // returns only the FIRST date in a label. A combined row therefore reports itself as
+    // May 5 alone:
+    //
+    //   ["Tuesday, May 5, 2026 / Wednesday, May 6, 2026", "Wednesday, May 6, 2026"]
+    //
+    // With a May 6 assignment that yields { rows: [1] } and folds row 0 -- a row that
+    // EXPLICITLY includes May 6, the viewer's own day. The null guard added for the last
+    // HIGH cannot catch this: every row parses. Fourth distinct input shape in which this
+    // rule folded a day the viewer works, so the guard is on ambiguity itself, not on this
+    // particular label spelling.
+    const r = visibleAgendaDaysForViewer(
+      ext(["Tuesday, May 5, 2026 / Wednesday, May 6, 2026", "Wednesday, May 6, 2026"]),
+      viewerDates(["2026-05-06"]),
+      ["2026-05-06"],
+    );
+    expect(r).toEqual({ kind: "all" });
+  });
+
+  test("a single date repeated within one label is NOT ambiguous", () => {
+    // The over-fire guard. "Tuesday, May 5, 2026 (May 5, 2026 rehearsal)" names one DATE
+    // twice; treating any second regex hit as ambiguity would fail open on a row that is
+    // perfectly identifiable, quietly disabling the feature for chatty labels.
+    const r = visibleAgendaDaysForViewer(
+      ext(["Tuesday, May 5, 2026 (May 5, 2026 rehearsal)", "Wednesday, May 6, 2026"]),
+      viewerDates(["2026-05-05"]),
+      ["2026-05-05"],
+    );
+    expect(r).toEqual({ kind: "subset", rows: new Set([0]) });
+  });
+
   test("nothing parses and the positional fallback is unavailable → fail open", () => {
     const r = visibleAgendaDaysForViewer(ext(["Day 1", "Day 2"]), viewerDates(["2026-05-05"]), [
       "2026-05-05",
