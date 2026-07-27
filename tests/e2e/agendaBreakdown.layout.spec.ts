@@ -34,9 +34,11 @@
 import { test, expect } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
+import { LONG_TITLE, TOTAL_SESSIONS } from "./_agendaFixture";
 
 // CommonJS package — Playwright's CJS loader provides __dirname. Mirrors
 // agendaScheduleLayout.spec.ts.
@@ -47,11 +49,6 @@ const BODY_PAD = 16; // mirrors px-4 gutter used on the Step3Review list column
 
 // A worst-case session title: a single UNBREAKABLE long token (no spaces, no
 // hyphens — hyphens are CSS soft-break opportunities). This is the adversarial
-// input for the "long titles wrap, not overflow" invariant: `min-w-0` on the
-// grid text cell + `wrap-break-word` (overflow-wrap: break-word) must break it
-// across lines so it stays within the card column at 320px.
-const LONG_TITLE =
-  "AdaptingToUnpredictabilityInGlobalAssetManagementQuarterlyInvestorSummitKeynoteSessionXY"; // 90 chars
 
 /**
  * Transcribes the `ready`-state AgendaBreakdown + AgendaScheduleBlock structure
@@ -68,11 +65,30 @@ const LONG_TITLE =
  *                                └─ div.flex.min-w-0.flex-col.gap-2  (one day)
  *                                     ├─ h3 day heading
  *                                     └─ ul.flex.flex-col.gap-2
- *                                          ├─ li[data-testid="agenda-session"][data-session-kind="normal"]
+ *                                          ├─ li[data-testid="agenda-session"]  (normal)
  *                                          │    grid.grid-cols-[auto_minmax(0,1fr)].items-baseline.gap-x-3
- *                                          └─ li[data-testid="agenda-session"][data-session-kind="long"]
+ *                                          └─ li[data-testid="agenda-session"]  (90-char token)
  *                                               same grid — text cell has min-w-0 + wrap-break-word
  */
+
+/**
+ * The REAL AgendaScheduleBlock, rendered out of process in its ADMIN shape (no viewerDays, so
+ * every row is open and unmarked).
+ *
+ * This file used to transcribe that markup verbatim, and the whole-diff review caught that the
+ * copy still described the pre-fold structure -- plain divs with an h3 -- after the component
+ * had moved to <details>/<summary>. Same drift as the crew harness, in the second file, which
+ * the original sweep missed. Shelling out is required because Playwright compiles loaded files
+ * with its own JSX factory; see _renderAgendaScheduleHtml.ts.
+ */
+function agendaScheduleHtml(): string {
+  return execFileSync(
+    "pnpm",
+    ["exec", "tsx", join(REPO_ROOT, "tests/e2e/_renderAgendaScheduleHtml.ts"), "--admin"],
+    { cwd: REPO_ROOT, encoding: "utf8", timeout: 120_000 },
+  );
+}
+
 function breakdownHtml(): string {
   return `
 <article data-testid="card-col" class="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)">
@@ -82,46 +98,7 @@ function breakdownHtml(): string {
       <ul class="flex flex-col gap-3">
         <li data-testid="agenda-item" class="flex min-w-0 flex-col gap-1.5">
           <!-- AgendaScheduleBlock ready state (components/crew/AgendaScheduleBlock.tsx) -->
-          <div data-testid="agenda-schedule" class="flex min-w-0 flex-col gap-4">
-            <div class="flex min-w-0 flex-col gap-2">
-              <h3 class="flex items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                <span>Tuesday</span>
-                <span class="font-normal normal-case tabular-nums text-text-subtle">2026-05-14</span>
-              </h3>
-              <ul class="flex flex-col gap-2">
-                <!-- Normal session — single-line title, reference height baseline -->
-                <li data-testid="agenda-session" data-session-kind="normal"
-                    class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
-                  <span class="shrink-0 text-sm tabular-nums text-text-subtle">9:00 AM – 9:40 AM</span>
-                  <div class="flex min-w-0 flex-col gap-1">
-                    <p class="min-w-0 text-sm text-text-strong wrap-break-word">
-                      Welcome<span class="text-text-subtle"> · Mabel 1</span>
-                    </p>
-                  </div>
-                </li>
-                <!-- Long-title session — 90-char unbreakable token must WRAP, not overflow -->
-                <li data-testid="agenda-session" data-session-kind="long"
-                    class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
-                  <span class="shrink-0 text-sm tabular-nums text-text-subtle">10:00 AM – 11:00 AM</span>
-                  <div class="flex min-w-0 flex-col gap-1">
-                    <p class="min-w-0 text-sm text-text-strong wrap-break-word">${LONG_TITLE}</p>
-                    <span data-testid="agenda-drift"
-                          class="inline-flex w-fit items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium text-text-subtle">
-                      Adjusted from 12:25 AM
-                    </span>
-                    <ul class="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-3">
-                      <li data-testid="agenda-track"
-                          class="min-w-0 text-sm text-text wrap-break-word">
-                        <span class="font-medium text-text-strong">Breakout I</span>
-                        <span> · Adapting</span>
-                        <span class="text-text-subtle"> · Room A</span>
-                      </li>
-                    </ul>
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
+          ${agendaScheduleHtml()}
           <!-- PDF link rendered in ready state when href is present -->
           <a href="#" target="_blank" rel="noopener noreferrer" data-testid="agenda-open-pdf"
              class="self-start text-xs font-medium text-text-strong underline underline-offset-2">
@@ -229,7 +206,9 @@ for (const vw of VIEWPORTS) {
     // Every session row must stay within the card column (no horizontal overflow).
     const sessions = page.getByTestId("agenda-session");
     const n = await sessions.count();
-    expect(n).toBe(2);
+    // Derived from the shared fixture: the admin shape opens every row, so every session
+    // paints. A literal here is what pinned this harness to its own transcription.
+    expect(n, `every fixture session paints in the admin shape @ ${vw}`).toBe(TOTAL_SESSIONS);
     for (let i = 0; i < n; i++) {
       const s = await rectOf(sessions.nth(i));
       expect(s.width, `session ${i} width <= schedule block width @ ${vw}`).toBeLessThanOrEqual(
@@ -247,8 +226,17 @@ for (const vw of VIEWPORTS) {
     // taller than the normal single-line session, and it never exceeds the column.
     // `min-w-0` + `wrap-break-word` on the text cell (`p.min-w-0.wrap-break-word`)
     // inside `grid-cols-[auto_minmax(0,1fr)]` is what makes this hold.
-    const normalSession = await rectOf(page.locator('[data-session-kind="normal"]'));
-    const longSession = await rectOf(page.locator('[data-session-kind="long"]'));
+    // Selected by ORDER within the fixture, NOT by a `data-session-kind` attribute. That
+    // attribute never existed in the component -- it was invented by this harness's own
+    // transcription to label its hand-written markup, and then selected on, so the assertion
+    // was comparing two elements the app does not render. The fixture puts the normal session
+    // first and the 90-char token second in row 0 (see _agendaFixture.ts).
+    const sessionRows = page.getByTestId("agenda-session");
+    const normalSession = await rectOf(sessionRows.nth(0));
+    const longSession = await rectOf(sessionRows.nth(1));
+    // Guards the ordering this selection depends on: if the fixture is reordered, compare the
+    // wrong pair and the height assertion below becomes meaningless rather than failing.
+    await expect(sessionRows.nth(1)).toContainText(LONG_TITLE);
     expect(longSession.right, `long-title session right <= card right @ ${vw}`).toBeLessThanOrEqual(
       cardRect.right + TOL,
     );

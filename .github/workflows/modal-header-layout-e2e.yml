@@ -57,7 +57,14 @@ on:
       # whose markup it measures. Named explicitly rather than globbing components/**,
       # which would run this job on every unrelated component change.
       - "tests/e2e/agendaScheduleLayout.spec.ts"
+      # The admin Step 3 companion. It was one of the ~15 dark standalone specs and it
+      # HAD rotted exactly as the note above predicts: it hand-transcribed the pre-fold
+      # markup and invented a `data-session-kind` attribute the component never emitted,
+      # so it measured elements the app does not render. It now renders the real
+      # component, which is only worth anything if something runs it.
+      - "tests/e2e/agendaBreakdown.layout.spec.ts"
       - "tests/e2e/_renderAgendaScheduleHtml.ts"
+      - "tests/e2e/_agendaFixture.ts"
       - "components/crew/AgendaScheduleBlock.tsx"
       - "components/crew/sections/ScheduleSection.tsx"
       - "components/admin/showpage/**"
@@ -111,7 +118,7 @@ jobs:
       - run: pnpm exec playwright install chromium
       - name: Run modal-header standalone layout specs (no webServer)
         run: pnpm test:e2e:modal-header
-      - name: Run the agenda day-fold layout spec (no webServer)
+      - name: Run the agenda day-fold layout specs, crew + admin (no webServer)
         run: pnpm test:e2e:agenda-layout
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()

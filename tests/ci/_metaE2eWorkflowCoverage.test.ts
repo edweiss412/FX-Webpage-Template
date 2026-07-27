@@ -45,7 +45,9 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
-  "tests/e2e/agendaBreakdown.layout.spec.ts": UNSEEN,
+  // Was UNSEEN and had rotted while dark (pre-fold markup, an invented attribute).
+  // Now rendered from the real component and run by modal-header-layout-e2e.
+  "tests/e2e/agendaBreakdown.layout.spec.ts": PATH_GATED,
   "tests/e2e/agendaScheduleLayout.spec.ts": PATH_GATED,
   "tests/e2e/appHealthIndicator.layout.spec.ts": UNSEEN,
   "tests/e2e/attention-anchor-placement.spec.ts": PATH_GATED,

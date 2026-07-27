@@ -40,6 +40,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
+import { OPEN_ROW_SESSIONS, TOTAL_DAYS, TOTAL_SESSIONS } from "./_agendaFixture";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (do NOT use
 // import.meta.url; it flips the module to ESM). Mirrors step3-card-dimensions.
@@ -189,7 +190,7 @@ for (const vw of VIEWPORTS) {
     // expected, and the folded days' sessions must be absent from the measured set.
     const allSessions = page.getByTestId("agenda-session");
     const total = await allSessions.count();
-    expect(total, `the fixture's sessions all exist in the DOM @ ${vw}`).toBe(3);
+    expect(total, `the fixture's sessions all exist in the DOM @ ${vw}`).toBe(TOTAL_SESSIONS);
     const visible: number[] = [];
     for (let i = 0; i < total; i += 1) {
       if (await allSessions.nth(i).isVisible()) visible.push(i);
@@ -197,7 +198,7 @@ for (const vw of VIEWPORTS) {
     expect(
       visible.length,
       `exactly the open day's sessions are painted @ ${vw} (folded days contribute none)`,
-    ).toBe(2);
+    ).toBe(OPEN_ROW_SESSIONS);
     for (const i of visible) {
       const s = await rectOf(allSessions.nth(i));
       expect(s.width, `session ${i} width <= column @ ${vw}`).toBeLessThanOrEqual(col.width + TOL);
@@ -259,7 +260,7 @@ for (const vw of VIEWPORTS) {
 
     const rows = page.locator("details[data-testid^='agenda-day-']");
     const n = await rows.count();
-    expect(n, "every extraction day renders a row").toBe(3);
+    expect(n, "every extraction day renders a row").toBe(TOTAL_DAYS);
 
     for (let i = 0; i < n; i += 1) {
       const w = await rows.nth(i).evaluate((el) => el.getBoundingClientRect().width);
@@ -380,4 +381,43 @@ test("chevron: reduced motion collapses a duration that is otherwise NON-zero (�
   // var(--duration-fast). A hardcoded duration would ignore the preference entirely.
   expect(still, "reduced motion zeroes the chevron duration").toBe("0s");
   await reduced.close();
+});
+
+test("fold: the session count is hidden on an OPEN row and survives toggling (§5.2)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(baseUrl);
+  await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+  // Row 0 is the viewer's (open), row 1 is folded.
+  await expect(page.locator('[data-testid="agenda-day-count-0"]')).toBeHidden();
+  await expect(page.locator('[data-testid="agenda-day-count-1"]')).toBeVisible();
+
+  // The live-state half, which is the actual defect: <details> toggles with no re-render, so a
+  // prop-conditioned count would keep showing above sessions the crew member just opened.
+  await page.locator('[data-testid="agenda-day-summary-1"]').click();
+  await expect(page.locator('[data-testid="agenda-day-count-1"]')).toBeHidden();
+
+  await page.locator('[data-testid="agenda-day-summary-0"]').click();
+  await expect(page.locator('[data-testid="agenda-day-count-0"]')).toBeVisible();
+});
+
+test("chevron: the rotation actually changes between states (§5.2)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(baseUrl);
+  await page.waitForSelector('[data-testid="agenda-schedule"]');
+
+  // Whole-diff review, LOW: asserting a non-zero duration proves a transition EXISTS, not that
+  // anything moves. Deleting the details[open] rotation selector left the suite green while the
+  // chevron pointed the same way in both states.
+  const chevronOf = (i: number) =>
+    page
+      .locator(`[data-testid="agenda-day-summary-${i}"] [data-agenda-day-chevron]`)
+      .evaluate((el) => getComputedStyle(el).transform);
+
+  const openRow = await chevronOf(0);
+  const closedRow = await chevronOf(1);
+  expect(closedRow, "a folded row's chevron is unrotated").toMatch(/none|matrix\(1, 0, 0, 1/);
+  expect(openRow, "an open row's chevron is rotated").not.toBe(closedRow);
 });

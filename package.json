@@ -51,7 +51,7 @@
     "test:e2e": "playwright test",
     "test:e2e:destructive-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReal.layout.spec.ts tests/e2e/pendingDiscardReflow.layout.spec.ts",
     "test:e2e:modal-header": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/skeletonBandParity.spec.ts tests/e2e/stackedBandLayout.spec.ts tests/e2e/statusStripToggleLayout.spec.ts tests/e2e/step3-review-modal.layout.spec.ts",
-    "test:e2e:agenda-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/agendaScheduleLayout.spec.ts",
+    "test:e2e:agenda-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/agendaScheduleLayout.spec.ts tests/e2e/agendaBreakdown.layout.spec.ts",
     "test:e2e:attention-anchor": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/attention-anchor-placement.spec.ts",
     "test:e2e:share-link-flash": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/share-link-flash.spec.ts",
     "test:e2e:attention-pill-focus": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts",
