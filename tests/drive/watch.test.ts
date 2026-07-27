@@ -2089,3 +2089,125 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     expect(String(rec?.context.errorMessage)).toContain("KEEPME");
   });
 });
+
+describe("GC loop controls are behaviourally pinned (whole-diff R4)", () => {
+  function gcRow(
+    tx: FakeWatchTx,
+    id: string,
+    status: "superseded" | "orphaned" | "expired",
+    opts: { resourceId?: string | null; createdAt?: string | Date | null } = {},
+  ) {
+    tx.rows.push({
+      id,
+      status,
+      watchedFolderId: `f-${id}`,
+      webhookSecret: "s",
+      resourceId: opts.resourceId === undefined ? "r" : opts.resourceId,
+      createdAt: (opts.createdAt ?? tx.now.toISOString()) as string,
+      expiresAt: tx.now.toISOString(),
+    });
+  }
+
+  test("a YOUNG null-resource orphan is skipped; an OLD one is collected", async () => {
+    const tx = new FakeWatchTx();
+    const now = tx.now.getTime();
+    // Young: a subscribe may still be in flight, and collecting it here would
+    // mark it stopped, after which markOrphaned can never record the resourceId.
+    gcRow(tx, "young", "orphaned", { resourceId: null, createdAt: new Date(now - 60_000) });
+    gcRow(tx, "old", "orphaned", { resourceId: null, createdAt: new Date(now - 7_200_000) });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({ tx: tx as never, now: () => now });
+
+    expect(result.stopped).toEqual(["old"]);
+    expect(tx.rows.find((r) => r.id === "young")!.status).toBe("orphaned");
+  });
+
+  test("the young-orphan guard accepts a Date, which is what postgres.js yields", async () => {
+    // The guard previously tested `typeof === "string"`, so it was dead for
+    // every production row — postgres.js parses timestamptz into a Date.
+    const tx = new FakeWatchTx();
+    const now = tx.now.getTime();
+    gcRow(tx, "young-date", "orphaned", {
+      resourceId: null,
+      createdAt: new Date(now - 60_000),
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({ tx: tx as never, now: () => now });
+
+    expect(result.stopped).toEqual([]);
+  });
+
+  test("GC_RUN_BUDGET_MS stops the pass and reports rows never ATTEMPTED", async () => {
+    const tx = new FakeWatchTx();
+    for (let i = 0; i < 5; i += 1) gcRow(tx, `sup-${i}`, "superseded");
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const { GC_RUN_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+
+    // Each stop consumes half the budget, so the third iteration is refused.
+    let clock = 0;
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => clock,
+      stopChannel: async () => {
+        clock += GC_RUN_BUDGET_MS / 2;
+      },
+    });
+
+    expect(result.stopped).toHaveLength(2);
+    const rec = logRecords.find((r) => r.code === "DRIVE_WATCH_GC_BUDGET_EXHAUSTED");
+    expect(rec?.context).toMatchObject({ stoppedCount: 2, remainingCount: 3 });
+  });
+
+  test("REFRESH_RUN_BUDGET_MS stops the loop and records run_budget failures", async () => {
+    const tx = new FakeWatchTx();
+    const t = tx.now.getTime();
+    for (let i = 0; i < 3; i += 1) {
+      tx.rows.push({
+        id: `r-${i}`,
+        status: "active",
+        watchedFolderId: "cfg",
+        webhookSecret: "s",
+        resourceId: "r",
+        createdAt: new Date(t - 19 * 3_600_000).toISOString(),
+        expiresAt: new Date(t + 5 * 3_600_000).toISOString(),
+      });
+    }
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const { REFRESH_RUN_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+
+    let clock = t;
+    const result = await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => new Date(clock),
+      getActiveWatchedFolder: async () => ({ folderId: "cfg", folderName: null }),
+      subscribeToWatchedFolder: vi.fn(async () => {
+        clock += REFRESH_RUN_BUDGET_MS;
+        return { outcome: "active" as const, channelId: "c" };
+      }),
+    });
+
+    // Only the per-folder index differs; all three rows share one folder, so
+    // the loop admits the first and refuses the rest.
+    expect(result.failures.filter((f) => f.operation === "run_budget").length).toBeGreaterThan(0);
+    expect(logRecords.some((r) => r.code === "DRIVE_WATCH_RUN_BUDGET_EXHAUSTED")).toBe(true);
+  });
+});
+
+test("GC asks the port for at most GC_CANDIDATES_PER_PASS rows", async () => {
+  const tx = new FakeWatchTx();
+  const seen: Array<number | undefined> = [];
+  // Override on the instance, not via a spread: spreading a class instance drops
+  // every prototype method the collector still needs.
+  tx.listGcCandidates = async (limit?: number) => {
+    seen.push(limit);
+    return [];
+  };
+  const { gcWatchChannels } = await import("@/lib/drive/watch");
+  const { GC_CANDIDATES_PER_PASS } = await import("@/lib/drive/watchErrors");
+
+  await gcWatchChannels({ tx: tx as never });
+
+  expect(seen).toEqual([GC_CANDIDATES_PER_PASS]);
+});

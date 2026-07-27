@@ -334,4 +334,50 @@ describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)"
     expect(order.indexOf(`${PREFIX}new-exp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
     expect(order.indexOf(`${PREFIX}new-orp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
   });
+
+  test("within a tier the order VARIES between passes, so no row is starved", async () => {
+    // The previous revision of this test seeded ONE superseded row, so reverting
+    // `random()` to `created_at` still passed it (whole-diff R4). Twelve rows
+    // with distinct ages make a deterministic ordering emit the same sequence on
+    // every pass; `random()` does not.
+    const rows = Array.from({ length: 12 }, (_, i) => i);
+    for (const i of rows) {
+      await sql`
+        insert into public.drive_watch_channels
+          (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+        values (${`${PREFIX}rnd-${i}`}, 'superseded', ${`${PREFIX}f${i}`}, 's', 'r',
+                now() - (${i} * interval '1 h'), now())
+      `;
+    }
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const passes: string[][] = [];
+    for (let pass = 0; pass < 4; pass += 1) {
+      passes.push(
+        await sql.begin(async (tx) => {
+          const got = await createPostgresWatchTx(tx as never).listGcCandidates();
+          return got.filter((r) => r.id.startsWith(`${PREFIX}rnd-`)).map((r) => r.id);
+        }),
+      );
+    }
+
+    // Every pass still returns the full set — varying order must not drop rows.
+    for (const pass of passes) expect(pass).toHaveLength(12);
+    const distinct = new Set(passes.map((p) => p.join(",")));
+    expect(distinct.size).toBeGreaterThan(1);
+  });
+
+  test("the limit argument bounds a pass, so one pass cannot run unbounded", async () => {
+    for (const i of [0, 1, 2, 3, 4]) {
+      await sql`
+        insert into public.drive_watch_channels
+          (id, status, watched_folder_id, webhook_secret, resource_id, expires_at)
+        values (${`${PREFIX}cap-${i}`}, 'expired', ${`${PREFIX}c${i}`}, 's', 'r', now())
+      `;
+    }
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const got = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).listGcCandidates(3),
+    );
+    expect(got).toHaveLength(3);
+  });
 });

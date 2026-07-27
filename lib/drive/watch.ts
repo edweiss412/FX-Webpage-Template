@@ -52,8 +52,9 @@ export type WatchChannelRow = {
   webhookSecret: string;
   resourceId: string | null;
   expiresAt: string | null;
-  /** Needed by GC's young-orphan guard; null only for rows a fake omitted. */
-  createdAt?: string | null;
+  /** Needed by GC's young-orphan guard. postgres.js yields a Date here; the
+   *  DB-free fakes yield an ISO string, so both shapes are accepted. */
+  createdAt?: string | Date | null;
 };
 
 export type WatchTx = {
@@ -144,6 +145,9 @@ export type GcDeps = {
   tx?: WatchTx;
   withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   stopChannel?: (channel: { id: string; resourceId: string | null }) => Promise<void>;
+  /** Injectable so the elapsed budget and the young-orphan window are testable
+   *  without wall-clock sleeps. */
+  now?: () => number;
 };
 
 type PostgresConnection = {
@@ -452,6 +456,23 @@ class PostgresWatchTx implements WatchTx {
       [folderId, nowIso],
     );
   }
+}
+
+/**
+ * Age check that survives BOTH shapes this value arrives in. postgres.js parses
+ * `timestamptz` into a JavaScript Date, while the DB-free fakes hand back ISO
+ * strings — an earlier revision tested `typeof === "string"`, which is false for
+ * every production row, so the guard it protected was dead code (whole-diff R4).
+ */
+function isYoungerThan(
+  createdAt: string | Date | null | undefined,
+  windowMs: number,
+  nowMs: number,
+): boolean {
+  if (createdAt === null || createdAt === undefined) return false;
+  const parsed = createdAt instanceof Date ? createdAt.getTime() : Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return false;
+  return nowMs - parsed < windowMs;
 }
 
 function fromDbRow(row: {
@@ -980,7 +1001,13 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     const runTx = watchTxRunner(deps);
     const stopChannel = deps.stopChannel ?? defaultStopChannel;
     const candidates = await runTx((tx) =>
-      callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
+      // Passed EXPLICITLY. The cap used to live only as a default parameter on
+      // the Postgres adapter, which left every other WatchTx implementation
+      // unbounded — the cap is the collector's policy, not one adapter's
+      // (whole-diff R4).
+      callWatchTx("drive_watch_channels.list_gc_candidates", () =>
+        tx.listGcCandidates(GC_CANDIDATES_PER_PASS),
+      ),
     );
     const stopped: string[] = [];
     // Bound the pass. Candidates are ordered oldest-first and capped, and the
@@ -989,10 +1016,11 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     // rows would consume the GC cron's 300s window and — being the oldest —
     // would be served first on every subsequent pass, starving every expired
     // and orphaned row behind them (whole-diff finding 1).
-    const gcStartedMs = Date.now();
+    const nowMs = deps.now ?? (() => Date.now());
+    const gcStartedMs = nowMs();
     let attempted = 0;
     for (const channel of candidates) {
-      if (Date.now() - gcStartedMs >= GC_RUN_BUDGET_MS) {
+      if (nowMs() - gcStartedMs >= GC_RUN_BUDGET_MS) {
         void log.warn("drive watch GC run budget exhausted", {
           source: "drive.watch",
           code: "DRIVE_WATCH_GC_BUDGET_EXHAUSTED",
@@ -1021,8 +1049,7 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       if (
         channel.status === "orphaned" &&
         channel.resourceId === null &&
-        typeof channel.createdAt === "string" &&
-        Date.now() - Date.parse(channel.createdAt) < STALE_PENDING_MAX_AGE_MS
+        isYoungerThan(channel.createdAt, STALE_PENDING_MAX_AGE_MS, nowMs())
       ) {
         continue;
       }
