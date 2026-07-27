@@ -77,12 +77,12 @@ export default defineConfig({
       // Attention-gallery capture sweep (spec 2026-07-26-gallery-screenshot-capture
       // §3 item 4): local-only, no dependencies — the gallery needs no show-fixture
       // seed (scenario data is fixture-built server-side; the developer fixture
-      // authenticates via its JWT claim alone). 1800 s is the provisional ceiling
-      // for the serial all-scenarios × both-themes sweep; the plan's Task-4
-      // measurement tightens it (pin: tests/help/playwright-config.test.ts).
+      // authenticates via its JWT claim alone). Ceiling is ~2x the measured
+      // full sweep (8.2 min wall on 2026-07-26, 129 scenarios x 2 themes;
+      // pin: tests/help/playwright-config.test.ts).
       name: "screenshots-gallery",
       testMatch: /screenshots-gallery-capture\.spec\.ts/,
-      timeout: 1_800_000,
+      timeout: 1_000_000,
       use: {
         ...devices["Desktop Chrome"],
         baseURL: "http://localhost:3004",

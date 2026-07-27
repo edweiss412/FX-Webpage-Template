@@ -85,7 +85,7 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
   it("declares the screenshots-gallery local capture project with its measured ceiling", () => {
     const config = readFileSync(screenshotConfigPath, "utf8");
     const galleryBlock = config.match(
-      /name: "screenshots-gallery",\s*testMatch: \/screenshots-gallery-capture\\\.spec\\\.ts\/,\s*timeout: 1_800_000,/,
+      /name: "screenshots-gallery",\s*testMatch: \/screenshots-gallery-capture\\\.spec\\\.ts\/,\s*timeout: 1_000_000,/,
     );
 
     expect(galleryBlock, "screenshots-gallery project (name/testMatch/timeout pin)").not.toBeNull();
