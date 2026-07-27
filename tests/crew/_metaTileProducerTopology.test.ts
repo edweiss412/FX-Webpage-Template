@@ -10,6 +10,7 @@
  * and mock-level check would still pass.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
@@ -62,10 +63,8 @@ const PRODUCTION_FILES = [...walk("components"), ...walk("app")];
  * treats prose in a doc comment as JSX, which reports files that merely NAME a
  * component in a comment as call sites.
  */
-function codeOf(rel: string): string {
-  return readFileSync(join(ROOT, rel), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
+function strippedSourceOf(rel: string): string {
+  return stripCommentsForFile(readFileSync(join(ROOT, rel), "utf8"), rel);
 }
 
 /** The paren-balanced text of the `after(` call starting at `from`. */
@@ -87,7 +86,7 @@ function afterCallFrom(src: string, from: number): string {
 describe("META tile producer topology", () => {
   test("every <WrappedSection> call site lives in components/crew/sections/", () => {
     const offenders = PRODUCTION_FILES.filter(
-      (f) => /<WrappedSection[\s/>]/.test(codeOf(f)) && !f.startsWith(SECTIONS_DIR),
+      (f) => /<WrappedSection[\s/>]/.test(strippedSourceOf(f)) && !f.startsWith(SECTIONS_DIR),
     );
     expect(offenders, `unexpected <WrappedSection> outside ${SECTIONS_DIR}`).toEqual([]);
   });
@@ -97,7 +96,7 @@ describe("META tile producer topology", () => {
     // an existing tileId, which would make two tiles share one alert identity.
     const found: string[] = [];
     for (const f of PRODUCTION_FILES) {
-      for (const m of codeOf(f).matchAll(/tileId="(crew:[^"]+)"/g)) found.push(m[1] as string);
+      for (const m of strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g)) found.push(m[1] as string);
     }
     expect(found.slice().sort()).toEqual(EXPECTED_TILE_IDS);
     expect(new Set(found).size, "a tileId is used by more than one wrapper").toBe(found.length);
@@ -108,7 +107,7 @@ describe("META tile producer topology", () => {
     const actual: Record<string, string[]> = {};
     for (const f of PRODUCTION_FILES) {
       if (!f.startsWith(SECTIONS_DIR)) continue;
-      const ids = [...codeOf(f).matchAll(/tileId="(crew:[^"]+)"/g)].map((m) => m[1] as string);
+      const ids = [...strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g)].map((m) => m[1] as string);
       if (ids.length > 0) actual[f.split("/").pop() as string] = ids;
     }
     const flattened = Object.fromEntries(
@@ -121,7 +120,7 @@ describe("META tile producer topology", () => {
     const offenders: string[] = [];
     for (const f of PRODUCTION_FILES) {
       if (f === SHELL) continue;
-      const src = codeOf(f);
+      const src = strippedSourceOf(f);
       for (const name of SECTION_COMPONENTS) {
         // The word boundary matters: `<CrewSection` without it also matches
         // `<CrewSections`, the client controller.
@@ -135,7 +134,7 @@ describe("META tile producer topology", () => {
   });
 
   test("the shell registers the sweep and RETURNS its promise", () => {
-    const src = codeOf(SHELL);
+    const src = strippedSourceOf(SHELL);
     expect(src).toMatch(/after\(\s*\(\)\s*=>\s*\n?\s*sweepTileRenderAlerts\(/);
     expect(src, "the sweep promise must be returned, not voided").not.toMatch(
       /after\(\s*\(\)\s*=>\s*\{\s*void\s+sweepTileRenderAlerts/,
@@ -143,7 +142,7 @@ describe("META tile producer topology", () => {
   });
 
   test("the ledger is created once, in the component body", () => {
-    const src = codeOf(SHELL);
+    const src = strippedSourceOf(SHELL);
     expect(src.match(/createTileRenderLedger\(\)/g) ?? []).toHaveLength(1);
 
     // Anchor on the REGISTRATION, not the first mention of the sweep: the first
@@ -159,7 +158,7 @@ describe("META tile producer topology", () => {
   });
 
   test("WrappedSection contains no alert write", () => {
-    expect(codeOf(join("components", "crew", "WrappedSection.tsx"))).not.toMatch(
+    expect(strippedSourceOf(join("components", "crew", "WrappedSection.tsx"))).not.toMatch(
       /upsertAdminAlert/,
     );
   });
@@ -167,7 +166,7 @@ describe("META tile producer topology", () => {
   test("WrappedTile has no production call site, keeping TileServerFallback dormant", () => {
     const self = join("components", "shared", "WrappedTile.tsx");
     const offenders = PRODUCTION_FILES.filter(
-      (f) => f !== self && /<WrappedTile[\s/>]/.test(codeOf(f)),
+      (f) => f !== self && /<WrappedTile[\s/>]/.test(strippedSourceOf(f)),
     );
     expect(offenders).toEqual([]);
   });
