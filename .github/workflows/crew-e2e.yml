@@ -138,7 +138,7 @@ jobs:
       # and every real selection fail to persist there and a correct
       # implementation reads as broken; Chromium's localhost exemption stores it.
       - name: Run crew section-toggle + picker-flow e2e (:3000 only)
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

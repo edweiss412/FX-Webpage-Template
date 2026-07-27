@@ -1,0 +1,364 @@
+/**
+ * tests/e2e/alert-action-links.spec.ts — BL-ALERT-ACTION-LINKS-E2E (PR6 of the
+ * BL-NULLCODE-STAMP-BATCH-2 residual sweep).
+ *
+ * PR #287 shipped the per-code action-link registry with unit + jsdom + structural
+ * coverage, but nobody had clicked the links in a LIVE app. This spec seeds one
+ * unresolved admin_alerts row per registered ALERT_ACTIONS code — derived from
+ * ALERT_ACTION_CODES, never a hand-copied list, with a set-equality guard so a
+ * 21st code fails here instead of silently under-seeding — plus per-shape
+ * negative rows, and asserts the rendered anchors in a real browser.
+ *
+ * RENDERER CENSUS (verified against this tree, superseding the backlog item's
+ * four-renderer claim — re-verify before extending):
+ *   - BellPanel `bell-action-<alertId>-<i>` (components/admin/BellPanel.tsx),
+ *     non-health entries only, at /admin.
+ *   - AttentionBanner `attention-banner-action-<alertId>` (footer, action &&
+ *     !isClearingNeedsYou) and `attention-banner-destination-<alertId>` (the
+ *     EXTERNAL-ONLY destination chip, §2.3) at /admin?show=<slug>.
+ *   - HealthAlertsPanel `health-alert-action-<id>` at /admin/dev/telemetry
+ *     (mounted ONLY there; developer-gated).
+ *   - AttentionMenu renders NO per-item action anchors in the current tree —
+ *     the backlog prep's `:208-218` citation rotted (the rows there are
+ *     monitoring rows). Deliberately not asserted.
+ *
+ * CONTRACT DIRECTION (anti-tautology): expected hrefs come from
+ * resolveAlertAction/resolveAlertActions — the SAME registry the renderers
+ * consume — so these assertions prove the real render pipeline (feed query →
+ * server component → DOM) delivers the registry's link untampered, external
+ * links carry target/_blank + rel and are asserted VERBATIM without being
+ * followed, and every internal fragment resolves to a real element on the
+ * landed route (the generalized #resync dead-fragment bug: RESYNC_SHRINK_HELD
+ * deliberately targets #overview because #resync never had a DOM id — the
+ * DECLARED fragment is the contract).
+ */
+import { expect, test, type Page } from "@playwright/test";
+import {
+  ALERT_ACTION_CODES,
+  resolveAlertAction,
+  type AlertActionLink,
+} from "@/lib/adminAlerts/alertActions";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
+import { admin } from "./helpers/supabaseAdmin";
+import { clearAlerts } from "./helpers/seedAlerts";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { signInAs, signOut } from "./helpers/signInAs";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+
+test.describe.configure({ mode: "serial" });
+
+// ─── Per-code seed contexts ──────────────────────────────────────────────────
+// Each context satisfies its builder's guards (lib/adminAlerts/alertActions.ts)
+// so the positive rows all produce a link. Slug/driveFileId ride on the seeded
+// show row, mirroring how bellFeed/attentionItems thread them.
+const GITHUB_REPO = "edweiss412/FX-Webpage-Template";
+const ORPHAN_URL = "https://github.com/edweiss412/FX-Webpage-Template/issues/999";
+const FOLDER_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+
+const SEED_CONTEXTS: Record<string, Record<string, unknown>> = {
+  SHOW_FIRST_PUBLISHED: {},
+  PICKER_EPOCH_RESET: {},
+  PICKER_SELECTION_RACE: {},
+  ROLE_FLAGS_NOTICE: {},
+  LIVE_ROW_CONFLICT: {}, // drive_file_id injected from the seeded show below
+  WIZARD_SESSION_SUPERSEDED_RACE: {},
+  REPORT_ORPHANED_LOST_LEASE: { orphan_url: ORPHAN_URL },
+  BRANCH_PROTECTION_DRIFT: { repo: GITHUB_REPO },
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: { repo: GITHUB_REPO },
+  RESYNC_SHRINK_HELD: {},
+  ONBOARDING_SHEET_UNREADABLE: { folder_id: FOLDER_ID },
+  SHEET_UNAVAILABLE: {},
+  OPENING_REEL_NOT_VIDEO: {},
+  OPENING_REEL_PERMISSION_DENIED: {},
+  REEL_DRIFTED: {},
+  EMBEDDED_ASSET_DRIFTED: {},
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {},
+  PARSE_ERROR_LAST_GOOD: {},
+  RESYNC_QUALITY_REGRESSED: {},
+  SHOW_UNPUBLISHED: {},
+};
+
+// Negative rows: one per null-return SHAPE in the builders (enumerated from the
+// 13 `return null` sites — see the backlog item's class sweep), not per commented
+// site. Each uses a REGISTERED code whose builder rejects this exact input.
+const NEGATIVE_ROWS: Array<{
+  code: string;
+  context: Record<string, unknown>;
+  global: boolean;
+  why: string;
+}> = [
+  // shape: usable field entirely absent (str() → null; no folder fallback either)
+  { code: "ONBOARDING_SHEET_UNREADABLE", context: {}, global: true, why: "no folder_id" },
+  // shape: field present but WRONG TYPE (str() rejects non-strings)
+  {
+    code: "REPORT_ORPHANED_LOST_LEASE",
+    context: { orphan_url: 42 },
+    global: true,
+    why: "orphan_url not a string",
+  },
+  // shape: slug missing — shareAccess/showAnchor fail-quiet on a GLOBAL row
+  { code: "SHOW_UNPUBLISHED", context: {}, global: true, why: "global row has no slug" },
+  // shape: malformed repo — the producer's own missing-env placeholder
+  {
+    code: "BRANCH_PROTECTION_DRIFT",
+    context: { repo: "owner/repo" },
+    global: true,
+    why: "literal owner/repo placeholder",
+  },
+];
+
+type SeededShow = { id: string; slug: string; driveFileId: string | null };
+type SeededRow = { id: string; code: string; context: Record<string, unknown>; global: boolean };
+
+let show: SeededShow;
+let restoreDashboardState: (() => Promise<void>) | null = null;
+const positives: SeededRow[] = [];
+const negatives: SeededRow[] = [];
+
+function expectedLink(row: SeededRow): AlertActionLink | null {
+  // Opts mirror the surfaces' own calls: the bell feed and the health panel
+  // both pass { slug } WITHOUT driveFileId (lib/admin/bellFeed.ts,
+  // HealthAlertsPanel.tsx); attentionItems additionally threads the show's
+  // driveFileId, but every seeded openSheet context carries drive_file_id, so
+  // the expected href is identical across surfaces.
+  return resolveAlertAction(row.code, row.context, {
+    slug: row.global ? null : show.slug,
+  });
+}
+
+const isHealth = (code: string): boolean =>
+  (MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as { audience?: string } | undefined)
+    ?.audience === "health";
+
+async function assertAnchor(page: Page, testId: string, link: AlertActionLink): Promise<void> {
+  const anchor = page.getByTestId(testId);
+  await expect(anchor, testId).toBeVisible();
+  // VERBATIM href — never followed for external links.
+  await expect(anchor).toHaveAttribute("href", link.href);
+  if (link.external) {
+    await expect(anchor).toHaveAttribute("target", "_blank");
+    await expect(anchor).toHaveAttribute("rel", "noopener noreferrer");
+  } else {
+    await expect(anchor).not.toHaveAttribute("target", "_blank");
+  }
+}
+
+test.beforeAll(async () => {
+  // Set-equality guard: the seed map IS the registry. A new ALERT_ACTIONS code
+  // fails here by name instead of silently under-seeding (the backlog item's
+  // own history: a 9-code list had become 20 without the item noticing).
+  expect(Object.keys(SEED_CONTEXTS).sort()).toEqual([...ALERT_ACTION_CODES].sort());
+
+  // /admin renders the first-run setup wizard (no nav, no bell) while
+  // app_settings.watched_folder_id is NULL — settle it and restore after.
+  restoreDashboardState = await settleDashboardAdminState();
+
+  const { data: shows, error: showsErr } = await admin
+    .from("shows")
+    .select("id, slug, drive_file_id")
+    .not("slug", "is", null)
+    .limit(1);
+  if (showsErr) throw new Error(`shows select failed: ${showsErr.message}`);
+  if (!shows?.length) throw new Error("no seeded show available for alert-action-links");
+  show = {
+    id: shows[0]!.id as string,
+    slug: shows[0]!.slug as string,
+    driveFileId: (shows[0]!.drive_file_id as string | null) ?? null,
+  };
+
+  await clearAlerts();
+  positives.length = 0;
+  negatives.length = 0;
+
+  // Positive rows: show-scoped so slug/driveFileId thread through the feeds.
+  // LIVE_ROW_CONFLICT carries the show's drive_file_id in context (its builder
+  // reads context, not opts). Unique (coalesce(show_id,''), code) holds: one
+  // show, twenty distinct codes.
+  // openSheet-family codes read context.drive_file_id (the bell feed passes
+  // { slug } only — lib/admin/bellFeed.ts resolveAlertActions call — so opts
+  // threading cannot supply it there; production producers stamp it in context,
+  // per the producer-scope registry). LIVE_ROW_CONFLICT reads context too.
+  const DRIVE_CONTEXT_CODES = new Set([
+    "LIVE_ROW_CONFLICT",
+    "ROLE_FLAGS_NOTICE",
+    "SHEET_UNAVAILABLE",
+    "OPENING_REEL_NOT_VIDEO",
+    "OPENING_REEL_PERMISSION_DENIED",
+    "REEL_DRIFTED",
+    "EMBEDDED_ASSET_DRIFTED",
+    "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+  ]);
+  const positiveRows = ALERT_ACTION_CODES.map((code, i) => ({
+    show_id: show.id,
+    code,
+    context:
+      DRIVE_CONTEXT_CODES.has(code) && show.driveFileId
+        ? { ...SEED_CONTEXTS[code]!, drive_file_id: show.driveFileId }
+        : SEED_CONTEXTS[code]!,
+    raised_at: new Date(Date.now() - 3600_000 - i * 1000).toISOString(),
+  }));
+  // Negative rows are GLOBAL (show_id null) — distinct codes among themselves
+  // and distinct (show_id, code) pairs from every positive row.
+  const negativeRows = NEGATIVE_ROWS.map((n, i) => ({
+    show_id: null,
+    code: n.code,
+    context: n.context,
+    raised_at: new Date(Date.now() - 7200_000 - i * 1000).toISOString(),
+  }));
+
+  const { data: inserted, error: insErr } = await admin
+    .from("admin_alerts")
+    .insert([...positiveRows, ...negativeRows])
+    .select("id, code, show_id");
+  if (insErr) throw new Error(`alert-action-links seed insert failed: ${insErr.message}`);
+  for (const r of inserted ?? []) {
+    const rowIsGlobal = r.show_id === null;
+    const source = rowIsGlobal
+      ? NEGATIVE_ROWS.find((n) => n.code === r.code)!
+      : { context: positiveRows.find((p) => p.code === r.code)!.context };
+    (rowIsGlobal ? negatives : positives).push({
+      id: r.id as string,
+      code: r.code as string,
+      context: source.context as Record<string, unknown>,
+      global: rowIsGlobal,
+    });
+  }
+  if (positives.length !== ALERT_ACTION_CODES.length) {
+    throw new Error(`seeded ${positives.length}/${ALERT_ACTION_CODES.length} positive rows`);
+  }
+  if (negatives.length !== NEGATIVE_ROWS.length) {
+    throw new Error(`seeded ${negatives.length}/${NEGATIVE_ROWS.length} negative rows`);
+  }
+});
+
+test.afterAll(async () => {
+  await clearAlerts();
+  await restoreDashboardState?.();
+});
+
+test.beforeEach(async ({ page }) => {
+  await signOut(page);
+  await signInAs(page, ADMIN_FIXTURE);
+});
+
+test("bell panel renders every registry link verbatim; negative rows render none", async ({
+  page,
+}) => {
+  await page.goto("/admin");
+  await page.getByTestId("admin-notif-bell").click();
+  await expect(page.getByTestId(/^bell-action-cell-/).first()).toBeVisible();
+
+  // Bell-visible action rows: the panel renders actions on non-health entries
+  // only (BellPanel), and the feed EXCLUDES inbox-routed codes entirely — the
+  // Needs-attention inbox owns those, and its links are generic deep-links, not
+  // registry links (their registry links are asserted on the banner instead).
+  const bellRows = positives.filter(
+    (row) => !isHealth(row.code) && !INBOX_ROUTED_CODES.includes(row.code) && expectedLink(row),
+  );
+  // Non-vacuity: if a surface-routing change drains the bell of action-bearing
+  // codes, this spec must complain rather than quietly assert nothing.
+  expect(bellRows.length).toBeGreaterThanOrEqual(5);
+
+  // Collect EVERY mismatch before asserting (a first-fail loop reports one
+  // finding per run — the drip pattern this repo's review discipline bans).
+  const missing: string[] = [];
+  for (const row of bellRows) {
+    const anchor = page.getByTestId(`bell-action-${row.id}-0`);
+    if ((await anchor.count()) === 0) {
+      missing.push(`${row.code} (row ${row.id}): no bell action anchor`);
+      continue;
+    }
+    await assertAnchor(page, `bell-action-${row.id}-0`, expectedLink(row)!);
+  }
+  expect(missing, missing.join("\n")).toEqual([]);
+
+  for (const row of negatives) {
+    // The row may render (global rows are bell-eligible); its ACTION must not.
+    await expect(
+      page.getByTestId(`bell-action-${row.id}-0`),
+      `${row.code} (${NEGATIVE_ROWS.find((n) => n.code === row.code)?.why}) must render NO action`,
+    ).toHaveCount(0);
+  }
+});
+
+test("every internal bell link's fragment resolves to a real element (dead-fragment guard)", async ({
+  page,
+}) => {
+  // The generalized #resync bug: a dead fragment is silent. Collect the
+  // DISTINCT internal hrefs the registry produced for this seed and visit each,
+  // asserting the declared fragment's element exists on the landed page.
+  const internal = new Map<string, string>(); // href -> owning code (first wins)
+  for (const row of positives) {
+    const link = expectedLink(row);
+    if (link && !link.external && !internal.has(link.href)) internal.set(link.href, row.code);
+  }
+  expect(internal.size).toBeGreaterThanOrEqual(2); // at least share-access + overview families
+
+  for (const [href, code] of internal) {
+    await page.goto(href);
+    const fragment = href.includes("#") ? href.slice(href.indexOf("#") + 1) : null;
+    if (fragment) {
+      await expect
+        .poll(() => page.evaluate((id) => document.getElementById(id) !== null, fragment), {
+          message: `declared fragment #${fragment} (from ${code}, href ${href}) must resolve to a real element`,
+          timeout: 15_000,
+        })
+        .toBe(true);
+    } else {
+      // Fragmentless internal link (WIZARD_SESSION_SUPERSEDED_RACE → /admin/onboarding).
+      // With no wizard session pending, that route legitimately bounces to /admin —
+      // the contract is that the destination EXISTS and lands on an admin surface,
+      // not that the URL survives the app's own state-based redirects.
+      await expect(page, `${code} internal link ${href} must land on an admin surface`).toHaveURL(
+        /\/admin(\/|\?|$)/,
+      );
+      await expect(page.getByTestId("admin-layout")).toBeVisible();
+    }
+  }
+});
+
+test("attention banner renders the footer action / external destination chip per its own gate", async ({
+  page,
+}) => {
+  await page.goto(`/admin?show=${encodeURIComponent(show.slug)}`);
+  // The banner renders inside the show review surface; wait for it to settle.
+  await page.waitForLoadState("networkidle");
+
+  let footer = 0;
+  let chips = 0;
+  for (const row of positives) {
+    const link = expectedLink(row);
+    if (!link) continue;
+    const action = page.getByTestId(`attention-banner-action-${row.id}`);
+    const chip = page.getByTestId(`attention-banner-destination-${row.id}`);
+    if ((await action.count()) > 0) {
+      await assertAnchor(page, `attention-banner-action-${row.id}`, link);
+      footer++;
+    } else if ((await chip.count()) > 0) {
+      // §2.3: the destination chip is EXTERNAL-ONLY by design.
+      expect(link.external, `${row.code} destination chip implies external`).toBe(true);
+      await expect(chip).toHaveAttribute("href", link.href);
+      await expect(chip).toHaveAttribute("target", "_blank");
+      await expect(chip).toHaveAttribute("rel", "noopener noreferrer");
+      chips++;
+    }
+  }
+  // Non-vacuity: the seeded show must surface real anchors in the banner. The
+  // exact split between footer and chip tracks each item's actionable /
+  // clearingKind derivation, which is unit-tested; here we require the live
+  // render produced a healthy number of them and every one matched verbatim.
+  expect(footer + chips).toBeGreaterThanOrEqual(5);
+});
+
+test("health panel renders health-audience registry links verbatim at /admin/dev/telemetry", async ({
+  page,
+}) => {
+  const healthRows = positives.filter((r) => isHealth(r.code) && expectedLink(r));
+  test.skip(healthRows.length === 0, "no health-audience codes in the action registry");
+
+  await page.goto("/admin/dev/telemetry");
+  for (const row of healthRows) {
+    await assertAnchor(page, `health-alert-action-${row.id}`, expectedLink(row)!);
+  }
+});
