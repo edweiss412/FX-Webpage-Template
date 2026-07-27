@@ -213,6 +213,9 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // R6 HIGH: same month-day, different YEAR. One pair, and four-digit years evade the
       // day-number check because no word boundary exists inside them.
       ["May 5, 2026 / May 5, 2027", "the same month-day in two years"],
+      // R7 HIGH: the ordinal-position strip was GLOBAL, so any number of "Day N" phrases
+      // passed. One names a single day; two do not.
+      ["Tuesday, May 5, 2026 — Day 1 / Day 2", "two ordinal-position phrases"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];
@@ -312,6 +315,16 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["Tuesday, May 5, 2026 (Augusta Room)", "2026-05-05"],
       ["Tuesday, May 5, 2026 — Decision Makers Panel", "2026-05-05"],
       ["Tuesday, May 5, 2026 at 9:00 AM", "2026-05-05"], // a clock time is not a day number
+      // R7 MEDIUM: ordinary numeric furniture in a heading. Every one of these names a single
+      // day, and an earlier "any leftover number" rule rejected them all -- which would have
+      // disabled folding across real shows while every counterexample test stayed green.
+      ["2025 Awards — Tuesday, May 5, 2026", "2026-05-05"], // a free-floating year is metadata
+      ["Tuesday, May 5, 2026 — Track 2", "2026-05-05"],
+      ["Tuesday, May 5, 2026 (Room 54)", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — 8th Floor", "2026-05-05"], // an ordinal without "the"
+      ["Tuesday, May 5, 2026 Session 3", "2026-05-05"],
+      ["Day #1 — Tuesday, May 5, 2026", "2026-05-05"],
+      ["Tuesday, May 5, 2026 at 9 AM", "2026-05-05"], // colonless time
     ];
     for (const [label, iso] of corpus) {
       const r = visibleAgendaDaysForViewer(

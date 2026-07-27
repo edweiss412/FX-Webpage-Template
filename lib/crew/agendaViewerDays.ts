@@ -29,25 +29,6 @@ const ALL: ViewerAgendaDays = { kind: "all" };
 const WEEKDAYS = /\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\b/gi;
 
 /**
- * A SECOND month reference in the leftover text.
- *
- * EXACT month names, never prefixes. An earlier version allowed any suffix
- * (`/(jan|feb|mar|...)[a-z]*\.?/`) and so matched Marriott, Marketing, Junior, Novel, Decision,
- * Augusta and Octagon — review R6 (MEDIUM) caught it. A venue or track name in a day heading
- * would have disabled folding for that whole extraction, silently and in production.
- */
-const MONTH_NAME = new RegExp(
-  `\\b(${Object.keys(MONTHS)
-    .sort((a, b) => b.length - a.length)
-    .join("|")})\\.?\\b`,
-  "i",
-);
-/** Clock times: their minutes would otherwise read as a day number. */
-const TIME_OF_DAY = /\b\d{1,2}:\d{2}\s*(am|pm)?/gi;
-/** Any 1-2 digit number, with or without an ordinal suffix. Years are removed before this runs. */
-const DAY_NUMBER = /\b\d{1,2}(st|nd|rd|th)?\b/i;
-
-/**
  * Can this label be attributed to exactly ONE day?
  *
  * HOW IT WORKS: find the single month-day pair, blank out every occurrence of it, drop years and
@@ -82,6 +63,8 @@ const DAY_NUMBER = /\b\d{1,2}(st|nd|rd|th)?\b/i;
 function isAmbiguousLabel(dayLabel: string): boolean {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
 
+  // SIGNAL 1 -- more than one distinct month-day. The year is intentionally not part of the key,
+  // so "May 5, 2026 / May 6" counts as two (review R5).
   const pairs = new Set<string>();
   const spans: [number, number][] = [];
   for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\b/g)) {
@@ -93,14 +76,17 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   if (pairs.size === 0) return false; // unparseable -- the caller's null guard owns this
   if (pairs.size > 1) return true;
 
-  // Same month-day in two different YEARS is two calendar days, and the pair key deliberately
-  // drops the year (so "May 5, 2026 / May 6" counts as two). Review R6 (HIGH) found the hole
-  // that leaves: "May 5, 2026 / May 5, 2027" is one pair, and both years evade the day-number
-  // check because no word boundary exists inside a four-digit token.
-  const years = new Set(collapsed.match(/\b\d{4}\b/g) ?? []);
-  if (years.size > 1) return true;
+  // SIGNAL 2 -- the same month-day in two YEARS (review R6). Only years sitting immediately
+  // AFTER the date are counted: a free-floating year is metadata, not a second day, and counting
+  // every four-digit token rejected "2025 Awards -- Tuesday, May 5, 2026" (review R7).
+  const attachedYears = new Set(
+    [...collapsed.matchAll(/\b[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g)].map(
+      (m) => m[1]!,
+    ),
+  );
+  if (attachedYears.size > 1) return true;
 
-  // Blank out every occurrence of the single date, then the year, then ONE weekday name.
+  // Blank out every occurrence of the single date so the remaining checks see only the rest.
   let rest = "";
   let cursor = 0;
   for (const [a, b] of spans) {
@@ -108,20 +94,27 @@ function isAmbiguousLabel(dayLabel: string): boolean {
     cursor = b;
   }
   rest += collapsed.slice(cursor);
-  rest = rest.replace(/\b\d{4}\b/g, " ").replace(TIME_OF_DAY, " ");
 
-  // "Day 1 - Tuesday, May 5, 2026" is one day, and its "1" is an ordinal POSITION in the show,
-  // not a second date. Found by sweeping realistic single-day spellings for over-fire: the
-  // whitelist rejected it, which would have silently unfolded a very common agenda heading.
-  // Singular deliberately, as the conservative choice. Not load-bearing on its own: "Days 1-2"
-  // stays ambiguous via its residual "-2" even if this were widened to allow the plural.
-  rest = rest.replace(/\bday\s+\d{1,2}\b/gi, " ");
+  // SIGNAL 3 -- two weekday names ("... / Wednesday", review R4).
+  const weekdays = new Set((rest.match(WEEKDAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)));
+  if (weekdays.size > 1) return true;
 
-  const weekdays = rest.match(WEEKDAYS) ?? [];
-  if (new Set(weekdays.map((w) => w.toLowerCase().slice(0, 3))).size > 1) return true;
-  rest = rest.replace(WEEKDAYS, " ");
+  // SIGNAL 4 -- two ordinal-position phrases. One ("Day 1 - Tuesday, May 5, 2026") is an
+  // extremely common heading and names a single day; two ("... Day 1 / Day 2") do not. The
+  // earlier version stripped them GLOBALLY, so any number of them passed (review R7).
+  if ((rest.match(/\bday\s*#?\s*\d{1,2}\b/gi) ?? []).length > 1) return true;
 
-  return MONTH_NAME.test(rest) || DAY_NUMBER.test(rest);
+  // SIGNAL 5 -- a PLURAL day span ("Days 1-2, May 5, 2026"). Its own signal now, and the reason
+  // is worth keeping: the previous rule caught this only by accident, because a generic
+  // "any leftover number" check tripped on the residual "-2". Removing that check to stop it
+  // rejecting "Room 54" and "Track 2" (review R7) silently un-caught this, and the existing test
+  // is what surfaced it. Singular "Day 1" stays a single day; plural does not.
+  if (/\bdays\s*#?\s*\d/i.test(rest)) return true;
+
+  // SIGNAL 6 -- a spoken ordinal date ("Wednesday the 6th", review R4). Requires the article,
+  // which is what distinguishes it from ordinary numeric furniture: "8th Floor", "Track 2",
+  // "Room 54", "Session 3" and clock times all name one day and must keep folding.
+  return /\bthe\s+\d{1,2}(st|nd|rd|th)\b/i.test(rest);
 }
 
 export function visibleAgendaDaysForViewer(
