@@ -161,6 +161,34 @@ sweep):
 mismatch case fails with the discriminable two-identifier message above; the per-query guard is
 what makes the guarantee non-detachable from the work.
 
+**Reachability probes are exempt from the guard, deliberately** (R2 finding 3). `canConnect`
+(`tests/db/validation-schema-parity.test.ts:108-120`) and pg-cron's module-scope reachability
+probe feed no assertion with data; their job is routing between skip/throw. On a wrong-cluster
+target they return true and the FIRST GUARDED query then aborts with the identity message — a
+correct red with the right diagnosis. The exemption is stated at both probe sites in a comment.
+One probe needs more than a comment: pg-cron's `livePsqlReachable`
+(`tests/cross-cutting/pg-cron-coverage.test.ts:115-124`) currently catches everything into `false`,
+which would relabel an identity abort as generic "psql unreachable" in the CI `beforeAll`. It
+becomes tri-state — `reachable` / `identity_mismatch` / `unreachable` — by running one guarded
+`select 1` when the target is validation and classifying a caught guard exception (matched on
+the guard's exception text) as `identity_mismatch`; the gate test reports the identity message
+for that state. So the binding contract, stated precisely: **every statement whose result any
+assertion consumes travels through the guard on its own connection; reachability probes either
+carry the guard with tri-state classification (pg-cron) or are guard-exempt with the
+first-guarded-query backstop (parity `canConnect`).** AC-1 uses this contract.
+
+**No thrown error may carry the DSN** (R2 finding 1 — `execFileSync` errors embed every argv
+verbatim, including a credential-bearing `TEST_DATABASE_URL`; reviewer probe-confirmed on Node
+20). The identity module exports the single psql runner both suites use for validation-targeting
+calls: it invokes psql, and on ANY failure rethrows with the DSN replaced by
+`<TEST_DATABASE_URL redacted>` in message, argv echo, and stderr passthrough. The identity
+assert's "underlying psql error" clause means the REDACTED error. All touched call sites
+(identity assert, layer-2 introspection, CHECK parity, all pg-cron live queries, the tri-state
+probe) route through it — which also retires the PRE-EXISTING leak on those paths: today a
+failed `introspectManifest` or CHECK-parity exec already prints the DSN via the raw
+`execFileSync` error. A unit test forces a failure through the runner with a
+sentinel-password DSN and asserts the sentinel appears nowhere in the thrown error.
+
 Negative controls that run on every developer box: asserting identity against the LOCAL stack
 must throw with the mismatch message (local identifier ≠ pinned), and a
 `withValidationIdentityGuard`-wrapped `select 1` against the LOCAL stack must abort with the
@@ -255,6 +283,15 @@ Comparison is on tuples only; nullability is out of scope for the cross-check be
 matching accepts both canonical forms for either nullability (`lib/driveIdCoverage/audit.ts:117-120`)
 — a nullability lie changes no audit outcome.
 
+**One injective tuple key for every set mechanism** (R2 finding 2). Postgres identifiers may
+contain dots when quoted, so `schema.table.column` string-joins are not injective — the audit
+already keys by JSON-encoded tuples for exactly this reason
+(`lib/driveIdCoverage/audit.ts:88-97`). The census-runner module exports `censusTupleKey` =
+`JSON.stringify([schema, table, column])`, and ALL FOUR new set mechanisms use it: the §3.2
+manifest membership and `EXPECTED_DEV_CENSUS` equality, this section's dual-source equality, and
+§3.4's completeness/stale/duplicate/overlap checks. Collision negative control in the DB-free
+unit suite: `public.a."b.drive_file_id"` and `public."a.b".drive_file_id` produce distinct keys.
+
 **Honest residue** (stated in §8): a deliberate, *identical* narrowing of both literal sites in
 one diff still wins. That is irreducible by construction — any in-repo mechanism can be edited in
 the same diff that defeats it. What this buys over the ratified status quo: an accidental or
@@ -337,6 +374,8 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 | identity probe cannot connect | infra fault | throw as infra failure, never "identity mismatch" |
 | `system_identifier` mismatch | wrong DB / re-provisioned | throw with both values + remediation |
 | guarded query lands on a non-validation connection | multi-host / failover DSN | in-script `DO` guard aborts under `ON_ERROR_STOP` (§3.1) |
+| psql invocation fails, DSN in argv | any failure incl. forced identity aborts | shared runner rethrows with DSN redacted (§3.1, R2-1) |
+| pg-cron reachability probe hits wrong cluster | identity abort in probe | tri-state `identity_mismatch`, reported as identity failure, never "unreachable" (§3.1, R2-3) |
 | local DB down, `CI` set (incl. empty string) | CI infra fault | throw (`unreachableDbFailure`, presence-not-truthiness) — now also in the probes suite |
 | local DB down, `CI` unset | dev box, no stack | skip |
 | census returns 0 rows / one schema | narrowed or wrong DB | schema floor red locally (`tests/db/driveIdCoverage.db.test.ts:260-266`); manifest + dev anchors red on validation (§3.2) |
@@ -352,7 +391,9 @@ Single named definitions later sections reference; no other section restates the
 
 - `VALIDATION_SYSTEM_IDENTIFIER = "7642734024280108049"` — only in §0's identity module (the
   `withValidationIdentityGuard` SQL interpolates it; no second literal).
-- `EXPECTED_DEV_CENSUS` (six tuples, §3.2) — only in §0's census-runner module.
+- `EXPECTED_DEV_CENSUS` (six tuples, §3.2) and `censusTupleKey` (§3.3, R2-2) — only in §0's
+  census-runner module.
+- The redacting psql runner (§3.1, R2-1) — only in §0's identity module; both suites import it.
 - Census scope (`public`+`dev`, BASE TABLE semantics, `drive_file_id` POSIX regex) — defined by
   the two queries in `lib/driveIdCoverage/introspect.ts`; every count in this spec (23 columns,
   7 probed, 16 missing, 17 public / 6 dev) is a 2026-07-26 measurement of that scope, cited from
@@ -373,9 +414,11 @@ Single named definitions later sections reference; no other section restates the
 
 - **AC-1** `assertValidationIdentity` throws on the local stack (mismatch path, runs on every dev
   box + CI), passes against validation in both x-audits jobs; infra vs mismatch failures are
-  distinguishable; EVERY validation-targeting statement in both suites travels through
-  `withValidationIdentityGuard` (or runs the guard block on its own connection), and a guarded
-  `select 1` against the local stack aborts (negative control).
+  distinguishable; the §3.1 binding contract holds — every assertion-feeding statement guarded on
+  its own connection, pg-cron's reachability probe tri-state, parity `canConnect` exempt with the
+  first-guarded-query backstop; a guarded `select 1` against the local stack aborts (negative
+  control); and no error thrown by the shared psql runner contains the DSN (sentinel-password
+  unit test).
 - **AC-2** The validation audit layer runs `auditDriveIdCoverage` over a pinned-tx census of the
   validation DB and reports `[]`; manifest-derived public membership + the `EXPECTED_DEV_CENSUS`
   set-equality both assert; layer skips when `TEST_DATABASE_URL` unset.
@@ -387,6 +430,8 @@ Single named definitions later sections reference; no other section restates the
   census, fails on an unregistered census tuple, a registered non-census tuple, AND a
   probes∩exemptions overlap; `PROBE_EXEMPTIONS` ships empty; the probes suite throws (not skips)
   on unreachable DB in CI.
+- **AC-7** All four set mechanisms key by `censusTupleKey` (JSON-encoded tuples); the collision
+  negative control (quoted-identifier pair → distinct keys) passes in the DB-free unit suite.
 - **AC-5** The four BACKLOG entries graduate to `BACKLOG-archive.md` in this PR (no in-place
   terminal statuses — `tests/docs/_metaDeferralLedgerGraduation.test.ts` enforces); parent spec
   §10/§11 and the `BL-PG-CRON-COVERAGE-UNRUN` inheritance note get pointers here (§9).
