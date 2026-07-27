@@ -169,3 +169,24 @@ describe("skeleton owns the closed→open entrance (§6.5)", () => {
     expect(document.querySelector("[data-review-modal-entrance]")).toBeNull();
   });
 });
+
+describe("title-row shape mirrors the SheetIconLink idiom (sheet-icon-link spec §5.1)", () => {
+  // The loaded row is min-h-tap-min + gap-2.5 with a 20px anchor whose 44px
+  // target is an invisible overlay. The skeleton must promise the SAME
+  // geometry: the floor drives the row height (not a 44px child), and the
+  // sheet-link slot is the anchor's 20px visual box with its mr-0.5 clearance.
+  // Token membership, never substring.
+  it("floored row, 20px slot — never the old 44px child-driven shape", () => {
+    render(<ShowReviewModalSkeleton />);
+    const row = screen.getByTestId(`${TB}-loading-title-row`);
+    const rowTokens = new Set(row.className.split(/\s+/).filter(Boolean));
+    expect(rowTokens.has("min-h-tap-min")).toBe(true);
+    expect(rowTokens.has("gap-2.5")).toBe(true);
+    expect(rowTokens.has("gap-1")).toBe(false);
+    const slot = screen.getByTestId(`${TB}-loading-sheetlink-slot`);
+    const slotTokens = new Set(slot.className.split(/\s+/).filter(Boolean));
+    expect(slotTokens.has("size-5")).toBe(true);
+    expect(slotTokens.has("mr-0.5")).toBe(true);
+    expect(slotTokens.has("size-tap-min")).toBe(false);
+  });
+});

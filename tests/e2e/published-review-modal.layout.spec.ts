@@ -129,6 +129,7 @@ test.beforeAll(async () => {
     archived: string;
     crewWarnings: string;
     crewWarningsCapped: string;
+    saturatedTitle: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
 
@@ -138,6 +139,8 @@ test.beforeAll(async () => {
   // §4.2 orange-budget pages (T-NO-ORANGE) — the other two rows of the table.
   writeFileSync(join(workDir, "notlive.html"), pageHtml("out.css", pages.notLive));
   writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
+  // sheet-icon-link spec §7.7: saturated header title (action-side worst case).
+  writeFileSync(join(workDir, "saturatedtitle.html"), pageHtml("out.css", pages.saturatedTitle));
   // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
   writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
   // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
@@ -581,9 +584,10 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     // actually hits: elementFromPoint at the vertical extremes of the intended
     // band must resolve to the anchor or a node it contains.
     //
-    // The sheet-link clause rides along and is DECLARED NOT RED (plan §11 map):
-    // the anchor is already `size-tap-min` and is ratified unchanged
-    // (Watchpoint 1). It guards the header restructure against dropping it.
+    // The sheet-link clause rides along, now in the SheetIconLink overlay form
+    // (sheet-icon-link spec §7.1): anti-inflation (visible 20px box, both axes)
+    // plus the resolved-inset target and the row floor. The anti-inflation half
+    // was the RED edge of the box→overlay migration.
     test(`T-TAP @ ${width}: the alert pill's hit band spans 44px (::before probe, not its rect)`, async ({
       page,
     }) => {
@@ -617,12 +621,112 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       expect(probe.top, `21px ABOVE the pill's center hits the pill @ ${mode}`).toBe(true);
       expect(probe.bottom, `21px BELOW the pill's center hits the pill @ ${mode}`).toBe(true);
 
-      // Rider (declared NOT red): the sheet deep-link's own box is ≥44px.
+      // Rider, SheetIconLink form (sheet-icon-link spec §7.1). Two halves:
+      // (a) ANTI-INFLATION, the red edge of the box→overlay migration: the
+      //     anchor's own rect stays 20px on BOTH axes — a rect ≥44 means the
+      //     boxed idiom crept back;
+      // (b) the 44px target lives in the ::before overlay, read from the four
+      //     resolved insets (asymmetric: 10px title-side, 14px trailing), and
+      //     the row's min-h-tap-min floor contains it vertically.
       const sheet = await page
         .locator(`${MODAL} [data-testid="${BASE}-sheetlink"]`)
-        .evaluate((el) => el.getBoundingClientRect());
-      expect(sheet.height, `sheet link height @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
-      expect(sheet.width, `sheet link width @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+        .evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el, "::before");
+          const row = el.parentElement!.getBoundingClientRect();
+          return {
+            w: r.width,
+            h: r.height,
+            targetW:
+              r.width -
+              parseFloat(cs.insetInlineStart || "0") -
+              parseFloat(cs.insetInlineEnd || "0"),
+            targetH:
+              r.height -
+              parseFloat(cs.insetBlockStart || "0") -
+              parseFloat(cs.insetBlockEnd || "0"),
+            rowH: row.height,
+          };
+        });
+      expect(sheet.w, `visible sheet link stays 20px wide @ ${mode}`).toBeLessThan(TAP_MIN);
+      expect(sheet.h, `visible sheet link stays 20px tall @ ${mode}`).toBeLessThan(TAP_MIN);
+      expect(sheet.targetW, `overlay target width @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+      expect(sheet.targetH, `overlay target height @ ${mode}`).toBeGreaterThanOrEqual(
+        TAP_MIN - TOL,
+      );
+      expect(sheet.rowH, `title row holds the 44px floor @ ${mode}`).toBeGreaterThanOrEqual(
+        TAP_MIN - TOL,
+      );
+    });
+  }
+
+  // Bleed invariant by RECT INTERSECTION (sheet-icon-link spec §5/§7.7): the
+  // overlay rect — anchor rect expanded by the four resolved ::before insets —
+  // must not cover any pixel of any neighbouring content box. Pure geometry:
+  // hand-picked probe coordinates cannot be guaranteed to land inside a
+  // neighbour (sublines start after margins; items-start offsets the cluster).
+  // The SATURATED title page is what makes the action-side cases real — with
+  // the short fixture title the link sits in free flex space and the cluster
+  // cases would be vacuously green. Neighbour rects are asserted non-degenerate
+  // for the same reason.
+  for (const { width, height } of [
+    { width: 375, height: 812 },
+    { width: 1280, height: 900 },
+  ] as const) {
+    test(`sheet-link overlay intersects NO neighbouring box @ ${width} (saturated title)`, async ({
+      page,
+    }) => {
+      await openHarness(page, { width, height }, "saturatedtitle.html");
+      const m = await page.evaluate((base) => {
+        const link = document.querySelector(`[data-testid="${base}-sheetlink"]`);
+        if (!(link instanceof HTMLElement)) return { error: "sheetlink not found" };
+        const r = link.getBoundingClientRect();
+        const cs = getComputedStyle(link, "::before");
+        const overlay = {
+          left: r.left + parseFloat(cs.insetInlineStart || "0"),
+          top: r.top + parseFloat(cs.insetBlockStart || "0"),
+          right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+          bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
+        };
+        const named = (name: string, el: Element | null | undefined) => {
+          if (!(el instanceof HTMLElement)) return null;
+          const b = el.getBoundingClientRect();
+          return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+        };
+        const header = link.closest("header");
+        const title = named("title", document.querySelector(`[data-testid="${base}-title"]`));
+        const subline = named(
+          "subline",
+          document.querySelector(`[data-testid="${base}-subline"]`),
+        );
+        // The actions cluster is the header's last direct child (shrink-0 group
+        // beside the flex-1 text block); its FIRST element child is the nearest
+        // box the 14px trailing reach could touch, and the close button is the
+        // nearest interactive one.
+        const cluster = header ? header.children[header.children.length - 1] : null;
+        const clusterFirst = named("cluster-first", cluster?.firstElementChild);
+        const close = named("close", document.querySelector(`[data-testid="${base}-close"]`));
+        const neighbours = [title, subline, clusterFirst, close].filter(
+          (n): n is NonNullable<typeof n> => n !== null,
+        );
+        return { error: null, overlay, neighbours };
+      }, BASE);
+      expect(m.error, "fixture shape").toBeNull();
+      if (m.error !== null) return;
+      expect(
+        m.neighbours!.map((n) => n.name),
+        "title, subline, cluster and close all measured",
+      ).toEqual(expect.arrayContaining(["title", "subline", "cluster-first", "close"]));
+      for (const n of m.neighbours!) {
+        expect(n.right - n.left, `${n.name} rect non-degenerate (width)`).toBeGreaterThan(0);
+        expect(n.bottom - n.top, `${n.name} rect non-degenerate (height)`).toBeGreaterThan(0);
+        const w = Math.min(m.overlay!.right, n.right) - Math.max(m.overlay!.left, n.left);
+        const h = Math.min(m.overlay!.bottom, n.bottom) - Math.max(m.overlay!.top, n.top);
+        expect(
+          Math.max(0, w) * Math.max(0, h),
+          `overlay does not cover the ${n.name} @ ${width}`,
+        ).toBe(0);
+      }
     });
   }
 
