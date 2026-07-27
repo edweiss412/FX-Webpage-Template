@@ -446,6 +446,17 @@ mitigation that actually holds is procedural and already in place: the job is
 unfiltered and runs the whole config on every PR, so a config that narrowed
 under Actions would show a reduced test count in the run log.
 
+> **Superseded (2026-07-27, ci-dark descoped close-out PR-A).** This ceiling
+> no longer holds: the descoped close-out spec
+> (`2026-07-26-ci-dark-descoped-closeout-design.md` §4) shipped the
+> verify-in-the-environment guard — the standalone config emits a JSON run
+> report, and `scripts/check-standalone-baseline.mjs` compares the CI run's
+> own per-file executed-test counts against the committed
+> `tests/e2e/standalone-baseline.json` as a post-run workflow step. A config
+> that narrows only under Actions now reds the `standalone-e2e` job on its
+> own report. The paragraph above stays as the record of why local probing
+> could not get here.
+
 ---
 
 ## §11 Risks

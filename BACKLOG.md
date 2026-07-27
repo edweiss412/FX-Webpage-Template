@@ -246,9 +246,23 @@ alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or
 `step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
 modules at module scope.
 
-### BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered
+### BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered — ✅ RESOLVED (2026-07-27, ci-dark descoped close-out PR-A)
 
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
+**Status:** ✅ RESOLVED · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+**Resolution.** The detector never inspects a spec at all — the two failed definitions below
+modelled harness shape, and the shipped guard replaces the model with observation. The universe is
+Playwright's own default file matcher (installed 1.59.1, common/config.js line 164) applied to a
+`readdirSync` walk of `tests/e2e/`, minus the exact suffix pair the Vitest include globs claim;
+membership is the union of `--list --reporter=json` output across all three Playwright configs
+(`playwright.config.ts`, `tests/e2e/standalone.config.ts`, `playwright.screenshots.config.ts`). A
+test-shaped file resolved by no config and absent from `DARK_SPEC_ALLOWLIST` (each row carries a
+backlog ref) fails one aggregate assertion naming every offender and all three configs. A
+config-set tripwire (invocation census over `package.json` scripts + workflow `run:` blocks, plus a
+filename belt) pins the trio, and a drift tie pins the Vitest-claim subtraction verbatim. Shipped
+at `tests/ci/_metaSpecRegistration.test.ts` ("spec registration detector (spec §3.1)"); mutation-
+verified with three filename shapes (spec-ts, spec-cts, and test-mjs variants). The live instance it caught,
+`tests/e2e/report-modal.spec.ts`, was dispositioned per spec §3.2.
 
 `standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
 adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
@@ -286,9 +300,22 @@ job-level `if:` and a trailing `| tee` — each an explicit rejection condition 
 `tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
 dark-exclusion incident.
 
-### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets
+### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets — ✅ RESOLVED (2026-07-27, ci-dark descoped close-out PR-A)
 
-**Status:** OPEN · **Severity:** LOW (guard completeness, not a live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR2 of the CI-dark cluster, adversarial R4)
+**Status:** ✅ RESOLVED · **Severity:** LOW (guard completeness, not a live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR2 of the CI-dark cluster, adversarial R4)
+
+**Resolution.** Exactly the "if picked up" fix below: verify in the environment rather than predict
+it locally. `tests/e2e/standalone.config.ts` now emits a JSON run report under the gitignored
+test-results directory; `scripts/check-standalone-baseline.mjs` compares the run's
+own reported per-file executed-test counts against the committed
+`tests/e2e/standalone-baseline.json`, and `.github/workflows/standalone-e2e.yml` runs the
+comparator as a post-run step — so a config that narrows only under Actions reds the job on its own
+report, with no env-var enumeration anywhere. Comparator behaviorally pinned at
+`tests/scripts/checkStandaloneBaseline.test.ts`; reporter/baseline/workflow-step structure pinned
+at `tests/ci/_metaSpecRegistration.test.ts`; the workflow mutation `repeatEach:
+process.env.GITHUB_ACTIONS === "true" ? 2 : 1` (file-preserving, locally invisible) verified red in
+a real Actions run — URL in the PR body. The parent spec's §10b ceiling paragraph carries the
+supersession note.
 
 **Do not re-derive this analysis.** Four adversarial rounds converged here; the measurements are below.
 
