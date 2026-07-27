@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   ATTEMPT_OUTCOMES,
@@ -39,8 +40,24 @@ describe("backoff constants (spec §2.1)", () => {
     expect([...WATCH_ERROR_CLASSES].sort()).toEqual(["config", "db", "drive_api"]);
     expect([...ATTEMPT_OUTCOMES].sort()).toEqual(["failed", "succeeded"]);
   });
-  // Class-9 retired-identifier scan lands with the escalation task (plan Task 6),
-  // once the constant it scans for is actually deleted.
+  it("the retired count-threshold identifier appears nowhere (spec §2.1, class 9)", () => {
+    const retired = "ESCALATION_" + "THRESHOLD"; // concatenated so this file cannot match
+    // execFileSync with an argument array (no shell) — static args by construction.
+    // grep exits 1 on zero matches, which is the PASSING state here.
+    let out = "";
+    try {
+      out = execFileSync(
+        "grep",
+        ["-rl", retired, "lib/", "app/", "tests/", "--exclude=watchBackoffConstants.test.ts"],
+        { encoding: "utf8" },
+      ).toString();
+    } catch (err) {
+      const e = err as { status?: number; stdout?: unknown };
+      if (e.status !== 1) throw err;
+      out = String(e.stdout ?? "");
+    }
+    expect(out.trim()).toBe("");
+  });
 });
 
 describe("I1 phase sweep (spec §2.1a) - simulated tick series, not the formula", () => {

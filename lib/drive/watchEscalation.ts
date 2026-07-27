@@ -5,7 +5,7 @@
 // SENDS (Sentry → email). Faults abort before anything is consumed.
 import * as Sentry from "@sentry/nextjs";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
+import { ESCALATION_AFTER_MS } from "@/lib/drive/watchErrors";
 import { persistAppEventStrict } from "@/lib/log/persist";
 import { sendEmail as defaultSendEmail } from "@/lib/notify/send";
 import { baseKey } from "@/lib/notify/idempotencyKey";
@@ -19,6 +19,10 @@ export const ESCALATION_EVENT_SOURCE = "drive.watch.escalation";
 export type WatchAlertRow = {
   id: string;
   occurrence_count: number;
+  /** When this incident window opened. Preserved across dedup bumps — the RPC's
+   *  do-update touches last_seen_at/occurrence_count/context but never raised_at
+   *  (20260618000000_upsert_admin_alert_failedkeys_merge.sql:48-69). */
+  raised_at: string;
   context: Record<string, unknown> | null;
 };
 
@@ -29,7 +33,7 @@ export async function readUnresolvedWatchAlert(): Promise<WatchAlertRow | null |
     const supabase = createSupabaseServiceRoleClient();
     const { data, error } = await supabase
       .from("admin_alerts")
-      .select("id, occurrence_count, context")
+      .select("id, occurrence_count, raised_at, context")
       .eq("code", "WATCH_CHANNEL_ORPHANED")
       .is("show_id", null)
       .is("resolved_at", null)
@@ -77,6 +81,8 @@ function emailCopy(folderName: string | null, errorClass: string, errorMessage: 
 }
 
 export type EscalationDeps = {
+  /** Injectable clock for the duration trigger (backoff spec §3.5). */
+  now?: () => Date;
   readUnresolvedWatchAlert?: typeof readUnresolvedWatchAlert;
   hasEscalationFired?: typeof hasEscalationFired;
   persistAppEventStrict?: typeof persistAppEventStrict;
@@ -99,7 +105,12 @@ export async function maybeEscalateWatchOrphaned(
   if (alert === "infra_error") return { escalated: false, faults: ["alert_row_read"] };
   if (alert === null) return { escalated: false, faults: [] };
   const errorClass = String(alert.context?.error_class ?? "drive_api");
-  const due = alert.occurrence_count >= ESCALATION_THRESHOLD || errorClass === "config";
+  // Duration trigger (backoff spec §3.5): escalate once the incident window has
+  // persisted ESCALATION_AFTER_MS, or immediately on a config-class failure.
+  // occurrence_count stays in the guard context and Sentry payload as evidence;
+  // it is no longer the trigger. A future raised_at (clock skew) is not due.
+  const ageMs = (deps.now ?? (() => new Date()))().getTime() - Date.parse(alert.raised_at);
+  const due = ageMs >= ESCALATION_AFTER_MS || errorClass === "config";
   if (!due) return { escalated: false, faults: [] };
 
   // guard read — fired once per alert-row lifetime (60-day retention window)

@@ -92,8 +92,8 @@ export async function seedGlobalCodeAlert(code: string) {
 // banner's watch branch keys on `code === "WATCH_CHANNEL_ORPHANED" && show_id null`
 // so this row renders the Retry action slot + panel dismiss/status/error-detail.
 // `context.error_class` / `context.error_message` drive the escalated status line
-// (config → escalated) and the muted error-detail <code> line; `occurrence_count`
-// drives escalation (>= ESCALATION_THRESHOLD → "flagged for support"). admin_alerts.context
+// (config → escalated) and the muted error-detail <code> line; escalation keys on
+// the alert's raised_at age (the escalation window; "flagged for support"). admin_alerts.context
 // is NOT NULL, so an empty `{}` is always inserted even when no knobs are supplied.
 export async function seedWatchAlert(
   opts: { occurrenceCount?: number; errorClass?: string; errorMessage?: string } = {},

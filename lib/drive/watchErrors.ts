@@ -6,7 +6,6 @@ export const WATCH_ERROR_CLASSES = ["config", "drive_api", "db"] as const;
 export type WatchErrorClass = (typeof WATCH_ERROR_CLASSES)[number];
 
 // Spec §2 named constants — the single definition; tests and consumers import these.
-export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
 /**
