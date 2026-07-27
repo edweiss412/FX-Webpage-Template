@@ -154,10 +154,17 @@ test.beforeAll(async () => {
   // app_settings.watched_folder_id is NULL — settle it and restore after.
   restoreDashboardState = await settleDashboardAdminState();
 
+  // Deterministic pick, and NEVER an archived show: the seeded DB carries two
+  // archived rows, an unordered limit(1) sometimes selected one, and the show
+  // modal does not mount its sections for an archived show — the fragment
+  // guard then failed only on the runs that drew the bad row (observed as a
+  // 1-in-3 flake before the ORDER BY landed).
   const { data: shows, error: showsErr } = await admin
     .from("shows")
     .select("id, slug, drive_file_id")
     .not("slug", "is", null)
+    .eq("archived", false)
+    .order("slug")
     .limit(1);
   if (showsErr) throw new Error(`shows select failed: ${showsErr.message}`);
   if (!shows?.length) throw new Error("no seeded show available for alert-action-links");
@@ -282,7 +289,12 @@ test("bell panel renders every registry link verbatim; negative rows render none
   // bell suppresses actions for health rows unconditionally, so asserting
   // their absence HERE would pass regardless of resolver behavior (review R1).
   for (const row of negatives.filter((r) => !isHealth(r.code))) {
-    // The row may render (global rows are bell-eligible); its ACTION must not.
+    // The ROW must be present — an absence check against a row the surface
+    // never rendered proves nothing (review R2). Then its ACTION must not be.
+    await expect(
+      page.getByTestId(`bell-action-cell-${row.id}`),
+      `${row.code} negative row must itself render in the bell`,
+    ).toBeVisible();
     await expect(
       page.getByTestId(`bell-action-${row.id}-0`),
       `${row.code} (${NEGATIVE_ROWS.find((n) => n.code === row.code)?.why}) must render NO action`,
@@ -296,32 +308,55 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
   // The generalized #resync bug: a dead fragment is silent. Collect the
   // DISTINCT internal hrefs the registry produced for this seed and visit each,
   // asserting the declared fragment's element exists on the landed page.
-  const internal = new Map<string, string>(); // href -> owning code (first wins)
+  // Group by ROUTE and navigate each route ONCE, asserting every declared
+  // fragment on that single load. #share-access and #overview both live on
+  // /admin?show=<slug>; navigating the heavy show-modal route repeatedly in
+  // dev mode wedged intermittently (observed ~1-in-4 as a 30s timeout on the
+  // SECOND load of the same route), and one load per route is also the honest
+  // shape of the contract: the ids either exist on the landed page or not.
+  const routes = new Map<string, Array<{ fragment: string | null; code: string }>>();
+  let internalCount = 0;
+  const seenHrefs = new Set<string>();
   for (const row of positives) {
     const link = expectedLink(row);
-    if (link && !link.external && !internal.has(link.href)) internal.set(link.href, row.code);
+    if (!link || link.external || seenHrefs.has(link.href)) continue;
+    seenHrefs.add(link.href);
+    internalCount++;
+    const hashAt = link.href.indexOf("#");
+    const route = hashAt === -1 ? link.href : link.href.slice(0, hashAt);
+    const fragment = hashAt === -1 ? null : link.href.slice(hashAt + 1);
+    const list = routes.get(route) ?? [];
+    list.push({ fragment, code: row.code });
+    routes.set(route, list);
   }
-  expect(internal.size).toBeGreaterThanOrEqual(2); // at least share-access + overview families
+  expect(internalCount).toBeGreaterThanOrEqual(2); // at least share-access + overview families
 
-  for (const [href, code] of internal) {
-    await page.goto(href);
-    const fragment = href.includes("#") ? href.slice(href.indexOf("#") + 1) : null;
-    if (fragment) {
-      await expect
-        .poll(() => page.evaluate((id) => document.getElementById(id) !== null, fragment), {
-          message: `declared fragment #${fragment} (from ${code}, href ${href}) must resolve to a real element`,
-          timeout: 15_000,
-        })
-        .toBe(true);
-    } else {
-      // Fragmentless internal link (WIZARD_SESSION_SUPERSEDED_RACE → /admin/onboarding).
-      // With no wizard session pending, that route legitimately bounces to /admin —
-      // the contract is that the destination EXISTS and lands on an admin surface,
-      // not that the URL survives the app's own state-based redirects.
-      await expect(page, `${code} internal link ${href} must land on an admin surface`).toHaveURL(
-        /\/admin(\/|\?|$)/,
-      );
-      await expect(page.getByTestId("admin-layout")).toBeVisible();
+  for (const [route, targets] of routes) {
+    // waitUntil "commit" + tolerated abort: the show route performs a
+    // client-side history replace on load, which can abort the navigation's
+    // own load event (observed intermittently as net::ERR_ABORTED). The
+    // assertions below carry the real waits.
+    await page.goto(route, { waitUntil: "commit" }).catch(() => {});
+    await expect(page.getByTestId("admin-layout")).toBeVisible();
+    for (const { fragment, code } of targets) {
+      if (fragment) {
+        // toBeAttached, not toBeVisible: the target section may sit offscreen
+        // or inside a scroll container — existence of the id is the contract.
+        await expect(
+          page.locator(`[id="${fragment}"]`),
+          `declared fragment #${fragment} (from ${code}, route ${route}) must resolve to a real element`,
+        ).toBeAttached({ timeout: 30_000 });
+      } else {
+        // Fragmentless internal link (WIZARD_SESSION_SUPERSEDED_RACE →
+        // /admin/onboarding). With no wizard session pending, that route
+        // legitimately bounces to /admin — the contract is that the
+        // destination EXISTS and lands on an admin surface, not that the URL
+        // survives the app's own state-based redirects.
+        await expect(
+          page,
+          `${code} internal link ${route} must land on an admin surface`,
+        ).toHaveURL(/\/admin(\/|\?|$)/);
+      }
     }
   }
 });
@@ -380,6 +415,12 @@ test("health panel renders health-audience registry links verbatim at /admin/dev
   // Health-audience NEGATIVE rows belong to this surface (the bell suppresses
   // health actions unconditionally, so absence there is vacuous — review R1).
   for (const row of negatives.filter((r) => isHealth(r.code))) {
+    // Row presence first — absence of the action is meaningful only on a row
+    // the panel actually rendered (review R2).
+    await expect(
+      page.getByTestId(`health-alert-row-${row.id}`),
+      `${row.code} negative row must itself render in the health panel`,
+    ).toBeVisible();
     await expect(
       page.getByTestId(`health-alert-action-${row.id}`),
       `${row.code} (${NEGATIVE_ROWS.find((n) => n.code === row.code)?.why}) must render NO action`,
