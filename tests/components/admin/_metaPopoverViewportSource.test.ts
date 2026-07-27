@@ -141,10 +141,14 @@ const strippedSourceOf = (f: string): string => {
   }
   return v;
 };
-/** Fast path: stripping only REMOVES text, so a stripped-source match implies a raw
- *  match — test raw first and parse only the candidates. */
+/** Sound fast path (whole-diff R1 F2 replaced a raw-first predicate test, which was
+ *  unsound: `window/* gap *\/.innerWidth` matches stripped text but not raw). The
+ *  prefilter uses only CONTIGUOUS fragments — identifiers and module-specifier path
+ *  segments cannot be split by a comment, so any stripped-source predicate match
+ *  requires one of these to appear verbatim in raw. */
+const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|popover\//;
 const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
-  test(rawOf(f)) && test(strippedSourceOf(f));
+  MAY_MATCH.test(rawOf(f)) && test(strippedSourceOf(f));
 
 const consumers = sourceFiles.filter((f) => matchesStripped(f, (c) => importsModule(f, c, CANONICAL.place)));
 

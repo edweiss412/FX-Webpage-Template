@@ -120,6 +120,12 @@ describe("stripSqlComments", () => {
     expect(out).toContain("select 2;");
   });
 
+  it("terminates -- comments at CR too (CR-only input)", () => {
+    const out = stripSqlComments("select 1; -- c\rselect 2;");
+    expect(out).toContain("select 2;");
+    expect(out).not.toContain("-- c");
+  });
+
   it("handles nested block comments (Postgres nests them)", () => {
     const out = stripSqlComments("/* a /* b */ c */ select 3;");
     expect(out).toContain("select 3;");
@@ -158,6 +164,13 @@ describe("stripSqlComments", () => {
 });
 
 describe("stripCssComments", () => {
+  it("escapes in code state neither open strings nor comments", () => {
+    const out = stripCssComments('.a\\"x { } /* real */ .b\\/c { } /* real2 */');
+    expect(out).not.toContain("real");
+    expect(out).toContain('.a\\"x { }');
+    expect(out).toContain(".b\\/c { }");
+  });
+
   it("strips block comments, protects quoted strings", () => {
     const out = stripCssComments('a::before { content: "/*"; } /* gone */ b { color: red; }');
     expect(out).toContain('content: "/*";');

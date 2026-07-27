@@ -69,6 +69,20 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
 ];
 
 
+/** Necessary-condition prefilter built ONLY from contiguous match fragments:
+ *  f1 regex bodies, f2's `/--`|`/\/\/` regex heads plus `.replace(`, f3/f4a quoted
+ *  markers, f4b skip-regex bodies, f5 identifier names. */
+export function mayContainIdiom(raw: string): boolean {
+  return (
+    /(\[\\s\\S\]|\[\^\]|\.)\*\?/.test(raw) ||
+    (raw.includes(".replace(") && /\/(\\\/\\\/|--)/.test(raw)) ||
+    /["'`](\/\/|\/\*|\*\/)["'`]/.test(raw) ||
+    (raw.includes("startsWith(") && /["'`](\/\/|--|#|\/\*|\*)["'`]/.test(raw)) ||
+    /\/\^\\s\*(--|#|\\\/\\\/)\//.test(raw) ||
+    /\b(strip\w*[Cc]omment\w*|commentRanges|stripNonCode|stripCodeNoise|codeOf)\b/.test(raw)
+  );
+}
+
 export type ScanEntry = { rel: string; src: string };
 
 /** Pure core: detection + precedence, no filesystem. Both the real walk and the plant
@@ -83,9 +97,13 @@ export function offendersOf(
   for (const { rel, src } of entries) {
     if (rel === SHARED_MODULE || rel === SHARED_SELF_TEST || rel === SELF) continue;
     if (pending.has(rel)) continue; // migration window: whole file deferred
-    // Fast path: hits on RAW source are a superset of hits on stripped source
-    // (stripping only removes text). Zero raw hits -> skip the TS parse entirely.
-    if (detectCommentIdioms(src).length === 0) continue;
+    // Sound fast path (whole-diff R1 F1 replaced the raw-first shortcut, which was
+    // UNSOUND: blanking turns comments into spaces, so gap-tolerant patterns like
+    // `.replace(\s*/--` can match STRIPPED text they never matched raw). This
+    // prefilter uses only CONTIGUOUS fragments — substrings a match must contain
+    // with no whitespace gap, which therefore appear verbatim in raw whenever they
+    // appear in stripped. Zero fragment hits -> the TS parse cannot find anything.
+    if (!mayContainIdiom(src)) continue;
     const stripped = stripCommentsForFile(src, rel);
     const residual = detectCommentIdioms(stripped).filter(
       (h) => !standing.some((r) => r.file === rel && r.family === h.family && r.marker === h.marker),
@@ -170,6 +188,12 @@ describe("detector negative proofs — through the WALK pipeline (spec §4 plant
     const entries = plant("d.ts", 'export const l = (s: string) => s.split("\\n").filter((x) => !x.trim().startsWith("//"));\n');
     expect(offendersOf(entries, [], []).join("")).toContain("startswith-filter");
   });
+  it("(f) comment-gap evasion is caught (whole-diff R1 F1 — the case that killed the raw-first shortcut)", () => {
+    const entries = plant("f.ts", 'export const g = (sql: string) => sql.replace(/* gap */ /--.*$/gm, "");\n');
+    expect(offendersOf(entries, [], []).join("")).toContain("line-replace-idiom");
+    expect(mayContainIdiom(entries[0]?.src ?? "")).toBe(true);
+  });
+
   it("(e) SQL line-comment replace idiom is caught (spec R3 F1)", () => {
     const entries = plant("e.ts", 'export const y = (sql: string) => sql.replace(/--.*$/gm, "");\n');
     expect(offendersOf(entries, [], []).join("")).toContain("line-replace-idiom");

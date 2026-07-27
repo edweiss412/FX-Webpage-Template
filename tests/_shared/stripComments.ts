@@ -133,7 +133,9 @@ export function stripSqlComments(src: string): string {
       continue;
     }
     if (c === "-" && next === "-") {
-      while (i < src.length && src[i] !== "\n") {
+      // Terminate on CR as well as LF: CR-only input must not swallow the next line
+      // (whole-diff R1 F4).
+      while (i < src.length && src[i] !== "\n" && src[i] !== "\r") {
         blank(i);
         i += 1;
       }
@@ -177,6 +179,13 @@ export function stripCssComments(src: string): string {
         if (c === quote) quote = null;
         i += 1;
       }
+      continue;
+    }
+    // A backslash escape is valid in CSS code state too (selectors like `.a\"x` or
+    // `.a\/b`) — consume the escaped char so it can neither open a string nor pair
+    // into a comment marker (whole-diff R1 F3).
+    if (c === "\\") {
+      i += 2;
       continue;
     }
     if (c === '"' || c === "'") {
