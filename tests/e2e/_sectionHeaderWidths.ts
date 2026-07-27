@@ -33,6 +33,11 @@
  */
 export const ROW_WIDTHS = { 320: 280, 375: 335, 430: 390, 640: 552, 1280: 744 } as const;
 
-/** Viewport widths the real-route width-chain assertion covers — the subset of
- *  `ROW_WIDTHS` the hydrated modal suite already loads. */
-export const REAL_ROUTE_WIDTHS = [375, 640, 1280] as const;
+/** Viewport widths the real-route width-chain assertion covers — ALL five
+ *  `ROW_WIDTHS` keys (320/430 anchored 2026-07-26, closing
+ *  BL-HEADER-PROBE-RESIDUAL-VACUITY finding 1; previously only 375/640/1280
+ *  were measured and the phone-edge widths were assumed from the
+ *  viewport-minus-40 derivation above).
+ *  tests/cross-cutting/section-header-width-anchors.test.ts pins the set
+ *  equality, so a sixth matrix width cannot enter unanchored. */
+export const REAL_ROUTE_WIDTHS = [320, 375, 430, 640, 1280] as const;
