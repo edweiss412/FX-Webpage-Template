@@ -12,10 +12,12 @@
 // The zero-args form exists so the workflow step literal stays exactly
 // `node scripts/check-standalone-baseline.mjs` (spec §4.1 structural pinning).
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-const ROOT = process.cwd();
+// realpath: on macOS, tmpdir-based cwds arrive as /var/... while process.cwd()
+// resolves the symlink to /private/var/..., which breaks path relativization.
+const ROOT = realpathSync(process.cwd());
 const args = process.argv.slice(2);
 const flagValue = (name) => {
   const i = args.indexOf(name);
@@ -31,7 +33,13 @@ function fail(msg) {
 
 const toRepoPosix = (rootDir, file) => {
   const abs = isAbsolute(file) ? file : resolve(rootDir, file);
-  return relative(ROOT, abs).split(sep).join("/");
+  // Realpath the deepest EXISTING ancestor so symlinked prefixes (macOS
+  // /var -> /private/var) compare equal, while a report file that does not
+  // exist on disk still relativizes cleanly.
+  let probe = abs;
+  while (probe !== dirname(probe) && !existsSync(probe)) probe = dirname(probe);
+  const real = join(realpathSync(probe), relative(probe, abs));
+  return relative(ROOT, real).split(sep).join("/");
 };
 
 function membership(json) {
@@ -126,6 +134,8 @@ if (args.includes("--write")) {
 } else if (args.includes("--list-check")) {
   compare(listResolution(), "local --list resolution");
 } else {
-  // Task A3 amends this branch to compareReport(DEFAULT_REPORT) — red-first there.
-  fail("usage: --report <path> | --list-check | --write [--baseline <path>]");
+  // Zero args = the CI post-run step. The workflow literal must stay exactly
+  // `node scripts/check-standalone-baseline.mjs` (spec §4.1 pinning), so the
+  // default report path lives here rather than in the workflow.
+  compareReport(DEFAULT_REPORT);
 }

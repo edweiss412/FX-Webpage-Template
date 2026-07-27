@@ -114,4 +114,33 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     writeFileSync(bad, "not json {");
     expect(run(["--report", bad, "--baseline", baseline([A], 2)])).not.toBe(0);
   });
+
+  it("zero args: reads test-results/standalone-report.json relative to cwd and compares (A3 amendment)", () => {
+    // Self-contained: the fixture report's rootDir points INSIDE the temp cwd,
+    // because the script computes repo-relativity against ITS process.cwd().
+    const cwd = mkdtempSync(join(tmpdir(), "default-report-"));
+    mkdirSync(join(cwd, "test-results"), { recursive: true });
+    writeFileSync(
+      join(cwd, "test-results", "standalone-report.json"),
+      JSON.stringify({
+        config: { rootDir: join(cwd, "tests", "e2e") },
+        suites: [
+          {
+            file: "a.spec.ts",
+            suites: [],
+            specs: [
+              { file: "a.spec.ts", title: "t0", tests: [{ status: "expected" }] },
+              { file: "a.spec.ts", title: "t1", tests: [{ status: "expected" }] },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(run(["--baseline", baseline(["tests/e2e/a.spec.ts"], 2)], cwd)).toBe(0);
+  });
+
+  it("zero args with the default report absent exits non-zero", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "no-default-report-"));
+    expect(run(["--baseline", baseline(["tests/e2e/a.spec.ts"], 2)], cwd)).not.toBe(0);
+  });
 });

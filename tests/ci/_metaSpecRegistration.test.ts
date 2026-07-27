@@ -13,8 +13,10 @@
  *   registration detector.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { probeConfig } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
@@ -34,11 +36,56 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
     expect(jsonEntry?.[1]?.outputFile).toBe(JSON_OUTPUT);
   });
 
-  it("committed baseline matches the local --list resolution (forces regen on membership change)", () => {
-    execFileSync("node", [join(ROOT, "scripts/check-standalone-baseline.mjs"), "--list-check"], {
-      cwd: ROOT,
-      stdio: "pipe",
-      timeout: 180_000,
-    });
+  it(
+    "committed baseline matches the local --list resolution (forces regen on membership change)",
+    () => {
+      execFileSync("node", [join(ROOT, "scripts/check-standalone-baseline.mjs"), "--list-check"], {
+        cwd: ROOT,
+        stdio: "pipe",
+        timeout: 180_000,
+      });
+    },
+    120_000,
+  );
+});
+
+describe("standalone-e2e.yml comparison step (spec §4.1 structural pinning)", () => {
+  const wf = parse(readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"));
+  const job = wf.jobs["standalone-e2e"];
+  const steps: Array<Record<string, unknown>> = job.steps;
+  const runIdx = steps.findIndex(
+    (s) => s.run === "pnpm exec playwright test --config tests/e2e/standalone.config.ts",
+  );
+  const cmpIdx = steps.findIndex((s) => s.run === "node scripts/check-standalone-baseline.mjs");
+
+  it("comparison step exists and DIRECTLY FOLLOWS the run step", () => {
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(cmpIdx).toBe(runIdx + 1);
+  });
+
+  it("neither step carries step-level context keys", () => {
+    for (const s of [steps[runIdx], steps[cmpIdx]]) {
+      expect(s).toBeDefined();
+      for (const k of ["if", "env", "continue-on-error", "shell", "working-directory"]) {
+        expect(s ?? {}, `step must not carry ${k}`).not.toHaveProperty(k);
+      }
+    }
+  });
+
+  it("pull_request trigger EXISTS and is bare; job/workflow carry no execution overrides", () => {
+    const on = wf.on as Record<string, unknown> | undefined;
+    expect(on, "workflow must keep a pull_request trigger").toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(on ?? {}, "pull_request")).toBe(true);
+    const pr = (on ?? {})["pull_request"];
+    // null (bare key) is the ONLY non-object acceptable form; booleans and
+    // arrays are malformed/disabled triggers and must FAIL.
+    const bare =
+      pr === null ||
+      (typeof pr === "object" && pr !== undefined && !Array.isArray(pr) && Object.keys(pr).length === 0);
+    expect(bare, "pull_request trigger must be bare (no filters, not disabled)").toBe(true);
+    for (const k of ["needs", "strategy", "continue-on-error", "environment", "defaults"]) {
+      expect(job).not.toHaveProperty(k);
+    }
+    expect(wf).not.toHaveProperty("defaults");
   });
 });
