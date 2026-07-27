@@ -463,6 +463,18 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   // filed as BL-AGENDA-A11Y-WEBKIT-COVERAGE.
   await page.goto(baseUrl);
 
+  // 0. The DISCLOSURE ROLE is exposed. Review R8 (MEDIUM) was right that this file asserted
+  //    headings and then read `HTMLDetailsElement.open`, which is a DOM property, not the
+  //    accessibility tree. Measured while fixing it, and recorded so nobody re-derives it:
+  //      - native <details> maps to role=group (3 exposed here, one per day);
+  //      - it sets NO `aria-expanded` attribute -- the attribute reads null;
+  //      - Playwright REFUSES `getByRole("group", { expanded })`: "expanded is only supported
+  //        for roles application, button, checkbox, columnheader, combobox, ...", and group is
+  //        not among them.
+  //    So the role is assertable here and the expanded STATE is not, which is why `.open`
+  //    remains the state probe below. It is the observable the platform actually offers.
+  await expect(page.getByRole("group")).toHaveCount(TOTAL_DAYS);
+
   // 1. The heading survives into the accessibility tree, at the right level, named by its day.
   const headings = page.getByRole("heading", { level: 3 });
   await expect(headings).toHaveCount(TOTAL_DAYS);
@@ -487,7 +499,35 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
     TOTAL_DAYS,
   );
 
-  // 4. The chevron is decorative and must not be announced. Note for anyone mutating this:
+  // 4. NO element in this summary can truncate, and that is asserted rather than assumed.
+  //    Review R8 listed "marker clientWidth === scrollWidth" as a missing acceptance case. Two
+  //    attempts at it were vacuous before the markup was read properly: the marker has no width
+  //    clamp, and neither does the count, so a scrollWidth/clientWidth comparison on either can
+  //    never fail. The ONLY clamped element (`max-w-[12ch] truncate`) is the date chip at
+  //    AgendaScheduleBlock.tsx:122, and it renders behind `{day.date ? ... : null}` -- where
+  //    `day.date` is ALWAYS null in production, the ratified fact this whole feature rests on
+  //    (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor and hardcodes null).
+  //    So the acceptance case has no applicable element. Pinned by asserting the chip's absence,
+  //    which fails if that branch ever becomes reachable and the case becomes real.
+  await expect(page.locator(".truncate")).toHaveCount(0);
+
+  // 5. The summary shows OUR focus ring on keyboard focus. Asserted on box-shadow specifically,
+  //    not outline: `focus-visible:ring-2` renders as a box-shadow, while Chromium draws its own
+  //    default outline on any focused element. An outline-based check therefore passes even with
+  //    our ring deleted -- measured, not assumed; that is exactly what the first version did.
+  await page.keyboard.press("Tab");
+  const ring = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el || el.tagName.toLowerCase() !== "summary")
+      return { tag: el?.tagName ?? "none", shadow: "" };
+    return { tag: "summary", shadow: getComputedStyle(el).boxShadow };
+  });
+  expect(ring.tag, "the first Tab lands on a summary").toBe("summary");
+  expect(ring.shadow, `focused summary paints a ring box-shadow (got ${ring.shadow})`).not.toBe(
+    "none",
+  );
+
+  // 6. The chevron is decorative and must not be announced. Note for anyone mutating this:
   //    deleting our explicit aria-hidden prop does NOT red this, because lucide sets
   //    aria-hidden="true" on its icons by default -- the mutation is behaviourally equivalent,
   //    not an uncovered assertion. What this DOES protect is the rendered outcome, so swapping
