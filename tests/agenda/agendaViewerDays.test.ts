@@ -230,6 +230,14 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["May 5, 2026 / 2027-05-05", "same month-day, ISO second, different year"],
       ["May 5, 2026 / 5 May 2027", "same month-day, day-first second, different year"],
       ["May 5, 2026 / 05/05/2027", "same month-day, slash second, different year"],
+      // The year check must hold for EVERY pairing of shapes, not just month-led-first. Swept
+      // all of them; these are the pairings where neither date is month-led, which the
+      // month-led-only version could not have caught even in principle.
+      ["2026-05-05 / 2027-05-05", "ISO on both sides"],
+      ["5 May 2026 / 5 May 2027", "day-first on both sides"],
+      ["05/05/2026 / 05/05/2027", "slash on both sides"],
+      ["2026-05-05 / May 5, 2027", "ISO first, month-led second"],
+      ["05/05/26 / 05/05/27", "two-digit years"],
       ["May 5, 2026 / 6 May 2026", "a day-first second date"],
       ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
       // LEADING second-day references. Found by sweeping the positional rule's blind side
@@ -349,6 +357,11 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // day, and an earlier "any leftover number" rule rejected them all -- which would have
       // disabled folding across real shows while every counterexample test stayed green.
       ["2025 Awards — Tuesday, May 5, 2026", "2026-05-05"], // a free-floating year is metadata
+      // More free-floating years. Only years ATTACHED to a date are counted, so none of these
+      // reads as a second calendar year -- the over-fire the year rule most easily causes.
+      ["FY2025 Summit — Tuesday, May 5, 2026", "2026-05-05"],
+      ["Tuesday, May 5, 2026 (est. 2019)", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — Suite 2026", "2026-05-05"],
       ["Tuesday, May 5, 2026 — Track 2", "2026-05-05"],
       ["Tuesday, May 5, 2026 (Room 54)", "2026-05-05"],
       ["Tuesday, May 5, 2026 — 8th Floor", "2026-05-05"], // an ordinal without "the"
