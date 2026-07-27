@@ -8,6 +8,49 @@ export type WatchErrorClass = "config" | "drive_api" | "db";
 export const ESCALATION_THRESHOLD = 3;
 export const STALE_PENDING_MAX_AGE_MS = 3_600_000;
 
+/**
+ * How many reaped/skipped ids a single forensic emit carries. The true totals
+ * always travel in the sibling `*Count` fields, so the cap costs no signal —
+ * and the ids are sorted BEFORE capping, because `UPDATE … RETURNING` has no
+ * ordering contract and an execution-plan change would otherwise vary the set.
+ */
+export const REAP_ID_LOG_CAP = 20;
+
+/**
+ * Per-Drive-call bound, applied to `files.watch` and `channels.stop` as
+ * `{ timeout: DRIVE_CALL_TIMEOUT_MS, retry: false }` — the idiom this repo
+ * already proved on the onboarding hot path (lib/drive/fetch.ts:359).
+ *
+ * `retry: false` is not decoration: gaxios has its own internal retry layer, so
+ * without it this budget is multiplied by that layer's attempts and bounds
+ * nothing. The watch path has no `withDriveRetry` wrapper and gains none — one
+ * attempt per cron tick, with the next tick as the retry, which is the existing
+ * fail-open posture.
+ *
+ * 15s is the value the master spec claimed for years while nothing implemented
+ * it; implementing it at the promised number keeps the corrected spec wording
+ * and the code in agreement. It sits inside the existing family:
+ * DRIVE_FILES_GET_TIMEOUT_MS is 8_000, DRIVE_EXPORT_TIMEOUT_MS is 45_000.
+ */
+export const DRIVE_CALL_TIMEOUT_MS = 15_000;
+
+/**
+ * Cap on candidates examined in one GC pass, and the elapsed budget that stops
+ * the loop early.
+ *
+ * Both exist because a `superseded` row whose `channels.stop` keeps failing is
+ * left for retry indefinitely — deliberately, since abandoning it would leak a
+ * live Drive channel. Without a cap, ~20 such rows at DRIVE_CALL_TIMEOUT_MS
+ * each consume the GC cron's 300s request window, and since candidates are
+ * ordered oldest-first they are served first on every subsequent pass too, so
+ * everything behind them is never collected.
+ *
+ * The budget is well under the cron's 300s so the pass ends on its own terms
+ * rather than being cut off mid-row.
+ */
+export const GC_CANDIDATES_PER_PASS = 200;
+export const GC_RUN_BUDGET_MS = 120_000;
+
 // Lease-slack constants (spec 2026-07-25-watch-lease-slack-design §2).
 //
 // Requested channel lifetime. Google's documented maximum for the `files`
@@ -22,12 +65,26 @@ export const RENEWAL_LIFE_FRACTION = 0.75;
 export const RENEWAL_MIN_LEAD_MS = 7_200_000;
 // How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
 export const SAMPLING_PERIOD_MS = 3_600_000;
-// A margin, NOT an enforceable bound. Renewals run sequentially with no
-// per-call timeout, and pg_net's timeout_milliseconds may be ignored outright
-// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22), so nothing
-// reserves this much time for reaching any particular row. It is the order of
-// magnitude of "one run's slack", used to size the anomaly heuristic below.
+// PARTLY enforceable, as of the watch-renewal-lifecycle work. What IS enforced:
+// the renewal loop stops STARTING new rows once this much time has elapsed
+// (REFRESH_RUN_BUDGET_MS aliases it), and each Drive request carries
+// DRIVE_CALL_TIMEOUT_MS. What is still NOT enforced: the in-flight iteration
+// when the budget expires (a pre-iteration check cannot bound the iteration it
+// admits), the GoogleAuth credential fetch that precedes each request on its
+// own transport, the platform's willingness to keep the invocation alive, and
+// pg_net's timeout_milliseconds, which may be ignored outright
+// (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22).
+//
+// So the honest bound on a run is REFRESH_RUN_BUDGET_MS plus one worst-case
+// iteration — not REFRESH_RUN_BUDGET_MS. isGrantTooShort below therefore stays
+// a heuristic and is NOT upgraded to a guarantee.
 export const T_EXEC_BUDGET_MS = 300_000;
+/**
+ * Bound on one renewal RUN before it stops starting new rows. Aliased to
+ * T_EXEC_BUDGET_MS rather than restated, so the loop's budget and the value
+ * `isGrantTooShort` reasons from cannot drift apart.
+ */
+export const REFRESH_RUN_BUDGET_MS = T_EXEC_BUDGET_MS;
 
 /**
  * Remaining-life threshold at which a channel becomes renewal-due:

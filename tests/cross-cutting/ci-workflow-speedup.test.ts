@@ -90,6 +90,7 @@ describe("CI speedup — screenshots-drift runs per-PR only on render-affecting 
     '"supabase/seed.ts"',
     '"supabase/migrations/**"',
     '"public/help/screenshots/**"',
+    '"scripts/capture-core.ts"',
     '"scripts/help-screenshots.ts"',
     '"scripts/ci/**"',
     '"playwright.screenshots.config.ts"',

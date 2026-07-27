@@ -27,6 +27,7 @@ on:
       # bytes directly must re-trigger verification (else a bad baseline ships
       # until the nightly cron). They are the comparison target, not just an input.
       - "public/help/screenshots/**"
+      - "scripts/capture-core.ts"
       - "scripts/help-screenshots.ts"
       - "scripts/help-screenshots.manifest.ts"
       - "scripts/help-screenshots-fixture-range.ts"
@@ -65,7 +66,7 @@ jobs:
         # mechanism comments are in the script.
         run: bash scripts/ci/supabase-local-bootstrap.sh
       # Restore the Next compiler cache for the :3004 screenshots-help webServer
-      # build (playwright.screenshots.config.ts:101/117 runs `pnpm build` with
+      # build (playwright.screenshots.config.ts:128/144 runs `pnpm build` with
       # NEXT_DIST_DIR=.next-screenshots-help → next.config distDir), so a warm
       # build skips recompiling unchanged modules (~30s). Caches ONLY
       # <distDir>/cache (the compiler cache, NOT build output). Separate key

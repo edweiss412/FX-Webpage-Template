@@ -870,10 +870,17 @@ describe("sync Supabase infra-failure contract", () => {
 
       const result = await refreshWatchSubscriptions({
         tx: {
+          // The reap runs FIRST (spec §3.1.3), so without this member the
+          // fixture would fail on the MISSING method before reaching the
+          // injected read fault — and because both paths return the same
+          // generic `failures` shape, this test would still pass while proving
+          // the wrong operation.
+          expireDeadActive: async () => [],
           listRenewalDue: async () => {
             throw new Error("META: simulated watch renewal fault");
           },
         } as never,
+        getActiveWatchedFolder: async () => ({ folderId: "meta-folder", folderName: null }),
       });
 
       expect(result).toEqual({
