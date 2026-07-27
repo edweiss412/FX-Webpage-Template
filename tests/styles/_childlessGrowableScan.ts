@@ -386,7 +386,11 @@ export function scanSource(
   source: string,
   fileName: string,
   opts?: ScanOptions,
-): { violations: Violation[]; exemptions: Exemption[] } {
+): {
+  violations: Violation[];
+  exemptions: Exemption[];
+  meta: { childlessGrowableComponentTags: string[]; paintedCandidateTokens: string[] };
+} {
   const registry = opts?.registry ?? APPROVED_GROWABLE_COMPONENTS;
   const paintTokens = opts?.paintTokens ?? PAINT_TOKENS;
   const isMdx = fileName.endsWith(".mdx");
@@ -394,6 +398,10 @@ export function scanSource(
   const sf = ts.createSourceFile(fileName, scanText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const violations: Violation[] = [];
   const exemptionRanges = isMdx ? [] : collectExemptions(scanText, sf);
+  const meta = {
+    childlessGrowableComponentTags: [] as string[],
+    paintedCandidateTokens: [] as string[],
+  };
 
   const visit = (node: ts.Node): void => {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
@@ -436,11 +444,13 @@ export function scanSource(
           }
         };
         if (isComponent) {
+          meta.childlessGrowableComponentTags.push(tag);
           if (!registry.has(tag)) push("unregistered-component");
         } else {
           const normalized = harvest.tokens.map(normalizeToken);
           const painted =
             isPainted(normalized, paintTokens) && harvest.tokens.some(extentFromToken);
+          if (painted) meta.paintedCandidateTokens.push(...normalized);
           if (!painted) {
             push(
               growableTokens.length === 0 && styleGrow.opaque
@@ -457,6 +467,7 @@ export function scanSource(
   return {
     violations,
     exemptions: exemptionRanges.map((e) => ({ line: e.endLine, used: e.used })),
+    meta,
   };
 }
 
@@ -563,4 +574,69 @@ function claimExemption(
     }
   }
   return false;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Live-tree walk + aggregate scan (spec §6.1–§6.3).
+ * ------------------------------------------------------------------------- */
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+
+const REPO_ROOT = join(__dirname, "..", "..");
+const LIVE_ROOTS = ["components", "app"] as const;
+const SCAN_EXTENSIONS = /\.(tsx|mdx)$/;
+
+function walkDir(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) return walkDir(p);
+    return SCAN_EXTENSIONS.test(entry) ? [p] : [];
+  });
+}
+
+export interface LiveScanOptions {
+  /** Test seam (plan Task 4b): scan <root>/components + <root>/app instead of
+   *  the repo — the fixture tree plants one violation per root and extension
+   *  so a silently narrowed walk fails. */
+  root?: string;
+}
+
+/** Repo-relative (or root-relative) paths of every scannable live file. */
+export function walkLiveTree(opts?: LiveScanOptions): string[] {
+  const root = opts?.root ?? REPO_ROOT;
+  return LIVE_ROOTS.flatMap((sub) => walkDir(join(root, sub))).map((p) => relative(root, p));
+}
+
+export interface LiveScanResult {
+  violations: Violation[];
+  unusedExemptions: Array<{ file: string; line: number }>;
+  exemptionCount: number;
+  /** Every childless growable COMPONENT tag seen — §6.3 registry liveness. */
+  childlessGrowableComponentTags: string[];
+  /** Normalized harvest tokens of painted childless DOM candidates — §6.3
+   *  paint-set liveness (occurrence semantics). */
+  paintedCandidateTokens: string[];
+}
+
+export function scanLiveTree(opts?: LiveScanOptions): LiveScanResult {
+  const root = opts?.root ?? REPO_ROOT;
+  const result: LiveScanResult = {
+    violations: [],
+    unusedExemptions: [],
+    exemptionCount: 0,
+    childlessGrowableComponentTags: [],
+    paintedCandidateTokens: [],
+  };
+  for (const rel of walkLiveTree(opts)) {
+    const source = readFileSync(join(root, rel), "utf8");
+    const { violations, exemptions, meta } = scanSource(source, rel);
+    result.violations.push(...violations);
+    result.exemptionCount += exemptions.length;
+    for (const e of exemptions) {
+      if (!e.used) result.unusedExemptions.push({ file: rel, line: e.line });
+    }
+    result.childlessGrowableComponentTags.push(...meta.childlessGrowableComponentTags);
+    result.paintedCandidateTokens.push(...meta.paintedCandidateTokens);
+  }
+  return result;
 }

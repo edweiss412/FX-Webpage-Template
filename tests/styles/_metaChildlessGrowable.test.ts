@@ -650,3 +650,79 @@ describe("scanSource: MDX (spec §5)", () => {
     expect(violations).toHaveLength(1);
   });
 });
+
+/* ------------------------------------------------------------------------- *
+ * Task 4: live-tree walk + hygiene gates (spec §6.1–§6.3, plan Task 4).
+ * ------------------------------------------------------------------------- */
+import { join } from "node:path";
+
+import {
+  APPROVED_GROWABLE_COMPONENTS,
+  PAINT_TOKENS as LIVE_PAINT_TOKENS,
+  scanLiveTree,
+  walkLiveTree,
+} from "./_childlessGrowableScan";
+
+const FIXTURE_ROOT = join(__dirname, "fixtures", "childlessGrowable");
+
+describe("live-tree gate (spec §6.1)", () => {
+  const live = scanLiveTree();
+
+  it("zero violations across components/ and app/", () => {
+    const rendered = live.violations.map(
+      (v) =>
+        `${v.file}:${v.line} <${v.tag}> ${v.reason} (${v.sourceLabel}) — escapes: add real children; ` +
+        `DOM: add a PAINT_TOKENS member AND a proven extent token (extend the set in review if needed); ` +
+        `component: add an APPROVED_GROWABLE_COMPONENTS row with a reason; or childless-growable-ok: <reason>`,
+    );
+    expect(rendered).toEqual([]);
+  });
+
+  it("zero unused exemptions in the live tree", () => {
+    expect(live.unusedExemptions).toEqual([]);
+  });
+
+  it("zero exemption comments at ship time (spec §8.2)", () => {
+    expect(live.exemptionCount).toBe(0);
+  });
+});
+
+describe("walker coverage — automated red-state proof (plan Task 4b)", () => {
+  it("finds the planted violation in every root and extension", () => {
+    const { violations } = scanLiveTree({ root: FIXTURE_ROOT });
+    const files = violations.map((v) => v.file).sort();
+    expect(files.some((f) => f.includes("components/violation.tsx"))).toBe(true);
+    expect(files.some((f) => f.includes("app/violation.tsx"))).toBe(true);
+    expect(files.some((f) => f.endsWith("violation.mdx"))).toBe(true);
+    expect(violations).toHaveLength(3);
+  });
+
+  it("fixture unused exemption is reported (gate-branch proof, Task 4c)", () => {
+    const { unusedExemptions } = scanLiveTree({ root: FIXTURE_ROOT });
+    expect(unusedExemptions).toHaveLength(1);
+    expect(unusedExemptions[0]?.file).toContain("unusedExemption.tsx");
+  });
+
+  it("the LIVE walk sees components/, app/, and at least one MDX file", () => {
+    const files = walkLiveTree();
+    expect(files.some((f) => f.includes("/components/") || f.startsWith("components/"))).toBe(true);
+    expect(files.some((f) => f.includes("/app/") || f.startsWith("app/"))).toBe(true);
+    expect(files.some((f) => f.endsWith(".mdx"))).toBe(true);
+  });
+});
+
+describe("registry and paint-set hygiene — OCCURRENCE liveness (spec §6.3)", () => {
+  const live = scanLiveTree();
+
+  it("every APPROVED_GROWABLE_COMPONENTS row occurs as a live childless growable", () => {
+    for (const tag of APPROVED_GROWABLE_COMPONENTS) {
+      expect(live.childlessGrowableComponentTags).toContain(tag);
+    }
+  });
+
+  it("every PAINT_TOKENS member occurs in a live painted-childless candidate's harvest", () => {
+    for (const token of LIVE_PAINT_TOKENS) {
+      expect(live.paintedCandidateTokens).toContain(token);
+    }
+  });
+});
