@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -72,7 +73,7 @@ function phase2ArgKeys(objectBody: string): string[] {
   for (const entry of splitTopLevelEntries(objectBody)) {
     const normalizedEntry = entry
       .split("\n")
-      .map((line) => line.replace(/\/\/.*$/, "").trim())
+      .map((line) => line.trim())
       .filter(Boolean)
       .join("\n");
     const spreadMatch = normalizedEntry.match(/\?\s*\{\s*([A-Za-z_$][\w$]*)\s*\}\s*:/);
@@ -138,8 +139,8 @@ function objectKeysForAwaitedCall(tail: string, callName: string): string[] | nu
 
 describe("first-seen auto-publish cron/retry parity contract", () => {
   test("retry passes the same Phase 2 args and post-Phase-2 tail shape as cron", () => {
-    const cronSource = readFileSync(join(root, "lib/sync/runScheduledCronSync.ts"), "utf8");
-    const retrySource = readFileSync(join(root, "lib/sync/runManualStageForFirstSeen.ts"), "utf8");
+    const cronSource = stripCommentsForFile(readFileSync(join(root, "lib/sync/runScheduledCronSync.ts"), "utf8"), "lib/sync/runScheduledCronSync.ts");
+    const retrySource = stripCommentsForFile(readFileSync(join(root, "lib/sync/runManualStageForFirstSeen.ts"), "utf8"), "lib/sync/runManualStageForFirstSeen.ts");
 
     const cronArgs = extractObjectAfter(cronSource, "const phase2 = await runPhase2_unlocked(");
     const retryArgs = extractObjectAfter(
