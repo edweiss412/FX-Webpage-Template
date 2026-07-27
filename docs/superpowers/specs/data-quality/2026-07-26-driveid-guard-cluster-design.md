@@ -95,6 +95,10 @@ All four probes ran against the LIVE validation project (session pooler,
 4. **Every validation constraint renders canonically**: all 23 columns' CHECKs on validation
    deparse to exactly `canonicalBare`/`canonicalNullable` form
    (`lib/driveIdCoverage/audit.ts:65-71`) — the new audit layer passes on day one.
+5. **The `postgres` driver surfaces the violated constraint's identity** on a 23514 error:
+   measured fields `code`, `schema_name`, `table_name`, `constraint_name` (probe: blank insert
+   into `agenda_extract_leases` → `constraint_name =
+   'agenda_extract_leases_drive_file_id_nonblank'`). §3.4's rejection binding rests on this.
 
 ## 3. Design
 
@@ -117,18 +121,50 @@ and throw unless the result equals the pinned constant. Two distinguishable fail
   re-provisioned, update `VALIDATION_SYSTEM_IDENTIFIER` in a reviewed diff; otherwise the job is
   pointed at the wrong database and the DSN must be fixed.
 
-Call sites (assert once per suite run, before any target-dependent assertion):
+**The guarantee rides the SAME connection as each assertion** (R1 finding 2). A once-per-suite
+probe binds nothing: both suites launch a fresh `psql` process per query
+(`tests/db/validation-schema-parity.test.ts:98-106` and
+`tests/db/validation-schema-parity.test.ts:262-276`;
+`tests/cross-cutting/pg-cron-coverage.test.ts:111`), and a multi-host or failover DSN could pass
+identity on one connection and run assertions on another cluster. So the identity module also
+exports `withValidationIdentityGuard(sql)`, which PREPENDS a guard block to the query text:
 
-- `tests/db/validation-schema-parity.test.ts` — when `TEST_DATABASE_URL` is set (layer 2, CHECK
-  layer, and the new §3.2 layer all inherit the guarantee). Unset (local dev) skips the assert:
-  the local target is deliberate there.
-- `tests/cross-cutting/pg-cron-coverage.test.ts` — when `PG_CRON_COVERAGE_TARGET=validation`
-  (`tests/cross-cutting/pg-cron-coverage.test.ts:157-171`). The existing env-presence refusals stay; the ref-containment check stays as a
-  cheap pre-connect misconfiguration message, but the *guarantee* becomes the identity assert.
+```sql
+do $$ begin
+  if (select system_identifier::text from pg_control_system())
+     <> '7642734024280108049' then
+    raise exception 'validation identity guard: connected cluster is not validation';
+  end if;
+end $$;
+```
 
-Negative control that runs on every developer box: asserting identity against the LOCAL stack
-must throw with the mismatch message (local identifier ≠ pinned). Positive control is the CI run
-itself.
+`DO` emits no rows (no output pollution for `-qAt` parsing) and aborts the script under
+`ON_ERROR_STOP=1`, so every guarded query proves its OWN connection before its payload runs.
+(The literal in the module is interpolated from `VALIDATION_SYSTEM_IDENTIFIER`; shown inline here
+for concreteness.)
+
+Call sites — every statement a validation-targeting suite sends, enumerated (the R1-2 class
+sweep):
+
+- `tests/db/validation-schema-parity.test.ts`: the layer-2 manifest introspection psql call and
+  the CHECK-parity psql call wrap their SQL in `withValidationIdentityGuard` when
+  `TEST_DATABASE_URL` is set; the §3.2 audit layer runs the same guard block INSIDE its census
+  transaction, on its own `postgres` connection, before the census queries. Unset (local dev)
+  skips the guard: the local target is deliberate there.
+- `tests/cross-cutting/pg-cron-coverage.test.ts` — every query it issues under
+  `PG_CRON_COVERAGE_TARGET=validation` is wrapped
+  (`tests/cross-cutting/pg-cron-coverage.test.ts:157-171` is the gate). The existing env-presence
+  refusals stay; the ref-containment check stays as a cheap pre-connect misconfiguration message,
+  but the *guarantee* becomes the per-connection guard.
+
+`assertValidationIdentity(dbUrl)` remains as the suite's FIRST validation-touching test so the
+mismatch case fails with the discriminable two-identifier message above; the per-query guard is
+what makes the guarantee non-detachable from the work.
+
+Negative controls that run on every developer box: asserting identity against the LOCAL stack
+must throw with the mismatch message (local identifier ≠ pinned), and a
+`withValidationIdentityGuard`-wrapped `select 1` against the LOCAL stack must abort with the
+guard exception. Positive control is the CI run itself.
 
 Why not `cluster_name` (frequently empty), `current_user` (a role name is creatable anywhere),
 or the DSN (ratified theatre): none is a fact OF the connected cluster that a mis-target could
@@ -159,9 +195,19 @@ Anti-vacuity (two independent floors, neither a bare count):
   in the validation census's public slice. The manifest is BASE-TABLE/public-only introspection
   (`scripts/schema-manifest/lib.ts:238-246`) with its own layer-1 freshness tripwires, so this
   cross-anchors the validation census to a committed artifact that cannot silently go stale.
-- **Schema floor**: the validation census must span both `public` and `dev` (same shape as the
-  local floor, `tests/db/driveIdCoverage.db.test.ts:260-266` — dev is not in the manifest, so
-  the first floor cannot see it).
+- **Dev-slice anchor** (R1 finding 3 — a presence floor let any proper subset of the six dev
+  tuples vanish silently): the validation census's `dev` slice must SET-EQUAL a committed
+  six-tuple list `EXPECTED_DEV_CENSUS` in the census-runner module. Both directions bite: a
+  missing dev tuple is red (drift — a migration that never reached validation), and a NEW dev
+  tuple is red until the list is extended in a reviewed diff. This is not the parent's defeated
+  committed-artifact class: that artifact tried to make the census query self-checking and was
+  defeated by regeneration; this list anchors a REMOTE database's expected content and is
+  hand-maintained exactly like `PUBLIC_NONBLANK_TABLES`
+  (`tests/db/driveFileIdNonblank.db.test.ts:27-43`) and the CHECK layer's lockstep count 17
+  (`tests/db/validation-schema-parity.test.ts:243`), both already in-tree and load-bearing.
+  The `public`+`dev` schema floor (same shape as the local floor,
+  `tests/db/driveIdCoverage.db.test.ts:260-266`) is subsumed by the two anchors and kept only in
+  the local suite.
 
 The auditor's correctness under mutation is already proven by the local suite's negative control
 (`tests/db/driveIdCoverage.db.test.ts:151-209`); this layer reuses, not re-proves, it.
@@ -213,7 +259,9 @@ matching accepts both canonical forms for either nullability (`lib/driveIdCovera
 one diff still wins. That is irreducible by construction — any in-repo mechanism can be edited in
 the same diff that defeats it. What this buys over the ratified status quo: an accidental or
 single-site narrowing goes red instead of green, and the deliberate defeat now requires two
-suspicious-looking edits plus a comment deletion in one reviewable diff.
+suspicious-looking edits in one reviewable diff (R1 finding 5: exactly two — an identical
+narrowing complies with the comment's edit-both-sites instruction, so the comment adds review
+salience, not a third required edit).
 
 ### 3.4 E4 — behavioral coverage: probe registry with fail-by-default completeness
 
@@ -225,17 +273,38 @@ type DriveIdProbe = {
   table: string;
   column: string;
   nullable: boolean;
-  insert: string;            // parameterized insert; $N slot for the probed column
-  params: (value: string | null) => (string | null)[];
+  constraintName: string;       // the canonical CHECK this probe exercises, verified live
+  siblings: string;             // column-list fragment for the NOT NULL siblings, e.g. "wizard_session_id"
+  siblingValues: string;        // values fragment for those siblings (literals/functions), e.g. "gen_random_uuid()"
+  setup?: string;               // optional in-tx parent insert (FK targets), rolled back with everything else
 };
 export const DRIVE_ID_PROBES: DriveIdProbe[] = [ /* 23 rows */ ];
 export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; reason: string }[] = [];
 ```
 
-- **Generated tests** (`test.for` over the registry): reject `''`, `'   '`, `'\t'` with SQLSTATE
-  23514; accept a valid id; nullable columns additionally accept `NULL`. Reuses the existing
+- **The claim IS the execution** (R1 finding 1 — a free-form `insert` string could claim tuple X
+  while probing tuple Y, and both the completeness check and the generated test would pass).
+  Rows carry NO free-form statement. The generated test CONSTRUCTS the insert from the claimed
+  tuple itself — `insert into ${schema}.${table} (${siblings}, ${column}) values
+  (${siblingValues}, $1)` — so the probed column and table cannot diverge from the claim; only
+  sibling scaffolding is row-authored.
+- **The rejection is bound to the claimed column's constraint.** Reject assertions require
+  SQLSTATE 23514 AND `error.constraint_name === row.constraintName` AND
+  `error.schema_name`/`error.table_name` equal to the claimed tuple's (all four fields measured
+  on the driver, §2 item 5) — a 23514 thrown by some OTHER check on the row no longer passes. The
+  completeness meta-test verifies each row's `constraintName` live: it must exist on the claimed
+  `(schema, table)` in the census constraints with definition exactly
+  `canonicalBare(column)`/`canonicalNullable(column)` (`lib/driveIdCoverage/audit.ts:65-71`) —
+  chaining claim → constraint → canonical definition → observed rejection. (Explicit
+  `constraintName` rather than a derived `<table>_<column>_nonblank`, because U3 broke that
+  convention — parent §3.1.)
+- **`nullable` is not self-reported either**: the meta-test compares each row's `nullable`
+  against the live census's nullability for that tuple.
+- **Generated tests** (`test.for` over the registry): reject `''`, `'   '`, `'\t'` with the bound
+  constraint; accept a valid id; nullable columns additionally accept `NULL`. Reuses the existing
   rollback-always probe helpers (`tests/db/driveFileIdNonblank.db.test.ts:68-98`) — zero residue
-  even while red.
+  even while red; a row's optional `setup` (FK parent insert) runs inside the same rolled-back
+  transaction.
 - **The existing 7 hand-written probes become registry rows** (their load-bearing comments — the
   composite-PK note, the defaults notes — move to the rows). The 16 missing rows are added: 11
   public (`pending_syncs`, `pending_ingestions`, `sync_audit`, `deferred_ingestions`,
@@ -248,9 +317,11 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 - **Completeness meta-test**: run the shared census runner live; every census tuple must appear
   in `DRIVE_ID_PROBES ∪ PROBE_EXEMPTIONS`. A FUTURE constrained column therefore fails this suite
   by default until it gets a probe or a reviewed exemption row — the upgrade from "sample" to
-  "registry-enforced total". Exemption hygiene mirrors the audit's rules that apply here (empty
+  "registry-enforced total". Exemption hygiene mirrors ALL of the audit's applicable rules (empty
   reason, duplicate key, row for a column the census no longer returns → red;
-  `lib/driveIdCoverage/audit.ts:141-177` is the template). List ships EMPTY.
+  `lib/driveIdCoverage/audit.ts:141-177` is the template) PLUS the `now_covered` analogue (R1
+  finding 4): a tuple present in BOTH `DRIVE_ID_PROBES` and `PROBE_EXEMPTIONS` is red — otherwise
+  a stale exemption silently takes over if its probe is later deleted. List ships EMPTY.
 - **Stale-probe guard**: registry rows for tuples the census does NOT return also fail (dead
   probes lie about coverage).
 - **CI fail-not-skip**: this suite currently `skipIf(!dbUp)`s everything. Now that it hosts a
@@ -265,17 +336,23 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 | `TEST_DATABASE_URL` empty string | CI misconfig | loud throw (existing posture, `tests/db/validation-schema-parity.test.ts:77-83`) |
 | identity probe cannot connect | infra fault | throw as infra failure, never "identity mismatch" |
 | `system_identifier` mismatch | wrong DB / re-provisioned | throw with both values + remediation |
+| guarded query lands on a non-validation connection | multi-host / failover DSN | in-script `DO` guard aborts under `ON_ERROR_STOP` (§3.1) |
 | local DB down, `CI` set (incl. empty string) | CI infra fault | throw (`unreachableDbFailure`, presence-not-truthiness) — now also in the probes suite |
 | local DB down, `CI` unset | dev box, no stack | skip |
-| census returns 0 rows / one schema | narrowed or wrong DB | schema floor red (local suite `tests/db/driveIdCoverage.db.test.ts:260-266`; validation layer §3.2) |
+| census returns 0 rows / one schema | narrowed or wrong DB | schema floor red locally (`tests/db/driveIdCoverage.db.test.ts:260-266`); manifest + dev anchors red on validation (§3.2) |
+| validation dev slice ≠ committed six-tuple list | drift or new dev column | red both directions (§3.2 dev-slice anchor) |
 | exemption row empty reason / duplicate / stale | malformed list | red (audit rules; probe list mirrors) |
+| tuple in BOTH probes and probe-exemptions | blinding overlap | red (§3.4, R1-4) |
 | registry row for a non-census tuple | stale probe | red (§3.4 stale-probe guard) |
+| registry `constraintName`/`nullable` disagree with live census | mislabeled row | red (§3.4 binding checks) |
 
 ## 5. Self-consistency anchors
 
 Single named definitions later sections reference; no other section restates the values:
 
-- `VALIDATION_SYSTEM_IDENTIFIER = "7642734024280108049"` — only in §0's identity module.
+- `VALIDATION_SYSTEM_IDENTIFIER = "7642734024280108049"` — only in §0's identity module (the
+  `withValidationIdentityGuard` SQL interpolates it; no second literal).
+- `EXPECTED_DEV_CENSUS` (six tuples, §3.2) — only in §0's census-runner module.
 - Census scope (`public`+`dev`, BASE TABLE semantics, `drive_file_id` POSIX regex) — defined by
   the two queries in `lib/driveIdCoverage/introspect.ts`; every count in this spec (23 columns,
   7 probed, 16 missing, 17 public / 6 dev) is a 2026-07-26 measurement of that scope, cited from
@@ -296,15 +373,20 @@ Single named definitions later sections reference; no other section restates the
 
 - **AC-1** `assertValidationIdentity` throws on the local stack (mismatch path, runs on every dev
   box + CI), passes against validation in both x-audits jobs; infra vs mismatch failures are
-  distinguishable in the message.
+  distinguishable; EVERY validation-targeting statement in both suites travels through
+  `withValidationIdentityGuard` (or runs the guard block on its own connection), and a guarded
+  `select 1` against the local stack aborts (negative control).
 - **AC-2** The validation audit layer runs `auditDriveIdCoverage` over a pinned-tx census of the
-  validation DB and reports `[]`; manifest-derived membership + schema floor both assert; layer
-  skips when `TEST_DATABASE_URL` unset.
+  validation DB and reports `[]`; manifest-derived public membership + the `EXPECTED_DEV_CENSUS`
+  set-equality both assert; layer skips when `TEST_DATABASE_URL` unset.
 - **AC-3** Dual-source cross-check asserts set-equality of the two censuses; its negative control
   proves a narrowed predicate would be caught; both queries carry the no-dedup comment.
-- **AC-4** All 23 census tuples are probed or exempted; the completeness meta-test fails on an
-  unregistered census tuple AND on a registered non-census tuple; `PROBE_EXEMPTIONS` ships empty;
-  the probes suite throws (not skips) on unreachable DB in CI.
+- **AC-4** All 23 census tuples are probed or exempted; probes execute SQL constructed FROM the
+  claimed tuple; rejections assert `code` + `constraint_name` + `schema_name`/`table_name`
+  against the row; the meta-test verifies each `constraintName` and `nullable` against the live
+  census, fails on an unregistered census tuple, a registered non-census tuple, AND a
+  probes∩exemptions overlap; `PROBE_EXEMPTIONS` ships empty; the probes suite throws (not skips)
+  on unreachable DB in CI.
 - **AC-5** The four BACKLOG entries graduate to `BACKLOG-archive.md` in this PR (no in-place
   terminal statuses — `tests/docs/_metaDeferralLedgerGraduation.test.ts` enforces); parent spec
   §10/§11 and the `BL-PG-CRON-COVERAGE-UNRUN` inheritance note get pointers here (§9).
@@ -314,19 +396,21 @@ Single named definitions later sections reference; no other section restates the
 ## 8. Known limitations (deliberate, stated so review does not rediscover them)
 
 1. **Identical two-site narrowing defeats the cross-check** (§3.3). Irreducible in-repo; the win
-   is that the defeat is now a two-edit-plus-comment-deletion diff instead of silence.
+   is that the defeat is now a two-edit diff instead of silence (R1-5: the comment adds review
+   salience, not a third required edit).
 2. **`system_identifier` proves cluster identity, not semantic role.** If validation is ever
    re-provisioned the constant must be updated deliberately; until then the jobs are red, loudly.
    A future provider change that hides `pg_control_system()` behind the pooler is also a loud red,
    never a silent pass.
 3. **The registry totalizes over the CENSUS, not over reality.** Parent §10 item 6's scope edges
    (third schema, unrelated column names, foreign tables) bound every mechanism here too.
-4. **Probe insert shapes freeze sibling requirements.** A future NOT NULL sibling added to a
-   probed table breaks that probe loudly (insert fails with a non-23514 error, surfaced by the
-   helper's strict error filtering) — mildly noisy, never silently green.
-5. **Validation-layer floors depend on the manifest's own freshness tripwires** (layer 1). A
-   simultaneously-stale manifest AND narrowed validation census is caught only by the dev-schema
-   floor and the local dual-source check, not by the manifest floor itself.
+4. **Probe sibling scaffolding freezes sibling requirements.** A future NOT NULL sibling added to
+   a probed table breaks that probe loudly (the constructed insert fails with a non-23514 error,
+   surfaced by the helper's strict error filtering) — mildly noisy, never silently green.
+5. **Validation-layer anchors depend on their own maintenance.** The manifest anchor rides
+   layer-1 freshness tripwires; `EXPECTED_DEV_CENSUS` is hand-maintained (set-equality makes
+   staleness loud in both directions, but a reviewer approving a wrong list edit is out of scope,
+   same as any committed expectation).
 
 ## 9. Doc lockstep (same PR)
 
