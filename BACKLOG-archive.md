@@ -1000,8 +1000,7 @@ The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by 
 
 Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
 
-**Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
----
+## **Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
 ## Graduated 2026-07-27 — in-place closures swept by the sheet-icon-link whole-diff r3 review
 
@@ -1044,9 +1043,9 @@ Six findings, all verified live against `839eed829`. Items 1 and 4 are **class-w
 
 **Why this was not caught pre-merge.** The invariant-8 gate ran single-context after four sub-agent dispatches went unanswered for ~25 minutes; three of them were still working and reported hours later. The single-context run scored the surface 32/40 where the independent pair scored 30 and 29, and both independent agents rated _Recognition over recall_ at 2 — the lowest score either gave — for the reason item 1 describes.
 
-### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
+## BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
 
-**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
+**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Originally kept in BACKLOG.md as a sub-entry of its still-open parent section; graduated here 2026-07-27 when the widened terminal-status guard made in-place closures fail CI (a prose pointer remains at the former location). Original text below for provenance.
 
 `tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
 the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
@@ -1054,3 +1053,20 @@ the `quality` context". Measured live 2026-07-26: `main` requires **twelve** con
 `postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
 third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
 check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
+
+## BL-HEADER-PROBE-RESIDUAL-VACUITY — CLOSED 2026-07-26 (branch `test/header-probe-residual-closure`)
+
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, adversarial review round 3). **Class:** test hardening. **Closed:** 2026-07-26, all four findings, by changing the instrument rather than adding a fifth heuristic — exactly the disposition the original entry recommended. Spec: `docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` (Codex APPROVE R3 + plan APPROVE R4, 19 accepted findings across both artifacts).
+
+**How each finding closed:**
+
+1. **Width chain anchors all five widths.** `REAL_ROUTE_WIDTHS` now equals the `ROW_WIDTHS` key set (320/430 measured 280px/390px on the real hydrated modal, confirming the viewport-minus-40 derivation), and `tests/cross-cutting/section-header-width-anchors.test.ts` pins the set equality so a sixth matrix width cannot enter unanchored.
+2. **Interaction states are pixel-baselined.** `tests/e2e/section-header-visual.spec.ts` captures hover, keyboard focus (`:focus-visible`), held-press active, and hover+focus at all five widths in both themes (40 state baselines), each behind an exclusive pseudo-state oracle and fresh-navigation isolation.
+3. **SMIL is closed structurally.** The visual spec's DOM contract asserts zero SMIL elements in the tree (a screenshot alone is temporally escapable); a future `<animateTransform>` fails by default and forces deliberate handling.
+4. **Exotic paint suppression is subsumed by pixels.** 10 idle composite baselines (5 widths × 2 themes over all 15 matrix cells) compared at `maxDiffPixels: 0` AND `threshold: 0` — no property enumeration; any mechanism that suppresses or moves paint produces differing bytes.
+
+**Mechanism:** committed PNG baselines captured ONLY inside pinned `mcr.microsoft.com/playwright:v1.59.1-jammy` on native amd64 (`.github/workflows/section-header-visual.yml`, unfiltered PR gate; `section-header-visual-regen.yml`, post-merge dispatch regen with in-job re-comparison). Initial baselines were the gate's own failure-artifact actuals; `tests/cross-cutting/playwright-version-pin.test.ts` is now a four-workflow registry pinning image tags to the INSTALLED `@playwright/test` exactly.
+
+**Follow-up (deliberate, small):** the `section-header-visual` context is NOT yet in branch protection's required set — promote after observed-green soak, per spec §1.1.
+
+**What IS covered, cumulatively:** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 10 real-route width-chain cases (all five widths × 2 loops), green in CI; 18 mutations mapped to distinct catchers; the transition sweep both themes × five widths × three states with per-channel duration AND delay; pusher absence at three widths with a pixel-level paint test; chain coverage anchored on the canonical `SectionId` list; and the 50-baseline visual gate above.

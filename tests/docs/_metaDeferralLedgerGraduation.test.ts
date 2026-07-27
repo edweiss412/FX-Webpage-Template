@@ -191,6 +191,16 @@ const BACKLOG_GRADUATED = [
     id: "BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED",
     provenance: "PR4 of the CI-dark cluster",
   },
+  {
+    id: "BL-CI-STALE-BRANCH-PROTECTION-COMMENT",
+    provenance: "PR2 of the CI-dark cluster",
+  },
+  // Surfaced by the widened guard itself after the rebase onto 2026-07-27
+  // main: closed in place upstream with the heading-suffix spelling.
+  {
+    id: "BL-HEADER-PROBE-RESIDUAL-VACUITY",
+    provenance: "test/header-probe-residual-closure",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

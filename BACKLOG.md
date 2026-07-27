@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-27 — three in-place closures graduated on `feat/sheet-icon-link-affordance-class` (BL-HEADER-LINK-AFFORDANCE-CLASS, BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED, BL-CI-STALE-BRANCH-PROTECTION-COMMENT); all three were spelled in ways the Status-line guard could not see (heading suffix / bold opening claim), so `tests/docs/_metaDeferralLedgerGraduation.test.ts` was widened to inspect the entry heading and opening line too. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass).
+Last reconciled: 2026-07-27 — four in-place closures graduated on `feat/sheet-icon-link-affordance-class` (BL-HEADER-LINK-AFFORDANCE-CLASS, BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED, BL-CI-STALE-BRANCH-PROTECTION-COMMENT, and post-rebase BL-HEADER-PROBE-RESIDUAL-VACUITY, which upstream had closed in place); all four were spelled in ways the Status-line guard could not see (heading suffix / bold opening claim), so `tests/docs/_metaDeferralLedgerGraduation.test.ts` was widened to inspect the entry heading and opening line too. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass).
 
 ---
 
@@ -38,23 +38,6 @@ Cheap partial if it ever bites in practice: strip a trailing occurrence from the
 **Filed:** 2026-07-26 (same late Assessment A; extends the narrow-mode footprint item 6 in the 2026-07-25 post-merge review list above).
 
 The sub-block is always linkless and never flagged (its chrome provider sets no sectionId/dfid), so nothing in its header is tappable — yet `sm:min-h-tap-min` gives it the same 44px one-row shape as its parent section at `sm`+, leaving subordination to a 4px-smaller chip and 2px-smaller text. Candidates: drop the floor for `sub` at `sm`+ (`sm:min-h-0` — the narrow-mode fix already filed as item 6 applies the same conditional idea), or an `sm:pl-*` indent nesting it under its parent. Confirm-only sibling note (P3): a linkless+PILLED row would sit 32px right of a linked row's pill at `sm`+, but that combination appears unreachable in production (Diagrams is never flagged; "report" carries no pill) — verify before treating as real.
-
-## BL-HEADER-PROBE-RESIDUAL-VACUITY — CLOSED 2026-07-26 (branch `test/header-probe-residual-closure`)
-
-**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, adversarial review round 3). **Class:** test hardening. **Closed:** 2026-07-26, all four findings, by changing the instrument rather than adding a fifth heuristic — exactly the disposition the original entry recommended. Spec: `docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` (Codex APPROVE R3 + plan APPROVE R4, 19 accepted findings across both artifacts).
-
-**How each finding closed:**
-
-1. **Width chain anchors all five widths.** `REAL_ROUTE_WIDTHS` now equals the `ROW_WIDTHS` key set (320/430 measured 280px/390px on the real hydrated modal, confirming the viewport-minus-40 derivation), and `tests/cross-cutting/section-header-width-anchors.test.ts` pins the set equality so a sixth matrix width cannot enter unanchored.
-2. **Interaction states are pixel-baselined.** `tests/e2e/section-header-visual.spec.ts` captures hover, keyboard focus (`:focus-visible`), held-press active, and hover+focus at all five widths in both themes (40 state baselines), each behind an exclusive pseudo-state oracle and fresh-navigation isolation.
-3. **SMIL is closed structurally.** The visual spec's DOM contract asserts zero SMIL elements in the tree (a screenshot alone is temporally escapable); a future `<animateTransform>` fails by default and forces deliberate handling.
-4. **Exotic paint suppression is subsumed by pixels.** 10 idle composite baselines (5 widths × 2 themes over all 15 matrix cells) compared at `maxDiffPixels: 0` AND `threshold: 0` — no property enumeration; any mechanism that suppresses or moves paint produces differing bytes.
-
-**Mechanism:** committed PNG baselines captured ONLY inside pinned `mcr.microsoft.com/playwright:v1.59.1-jammy` on native amd64 (`.github/workflows/section-header-visual.yml`, unfiltered PR gate; `section-header-visual-regen.yml`, post-merge dispatch regen with in-job re-comparison). Initial baselines were the gate's own failure-artifact actuals; `tests/cross-cutting/playwright-version-pin.test.ts` is now a four-workflow registry pinning image tags to the INSTALLED `@playwright/test` exactly.
-
-**Follow-up (deliberate, small):** the `section-header-visual` context is NOT yet in branch protection's required set — promote after observed-green soak, per spec §1.1.
-
-**What IS covered, cumulatively:** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 10 real-route width-chain cases (all five widths × 2 loops), green in CI; 18 mutations mapped to distinct catchers; the transition sweep both themes × five widths × three states with per-channel duration AND delay; pusher absence at three widths with a pixel-level paint test; chain coverage anchored on the canonical `SectionId` list; and the 50-baseline visual gate above.
 
 ## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
 
