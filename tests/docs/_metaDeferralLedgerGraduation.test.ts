@@ -307,9 +307,9 @@ describe("backlog ledger graduation", () => {
     // ("NARROWED — NOT closed", "…which graduated when it shipped"), both
     // live false positives found when the unanchored form was tried.
     const TERMINAL =
-      /^\s*(?:\*\*)?Status:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+      /^\s*(?:\*\*)?Status:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
     const FILED_TERMINAL =
-      /^\s*(?:\*\*)?Filed:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+      /^\s*(?:\*\*)?Filed:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
     // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
     // line let two other spellings of the same claim through — a closure as a
     // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
@@ -320,12 +320,13 @@ describe("backlog ledger graduation", () => {
     // claim also matches unbolded ALL-CAPS ("SHIPPED …" as the first line) —
     // unbolded lowercase prose is NOT matched, since an open entry's first
     // line legitimately narrates ("Resolved only as part of BL-…" style).
-    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
     // Bold opening claim: any case ("**Resolved.**"). Bare opening claim:
     // ALL-CAPS only, so narrating prose cannot false-positive.
     const OPENING_TERMINAL_BOLD =
-      /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
-    const OPENING_TERMINAL_BARE = /^\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
+      /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/i;
+    const OPENING_TERMINAL_BARE =
+      /^\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE)\b/;
     const offenders: string[] = [];
     // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
     // same optional bracket the shoutyIds matcher already accepts.
@@ -340,7 +341,7 @@ describe("backlog ledger graduation", () => {
       // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
       // records what shipped and what did not. Only a bare terminal counts.
       const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
-      const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/.test(l)) ?? "";
+      const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/i.test(l)) ?? "";
       const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
       const filedHit = !/PARTIAL/i.test(filedLine) && FILED_TERMINAL.test(filedLine);
       const headingHit = !/PARTIAL/i.test(headingLine) && HEADING_TERMINAL.test(headingLine);

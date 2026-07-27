@@ -25,7 +25,7 @@ Heuristic total 30/40; verdict: not slop ("removes visual weight rather than add
 
 Findings:
 - **P1a (FIXED in-branch): press/hover feedback perceptually null.** text-text→text-text-strong ≈12/255 per channel on a 16px stroke, the only feedback. Fixed with the house `hover:bg-surface-sunken active:bg-surface-sunken` wash (sibling idiom: ModalCloseButton, BellPanel, HelpSheet; press idiom: ShowsTable, SwitcherControls). Colour-only — the no-transform contract holds. Token-set literal extended first (RED 4 → GREEN 9/9); spec §3 amended with provenance; D byte baseline re-regenerated.
-- **P1b (DEFERRED): `text-text-subtle` on four sibling icon-only action targets** (ModalCloseButton:20, RescanSheetButton:207, BellPanel:1198, HelpSheet:145), incl. the same-header inversion (sheet link now darker at rest than the close button beside it). → `DEFERRED.md` SHEETLINK-SUBTLE-ACTION-CLASS-1.
+- **P1b (DEFERRED): `text-text-subtle` on four sibling icon-only action targets** (ModalCloseButton:20, RescanSheetButton:207, BellPanel:1294 (bell-panel-close), HelpSheet:145), incl. the same-header inversion (sheet link now darker at rest than the close button beside it). → `DEFERRED.md` SHEETLINK-SUBTLE-ACTION-CLASS-1.
 - **P2 (recorded, no change): consuming-context requirements arrive via `className`** — a future `placement` prop would make the component self-enforcing; today the three per-site rect-intersection e2e suites pin it.
 - **P2 (recorded, ratified): invisible asymmetric target reach** — spec §1.1/§5 geometry, 5-round Codex-approved; heading-side reach never exceeds the row gap.
 - **P3 (pre-tracked): duration-fast dead token** — spec §1.6, DESTRUCT-DURATION-TOKENS-1.
