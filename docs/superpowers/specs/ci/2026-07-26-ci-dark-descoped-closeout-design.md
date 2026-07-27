@@ -153,6 +153,13 @@ file. §5.3a consolidates it onto the shared parser-based plugin; closing
   precedent `tests/e2e/compact-alert-card-layout.spec.ts:67` already uses. The surviving
   `lib/sync` value imports (`lib/sync/roleMappingOverlay.ts`, `lib/sync/pullSheetOverride.ts`)
   bring no server package into the graph.
+- **SWC directive-semantics probe (R5):** Next's installed `transformSync` (from the
+  next/dist/build/swc module) with
+  `serverActions: { isReactServerLayer: false, isDevelopment: false, useCacheEnabled: false,
+  hashSalt: '', cacheKinds: [] }` over three sources: `"use server"` → server-action output
+  (`createServerReference`), hex-escaped `"use\x20server"` → server-action output, `"not
+  server"` control → plain. SWC matches the directive's COOKED text; §5.1 follows the
+  platform, and this probe is the fixture oracle for guard case (g).
 - **`test-auth-gate` without a server:** `pnpm vitest run tests/admin/test-auth-gate.test.ts
   --project serial`, three consecutive runs: 24 passed / 3 skipped, 1.56 s / 0.70 s / 0.73 s.
   The Layer-2 probe fails fast (2 s abort ceiling, instant connection-refused on loopback) and
@@ -322,18 +329,22 @@ harness bundle MORE faithful to the production client bundle than bundling the r
 be.
 
 Detection: TypeScript compiler API (`ts.createSourceFile`), directive = a leading
-`ExpressionStatement` string literal in the module's directive prologue whose RAW source text
-is exactly `"use server"` or `'use server'` (adversarial R1 F5: both quote styles; adversarial
-R4 F2 resolution: RAW-exact, not cooked-text, deliberately — ECMAScript directive-prologue
-semantics match exact code point sequences, which is why `"use\x20strict"` is NOT a Use Strict
-Directive, and React/Next follow the same convention for `"use server"`, so an
-escape-spelled literal is not a server boundary in production either; raw matching keeps the
-harness aligned with the platform AND makes the substring pre-filter exactly as strong as the
-parse). The parse — not a regex over the file — decides placement in the prologue, so the
+`ExpressionStatement` string literal in the module's directive prologue whose COOKED text is
+exactly `use server` — either quote style (adversarial R1 F5) and any escape spelling.
+**Measured, not assumed (adversarial R4 F2 → R5 F1):** the R4 draft matched RAW source text on
+the ECMAScript use-strict convention; R5 disproved that premise against the installed
+toolchain — Next's own `transformSync` with `serverActions` enabled compiles BOTH
+`"use server"` and the hex-escaped `"use\x20server"` to `createServerReference` entries
+(control literal stays plain; probe reproduced in this worktree, §2.6). SWC matches the
+cooked text, so the harness matches the cooked text. Consequence: **no substring pre-filter
+exists** — any code point of the literal can be escape-spelled, so no raw substring test is
+sound, and every non-node_modules candidate file is parsed. The parse cost is bounded and
+measured at plan time by re-running the §2.6 prototype without its (unsound) pre-filter. The
+parse — not a regex over the file — decides placement in the prologue, so the
 regex-comment-stripping class (`feedback_regex_comment_stripping_does_not_survive_tsx`) stays
-dead. The cheap substring pre-filter checks both raw quote spellings; guard case (e) in §5.5
-pins the single-quote form, and a new guard case (g) pins that an escape-spelled
-`"use\x20server"` literal does NOT stub (matching the platform).
+dead. Guard case (e) in §5.5 pins the single-quote form; guard case (g) pins that the
+escape-spelled `"use\x20server"` form DOES stub, with the SWC probe as the recorded oracle
+for why.
 
 ### §5.2 The stub
 
@@ -434,8 +445,9 @@ than failing); (b) one FAILING fixture per unsupported §5.2 shape, also exhaust
 sync-initializer const, class declaration, and sync function declaration; (c) a directive-free fixture bundles
 its real body byte-for-byte (no stub); (d) a directive in a nested string/comment does NOT
 trigger (parse, not grep); (e) a SINGLE-QUOTED `'use server'` directive triggers identically
-to the double-quoted form; (g) an escape-spelled directive-position literal (e.g. hex-escaped
-space) does NOT trigger — raw-exact matching per §5.1; (f) a client-rendered fixture passing a stubbed action to
+to the double-quoted form; (g) an escape-spelled directive-position literal (hex-escaped
+space, `"use\x20server"`) DOES trigger — cooked-text matching per §5.1, verified against
+Next's SWC behavior; (f) a client-rendered fixture passing a stubbed action to
 `<form action={stub}>` and submitting produces the loud harness throw (the §5.2 form-action
 consumption path, measured rather than asserted). Mutation check per the guard-design ledger:
 break the plugin (make it skip stubbing) and confirm (a) reds.
@@ -548,7 +560,7 @@ no shared surface between PR-C and #613.
 | tests/ci/\_metaSpecRegistration.test.ts | created — test-shaped disk files ⊆ three-config union ∪ dark-allowlist; invocation-census + filename-belt config tripwire; shadow/stale row checks; standalone baseline (files + totalTests) == local resolution; `standalone-e2e.yml` baseline-step structural pinning (§4.1) | PR-A |
 | tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed `{files, totalTests}`; `--write` regen; pinned CI-side comparison step in `standalone-e2e.yml`; behavioral rejection test for the script (three mismatch classes exit non-zero) | PR-A |
 | tests/ci/\_metaEnvBoundExclusionCoverage.test.ts + scripts/run-excluded-test.mjs | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal `pnpm run-excluded` step verification; workflow/job qualification via the scanner's disqualification classes incl. job-level continue-on-error and working-directory redirection; alias-mapping pin + behavioral rejection test for the script (zero-passed / all-skipped / failed reports exit non-zero); dark rows are red | PR-B |
-| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(f) | PR-C |
+| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(g) | PR-C |
 | shared directive-plugin module (under `tests/e2e/helpers/`) | created — consumed by the bundleLiveEntry child script AND `tests/e2e/_step3ReviewModalBundle.mjs`, whose regex `useServerElision` is deleted (§5.3a) | PR-C |
 | `tests/e2e/_metaLiveEntryToolchain.test.ts` | edited — assertions follow the CLI→child-script move; `_step3ReviewModalBundle.mjs` exemption rationale rewritten; binary ban unchanged | PR-C |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | edited — packlist row deleted (PR-C); `report-modal` row premise restored or replaced per §3.2 (PR-A) | PR-A, PR-C |
