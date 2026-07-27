@@ -166,20 +166,22 @@ file. §5.3a consolidates it onto the shared parser-based plugin; closing
 
 A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
 
-1. Enumerates test-shaped files on disk: every file under `tests/e2e/` whose name matches the
-   `.spec.` side of Playwright's OWN default matcher — `**/*.spec.?(c|m)[jt]s?(x)`, taken
-   verbatim from the installed Playwright's common/config default matcher (adversarial R3 F2:
-   a hand-rolled extension list missed seven suffixes Playwright accepts, e.g. spec.cts and
-   spec.jsx forms). Filesystem walk, so a NEW spec fails by default — same posture as the
-   mutation-surface meta-test. Widened beyond `*.spec.ts` per adversarial R1 F8; `*.test.*`
-   is EXCLUDED per
-   adversarial R2 F1: files matching `tests/**/*.test.ts` are claimed by the Vitest project
-   globs (`vitest.projects.ts:34`) and already run in `unit-suite` — three live instances sit
-   under `tests/e2e/` today (`tests/e2e/_metaLiveEntryToolchain.test.ts`, the two
-   `tests/e2e/helpers/liveEntryToolchain.*.test.ts` files), so sweeping `.test.` into the
-   Playwright universe reds the guard on files that are not dark. A Playwright spec
-   misnamed `*.test.ts` cannot go SILENTLY dark either: the Vitest glob collects it and the
-   `@playwright/test` API fails loudly outside a Playwright runner. **Deliberate universe
+1. Enumerates test-shaped files on disk: every file under `tests/e2e/` matching Playwright's
+   OWN default matcher — `**/*.@(spec|test).?(c|m)[jt]s?(x)`, taken verbatim from the
+   installed Playwright's common/config default (adversarial R3 F2: a hand-rolled extension
+   list missed seven suffixes) — MINUS the exact extension pair the Vitest project globs
+   claim, the test.ts and test.tsx forms (`vitest.projects.ts:34`). Filesystem walk, so a NEW
+   spec fails by default — same posture as the mutation-surface meta-test. The subtraction is
+   per adversarial R2 F1 (three live Vitest files sit under `tests/e2e/` today:
+   `tests/e2e/_metaLiveEntryToolchain.test.ts` and the two
+   `tests/e2e/helpers/liveEntryToolchain.*.test.ts` files — they run in `unit-suite` and are
+   not dark), and it is EXACTLY the Vitest-claimed pair rather than all `.test.*`
+   (adversarial R4 F1: the test.js, test.mjs, test.cts forms and seven siblings are accepted
+   by Playwright but collected by NO Vitest glob, so they stay in the universe). Drift tie:
+   a test case asserts the Vitest include globs still claim exactly that pair under
+   `tests/`, so a Vitest glob change re-opens the subtraction rather than silently widening
+   it. A Playwright spec misnamed `*.test.ts` cannot go SILENTLY dark either: the Vitest glob
+   collects it and the `@playwright/test` API fails loudly outside a Playwright runner. **Deliberate universe
    boundary:** config-declared SETUP files (`screenshots-help-setup.ts`,
    `help-docs-setup.ts` — `testMatch` targets at `playwright.config.ts:136` and
    `playwright.config.ts:169`) are infrastructure, not tests; an unregistered setup file is
@@ -320,14 +322,18 @@ harness bundle MORE faithful to the production client bundle than bundling the r
 be.
 
 Detection: TypeScript compiler API (`ts.createSourceFile`), directive = a leading
-`ExpressionStatement` string literal `use server` in the module's directive prologue —
-matched on the literal's cooked TEXT, so `"use server"` and `'use server'` are the same
-directive (adversarial R1 F5: a single-quoted directive is semantically identical, and the
-regex resolver being replaced already accepts both quote styles). No regex over source — the
+`ExpressionStatement` string literal in the module's directive prologue whose RAW source text
+is exactly `"use server"` or `'use server'` (adversarial R1 F5: both quote styles; adversarial
+R4 F2 resolution: RAW-exact, not cooked-text, deliberately — ECMAScript directive-prologue
+semantics match exact code point sequences, which is why `"use\x20strict"` is NOT a Use Strict
+Directive, and React/Next follow the same convention for `"use server"`, so an
+escape-spelled literal is not a server boundary in production either; raw matching keeps the
+harness aligned with the platform AND makes the substring pre-filter exactly as strong as the
+parse). The parse — not a regex over the file — decides placement in the prologue, so the
 regex-comment-stripping class (`feedback_regex_comment_stripping_does_not_survive_tsx`) stays
-dead. A cheap substring pre-filter bounds the parse cost and MUST check both quote spellings
-(`'"use server"'` or `"'use server'"`); the parse is the decider either way, and guard case
-(e) in §5.5 pins the single-quote form.
+dead. The cheap substring pre-filter checks both raw quote spellings; guard case (e) in §5.5
+pins the single-quote form, and a new guard case (g) pins that an escape-spelled
+`"use\x20server"` literal does NOT stub (matching the platform).
 
 ### §5.2 The stub
 
@@ -428,7 +434,8 @@ than failing); (b) one FAILING fixture per unsupported §5.2 shape, also exhaust
 sync-initializer const, class declaration, and sync function declaration; (c) a directive-free fixture bundles
 its real body byte-for-byte (no stub); (d) a directive in a nested string/comment does NOT
 trigger (parse, not grep); (e) a SINGLE-QUOTED `'use server'` directive triggers identically
-to the double-quoted form; (f) a client-rendered fixture passing a stubbed action to
+to the double-quoted form; (g) an escape-spelled directive-position literal (e.g. hex-escaped
+space) does NOT trigger — raw-exact matching per §5.1; (f) a client-rendered fixture passing a stubbed action to
 `<form action={stub}>` and submitting produces the loud harness throw (the §5.2 form-action
 consumption path, measured rather than asserted). Mutation check per the guard-design ledger:
 break the plugin (make it skip stubbing) and confirm (a) reds.
@@ -549,9 +556,10 @@ no shared surface between PR-C and #613.
 ## §8 Acceptance criteria
 
 1. A new `tests/e2e/**/*.spec.ts` file registered in no config reds `unit-suite` locally and in
-   CI, naming the file and the three configs it is absent from. (Mutation-verified with TWO
-   temp files: one plain spec.ts form and one exotic-suffix member of Playwright's matcher
-   such as the spec.cts form — adversarial R3 F2 — so the widened universe glob is itself
+   CI, naming the file and the three configs it is absent from. (Mutation-verified with THREE
+   temp files: one plain spec.ts form, one exotic-suffix spec member such as the spec.cts
+   form — adversarial R3 F2 — and one Vitest-unclaimed test form such as test.mjs —
+   adversarial R4 F1 — so both the widened glob and the exact-pair subtraction are
    exercised.)
 2. A standalone-config narrowing that only manifests under the RUN's environment — whether it
    drops FILES or drops TESTS while keeping every file — reds the `standalone-e2e` job's
