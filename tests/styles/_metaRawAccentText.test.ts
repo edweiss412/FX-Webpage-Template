@@ -5,7 +5,7 @@
 // files fail by default.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { stripComments, tokensOf, walk } from "./_classScanUtils";
+import { stripComments, stripCommentsForFile, tokensOf, walk } from "./_classScanUtils";
 
 const ROOTS = ["components", "app"];
 // file:reason rows; EMPTY at ship (spec §4.4a).
@@ -56,7 +56,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
     for (const root of ROOTS) {
       for (const file of walk(root)) {
         if (ALLOWLIST.some((a) => a.file === file)) continue;
-        const lines = stripComments(readFileSync(file, "utf8")).split("\n");
+        const lines = stripCommentsForFile(readFileSync(file, "utf8"), file).split("\n");
         lines.forEach((line, i) => {
           for (const tok of tokensOf(line)) {
             if (bannedToken(tok)) violations.push(`${file}:${i + 1} ${tok}`);

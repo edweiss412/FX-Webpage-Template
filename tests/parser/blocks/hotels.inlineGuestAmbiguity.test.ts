@@ -1,0 +1,199 @@
+// tests/parser/blocks/hotels.inlineGuestAmbiguity.test.ts
+//
+// S4 red step. On an unlabeled inline hotel line nothing separates the hotel
+// from the first guest, so the parser ALWAYS judges that boundary. Spec review
+// killed five successive attempts to detect "did it judge?" from the parser's
+// OUTPUT, so the predicate is an enumeration over the parser's EXITS.
+//
+// Every case here is probe-verified against the live parser.
+import { describe, it, expect } from "vitest";
+import { parseHotels } from "@/lib/parser/blocks/hotels";
+import { newAggregator } from "@/lib/parser/warnings";
+
+const guestWarnings = (md: string, version: "v1" | "v2" | "v4" = "v2") => {
+  const agg = newAggregator();
+  const hotels = parseHotels(md, version, agg);
+  return {
+    hotels,
+    warnings: agg.warnings.filter((w) => w.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+  };
+};
+const inline = (cell: string) => `| Hotel Reservations | ${cell} |`;
+
+describe("inline hotel guest ambiguity", () => {
+  // THE discriminator. Both inputs parse to `names: []` and have OPPOSITE
+  // requirements, so they are the only pair that separates the ratified design
+  // from the two predicates spec review rejected:
+  //   `groupIndex === 0 && names.length > 0`  fails the first
+  //   "warn on every group-0 final return"    fails the second
+  // Neither wrong predicate fails any other test in this file.
+  describe("the row 5 / row 6 discriminator pair", () => {
+    it("WARNS when a guest region was examined and yielded nothing (row 5)", () => {
+      const { hotels, warnings } = guestWarnings(
+        inline("Hyatt Place Check In: 5/1 Check Out: 5/2 Eric"),
+      );
+      expect(hotels[0]!.names, "precondition: the guest was dropped").toEqual([]);
+      expect(
+        warnings,
+        "a silently dropped guest is the harm this feature exists to surface",
+      ).toHaveLength(1);
+    });
+
+    it("stays SILENT when no guest region existed at all (row 6)", () => {
+      const { hotels, warnings } = guestWarnings(
+        inline("Hyatt Place Check In: 5/1 Check Out: 5/2"),
+      );
+      expect(hotels[0]!.names).toEqual([]);
+      expect(warnings, "no boundary was judged, so no warning is owed").toHaveLength(0);
+    });
+  });
+
+  describe("fires once per producing exit", () => {
+    it.each([
+      [
+        "learn-k-peel",
+        "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525",
+      ],
+      ["legacy-dash-pattern", "Hyatt Regency Eric Weiss - 110525"],
+      [
+        "titlecase-pairing",
+        "Four Seasons Chicago Eric Weiss 2004173 In on the 6th out on the 10th",
+      ],
+    ])("%s", (_label, cell) => {
+      const { warnings } = guestWarnings(inline(cell));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.resolution).toEqual({
+        resolvable: false,
+        reason: "raw-not-guest-scoped",
+      });
+    });
+  });
+
+  // Each of these is a live mis-parse that some rejected predicate let through.
+  describe("the counterexamples that killed the narrower predicates", () => {
+    it.each([
+      // two corroborating later guests still cannot validate the FIRST guest
+      "Hyatt Regency Mary Ann Smith - 110525 John Smith - 103316 Jane Doe - 103317",
+      // an explicit `Guests:` label does not delimit one guest from another
+      "Hyatt Place 123 Main St Check In: 5/1 Check Out: 5/2 Guests: Mary Ann Smith John Doe",
+      // no delimiter at all: "Hyatt Place" itself is read as a person
+      "Hyatt Place Check In: 5/1 Eric Weiss John Smith",
+    ])("warns on %s", (cell) => {
+      expect(guestWarnings(inline(cell)).warnings).toHaveLength(1);
+    });
+  });
+
+  // Whole-diff R5 f1: the legacy matchers are ASCII-title-case, so a line with
+  // guest EVIDENCE (a dash-conf delimiter or bare conf#) whose name defeats
+  // every pattern — non-ASCII, all-caps, initials — used to reach the final
+  // return with examinedGuestRegion false: guest silently lost, zero warnings,
+  // the feature's motivating harm. Guest evidence at the final return IS an
+  // examined guest region, whatever the patterns lifted.
+  describe("guest evidence with pattern-defeating names still warns", () => {
+    // One case per evidence ARM (whole-diff R6 f3): the first two share a
+    // dash-prefixed six-digit conf that satisfies BOTH the bare-6+ shortcut and
+    // the dash loop, so deleting either arm alone stayed green. The last three
+    // each satisfy exactly one arm — dash + 4-5 digits (dash loop only), bare
+    // 6+ digits (shortcut's first alternate only), no-dash # + 4 digits
+    // (shortcut's second alternate only) — and use an initialed all-caps name
+    // so every pattern still lifts nothing.
+    it.each([
+      ["non-ASCII name", "Hyatt Regency José Núñez - 110525 Check In: 5/1 Check Out: 5/2"],
+      ["all-caps name", "Hyatt Regency JANE SMITH - 110525 Check In: 5/1 Check Out: 5/2"],
+      ["dash + 4-5 digit conf only", "Hyatt Regency J. SMITH - 12345 Check In: 5/1 Check Out: 5/2"],
+      ["bare 6+ digit conf only", "Hyatt Regency J. SMITH 123456 Check In: 5/1 Check Out: 5/2"],
+      ["no-dash #-conf only", "Hyatt Regency J. SMITH #1234 Check In: 5/1 Check Out: 5/2"],
+    ])("warns on %s", (_label, cell) => {
+      const { warnings } = guestWarnings(inline(cell));
+      expect(warnings, "guest evidence present — silence is a guest-loss").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
+    });
+  });
+
+  describe("stays silent where no boundary was judged", () => {
+    it("no-guest split path (row 2)", () => {
+      const { hotels, warnings } = guestWarnings(inline("Hyatt Regency - 1515 Madison Ave"));
+      expect(hotels[0]!.names).toEqual([]);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it("the structured path is untouched by this predicate", () => {
+      const structured = [
+        "| HOTEL | RESERVATION \\#1 |",
+        "| :---: | :---: |",
+        "|  | Hotel Name / Address |",
+        "|  | Hotel One |",
+        "|  | Names on Reservation |",
+        "|  | Douglas Larson - \\#2069854 |",
+      ].join("\n");
+      expect(guestWarnings(structured, "v4").warnings).toHaveLength(0);
+    });
+  });
+
+  // Spec §3.1 row 7 is unconditional: a later group (index > 0) NEVER emits —
+  // its hotel is assigned by inheritance, so no hotel/first-guest boundary is
+  // judged for it. Whole-diff R1 finding 4 asked for a carve-out ("warn when a
+  // later group carries its own hotel text") and three successive predicates
+  // tried to supply one — group index guard, leading-divider run, residual-word
+  // check. All three were proxies over parser OUTPUT and each was wrong in both
+  // directions (whole-diff R3 finding 1), which is the spec's own §3.1 claim
+  // ("no output-derived rule can work") re-proven. The carve-out is refuted as
+  // relitigation of ratified row 7; the underlying own-hotel clobber is a
+  // pre-existing parse defect filed as BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL.
+  describe("later groups", () => {
+    it("stays SILENT for a later group even when it carries its own hotel text", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+            "Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
+        ),
+      );
+      expect(warnings, "row 7: later groups never emit").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
+    });
+
+    it("stays SILENT for a divider-prefixed later group with its own hotel", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 " +
+            "----- Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4",
+        ),
+      );
+      expect(warnings, "row 7 has no divider condition").toHaveLength(1);
+      expect(warnings[0]!.blockRef).toMatchObject({ index: 0 });
+    });
+
+    it("stay SILENT for a guest-only group with NO divider", () => {
+      const { warnings } = guestWarnings(
+        inline(
+          "Four Seasons Chicago 120 E Delaware Pl Doug Larson-2035940 Check In: 10/7 Check Out: 10/10 " +
+            "Eric Weiss-2035937 Check In: 10/7 Check Out: 10/9",
+        ),
+      );
+      expect(warnings, "no hotel text of its own, so it inherited").toHaveLength(1);
+    });
+
+    it("stay SILENT when the group is a divider + guest that inherits the hotel", () => {
+      // The consultants shape: group 2 is "----- Eric Weiss—2035937 Check In…".
+      const { warnings } = guestWarnings(
+        inline(
+          "Four Seasons Chicago 120 E Delaware Pl Doug Larson—2035940 Check In: 10/7 Check Out: 10/10 " +
+            "------------------------- Eric Weiss—2035937 Check In: 10/7 Check Out: 10/9",
+        ),
+      );
+      expect(warnings, "the later group judged nothing — it inherited the hotel").toHaveLength(1);
+    });
+  });
+
+  it("carries the full warning envelope", () => {
+    const cell = "Hyatt Regency Eric Weiss - 110525";
+    const { warnings } = guestWarnings(inline(cell));
+    const w = warnings[0]!;
+    expect(w.severity).toBe("warn");
+    expect(w.blockRef).toMatchObject({ kind: "hotels", field: "guests", index: 0 });
+    expect(w.rawSnippet).toBe(cell);
+    expect(w.message).toBe(
+      `Hotel line "${cell}" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.`,
+    );
+  });
+});

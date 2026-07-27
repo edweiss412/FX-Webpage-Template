@@ -13,10 +13,11 @@ import { AMBIGUITY_CODES, isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
 import { GAP_CLASSES } from "@/lib/parser/dataGaps";
 
 describe("AMBIGUITY_CODES registry", () => {
-  it("has exactly the four ratified members", () => {
+  it("has exactly the five ratified members", () => {
     expect([...AMBIGUITY_CODES].sort()).toEqual([
       "CREW_COLUMN_POSITIONAL_FALLBACK",
       "DATE_ORDER_SUGGESTS_DMY",
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
       "HOTEL_GUEST_SPLIT_AMBIGUOUS",
       "ROOM_HEADER_SPLIT_AMBIGUOUS",
     ]);

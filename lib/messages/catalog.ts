@@ -214,7 +214,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → re-choose if still needed",
     helpfulContext:
-      "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+      "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, a hotel name and address, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
     title: "Using the sheet's raw text was reset",
     longExplanation:
       "You'd told us to keep an ambiguous cell's raw text as-is instead of our automatic split. The cell was edited since, so the pinned text no longer matches the sheet. We dropped that choice and resumed reading the cell normally. Re-open the show and choose 'use the sheet's raw value' again if you still want it for the updated cell.",
@@ -1368,16 +1368,31 @@ export const MESSAGE_CATALOG = {
   HOTEL_GUEST_SPLIT_AMBIGUOUS: {
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
     dougFacing:
-      "A guest line in _<sheet-name>_'s hotel section may contain more than one person; check the hotel guest list against your sheet.",
+      "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     crewFacing: null,
     followUp: "Doug → spot-check hotel guests",
     helpfulContext:
-      "A hotel guest cell looked like several people glued together, so we made a judgment call splitting them. Check the guest list in case two people were merged or one was split.",
-    triggerContext: "Appears when one guest cell seems to hold more than one name.",
-    title: "A hotel guest cell may hold more than one person",
+      "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
+    triggerContext: "Appears when a hotel line could be read more than one way.",
+    title: "A hotel line may be read wrong",
     longExplanation:
-      "A hotel guest cell looked like it might contain several guests glued together, so we made a judgment call about where one guest ends and the next begins. The guests still parsed; spot-check the hotel guest list in case two people were merged or one was split.",
+      "A hotel line could be read more than one way, so we made a judgment call about where each part starts and ends. Spot-check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
     helpHref: "/help/errors#HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  },
+  HOTEL_ADDRESS_SPLIT_AMBIGUOUS: {
+    code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    dougFacing:
+      "A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.",
+    crewFacing: null,
+    followUp: "Doug → spot-check hotel name and address",
+    helpfulContext:
+      "A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.",
+    triggerContext:
+      "Appears when a hotel line's name and street address may not have been separated correctly.",
+    title: "A hotel name and address may be split wrong",
+    longExplanation:
+      "A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.",
+    helpHref: "/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
   },
   DATE_ORDER_SUGGESTS_DMY: {
     code: "DATE_ORDER_SUGGESTS_DMY",

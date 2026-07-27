@@ -100,6 +100,24 @@ Titles and alt text come from admin-entered Google Sheet cells, so the input is 
 
 Cheap partial if it ever bites in practice: strip a trailing occurrence from the interpolated value before appending.
 
+## BL-HEADER-JUDGMENT-CHIP-CONTRAST — the judgment icon chip is near-invisible, and the sm+ row made it load-bearing
+
+**Filed:** 2026-07-26 (late-arriving impeccable Assessment A on PR #612 — the dispatched sub-agents' results landed post-merge; the inline degraded run had missed all three findings below).
+
+`bg-info-bg` (#eeeae3, `app/globals.css:295`) against the clean chip's `bg-surface-sunken` (#f4f3f1, `app/globals.css:278`) is ~1.06:1 in light mode; at 28px the two chips differ only by a hairline `border-border`. Below `sm` this barely mattered — the "Parsed with judgment" pill sat directly under the name. At `sm`+ (PR #612) the pill migrates to the row's far edge (up to ~600px away at the 744px cap), so the only cue NEXT TO the name for the judgment state is a chip that reads as clean. Flagged is unaffected (amber is distinct). Fix candidates that do not touch the ratified pill placement: `border-border-strong` on the judgment chip, or an info fill separable from `surface-sunken`. Contrast-pin any new/repurposed token per the pre-code mechanical UI gate.
+
+## BL-HEADER-PILL-LINK-TOUCH-BUFFER — zero dead zone between the inline pill and the sheet link's hit area on touch
+
+**Filed:** 2026-07-26 (same late Assessment A).
+
+`sm:gap-2.5` + `sm:ml-0.5` = 12px, exactly the `before:-inset-3` reach — the 44px hit area is TANGENT to the pill's right edge (the #612 spec fixed the 2px overlap to tangency, pinned by an `elementFromPoint` case at the pill's right-edge-minus-1px). But `sm`+ is not mouse-only: a phone in landscape (~852px viewport) takes the inline branch, and a thumb landing 1px right of "Needs a look" opens a new tab. `sm:ml-1` (4px, tokenized) would buy a 2px dead zone at negligible visual cost; the existing tangency test keeps passing and a second probe just outside the pill edge could pin the buffer.
+
+## BL-HEADER-SUBBLOCK-HIERARCHY-WIDE — the Diagrams sub-block's subordination signal thins out in the sm+ row
+
+**Filed:** 2026-07-26 (same late Assessment A; extends the narrow-mode footprint item 6 in the 2026-07-25 post-merge review list above).
+
+The sub-block is always linkless and never flagged (its chrome provider sets no sectionId/dfid), so nothing in its header is tappable — yet `sm:min-h-tap-min` gives it the same 44px one-row shape as its parent section at `sm`+, leaving subordination to a 4px-smaller chip and 2px-smaller text. Candidates: drop the floor for `sub` at `sm`+ (`sm:min-h-0` — the narrow-mode fix already filed as item 6 applies the same conditional idea), or an `sm:pl-*` indent nesting it under its parent. Confirm-only sibling note (P3): a linkless+PILLED row would sit 32px right of a linked row's pill at `sm`+, but that combination appears unreachable in production (Diagrams is never flagged; "report" carries no pill) — verify before treating as real.
+
 ## BL-HEADER-LINK-AFFORDANCE-CLASS — the corner sheet link paints as non-interactive, in three spellings, across three call sites
 
 **Filed:** 2026-07-26 (post-merge independent design review of PR #605 — see that batch's close-out §12 for why the review landed late). **Class:** UI affordance + a11y. **Effort:** S per item, M if taken as the class sweep it should be. **Gate:** invariant-8 impeccable dual-run, since every item is a UI surface.
@@ -110,10 +128,10 @@ Six findings, all verified live against `839eed829`. Items 1 and 4 are **class-w
 2. **No new-tab cue.** `components/admin/wizard/Step3SheetCard.tsx:152` appends "(opens in a new tab)" to its accessible name; the rebuilt link's `aria-label` does not, while carrying `target="_blank"`. The visible words used to imply it. Fix: match the sibling's phrasing. **CLOSED by PR #592** (`fix/newtab-announcement-family`), which merged this batch and re-applied its announcement at the relocated anchor: the label now reads `Open the source sheet for <label> (opens in a new tab)`, with a `.trim()` fallback to `Open the source sheet (opens in a new tab)` so a blank section label yields no dangling "for". Item 3's point about the stale precedent comment also landed there — the comment now states the label carries the announcement and that WCAG 2.5.3 no longer constrains it.
 3. **The justifying comment cites the wrong precedent.** It reads "the show card's own header already uses an icon-only sheet link, so this is a consistency fix." `Step3SheetCard.tsx` renders a TEXT title link with a trailing glyph — not icon-only. The genuine icon-only precedent is `PublishedReviewModal.tsx:721`. The decision is fine; its stated reason points at the wrong sibling and should not be inherited by the next author.
 4. **One 44px hit area, three spellings, three aria phrasings.** `size-tap-min` on a 44px box (PublishedReviewModal), `size-5` plus `before:-inset-3` (the rebuild), and an inline glyph after text (Step3SheetCard). Pick one idiom and one phrasing; a shared component is the obvious end state.
-5. **The hit overlay bleeds onto the name.** `before:-inset-3` is 12px against the row's `gap-2.5` (10px), and the anchor is `relative` while the centred name group is not positioned — so the overlay paints over the gap plus roughly 2px of the name. The last sliver of a full-width name opens the sheet. **The tap-target test cannot catch this**: it asserts that points inside the expanded box DO hit the link (the intended behaviour) and probes just outside at `box.left - 3`, which is beyond the overlay. Fix: `before:-inset-y-3 before:-inset-x-2.5`, and extend the test to assert the overlay does not cover the heading's rect.
-6. **Sub-blocks take a top-level footprint.** `min-h-tap-min` is unconditional on the header line (`components/admin/wizard/step3ReviewSections.tsx:919`), so the Diagrams sub-block — which never renders a link, so the tap floor buys nothing there — occupies the same 44px as a peer section, working against the deliberate `size-6` / `text-sm` subordination. Fix: `${sub ? "" : "min-h-tap-min"}`.
+5. **The hit overlay bleeds onto the name (below `sm`).** `before:-inset-3` is 12px against the row's `gap-2.5` (10px), and the anchor is `relative` while the centred name group is not positioned — so the overlay paints over the gap plus roughly 2px of the name. The last sliver of a full-width name opens the sheet. **The tap-target test cannot catch this**: it asserts that points inside the expanded box DO hit the link (the intended behaviour) and probes just outside at `box.left - 3`, which is beyond the overlay. Fix: `before:-inset-y-3 before:-inset-x-2.5`, and extend the test to assert the overlay does not cover the heading's rect. (At `sm`+ the neighbour is the inline pill, and that side IS resolved: `sm:ml-0.5` makes gap+margin equal the 12px overlay, pinned by an `elementFromPoint` case — spec 2026-07-26. The narrow name-side bleed above still stands.)
+6. **Sub-blocks take a top-level footprint.** `min-h-tap-min` is unconditional on the header line below `sm` (and on the outer row via `sm:min-h-tap-min` at `sm`+, where the line-1 wrapper is boxless — spec 2026-07-26), so the Diagrams sub-block — which never renders a link, so the tap floor buys nothing there — occupies the same 44px as a peer section, working against the deliberate `size-6` / `text-sm` subordination. Fix: `${sub ? "" : "min-h-tap-min"}`.
 
-**Out of bounds: the centred title.** Both reviewers raised it; it is owner-ratified from a measured four-way comparison. Do not reopen it here. One factual note from that discussion is worth carrying, and is a datum rather than an opinion: **all four compared options were centred variants, so no left-aligned baseline was ever measured.** If the scan-axis cost is revisited, that measurement is what is missing.
+**Out of bounds: the centred title (below `sm`).** Both reviewers raised it; it is owner-ratified from a measured four-way comparison, and **superseded at `sm`+ by the 2026-07-26 wide-inline spec (owner re-decision): wide screens are now left-aligned**. Still out of bounds below `sm`. The old datum — that all four compared options were centred variants, so no left-aligned baseline was measured — is now historical: the `sm`+ row IS the left-aligned treatment.
 
 **Why this was not caught pre-merge.** The invariant-8 gate ran single-context after four sub-agent dispatches went unanswered for ~25 minutes; three of them were still working and reported hours later. The single-context run scored the surface 32/40 where the independent pair scored 30 and 29, and both independent agents rated _Recognition over recall_ at 2 — the lowest score either gave — for the reason item 1 describes.
 
@@ -125,14 +143,14 @@ Three review rounds produced 13 / 14 / 13 findings, all one vector: _this assert
 
 **Open, with what each would cost:**
 
-1. **The real-route width chain anchors only 375 and 1280.** 320 and 430 are assumed, so a breakpoint changing pane padding at either would leave 60 static matrix cases green against counterfactual container widths. Closing it means two more hydrated-modal mounts in `tests/e2e/admin-layout-dimensions.spec.ts` (~2 min of CI each).
+1. **The real-route width chain anchors only 375, 640 and 1280 (640 added 2026-07-26).** 320 and 430 are assumed, so a breakpoint changing pane padding at either would leave 60 static matrix cases green against counterfactual container widths. Closing it means two more hydrated-modal mounts in `tests/e2e/admin-layout-dimensions.spec.ts` (~2 min of CI each).
 2. **`:active`, and simultaneous hover+focus, are not swept.** `active:transition-transform` on the corner link would shift it during a real press. The three swept states (idle, hover, focus) do not compose.
 3. **SVG SMIL is invisible to the sweep.** An `<animateTransform>` inside the status icon moves geometry while every CSS channel reads `none`. No such element exists in the tree today; `lucide-react` emits static paths.
 4. **Exotic paint suppression.** `clip-path: inset(50%)`, a transparent `mask`, and `filter: opacity(0)` are now checked, but the check is pattern-based — a computed `clip-path` expressed differently, or a partially transparent mask, would slip through.
 
 **Before picking any of these up, decide whether the answer is a fifth heuristic or a different instrument.** A visual-regression baseline over the header row would subsume 2, 3 and 4 at once by comparing PIXELS instead of enumerating the ways pixels can go missing — and the repo already has the pinned-Docker discipline that such a gate requires (see the byte-comparison rule in AGENTS.md). That is likely the better spend than another round of property lists.
 
-**What IS covered, so this entry is not read as "the probes are weak":** 89 standalone layout cases and 4 real-route cases, green in CI; 18 mutations run across the batch, each mapped to a distinct catcher; the transition sweep runs both themes x four widths x three states with per-channel duration AND delay; pusher absence runs at three widths with a pixel-level paint test; chain coverage is anchored on the canonical `SectionId` list rather than on the rendered DOM.
+**What IS covered, so this entry is not read as "the probes are weak":** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 6 real-route width-chain cases, green in CI; 18 mutations run across the batch, each mapped to a distinct catcher; the transition sweep runs both themes x five widths (320/375/430/640/1280) x three states with per-channel duration AND delay; pusher absence runs at three widths with a pixel-level paint test; chain coverage is anchored on the canonical `SectionId` list rather than on the rendered DOM.
 
 ## BL-HEADER-FONT-FALLBACK-WRAP — nothing loads Inter, so a bare-Linux client gets a much wider fallback
 
@@ -163,6 +181,137 @@ The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by 
 Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
 
 **Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
+
+## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
+
+Four items below were **designed, built, and measured**, then descoped after four cross-model
+review rounds (37 accepted findings, none disputed) on branch `feat/ci-dark-coverage`. The owner
+chose to ship the provably-sound subset rather than keep iterating.
+
+**Do not re-derive this analysis.** Each entry records what was tried and the measurement that
+killed it. The reason each is open is that the obvious approach was implemented and shown not to
+work, not that nobody thought about it. Full write-up with metafile traces and per-entry bundle
+sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
+
+### BL-HARNESS-RESOLVER-POLICY — a sound server-only resolver for browser harnesses
+
+**Status:** OPEN · **Severity:** medium · **Class:** TEST-HARNESS SOUNDNESS
+
+A rule-based esbuild plugin (`onResolve` matching server-only specifiers, `onLoad` returning a CJS
+proxy stub) **was built and it works**: all 7 live harness entries build, all 7 render in a real
+browser, and no stub is called. It was descoped because its safety _guarantee_ is unsound, not
+because it fails.
+
+Measured, in order:
+
+1. **A proxy is consumable without being invoked.** `flags.code === "show_not_found"` compares a
+   proxy and quietly yields `false`; a truthiness test is always `true`; a destructured constant
+   stays a proxy. Nothing throws, the harness renders, and assertions run against altered
+   behaviour. No render check or call-counter can observe this.
+2. **A strict throw-on-any-property-read stub** gives byte-identical DOM and zero errors on 4 of 5
+   probed entries and **breaks the fifth's build** — esbuild reads module properties at bundle time
+   to resolve named exports.
+3. **Path rules overmatch**, with two named live instances: `lib/drive/driveFolderUrl.ts` is a pure
+   string function reachable from the alert-card harness via `lib/adminAlerts/alertActions.ts`
+   (fails LOUDLY, a call throws), and `SHOW_NOT_FOUND` at
+   `app/admin/show/[slug]/_actions/shared.ts:35` is the silent shape — real, but currently
+   unreachable from any harness, so latent.
+4. **A packages-and-builtins-only rule set** (zero overmatch surface) fails four times in sequence:
+   `node:fs/promises` unresolved, then a stub under-export, then `HASH_FOR_LOG_PEPPER` thrown at
+   module load, then `__dirname is not defined`.
+5. **A sentinel-based guard** detects only preselected sentinels, so it cannot support the claim it
+   exists to support.
+
+**Fix direction if resumed:** a graph-derived rule — stub a module iff it transitively imports a
+server-only package — rather than a path heuristic. **Trigger:** a second harness entry reaching
+the server tree.
+
+### BL-HARNESS-PACKLIST-SERVER-GRAPH — return `packlist-rescan-recovery` to the standalone config
+
+**Status:** OPEN · **Severity:** low (the spec was already dark; nothing that ran was lost)
+
+Removed from `tests/e2e/standalone.config.ts` because the whole-config CI job cannot carry a red
+spec, and no per-module alias list fixes it. Its entry reaches the entire server tree — traced by
+esbuild metafile:
+
+```
+_packListRescanLiveEntry.tsx -> step3ReviewSections.tsx -> UseRawControlBoundary.tsx
+  -> app/admin/show/[slug]/_actions/useRaw.ts ("use server")
+  -> lib/sync/runManualSyncForShow.ts -> runScheduledCronSync.ts -> googleapis (913 graph inputs)
+```
+
+`lib/sync/lockedShowTx.ts` reaches the `postgres` driver by a parallel edge. Stubbing that one
+boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgres`. A 4-entry
+alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
+`step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
+modules at module scope.
+
+### BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+`standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
+adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
+caught the stale `overrideableField.layout`), but cannot see a spec that was never listed.
+
+Two detector definitions were tried and both fail: "calls the toolchain helper" is neither
+necessary nor sufficient, and "imports `node:http`/`node:https`" misses harnesses that boot no
+server — `tests/e2e/phantomGapHelper.layout.spec.ts` drives `page.setContent`, and `data:`
+navigation and route-fulfillment harnesses evade it identically. **Trigger:** a new standalone spec
+discovered dark, which is the event this would have prevented.
+
+### BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+`ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
+`VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
+file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
+while passing locally.
+
+Three formulations failed:
+
+1. **Matching a filename in a `run:` block** counts `echo <file>`, shell comments, and dead
+   branches as coverage.
+2. **Applying capability checks to a resolved alias body** cannot distinguish a runner argument
+   from arbitrary shell: `false && vitest run <f>`, `true || vitest run <f>`, `if false; then …`.
+3. **Resolved-config inclusion** is decidable, but must be resolved under the _same env CI sets_
+   (measured: env unset → 8 tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → `No test files found, exit
+1`), and pairing it with a `--project` run check reintroduces the shell problem for the run half.
+
+Current state of the other two entries, both invisible to any check built so far:
+`tests/admin/test-auth-gate.test.ts` runs **nowhere**, and
+`tests/cross-cutting/email-canonicalization.test.ts` runs only in an `x-audits.yml` job carrying a
+job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
+`tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
+dark-exclusion incident.
+
+### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets
+
+**Status:** OPEN · **Severity:** LOW (guard completeness, not a live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR2 of the CI-dark cluster, adversarial R4)
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; the measurements are below.
+
+`tests/ci/_standaloneConfigProbe.ts` proves that under the environment it can construct, `tests/e2e/standalone.config.ts` resolves to exactly the 30 spec files whose allowlist rows PR #609 deleted. Membership comes from Playwright's own `--list`, so `projects[].testMatch`, `testIgnore`, `testDir`, `projects: []`, and `grep`/`grepInvert` are all resolved by Playwright rather than modelled, and a companion assertion requires that resolved set to equal what the top-level `testMatch` declares (verified by mutation: a project-level `testMatch` reds it).
+
+**The gap:** a config branching on a variable only the runner sets. The probe pins `CI` and `GITHUB_ACTIONS` and asserts the matcher is identical with and without them, but a branch on `GITHUB_EVENT_NAME`, on another runner default, or on workflow/job/step `env` is invisible to any LOCAL probe **by construction** — the CI environment is not reproducible on a developer machine. Two concrete mutations that pass today's parity check while narrowing under Actions: `process.env.GITHUB_EVENT_NAME === "pull_request"` and `process.env.NODE_ENV === "test"`.
+
+**Why it is not patched:** enumerating variables is the mechanism that failed in rounds 1–3 (regex reader → AST reader → semantics modelling), each replaced rather than extended. A fourth enumeration would be the same shape.
+
+**Mitigation already in place (procedural, and it holds):** the job is unfiltered and runs the WHOLE config on every PR, so a config that narrowed under Actions would show a reduced test count in the run log — 404 tests across 30 files is the current baseline.
+
+**If picked up:** the sound fix is to compare the CI run's own reported test count against a committed baseline, i.e. verify in the environment rather than predict it locally.
+
+### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
+
+**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
+the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
+`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
+`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
+third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
+check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
@@ -587,23 +736,7 @@ The Flow-8 audit item 8.4 (`docs/audits/e2e-real-world-variation-preparedness-20
 
 ---
 
-## Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)
-
-Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWalker.test.ts`, spec `2026-07-07-ambiguity-warnings-v1-design.md` §6) declares as `exempt: "deferred:BL-..."` — value-producing judgment sites that do NOT yet emit an `AMBIGUITY_CODES` warning. Each is a concrete deferral (the walker fails if the ref is missing here), not a silent gap.
-
-### BL-PARSER-HOTEL-INLINE-AMBIGUITY — emit an ambiguity warning for inline (unstructured) hotel-guest paths
-
-**Status:** OPEN (2026-07-07, ambiguity-warnings-v1) · **Severity:** low · **Class:** PARSER AMBIGUITY COVERAGE
-
-`hotels.ts` emits `HOTEL_GUEST_SPLIT_AMBIGUOUS` only from the **structured** `parseGuestCell` path (spec §4.2). The **inline** guest-extraction paths (guest names glued into an unstructured hotel/reservation line, not the pipe-structured guest cell) make the same class of split judgment but do not yet surface a warning. Deferred: the inline paths are lower-frequency in the live corpus and share no collector with `parseGuestCell`, so wiring them is a separate emit unit + fixture effort. Declared as `{ site: "inline guest paths", exempt: "deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY" }` in `hotels.ts` `TRANSFORM_SITES`. Trigger to promote: a live show where an inline guest line is mis-split with no operator signal.
-
-### BL-PARSER-ADDRESS-SPLIT-AMBIGUITY — emit an ambiguity warning for `splitHotelNameAddress` name/address splits
-
-**Status:** OPEN (2026-07-07, ambiguity-warnings-v1) · **Severity:** low · **Class:** PARSER AMBIGUITY COVERAGE
-
-`splitHotelNameAddress` (`hotels.ts:329`) splits a combined `<hotel name> <street address>` string into a name and an address by a suffix-only heuristic — a genuine judgment call that produces a value but emits no ambiguity warning when the boundary is uncertain. Deferred: the current heuristic is strictly suffix-anchored and low-risk; adding an ambiguity signal needs a defined uncertainty threshold + its own emit unit test to avoid warn-spam on the common unambiguous case. Declared as `{ site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" }` in `hotels.ts` `TRANSFORM_SITES`. Trigger to promote: a live show where a name/address split lands wrong with no operator signal.
-
----
+## Crew-page share-link chrome (2026-07-14, share-link-instant-rotate-dedup)
 
 ## Share hub follow-ups (2026-07-25, share-link-chrome-backlog)
 
@@ -631,25 +764,17 @@ Measured while writing the cue's teardown coverage: rendering ShareHub arms zero
 
 Consequence today is limited to test hygiene: it makes a global `vi.getTimerCount()` assertion unusable, which is why `shareHubFlashState.test.tsx` measures a delta against a post-open baseline rather than expecting zero. Trigger: bisect the popover's children for the un-cleared `setTimeout`, or promote if a real leak surfaces under repeated modal open/close.
 
-## Destructive-confirm family (2026-07-16/17, destructive-confirm-pass + destruct1-armed-reflow)
+## BL-DURATION-TOKENS-EMIT-NO-CSS — `duration-fast` / `duration-normal` are inert across 89 files
 
-### BL-DESTRUCT-STACK-THUMB-ORDER — reconsider destructive-vs-safe order when the pending discard buttons stack
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P1) · **Severity:** MEDIUM · **Class:** DESIGN TOKEN WIRING, repo-wide
 
-**Status:** OPEN (2026-07-17, destruct1-armed-reflow impeccable critique P2) · **Severity:** low · **Class:** UI MOBILE ERGONOMICS
+Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.
 
-When `PendingPanelDiscardButtons` stacks full-width `< sm` (DESTRUCT-1 fix), the irreversible "Permanently ignore" sits BELOW the safe "Defer until modified" — i.e. nearest a resting thumb (impeccable critique P2, persona Casey). Mitigated already by the two-tap arm→confirm guard + 4s auto-revert. NOT fixed in the DESTRUCT-1 branch because the obvious fix (a `< sm` visual reorder) is a trap: a CSS `order` flip desyncs DOM/visual order on a destructive control (WCAG 2.4.3 focus-order regression) and would also flip the conventional Defer-left / Ignore-right at `≥ sm`; a DOM reorder fixes the stacked case but breaks the side-by-side order. A real fix needs either a breakpoint-forked render (two DOM orders) or a deliberate spacing/affordance change, weighed against the guard already covering the mis-tap. Trigger: next admin mobile pass, or a venue-floor mis-tap report on this specific control.
+## BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS — the armed window closes silently for screen readers
 
-### BL-DESTRUCT-CONFIRM-COPY-HARMONIZE — harmonize confirm-label grammar + auto-revert timing across destructive surfaces
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P2) · **Severity:** LOW · **Class:** A11Y, destructive-confirm family
 
-**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** low · **Class:** UI CONSISTENCY
-
-Morph guards say "Confirm: X" while panel confirms say bare "Confirm revoke|reset|rotate|dismiss"; panels auto-revert at 3s (`AUTO_REVERT_MS`) while guards + Archive use 4s (`ARM_REVERT_MS`). One grammar + one timing constant across all 11 recipe surfaces. DEFERRED.md DESTRUCT-2. Trigger: next destructive-surface polish pass.
-
-### BL-DESTRUCT-BULK-UNDO-SUCCESS-STATUS — announce bulk-undo full success to screen readers
-
-**Status:** OPEN (2026-07-16, destructive-confirm-pass) · **Severity:** low · **Class:** UI A11Y
-
-`RecentAutoAppliedStrip` renders the aggregate outcome only when `failed > 0`; an all-success bulk undo self-heals visually (rows drop on revalidate) but emits no `role="status"` confirmation for SR users. Net-new affordance beyond spec §6 F2's ratified failure-only alert. DEFERRED.md DESTRUCT-3. Trigger: bundled with BL-DESTRUCT-CONFIRM-COPY-HARMONIZE or an SR-user report.
+Two gaps on the shared two-tap idiom, neither specific to one surface. The ARM itself is announced on the surfaces that carry a live region (`PendingPanelDiscardButtons` uses `role="status"`), so this row is about the close, not the open (R12 F3). (1) **Silent disarm:** at 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. (2) **Timing:** 4s is tight against ~3s of polite speech for the arm message, so a screen-reader user may not finish hearing the prompt before the window closes. Fixing either well means revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a family-wide decision (11 surfaces) rather than a component one. **Trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
 
 ## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — dashboard staged apply treats identity-link renames as remove+add
 
@@ -662,22 +787,6 @@ The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked r
 **Filed:** 2026-07-17 (role-flags-notice-lead-only-doug, owner scope decision) · **Class:** docs (canonical-spec consistency) · **Effort:** S (doc-only grep-sweep)
 
 Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FINANCIALS` role flag but did not reconcile the master spec's (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) ~15 financials-access prose claims, which still describe financials/`shows_internal`/FinancialsTile access as LEAD-only. Live code (`lib/data/getShowForViewer.ts:380` `financialsEntitled = isAdmin || includes("LEAD") || includes("FINANCIALS")`, `lib/visibility/scopeTiles.ts:141`) grants on LEAD ∪ FINANCIALS ∪ admin. Reconcile every financials-entitlement claim to `LEAD ∪ FINANCIALS` (or admin). Grep seed: `rg -n "financ|shows_internal|FinancialsTile|financialsEntitled|Proposal|Invoice|PO#" <masterspec> | rg -i "LEAD" | rg -v "FINANCIALS"` (the final exclude is CASE-SENSITIVE — drops only lines already naming the all-caps FINANCIALS role flag). Exclude RLS-admin-only denial and `raw_unrecognized`/`parse_warnings` (admin/LEAD-only — FINANCIALS grants only the `financials` column). Trigger: next master-spec pass or an audit flagging the drift. (This capability-narrow change already corrected the §6.8 MI-9 "LEAD is the only capability element" claim; the rest is out of its scope.)
-
-## BL-STANDALONE-CONFIG-CI-DARK — the standalone real-browser specs run in no CI job
-
-**Status:** OPEN · **Severity:** MEDIUM (test-coverage integrity) · **Class:** CI WIRING — pre-existing, surfaced by the `modal-header-reconciliation` close-out (2026-07-19)
-
-`tests/e2e/standalone.config.ts` holds ~19 self-contained real-browser specs (the `*.layout` family, `statusStripToggleLayout`, `blocked-row-resolver-transitions`, `collapse-panel-morph`, `packlist-rescan-recovery`, `skeletonBandParity`, …). **No workflow invoked that config, and Playwright's default `playwright.config.ts` matches none of those files under any project.** Consequences: `pnpm exec playwright test tests/e2e/<one>.spec.ts` reports `No tests found` (the failure looks like a bad path, not a missing project), and the specs are runnable ONLY by someone who already knows to pass `--config=tests/e2e/standalone.config.ts`. They went green once at authoring time and were never run again in CI.
-
-This is the **#479 failure class repeating** — a spec living in no CI-run project drifted silently and broke on `main` once the Step 3 client graph changed. The lesson memo is "a dark spec in an unrun project rots."
-
-**Partially closed:** `.github/workflows/modal-header-layout-e2e.yml` (added by `modal-header-reconciliation`) now runs the four modal-header-family specs — `published-review-modal.layout`, `skeletonBandParity`, `statusStripToggleLayout`, `step3-review-modal.layout` — via `pnpm test:e2e:modal-header`, with `workflow_dispatch` enabled. **The other ~15 remain dark.**
-
-**Fix:** wire the remainder into CI (either extend the new workflow's spec list job-by-job, or add a job that runs the whole standalone config), then add a **structural guard** so the class cannot silently reopen: a meta-test asserting every `tests/e2e/*.spec.ts` is matched by at least one project in `playwright.config.ts` OR by `standalone.config.ts` AND named in some workflow's run list. Fails-by-default, so a NEW standalone spec that nothing runs breaks CI at authoring time instead of rotting.
-
-**Known blocker for a whole-config job:** `packlist-rescan-recovery.spec.ts` shells out to `pnpm dlx esbuild@0.28.0` (network fetch at test time) and fails locally on a cold/offline dlx cache — pin or vendor that dependency before putting it in a required job.
-
-**Trigger:** next milestone touching `tests/e2e/**` layout harnesses, or any adversarial round that flags real-browser coverage.
 
 ## BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned
 
@@ -726,7 +835,7 @@ gate.
 
 ## BL-FOCUS-RING-CONTRAST — compute + meta-test `--color-focus-ring` contrast against every backdrop family
 
-From the impeccable critique of `feat/sharehub-focus-pass` (Assessment A P2, 2026-07-23). `--color-focus-ring` is translucent orange (`rgba(255,140,26,0.55)` light / `rgba(255,160,71,0.65)` dark, DESIGN.md token table). Naive alpha-blend puts the light-mode ring around ~1.6:1 against white `--color-surface` — under the WCAG 2.2 SC 2.4.13 Focus Appearance ≥3:1 expectation — while dark mode lands ~4.5:1. Pre-existing and app-wide (every `focus-visible:ring-focus-ring` control), NOT introduced by the focus pass; the pass actually improved perceptibility where the offset gap now separates ring from fill. Work: compute real ratios per backdrop family (surface, surface-sunken, warning-text fill, accent fill), decide whether the light token needs a darker/opaque variant, and pin the outcome with a contrast meta-test (the `status-token-contrast` pattern). Owner decision needed on token change vs accepted-as-brand. Same sweep should reconcile the ~90 pre-existing BARE `ring-offset-2` usages (no color companion) outside the share-hub components with the DESIGN.md token-table rule the focus pass added ("never bare ring-offset-2") — each is a latent dark-mode white halo.
+From the impeccable critique of `feat/sharehub-focus-pass` (Assessment A P2, 2026-07-23). `--color-focus-ring` is translucent orange (`rgba(255,140,26,0.55)` light / `rgba(255,160,71,0.65)` dark, DESIGN.md token table). Naive alpha-blend puts the light-mode ring around ~1.6:1 against white `--color-surface` — under the WCAG 2.2 SC 2.4.13 Focus Appearance ≥3:1 expectation — while dark mode lands ~4.5:1. Pre-existing and app-wide (every `focus-visible:ring-focus-ring` control), NOT introduced by the focus pass; the pass actually improved perceptibility where the offset gap now separates ring from fill. Work: compute real ratios per backdrop family (surface, surface-sunken, warning-text fill, accent fill), decide whether the light token needs a darker/opaque variant, and pin the outcome with a contrast meta-test (the `status-token-contrast` pattern). Owner decision needed on token change vs accepted-as-brand. **Measured 2026-07-25** (destruct-thumb-order audit, from rendered `getComputedStyle` rather than a naive blend): light composites to ≈`#FFC075` for **1.60:1**, dark **4.40:1** — confirming the earlier estimate. The same audit measured a bare `ring-offset-2` white halo at **17.90:1** against `bg-surface` in dark mode, which is the concrete cost of the ~90 pre-existing bare usages this row already tracks. Same sweep should reconcile the ~90 pre-existing BARE `ring-offset-2` usages (no color companion) outside the share-hub components with the DESIGN.md token-table rule the focus pass added ("never bare ring-offset-2") — each is a latent dark-mode white halo.
 
 ## BL-DEV-SWITCHER-BAR-MOBILE-WIDTH — attention-gallery switcher bar counter/description collapse to zero width on mobile
 
@@ -780,11 +889,27 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 `components/admin/PublishedToggle.tsx:59` anchors an error banner `absolute inset-x-0 top-full` inside the clipping panel. Unlike the share hub it carries NO cap and NO internal scroller, so it cannot strand content in a hidden scroll tail — the failure mode the registry exists for — but a long enough error could still be visually cut at the clip edge. Error-only and momentary (`components/admin/PublishedToggle.tsx:55`), hence out of scope for the placement migration.
 
+## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way
+
+**Status:** OPEN (2026-07-26, destruct-thumb-order whole-diff R19) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
+
+Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
+
+**Measured impact:** the JSDoc line `* Wraps every route under /admin/*` in `app/admin/layout.tsx` opens a span that runs to the next `*/` far below. All **six** live `className` sites in that file disappear from the scan, so any guard using that helper silently reports nothing for it. Verified: a dead `text-subtle` class planted at `app/admin/layout.tsx:191` was invisible to a scanner using the old helper and is caught by the fixed one.
+
+**Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
+
+**Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
+
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
 
-`tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18): branch protection requires only the `quality` context (owner-directed solo posture, plans DEFERRED.md 2026-06-22 entry) — promoting e2e jobs into the required set so a red e2e blocks merge at the GitHub layer is an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate.
+**PARTIAL 2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30 allowlist rows citing this item are gone, because `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR. 60 rows remain, all app-dependent specs that need a dev server and a seeded database — deliberately out of the cluster's ratified scope. `admin-lifecycle-transitions` specifically is PR4's subject and stays open here until it reaches five consecutive greens.
+
+`tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**New instance observed 2026-07-26** (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. **Fix shape:** replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
 
 ## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
 
@@ -807,3 +932,9 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 **Why it was not fixed in the attention-index change (2026-07-24).** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the intent baseline from **`origin/main`** and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are `resolve` in that baseline (19 rows). Updating the in-tree baseline and the approved-confirm list does not satisfy the gate, because it compares against main's copy. Intent is append-only by design, and the test states the rationale: "rows already in admin_alerts still render it" — a persisted alert row resolves its label at render time, so flipping an intent retroactively relabels every open row of that code.
 
 **What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
+
+## BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL — a later inline reservation group carrying its own hotel is silently clobbered by inheritance
+
+**Status:** OPEN · **Severity:** MEDIUM (silent wrong hotel on a crew page) · **Class:** parser inline multi-group — surfaced by hotel-ambiguity-coverage whole-diff R1 finding 4 (2026-07-25); disposition ratified 2026-07-26.
+
+`buildInlineReservations` assigns group 0's `baseName` to every row of a multi-group inline cell (`lib/parser/blocks/hotels.ts`, "later groups carry only a divider + guest, not the hotel"). Probe-verified: `Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 Marriott Downtown 200 Oak Ave Jane Doe - 1002 Check In: 3/3 Check Out: 3/4` parses reservation 1's hotel as the INHERITED `Hyatt Regency…` — `Marriott Downtown 200 Oak Ave` vanishes. Pre-existing on main; the ambiguity-warning feature deliberately does NOT warn on later groups (spec §3.1 row 7 is unconditional), and three successive output-derived carve-outs (group index guard, leading-divider run, residual-word check) were each probe-verified wrong in both directions before the class was closed per `docs/agents/writing-plans.md:19`. The cell is not dark: reservation 0 of the same cell fires `HOTEL_GUEST_SPLIT_AMBIGUOUS`, pointing the operator at the line. **Fix (when prioritized):** the signal must come from the raw FRAGMENT (`splitInlineReservationGroups` output) BEFORE `buildInlineHotel` parses it — never from parsed output, which is the class that failed three reviews. A fragment-level hotel detector is itself a judgment, so it likely lands as a new ambiguity code with its own spec round, not a patch.

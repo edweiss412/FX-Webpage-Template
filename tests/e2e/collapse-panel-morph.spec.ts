@@ -28,11 +28,11 @@
  *     tests/e2e/collapse-panel-morph.spec.ts
  */
 import { test, expect, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -56,24 +56,10 @@ test.beforeAll(async () => {
   );
 
   // 2. Bundle the live entry (version-pinned dlx esbuild, tsconfig path aliases).
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_collapsePanelMorphLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_collapsePanelMorphLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+  });
 
   // 3. Compile the real token CSS. @source on CollapsePanel.tsx guarantees its
   //    exact class strings (grid-rows-[0fr]/[1fr], transition-[grid-template-rows],
@@ -84,11 +70,7 @@ test.beforeAll(async () => {
     entryCss,
     `@source "${join(REPO_ROOT, "components", "admin", "CollapsePanel.tsx")}";\n@source "${join(REPO_ROOT, "tests", "e2e", "_collapsePanelMorphLiveEntry.tsx")}";\n${globals}`,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

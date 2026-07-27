@@ -15,7 +15,7 @@ export type DateOrderFields = {
 };
 
 // The precomputed "use the sheet's raw value" resolution attached to each of the
-// three recoverable structural-transform warnings (spec §6). `parsed` is the
+// four recoverable structural-transform warnings (spec §6). `parsed` is the
 // current transform value; `replacement` is what applying the raw value yields;
 // `contentHash` pins the decision to the canonical (whitespace-collapsed) raw
 // cell so a later edit auto-invalidates the decision. `{resolvable:false}` marks
@@ -37,13 +37,32 @@ export type UseRawResolution =
             roomKind?: RoomKind;
           }
         | { kind: "hotels"; names: string[]; confirmationNo: string | null }
+        // The hotel name/address boundary. `parsed` is the reservation's CURRENT
+        // reading, so the operator sees what the split actually produced rather
+        // than a reconstruction.
+        | { kind: "hotel-name"; hotelName: string | null; hotelAddress: string | null }
         | { kind: "dates"; dates: DateOrderFields };
       replacement:
         | { kind: "rooms"; name: string; dimensions: null; floor: null }
         | { kind: "hotels"; names: [string]; confirmationNo: null }
+        // Undo the split: the whole line back as the name, address cleared.
+        // `hotelName` is ALWAYS confirmation-stripped — `hotel_name` is show-wide
+        // crew-readable and the parser scrubs conf tokens from it, so an
+        // unstripped replacement would re-persist what was scrubbed.
+        | { kind: "hotel-name"; hotelName: string; hotelAddress: null }
         | { kind: "dates"; dmyDates: DateOrderFields };
     }
-  | { resolvable: false; reason: "empty-raw" | "invalid-dmy" };
+  | {
+      resolvable: false;
+      reason:
+        | "empty-raw"
+        | "invalid-dmy"
+        // The inline hotel line runs hotel and booking details together, so no
+        // substring is provably guest-scoped (spec R8).
+        | "raw-not-guest-scoped"
+        // Nothing was split, so parsed and raw are byte-identical.
+        | "no-split-to-undo";
+    };
 
 export type ParseWarning = {
   severity: "info" | "warn";
@@ -65,9 +84,10 @@ export type ParseWarning = {
   // 2026-07-15-extend-role-scope-vocab §5.1).
   roleToken?: string;
   // Precomputed "use the sheet's raw value" resolution payload (spec
-  // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the three
+  // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the four
   // recoverable structural-transform codes (ROOM_HEADER_SPLIT_AMBIGUOUS,
-  // HOTEL_GUEST_SPLIT_AMBIGUOUS, DATE_ORDER_SUGGESTS_DMY) — carries the parsed
+  // HOTEL_GUEST_SPLIT_AMBIGUOUS, DATE_ORDER_SUGGESTS_DMY,
+  // HOTEL_ADDRESS_SPLIT_AMBIGUOUS) — carries the parsed
   // transform value, the raw replacement, and the content hash used to pin an
   // admin decision (or `{resolvable:false, reason}` when the raw can't be used).
   // ABSENT on every other warning: absence discriminates a legacy/non-recoverable
