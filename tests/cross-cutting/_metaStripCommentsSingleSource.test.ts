@@ -80,6 +80,13 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
       "D1: YAML # stripper — different grammar, quote-aware, block-safe (renamed from stripComments in A16)",
   },
   {
+    file: "tests/drive/watch.test.ts",
+    family: "name-family",
+    marker: "codeOf",
+    reason:
+      "telemetry-record filter (const codeOf = (code) => logRecords.filter(...)), not comment handling — name-family false positive",
+  },
+  {
     file: "tests/auth/oauth-flow.test.ts",
     family: "two-char-literal",
     marker: "//",
