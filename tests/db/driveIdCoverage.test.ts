@@ -448,8 +448,10 @@ describe("attachment tripwires — validation-schema-parity consumer", () => {
   });
 
   test("no raw psql exec outside the exempt canConnect probe", () => {
+    // Whitespace-tolerant: prettier renders multi-arg calls as execFileSync(\n  "psql", which a
+    // literal substring match measured to MISS (whole-diff R1 finding 2).
     const withoutCanConnect = src.replace(functionBody(src, "canConnect"), "");
-    expect(withoutCanConnect).not.toContain('execFileSync("psql"');
+    expect(withoutCanConnect).not.toMatch(/execFileSync\(\s*"psql"/);
   });
 });
 
@@ -488,7 +490,7 @@ describe("attachment tripwires — pg-cron consumer", () => {
   });
 
   test("no raw psql exec anywhere — every psql routes through execPsqlRedacted", () => {
-    expect(src).not.toContain('execFileSync("psql"');
+    expect(src).not.toMatch(/execFileSync\(\s*"psql"/);
   });
 });
 
@@ -613,6 +615,20 @@ describe("auditProbeRegistry — per-kind negative controls", () => {
     expect(probeAudit({ probes: [lying] })).toEqual([
       expect.objectContaining({ kind: "nullable_mismatch" }),
     ]);
+  });
+
+  test("EITHER canonical form satisfies the definition check, for either nullability", () => {
+    // Ratified: both forms are behaviorally identical (parent spec §1.1 item 3). Requiring the
+    // stylistically-matching form false-fails valid schemas (whole-diff R1 finding 3).
+    const bareOnNullable = probeAudit({
+      censusColumns: [{ ...CENSUS_COL, nullable: true }],
+      probes: [{ ...GOOD_ROW, nullable: true }],
+    });
+    expect(bareOnNullable).toEqual([]);
+    const nullableFormOnNotNull = probeAudit({
+      censusConstraints: [{ ...CENSUS_CON, definition: canonicalNullable("drive_file_id") }],
+    });
+    expect(nullableFormOnNotNull).toEqual([]);
   });
 
   test("empty_reason / duplicate_exemption / stale_exemption — exemption hygiene", () => {

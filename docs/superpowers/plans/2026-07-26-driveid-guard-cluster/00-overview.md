@@ -40,7 +40,7 @@ goes red (plan-R1 finding 7; the bare test alone does not prove THESE entries gr
 env-var constant at `tests/db/_localDbUrlScan.ts:29`); the probes suite already does and keeps
 doing so, and pg-cron's call-site `assertLocalDbUrlIfSet` wrap JOINS this class (spec §3.1). The
 scanner needs NO edit — it already walks all of `tests/` recursively; the lockstep is the census
-bump 56 → 57 (`tests/db/_metaLocalDbUrlGuard.test.ts:393-403`). Invariant 9
+bump 57 → 58 (the base moved under this branch: main added the watchLifecycle reader first) (`tests/db/_metaLocalDbUrlGuard.test.ts:393-403`). Invariant 9
 (`tests/auth/_metaInfraContract.test.ts`) **N/A** — no Supabase client call added (raw `postgres`
 / psql only). Invariant 10 **N/A** — no route, no server action; test-only mutations inside
 always-rolled-back transactions.
@@ -256,7 +256,7 @@ the minimal implementation turns it green, within the step; commit per task)
      layer-2 + CHECK parity through `execPsqlRedacted` + `withValidationIdentityGuard`;
      `canConnect` exempt with comment.
    - `pg-cron-coverage.test.ts`: `resolvePgCronMode` at the single env call site
-     (`assertLocalDbUrlIfSet` wrap; census 56 → 57 in
+     (`assertLocalDbUrlIfSet` wrap; census 57 → 58 (the base moved under this branch: main added the watchLifecycle reader first) in
      `tests/db/_metaLocalDbUrlGuard.test.ts:393-403`); validation-mode first test
      `assertValidationIdentity`; live queries through `execPsqlRedacted` +
      `withValidationIdentityGuard`; CI-unreachable throw via `buildPgCronUnreachableMessage`;

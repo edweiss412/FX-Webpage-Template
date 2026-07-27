@@ -205,18 +205,21 @@ export function auditProbeRegistry(input: {
     const live = input.censusConstraints.find(
       (c) => c.schema === p.schema && c.table === p.table && c.name === p.constraintName,
     );
-    const expected = censusCol.nullable ? canonicalNullable(p.column) : canonicalBare(p.column);
+    // BOTH canonical forms are valid for EITHER nullability (parent spec §1.1 item 3; a CHECK
+    // fails only on FALSE and NULL ~ '…' is NULL) — requiring the stylistically-matching form
+    // would false-fail ratified-valid schemas (whole-diff R1 finding 3).
+    const validDefs = [canonicalBare(p.column), canonicalNullable(p.column)];
     if (live === undefined) {
       findings.push({
         kind: "constraint_mismatch",
         tuple: { schema: p.schema, table: p.table, column: p.column },
         detail: `no constraint named ${p.constraintName} on ${p.schema}.${p.table}`,
       });
-    } else if (live.definition !== expected) {
+    } else if (!validDefs.includes(live.definition)) {
       findings.push({
         kind: "constraint_mismatch",
         tuple: { schema: p.schema, table: p.table, column: p.column },
-        detail: `${p.constraintName} renders as ${live.definition}, expected ${expected}`,
+        detail: `${p.constraintName} renders as ${live.definition}, expected one of ${validDefs.join(" | ")}`,
       });
     }
   }

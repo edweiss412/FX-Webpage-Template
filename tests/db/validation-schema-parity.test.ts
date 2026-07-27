@@ -343,19 +343,15 @@ describe("validation-schema-parity", () => {
           "TEST_DATABASE_URL to the validation session-pooler URL.",
       );
     }
-    const def = execFileSync(
-      "psql",
-      [
-        raw,
-        "-qAtc",
+    // Guarded + redacted like every other validation-targeting statement (spec
+    // 2026-07-26-driveid-guard-cluster-design §3.1).
+    const def = execPsqlRedacted(
+      raw,
+      ["-qAt"],
+      withValidationIdentityGuard(
         "select pg_get_constraintdef(oid) from pg_constraint where conname = " +
           "'drive_watch_channels_status_check' and connamespace = 'public'::regnamespace",
-      ],
-      {
-        encoding: "utf8",
-        timeout: PSQL_PROCESS_TIMEOUT_MS,
-        env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
-      },
+      ),
     ).trim();
 
     expect(

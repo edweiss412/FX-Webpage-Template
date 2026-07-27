@@ -29,7 +29,7 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `tests/db/validation-schema-parity.test.ts` | EDIT — identity assert; new drive-id audit layer vs validation |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation`; resolver-routed mode + header comment rewrite |
 | `tests/cross-cutting/pgCronCiVacuity.test.ts` | EDIT — dead-endpoint injection moves to loopback `LOCAL_TEST_DATABASE_URL` (§3.1, R5-1) |
-| `tests/db/_metaLocalDbUrlGuard.test.ts` | EDIT — guarded-reader census 56 → 57 + message (§3.1, R6-1; the scanner itself needs no change — it already walks all of `tests/`) |
+| `tests/db/_metaLocalDbUrlGuard.test.ts` | EDIT — guarded-reader census 57 → 58 (the base moved under this branch: main added the watchLifecycle reader first) + message (§3.1, R6-1; the scanner itself needs no change — it already walks all of `tests/`) |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
 | `.github/workflows/x-audits.yml` | EDIT — comment block only: the "INHERITED CEILING" rewrite (§9); no wiring change |
 | parent spec §10/§11 | EDIT — status notes pointing here (see §9) |
@@ -208,7 +208,7 @@ DSN from the decision entirely:
   `_metaLocalDbUrlGuard` structural regime, absent from `.env.local`, and already the var every
   `*.db.test.ts` uses for exactly this purpose. The scanner already walks all of `tests/`
   recursively — no scan-scope change; the lockstep edit is the guarded-reader census in
-  `tests/db/_metaLocalDbUrlGuard.test.ts:393-403` (56 → 57, message updated). `TEST_DATABASE_URL` is IGNORED in local mode, so
+  `tests/db/_metaLocalDbUrlGuard.test.ts:393-403` (57 → 58 (the base moved under this branch: main added the watchLifecycle reader first), message updated). `TEST_DATABASE_URL` is IGNORED in local mode, so
   an ambient remote DSN (the `.env.local` dev-box case, or a workflow that dropped the target
   line but kept the secret) can never be reached unguarded — retiring the pre-existing exposure
   where a dev-box run with ambient `TEST_DATABASE_URL` ran pg-cron live assertions against
