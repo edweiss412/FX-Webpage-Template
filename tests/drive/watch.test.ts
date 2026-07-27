@@ -1811,6 +1811,14 @@ describe("watch renewal lifecycle — reap and GC (spec §3.1)", () => {
       "sup",
     ]);
     expect(result.stopped.sort()).toEqual(["exp", "sup"]);
+    // The STORED status, not only the returned array. `stopped` was populated
+    // unconditionally on the expired branch, so a write that matched zero rows
+    // still reported the row stopped and it was re-selected every pass
+    // (whole-diff R7 finding 2).
+    expect(tx.rows.map((r) => [r.id, r.status]).sort()).toEqual([
+      ["exp", "stopped"],
+      ["sup", "stopped"],
+    ]);
   });
 });
 
@@ -2185,6 +2193,7 @@ describe("GC loop controls are behaviourally pinned (whole-diff R4)", () => {
 
     expect(result.stopped).toEqual(["old"]);
     expect(tx.rows.find((r) => r.id === "young")!.status).toBe("orphaned");
+    expect(tx.rows.find((r) => r.id === "old")!.status).toBe("stopped");
   });
 
   test("the young-orphan guard accepts a Date, which is what postgres.js yields", async () => {
@@ -2390,5 +2399,16 @@ describe("GC never stops a row whose resource id moved under it (R6 finding 1)",
     });
 
     expect(result.stopped).toEqual(["calm"]);
+    expect(tx.rows.find((r) => r.id === "calm")!.status).toBe("stopped");
+  });
+
+  test("GC has exactly ONE markStopped call site, so no branch can go unguarded", async () => {
+    // The expired branch drifted into an unguarded `markStopped(channel.id)`
+    // and defaulted the guard's expectation to null; every expired row holds a
+    // resource id, so the write matched nothing while the result claimed a stop.
+    const source = readFileSync(join(process.cwd(), "lib/drive/watch.ts"), "utf8");
+
+    expect(source.match(/tx\.markStopped\(/g) ?? []).toHaveLength(1);
+    expect(source).toMatch(/tx\.markStopped\(channel\.id,\s*channel\.resourceId\)/);
   });
 });

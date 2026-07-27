@@ -1047,6 +1047,28 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     const nowMs = deps.now ?? (() => Date.now());
     const gcStartedMs = nowMs();
     let attempted = 0;
+    // ONE write for every branch, so no branch can drift into an unguarded
+    // call. Returns whether the row actually became `stopped`; zero means the
+    // row changed under this pass (see markStopped), so it is left for the next
+    // one rather than reported as a stop that did not happen.
+    const commitStopped = async (channel: WatchChannelRow): Promise<boolean> => {
+      const marked = await runTx((tx) =>
+        callWatchTx("drive_watch_channels.mark_stopped", () =>
+          tx.markStopped(channel.id, channel.resourceId),
+        ),
+      );
+      if (marked === 0) {
+        void log.warn("drive watch GC skipped a row whose resource id changed mid-pass", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GC_ROW_CHANGED",
+          channelId: channel.id,
+          channelStatus: String(channel.status),
+        });
+        return false;
+      }
+      return true;
+    };
+
     for (const channel of candidates) {
       if (nowMs() - gcStartedMs >= GC_RUN_BUDGET_MS) {
         void log.warn("drive watch GC run budget exhausted", {
@@ -1082,10 +1104,15 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
         continue;
       }
       if (channel.status === "expired") {
-        await runTx((tx) =>
-          callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
-        );
-        stopped.push(channel.id);
+        // Through the SAME guarded write as every other branch. Calling
+        // markStopped without the resource id defaulted the guard's expectation
+        // to null, and an expired row was formerly ACTIVE so it always holds
+        // one: the predicate matched zero rows, the row stayed `expired`, and
+        // listGcCandidates re-selected it every pass while the result reported
+        // it stopped. Expired rows sort into the FIRST tier, so a couple of
+        // hundred of them would starve orphaned and superseded cleanup
+        // indefinitely (whole-diff R7 finding 1).
+        if (await commitStopped(channel)) stopped.push(channel.id);
         continue;
       }
       let stopFailedStatus: number | null | undefined;
@@ -1120,23 +1147,7 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       ) {
         continue;
       }
-      const marked = await runTx((tx) =>
-        callWatchTx("drive_watch_channels.mark_stopped", () =>
-          tx.markStopped(channel.id, channel.resourceId),
-        ),
-      );
-      // Zero means the row changed under this pass -- see markStopped. Leave it
-      // for the next pass rather than reporting a stop that did not happen.
-      if (marked === 0) {
-        void log.warn("drive watch GC skipped a row whose resource id changed mid-pass", {
-          source: "drive.watch",
-          code: "DRIVE_WATCH_GC_ROW_CHANGED",
-          channelId: channel.id,
-          channelStatus: String(channel.status),
-        });
-        continue;
-      }
-      stopped.push(channel.id);
+      if (await commitStopped(channel)) stopped.push(channel.id);
     }
     await runTx((tx) =>
       callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),

@@ -352,6 +352,64 @@ describe("a stopped row that never reached Drive stays recordable (R5 finding 1)
   });
 });
 
+describe("the GC queries return the SHAPE the collector reads (R7 finding 2)", () => {
+  afterEach(cleanup);
+
+  test("listGcCandidates returns status, resourceId and createdAt, not just ids", async () => {
+    // Every DB-free GC test receives these fields from the fake, so dropping a
+    // column from the production SELECT failed nothing: the status branch, the
+    // resource-id guard and the young-orphan window all read fields this is the
+    // only test to observe.
+    const id = `${PREFIX}shape`;
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's', 'res-shape', now() - interval '3 h', now())
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const rows = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).listGcCandidates(),
+    );
+
+    const row = rows.find((r) => r.id === id);
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("orphaned");
+    expect(row!.resourceId).toBe("res-shape");
+    expect(row!.createdAt).not.toBeNull();
+    // The window is computed from this value, so it must be a real timestamp.
+    expect(Number.isFinite(new Date(row!.createdAt as string | Date).getTime())).toBe(true);
+  });
+
+  test("expireDeadActive RETURNS the per-row status the telemetry split reads", async () => {
+    // The DB-free split test receives `status` from the fake. Dropping it from
+    // the production RETURNING clause would collapse the reap's two-arm
+    // telemetry without failing anything else.
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+      values
+        (${PREFIX + "ret-exp"}, 'active', ${PREFIX + "x"}, 's', 'r',
+         now() - interval '2 d', now() - interval '1 h'),
+        -- Corrupt but NOT past-dated: a future expiry that still precedes
+        -- created_at takes the superseded arm, whose Drive channel may be live.
+        (${PREFIX + "ret-sup"}, 'active', ${PREFIX + "y"}, 's', 'r',
+         now() + interval '2 d', now() + interval '1 h')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const returned = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).expireDeadActive(),
+    );
+
+    const mine = returned
+      .filter((r) => r.id.startsWith(PREFIX))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(mine).toEqual([
+      { id: `${PREFIX}ret-exp`, status: "expired" },
+      { id: `${PREFIX}ret-sup`, status: "superseded" },
+    ]);
+  });
+});
+
 describe("markStopped is guarded by the resource id GC read (R6 finding 1)", () => {
   afterEach(cleanup);
 
