@@ -117,6 +117,10 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
   //     scoped, no resolvable per-show entity; the pre-existing
   //     error_message <code> block is unchanged by this spec).
   WATCH_CHANNEL_ORPHANED: { kind: "global" },
+  // PICKER_IDENTITY_CLAIMED_TAMPER — global (justified: the producer passes
+  // showId:null on a rejected-tamper path rather than buying a slug lookup;
+  // the slug rides in context for forensics, not for card identity).
+  PICKER_IDENTITY_CLAIMED_TAMPER: { kind: "global" },
 
   // 12. WEBHOOK_TOKEN_INVALID — global (only channel_id/reason
   //     diagnostics; sheet not resolvable).

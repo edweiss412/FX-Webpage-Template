@@ -52,6 +52,12 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
+    site: "lib/auth/picker/selectIdentity.ts:74",
+    contextKeys: ["crew_member_id", "reason", "slug"],
+    code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    scope: "global",
+  },
+  {
     site: "lib/auth/validateGoogleSession.ts:40",
     contextKeys: ["crew_member_ids", "email"],
     code: "AMBIGUOUS_EMAIL_BINDING",

@@ -14,6 +14,7 @@ export const ADMIN_ALERTS_CODES = [
   "CALLBACK_CLAIM_THREW", //          app/auth/callback/route.ts
   "PICKER_SELECTION_RACE", //         lib/auth/picker/cleanupStaleEntry.ts
   "PICKER_EPOCH_RESET", //            lib/auth/picker/resetPickerEpoch.ts
+  "PICKER_IDENTITY_CLAIMED_TAMPER", // lib/auth/picker/selectIdentity.ts
   "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
   "ASSET_RECOVERY_REVISION_DRIFT", //  M7 asset recovery stale-preview cooldown
   "ASSET_RECOVERY_DRIFT_COOLDOWN", //  M7 asset recovery cooldown skip

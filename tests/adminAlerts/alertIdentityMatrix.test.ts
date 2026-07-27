@@ -171,7 +171,7 @@ function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[]
 }
 
 describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
-  it("covers exactly the 45 registered codes (numeric-sweep anchor)", () => {
+  it("covers exactly the 46 registered codes (numeric-sweep anchor)", () => {
     expect(FIXTURES.map((f) => f.code).sort()).toEqual([...ADMIN_ALERTS_CODES].sort());
   });
 

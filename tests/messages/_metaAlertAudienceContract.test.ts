@@ -48,6 +48,7 @@ const DEGRADED = [
 ] as const;
 const NOTICE = [
   "PICKER_SELECTION_RACE",
+  "PICKER_IDENTITY_CLAIMED_TAMPER",
   "ASSET_RECOVERY_REVISION_DRIFT",
   "ASSET_RECOVERY_DRIFT_COOLDOWN",
   "WIZARD_SESSION_SUPERSEDED_RACE",
@@ -70,11 +71,11 @@ const cat = MESSAGE_CATALOG as Record<
 >;
 
 describe("alert audience contract", () => {
-  test("partition counts: 20 doug + 25 health = 45; 16 degraded + 9 notice", () => {
+  test("partition counts: 20 doug + 26 health = 46; 16 degraded + 10 notice", () => {
     expect(DOUG.length).toBe(20);
-    expect(HEALTH.length).toBe(25);
+    expect(HEALTH.length).toBe(26);
     expect(DEGRADED.length).toBe(16);
-    expect(NOTICE.length).toBe(9);
+    expect(NOTICE.length).toBe(10);
   });
   test("DOUG ∪ HEALTH is EXACTLY the canonical ADMIN_ALERTS_CODES registry (set-equality both ways)", () => {
     expect(new Set([...DOUG, ...HEALTH])).toEqual(new Set(ADMIN_ALERTS_CODES));

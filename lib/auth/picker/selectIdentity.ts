@@ -11,6 +11,7 @@ import {
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,6 +64,31 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
       }),
       { source: "auth.picker.selectIdentity", code: "PICKER_IDENTITY_CLAIMED_TAMPER" },
     );
+    // Operator-visible breadcrumb (BL-PICKER-TAMPER-ADMIN-ALERT). BEFORE the
+    // redirect, because redirect() throws to unwind; showId stays null rather
+    // than buying a lookup on a rejected-tamper path (the slug in context is
+    // the attribution). No advisory lock here — the per-show lock is held
+    // INSIDE select_identity_atomic, and this branch runs outside that tx.
+    // The share token is a secret and never enters the context.
+    try {
+      await upsertAdminAlert({
+        showId: null,
+        code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+        context: {
+          slug,
+          crew_member_id: crewMemberId,
+          reason: "hand_crafted_post_bypassed_deactivated_row",
+        },
+      });
+    } catch (alertErr) {
+      // A failed upsert must never replace the security redirect with a 500 —
+      // the tamperer would learn they hit something.
+      void log.error("picker tamper alert emission failed", {
+        source: "auth.picker.selectIdentity",
+        code: "PICKER_ALERT_FAILED",
+        error: alertErr,
+      });
+    }
     redirect(
       `/auth/sign-in?next=${encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }))}`,
     );

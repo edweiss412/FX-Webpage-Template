@@ -683,7 +683,6 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   // moved into the snapshot RPC (readShowReviewSnapshot logs its own faults).
   "CREW_PROJECTION_ALERT_UPSERT_FAILED",
   "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
-  "PICKER_IDENTITY_CLAIMED_TAMPER",
   "APP_EVENTS_READ_RETURNED_ERROR",
   "APP_EVENTS_READ_THREW",
   "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
@@ -751,4 +750,9 @@ export const GRADUATED_TO_CATALOG: ReadonlySet<string> = new Set([
   // BL-SCAN-SSE-BODY-NULL-CODE (PR #621): the scan SSE terminal result body
   // emits it to the wizard client; catalog + §12.4 row landed in lockstep.
   "ONBOARDING_SCAN_FAILED",
+  // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): the tamper branch now raises a global
+  // admin_alerts row via upsertAdminAlert; catalog + §12.4 row landed in lockstep.
+  "PICKER_IDENTITY_CLAIMED_TAMPER",
+  // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): the tamper branch now raises a global
+  // admin_alerts row via upsertAdminAlert; catalog + §12.4 row landed in lockstep.
 ]);
