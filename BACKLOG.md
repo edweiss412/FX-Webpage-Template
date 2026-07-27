@@ -901,20 +901,6 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 `components/admin/PublishedToggle.tsx:59` anchors an error banner `absolute inset-x-0 top-full` inside the clipping panel. Unlike the share hub it carries NO cap and NO internal scroller, so it cannot strand content in a hidden scroll tail — the failure mode the registry exists for — but a long enough error could still be visually cut at the clip edge. Error-only and momentary (`components/admin/PublishedToggle.tsx:55`), hence out of scope for the placement migration.
 
-## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way
-
-**Status:** RESOLVED (2026-07-26, branch `refactor/stripcomments-shared`) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
-
-**Resolution:** One TS-parser-backed module, `tests/_shared/stripComments.ts` (`commentRanges`/`stripCommentsSafely` promoted from `_newTabScan` with a required `ts.ScriptKind` — the TSX hardcode mis-parsed plain-`.ts` generic arrows — plus `stripSqlComments` with dollar-span-as-code + nesting, `stripCssComments`, `stripMdxComments`, and an extension router `stripCommentsForFile`). The adversarial-review sweeps grew the inventory from 17 to 54 rows across 52 files (named strippers, inline replace chains, char scanners, line-start skip filters, SQL/CSS/YAML/dotenv variants); 45 migrated, 9 kept with reasoned site-granular allowlist rows. `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` walks `tests/**` and flags five idiom families on comment-stripped source (fails-by-default; negative plants pin each family, including a renamed char-loop and an alternate regex spelling). Spec: `docs/superpowers/specs/2026-07-26-stripcomments-shared-design.md`. Triage found no real pre-existing violations — every guard stayed green post-migration; the A6 line-number skew (deletion collapsing multi-line comments) was silently FIXED by offset-preserving blanking.
-
-Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
-
-**Measured impact:** the JSDoc line `* Wraps every route under /admin/*` in `app/admin/layout.tsx` opens a span that runs to the next `*/` far below. All **six** live `className` sites in that file disappear from the scan, so any guard using that helper silently reports nothing for it. Verified: a dead `text-subtle` class planted at `app/admin/layout.tsx:191` was invisible to a scanner using the old helper and is caught by the fixed one.
-
-**Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
-
-**Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
-
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
