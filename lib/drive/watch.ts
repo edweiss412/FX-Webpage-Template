@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";
-import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
 import { driveErrorStatus } from "@/lib/drive/errorStatus";
 import {
@@ -170,6 +169,10 @@ async function callWatchTx<T>(operation: string, fn: () => Promise<T>): Promise<
   }
 }
 
+export function createPostgresWatchTx(sql: PostgresConnection): WatchTx {
+  return new PostgresWatchTx(sql);
+}
+
 class PostgresWatchTx implements WatchTx {
   constructor(private readonly sql: PostgresConnection) {}
 
@@ -236,7 +239,26 @@ class PostgresWatchTx implements WatchTx {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
   }) {
-    await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
+    // Issue the canonical RPC over THIS transaction's connection rather than
+    // through the service-role helper, which builds its own Supabase client and
+    // so committed independently of the channel mutation it appears to
+    // accompany (BL-WATCH-ALERT-RAISE-NOT-ATOMIC).
+    //
+    // `input.context` is passed as the OBJECT, never JSON.stringify'd. Measured
+    // against the real RPC: stringify stores a jsonb STRING, so jsonb_typeof is
+    // "string" and every `context->>'…'` read returns NULL — silently, since the
+    // row is written and occurrence_count still increments. That would blind
+    // watchEscalation's error_class/error_message reads with nothing indicating
+    // a fault.
+    //
+    // not-subject-to-meta: raw pg call on the enclosing sql.begin connection,
+    // not a Supabase client boundary; AGENTS.md invariant 9 covers `supabase.*`
+    // call sites.
+    await this.rows(`select public.upsert_admin_alert($1::uuid, $2::text, $3::jsonb)`, [
+      null,
+      input.code,
+      input.context,
+    ]);
   }
 
   async expireDeadActive(): Promise<Array<{ id: string; status: "expired" | "superseded" }>> {
@@ -530,7 +552,14 @@ async function activateWithTx(
   return { outcome: "active", channelId: watch.id };
 }
 
-async function markWatchOrphanedWithTx(
+/**
+ * Exported so the ATOMICITY CONTRACT is testable. Both this and
+ * `createPostgresWatchTx` below are the real production paths; without them the
+ * seam is module-private and the public subscribe paths call this helper as
+ * their FINAL transactional act, leaving nowhere to inject a post-alert failure.
+ * Exporting them adds no test-only branch to the behaviour.
+ */
+export async function markWatchOrphanedWithTx(
   tx: WatchTx,
   pendingChannelId: string,
   context: Record<string, unknown>,

@@ -148,3 +148,85 @@ describe("promotion supersedes the prior folder's channels (spec §3.2.4)", () =
     expect(s[`${PREFIX}old-pending`]).toBe("pending");
   });
 });
+
+describe("the alert raise is atomic with the channel mutation (spec §3.4)", () => {
+  const FOLDER = `${PREFIX}atomic`;
+
+  afterEach(async () => {
+    await cleanup();
+    await sql`delete from public.admin_alerts where code = 'WATCH_CHANNEL_ORPHANED' and show_id is null`;
+  });
+
+  async function unresolvedAlert(): Promise<{
+    t: string;
+    folder: string | null;
+    occurrence_count: number;
+  } | null> {
+    const rows = await sql<{ t: string; folder: string | null; occurrence_count: number }[]>`
+      select jsonb_typeof(context) as t,
+             context->>'watched_folder_id' as folder,
+             occurrence_count
+        from public.admin_alerts
+       where code = 'WATCH_CHANNEL_ORPHANED' and show_id is null and resolved_at is null
+    `;
+    return rows[0] ?? null;
+  }
+
+  test("a rollback after the raise leaves NO alert row and the channel still `pending`", async () => {
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${PREFIX + "atomic-ch"}, 'pending', ${FOLDER}, 'secret')
+    `;
+    const { markWatchOrphanedWithTx, createPostgresWatchTx } = await import("@/lib/drive/watch");
+
+    await expect(
+      sql.begin(async (tx) => {
+        await markWatchOrphanedWithTx(createPostgresWatchTx(tx as never), `${PREFIX}atomic-ch`, {
+          watched_folder_id: FOLDER,
+          channel_id: `${PREFIX}atomic-ch`,
+          error_class: "drive_api",
+        });
+        throw new Error("transaction failed after the alert was raised");
+      }),
+    ).rejects.toThrow(/after the alert was raised/);
+
+    // Fails before this change: the alert committed over its own connection and
+    // survived the rollback.
+    expect(await unresolvedAlert()).toBeNull();
+    // The seeded status must be `pending` — production's markOrphaned filters on
+    // it, so an `active` or absent row would prove no channel rollback at all.
+    const rows = await sql<{ status: string }[]>`
+      select status from public.drive_watch_channels where id = ${PREFIX + "atomic-ch"}
+    `;
+    expect(rows[0]?.status).toBe("pending");
+  });
+
+  test("a committed raise stores context as a jsonb OBJECT whose keys are readable", async () => {
+    const { markWatchOrphanedWithTx, createPostgresWatchTx } = await import("@/lib/drive/watch");
+    await sql.begin(async (tx) => {
+      await markWatchOrphanedWithTx(createPostgresWatchTx(tx as never), `${PREFIX}absent`, {
+        watched_folder_id: FOLDER,
+        channel_id: `${PREFIX}absent`,
+        error_class: "drive_api",
+      });
+    });
+
+    // Both halves are load-bearing: JSON.stringify would store a jsonb STRING
+    // that passes a "a row exists" assertion while every context->> read returns
+    // NULL, and nothing errors.
+    const alert = await unresolvedAlert();
+    expect(alert?.t).toBe("object");
+    expect(alert?.folder).toBe(FOLDER);
+  });
+
+  test("a second raise increments occurrence_count, proving the RPC's on-conflict body ran", async () => {
+    const { markWatchOrphanedWithTx, createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const ctx = { watched_folder_id: FOLDER, channel_id: `${PREFIX}twice` };
+    for (let i = 0; i < 2; i += 1) {
+      await sql.begin(async (tx) => {
+        await markWatchOrphanedWithTx(createPostgresWatchTx(tx as never), `${PREFIX}twice`, ctx);
+      });
+    }
+    expect((await unresolvedAlert())?.occurrence_count).toBe(2);
+  });
+});
