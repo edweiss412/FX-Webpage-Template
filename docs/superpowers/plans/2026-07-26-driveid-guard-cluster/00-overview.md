@@ -122,19 +122,28 @@ source-structural test in the DB-free suite (`tests/db/driveIdCoverage.test.ts`)
 consumer files and asserts, per file, REQUIRED patterns (with expected counts) and FORBIDDEN
 patterns:
 
-- `tests/db/validation-schema-parity.test.ts`: REQUIRED `assertValidationIdentity` with a
-  POSITIONAL assertion — its first occurrence precedes the first occurrence of
-  `withValidationIdentityGuard(`, `execPsqlRedacted(`, and `censusInPinnedTx(` in file order
-  (plan-R3 finding 2a: the token alone does not prove it is the first validation test);
-  `withValidationIdentityGuard(` ≥ 2 (layer-2 introspection + CHECK parity);
-  `execPsqlRedacted(` ≥ 2; `identityGuardSql()` AND `preambleSql` (exactly 1 each — T3's census
-  layer attachment, plan-R3 finding 2b); FORBIDDEN `execFileSync("psql"` anywhere outside the
-  `canConnect` function body (extracted by brace matching; `canConnect` is the ratified
-  guard-exempt probe).
+The positional rule, specified precisely (plan-R4 finding 2): the scan first STRIPS import
+statements (lines matching `/^import\b/` and their continuation lines up to the closing
+`from "..."`), then compares the index of the first CALL token `assertValidationIdentity(`
+(open-paren required, so the bare identifier in an import list cannot satisfy it) against the
+index of the first occurrence of each later-stage CALL token. Import order therefore cannot
+fake test order; helper definitions cannot either, because the identity assert has no local
+helper — its only non-import occurrence IS the first test's call.
+
+The tripwire lands in TWO PHASES (plan-R4 finding 1): T1 installs every row EXCEPT the ones
+marked **[T3]** below; T3 extends the tripwire with its marked rows as its own red→green
+micro-cycle. T1 never references the census runner, so it goes green within its own task.
+
+- `tests/db/validation-schema-parity.test.ts`: REQUIRED `assertValidationIdentity(` first-call
+  positional rule vs `withValidationIdentityGuard(` and `execPsqlRedacted(` — and vs
+  `censusInPinnedTx(` **[T3]**; `withValidationIdentityGuard(` ≥ 2 (layer-2 introspection +
+  CHECK parity); `execPsqlRedacted(` ≥ 2; `identityGuardSql()` AND `preambleSql` exactly 1 each
+  **[T3]**; FORBIDDEN `execFileSync("psql"` anywhere outside the `canConnect` function body
+  (extracted by brace matching; `canConnect` is the ratified guard-exempt probe).
 - `tests/cross-cutting/pg-cron-coverage.test.ts`: REQUIRED `resolvePgCronMode(` (exactly 1),
   `assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)` (exactly 1),
-  `assertValidationIdentity` with the same POSITIONAL rule (precedes the first
-  `withValidationIdentityGuard(`/`execPsqlRedacted(` occurrence), `execPsqlRedacted(` ≥ 1
+  `assertValidationIdentity(` first-call positional rule (import-stripped, precedes the first
+  `withValidationIdentityGuard(`/`execPsqlRedacted(` call), `execPsqlRedacted(` ≥ 1
   (plan-R3 finding 2c — the routing claim needs its token), `withValidationIdentityGuard(` ≥ 1,
   `buildPgCronUnreachableMessage(` (exactly 1, in the CI-unreachable throw), `redactDsn(` ≥ 1
   (local warn), `identity_mismatch` (tri-state literal); FORBIDDEN raw `execFileSync("psql"`
@@ -240,9 +249,9 @@ the minimal implementation turns it green, within the step; commit per task)
    - `assertValidationIdentity(LOCAL)` rejects MISMATCH-shaped (both identifiers +
      remediation); dead-port DSN rejects INFRA-shaped, never mismatch.
    - `withValidationIdentityGuard("select 1")` on LOCAL aborts with the guard exception.
-3. RED→GREEN (attachment tripwires): write the consolidated source-structural test
-   (§Attachment tripwires) — red against today's consumers — then rewire BOTH consumers to
-   green:
+3. RED→GREEN (attachment tripwires, T1 PHASE — every row except the **[T3]**-marked ones):
+   write the source-structural test red against today's consumers, then rewire BOTH consumers
+   to green:
    - `validation-schema-parity.test.ts`: first validation test `assertValidationIdentity`;
      layer-2 + CHECK parity through `execPsqlRedacted` + `withValidationIdentityGuard`;
      `canConnect` exempt with comment.
@@ -289,7 +298,10 @@ the minimal implementation turns it green, within the step; commit per task)
    (record the red). Manifest floor in the same test: derived expected set NON-EMPTY, then
    membership via `censusTupleKey`; audit layer `auditDriveIdCoverage(...) → []`.
 2. GREEN: fill the six tuples (§Registry data) → validation run green.
-3. Commit `feat(db): definition-based Drive-ID audit against the validation project`.
+3. RED→GREEN: extend the attachment tripwire with the **[T3]** rows (`censusInPinnedTx(`
+   positional target; `identityGuardSql()`/`preambleSql` exactly 1 each) — red until this
+   task's census layer is wired as specified, green after (plan-R4 finding 1).
+4. Commit `feat(db): definition-based Drive-ID audit against the validation project`.
 
 ### T4 — behavioral probe registry (spec §3.4)
 
@@ -309,7 +321,7 @@ the minimal implementation turns it green, within the step; commit per task)
    suite contains the module-scope `unreachableDbFailure` call + throw (red: the suite still
    `skipIf`s only), then adopt `unreachableDbFailure` (CI fail-not-skip) → green. Removing the
    call later is a red.
-5. Verify + commit `feat(db): registry-enforced behavioral probes for every Drive-ID column`.
+6. Verify + commit `feat(db): registry-enforced behavioral probes for every Drive-ID column`.
 
 ### T5 — backlog graduation with executable proof (spec §9)
 
