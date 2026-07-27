@@ -54,8 +54,8 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
     jobName: "refresh-watch",
     label: "Drive watch renewal",
     description: "Renews the Google Drive change subscriptions before they expire.",
-    cadence: "hourly",
-    staleAfterMs: 3 * 3_600_000,
+    cadence: "every 15 min",
+    staleAfterMs: 45 * 60_000,
   },
   {
     jobName: "gc-watch",

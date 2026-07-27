@@ -83,7 +83,7 @@ export const ESCALATION_AFTER_MS = 10_800_000;
 export const ATTEMPT_OUTCOMES = ["failed", "succeeded"] as const;
 export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
 // How often the renewal predicate is sampled (`fxav_cron_refresh_watch`).
-export const SAMPLING_PERIOD_MS = 3_600_000;
+export const SAMPLING_PERIOD_MS = 900_000;
 // PARTLY enforceable, as of the watch-renewal-lifecycle work. What IS enforced:
 // the renewal loop stops STARTING new rows once this much time has elapsed
 // (REFRESH_RUN_BUDGET_MS aliases it), and each Drive request carries

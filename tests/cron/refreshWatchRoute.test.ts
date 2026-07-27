@@ -2,7 +2,7 @@
 // Route HTTP contract for /api/cron/refresh-watch: refresh -> reconcile, then
 // 500 iff (refresh.failures non-empty || reconcile.outcome === "infra_error").
 // Handled degradations (still_orphaned / renewal_failing / vacuous) stay 200 —
-// they must not page hourly. Failure modes under test: silent-200-on-infra-fault
+// they must not page every 15 minutes. Failure modes under test: silent-200-on-infra-fault
 // (spec R1-2), and 5xx-on-handled-degradation paging (spec R2-5).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
@@ -77,7 +77,7 @@ describe("/api/cron/refresh-watch — HTTP contract", () => {
   });
 
   test.each(["still_orphaned", "renewal_failing", "vacuous"] as const)(
-    "200 ok — reconcile outcome %s is NOT 5xx (handled degradation must not page hourly)",
+    "200 ok — reconcile outcome %s is NOT 5xx (handled degradation must not page every 15 minutes)",
     async (outcome) => {
       watchMock.refreshWatchSubscriptions.mockResolvedValue(CLEAN_REFRESH);
       watchMock.reconcileWatchChannels.mockResolvedValue({
