@@ -201,6 +201,13 @@ const BACKLOG_GRADUATED = [
     id: "BL-HEADER-PROBE-RESIDUAL-VACUITY",
     provenance: "test/header-probe-residual-closure",
   },
+  // Surfaced by the r5 SHIPPED/SUPERSEDED widening: shipped in place upstream
+  // with a "retained for the decision record" note — the record lives on in
+  // the archive, greppable by id.
+  {
+    id: "BL-AGENDA-PERDAY-VIEWER-FILTER",
+    provenance: "PR #610",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
@@ -292,15 +299,18 @@ describe("backlog ledger graduation", () => {
     // section-wide substring match fires on entries that are genuinely open.
     // The status line is the entry's own claim about itself.
     const backlog = read("BACKLOG.md");
-    const TERMINAL = /^\s*(?:\*\*)?(?:Status|Filed):?(?:\*\*)?[^\n]*?\b(CLOSED|WITHDRAWN|RESOLVED)\b/;
+    // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
+    // "Resolved / shipped / superseded" as the archive-bound states (r5).
+    const TERMINAL =
+      /^\s*(?:\*\*)?(?:Status|Filed):?(?:\*\*)?[^\n]*?\b(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
     // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
     // line let two other spellings of the same claim through — a closure as a
     // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
     // ("**CLOSED 2026-07-26** by …"). Both are still the entry's own claim
     // about itself, so both count; deeper body lines stay out of scope for the
     // same reason as before (entries legitimately DISCUSS closure).
-    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED)\b/;
-    const OPENING_TERMINAL = /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED)\b/i;
+    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
+    const OPENING_TERMINAL = /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
     const offenders: string[] = [];
     const headings = [...backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)/gm)];
     for (const [i, h] of headings.entries()) {

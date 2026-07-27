@@ -44,6 +44,35 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * Whole-diff r5: the component's own token set is pinned by set-equality in
+ * the unit suite, but that covers only what SheetIconLink renders — a NEW
+ * consumer passing colour/size/hit-area utilities through `className` (the
+ * prop is contractually positional-only: order/margin) would ship an
+ * off-contract skin with no guard failing. Every JSX usage's className must
+ * therefore be a STRING LITERAL whose tokens all match the positional
+ * allowlist; a brace-expression className fails by construction (it cannot be
+ * verified statically, and no site needs one).
+ */
+const POSITIONAL = /^(?:sm:|md:|lg:)?(?:-?m[lrtb]-|order-|self-)[\w./[\]-]+$/;
+
+function classNameViolations(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/<SheetIconLink\b[^>]*?(?:\/>|>)/gs)) {
+    const tag = m[0];
+    const lit = tag.match(/className="([^"]*)"/);
+    if (lit) {
+      for (const tok of lit[1]!.split(/\s+/).filter(Boolean)) {
+        if (!POSITIONAL.test(tok))
+          out.push(`off-contract className token "${tok}" in: ${tag.slice(0, 100)}`);
+      }
+    } else if (/className[=\s]/.test(tag)) {
+      out.push(`non-literal className in: ${tag.slice(0, 100)}`);
+    }
+  }
+  return out;
+}
+
 describe("sheet-link phrase containment (spec §7.10)", () => {
   it("per-file occurrence counts equal the pinned set exactly", () => {
     const root = join(__dirname, "..", "..", "..");
@@ -58,5 +87,34 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       if (count > 0) found[rel] = count;
     }
     expect(found).toEqual(EXPECTED);
+  });
+
+  it("className checker flags off-contract tokens and non-literal expressions (negative plants)", () => {
+    expect(
+      classNameViolations(
+        '<SheetIconLink href="x" subjectLabel="y" testId="t" ringOffset="bg" className="size-tap-min text-text-subtle" />',
+      ),
+    ).toHaveLength(2);
+    expect(classNameViolations("<SheetIconLink className={dynamic} />")).toHaveLength(1);
+    expect(classNameViolations("<SheetIconLink className={`mr-0.5 ${x}`} />")).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="sm:order-1 sm:ml-0.5" />')).toHaveLength(
+      0,
+    );
+    expect(classNameViolations('<SheetIconLink className="mr-0.5" />')).toHaveLength(0);
+    expect(classNameViolations('<SheetIconLink ringOffset="bg" />')).toHaveLength(0);
+  });
+
+  it("every live SheetIconLink call site keeps className positional-only string literals", () => {
+    const root = join(__dirname, "..", "..", "..");
+    const files = [
+      ...walk(join(root, "components")),
+      ...walk(join(root, "app")).filter((f) => !f.includes("/app/api/")),
+    ];
+    const violations = files.flatMap((file) => {
+      const src = readFileSync(file, "utf8");
+      if (!src.includes("<SheetIconLink")) return [];
+      return classNameViolations(src).map((v) => `${file.slice(root.length + 1)}: ${v}`);
+    });
+    expect(violations).toEqual([]);
   });
 });

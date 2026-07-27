@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-27 — four in-place closures graduated on `feat/sheet-icon-link-affordance-class` (BL-HEADER-LINK-AFFORDANCE-CLASS, BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED, BL-CI-STALE-BRANCH-PROTECTION-COMMENT, and post-rebase BL-HEADER-PROBE-RESIDUAL-VACUITY, which upstream had closed in place); all four were spelled in ways the Status-line guard could not see (heading suffix / bold opening claim), so `tests/docs/_metaDeferralLedgerGraduation.test.ts` was widened to inspect the entry heading and opening line too. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass).
+Last reconciled: 2026-07-27 — five in-place closures graduated on `feat/sheet-icon-link-affordance-class` (BL-HEADER-LINK-AFFORDANCE-CLASS, BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED, BL-CI-STALE-BRANCH-PROTECTION-COMMENT, post-rebase BL-HEADER-PROBE-RESIDUAL-VACUITY, and BL-AGENDA-PERDAY-VIEWER-FILTER once SHIPPED/SUPERSEDED joined the terminal set); all five were spelled in ways the Status-line guard could not see (heading suffix / bold opening claim), so `tests/docs/_metaDeferralLedgerGraduation.test.ts` was widened to inspect the entry heading and opening line too. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items on `feat/section-header-rebuild-phantom-spacers` (7 terminal-status entries graduated earlier the same day; 30 on the prior 2026-07-24 pass).
 
 ---
 
@@ -681,42 +681,6 @@ knowledge. Full reasoning ratified at
 
 **Revisit if** the corpus gains documents with purely positional day labels ("Day 1" / "Day 2") AND a
 viewer reports seeing the whole show expanded when they expected their day marked.
-
-### BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
-
-**Status:** ✅ SHIPPED in PR #610 (2026-07-26) · **Severity:** low · **Class:** VISIBILITY SCOPE
-
-> **Retained for the decision record; the prescriptions below are HISTORY, not open work.** Two
-> statements in this entry are now contradicted by shipped code and are corrected here rather than
-> edited away, because the reasoning is what makes the entry worth keeping:
->
-> 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
->    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because the current
->    extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole
->    constructor; stored rows from older writers may carry strings — see the spec's §2.5
->    narrowed scope), so dates cannot identify a row.
-> 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
->    implement the positional fallback. Ratified at
->    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
->    tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Short version: its trigger never fires on the
->    measured corpus, and folding on positional index means folding in the state of least knowledge —
->    the shape behind all four viewer-day-folding bugs review found.
->
-> Everything else — the middle posture, the "Your day" marker, native `<details>` keeping the block a
-> Server Component, and mandatory fail-open — shipped as written.
-
-The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:143-163`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:168-179`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5).
-
-**Not a privacy issue — a scan-cost issue.** The `AgendaEmbed` "View agenda" affordance sits directly above the structured block and opens the unfilterable whole-show PDF, so no filtering of the structured rows can withhold a date that the viewer could not reach in one tap. The question is purely how much a part-time crew member has to scan to find their own day.
-
-**Decision (2026-07-24, Eric):** viewer's day expanded and marked, other days folded — the middle posture, not whole-show and not trimmed-to-worked-days. Concretely:
-
-- The day matching the viewer's effective visible-day set renders in full, carrying a "Your day" marker.
-- Every other agenda day collapses to a single tappable row (day label + session count) that expands in place. Native `<details>`/`<summary>` — `AgendaScheduleBlock` is a Server Component (no `'use client'`), and this posture must not force it client-side.
-- **Fail-open is mandatory.** Day-to-date matching is best-effort, and it is split across two functions in `lib/crew/agendaDayForToday.ts`: `parseIsoFromDayLabel` (`:36-43`) ONLY parses a date-bearing heading into an ISO date — it has no fallback. The positional fallback lives inside `agendaSessionsForToday` (`:64-73`) and fires only when no label in that extraction parsed AND `ext.days.length === showDays.length`, matching a single `todayIso`. When neither path resolves a day for this viewer, render every day expanded (today's behavior) — a failed match must never cost the viewer the agenda, and must never fold the day they actually work.
-- Rejected: trimming the list to worked days only (loses on-page visibility of load-in/strike days that a strike-only crew member legitimately uses), and keeping whole-show unchanged (leaves the scan cost that prompted the item).
-
-**Fix:** thread the effective visible-day set into `AgendaScheduleBlock`. Note that **no reusable day-set matcher exists** — `agendaSessionsForToday` maps to ONE `todayIso` and returns sessions, not days — so PR3 writes a day-set variant beside it, reusing `parseIsoFromDayLabel` and the same positional-fallback rule rather than duplicating either. Needs the invariant-8 impeccable dual-gate, a Dimensional-Invariants pass, and a real-browser layout assertion (the fold changes the block's height contract). Mockup of the three postures considered, at phone width in both themes: `docs/superpowers/specs/2026-07-24-agenda-visibility-mock/agenda-visibility-options.html`.
 
 ### BL-HEALTH-RESOLVE-DB-LOCKDOWN — DB-enforce developer-only health-alert resolution
 
