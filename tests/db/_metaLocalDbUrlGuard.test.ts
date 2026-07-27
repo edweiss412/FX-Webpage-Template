@@ -394,15 +394,18 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 60 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 61 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
+          "+ tests/db/driveIdCoverage.db.test.ts (the Drive-ID coverage guard, 2026-07-25) " +
+          "+ tests/db/watchLifecycle.db.test.ts (watch renewal lifecycle, 2026-07-26) " +
+          "+ tests/cross-cutting/pg-cron-coverage.test.ts (resolver-routed local override, " +
+          "guarded at the call site — spec 2026-07-26-driveid-guard-cluster-design §3.1) " +
           "+ tests/db/watchReconcileState.test.ts + tests/db/watchReconcileStateWrites.test.ts " +
           "+ tests/db/watchSurfaceStateIntegration.test.ts (watch backoff 2026-07-27; " +
-          "all three delete their RUN-scoped rows, local-only) " +
-          "+ tests/db/driveIdCoverage.db.test.ts (the Drive-ID coverage guard, 2026-07-25)",
-      ).toBe(60);
+          "all three delete their RUN-scoped rows, local-only)",
+      ).toBe(61);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

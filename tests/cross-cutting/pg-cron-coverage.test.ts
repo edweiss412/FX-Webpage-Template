@@ -24,14 +24,16 @@
  * via `pnpm test:audit:x6-pg-cron-pivot` in .github/workflows/x-audits.yml.
  * not-vercel-cron-class: sibling-test-file name reference (M12.1 T4 doc-guard escape).
  *
- * Modes (PG_CRON_COVERAGE_TARGET env var):
- *   - "local" (default): runs against whatever TEST_DATABASE_URL points at,
- *     including local Supabase (postgresql://postgres:postgres@127.0.0.1:54322/postgres).
- *     Used for T2.1/T2.2/T3 same-target red/green TDD cycles (R11 F29).
- *   - "validation": Task 0.A.4.5 step 5a operator invocation against the
- *     validation Supabase project. Requires TEST_DATABASE_URL pointing at the
- *     validation project AND VALIDATION_SUPABASE_PROJECT_REF set AND
- *     TEST_DATABASE_URL containing the project-ref as a substring (R17 F38).
+ * Modes (PG_CRON_COVERAGE_TARGET env var, resolved by resolvePgCronMode — spec
+ * 2026-07-26-driveid-guard-cluster-design §3.1):
+ *   - "local" (default): runs against the loopback-guarded LOCAL_TEST_DATABASE_URL override or
+ *     the loopback constant. TEST_DATABASE_URL is IGNORED here — an ambient remote DSN can
+ *     never be reached from local mode. Used for same-target red/green TDD cycles (R11 F29).
+ *   - "validation": operator/CI invocation against the validation Supabase project. Requires
+ *     TEST_DATABASE_URL + VALIDATION_SUPABASE_PROJECT_REF; the GUARANTEE is the connected
+ *     cluster's system_identifier, asserted at module scope and re-proven by a DO guard on
+ *     every query's own connection.
+ *   - anything else: refused loudly. Unknown targets never downgrade.
  *
  * Incremental ownership (R10 F25):
  *   T2.1 — adds Layer 0a (pg_net installed)
@@ -42,12 +44,20 @@
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { makeLiveCaseCounter } from "./_liveCaseCounter";
 import { cronPeriodMs } from "../helpers/cronPeriod";
+import { assertLocalDbUrlIfSet } from "@/tests/db/_localDbUrl";
+import {
+  assertValidationIdentity,
+  buildPgCronUnreachableMessage,
+  execPsqlRedacted,
+  redactDsn,
+  resolvePgCronMode,
+  withValidationIdentityGuard,
+} from "@/tests/db/_validationTargetIdentity";
 
 // Canonical job table — read from the sibling JSON in the M12.1 plan dir so the
 // test, spec §2.3, and T3 migration share a single source of truth. Adding a
@@ -96,9 +106,25 @@ const REQUIRED_NOTIFY_JOBS = [
 // pg-cron-jobs.json (which models only the route jobs) and lives here.
 const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = ["app_events_prune"];
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const coverageTarget = process.env.PG_CRON_COVERAGE_TARGET ?? "local";
+// ── Target binding (spec 2026-07-26-driveid-guard-cluster-design §3.1) ──────
+// Mode comes from the TARGET alone — never from the DSN. Local mode reads only the
+// loopback-guarded LOCAL_TEST_DATABASE_URL override (or the loopback constant) and IGNORES
+// TEST_DATABASE_URL, so an ambient remote DSN can never be reached unguarded. Misspelled
+// targets throw. These are the ONLY reads of the three env vars in this module (the
+// attachment tripwire in tests/db/driveIdCoverage.test.ts pins that).
+const resolved = resolvePgCronMode({
+  target: process.env.PG_CRON_COVERAGE_TARGET,
+  testDatabaseUrl: process.env.TEST_DATABASE_URL,
+  localTestDatabaseUrl: assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL),
+});
+const databaseUrl = resolved.dbUrl;
+const coverageTarget = resolved.mode;
+
+// The connected cluster must BE validation before anything else touches it: a mismatch fails
+// the whole file at collection with the discriminable two-identifier message.
+if (coverageTarget === "validation") {
+  assertValidationIdentity(databaseUrl);
+}
 
 /**
  * Live queries actually issued. Names and counts of CASES prove registration,
@@ -111,21 +137,28 @@ let queryCount = 0;
 
 function psql(query: string): string {
   queryCount += 1;
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt", "-c", query], {
-    encoding: "utf8",
-  }).trim();
+  // Validation mode: every query proves its OWN connection via the DO guard (spec §3.1); the
+  // redacting runner keeps the DSN out of any thrown error either way.
+  const sql = coverageTarget === "validation" ? withValidationIdentityGuard(query) : query;
+  return execPsqlRedacted(databaseUrl, ["-qAt"], sql).trim();
 }
 
-const livePsqlReachable = ((): boolean => {
+/**
+ * Tri-state reachability (spec §3.1, R2-3): in validation mode the probe carries the identity
+ * guard, and a guard abort is classified `identity_mismatch` — never relabeled as the generic
+ * "psql unreachable", which would send an operator debugging connectivity instead of targeting.
+ */
+type Reachability = "reachable" | "identity_mismatch" | "unreachable";
+const livePsqlReachable: Reachability = ((): Reachability => {
   try {
-    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 3000,
-    });
-    return true;
-  } catch {
-    return false;
+    const probeSql =
+      coverageTarget === "validation" ? withValidationIdentityGuard("select 1") : "select 1";
+    execPsqlRedacted(databaseUrl, ["-qAt"], probeSql);
+    return "reachable";
+  } catch (e) {
+    return /validation identity guard/.test(String((e as Error).message))
+      ? "identity_mismatch"
+      : "unreachable";
   }
 })();
 
@@ -139,7 +172,8 @@ const livePsqlReachable = ((): boolean => {
  */
 const isCi = Boolean(process.env.CI);
 
-const liveDbTest = coverageTarget === "validation" || livePsqlReachable ? test : test.skip;
+const liveDbTest =
+  coverageTarget === "validation" || livePsqlReachable === "reachable" ? test : test.skip;
 
 /**
  * Live cases that actually EXECUTED, so CI can refuse an all-static run. The
@@ -154,39 +188,41 @@ const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () =>
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
-    const url = process.env.TEST_DATABASE_URL ?? "";
+    // The GUARANTEE is the module-scope identity assert + per-query DO guard; these remain as
+    // cheap pre-flight misconfiguration messages (spec §3.1).
     const projectRef = process.env.VALIDATION_SUPABASE_PROJECT_REF ?? "";
-    if (!url || /localhost|127\.0\.0\.1|:54322/.test(url)) {
-      throw new Error(
-        "pg-cron-coverage: PG_CRON_COVERAGE_TARGET=validation but TEST_DATABASE_URL looks local — refusing to run.",
-      );
-    }
     if (!projectRef) {
       throw new Error(
         "pg-cron-coverage: PG_CRON_COVERAGE_TARGET=validation requires VALIDATION_SUPABASE_PROJECT_REF — refusing to run.",
       );
     }
-    if (!url.includes(projectRef)) {
+    if (!databaseUrl.includes(projectRef)) {
       throw new Error(
         "pg-cron-coverage: TEST_DATABASE_URL does not contain VALIDATION_SUPABASE_PROJECT_REF — refusing to run.",
       );
     }
   }
-  if (!livePsqlReachable && isCi) {
-    // Loud in CI, where a database is guaranteed to be present.
+  if (livePsqlReachable === "identity_mismatch") {
+    // Never relabel a targeting failure as connectivity (spec §3.1, R2-3).
     throw new Error(
-      "pg-cron-coverage: psql is unreachable at " +
-        databaseUrl +
-        " but CI is set — refusing to report success without asserting anything " +
-        "about a live database. unit-suite-db boots Postgres and applies the " +
-        "pg_cron migrations, so this means the job is broken.",
+      "pg-cron-coverage: the reachability probe connected, but the identity guard aborted — " +
+        "the configured DSN reaches a cluster that is NOT validation. Fix the target before " +
+        "trusting any assertion this suite could make.",
     );
   }
-  if (!livePsqlReachable && coverageTarget !== "validation") {
+  if (livePsqlReachable === "unreachable" && isCi) {
+    // Loud in CI, where a database is guaranteed to be present. Message built by the identity
+    // module so the DSN is structurally redacted (spec §3.1, R3-1).
+    throw new Error(buildPgCronUnreachableMessage(databaseUrl));
+  }
+  if (livePsqlReachable === "unreachable" && coverageTarget !== "validation") {
     console.warn(
-      "[pg-cron-coverage] Skipping live-DB assertions — psql unreachable at " +
-        databaseUrl +
-        ". Static migration/canonical-job assertions still run.",
+      redactDsn(
+        "[pg-cron-coverage] Skipping live-DB assertions — psql unreachable at " +
+          databaseUrl +
+          ". Static migration/canonical-job assertions still run.",
+        databaseUrl,
+      ),
     );
   }
 });
