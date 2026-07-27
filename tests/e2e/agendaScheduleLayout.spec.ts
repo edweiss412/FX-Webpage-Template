@@ -421,3 +421,50 @@ test("chevron: the rotation actually changes between states (§5.2)", async ({ p
   expect(closedRow, "a folded row's chevron is unrotated").toMatch(/none|matrix\(1, 0, 0, 1/);
   expect(openRow, "an open row's chevron is rotated").not.toBe(closedRow);
 });
+
+test("a11y: the disclosure keeps BOTH its expandable state and its heading", async ({ page }) => {
+  // The real-browser accessibility proof spec §7 asked for and this suite did not have. Review
+  // R4 (MEDIUM) was right that it was missing: the other assertions here measure geometry and
+  // computed styles, and the jsdom test can only see that a `summary h3` node exists.
+  //
+  // Why it needs a browser. HTML's content model for <summary> is phrasing content OR a single
+  // heading -- and this summary carries an <h3> alongside sibling spans and an SVG, which is
+  // outside the model the spec assumed. Whether a browser still exposes the heading AND the
+  // disclosure is therefore empirical. The impeccable audit's P1 was this exact class: the fold
+  // silently dropped every day from the document outline while roles and geometry stayed green.
+  await page.goto(baseUrl);
+
+  // 1. The heading survives into the accessibility tree, at the right level, named by its day.
+  const headings = page.getByRole("heading", { level: 3 });
+  await expect(headings).toHaveCount(TOTAL_DAYS);
+  await expect(headings.first()).toHaveAccessibleName("Tuesday, May 14, 2026");
+
+  // 2. Disclosure state is REAL, not a static attribute: read the open state, toggle, re-read.
+  //    A bare role assertion would pass on a summary that no longer toggles anything.
+  const openState = () =>
+    page.locator("details").evaluateAll((els) => els.map((e) => (e as HTMLDetailsElement).open));
+  expect(await openState(), "only the viewer's row starts open").toEqual([true, false, false]);
+
+  await page.getByTestId("agenda-day-summary-1").click();
+  expect(await openState(), "clicking a folded summary expands exactly that row").toEqual([
+    true,
+    true,
+    false,
+  ]);
+
+  // 3. The heading is still exposed after toggling -- catches a structure where the browser's
+  //    own disclosure handling drops the nested heading once the row's state changes.
+  await expect(page.getByRole("heading", { level: 3 }), "headings survive a toggle").toHaveCount(
+    TOTAL_DAYS,
+  );
+
+  // 4. The chevron is decorative and must not be announced. Note for anyone mutating this:
+  //    deleting our explicit aria-hidden prop does NOT red this, because lucide sets
+  //    aria-hidden="true" on its icons by default -- the mutation is behaviourally equivalent,
+  //    not an uncovered assertion. What this DOES protect is the rendered outcome, so swapping
+  //    in an icon that is not hidden by default fails here.
+  await expect(page.locator("[data-agenda-day-chevron]").first()).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+});
