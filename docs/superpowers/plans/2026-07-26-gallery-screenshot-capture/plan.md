@@ -130,12 +130,15 @@ TDD each unit in spec §8.1 order:
    removed-id prune + files to delete, missing-file entry drop, unreferenced `*.webp`
    to delete (index.json + `.staging/` exempt), never-captured omitted, null prior =
    empty prior.
-6. Finalize orchestrator over injected fs adapter
-   (`read/mkdir/write/rename/delete/list`) with a recording fake: order test (staging
-   discard first → staging-only writes → renames+deletes → index LAST) and aborted-run
-   test (zero canonical mutation). No full-sweep pre-clear exists. The orchestrator
-   also takes an injected `warn` sink; when `loadPriorIndex` returns a warning the
-   recording fake asserts exactly one line is emitted (§6 caller-prints obligation).
+6. RUN orchestrator owning ALL filesystem effects (spec §8.1): it takes the injected
+   fs adapter (`read/mkdir/write/rename/delete/list`), an injected `warn` sink, and an
+   injected per-(scenario×theme) CAPTURE CALLBACK returning encoded WebP buffers —
+   every staged write, the staging discard, the finalize renames/deletes, and the
+   index write flow through the adapter; the browser never touches the filesystem
+   directly. Recording-fake tests: full-run order (staging discard first →
+   staging-only writes → renames+deletes → index LAST), mid-capture abort (callback
+   throws partway → zero canonical mutation), no full-sweep pre-clear, and exactly one
+   warn line when `loadPriorIndex` returns a warning (§6 caller-prints obligation).
 
 ### Task 3 — capture spec + harness wiring + browser flow (one TDD task, `infra:`)
 
@@ -154,7 +157,11 @@ RED (all wiring lands first; the test RUNS and FAILS):
   (targeted ids present with this-run `capturedAt`).
 - `screenshots-gallery` project in `playwright.screenshots.config.ts`
   (testMatch, `timeout: 1_800_000`, Desktop Chrome use-block mirroring
-  screenshots-help-capture, no dependencies).
+  screenshots-help-capture, no dependencies) — plus a pin test in
+  `tests/help/playwright-config.test.ts` asserting the project's name, testMatch, and
+  timeout (source-regex style like the existing port-3004 webServer pin at
+  `tests/help/playwright-config.test.ts:85-88`); the pin is authored before the config
+  edit and fails until it lands.
 - `package.json`: `screenshot:gallery` script (ENABLE_TEST_AUTH + TEST_AUTH_SECRET
   inline, `--project=screenshots-gallery`).
 - `.gitignore`: `/screenshots/` (Edit tool, not `echo >>`; verify with
@@ -176,8 +183,10 @@ options (baseURL, colorScheme, viewport 1280×800, locale, timezoneId, reducedMo
 navigation (capture-core imports), goto retry, identity guard, quiescence, viewport
 shot, overflow companion (the harness-readiness picker bridge: tag-scan evaluate →
 Node-side tested `pickScrollContainer` → tag-targeted scroll evaluate), page CLOSED before the next
-scenario; context CLOSED before the next theme's `signInAs` (session revocation);
-staged writes; finalize via the Task-2 orchestrator (which prints any loader warning
+scenario; context CLOSED before the next theme's `signInAs` (session revocation).
+`captureGallery` supplies this browser flow AS the Task-2 orchestrator's capture
+callback — all staging/finalize/index writes flow through the orchestrator's real-fs
+adapter (which prints any loader warning
 through its `warn` sink). Run `pnpm screenshot:gallery` → test PASSES.
 
 VERIFY: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/help/playwright-config.test.ts`;
@@ -188,12 +197,13 @@ VERIFY: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/help/pl
 Run `pnpm screenshot:gallery` (server builds once). Record wall clock; verify §8.2
 postconditions passed; spot-open several WebPs (light+dark+overflow) to confirm the
 modal is actually in frame. Re-run with `GALLERY_SCENARIO=<one id>` to exercise the
-filtered path against the fresh index. Timeout amendment protocol (measurement-driven
-config constant — TDD RED/GREEN does not apply, the rerun is the verification): if
-measured < 900 s, set the project timeout to ~2× measured, RERUN the full sweep under
-the new ceiling to prove it green, and commit `infra:` with the measurement in the
-message; otherwise keep 1_800_000 and no commit. Either way the measurement goes in
-the PR body.
+filtered path against the fresh index. Timeout amendment protocol (TDD like any task):
+if measured < 900 s — RED: update the Task-3 config pin in
+`tests/help/playwright-config.test.ts` to the new ~2×-measured value (fails against
+the unamended config); GREEN: amend the project timeout; VERIFY: pin passes AND the
+full sweep reruns green under the new ceiling; commit `infra:` with the measurement in
+the message. Otherwise keep 1_800_000 and no commit. Either way the measurement goes
+in the PR body.
 
 ### Task 5 — close-out gates
 
