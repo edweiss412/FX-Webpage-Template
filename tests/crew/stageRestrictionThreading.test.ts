@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 
 /**
@@ -17,9 +18,6 @@ import { readFileSync } from "node:fs";
 
 /** Strip block + line comments so a bare `fn(` mention in prose (e.g. TodaySection's
  *  JSDoc "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-}
 
 /** Balanced-paren argument substrings of EVERY `${fn}(` occurrence in `src`. */
 function allCallArgs(src: string, fn: string): string[] {
@@ -55,7 +53,7 @@ const CASES: Array<{ file: string; fn: string }> = [
 describe("stage_restriction threading through resolveKeyTimes / buildRightNowContext callers (#248)", () => {
   for (const { file, fn } of CASES) {
     it(`${file}: EVERY ${fn}(...) call threads stageRestriction`, () => {
-      const src = stripComments(readFileSync(file, "utf8"));
+      const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
       const argsList = allCallArgs(src, fn);
       expect(argsList.length, `no ${fn}( call found in ${file}`).toBeGreaterThan(0);
       // EVERY real call must thread it — a future second call that forgets re-opens the
