@@ -286,11 +286,13 @@ describe("the section-chrome sheet link renders its real fallback for an empty l
     );
     const link = container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]');
     expect(link, "the sheet link must render").not.toBeNull();
-    // Phrasing follows main's icon-only redesign of this corner link
-    // (feat/section-header-rebuild-phantom-spacers): with no visible words left,
-    // WCAG 2.5.3 label-in-name no longer constrains the label, so it reads
-    // "Open the source sheet" rather than mirroring a visible "In sheet".
-    expect(link!).toHaveAccessibleName("Open the source sheet (opens in a new tab)");
+    // Phrasing is the ONE canonical form all sheet links share (sheet-icon-link
+    // spec §3, closing item 4's three-phrasings drift): with no visible words,
+    // WCAG 2.5.3 label-in-name does not constrain the label, and it names the
+    // destination app like its modal-title siblings always did.
+    expect(link!).toHaveAccessibleName(
+      "Open the source sheet in Google Sheets (opens in a new tab)",
+    );
   });
 
   test("a real label interpolates and keeps the suffix", () => {
@@ -301,7 +303,7 @@ describe("the section-chrome sheet link renders its real fallback for an empty l
     );
     expect(
       container.querySelector<HTMLAnchorElement>('a[data-testid$="-sheetlink"]')!,
-    ).toHaveAccessibleName("Open the source sheet for Crew (opens in a new tab)");
+    ).toHaveAccessibleName("Open the source sheet for Crew in Google Sheets (opens in a new tab)");
   });
 });
 

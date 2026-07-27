@@ -107,7 +107,11 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
   // Was 5; the archived-tab offer cluster (ARCHIVED_TAB_BTN + ARCHIVED_TAB_GHOST_BTN,
   // each carrying `transition-colors duration-fast`) was extracted to
   // archivedTabOffer.tsx (spec 2026-07-17 §4.2), so 2 hover transitions moved there.
-  "step3ReviewSections.tsx": 3,
+  // Was 3; the corner sheet link's `transition-colors` moved into the shared
+  // components/admin/SheetIconLink.tsx (sheet-icon-link spec §3), whose own
+  // colour/motion contract is pinned by whole-token-set equality in
+  // tests/components/admin/sheetIconLink.test.tsx — stronger than this count.
+  "step3ReviewSections.tsx": 2,
   // The extracted offer cluster's 2 hover-affordance transitions (accept/ghost
   // buttons). Zero AnimatePresence; both are `transition-colors` hover states, not
   // state-swap animations (spec §7.4: all pairs instant).
