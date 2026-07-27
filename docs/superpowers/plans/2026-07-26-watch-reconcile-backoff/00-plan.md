@@ -370,7 +370,14 @@ describe("write-iff-attempt inside subscribeToWatchedFolder (spec §3.3a, 16b/16
     expect(res.attempt).toEqual({ consecutiveFailures: 1, nextAttemptAt: FUTURE_ISO });
     expect(order.indexOf("A")).toBeLessThan(order.indexOf("orphan"));
   });
-  it("records (B) on the success path", async () => { /* watchFolder resolves; expect recordAttemptSuccess called once, attempt fields returned */ });
+  it("records (B) on the success path", async () => {
+    const res = await subscribeToWatchedFolder("f", { tx, recordAttempt: true,
+      watchFolder: async () => WATCH_OK });
+    expect(res.outcome).toBe("active");
+    expect(res.attempt).toEqual({ consecutiveFailures: 0, nextAttemptAt: NOW_ISO });
+    expect(tx.recordAttemptSuccess).toHaveBeenCalledTimes(1);
+    expect(tx.recordAttemptFailure).not.toHaveBeenCalled();
+  });
   it("pre-boundary insertPending throw records NOTHING", async () => {
     tx.insertPending.mockRejectedValueOnce(new Error("db down"));
     await expect(subscribeToWatchedFolder("f", { tx, recordAttempt: true })).rejects.toThrow();
@@ -536,19 +543,38 @@ export type ReconcileResult = { outcome: ReconcileOutcome; sweptPending: number;
 describe("backoff gate (spec §3.4, 16a)", () => {
   it("!live + waiting → backoff_waiting, zero subscribes, zero writes, escalation still runs", async () => {
     tx.readReconcileGate.mockResolvedValueOnce({ consecutiveFailures: 2, nextAttemptAt: FUTURE_ISO, waiting: true });
-    const r = await reconcileWatchChannels(cleanRefresh, { tx, subscribeToWatchedFolder: subSpy, maybeEscalateWatchOrphaned: escSpy, ... });
+    const r = await reconcileWatchChannels(cleanRefresh, {
+      tx, subscribeToWatchedFolder: subSpy, maybeEscalateWatchOrphaned: escSpy,
+      getActiveWatchedFolder: async () => ({ folderId: "f", folderName: "F" }),
+      resolveAdminAlert: resolveSpy,
+    });
     expect(r.outcome).toBe("backoff_waiting");
     expect(r.nextAttemptAt).toBe(FUTURE_ISO);
     expect(r.consecutiveFailures).toBe(2);
     expect(subSpy).not.toHaveBeenCalled();
     expect(escSpy).toHaveBeenCalled();
   });
-  it("!live + not waiting → subscribe attempted", async () => { /* gate row waiting:false → subSpy called */ });
+  it("!live + not waiting → subscribe attempted", async () => {
+    tx.readReconcileGate.mockResolvedValueOnce({ consecutiveFailures: 1, nextAttemptAt: PAST_ISO, waiting: false });
+    await reconcileWatchChannels(cleanRefresh, deps);
+    expect(subSpy).toHaveBeenCalledTimes(1);
+  });
+  it("!live + NO gate row → subscribe attempted (not waiting)", async () => {
+    tx.readReconcileGate.mockResolvedValueOnce(null);
+    await reconcileWatchChannels(cleanRefresh, deps);
+    expect(subSpy).toHaveBeenCalledTimes(1);
+  });
   it("live paths NEVER read the gate (I2 structural pin)", async () => {
     // live + clean → healthy ; live + renewalFailed → renewal_failing
     expect(tx.readReconcileGate).not.toHaveBeenCalled();
   });
-  it("gate read fault → state_read fault, infra_error, no subscribe", async () => { ... });
+  it("gate read fault → state_read fault, infra_error, no subscribe", async () => {
+    tx.readReconcileGate.mockRejectedValueOnce(new DriveWatchInfraError("drive_watch_reconcile_state.read_gate", "down"));
+    const r = await reconcileWatchChannels(cleanRefresh, deps);
+    expect(r.outcome).toBe("infra_error");
+    expect(r.faults).toContain("state_read");
+    expect(subSpy).not.toHaveBeenCalled();
+  });
   it("returned attempt:null on an attempt cycle → state_write fault, infra_error", async () => {
     subSpy.mockResolvedValueOnce({ outcome: "orphaned", channelId: "c", reason: "watch_create_failed",
       errorClass: "drive_api", errorMessage: "m", attempt: null });
@@ -603,10 +629,27 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 - [ ] **Step 1: Failing tests (class 8)** — in the escalation suite (fixtures gain `raised_at`):
 
 ```ts
-it("fires at raised_at age >= ESCALATION_AFTER_MS even at occurrence_count 1", ...);
-it("does NOT fire below the window even at occurrence_count 99 - the decoupling", ...);
-it("config class fires at age 0", ...);
-it("future raised_at (skew) does not fire", ...);
+// Fixtures/harness per the existing suite (tests/drive/watchEscalation.test.ts);
+// each case injects `now` (new EscalationDeps.now) and a raised_at derived from
+// ESCALATION_AFTER_MS. `depsWith(alertOverrides)` = the suite's existing deps
+// builder with the alert row overridden.
+const at = (ageMs: number) => new Date(NOW.getTime() - ageMs).toISOString();
+it("fires at raised_at age >= window even at occurrence_count 1", async () => {
+  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(ESCALATION_AFTER_MS + 60_000), occurrence_count: 1 }));
+  expect(r.escalated).toBe(true);
+});
+it("does NOT fire below the window even at occurrence_count 99 - the decoupling", async () => {
+  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(ESCALATION_AFTER_MS - 60_000), occurrence_count: 99 }));
+  expect(r.escalated).toBe(false);
+});
+it("config class fires at age 0", async () => {
+  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(0), context: { error_class: "config" } }));
+  expect(r.escalated).toBe(true);
+});
+it("future raised_at (skew) does not fire", async () => {
+  const r = await maybeEscalateWatchOrphaned(input, depsWith({ raised_at: at(-3_600_000), occurrence_count: 99 }));
+  expect(r.escalated).toBe(false);
+});
 ```
 
   Ages derived `ESCALATION_AFTER_MS ± 60_000` from the injected clock. Class 9 (anti-tautology on the retired constant), added to tests/drive/watchBackoffConstants.test.ts:
@@ -637,7 +680,7 @@ it("the retired count-threshold identifier appears nowhere (spec §2.1, class 9)
 
 ```ts
 it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async () => {
-  await retryWatchAction(...);
+  await retryWatchFormAction(makeRetryFormData()); // match the suite's existing action call + fixture helpers at tests/admin/retryWatchAction.test.ts:100-130
   expect(subscribeMock).toHaveBeenCalledWith(FOLDER_ID, expect.objectContaining({ recordAttempt: true }));
 });
 ```
@@ -725,12 +768,14 @@ export async function readWatchSurfaceState(folderId: string):
 - [ ] **Class 21 probe:** `pnpm observe watch --env validation` shows the state columns; `select public.watch_backoff_ms(3)` → `3600000`; `cron.job` row shows `'7,22,37,52 * * * *'`; and the renewal-window regression check (plan review r1 finding 14) - `pnpm observe watch --env validation --json`: newest channel's `expiresAt - createdAt` ≈ 24h and channel creation events do NOT recur every 15 minutes across the post-apply hour (no churn regression; ~1 renewal/day steady state per spec §3.1).
 - [ ] **Full local suite** (`pnpm test` / the repo's CI-mirror commands) including: literal-nine cron suites, `postgrest-dml-lockdown`, `validation-schema-parity` both layers, both `_metaInfraContract` registries, `_metaMutationSurfaceObservability`, x1.
 - [ ] Push, open PR (body per repo conventions) — the PR number now exists for the ledger edit.
-- [ ] **Ledger graduation (plan review r4 finding 6 / r5 finding 5):** MOVE the `BL-WATCH-RECONCILE-BACKOFF` entry from `BACKLOG.md` to `BACKLOG-archive.md` AND add the id to the `BACKLOG_GRADUATED` registry in `tests/docs/_metaDeferralLedgerGraduation.test.ts` — registry edit FIRST so the meta-test goes red until the move lands (red-first graduation proof). PR reference in the archived entry; the deferred design stays DEFERRED as the analysis record. Run `pnpm vitest run tests/docs`, commit `docs: graduate BL-WATCH-RECONCILE-BACKOFF`, push.
-- [ ] **Whole-diff Codex review ON THE FINAL HEAD (plan review r5 finding 1 — reviewed tree must equal merged tree):** split tight-scope briefs per AGENTS.md (sync/db surface; admin/UI surface), iterate to APPROVE. Any repair commit produced here re-enters this step until APPROVE lands on the head that will merge.
+- [ ] **Ledger graduation, red phase (plan review r4 finding 6 / r5 finding 5 / r6 finding 2):** add the row `{ id: "BL-WATCH-RECONCILE-BACKOFF", provenance: "feat/watch-reconcile-backoff" }` to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (row shape per its own doc comment at `tests/docs/_metaDeferralLedgerGraduation.test.ts:110-135` — `provenance` is the resolving BRANCH string the archived section must contain, not a PR number). Run `pnpm vitest run tests/docs` NOW: FAILS (entry not yet archived) — the red-first proof.
+- [ ] **Ledger graduation, green phase:** MOVE the entry from `BACKLOG.md` to `BACKLOG-archive.md`, its archived section containing the provenance branch string plus the PR reference; the deferred design stays DEFERRED as the analysis record. Run `pnpm vitest run tests/docs`: PASSES. Commit `docs: graduate BL-WATCH-RECONCILE-BACKOFF`, push.
+- [ ] **Whole-diff Codex review ON THE FINAL HEAD (plan review r5 finding 1 — reviewed tree must equal merged tree):** split tight-scope briefs per AGENTS.md (sync/db surface; admin/UI surface), iterate to APPROVE.
+- [ ] **Gate-convergence rule (plan review r6 finding 1) — applies to EVERY repair commit from here to merge, whatever prompted it (whole-diff review, CI failure, impeccable fix):** if the repair touches any invariant-8 path (`app/` except `app/api/**`, `components/`, theme/design files), BOTH impeccable gates re-run against the new diff; EVERY repair, UI or not, re-enters whole-diff review; CI must be green on the resulting head. Merge only a head certified by all applicable gates simultaneously.
 - [ ] Real CI green on that same head, `gh pr merge --merge`, fast-forward main, verify `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 ## Self-review (run at plan time)
 
 1. **Spec coverage:** §2.1 constants → T1/T2; §3.1 cadence fan-out → T2; §3.2 table/lockdown/registry → T3; §3.3/§3.3a → T4; §3.4 → T5; §3.5 → T6; Retry → T7; §3.6 transport → T8, bell → T9, settings → T10, CLI → T11; §3.7 → T12; §4.3 validation → T14; §6 classes 1(T1), 4(T3), 6/7/10/16a/17(T5), 16b/16c(T4), 16d(T3/T4), 8/9(T6), 11/19(T9), 12(T10), 13(T11), 14(T12), 18(T7/T8 pins + T5 source pin), 20(T3), 21(T14), meta-suites(T14). No gaps found.
-2. **Placeholder scan:** the two deliberate copy-from-source markers (migration body verbatim-copy in T2; suite-pattern adaptations) name their exact source lines — not TBDs.
+2. **Placeholder scan (re-run after plan review r6 finding 3):** every snippet body is now written out; the remaining non-literal instructions are SHAPE-GUIDE adaptation notes that name their exact source (FakeWatchTx harness, retry suite fixtures, migration body source lines) — directives with named sources, not TBDs.
 3. **Type consistency:** `SubscribeAttempt`/`attempt` field names match across T4 (producer), T5 (reconcile consumer), T7 (action pin); `WatchSurfaceState.lastAttemptOutcome` matches T8→T9/T10.
