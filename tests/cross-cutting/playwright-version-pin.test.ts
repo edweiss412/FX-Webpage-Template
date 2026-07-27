@@ -154,7 +154,12 @@ function tokenizeShell(line: string): ShellToken[] {
       kind = ch === '"' ? "double" : "single";
       continue;
     }
-    if (/\s/.test(ch)) {
+    // ONLY the separators bash itself splits on (default IFS + newline).
+    // JS `\s` also matches U+00A0 and friends, which bash keeps INSIDE a
+    // word — splitting on those invented boundaries bash does not have
+    // (whole-diff R6). Such characters now stay in the token, where the
+    // ASCII-only SAFE_PLAIN_RE rejects them loud.
+    if (ch === " " || ch === "\t" || ch === "\n") {
       endToken();
       continue;
     }
@@ -391,6 +396,15 @@ describe("docker-run role parser sensitivity (whole-diff R3–R5 bypass shapes)"
 
   it("R5 pathname expansion (glob) fails loud", () => {
     const [parsed] = parseAll(`docker run --entrypoint * --platform linux/amd64 ${pinned}`);
+    expect(parsed).toBeNull();
+  });
+
+  it("R6 Unicode whitespace (U+00A0) is NOT a separator — stays in the token and fails loud", () => {
+    // Bash keeps U+00A0 inside a word; a tokenizer splitting on JS \s would
+    // report a platform pin bash never hands docker. The NBSP-joined token
+    // is one plain word containing non-ASCII, rejected by SAFE_PLAIN_RE.
+    const nbsp = "\u00a0";
+    const [parsed] = parseAll(`docker run --env X=1${nbsp}--platform${nbsp}linux/amd64 ${pinned}`);
     expect(parsed).toBeNull();
   });
 
