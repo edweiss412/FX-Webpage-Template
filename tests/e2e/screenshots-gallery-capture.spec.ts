@@ -69,6 +69,22 @@ test("captures every selected attention-gallery scenario in both themes", async 
   const onDiskWebps = readdirSync(outputDir).filter((f) => f.endsWith(".webp"));
   expect(onDiskWebps.length, "no orphaned WebPs (§6 invariant)").toBe(referenced.length);
 
+  // An overflow companion exists to show DIFFERENT content (scrolled to the
+  // bottom of the pane). Byte-identical base/overflow pairs mean the scroll was
+  // a no-op — the first sweep shipped exactly that via the modal panel's
+  // overflow-clip false candidacy.
+  for (const entry of index.scenarios) {
+    for (const [base, over] of [
+      [entry.files.light, entry.files.lightOverflow],
+      [entry.files.dark, entry.files.darkOverflow],
+    ] as const) {
+      if (over === null) continue;
+      const baseBytes = readFileSync(join(outputDir, base));
+      const overBytes = readFileSync(join(outputDir, over));
+      expect(baseBytes.equals(overBytes), `${over} must differ from ${base}`).toBe(false);
+    }
+  }
+
   if (!filtered) {
     expect(index.scenarios.length, "full sweep covers every rendered scenario").toBe(
       partition.rendered.length,

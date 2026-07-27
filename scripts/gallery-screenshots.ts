@@ -478,6 +478,13 @@ async function shootOverflowCompanion(page: Page): Promise<Buffer | null> {
       if (!dialog) return out;
       let idx = 0;
       for (const el of dialog.querySelectorAll("*")) {
+        // Candidacy needs actual scrollABILITY, not just clipped content: the
+        // modal panel is `overflow-clip` and reports scrollHeight > clientHeight
+        // in virtually every scenario, but setting scrollTop on it is a no-op —
+        // the first sweep shipped 128/129 "overflow" shots byte-identical to
+        // their base shots this way. Computed overflow-y auto|scroll only.
+        const overflowY = getComputedStyle(el).overflowY;
+        if (overflowY !== "auto" && overflowY !== "scroll") continue;
         if (el.scrollHeight > el.clientHeight + 1) {
           el.setAttribute(scanAttr, String(idx));
           out.push({
