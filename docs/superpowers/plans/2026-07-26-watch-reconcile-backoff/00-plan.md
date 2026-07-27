@@ -125,7 +125,10 @@ export type WatchErrorClass = (typeof WATCH_ERROR_CLASSES)[number];
 // Reconnect ladder (spec §2.1/§3.3): Nth consecutive failure waits
 // BACKOFF_LADDER_MS[min(N, len) - 1]; the final rung repeats indefinitely.
 export const BACKOFF_LADDER_MS = [900_000, 1_800_000, 3_600_000, 7_200_000] as const;
-export const BACKOFF_MAX_MS: number = BACKOFF_LADDER_MS[BACKOFF_LADDER_MS.length - 1];
+// Literal tuple index (not computed) so noUncheckedIndexedAccess yields `number`,
+// not `number | undefined` (plan review r4 finding 1). The Task 1 test asserts
+// equality with .at(-1) so a ladder-length change cannot silently desync this.
+export const BACKOFF_MAX_MS: number = BACKOFF_LADDER_MS[3];
 
 // Escalate once an unresolved WATCH_CHANNEL_ORPHANED has persisted this long.
 // Duration replaces the retired count-based trigger (deleted in the escalation task).
@@ -222,28 +225,27 @@ end $$;
 - [ ] **Step 1: Failing tests** — tests/db/watchReconcileState.test.ts:
 
 ```ts
-import { beforeAll, describe, expect, it } from "vitest";
+// Serial DB project. Guard pattern copied from tests/db/watchRenewalDue.test.ts:14-29
+// (plan review r3 finding 2 / r4 finding 2): guarded URL, {max:1, idle_timeout:1,
+// prepare:false}, RUN-scoped cleanup in beforeAll AND afterAll, await sql.end()
+// in afterAll. Same shape in EVERY new DB suite in this plan (Tasks 3, 4, 8).
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { ATTEMPT_OUTCOMES, BACKOFF_LADDER_MS } from "@/lib/drive/watchErrors";
-
-// Serial DB project. MUTATING suite: copy the guard pattern of
-// tests/db/watchRenewalDue.test.ts:14-29 EXACTLY (plan review r3 finding 2) -
-// assertLocalDbUrl(...) around the local URL, postgres(databaseUrl,
-// { max: 1, idle_timeout: 1, prepare: false }), cleanup in beforeAll AND
-// afterAll, and `await sql.end()` in afterAll. Same pattern in EVERY new DB
-// suite in this plan (Tasks 3, 4, 8). Fixture ids carry a per-run suffix
-// (`plan-t3-${process.pid}-${Date.now()}`) so survivors from a crashed run
-// cannot skew counts.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assertLocalDbUrl } from "./_localDbUrl";
-const sql = postgres(assertLocalDbUrl(/* same source expression as watchRenewalDue.test.ts:25-28 */), { max: 1, idle_timeout: 1, prepare: false });
+
+const databaseUrl = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
+const sql = postgres(databaseUrl, { max: 1, idle_timeout: 1, prepare: false });
 
 const RUN = `plan-t3-${process.pid}-${Date.now()}`;
 const FOLDER = `${RUN}-folder`;
-const cleanup = () => sql`delete from drive_watch_reconcile_state where watched_folder_id like ${"plan-t3-%"}`;
+const cleanup = () => sql`delete from drive_watch_reconcile_state where watched_folder_id like ${RUN + "%"}`;
 
 describe("drive_watch_reconcile_state (spec §3.2, §6 class 4)", () => {
   beforeAll(async () => { await cleanup(); });
+  afterAll(async () => { await cleanup(); await sql.end(); });
   afterAll(async () => { await cleanup(); await sql.end(); });
 
   it("rejects a ReconcileOutcome value in last_attempt_outcome - the narrowing pin", async () => {
@@ -311,7 +313,7 @@ describe("CHECK <-> runtime array parity (spec §4.2)", () => {
 
 - [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/db/watchReconcileState.test.ts tests/db/watchReconcileStateChecks.test.ts` (serial project command per repo). Expected: FAIL (migration file absent / relation absent).
 - [ ] **Step 3: Write the migration** — spec §3.2 DDL + lockdown + §3.3 `watch_backoff_ms`, copied verbatim. Apply locally (`psql ... -f`). Add the `RPC_GATED_TABLES` row copying the `app_events` row shape (`tests/db/postgrest-dml-lockdown.test.ts:213`) with every field the row type (`tests/db/postgrest-dml-lockdown.test.ts:138`) requires: table name, `selectAnon: false`, `selectAuthenticated: false`, a minimal valid `postBody` (`{ watched_folder_id: "probe" }`), `rowFilter: "?watched_folder_id=eq.probe"` (LEADING `?` - the harness concatenates it straight onto the table URL, `tests/db/postgrest-dml-lockdown.test.ts:653`), and `closed_at` as a FILE CITATION per the registry contract (`tests/db/postgrest-dml-lockdown.test.ts:116`) - cite the lockdown migration file path. Copy the `app_events` row and mirror its field shapes exactly.
-- [ ] **Step 4: Run** — the two new files + `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts`; then `pnpm gen:schema-manifest` and commit the regenerated manifest. Expected: all PASS, manifest diff shows the new table only.
+- [ ] **Step 4: Run** — the two new files + `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts`; then `pnpm gen:schema-manifest`, commit the regenerated manifest, and run the manifest's own DB-free guard layer (`pnpm vitest run tests/db/validation-schema-parity.test.ts` — Layer 1 runs without the validation DB and trips if the manifest regen was skipped or stale; plan review r4 finding 4). Expected: all PASS, manifest diff shows the new table only.
 - [ ] **Step 5: Commit** — `feat(db): drive_watch_reconcile_state table, watch_backoff_ms, full lockdown`
 
 ### Task 4: State writes inside `subscribeToWatchedFolder` (`recordAttempt` opt-in)
@@ -323,7 +325,7 @@ describe("CHECK <-> runtime array parity (spec §4.2)", () => {
 
 **Exact-assertion dispositions (plan review r1 finding 4 / r2 finding 3 — the widening breaks ten exact-result sites; each becomes `toMatchObject` on the shipped fields OR gains the new fields, in THIS task's commit):** `tests/drive/watch.test.ts:384`, `tests/drive/watch.test.ts:422`, `tests/drive/watch.test.ts:495`, `tests/drive/watch.test.ts:542`, `tests/drive/watch.test.ts:1549`, `tests/drive/watch.test.ts:1632`; `tests/drive/watchExpiration.test.ts:121`, `tests/drive/watchExpiration.test.ts:316`, `tests/drive/watchExpiration.test.ts:342`, `tests/drive/watchExpiration.test.ts:373`. After widening, re-grep `toEqual({ outcome` across BOTH files and disposition any residue.
 
-**Compile-fallout producer sites (plan review r3 finding 3 - fixture literals that CONSTRUCT `SubscribeResult` values and miss the new required fields; each gains `attempt: null` plus, on orphaned literals, `errorClass`/`errorMessage`):** `tests/db/watchRenewalDue.test.ts:60`, `tests/db/watchRenewalDue.test.ts:78`; `tests/drive/watch.test.ts:590`, `tests/drive/watch.test.ts:653`, `tests/drive/watch.test.ts:685`, `tests/drive/watch.test.ts:717`, `tests/drive/watch.test.ts:1496`, `tests/drive/watch.test.ts:1528`, `tests/drive/watch.test.ts:1739`, `tests/drive/watch.test.ts:2108`, `tests/drive/watch.test.ts:2132`, `tests/drive/watch.test.ts:2154`, `tests/drive/watch.test.ts:2263`. After the edits run `pnpm tsc --noEmit` and disposition every remaining error mentioning `SubscribeResult`.
+**Compile-fallout producer sites (plan review r3 finding 3 - fixture literals that CONSTRUCT `SubscribeResult` values and miss the new required fields; each gains `attempt: null` plus, on orphaned literals, `errorClass`/`errorMessage`):** `tests/db/watchRenewalDue.test.ts:60`, `tests/db/watchRenewalDue.test.ts:78`; `tests/drive/watch.test.ts:590`, `tests/drive/watch.test.ts:653`, `tests/drive/watch.test.ts:685`, `tests/drive/watch.test.ts:717`, `tests/drive/watch.test.ts:1496`, `tests/drive/watch.test.ts:1528`, `tests/drive/watch.test.ts:1739`, `tests/drive/watch.test.ts:2108`, `tests/drive/watch.test.ts:2132`, `tests/drive/watch.test.ts:2154`, `tests/drive/watch.test.ts:2263`; AND the central producer `tests/drive/watch.test.ts:321` (`reconcileDeps`' default active result — plan review r4 finding 3). After the edits run `pnpm tsc --noEmit` and disposition every remaining error mentioning `SubscribeResult`.
 
 **Interfaces:**
 - Produces:
@@ -351,7 +353,7 @@ export type SubscribeResult =
 
 - Consumes: Task 3's table + function.
 
-- [ ] **Step 1: Failing unit tests (16b/16c)** — extend `tests/drive/watch.test.ts` near the existing subscribe suite; the principal fake `WatchTx` (top of file) gains the two methods returning canned `{ consecutiveFailures, nextAttemptAt }` and recording calls:
+- [ ] **Step 1: Failing unit tests (16b/16c)** — extend `tests/drive/watch.test.ts` near the existing subscribe suite; the principal fake `WatchTx` (top of file) gains ALL THREE new methods (`recordAttemptFailure`, `recordAttemptSuccess`, `readReconcileGate` returning `null` by default) so it keeps satisfying the widened `WatchTx` interface (plan review r4 finding 3), the write methods returning canned `{ consecutiveFailures, nextAttemptAt }` and recording calls:
 
 ```ts
 // in the fake tx: 
@@ -446,8 +448,15 @@ describe("write-iff-attempt inside subscribeToWatchedFolder (spec §3.3a, 16b/16
 - [ ] **Step 4: Failing-then-passing DB test (16d)** — tests/db/watchReconcileStateWrites.test.ts: two concurrent `recordAttemptFailure` through real `PostgresWatchTx` → final `consecutive_failures === 2` and each `returning` distinct; first-failure insert → `1`; mixed-outcome interleaving — `recordAttemptSuccess` commits, then a delayed `recordAttemptFailure` → row reads `failed`/`1` (the §3.3a accepted race, pinned):
 
 ```ts
-// TWO separate connections (sqlA, sqlB, each postgres(url, { max: 1 })) so the
-// writers genuinely race on distinct sessions (plan review r1 finding 5).
+// TWO separate connections so the writers genuinely race on distinct sessions
+// (plan review r1 finding 5 / r4 finding 2). Full scaffold, same guard as Task 3:
+//   const databaseUrl = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL
+//     ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres");
+//   const sqlA = postgres(databaseUrl, { max: 1, idle_timeout: 1, prepare: false });
+//   const sqlB = postgres(databaseUrl, { max: 1, idle_timeout: 1, prepare: false });
+//   const RUN = `plan-t4-${process.pid}-${Date.now()}`; F/F2/F3c/F4/F5/F6 = `${RUN}-a`… etc.
+//   beforeAll/afterAll: delete where watched_folder_id like RUN+'%'; afterAll also
+//   awaits sqlA.end() AND sqlB.end().
 it("two concurrent failures on separate sessions both count (16d)", async () => {
   await Promise.all([failVia(sqlA, F), failVia(sqlB, F)]);
   const [row] = await sqlA`select consecutive_failures from drive_watch_reconcile_state where watched_folder_id = ${F}`;
@@ -493,7 +502,7 @@ it("readReconcileGate returns waiting boolean + ISO string against the real DB",
 });
 ```
 
-- [ ] **Step 5: Registry rows FIRST, then run (plan review r3 finding 6)** — add `tests/sync/_metaInfraContract.test.ts` rows for all three port methods (pattern: existing `lib/drive/watch.ts` rows near `tests/sync/_metaInfraContract.test.ts:43-55`; contract text "state-write/gate-read faults surface as DriveWatchInfraError via callWatchTx; write faults swallowed at the subscribe layer into attempt:null + forensic warn"). Then `pnpm vitest run tests/drive/watch.test.ts tests/db/watchReconcileState.test.ts tests/db/watchReconcileStateWrites.test.ts tests/sync/_metaInfraContract.test.ts` + `pnpm tsc --noEmit`. PASS.
+- [ ] **Step 5: Registry rows FIRST, then run (plan review r3 finding 6)** — add `tests/sync/_metaInfraContract.test.ts` rows for all three port methods (pattern: existing `lib/drive/watch.ts` rows near `tests/sync/_metaInfraContract.test.ts:43-55`; contract text "state-write/gate-read faults surface as DriveWatchInfraError via callWatchTx; write faults swallowed at the subscribe layer into attempt:null + forensic warn"). Then `pnpm vitest run tests/drive/watch.test.ts tests/drive/watchExpiration.test.ts tests/db/watchRenewalDue.test.ts tests/db/watchReconcileState.test.ts tests/db/watchReconcileStateWrites.test.ts tests/sync/_metaInfraContract.test.ts` + `pnpm tsc --noEmit` (the two extra suites carry this task's fixture dispositions; plan review r4 finding 4). PASS.
 - [ ] **Step 6: Commit** — `feat(sync): record reconnect attempts inside subscribeToWatchedFolder behind recordAttempt opt-in`
 
 ### Task 5: Reconcile backoff gate, `backoff_waiting`, route body, structural pins
@@ -501,8 +510,6 @@ it("readReconcileGate returns waiting boolean + ISO string against the real DB",
 **Files:**
 - Modify: `lib/drive/watch.ts` — `WatchTx.readReconcileGate`, `ReconcileOutcome` + `ReconcileResult` widening, gate in the `!live` branch (`lib/drive/watch.ts:1334`), `recordAttempt: true` at the reconcile call site, escalation condition (`lib/drive/watch.ts:1372`) + `state_write` mapping
 - Modify: `app/api/cron/refresh-watch/route.ts` — MANDATORY (plan review r2 finding 4): the live route manually constructs BOTH response branches (`app/api/cron/refresh-watch/route.ts:18` region); add `nextAttemptAt` and `consecutiveFailures` to both
-- Modify: `tests/sync/_metaInfraContract.test.ts` — registry row for `readReconcileGate` (plan review r2 finding 5; contract: "reconcile gate read faults become DriveWatchInfraError via callWatchTx; reconcile maps them to the state_read fault")
-
 **Exact-assertion dispositions (r2 finding 4):** `tests/drive/watch.test.ts:1023`, `tests/drive/watch.test.ts:1077`, `tests/drive/watch.test.ts:1097` gain the two new `ReconcileResult` fields (or become `toMatchObject`); re-grep `toEqual({ outcome` in the reconcile suite after widening.
 - Test: extend `tests/drive/watch.test.ts` (16a matrix, class 6, class 7 additions), `tests/cron/refreshWatchRoute.test.ts` (class 10), new structural pin file tests/drive/watchRecordAttemptPins.test.ts
 
@@ -510,8 +517,9 @@ it("readReconcileGate returns waiting boolean + ISO string against the real DB",
 - Produces:
 
 ```ts
-// readReconcileGate already exists on the port (Task 4); this task wires it into
-// reconcile's !live branch (DB clock domain per spec D8).
+// readReconcileGate and its registry row shipped in Task 4; this task ONLY wires
+// it into reconcile's !live branch (DB clock domain per spec D8) - no new port
+// method, no new registry row here (plan review r4 finding 3).
 export type ReconcileOutcome = "healthy" | "recovered" | "still_orphaned"
   | "renewal_failing" | "vacuous" | "backoff_waiting" | "infra_error";
 export type ReconcileResult = { outcome: ReconcileOutcome; sweptPending: number;
@@ -567,7 +575,7 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 });
 ```
 
-  Class 7 deps-spy half + class 17 loop extend the existing refresh/reconcile fault suites (every post-attempt fault name except `state_write` → `infra_error` AND write landed). Class 10: `tests/cron/refreshWatchRoute.test.ts` gains `backoff_waiting` → 200 and body carries `nextAttemptAt`/`consecutiveFailures` in BOTH route branches; `state_read`/`state_write` faults → 500 `outcome: "infra"`. The gate read's real-DB return shape (`waiting` boolean, ISO-string `nextAttemptAt`) is asserted in tests/db/watchReconcileStateWrites.test.ts alongside the port-shape pin.
+  Behavioral-fake sweep (plan review r4 finding 3): the result-producing overrides at `tests/drive/watch.test.ts:1116`, `tests/drive/watch.test.ts:1137`, `tests/drive/watch.test.ts:1356`, `tests/drive/watch.test.ts:1403` gain the widened attempt/error shape (they bypass compile checks via `over: Record<string, unknown>`, so grep for them — tsc will not). Class 7 deps-spy half + class 17 loop extend the existing refresh/reconcile fault suites (every post-attempt fault name except `state_write` → `infra_error` AND write landed). Class 10: `tests/cron/refreshWatchRoute.test.ts` gains `backoff_waiting` → 200 and body carries `nextAttemptAt`/`consecutiveFailures` in BOTH route branches; `state_read`/`state_write` faults → 500 `outcome: "infra"`. The gate read's real-DB return shape (`waiting` boolean, ISO-string `nextAttemptAt`) is asserted in tests/db/watchReconcileStateWrites.test.ts alongside the port-shape pin.
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement** per Interfaces + spec §3.4 steps 2–5: gate consulted only inside `!live` before the subscribe; reconcile call becomes `(deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true })))(folder.folderId)`; escalation condition gains `|| outcome === "backoff_waiting"`; result carries `nextAttemptAt`/`consecutiveFailures` from `result.attempt` (attempt cycles) or the gate row (`backoff_waiting`), else null; `ReconcileDeps.subscribeToWatchedFolder` signature widens to return the widened `SubscribeResult` (its injected fakes updated).
 - [ ] **Step 4: Run** — `pnpm vitest run tests/drive tests/cron tests/sync/_metaInfraContract.test.ts` + typecheck (the meta-test verifies this task's registry row for the gate wiring; plan review r3 finding 6). PASS.
@@ -631,7 +639,7 @@ it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async
 });
 ```
 
-- [ ] **Step 2: Run — FAIL.** **Step 3:** one-line action edit PLUS update the existing one-argument call assertion at `tests/admin/retryWatchAction.test.ts:126` to expect `(FOLDER_ID, { recordAttempt: true })` (plan review r1 finding 11 — it becomes the pin rather than a casualty). **Step 4: Run — PASS** (other retry tests inspect `outcome` only and stay green). **Step 5: Commit** — `feat(admin): retry action opts into attempt recording`
+- [ ] **Step 2: Run — FAIL.** **Step 3:** one-line action edit PLUS update the existing one-argument call assertion at `tests/admin/retryWatchAction.test.ts:126` to expect `(FOLDER_ID, { recordAttempt: true })` (plan review r1 finding 11 — it becomes the pin rather than a casualty). **Step 4: Run `pnpm vitest run tests/admin/retryWatchAction.test.ts` + `pnpm tsc --noEmit` — PASS** (other retry tests inspect `outcome` only and stay green). **Step 5: Commit** — `feat(admin): retry action opts into attempt recording`
 
 ### Task 8: `readWatchSurfaceState` + both loaders
 
@@ -639,7 +647,7 @@ it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async
 - Create: lib/admin/watchSurfaceState.ts
 - Modify: `lib/admin/bellFeed.ts` (BellEntry + loader mapping). The Settings PAGE read moves to Task 10 with the panel prop (plan review r3 finding 5 - the page cannot pass a prop the component does not yet accept)
 - Modify: `tests/admin/_metaInfraContract.test.ts` (+1 row)
-- Test: tests/admin/watchSurfaceState.test.ts (new), extend the bellFeed suite + a settings-page loader test (class 18 loader pins)
+- Test: tests/admin/watchSurfaceState.test.ts (new), extend the bellFeed suite (class 18 loader pins; the settings-page loader test lives in Task 10 with the page edit)
 
 **Interfaces:**
 - Produces:
@@ -653,10 +661,10 @@ export type WatchSurfaceState = {
 export async function readWatchSurfaceState(folderId: string):
   Promise<WatchSurfaceState | null | { kind: "infra_error" }>;
 // BellEntry gains: watchState?: WatchSurfaceState | null
-// DriveConnectionPanel gains prop: watchState?: WatchSurfaceState | null
+// (DriveConnectionPanel's matching prop lands in Task 10 with the page read)
 ```
 
-- [ ] **Step 1: Failing tests** — helper: returned `{error}` → `{kind:"infra_error"}`; thrown query → same; client-construction throw → same; zero rows → `null`; row → mapped camelCase. Loaders (class 18, BOTH directions - plan review r1 finding 12): bellFeed with helper faulting → `watchState: null` on the watch entry, feed intact; bellFeed with helper returning a state row → the watch entry's `watchState` carries those exact values (assert against the fixture, not a snapshot); AND `getActiveWatchedFolderId()` returning its typed infra result → feed still renders, `watchState: null`, helper NOT called (plan review r2 finding 14 - the folder read is its own boundary and must not fail the feed); AND every NON-watch entry carries `watchState: null` explicitly - asserted `toBeNull()`, not `toBeUndefined()` (spec §3.6; plan review r3 finding 9 - the loader sets the field, it does not leave it absent). Follow the existing bellFeed suite's mock harness (`tests/admin/bellFeed.test.ts`). Plus a real-DB helper integration test, tests/db/watchSurfaceStateIntegration.test.ts (new): seed a real `drive_watch_reconcile_state` row (same `assertLocalDbUrl` guard + teardown pattern as the other new DB suites), and BEFORE calling the helper assert the ambient `SUPABASE_URL` hostname is loopback — the service-role client reads the ambient env (`lib/supabase/server.ts:79`), and seeding local while reading a remote project is exactly the split this guard prevents (plan review r3 finding 2); then call the REAL `readWatchSurfaceState`, assert the mapped camelCase values and ISO-string `nextAttemptAt` round-trip.
+- [ ] **Step 1: Failing tests** — helper: returned `{error}` → `{kind:"infra_error"}`; thrown query → same; client-construction throw → same; zero rows → `null`; row → mapped camelCase. Loaders (class 18, BOTH directions - plan review r1 finding 12): bellFeed with helper faulting → `watchState: null` on the watch entry, feed intact; bellFeed with helper returning a state row → the watch entry's `watchState` carries those exact values (assert against the fixture, not a snapshot); AND `getActiveWatchedFolderId()` returning its typed infra result → feed still renders, `watchState: null`, helper NOT called (plan review r2 finding 14 - the folder read is its own boundary and must not fail the feed); AND every NON-watch entry carries `watchState: null` explicitly - asserted `toBeNull()`, not `toBeUndefined()` (spec §3.6; plan review r3 finding 9 - the loader sets the field, it does not leave it absent). Follow the existing bellFeed suite's mock harness (`tests/admin/bellFeed.test.ts`). Plus a real-DB helper integration test, tests/db/watchSurfaceStateIntegration.test.ts (new): seed a real `drive_watch_reconcile_state` row (full Task-3 scaffold shape: `assertLocalDbUrl` around `LOCAL_TEST_DATABASE_URL ?? loopback`, `{max:1, idle_timeout:1, prepare:false}`, RUN-scoped fixtures `plan-t8-${process.pid}-${Date.now()}`, cleanup in beforeAll+afterAll, `await sql.end()` in afterAll), and BEFORE calling the helper assert the ambient `SUPABASE_URL` hostname is loopback — the service-role client reads the ambient env (`lib/supabase/server.ts:79`), and seeding local while reading a remote project is exactly the split this guard prevents (plan review r3 finding 2); then call the REAL `readWatchSurfaceState`, assert the mapped camelCase values and ISO-string `nextAttemptAt` round-trip.
 - [ ] **Step 2: FAIL.** **Step 3: Implement** — service-role client per the bellFeed pattern; single `.select("next_attempt_at, consecutive_failures, last_attempt_outcome").eq("watched_folder_id", folderId).maybeSingle()`; loader mapping with the inline render-boundary comment (spec §3.6); bell folder id from `getActiveWatchedFolderId()` (`lib/appSettings/getWatchedFolderId.ts:76` shape). Registry row in the admin meta-test (pattern `tests/admin/_metaInfraContract.test.ts:287-313`) stating both halves (typed infra result; deliberate hide-on-fault in consumers).
 - [ ] **Step 4: Run `tests/admin` AND the new DB integration file + typecheck — PASS.** **Step 5: Commit** — `feat(admin): watch surface state read with typed infra fault, wired to the bell feed`
 
@@ -690,7 +698,7 @@ export async function readWatchSurfaceState(folderId: string):
 - Test: extend `tests/observe/queryWatch.test.ts` AND `tests/observe/format.test.ts:258` fixtures
 
 - [ ] **Step 1: Failing tests (class 13)** — query output includes `consecutive_failures`, `next_attempt_at`, `last_attempt_outcome`, `last_error_class`, sanitized `last_error_message` (through the `sanitizeIdentityString` treatment used at `lib/observe/query/failures.ts:55` and `lib/observe/query/failures.ts:61`); `formatWatch` renders the new columns for a fixture row AND omits gracefully when the state fields are absent; the structural secret-scan (`tests/observe/queryWatch.test.ts:61-63`) still green; the second query's returned-`{error}` and thrown paths each surface as the module's existing typed failure shape (add both cases). Invariant-9 disposition: follow whatever registry/inline convention `lib/observe/query/*.ts` already uses for its Supabase reads - if the module's queries carry no registry rows, add `// not-subject-to-meta: read-only observe CLI adapter; faults surface to the CLI as typed failures` at the new call site, matching invariant 9's inline-exemption arm.
-- [ ] **Step 2: FAIL.** **Step 3: Implement (query + types + formatter).** **Step 4: PASS.** **Step 5: Commit** — `feat(observe): reconcile state columns on observe watch`
+- [ ] **Step 2: FAIL.** **Step 3: Implement (query + types + formatter).** **Step 4: Run `pnpm vitest run tests/observe` + `pnpm tsc --noEmit` — PASS** (plan review r4 finding 4). **Step 5: Commit** — `feat(observe): reconcile state columns on observe watch`
 
 ### Task 12: Copy lockstep + full cadence sweep execution
 
@@ -703,16 +711,20 @@ export async function readWatchSurfaceState(folderId: string):
 
 ### Task 13: Impeccable dual-gate (invariant 8)
 
-- [ ] Run `/impeccable critique` then `/impeccable audit` on the Task 9+10 diff with the canonical v3 setup gates (context.mjs: PRODUCT.md + DESIGN.md → register read). Fix P0/P1 or defer via `DEFERRED.md` entry. Commit any fixes as `fix(admin): impeccable findings on watch backoff lines`.
+- [ ] **Pre-code mechanical gate check (retroactive verification):** grep the Tasks 7/9/10/12 diff for the mechanical invariants (em-dash ban and apostrophe literals in user-visible copy, canonical `text-sm`/`text-text-subtle` classes, no invented abbreviations) — the spec's §3.6/§3.7 strings were pre-checked at spec time; this step verifies the implementation matched them.
+- [ ] Run `/impeccable critique` then `/impeccable audit` with the canonical v3 setup gates (context.mjs: PRODUCT.md + DESIGN.md → register read) on the FULL invariant-8 surface of this branch's diff: every touched file under `app/` except `app/api/**` — which includes `app/admin/actions.ts` (Tasks 7, 12) and `app/admin/settings/page.tsx` (Task 10) — plus every touched file under `components/` (Tasks 9, 10). Scoping the gate to Tasks 9+10 alone misses the actions/page edits (plan review r4 finding 5).
+- [ ] Fix P0/P1 or defer via `DEFERRED.md` entry; re-run the failing gate after fixes until it passes. Commit fixes as `fix(admin): impeccable findings on watch backoff lines`.
+- [ ] Record findings + dispositions in docs/superpowers/plans/2026-07-26-watch-reconcile-backoff/CLOSEOUT.md §12 (created here; also carries the class-21 probe transcript and the close-out suite list from Task 14). Commit as `docs: watch backoff closeout findings`.
 
 ### Task 14: Validation applies, live probe, full-suite close-out
 
 - [ ] **Apply both migrations to validation** `vzakgrxqwcalbmagufjh` surgically (`supabase db query --linked` or psql), then `notify pgrst, 'reload schema';`.
 - [ ] **Class 21 probe:** `pnpm observe watch --env validation` shows the state columns; `select public.watch_backoff_ms(3)` → `3600000`; `cron.job` row shows `'7,22,37,52 * * * *'`; and the renewal-window regression check (plan review r1 finding 14) - `pnpm observe watch --env validation --json`: newest channel's `expiresAt - createdAt` ≈ 24h and channel creation events do NOT recur every 15 minutes across the post-apply hour (no churn regression; ~1 renewal/day steady state per spec §3.1).
 - [ ] **Full local suite** (`pnpm test` / the repo's CI-mirror commands) including: literal-nine cron suites, `postgrest-dml-lockdown`, `validation-schema-parity` both layers, both `_metaInfraContract` registries, `_metaMutationSurfaceObservability`, x1.
-- [ ] Update `BACKLOG.md` `BL-WATCH-RECONCILE-BACKOFF` → CLOSED with PR ref; note the deferred design stays DEFERRED as the analysis record. Commit `docs: close BL-WATCH-RECONCILE-BACKOFF`.
 - [ ] Whole-diff Codex review (split tight-scope briefs per AGENTS.md: sync/db surface; admin/UI surface), iterate to APPROVE.
-- [ ] Push, open PR (body per repo conventions), real CI green, `gh pr merge --merge`, fast-forward main, verify `git rev-list --left-right --count main...origin/main` = `0  0`.
+- [ ] Push, open PR (body per repo conventions) — the PR number now exists for the ledger edit.
+- [ ] **Ledger graduation (plan review r4 finding 6 — the active queue rejects terminal statuses):** MOVE the `BL-WATCH-RECONCILE-BACKOFF` entry from `BACKLOG.md` to the archive file per the repo's graduation convention (see `tests/docs/_metaDeferralLedgerGraduation.test.ts` for the enforced shape), with the PR reference; note the deferred design stays DEFERRED as the analysis record. Run `pnpm vitest run tests/docs` + the docs meta-suites touched, then commit `docs: graduate BL-WATCH-RECONCILE-BACKOFF` and push the addendum commit.
+- [ ] Real CI green on the final head, `gh pr merge --merge`, fast-forward main, verify `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 ## Self-review (run at plan time)
 
