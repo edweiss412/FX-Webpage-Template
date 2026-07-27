@@ -45,21 +45,34 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /**
- * Whole-diff r5: the component's own token set is pinned by set-equality in
- * the unit suite, but that covers only what SheetIconLink renders — a NEW
- * consumer passing colour/size/hit-area utilities through `className` (the
- * prop is contractually positional-only: order/margin) would ship an
- * off-contract skin with no guard failing. Every JSX usage's className must
- * therefore be a STRING LITERAL whose tokens all match the positional
- * allowlist; a brace-expression className fails by construction (it cannot be
- * verified statically, and no site needs one).
+ * Whole-diff r5 (tightened r6): the component's own token set is pinned by
+ * set-equality in the unit suite, but that covers only what SheetIconLink
+ * renders — a NEW consumer passing colour/size/hit-area utilities through
+ * `className` (the prop is contractually positional-only: order/margin) would
+ * ship an off-contract skin with no guard failing. Every JSX usage's
+ * className must therefore be a STRING LITERAL whose tokens all match the
+ * positional allowlist. Fails by construction (r6): brace-expression
+ * className, ANY spread attribute on the tag (props could smuggle className),
+ * and an aliased import of the component (an alias defeats this static
+ * guard — do not alias). The allowlist is a closed non-negative margin scale
+ * (0–3, half steps) plus order utilities: negative margins (`-mr-3.5`),
+ * arbitrary values (`mr-[-14px]`), and box-altering utilities (`self-*`,
+ * sizes, colours) all fail.
  */
-const POSITIONAL = /^(?:sm:|md:|lg:)?(?:-?m[lrtb]-|order-|self-)[\w./[\]-]+$/;
+const POSITIONAL =
+  /^(?:sm:|md:|lg:)?(?:m[lrtb]-(?:0(?:\.5)?|1(?:\.5)?|2(?:\.5)?|3)|order-(?:\d|first|last|none))$/;
 
 function classNameViolations(src: string): string[] {
   const out: string[] = [];
+  if (/import\s*{[^}]*\bSheetIconLink\s+as\s+/s.test(src)) {
+    out.push("aliased SheetIconLink import — an alias defeats this static guard; do not alias");
+  }
   for (const m of src.matchAll(/<SheetIconLink\b[^>]*?(?:\/>|>)/gs)) {
     const tag = m[0];
+    if (tag.includes("{...")) {
+      out.push(`spread attribute on SheetIconLink (could smuggle className): ${tag.slice(0, 100)}`);
+      continue;
+    }
     const lit = tag.match(/className="([^"]*)"/);
     if (lit) {
       for (const tok of lit[1]!.split(/\s+/).filter(Boolean)) {
@@ -97,6 +110,17 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     ).toHaveLength(2);
     expect(classNameViolations("<SheetIconLink className={dynamic} />")).toHaveLength(1);
     expect(classNameViolations("<SheetIconLink className={`mr-0.5 ${x}`} />")).toHaveLength(1);
+    // r6 forms: spread, alias, negative margin, arbitrary value, self-*
+    expect(classNameViolations('<SheetIconLink {...props} className="mr-0.5" />')).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'import { SheetIconLink as Link } from "@/components/admin/SheetIconLink";',
+      ),
+    ).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="-mr-3.5" />')).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="mr-[-14px]" />')).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="self-stretch" />')).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="mr-4" />')).toHaveLength(1);
     expect(classNameViolations('<SheetIconLink className="sm:order-1 sm:ml-0.5" />')).toHaveLength(
       0,
     );
@@ -111,8 +135,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ...walk(join(root, "app")).filter((f) => !f.includes("/app/api/")),
     ];
     const violations = files.flatMap((file) => {
+      // Gate on the bare name, not the JSX tag — an alias-importing file
+      // contains no `<SheetIconLink` tag yet must still be flagged.
       const src = readFileSync(file, "utf8");
-      if (!src.includes("<SheetIconLink")) return [];
+      if (!src.includes("SheetIconLink")) return [];
       return classNameViolations(src).map((v) => `${file.slice(root.length + 1)}: ${v}`);
     });
     expect(violations).toEqual([]);

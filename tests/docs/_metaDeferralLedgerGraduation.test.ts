@@ -301,18 +301,35 @@ describe("backlog ledger graduation", () => {
     const backlog = read("BACKLOG.md");
     // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
     // "Resolved / shipped / superseded" as the archive-bound states (r5).
+    // Case-insensitive (r6: `**Status:** Shipped` is the same claim in
+    // titlecase) but ANCHORED — the terminal word must BE the status value,
+    // directly after the prefix. A mid-line /i match fires on narrative
+    // ("NARROWED — NOT closed", "…which graduated when it shipped"), both
+    // live false positives found when the unanchored form was tried.
     const TERMINAL =
-      /^\s*(?:\*\*)?(?:Status|Filed):?(?:\*\*)?[^\n]*?\b(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
+      /^\s*(?:\*\*)?Status:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+    const FILED_TERMINAL =
+      /^\s*(?:\*\*)?Filed:?(?:\*\*)?\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
     // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
     // line let two other spellings of the same claim through — a closure as a
     // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
     // ("**CLOSED 2026-07-26** by …"). Both are still the entry's own claim
     // about itself, so both count; deeper body lines stay out of scope for the
     // same reason as before (entries legitimately DISCUSS closure).
-    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
-    const OPENING_TERMINAL = /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+    // r6: heading suffix matches any case ("— ✅ Resolved"); the opening
+    // claim also matches unbolded ALL-CAPS ("SHIPPED …" as the first line) —
+    // unbolded lowercase prose is NOT matched, since an open entry's first
+    // line legitimately narrates ("Resolved only as part of BL-…" style).
+    const HEADING_TERMINAL = /—\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+    // Bold opening claim: any case ("**Resolved.**"). Bare opening claim:
+    // ALL-CAPS only, so narrating prose cannot false-positive.
+    const OPENING_TERMINAL_BOLD =
+      /^\s*\*\*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/i;
+    const OPENING_TERMINAL_BARE = /^\s*(?:✅\s*)?(CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED)\b/;
     const offenders: string[] = [];
-    const headings = [...backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)/gm)];
+    // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
+    // same optional bracket the shoutyIds matcher already accepts.
+    const headings = [...backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
     for (const [i, h] of headings.entries()) {
       const start = h.index!;
       const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
@@ -322,11 +339,15 @@ describe("backlog ledger graduation", () => {
       const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
       // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
       // records what shipped and what did not. Only a bare terminal counts.
-      const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/.test(l)) ?? "";
+      const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
+      const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/.test(l)) ?? "";
       const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
+      const filedHit = !/PARTIAL/i.test(filedLine) && FILED_TERMINAL.test(filedLine);
       const headingHit = !/PARTIAL/i.test(headingLine) && HEADING_TERMINAL.test(headingLine);
-      const openingHit = !/PARTIAL/i.test(openingLine) && OPENING_TERMINAL.test(openingLine);
-      if (statusHit || headingHit || openingHit) offenders.push(h[1]!);
+      const openingHit =
+        !/PARTIAL/i.test(openingLine) &&
+        (OPENING_TERMINAL_BOLD.test(openingLine) || OPENING_TERMINAL_BARE.test(openingLine));
+      if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
