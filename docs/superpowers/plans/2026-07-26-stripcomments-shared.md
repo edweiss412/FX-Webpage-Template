@@ -531,16 +531,18 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  unlisted (family, marker) in the same file still fails (PR1-F2 — the A16/D1
  *  shared-file case is the regression this design exists for). */
 export const STANDING_ALLOWLIST: StandingRow[] = [
-  { file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts", family: "name-family", marker: "stripYamlComments", reason: "D1: YAML # stripper, different grammar (renamed from stripComments in Task 18)" },
-  { file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts", family: "startswith-filter", marker: "#", reason: "D1: YAML # handling" },
-  { file: "tests/cross-cutting/vitest-projects-partition.test.ts", family: "startswith-filter", marker: "#", reason: "E5: YAML # line filter" },
-  { file: "tests/cross-cutting/unit-suite-shard-topology.test.ts", family: "marker-skip-regex", marker: "#", reason: "E6: YAML # directives filter" },
-  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "#", reason: "E7: documented loud-error trailing-comment design (its lines 110-114)" },
-  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "//", reason: "E7: same documented design, JS half" },
-  { file: "tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts", family: "marker-skip-regex", marker: "--", reason: "E8: loop-integrated SQL doc-line skips" },
-  { file: "tests/log/mutationSurface/exemptions.ts", family: "startswith-filter", marker: "//", reason: "E9: comment-READER — searches leading comments for the no-telemetry marker" },
-  { file: "tests/drive/loadLocalEnv.ts", family: "startswith-filter", marker: "#", reason: "E10: dotenv # grammar" },
+  { file: "tests/auth/oauth-flow.test.ts", family: "two-char-literal", marker: "//", reason: "E12: protocol-relative-URL assertion string" },
   { file: "tests/auth/oauth-flow.test.ts", family: "startswith-filter", marker: "//", reason: "E12: protocol-relative-URL assertion, not comment handling" },
+  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "two-char-literal", marker: "//", reason: "E7: marker literal in the documented loud-error design (its lines 110-114)" },
+  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "#", reason: "E7: documented loud-error trailing-comment design, YAML half" },
+  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "//", reason: "E7: same documented design, JS half" },
+  { file: "tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts", family: "marker-skip-regex", marker: "--", reason: "E8: loop-integrated SQL doc-line skips (two sites, one row)" },
+  { file: "tests/cross-cutting/unit-suite-shard-topology.test.ts", family: "marker-skip-regex", marker: "#", reason: "E6: YAML # directives filter" },
+  { file: "tests/cross-cutting/vitest-projects-partition.test.ts", family: "startswith-filter", marker: "#", reason: "E5: YAML # line filter" },
+  { file: "tests/db/_localDbUrl.ts", family: "line-replace-idiom", marker: "//", reason: "DSN credential redaction (its line 31), not comment handling — detector false positive (plan-review R2 F2)" },
+  { file: "tests/drive/loadLocalEnv.ts", family: "startswith-filter", marker: "#", reason: "E10: dotenv # grammar" },
+  { file: "tests/log/mutationSurface/exemptions.ts", family: "two-char-literal", marker: "//", reason: "E9: marker literal in the comment-READER" },
+  { file: "tests/log/mutationSurface/exemptions.ts", family: "startswith-filter", marker: "//", reason: "E9: comment-READER — searches leading comments for the no-telemetry marker" },
 ];
 
 /** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
@@ -720,7 +722,7 @@ describe("detector negative proofs — through the WALK pipeline (spec §4 plant
 
 Note the family-5 name regex intentionally matches `stripYamlComments` (via `strip\w*[Cc]omment\w*`) — D1's standing row pins it by exact marker.
 
-- [ ] **Step 2: Run** — `pnpm vitest run tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` → expect PASS. Two acceptable failure shapes, each with a prescribed response: (i) a walked file trips a family and is in NO list → missed inventory row — add to `PENDING_MIGRATIONS` + a migration task + commit-body note; (ii) a STANDING row is stale/mis-markered (the no-stale-rows test) → correct the row's `marker` to what the detector actually reports, noting it. D1's `stripYamlComments` row will report stale until Task 18 renames the symbol — seed the row with `marker: "stripComments"` initially and flip it to `stripYamlComments` in Task 18's commit (both states are pinned by the no-stale-rows test).
+- [ ] **Step 2: Run** — `pnpm vitest run tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` → expect PASS. The STANDING_ALLOWLIST above is EXACTLY the plan-time simulation's offender set (plan-review R2; transcript in the "Simulation" section below) — no D1 rows yet: picker-flow's pending row covers it until Task 18, which adds its residual standing rows. Failure shapes: (i) a walked file trips a family and is in NO list → missed inventory row — add to `PENDING_MIGRATIONS` + a migration task + commit-body note; (ii) a STANDING row is stale (no-stale-rows test) → correct its `marker` to what the detector reports, noting it.
 - [ ] **Step 3: Commit** — `test(cross-cutting): add single-source stripComments meta-test with migration scaffold`
 
 ---
@@ -730,7 +732,7 @@ Note the family-5 name regex intentionally matches `stripYamlComments` (via `str
 1. **Red:** delete the task's file path(s) from `PENDING_MIGRATIONS`; run the meta-test → FAIL naming exactly that file (spec §5.3a).
 2. **Migrate:** apply the task's edit spec. Named strippers → imports. Inline idioms / Tier-C/E → pre-strip pattern: strip the whole input once via `stripCommentsForFile(src, path)`; extraction logic unchanged. Rename retained family-5 wrappers (spec §5.3b).
 3. **Green:** meta-test PASS; run the row's guard file AND every consumer listed in the task.
-4. **Triage** (spec §5.3d): verify each NEW finding against raw source by hand. Trivial → fix here. Non-trivial → BACKLOG row + guard allowlist entry citing it.
+4. **Triage** (spec §5.3d): verify each NEW finding against raw source by hand. Trivial → fix here. Non-trivial → BACKLOG row + guard allowlist entry citing it. **Residual meta-test hits after migrating** (e.g. quoted `"//"` fixture strings or test titles in a guard's own test cases — A3's `tests/help/_metaServerTimeGuard.test.ts:304` title is the known instance): if the hit is a fixture/title string and not comment handling, either reword it out of detector shape or add a reasoned STANDING row in the same commit; never widen the pending list.
 5. **Commit:** `test(<area>): migrate <basename> to shared stripComments` (+ triage notes).
 
 ### Task 3: A1 — canonical source `tests/styles/_newTabScan.ts` + its importers (PR1-F4)
@@ -776,7 +778,7 @@ PROC 1–5. Note: the compat wrappers do NOT trip the family-5 detector going fo
 - **Task 15 / A13** `tests/components/admin/_metaPopoverViewportSource.test.ts` — def :77; `codeOf` (:127) delegates + RENAMED `strippedSourceOf`. `.mts/.cts` corpus → router covers.
 - **Task 16 / A14** `tests/components/admin/review/reviewModalShell.test.tsx` — def :535; D2: `animationContexts` (:444) pre-strips via `stripCssComments`.
 - **Task 17 / A15** `tests/components/admin/wizard/venueTransitionAudit.test.ts` — def :10.
-- **Task 18 / A16** `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` — delete `stripTsComments` (:72) → `stripCommentsSafely(src, ts.ScriptKind.TS)`. RENAME the YAML stripper (:47) `stripComments` → `stripYamlComments` and flip its STANDING row's marker (seeded as `stripComments` in Task 2) to `stripYamlComments` in this commit. Red-first works because the standing rows cover ONLY `{name-family, stripYamlComments}` + `{startswith-filter, #}` — the TS idioms (families 1/3/5 hits from `stripTsComments`) have no standing row and red when the pending row is deleted (pinned by Task 2's site-granular plant — PR1-F2).
+- **Task 18 / A16** `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` — delete `stripTsComments` (:72) → `stripCommentsSafely(src, ts.ScriptKind.TS)`. RENAME the YAML stripper (:47) `stripComments` → `stripYamlComments`. PROC step 1 reds every idiom in the file (no standing rows exist for it yet); after migrating, run the detector on the file and add STANDING rows for exactly the YAML stripper's residual hits (expected: `{name-family, stripYamlComments}`; possibly a quoted-marker literal from its scanner) in this same commit — the no-stale-rows test pins each (PR1-F2, PR2-F1).
 - **Task 19 / A17** `tests/docs/designSevenAEmptyHiddenSites.test.ts` — delete `stripNonCode` (:37) → pre-strip. Blanked `{/* */}` leaves `{ }` — confirm assertions tolerate empty JSX expressions (raw-source triage otherwise).
 - **Task 20 / A18** `tests/crew/_metaTileProducerTopology.test.ts` — `codeOf` (:65) delegates + RENAMED `strippedSourceOf`.
 - **Task 21 / A19** `tests/messages/_metaCatalogCopyHygiene.test.ts` — `stripCodeNoise` (:164): comment replaces → shared pre-strip; string-blanking stays; RENAMED `blankStringNoise`.
@@ -825,6 +827,23 @@ Comment-skip branch (:66-70) deleted; CSS input pre-stripped with `stripCssComme
 - [ ] **Step 3:** Update `BACKLOG.md` row `BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN` (BACKLOG.md:904): status RESOLVED (2026-07-26, this branch), end-state summary, spec pointer.
 - [ ] **Step 4:** Full suite `pnpm test` → green (triage residue per PROC 4).
 - [ ] **Step 5:** Commit — `test(infra): drain stripComments migration scaffold; resolve BL-STRIPCOMMENTS backlog row`
+
+## Simulation (run at plan time — plan-review R2)
+
+`scratchpad/simulate-meta.mjs` reimplements Task 2's strip+detect+walk pipeline and ran against this plan's PENDING_MIGRATIONS on the live tree (origin/main 2411d4450). Output (= the exact required STANDING_ALLOWLIST):
+
+```
+tests/auth/oauth-flow.test.ts -> two-char-literal(//), startswith-filter(//)
+tests/cross-cutting/db-test-connection-hygiene.test.ts -> two-char-literal(//), startswith-filter(#), startswith-filter(//)
+tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts -> marker-skip-regex(--), marker-skip-regex(--)
+tests/cross-cutting/unit-suite-shard-topology.test.ts -> marker-skip-regex(#)
+tests/cross-cutting/vitest-projects-partition.test.ts -> startswith-filter(#)
+tests/db/_localDbUrl.ts -> line-replace-idiom(//)
+tests/drive/loadLocalEnv.ts -> startswith-filter(#)
+tests/log/mutationSurface/exemptions.ts -> two-char-literal(//), startswith-filter(//)
+```
+
+Notes: comment-text mentions (e.g. `tests/styles/_metaDoublePrefixColorToken.test.ts:46`, `tests/styles/_metaNewTabAnnouncement.test.ts:3223`) do NOT trip — detection runs on stripped source. `tests/styles/_metaNewTabAnnouncement.test.ts` fixture strings do not match the quote-adjacent family-3 regex. E11 (`.mjs`) correctly absent (outside walk).
 
 ## Self-review notes (run at plan time; revised after plan-review R1)
 
