@@ -559,7 +559,7 @@ describe("activatePending's COUNT comes from the production SQL (R6 finding 2)",
 describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)", () => {
   afterEach(cleanup);
 
-  test("expired and orphaned rows sort ahead of superseded, regardless of age", async () => {
+  test("rows needing NO Drive call sort ahead of every row that does, regardless of age", async () => {
     // A poisoned `superseded` prefix used to be re-selected every pass, so
     // everything behind it was never collected. The ordering must put rows that
     // need no Drive call — or that resolve either way — first, even when the
@@ -570,7 +570,11 @@ describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)"
       values
         (${PREFIX + "old-sup"}, 'superseded', ${PREFIX + "a"}, 's', 'r', now() - interval '10 d', now()),
         (${PREFIX + "new-exp"}, 'expired',    ${PREFIX + "b"}, 's', 'r', now() - interval '1 h',  now()),
-        (${PREFIX + "new-orp"}, 'orphaned',   ${PREFIX + "c"}, 's', 'r', now() - interval '1 h',  now())
+        -- NULL resource id: nothing to stop at Drive, so it resolves in one
+        -- pass. A resource-BEARING orphan retries like a superseded row (R8
+        -- finding 1) and therefore belongs in the same tier as one — seeding it
+        -- here with 'r' asserted an ordering that starves superseded (R9).
+        (${PREFIX + "new-orp"}, 'orphaned',   ${PREFIX + "c"}, 's', null, now() - interval '3 d',  now())
     `;
     const { createPostgresWatchTx } = await import("@/lib/drive/watch");
     const ids = await sql.begin(async (tx) => {
@@ -589,6 +593,39 @@ describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)"
     });
     expect(order.indexOf(`${PREFIX}new-exp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
     expect(order.indexOf(`${PREFIX}new-orp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
+  });
+
+  test("a resource-bearing orphan shares the retrying tier, so neither starves the other", async () => {
+    // The defect this replaces: resource-bearing orphans sat in their own
+    // higher tier, so 200 poisoned ones filled every pass and no superseded row
+    // was ever selected again. Sharing one tier means the shuffle mixes them.
+    for (let i = 0; i < 6; i += 1) {
+      await sql`
+        insert into public.drive_watch_channels
+          (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+        values
+          (${`${PREFIX}mix-orp-${i}`}, 'orphaned', ${`${PREFIX}mo${i}`}, 's', 'r',
+           now() - interval '3 d', now()),
+          (${`${PREFIX}mix-sup-${i}`}, 'superseded', ${`${PREFIX}ms${i}`}, 's', 'r',
+           now(), now())
+      `;
+    }
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+
+    // Take the first six of several passes: if orphans outranked superseded,
+    // that prefix would be all-orphan every single time.
+    const prefixes: string[] = [];
+    for (let pass = 0; pass < 6; pass += 1) {
+      const ids = await sql.begin(async (tx) => {
+        const rows = await createPostgresWatchTx(tx as never).listGcCandidates();
+        return rows.filter((r) => r.id.startsWith(`${PREFIX}mix-`)).map((r) => r.id);
+      });
+      expect(ids).toHaveLength(12);
+      prefixes.push(ids.slice(0, 6).join(","));
+    }
+
+    const sawSuperseded = prefixes.some((p) => p.includes("mix-sup"));
+    expect(sawSuperseded).toBe(true);
   });
 
   test("within a tier the order VARIES between passes, so no row is starved", async () => {

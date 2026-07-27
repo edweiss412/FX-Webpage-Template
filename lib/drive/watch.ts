@@ -410,10 +410,20 @@ class PostgresWatchTx implements WatchTx {
          -- reached eventually. It is not a strict queue, and this comment does
          -- not claim one — an earlier revision claimed fairness that the
          -- ordering did not deliver.
-         order by case status
-                    when 'expired' then 0
-                    when 'orphaned' then 1
-                    else 2
+         -- The tier keys on WHETHER THE ROW NEEDS A DRIVE CALL, which is the
+         -- same discriminator the stop-failure retry uses -- not on status.
+         -- Tiering by status was correct only while every orphaned row resolved
+         -- either way; once a resource-bearing orphan began retrying like a
+         -- superseded row (R8 finding 1), an entire tier of poisoned, retrying
+         -- rows sat AHEAD of superseded and, at 200 of them, no superseded row
+         -- was ever selected again (whole-diff R9). Rows that need no call
+         -- drain first and can never be starved; every row that does need one
+         -- shares a single tier and is shuffled with the rest, so none can
+         -- monopolise the front of the queue.
+         order by case
+                    when status = 'expired' then 0
+                    when status = 'orphaned' and resource_id is null then 0
+                    else 1
                   end,
                   random()
          limit $1

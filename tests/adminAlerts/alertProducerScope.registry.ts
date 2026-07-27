@@ -211,7 +211,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
 
   // ── DYNAMIC (one row per resolvable literal; code-completeness is the §3.0 residual risk) ──
   {
-    site: "lib/drive/watch.ts:678",
+    site: "lib/drive/watch.ts:688",
     computedContext: true,
     contextKeys: ["watched_folder_id", "channel_id", "reason", "error_class", "error_message"],
     code: "WATCH_CHANNEL_ORPHANED",
