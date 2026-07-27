@@ -250,54 +250,30 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   // succeed, we assert the INVARIANT that holds either way: the Archive control
   // is never torn (count of resting + confirm buttons is exactly 1, or 0 if the
   // show transitioned to Published/Archived and the page re-rendered). ──
-  test("compound: Archive armed while another action refreshes → no torn state", async ({
-    page,
-  }) => {
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
-
-    // Arm Archive (inside the hub popover, its only home).
-    await openShowActions(modal);
-    await modal.getByTestId("archive-show-button").click();
-    await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
-
-    // Dispatch the OTHER action (the Published toggle, which replaced the Held
-    // Publish button — in the modal's StatusStrip header) while Archive is
-    // armed. Its form action runs the server action then router.refresh().
-    const toggle = modal.getByTestId("published-toggle");
-    await expect(toggle).toBeVisible();
-    // DELIBERATELY NOT retried, unlike the two sites above. This case dispatches
-    // ONE action while Archive is armed and then asserts a no-torn-state
-    // invariant; a retry could double-dispatch and change what is being tested.
-    // It is also not exposed to the hydration race those sites hit: the
-    // retrying `openShowActions` and the arming click have both already landed
-    // by here, which is itself proof that hydration completed. It was not among
-    // the three measured swallow failures.
-    await toggle.click();
-
-    // Let the dispatch + any refresh settle.
-    await page.waitForLoadState("networkidle");
-
-    // INVARIANT (no torn state): the Archive control is coherent. Either:
-    //   - the page re-rendered (refresh) → at most ONE Archive control mounted
-    //     in a single resting OR confirm state (never both), or
-    //   - Publish was blocked (no refresh) → the armed confirm is still the
-    //     single control.
-    // In NO case may BOTH a resting and a confirm Archive button coexist.
-    const restingCount = await modal.getByTestId("archive-show-button").count();
-    const confirmCount = await modal.getByTestId("archive-show-confirm-button").count();
-    expect(
-      restingCount + confirmCount,
-      `Archive control is coherent (resting=${restingCount}, confirm=${confirmCount}) — never both, never torn`,
-    ).toBeLessThanOrEqual(1);
-    // And whichever single control is mounted is itself consistent (visible).
-    if (restingCount === 1) {
-      await expect(modal.getByTestId("archive-show-button")).toBeVisible();
-    } else if (confirmCount === 1) {
-      await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
-    }
-  });
+  // REMOVED 2026-07-26: the "compound: Archive armed while another action
+  // refreshes → no torn state" case. Its premise became STRUCTURALLY
+  // UNREACHABLE and the case could never pass again.
+  //
+  // Measured, not assumed. The run fails with:
+  //   `share-hub-backdrop` ... subtree intercepts pointer events
+  // The armed Archive control lives INSIDE the ShareHub popover
+  // (ShareHub.tsx:929), and while that popover is open it renders a
+  // `fixed inset-0 z-20` backdrop (ShareHub.tsx:631-642) that covers every
+  // control outside it — including the StatusStrip published-toggle this case
+  // dispatched. Closing the popover to reach the toggle unmounts the armed
+  // control. The two states are mutually exclusive BY DESIGN, introduced by
+  // `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9
+  // composition rules (T3)`.
+  //
+  // So this is the same class as the `admin-share-link-inactive` assertion
+  // removed above: a ratified redesign made a test's premise impossible, and
+  // nothing noticed because this spec ran in no workflow. Deleting it is not
+  // losing coverage of a reachable behaviour — it is retiring a scenario the
+  // product no longer permits.
+  //
+  // HONEST GAP, recorded rather than papered over: no case now exercises an
+  // armed Archive concurrent with a refresh from another source (e.g.
+  // realtime). Filed as BL-ARCHIVE-ARMED-CONCURRENT-REFRESH.
 
   test("Published toggle round-trip: OFF → crew URL shows the paused page (no show data); ON → same URL is live again", async ({
     page,
