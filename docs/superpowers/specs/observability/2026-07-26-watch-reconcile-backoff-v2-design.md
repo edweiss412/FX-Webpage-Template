@@ -55,11 +55,12 @@ D1–D11 of the deferred design carry forward. Restated with post-lifecycle cita
 |---|---|---|
 | D1 | Cadence | Move `fxav_cron_refresh_watch` to `'7,22,37,52 * * * *'`; `SAMPLING_PERIOD_MS` → 900_000. No new job, no new route. |
 | D2 | Ladder placement | Reconcile's `!live` branch only (`lib/drive/watch.ts:1334`), gated by `next_attempt_at`. A live channel is never parked on the ladder. |
-| D3 | State writes | Write iff a subscribe attempt completed this cycle (§3.3a). Nothing else writes. |
+| D3 | State writes | Write iff a Drive subscribe attempt completed (§3.3a), recorded INSIDE `subscribeToWatchedFolder` at the sites that already classify the attempt — the only layer that can tell a pre-Drive fault from a post-Drive one (spec R1 finding 2). Nothing else writes. |
 | D4 | Escalation trigger | `now - alert.raised_at >= ESCALATION_AFTER_MS`, or immediately when `errorClass === "config"`. |
 | D5 | Surfacing transport | One shared service-role helper `readWatchSurfaceState(folderId)` feeding both Doug surfaces; `get_bell_feed_rows` NOT widened; `DriveConnectionHealth` union NOT widened. |
 | D6 | Developer surfacing | Telemetry deep link (unfiltered) + observe CLI columns. No new telemetry component. |
-| D7 | Error detail transport | Widen `SubscribeResult`'s orphaned arm with `errorClass`/`errorMessage` (§3.3); values travel with the result, no cross-table re-read. |
+| D7 | Error detail transport | Widen `SubscribeResult`: the orphaned arm gains `errorClass`/`errorMessage`, and BOTH arms gain `attempt: { consecutiveFailures: number; nextAttemptAt: string } | null` — the state write's `returning` values, `null` when the state write itself failed (§3.3a). Values travel with the result; no cross-table re-read. |
+| D8 | Backoff-gate clock domain | The gate read computes `waiting` in SQL — `next_attempt_at > now()` evaluated by Postgres — so the writer's clock (statement A/B's `now()`) and the gate's clock are the same clock. The application clock never compares against `next_attempt_at` (spec R1 finding 3). |
 
 ### 2.1 Named constants (single source of truth)
 
@@ -77,10 +78,10 @@ All in `lib/drive/watchErrors.ts`. Later sections use the NAMES, never literals.
 
 Let `G` = granted channel life (`expires_at - created_at`), `L(G) = max(RENEWAL_MIN_LEAD_MS, G * (1 - RENEWAL_LIFE_FRACTION))` (the shipped renewal predicate, `lib/drive/watch.ts:362-365`), `P = SAMPLING_PERIOD_MS` (900_000), `T = T_EXEC_BUDGET_MS` (300_000).
 
-- **I1 — renewal is sampled before expiry.** One boundary: `G <= P + T` (**20 min**) is anomalous — no pre-expiry guarantee, `DRIVE_WATCH_GRANT_TOO_SHORT` posture unchanged from the lease-slack work; `G > P + T` is guaranteed — examined-and-due strictly before `expires_at` at every activation phase, margin `G - P - T`. Today's grants: 1h → 40m margin; 24h → 23h40m. The §6 test is a phase sweep over a simulated tick series, never a restatement of the formula.
+- **I1 — renewal is sampled before expiry.** A channel becomes due when its remaining life reaches `L(G)`, i.e. at `max(0, G - L(G))` after activation, and is next examined at most `P + T` later. Its remaining life at that examination is therefore `min(G, L(G)) - P - T` — the `min` because a grant shorter than its own threshold (`G <= L(G)`, true for every `G <= 8h` under the 2h floor) is due from the moment it is created. One boundary: `G <= P + T` (**20 min**) is anomalous — no pre-expiry guarantee, `DRIVE_WATCH_GRANT_TOO_SHORT` posture unchanged from the lease-slack work; `G > P + T` is examined-and-due strictly before `expires_at` at every activation phase. Worst-case margins today: 1h grant → `min(1h, 2h) - 20m` = **40m**; 24h grant → `min(24h, 6h) - 20m` = **5h40m**. The §6 test is a phase sweep over a simulated tick series, never a restatement of the formula.
 - **I2 — the ladder never runs while a channel is live.** Structural, not arithmetic: the ladder is consulted only inside the `!live` branch. The arithmetic form would be FALSE — `BACKOFF_MAX_MS + SAMPLING_PERIOD_MS` (2h15m) exceeds the renewal floor (2h) — which is exactly why control flow, pinned by test 16a, enforces it.
-- **I3 — recovery latency is bounded.** A folder with no live channel is retried within `SAMPLING_PERIOD_MS + BACKOFF_LADDER_MS[n]`.
-- **Residual (§1.1a-12):** all three are enforced modulo the unbounded `GoogleAuth` credential fetch (`BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`). Stated once here; no per-claim repetition.
+- **I3 — recovery latency is bounded by the tick.** A folder with no live channel and an expired backoff wait is retried on the next tick: latency ≤ `SAMPLING_PERIOD_MS + BACKOFF_LADDER_MS[min(N, 4) - 1]` plus that tick's own execution time (refresh runs before reconcile in the route, `app/api/cron/refresh-watch/route.ts`).
+- **Enforcement honesty (unchanged from lifecycle §8.4 — restated, not weakened here).** `T` is the shipped `REFRESH_RUN_BUDGET_MS` semantics: the renewal loop stops STARTING rows past the budget, it does not bound the iteration it admits, and the budget clock starts after the reap/renewal/folder reads. I1 and I3 are therefore design targets enforced modulo those shipped residuals plus the unbounded `GoogleAuth` credential fetch (`BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`, §1.1a-12) — the same posture the lifecycle design ships under. `isGrantTooShort` stays a heuristic. Stated once here; no per-claim repetition.
 
 ## 3. Design
 
@@ -95,12 +96,13 @@ Fan-out, each re-derived by grep 2026-07-26:
 | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json:10` | `schedule` value `"0 * * * *"` → `"7,22,37,52 * * * *"`; jobname/route unchanged |
 | `tests/cross-cutting/pg-cron-coverage.test.ts:68-71` | add the new migration path to `SCHEDULE_MIGRATION_PATHS` |
 | `lib/cron/runSummary.ts:54-59` (`refresh-watch` entry) | `cadence: "hourly"` → `"every 15 min"`; `staleAfterMs: 3 * 3_600_000` → `45 * 60_000` (copies the `asset-recovery` 15-min pattern, `lib/cron/runSummary.ts:68-73`) |
-| `tests/cron/runSummary.test.ts:21` (`CADENCE_MS` map) | `"refresh-watch": 3_600_000` → `900_000` |
+| `tests/cron/runSummary.test.ts:21` (`CADENCE_MS` map) | `"refresh-watch": 3_600_000` → `900_000`. **Insufficient alone as a red test** (spec R1 finding 6): the suite asserts only `staleAfterMs >= 2 × cadence`, which the stale 3h value still satisfies at a 15-min cadence. The task therefore ALSO adds exact-value assertions for the `refresh-watch` row — `cadence === "every 15 min"` and `staleAfterMs === 45 * 60_000` — written red-first. |
+| `tests/cron/samplingPeriodParity.test.ts` | goes red on the `SAMPLING_PERIOD_MS` edit and green when the registry/schedule agree — the natural TDD red test for the cadence change; listed as a fan-out surface, not an edit target, unless its pinned literals require the new values |
 | validation project `vzakgrxqwcalbmagufjh` | surgical apply + `notify pgrst, 'reload schema'` (both migrations, §4.3) |
 
 **Cron-count invariance:** no job added; the count stays **nine** and every literal-nine assertion (`tests/cron/cronJobsParity.test.ts`, `tests/admin/loadCronHealth.test.ts`, `tests/e2e/telemetry-layout.spec.ts:11`, `app/admin/dev/telemetry-dim/page.tsx:9`, the 2026-06-29 phase2 design's nine-job claims) is untouched. Close-out re-runs those suites to prove it.
 
-**Cost:** refresh's per-tick work is one reap + one indexed renewal read inside one tx (`lib/drive/watch.ts:876-881`). With the shipped proportional predicate a 24h channel is due only in its final 6h, so 4x tick ≠ 4x Drive calls (~1 renewal/day steady-state). `REFRESH_RUN_BUDGET_MS` (5m) < period (15m): runs cannot overlap their successor.
+**Cost:** refresh's per-tick work is one reap + one indexed renewal read inside one tx (`lib/drive/watch.ts:876-881`). With the shipped proportional predicate a 24h channel is due only in its final 6h, so 4x tick ≠ 4x Drive calls (~1 renewal/day steady-state). `REFRESH_RUN_BUDGET_MS` (5m) < period (15m) makes overlap a residual-only risk, not an impossibility — the budget stops starting rows rather than bounding the admitted one (§2.1a enforcement honesty), so a pathological stall can still cross a tick boundary. That is the shipped exposure at hourly cadence too; this diff narrows the window it must fit in but adds no new mechanism, and two overlapping writers are safe against the state row by §3.3a's atomic statements.
 
 ### 3.2 `drive_watch_reconcile_state`
 
@@ -112,18 +114,15 @@ create table public.drive_watch_reconcile_state (
   consecutive_failures int         not null default 0,
   last_attempt_at      timestamptz,
   next_attempt_at      timestamptz not null default now(),
-  last_outcome         text,
+  last_attempt_outcome text,
   last_error_class     text,
   last_error_message   text,
   updated_at           timestamptz not null default now(),
   constraint drive_watch_reconcile_state_error_class_check check (
     last_error_class is null or last_error_class in ('config', 'drive_api', 'db')
   ),
-  constraint drive_watch_reconcile_state_outcome_check check (
-    last_outcome is null or last_outcome in (
-      'healthy', 'recovered', 'still_orphaned', 'renewal_failing',
-      'vacuous', 'backoff_waiting', 'infra_error'
-    )
+  constraint drive_watch_reconcile_state_attempt_outcome_check check (
+    last_attempt_outcome is null or last_attempt_outcome in ('failed', 'succeeded')
   ),
   constraint drive_watch_reconcile_state_failures_nonneg check (consecutive_failures >= 0)
 );
@@ -133,12 +132,12 @@ alter table public.drive_watch_reconcile_state enable row level security;
 ```
 
 - Lockdown shape is byte-for-byte `show_share_tokens` (`supabase/migrations/20260523000002_show_share_tokens.sql:43-45`): fully private, RLS enabled with NO policy. **Not an "admin-only table"** in the master spec §4.3 sense — the deferred design §3.3 proved `show_share_tokens` appears in none of the §4.3 list / `lib/audit/admin-tables.generated.ts` / `tests/db/admin-rls-runtime.baseline.json`, and the same holds here: no §4.3 edit, no count bump, no `ADMIN_TABLES` regen, no baseline change.
-- Registered in `RPC_GATED_TABLES` (`tests/db/postgrest-dml-lockdown.test.ts:147`) with `selectAnon: false, selectAuthenticated: false`; precedent for a service-role-written row: `app_events` (`tests/db/postgrest-dml-lockdown.test.ts:213`). The bidirectional migrations-walk discovery (`tests/db/postgrest-dml-lockdown.test.ts:826-857`) fails CI if the REVOKE migration lands without the row.
-- `last_error_class` mirrors `WatchErrorClass` (`lib/drive/watchErrors.ts:5`); `last_outcome` mirrors `ReconcileOutcome` (`lib/drive/watch.ts:1202-1208`) + the new `backoff_waiting` arm. §4.2 is the CHECK↔union matrix.
+- Registered in `RPC_GATED_TABLES` (`tests/db/postgrest-dml-lockdown.test.ts:147`) with the FULL row shape the registry type requires (`tests/db/postgrest-dml-lockdown.test.ts:138`): `selectAnon: false, selectAuthenticated: false`, a valid `postBody` (minimal insert payload for the probe), a `rowFilter`, and `closed_at` (the migration timestamp) — spec R1 finding 8; the plan copies the `app_events` row (`tests/db/postgrest-dml-lockdown.test.ts:213`) as the service-role-written precedent and fills every field. The bidirectional migrations-walk discovery (`tests/db/postgrest-dml-lockdown.test.ts:826-857`) fails CI if the REVOKE migration lands without the row.
+- `last_error_class` mirrors `WatchErrorClass` (`lib/drive/watchErrors.ts:5`). `last_attempt_outcome` deliberately does NOT mirror `ReconcileOutcome`: under §3.3a only a completed attempt writes, so the only persistable outcomes are `'failed'` and `'succeeded'` — a wider CHECK would admit values no writer can produce and invite a future write that violates "nothing else writes" (spec R1 finding 5). The runtime source of truth is a new `ATTEMPT_OUTCOMES = ["failed", "succeeded"] as const` in `lib/drive/watchErrors.ts`. Cycle-level outcomes (`backoff_waiting`, `renewal_failing`, …) live in `ReconcileResult`/route bodies/app_events only, never in this table. §4.2 is the CHECK↔union matrix.
 - `last_error_message` stores only `redactWatchError` output (`lib/drive/watchErrors.ts`) — same chokepoint as the alert context; no raw error reaches the column.
 - The migration is a one-shot forward `create table` — deliberately NOT idempotent; re-applying fails loudly on the duplicate relation. The REVOKE/GRANT statements are naturally idempotent.
 
-**Error detail transport.** `SubscribeResult`'s orphaned arm (`lib/drive/watch.ts:115-117`) widens to carry `errorClass: WatchErrorClass; errorMessage: string`. Both values are already computed at the two catch sites (`lib/drive/watch.ts:724`, `lib/drive/watch.ts:817`) and written to the alert context; the widening surfaces them to the caller. Existing callers ignore the extra fields.
+**Error detail transport.** `SubscribeResult` (`lib/drive/watch.ts:115-117`) widens: the orphaned arm gains `errorClass: WatchErrorClass; errorMessage: string` (both already computed at the two catch sites, `lib/drive/watch.ts:724`, `lib/drive/watch.ts:817`), and BOTH arms gain `attempt: { consecutiveFailures: number; nextAttemptAt: string } | null` — the §3.3a state write's `returning` values, `null` when the state write itself failed. Existing callers ignore the extra fields.
 
 **Transport and registries.** The two state-write statements are `WatchTx` methods carrying raw SQL (interface `lib/drive/watch.ts:60-111`), invoked through `callWatchTx` so they inherit the `DriveWatchInfraError` contract. Two registry surfaces, not interchangeable:
 
@@ -149,14 +148,21 @@ alter table public.drive_watch_reconcile_state enable row level security;
 
 ### 3.3 The ladder, and 3.3a write-iff-attempt
 
-> **A state write happens if and only if a subscribe attempt completed in this cycle. Nothing else writes.**
+> **A state write happens if and only if a Drive subscribe attempt completed. Nothing else writes.**
 
-| Cycle | Attempt? | Write |
+**Where the rule is enforced: inside `subscribeToWatchedFolder`, not in its callers** (spec R1 finding 2). A caller cannot classify a throw — the pre-Drive `insertPending` fault (`lib/drive/watch.ts:707`) and a post-Drive finalization fault (`markWatchOrphanedWithTx`, `lib/drive/watch.ts:728`, `lib/drive/watch.ts:821`) both surface to the caller as a rejection — but the function body knows exactly where it is. The **attempt boundary is the `watchFolder` invocation** (`lib/drive/watch.ts:717`): everything from that call onward is an attempt; everything before it is not.
+
+| Site inside `subscribeToWatchedFolder` | Attempt? | Write |
 |---|---|---|
-| subscribe returned `active` | yes | **(B)** success reset |
-| subscribe returned `orphaned` | yes | **(A)** failure record, error fields from the widened result |
-| subscribe threw | yes — Drive was called | **(A)** with `'db'` and the redacted throw message |
-| `healthy`, `renewal_failing`, `backoff_waiting`, `vacuous`, every `infra_error` path that made no attempt | no | **none** |
+| `insertPending` tx throws (`lib/drive/watch.ts:707`) — before the boundary | no | none; the throw escapes as today |
+| `watchFolder` rejects → catch at `lib/drive/watch.ts:723` | yes | **(A)**, recorded FIRST inside the catch — before `markWatchOrphanedWithTx` — so a finalization throw cannot lose the record |
+| activation throws after Drive created the channel → catch at `lib/drive/watch.ts:816` | yes | **(A)**, same ordering |
+| activation commits → success path (`lib/drive/watch.ts:748-815`) | yes | **(B)**, post-commit, beside the existing `DRIVE_WATCH_ACTIVATED` emit |
+| the (A)/(B) statement itself fails | attempt already happened | swallowed locally: the result's `attempt` field is `null`, the caller records a `state_write` fault; the alert raise and the return value are unaffected |
+
+Known edge, accepted: the injectable clock read sits inside the same try as `watchFolder` (`lib/drive/watch.ts:716`, deliberately per its own comment), so a THROWING test-injected clock would classify as an attempt without a Drive call. The production clock is native `Date.now`, which cannot throw; restructuring shipped, review-hardened code to close a test-only path is worse than documenting it. Tests inject rejecting `watchFolder` fakes, not throwing clocks, to exercise the failure arm.
+
+**Callers, verified 2026-07-26** (`grep -rn "subscribeToWatchedFolder(" lib/ app/`): reconcile's `!live` branch (`lib/drive/watch.ts:1336`) and the admin Retry action (`app/admin/actions.ts:326`). Both therefore inherit the rule from the one implementation; neither carries its own statements. Reconcile additionally maps `result.attempt === null` → fault `state_write` → `infra_error` outcome; Retry stays fail-visible on a thrown `DriveWatchInfraError` (pre-boundary, no write — correct) and needs no new state logic at all.
 
 The two statements and the SQL ladder function are unchanged from the deferred design §3.3a and normative here (single atomic upserts; increment evaluated against the STORED row; both paths route the wait through `watch_backoff_ms(n)`):
 
@@ -164,15 +170,15 @@ The two statements and the SQL ladder function are unchanged from the deferred d
 -- (A) recordAttemptFailure($1 folder, $2 errorClass, $3 errorMessage)
 insert into public.drive_watch_reconcile_state as st
        (watched_folder_id, consecutive_failures, last_attempt_at, next_attempt_at,
-        last_outcome, last_error_class, last_error_message, updated_at)
+        last_attempt_outcome, last_error_class, last_error_message, updated_at)
 values ($1, 1, now(), now() + (public.watch_backoff_ms(1) || ' milliseconds')::interval,
-        'still_orphaned', $2, $3, now())
+        'failed', $2, $3, now())
 on conflict (watched_folder_id) do update
    set consecutive_failures = st.consecutive_failures + 1,
        last_attempt_at      = now(),
        next_attempt_at      = now() + (public.watch_backoff_ms(st.consecutive_failures + 1)
                                        || ' milliseconds')::interval,
-       last_outcome         = 'still_orphaned',
+       last_attempt_outcome = 'failed',
        last_error_class     = excluded.last_error_class,
        last_error_message   = excluded.last_error_message,
        updated_at           = now()
@@ -181,11 +187,11 @@ returning consecutive_failures, next_attempt_at;
 -- (B) recordAttemptSuccess($1 folder)
 insert into public.drive_watch_reconcile_state as st
        (watched_folder_id, consecutive_failures, last_attempt_at, next_attempt_at,
-        last_outcome, last_error_class, last_error_message, updated_at)
-values ($1, 0, now(), now(), 'recovered', null, null, now())
+        last_attempt_outcome, last_error_class, last_error_message, updated_at)
+values ($1, 0, now(), now(), 'succeeded', null, null, now())
 on conflict (watched_folder_id) do update
    set consecutive_failures = 0, last_attempt_at = now(), next_attempt_at = now(),
-       last_outcome = 'recovered', last_error_class = null, last_error_message = null,
+       last_attempt_outcome = 'succeeded', last_error_class = null, last_error_message = null,
        updated_at = now()
 returning consecutive_failures, next_attempt_at;
 
@@ -203,20 +209,22 @@ $$;
 
 `watch_backoff_ms` contract (asserted at `n = 0,1,2,3,4,5,8,null` against an independent literal table, §6 class 20): total, never null, monotonically non-decreasing, clamped at `BACKOFF_MAX_MS`.
 
-**Attempt survives bookkeeping faults.** `markWatchOrphanedWithTx` (`lib/drive/watch.ts:678-693`) can throw after Drive already failed; that throw escapes `subscribeToWatchedFolder` and lands in reconcile's catch (`lib/drive/watch.ts:1358-1360`, currently `faults.push("subscribe_infra")`). That catch now ALSO executes statement (A) with `last_error_class = 'db'` — Drive was called, so the ladder advances whether or not our own bookkeeping of the failure succeeded. A persistent alert-write fault must not pin the ladder at zero (the 15-minute call storm this feature exists to prevent).
+**Attempt survives bookkeeping faults by ordering, not by caller heroics.** Because (A) runs FIRST inside each catch — before `markWatchOrphanedWithTx` and the failure log — a finalization throw (`lib/drive/watch.ts:728`, `lib/drive/watch.ts:821`) escapes AFTER the ladder already advanced. Reconcile's catch (`lib/drive/watch.ts:1358-1360`) keeps its `subscribe_infra` fault and adds nothing: a persistent alert-write fault can no longer pin the ladder at zero (the 15-minute call storm this feature exists to prevent), and a pre-boundary `insertPending` throw correctly records nothing.
 
-**Failure guards:** no row yet → (A) inserts `consecutive_failures = 1`, (B) inserts `0`. Folder switch → fresh PK row; old row left in place (§7). A failing state write records fault `state_write`, returns `infra_error`, leaves bookkeeping one cycle stale — the attempt itself already happened and already raised its alert.
+**Mixed-outcome writer race, accepted and bounded** (spec R1 finding 4). Two writers (reconcile × Retry, or overlapping runs) can interleave so that an (A) commits after a concurrent (B): the row then reads `failed`/count ≥ 1 while a live channel exists. Consequences, enumerated: no wrong Drive traffic (the gate is consulted only in a `!live` cycle, and the next such cycle is a REAL incident); no alert-lifetime impact (alert raise/resolve run on the shipped reconcile paths, not from this table); no UI impact while healthy (both render surfaces are gated behind an unresolved watch alert / unhealthy panel reason, §3.6); the residue is that the NEXT incident's first failure increments from the stale count and starts one-or-more rungs high — self-limiting, capped at `BACKOFF_MAX_MS`, and corrected by that incident's first (B). Serializing writers to remove a bounded cosmetic offset would need the locks §1.1a-5 forbids. §6 class 16d pins the exact interleaving outcome so it is chosen, not accidental.
+
+**Failure guards:** no row yet → (A) inserts `consecutive_failures = 1`, (B) inserts `0`. Folder switch → fresh PK row; old row left in place (§7). A failing state write surfaces as `attempt: null` → the caller records fault `state_write` → route reports `infra_error`; bookkeeping is one cycle stale — the attempt itself already happened and already raised its alert.
 
 ### 3.4 Reconcile changes (the route is otherwise untouched)
 
 Reconcile stays in the refresh route consuming the same-cycle `RefreshResult` (§1.1a-9). Steps, anchored to the shipped structure (`lib/drive/watch.ts:1225-1391`):
 
 1. Stale-pending sweep, folder read, `hasLiveActiveChannel`, `renewalFailed` predicate: **unchanged** (`lib/drive/watch.ts:1234-1309`).
-2. **Backoff gate** *(new)*: in the `!live` path only, before the subscribe at `lib/drive/watch.ts:1336`, read the state row (a new `WatchTx` read via `callWatchTx`; read fault → `state_read` fault → `infra_error`, no attempt, no write). If `next_attempt_at > now()`: skip the subscribe, `outcome = "backoff_waiting"`. A live channel never consults the ladder (I2).
-3. **Attempt recording** *(new)*: per §3.3a, in all three attempt-completing arms (active / orphaned / threw).
+2. **Backoff gate** *(new)*: in the `!live` path only, before the subscribe at `lib/drive/watch.ts:1336`, read the state row through a new `WatchTx` method whose SQL computes the verdict in the DATABASE clock domain — `select consecutive_failures, next_attempt_at, next_attempt_at > now() as waiting from …` — so the gate and the §3.3a writers share one clock and app-clock skew cannot bypass or extend a wait (D8). Read fault → `state_read` fault → `infra_error`, no attempt, no write. `waiting` true → skip the subscribe, `outcome = "backoff_waiting"`. No row → not waiting. A live channel never consults the ladder (I2).
+3. **Attempt recording**: happens inside `subscribeToWatchedFolder` (§3.3a). Reconcile's only new bookkeeping: when the returned/thrown flow completed an attempt but `result.attempt === null`, push fault `state_write`.
 4. **Escalation runs on every unhealthy outcome including `backoff_waiting`**: the condition at `lib/drive/watch.ts:1372` (`outcome === "still_orphaned" || outcome === "renewal_failing"`) gains `|| outcome === "backoff_waiting"`. Backing off suppresses the Drive call, never the escalation check or the resolve-on-recovery path.
-5. **Result shape:** `ReconcileOutcome` (`lib/drive/watch.ts:1202-1208`) gains `"backoff_waiting"`; `ReconcileResult` (`lib/drive/watch.ts:1209-1214`) gains `nextAttemptAt: string | null` and `consecutiveFailures: number | null`, taken from the state write's `returning` clause (null when no write happened this cycle). The refresh-watch route serializes them; route tests assert the widened body.
-6. **Union refactor prerequisite** (§6 class 5): `ReconcileOutcome` and `WatchErrorClass` become runtime `as const` arrays (`RECONCILE_OUTCOMES`, `WATCH_ERROR_CLASSES`) with types derived from the arrays. Structurally identical types; no consumer changes.
+5. **Result shape:** `ReconcileOutcome` (`lib/drive/watch.ts:1202-1208`) gains `"backoff_waiting"` — an in-memory cycle outcome only, never persisted (§3.2); `ReconcileResult` (`lib/drive/watch.ts:1209-1214`) gains `nextAttemptAt: string | null` and `consecutiveFailures: number | null`, sourced from `result.attempt` on an attempt cycle and from the gate read on a `backoff_waiting` cycle (null otherwise). The refresh-watch route serializes them; route tests assert the widened body.
+6. **Runtime-array prerequisite** (§6 class 5): `WatchErrorClass` becomes a runtime `as const` array (`WATCH_ERROR_CLASSES`, type derived from the array — structurally identical, no consumer changes), and `ATTEMPT_OUTCOMES` is born as one (§3.2). Both CHECKs get set-equality meta-tests against these arrays. `ReconcileOutcome` stays a plain type union — no CHECK mirrors it anymore (spec R1 finding 5), so it needs no runtime form.
 7. `refreshWatchSubscriptions` writes NO state — asserted by spy (§6 class 7).
 
 ### 3.5 Escalation: duration, not count
@@ -233,20 +241,33 @@ Reconcile stays in the refresh route consuming the same-cycle `RefreshResult` (�
 | Field | Tier |
 |---|---|
 | `next_attempt_at`, `consecutive_failures` | Doug (bell line + Settings line) |
-| `last_error_class`, `last_error_message`, `last_outcome`, ladder position | Developer — `pnpm observe watch` ONLY; never in any UI at any tier |
+| `last_error_class`, `last_error_message`, `last_attempt_outcome`, ladder position | Developer — `pnpm observe watch` ONLY; never in any UI at any tier |
 
-**Shared helper.** `readWatchSurfaceState(folderId: string): Promise<WatchSurfaceState>` — one service-role `.select()` on the state table, `{ data, error }` destructured, `null` on any fault. `WatchSurfaceState = { nextAttemptAt: string | null; consecutiveFailures: number; lastOutcome: ReconcileOutcome | null } | null`. Registry row in `tests/admin/_metaInfraContract.test.ts` (§3.2). Callers supply the folder id from reads they already perform:
+**Shared helper — typed faults, mapped to "hidden" only at the render boundary** (spec R1 finding 1: a helper that returns `null` for both "no row" and "infra fault" is exactly the benign-signal collapse invariant 9 forbids). Signature:
+
+```ts
+type WatchSurfaceState = {
+  nextAttemptAt: string | null;
+  consecutiveFailures: number;
+  lastAttemptOutcome: "failed" | "succeeded" | null;
+};
+readWatchSurfaceState(folderId: string): Promise<WatchSurfaceState | null | { kind: "infra_error" }>;
+```
+
+One service-role `.select()` on the state table; `{ data, error }` destructured; returned error, thrown query, and client-construction throw each → `{ kind: "infra_error" }`; zero rows → `null`. EACH caller then maps `infra_error` to "line hidden" as an explicit, commented render-boundary decision (the feed and the panel must render when this read fails), which keeps the boundary discriminable and the degradation policy in the consumer where invariant 9 wants it. The registry row in `tests/admin/_metaInfraContract.test.ts` (§3.2) states both halves: typed infra result from the helper; deliberate hide-on-fault in the two consumers. Callers supply the folder id from reads they already perform:
 
 - **Bell:** `lib/admin/bellFeed.ts` calls `getActiveWatchedFolderId()` once per feed load alongside its existing settings read (`lib/admin/bellFeed.ts:197-209`); `BellEntry` (`lib/admin/bellFeed.ts:29-52`) gains optional `watchState: WatchSurfaceState`, null for non-watch rows and on any fault (a failed read never breaks the feed). `get_bell_feed_rows` (`lib/admin/bellFeed.ts:219`) is NOT modified.
 - **Settings:** `app/admin/settings/page.tsx` performs its own service-role read via the same helper and passes `watchState` as a new optional prop to `DriveConnectionPanel`. The `DriveConnectionHealth` union (`lib/admin/driveConnectionHealth.ts:39-57`, `folderId` carried at `lib/admin/driveConnectionHealth.ts:43` / `lib/admin/driveConnectionHealth.ts:52`) and its session-scoped loader (`lib/admin/driveConnectionHealth.ts:107`) are untouched — the loader's session client cannot read a service-role-only table (deferred R1 finding 4), which is why the state is NOT threaded through the health union.
 
 **Rendering (both surfaces, same sentence).** A `<p>` mirroring the bell auto-resolve note's exact shape (`components/admin/BellPanel.tsx:355-360`: `data-testid`, `className="wrap-break-word text-sm text-text-subtle"`), rendered only when the ladder is actually in play:
 
-| `lastOutcome` | Rendered line |
+| State | Rendered line |
 |---|---|
-| `still_orphaned` or `backoff_waiting`, `nextAttemptAt` in future | `Trying again at 4:45 PM · 7 reconnect attempts so far` |
-| `still_orphaned`, `nextAttemptAt` past or null | `Trying again shortly · 7 reconnect attempts so far` |
-| anything else, or `watchState === null` | line absent; row renders exactly as today |
+| `lastAttemptOutcome === "failed"`, `nextAttemptAt` in future | `Trying again at 4:45 PM · 7 reconnect attempts so far` |
+| `lastAttemptOutcome === "failed"`, `nextAttemptAt` past or null | `Trying again shortly · 7 reconnect attempts so far` |
+| `lastAttemptOutcome` `"succeeded"` or `null`, or `watchState` `null`/`infra_error` | line absent; row renders exactly as today |
+
+(The branch key is the persisted attempt outcome, not `ReconcileOutcome` — a `backoff_waiting` cycle leaves `lastAttemptOutcome = "failed"` from the attempt that STARTED the wait, with its `nextAttemptAt` in the future, so the first table row covers it. Spec R1 finding 5 killed the earlier `lastOutcome` branch, which keyed on values this table never stores.)
 
 Count clause: omitted at 0; singular at 1. No "still connected" line ever renders (`renewal_failing` is a sampled state, not current liveness — deferred R3 finding 6). Time formatting copies `formatStagedAt` (`components/admin/StagedReviewCard.tsx:104-113`): module-local `toLocaleString`, NaN-parse guard renders the raw ISO string, `<time dateTime={iso} suppressHydrationWarning>` for the SSR/client timezone mismatch.
 
@@ -257,7 +278,7 @@ Count clause: omitted at 0; singular at 1. No "still connected" line ever render
 
 **Observe CLI.** `lib/observe/query/watch.ts` gains the state columns (left join or second query on `watched_folder_id`). The SELECT constant (`lib/observe/query/watch.ts:9-10`) must NOT regain the webhook-secret column — `tests/observe/queryWatch.test.ts:61-63` scans for it. `last_error_message` passes through the same `sanitizeIdentityString` treatment used at `lib/observe/query/failures.ts:55` / `lib/observe/query/failures.ts:61`.
 
-**Admin Retry** (`app/admin/actions.ts`, retry-watch action) calls the SAME two statements: subscribe active → (B); orphaned → (A) (a failed manual retry IS a failed attempt and advances the ladder — deliberate, so Retry-mashing cannot reset the cadence); thrown `DriveWatchInfraError` → no write (no attempt completed), action stays fail-visible.
+**Admin Retry** (`app/admin/actions.ts:326`) inherits the rule with ZERO new code in the action (§3.3a): `subscribeToWatchedFolder` itself records (A)/(B), so a failed manual retry IS a failed attempt and advances the ladder — deliberate, Retry-mashing cannot reset the automatic cadence — and a thrown `DriveWatchInfraError` is pre-boundary, writes nothing, and leaves the action fail-visible as shipped.
 
 #### Mode boundaries
 
@@ -310,7 +331,22 @@ Replacement strings are canonical HERE (invariant 7). They avoid naming any inte
 
 `followUp`/`helpfulContext` are x1-compared (`tests/cross-cutting/codes.test.ts:84-89`), so one commit carries: (a) master-spec §12.4 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2817` + long-context map at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3336` (never prettier the master spec), (b) `pnpm gen:spec-codes` regen, (c) `lib/messages/catalog.ts`. No new code minted.
 
-**Other master-spec claims this diff falsifies** (edited in the same commit, outside the §12.4 lockstep): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1321` — §5.5.5's renewal-cron prose names `0 * * * *`/hourly; becomes the new schedule. The lease-slack PR already amended AC-6.13 to the proportional predicate (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3844`) and removed the "~7 days" cap claim — verified 2026-07-26, no edit needed there. Escalation-email test copy assertions (`tests/drive/watchEscalation*.test.ts`) update with the string change.
+**Full cadence-claim sweep** (spec R1 finding 7 — the sweep is grep-DRIVEN, run 2026-07-26: `grep -rn "hourly\|every hour\|each hour" lib/ app/ tests/ docs/` filtered to watch-relevant hits; every hit dispositioned):
+
+| Hit | Disposition |
+|---|---|
+| `lib/messages/catalog.ts:364` / `lib/messages/catalog.ts:366` / `lib/messages/catalog.ts:369` | §12.4 lockstep table above |
+| `lib/messages/__generated__/spec-codes.ts:1568-1569` | regenerated by `pnpm gen:spec-codes` (lockstep step b) |
+| `lib/drive/watchEscalation.ts:67` / `lib/drive/watchEscalation.ts:73` | email copy, replaced above; `tests/drive/watchEscalation*.test.ts` copy assertions update with it |
+| `tests/messages/popoverContextCopy.test.ts:30` | frozen `helpfulContext` oracle — literal updated to the new string in the same commit, else red |
+| `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1321` (§5.5.5 renewal cron `0 * * * *`) | edited to the new schedule |
+| `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2817` (§12.4 row) | BOTH the `followUp` literal AND the row's "kept current by the hourly reconcile" prose clause edited |
+| `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3336` (long-context map) | edited (lockstep step a) |
+| `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3844` (AC-6.13) | predicate already proportional (lease PR), but the sentence still says "hourly renewal cron" — that residual word IS edited (the v1 draft of this spec wrongly claimed no edit needed) |
+| `docs/superpowers/plans/coverage.md:143` | AC-6.13 mirror — edited in lockstep with the AC |
+| `docs/alerts/admin-alert-system-explainer.html:915` and `docs/alerts/admin-alert-system-explainer.html:924` | rendered copy mirror of `helpfulContext` — both occurrences updated |
+| Comments only — `lib/drive/watch.ts:956`, `app/admin/actions.ts:300`, `lib/drive/errorStatus.ts:7`, `tests/drive/watchImportGraph.test.ts:4` + `tests/drive/watchImportGraph.test.ts:70` (assertion MESSAGE string), `tests/drive/watchExpiration.test.ts:4` + `tests/drive/watchExpiration.test.ts:242`, `tests/db/watchRenewalDue.test.ts:145`, `tests/cron/refreshWatchRoute.test.ts:5` + `tests/cron/refreshWatchRoute.test.ts:80` ("must not page hourly" — becomes "…every 15 minutes") | comment/message edits, same commit; none is a §12.4 surface |
+| Unrelated `hourly` hits (notify digest, keepalive descriptions, `runSummary.ts` other rows, quota tests, telemetry fixtures) | out of scope — different jobs, still hourly |
 
 Mechanical UI-copy gate applied at spec time to every string above: no em-dashes, no invented abbreviations; apostrophes as typed above.
 
@@ -334,14 +370,14 @@ Mechanical UI-copy gate applied at spec time to every string above: no em-dashes
 | Constraint | Values | Source of truth | NULL | Apply-twice |
 |---|---|---|---|---|
 | `…_error_class_check` | `config`, `drive_api`, `db` | `WATCH_ERROR_CLASSES` (§3.4 step 6 refactor of `lib/drive/watchErrors.ts:5`) | allowed | one-shot `create table`; not idempotent by design |
-| `…_outcome_check` | 6 shipped outcomes + `backoff_waiting` | `RECONCILE_OUTCOMES` (§3.4 step 6 refactor of `lib/drive/watch.ts:1202-1208`) | allowed | same |
+| `…_attempt_outcome_check` | `failed`, `succeeded` | `ATTEMPT_OUTCOMES` (§3.2 — deliberately NOT `ReconcileOutcome`; only these two values are writable under §3.3a) | allowed (no attempt yet) | same |
 | `…_failures_nonneg` | `>= 0` | — | not-null | same |
 
 Transitional window: none (new table). A structural meta-test pins both CHECKs against the runtime arrays, set-equality both directions, with a negative control (§6 class 5).
 
 ### 4.3 Migration → validation parity
 
-Two migrations (state table; reschedule). Same-PR checklist per AGENTS.md: local apply + tests; `pnpm gen:schema-manifest` + commit (state table adds public columns); surgical apply of BOTH to validation `vzakgrxqwcalbmagufjh` + `notify pgrst, 'reload schema'`. `validation-schema-parity` enforces the first; the reschedule is verified by the §6 class-21 live probe (`pnpm observe cron --env validation` or `cron.job` query showing the new schedule).
+Two migrations (state table + `watch_backoff_ms`; reschedule). Same-PR checklist per AGENTS.md: local apply + tests; `pnpm gen:schema-manifest` + commit (state table adds public columns); surgical apply of BOTH to validation `vzakgrxqwcalbmagufjh` + `notify pgrst, 'reload schema'`. `validation-schema-parity` covers the table's columns but observes neither the FUNCTION nor the schedule (spec R1 finding 8), so the §6 class-21 live probe covers both explicitly: `select public.watch_backoff_ms(3)` must return `3600000` on validation (a partial apply that created the table but not the function would otherwise surface only as every failure upsert faulting in production), and the `cron.job` row must show `'7,22,37,52 * * * *'`.
 
 ### 4.4 Flag lifecycle
 
@@ -350,7 +386,7 @@ Two migrations (state table; reschedule). Same-PR checklist per AGENTS.md: local
 | `next_attempt_at` | state table | §3.3a; Retry | reconcile gate; both Doug lines; CLI | suppresses subscribe while future; renders line |
 | `consecutive_failures` | state table | §3.3a | ladder index (in SQL); Doug line; CLI | selects wait; renders count |
 | `last_error_class`/`_message` | state table | §3.3a failure arm; cleared on success | CLI only | developer diagnosis |
-| `last_outcome` | state table | §3.3a | line-render branch; CLI | selects Doug copy row |
+| `last_attempt_outcome` | state table | §3.3a | line-render branch; CLI | selects Doug copy row |
 | `ESCALATION_AFTER_MS` | constant | — | escalation `due` | when Sentry+email fire |
 
 No zombie columns.
@@ -375,9 +411,14 @@ The 21 test classes of the deferred design §6 carry forward as the normative in
 4. Class 7: spy asserts `refreshWatchSubscriptions` performs ZERO state writes on every path.
 5. Class 10 (route): refresh-watch route body gains `nextAttemptAt`/`consecutiveFailures`; 200 for `backoff_waiting`; 500 + `outcome: "infra"` for `state_read`/`state_write` faults.
 6. Classes 11/12/18/19 (components + production data path): as specified in §3.6, including the never-render-error-fields scan and the anti-tautology clause (clone subtree, strip the alert's cataloged copy, derive expected time through the same formatter).
-7. Class 16a–16d, 17: unchanged contracts (gate decision table; write-iff-attempt spy table; attempt-survives-finalization-faults with 3-cycle `consecutive_failures === 3`; real-DB two-writer concurrency → `2`; fault-vs-attempt independence for every post-attempt fault name in the shipped inventory `lib/drive/watch.ts:1252-1381`).
+7. Class 16a–16d, 17, updated for the §3.3a placement:
+   - **16a** gate decision table (`live` × `waiting`), incl. the `live + waiting` cell reporting `renewal_failing`, never `backoff_waiting`.
+   - **16b** write-iff-attempt, spy on the state-write transport **inside `subscribeToWatchedFolder`**: pre-boundary `insertPending` throw → zero writes; `watchFolder` rejection → exactly one (A) BEFORE `markWatchOrphanedWithTx` (call-order asserted); activation-throw arm → one (A); success → one (B); reconcile cycles that make no attempt (`healthy`, `renewal_failing`, `backoff_waiting`, `vacuous`, folder/channel-read faults) → zero writes.
+   - **16c** attempt survives finalization faults: `markWatchOrphanedWithTx` made to throw at both production fault points AFTER a Drive failure → (A) already recorded; three cycles under a persistent fault → `consecutive_failures === 3`, not 0.
+   - **16d** real-DB concurrency: two concurrent (A) writers → `2`; insert-first-failure → `1` not `0`; AND the mixed-outcome interleaving (spec R1 finding 4) — (B) commits, then a delayed (A) — asserting the documented end state (`failed`, count 1) so the accepted race is pinned, not accidental.
+   - **17** fault-vs-attempt independence for every post-attempt fault in the shipped inventory (`lib/drive/watch.ts:1252-1381`): cycle reports `infra_error` AND the attempt's write landed.
 8. Class 20: `watch_backoff_ms` ↔ `BACKOFF_LADDER_MS` parity (real DB, n = 1..8, independent literal table).
-9. Class 21 (live validation probe, pre-merge): state columns visible via `pnpm observe watch --env validation`; `cron.job` shows `'7,22,37,52 * * * *'`; next renewal window behaves (no 15-min churn regression).
+9. Class 21 (live validation probe, pre-merge): state columns visible via `pnpm observe watch --env validation`; `select public.watch_backoff_ms(3)` returns `3600000` (§4.3 — the function is invisible to the schema manifest); `cron.job` shows `'7,22,37,52 * * * *'`; next renewal window behaves (no 15-min churn regression).
 10. Meta-tests re-run, not assumed: `postgrest-dml-lockdown` bidirectional discovery, `validation-schema-parity` both layers, `_metaInfraContract` both registries, `_metaMutationSurfaceObservability` (no new mutating route; refresh-watch stays GET), literal-nine cron suites (§3.1), x1 catalog parity.
 
 ## 7. Out of scope
@@ -398,5 +439,7 @@ The 21 test classes of the deferred design §6 carry forward as the normative in
 - **`raised_at`, not a new `first_failure_at`** — one incident-start timestamp for both escalation and (if ever needed) UI, verified to survive dedup bumps.
 - **Reconcile keeps its resolve paths** — unlike the abandoned R3 draft, this design does NOT move resolution into any transaction; the shipped resolve-on-healthy and resolve-on-recovered paths (`lib/drive/watch.ts:1311-1328`, `lib/drive/watch.ts:1344-1354`) are untouched.
 - **Faults never suppress the attempt record** (§3.3a; §6 classes 16c/17). A persistent email fault reports 500 while the ladder keeps climbing.
+- **The mixed-outcome writer race is chosen, not missed** (§3.3a): bounded to a cosmetic count offset on the NEXT incident, pinned by 16d; serializing it would need the locks §1.1a-5 forbids.
+- **`last_attempt_outcome` is narrower than `ReconcileOutcome` on purpose** (§3.2): the CHECK admits only what §3.3a can write. Proposing to "complete" the CHECK to the full reconcile union is re-introducing spec R1 finding 5.
 - **`occurrence_count` is not deleted** — it leaves the trigger role only.
 - **The deferred design's §3.4a descope of the dedicated cron is settled** — the alert-raise transport it distrusted is now atomic anyway (lifecycle D10), but the same-cycle in-process design needs nothing from that fact.
