@@ -52,6 +52,7 @@ tests/e2e/helpers/useServerDirectivePlugin.test.ts PR-C every fixture case throu
 tests/e2e/helpers/__fixtures__/directive/*    PR-C  fixture modules (a)-(h)
 tests/e2e/_step3ReviewModalBundle.mjs         PR-C  regex useServerElision deleted; consumes shared plugin
 tests/e2e/directive-form-action.spec.ts       PR-C  guard case (f): form action={stub} submit throws, real browser
+tests/e2e/_directiveFormActionLiveEntry.tsx   PR-C  micro live entry for the form-action harness
 tests/e2e/_metaLiveEntryToolchain.test.ts     PR-C  re-pointed; exemption text rewritten
 tests/e2e/packlist-rescan-recovery.spec.ts    PR-C  node:crypto alias
 BACKLOG.md + parent spec                      per-PR close-out edits
@@ -155,6 +156,23 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     expect(run(["--report", report([A_REPORT, B_REPORT], 2), "--baseline", bl])).not.toBe(0);
   });
 
+  it("counts a spec with an empty tests[] as zero executed tests (exact-sum contract)", () => {
+    // plan-R2 F8: the sum is exact; no per-spec floor of 1.
+    const dir = mkdtempSync(join(tmpdir(), "empty-tests-"));
+    const p = join(dir, "report.json");
+    writeFileSync(
+      p,
+      JSON.stringify({
+        config: { rootDir: join(ROOT, "tests", "e2e") },
+        suites: [
+          { file: A_REPORT, suites: [], specs: [{ file: A_REPORT, title: "t", tests: [] }] },
+          { file: B_REPORT, suites: [], specs: [{ file: B_REPORT, title: "t", tests: [{ status: "expected" }] }] },
+        ],
+      }),
+    );
+    expect(run(["--report", p, "--baseline", baseline([A, B], 1)])).toBe(0);
+  });
+
   it("rejects a missing report file", () => {
     expect(run(["--report", "/nonexistent/report.json", "--baseline", baseline([A], 2)])).not.toBe(0);
   });
@@ -214,7 +232,7 @@ function membership(json) {
       walk(s.suites);
       for (const spec of s.specs ?? []) {
         files.add(toRepoPosix(rootDir, spec.file));
-        total += (spec.tests ?? []).length || 1;
+        total += (spec.tests ?? []).length;
       }
     }
   };
@@ -347,6 +365,8 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
 - Modify: scripts/check-standalone-baseline.mjs (zero-args branch defaults to the CI report path)
 - Test: extend tests/scripts/checkStandaloneBaseline.test.ts AND tests/ci/\_metaSpecRegistration.test.ts
 
+- [ ] **Step 0 (setup, not behavior): `pnpm add -D yaml@^2.8.0`.** Installing the parser is scaffolding for the test that follows, not the behavior under test (plan-R2 F2); the behavioral red is the missing workflow step and the missing zero-args default, both observed in Step 2 with yaml already importable.
+
 - [ ] **Step 1a: Failing script cases** (plan-R1 F2 — the no-args default must be PINNED, not inferred; the old usage-fail branch also exits non-zero, so the distinguishing case is the one that expects SUCCESS):
 
 ```ts
@@ -403,7 +423,12 @@ describe("standalone-e2e.yml comparison step (spec §4.1 structural pinning)", (
     expect(on, "workflow must keep a pull_request trigger").toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(on ?? {}, "pull_request")).toBe(true); // plan-R1 F4: absence must FAIL
     const pr = (on ?? {})["pull_request"];
-    expect(pr === null || pr === undefined || Object.keys(pr as object).length === 0).toBe(true);
+    // plan-R2 F1: null (bare key) is the ONLY non-object acceptable form; booleans and
+    // arrays are malformed/disabled triggers and must FAIL.
+    const bare =
+      pr === null ||
+      (typeof pr === "object" && pr !== undefined && !Array.isArray(pr) && Object.keys(pr).length === 0);
+    expect(bare, "pull_request trigger must be bare (no filters, not disabled)").toBe(true);
     for (const k of ["needs", "strategy", "continue-on-error", "environment", "defaults"]) {
       expect(job).not.toHaveProperty(k);
     }
@@ -414,8 +439,8 @@ describe("standalone-e2e.yml comparison step (spec §4.1 structural pinning)", (
 
 (Implementer verifies the `on` key shape once against the parsed object — the `yaml` package v2 yields string key `"on"`; if it yields boolean `true` instead, fix the accessor and DELETE the wrong branch; the EXISTENCE assertion stays either way.)
 
-- [ ] **Step 2: Verify failure** — script SUCCESS case red; workflow cases red (step absent; `yaml` not installed yet — `pnpm add -D yaml@^2.8.0` first, which is part of this task's implementation).
-- [ ] **Step 3: Implement** — devDep; script zero-args branch → `compareReport(join(ROOT, "test-results/standalone-report.json"))` guarded by existence (missing → fail loud, which the absent case pins); workflow step directly after the run step:
+- [ ] **Step 2: Verify failure** — script SUCCESS case red (usage-fail branch exits 1); workflow cases red (comparison step absent).
+- [ ] **Step 3: Implement** — script zero-args branch → `compareReport(join(ROOT, "test-results/standalone-report.json"))` guarded by existence (missing → fail loud, which the absent case pins); workflow step directly after the run step:
 
 ```yaml
       - name: Compare the run's own report against the committed baseline
@@ -563,7 +588,7 @@ describe("spec registration detector (spec §3.1)", () => {
 ### Task A5: CI-side mutation verification + close-out docs
 
 - [ ] **Step 1:** Push branch; open PR; confirm `standalone-e2e` green (real report + comparison exercised in the real environment).
-- [ ] **Step 2: AC-2 mutation:** `git checkout -b scratch/ci-dark-ac2-mutation`; edit `tests/e2e/standalone.config.ts` adding `grep: process.env.GITHUB_ACTIONS === "true" ? /skeletonBandParity/ : undefined,` (locally-invisible narrowing class; `workflow_dispatch` does not set `GITHUB_EVENT_NAME=pull_request`, so the GITHUB_ACTIONS predicate replaces the backlog's example while staying in the same class); **`git commit -am "scratch: ac2 mutation"` and `git push -u origin scratch/ci-dark-ac2-mutation`** (plan-R1 F9: the mutation must be committed to be observable); `gh workflow run standalone-e2e.yml --ref scratch/ci-dark-ac2-mutation`; expect RED at the comparison step. Record run URL in the PR body; delete the scratch branch (`git push origin :scratch/ci-dark-ac2-mutation`).
+- [ ] **Step 2: AC-2 mutation:** `git checkout -b scratch/ci-dark-ac2-mutation`; edit `tests/e2e/standalone.config.ts` adding `grep: process.env.GITHUB_ACTIONS === "true" ? /skeletonBandParity/ : undefined,` (locally-invisible narrowing class; `workflow_dispatch` does not set `GITHUB_EVENT_NAME=pull_request`, so the GITHUB_ACTIONS predicate replaces the backlog's example while staying in the same class); **`git commit -am "scratch: ac2 mutation"` and `git push -u origin scratch/ci-dark-ac2-mutation`** (plan-R1 F9: the mutation must be committed to be observable); `gh workflow run standalone-e2e.yml --ref scratch/ci-dark-ac2-mutation`; expect RED at the comparison step. Record run URL in the PR body; then RETURN to the PR branch before any further work (plan-R2 F3): `git checkout feat/ci-dark-descoped-guards && git branch -D scratch/ci-dark-ac2-mutation && git push origin :scratch/ci-dark-ac2-mutation`.
 - [ ] **Step 3: Docs:** BACKLOG.md — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` ✅ RESOLVED (mechanism + shipped test paths); parent spec §10b supersession note. `pnpm spec:lint` both docs.
 - [ ] **Step 4: Commit** — `git commit -am "docs(ci): close the two PR-A backlog items; supersede the parent §10b ceiling"`
 
@@ -599,6 +624,7 @@ New worktree AFTER PR-A merges: `git worktree add -b feat/ci-dark-vitest-exclusi
 // 3. all-skipped report (numPassedTests: 0, numPendingTests: 4) + exit 0        -> expect non-zero
 // 4. failing report (numFailedTests: 2) + exit 1                                -> expect non-zero
 // 5. stub writes NO report file + exit 0                                        -> expect non-zero
+// 5b. stub writes MALFORMED JSON ("not json {") to the report path + exit 0     -> expect non-zero
 // 6. passing report BUT stub exit 1 (R3-F5: run-level failure with green cases) -> expect non-zero
 // 7. alias pin: package.json scripts["run-excluded"] === "node scripts/run-excluded-test.mjs"
 ```
@@ -681,7 +707,7 @@ typeOnly.ts        "use server"; export type T = { x: number };                 
 singleQuote.ts     'use server'; export async function f() { return 1; }            -> stubs [f]      (case e)
 escapedSpace.ts    "use\x20server"; export async function f() { return 1; }         -> stubs [f]      (case g)
 noDirective.ts     export const plain = "PLAIN_BODY_SENTINEL";                      -> real body      (case c)
-nestedString.ts    export const s = '"use server"'; // "use server" in a comment     -> real body      (case d)
+nestedString.ts    export const s = '"use server"' + "NESTED_BODY_SENTINEL"; // "use server" in a comment -> real body (case d)
 reexportFrom.ts    "use server"; export { f } from "./namedDecl";                   -> build FAILS
 starExport.ts      "use server"; export * from "./namedDecl";                       -> build FAILS
 aliasedLocal.ts    "use server"; async function f() {} export { f as g };           -> build FAILS
@@ -692,9 +718,13 @@ octalEscape.ts     "use\040server"; export async function f() { return 1; }     
 trailingGarbage.ts "use server"; export async function f() { return 1; } @@@        -> build FAILS (case h)
 ```
 
-The test builds EVERY fixture through a real `esbuild.build` (plan-R1 F13 — the build boundary is the contract, `analyzeModule` alone is not): a helper `bundleFixture(name)` writes a temp entry `import * as m from "<fixture>"; console.log(m);`, calls `build({ entryPoints, bundle: true, write: false, format: "iife", plugins: [useServerDirectivePlugin()], logLevel: "silent" })`, and returns `{ ok, output, errors }`. Assertions: the six supported stubs → `ok`, output CONTAINS the throw message with each export name and NOT the fixture's body sentinel (each supported fixture body carries a unique `*_BODY_SENTINEL` string constant inside the function body for this purpose); typeOnly → `ok`, output contains neither; noDirective + nestedString → `ok`, output CONTAINS `PLAIN_BODY_SENTINEL` (real body bundles); the six unsupported + two diagnostic fixtures → `!ok` and `errors` text names the fixture path (and for shape errors, the shape). Mutation check: one case builds `namedDecl` with a plugin variant `useServerDirectivePlugin({ disabled: true })` (a test-only option that makes onLoad return null) and asserts the body sentinel LEAKS into the output — proving the positive assertions can fail.
+The test builds EVERY fixture through a real `esbuild.build` (plan-R1 F13 — the build boundary is the contract, `analyzeModule` alone is not): a helper `bundleFixture(name)` writes a temp entry `import * as m from "<fixture>"; console.log(m);`, calls `build({ entryPoints, bundle: true, write: false, format: "iife", plugins: [useServerDirectivePlugin()], logLevel: "silent" })`, and returns `{ ok, output, errors }`. Assertions: the SEVEN throwing supported fixtures (five shapes + the single-quote and escaped-space spelling variants) → `ok`, output CONTAINS the throw message with each export name and NOT the fixture's body sentinel (each supported fixture body carries a unique `*_BODY_SENTINEL` string constant inside the function body for this purpose); typeOnly → `ok`, output contains neither; noDirective → `ok`, output CONTAINS `PLAIN_BODY_SENTINEL`; nestedString → `ok`, output CONTAINS `NESTED_BODY_SENTINEL` (each real body bundles, asserted by its OWN sentinel); the six unsupported + two diagnostic fixtures → `!ok` and `errors` text names the fixture path (and for shape errors, the shape). Mutation check: one case builds `namedDecl` with a plugin variant `useServerDirectivePlugin({ disabled: true })` (a test-only option that makes onLoad return null) and asserts the body sentinel LEAKS into the output — proving the positive assertions can fail.
 
-- [ ] **Step 2: Verify failure** (module missing). **Step 3: Implement** the module: start from the session prototype (scratchpad directive-resolver-prototype.mjs of 2026-07-26 — its analyze loop, extended: cooked-text equality, zero-diagnostics gate, three added export shapes, `disabled` option, no prefilter, node_modules early-return in onLoad). **Step 4: Verify pass** (18 fixture cases + mutation case). **Step 5: Commit** — `feat(e2e): shared use-server directive plugin, contract-tested at the build boundary`
+- [ ] **Step 2: Verify failure** (module missing). **Step 3: Implement** the module: start from the session prototype (scratchpad directive-resolver-prototype.mjs of 2026-07-26 — its analyze loop, extended: cooked-text equality, zero-diagnostics gate, three added export shapes, `disabled` option, no prefilter, node_modules early-return in onLoad). **Step 4: Verify pass** (fixture cases + mutation case).
+
+- [ ] **Step 5: IMPORT-GRAPH REALITY CHECK — the PR-C gate (spec §5.4; plan-R2 F4: it belongs in the FIRST PR-C task, before any consolidation lands).** A scratch node script (temp dir, not committed) calls `esbuild.build` directly on `tests/e2e/_packListRescanLiveEntry.tsx` with `plugins: [useServerDirectivePlugin()]`, `alias: { "node:crypto": <repo>/tests/e2e/_nodeCryptoStub.ts }`, `metafile: true`, and the same flag set as `tests/e2e/helpers/liveEntryToolchain.ts:73`. Assert: zero inputs under `node_modules/googleapis`, `node_modules/postgres`, `node_modules/google-auth-library`; total inputs > 500; at least one `node_modules/react/` input. Session prototype measured 1908 / 0 offending / 6 stubbed. GREEN → C2-C4 proceed. RED → trace the edge in the metafile; a one-line app-code import split is fixed here; anything larger keeps the packlist spec dark (both allowlist rows stay), the trace goes to BACKLOG.md, and C4 is descoped while C2/C3 (still independently valuable: sync-contract child + regex-resolver deletion) proceed. Record the measurement output in the task commit message body.
+
+- [ ] **Step 6: Commit** — `feat(e2e): shared use-server directive plugin, contract-tested at the build boundary`
 
 ### Task C2: bundleLiveEntry via a plugin-capable child script
 
@@ -708,7 +738,7 @@ The test builds EVERY fixture through a real `esbuild.build` (plan-R1 F13 — th
 - Produces: child argv `node _bundleLiveEntryChild.mjs <entryAbs> <outFileAbs> <tsconfigAbs> <aliasesJson> <externalsJson> [--metafile <path>]` (plan-R1 F16: the optional flag writes `result.metafile` JSON to the path — C4's reality check consumes it). Child mirrors the CLI flags at `tests/e2e/helpers/liveEntryToolchain.ts:73` exactly (bundle, iife, jsx automatic, tsx loader, NODE_ENV define, node:fs + externals, aliases, tsconfig, window.process banner, outfile) plus `plugins: [useServerDirectivePlugin()]`. esbuild applies `alias` before plugins, so per-call-site aliases keep winning — asserted by the existing crypto-alias case staying green.
 - `bundleLiveEntry` signature/sync-void behavior UNCHANGED; `BundleOptions` gains optional `metafilePath?: string`.
 
-- [ ] **Step 1: Failing cases in liveEntryToolchain.bundle.test.ts:** (i) bundling a temp entry that imports the C1 `namedDecl` fixture produces a bundle containing the plugin throw message (red: CLI path has no plugin); (ii) `metafilePath` writes a JSON file whose `inputs` include the entry (red: option unknown).
+- [ ] **Step 1: Failing cases in liveEntryToolchain.bundle.test.ts:** (i) bundling a temp entry that imports the C1 `namedDecl` fixture produces a bundle containing the plugin throw message (red: CLI path has no plugin); (ii) `metafilePath` writes a JSON file that is a REAL esbuild metafile, not a fabricated stub (plan-R2 F5): `inputs` includes the entry, includes at least one path under `node_modules/react/` (the entry renders via createRoot, so react is always in the graph), and has more than 100 keys (red: option unknown).
 - [ ] **Step 2: Implement** child + retarget: `execFileSync("node", [join(__dirname, "_bundleLiveEntryChild.mjs"), entry, outFile, join(REPO_ROOT, "tsconfig.json"), JSON.stringify(aliases), JSON.stringify(["node:fs", ...externals]), ...(metafilePath ? ["--metafile", metafilePath] : [])], ...)`. `_metaLiveEntryToolchain.test.ts`: add the child to the EXEMPT map (`tests/e2e/_metaLiveEntryToolchain.test.ts:37` shape) — it imports esbuild by name, which is the guard's concern; the helper row's rationale text updates to name the child.
 - [ ] **Step 3: Verify:** helpers tests + toolchain meta-test green; integration net: `pnpm exec playwright test --config tests/e2e/standalone.config.ts compact-alert-card-layout resolve-label-layout` green.
 - [ ] **Step 4: Commit** — `refactor(e2e): bundleLiveEntry builds via a plugin-capable child, call-site contract unchanged`
@@ -729,13 +759,15 @@ The test builds EVERY fixture through a real `esbuild.build` (plan-R1 F13 — th
 **Files:**
 - Modify: `tests/e2e/packlist-rescan-recovery.spec.ts:69` (add `aliases: { "node:crypto": join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts") }` — the `tests/e2e/compact-alert-card-layout.spec.ts:67` precedent)
 - Create: tests/e2e/directive-form-action.spec.ts (guard case f)
+- Create: tests/e2e/_directiveFormActionLiveEntry.tsx (the micro live entry the spec bundles)
 - Modify: `tests/e2e/standalone.config.ts:83` (TWO new testMatch members: `packlist-rescan-recovery`, `directive-form-action`)
 - Modify: tests/ci/\_metaSpecRegistration.test.ts (delete the packlist DARK_SPEC_ALLOWLIST row)
 - Modify: `tests/ci/_metaE2eWorkflowCoverage.test.ts:75` (delete the packlist LOCAL_ONLY_ALLOWLIST row)
 - Regenerate: tests/e2e/standalone-baseline.json (once, `--write`)
 - Test: metafile case in the plugin contract test
 
-**Import-graph reality check FIRST (spec §5.4):** `bundleLiveEntry({ entry: _packListRescanLiveEntry.tsx, outFile: tmp, aliases: { "node:crypto": …stub }, metafilePath: tmp2 })` via the C2 flag; assert zero metafile inputs under `node_modules/googleapis`, `node_modules/postgres`, `node_modules/google-auth-library`. Session prototype measured 1908 inputs / 0 offending / 6 modules stubbed. If an offending input appears: trace the edge; one-line app-code import split → fix here; anything larger → keep dark, keep both rows, file the trace in BACKLOG.md, descope this task (spec §5.4's branch). This check then BECOMES a permanent case in the plugin contract test (AC-4's executable form).
+**Re-confirmation through the SHIPPED channel (the gate itself already ran in C1 Step 5):**
+`bundleLiveEntry({ entry: _packListRescanLiveEntry.tsx, outFile: tmp, aliases: { "node:crypto": …stub }, metafilePath: tmp2 })` via the C2 flag; assert zero metafile inputs under `node_modules/googleapis`, `node_modules/postgres`, `node_modules/google-auth-library`, AND total inputs > 500 with at least one `node_modules/react/` path — a fabricated or truncated metafile fails the positive half (plan-R2 F5). This check BECOMES a permanent case in the plugin contract test (AC-4's executable form). If C1 Step 5 went RED and was resolved by descope, this task is already descoped and none of the below runs.
 
 - [ ] **Step 1:** Delete the DARK_SPEC_ALLOWLIST row → detector RED (packlist unregistered). Write directive-form-action.spec.ts — a minimal standalone harness in the house pattern (mkdtemp + `bundleLiveEntry` on a micro live-entry _directiveFormActionLiveEntry.tsx (new) that renders `<form action={stubbedAction}><button type="submit">go</button></form>` via createRoot, importing the real `setUseRawDecisionAction` from `@/app/admin/show/[slug]/_actions/useRaw` so the REAL app boundary is exercised; `node:http` static server; Playwright clicks submit and asserts a page error / console error containing the plugin's throw message). Detector counts it once registered; RED until then.
 - [ ] **Step 2:** Add both testMatch members; run both specs in a real browser: `pnpm exec playwright test --config tests/e2e/standalone.config.ts packlist-rescan-recovery directive-form-action` → green (packlist: stubs never invoked; form-action: invoked and LOUD).
