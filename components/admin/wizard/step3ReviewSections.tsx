@@ -919,10 +919,13 @@ export function ModalSectionChrome({
           so its `min-h-tap-min` stops applying at `sm`+ — the floor MUST ride
           this element (`sm:min-h-tap-min`) or the 44px row silently collapses.
 
-          `w-full` / `items-stretch` are load-bearing, not decorative: both this
-          column and its parent section are `flex-col`, and Tailwind v4 does NOT
-          default `.flex` to `align-items: stretch`, so without them the lines would
-          shrink-wrap and every centring measurement would be against the wrong box. */}
+          `w-full` / `items-stretch` are load-bearing below `sm`, not decorative:
+          there this element and its parent section are both `flex-col`, and
+          Tailwind v4 does NOT default `.flex` to `align-items: stretch`, so
+          without them the lines would shrink-wrap and every centring measurement
+          would be against the wrong box. (At `sm`+ this element computes
+          `items-center` on a row; the parent section stays a column and `w-full`
+          keeps carrying the row's width.) */}
       <div
         className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:min-h-tap-min sm:flex-row sm:items-center sm:gap-2.5`}
       >
