@@ -639,6 +639,86 @@ test("§9.1 long-content header @ 390: close + chip in-viewport, no horizontal o
   ).toBe(overflow.clientWidth);
 });
 
+/**
+ * SheetIconLink coverage (sheet-icon-link spec §7.8 + §7.7): D-site tap target
+ * and bleed invariant, on the LONG-title page so the link is pushed against
+ * the actions cluster (a short title parks it in free flex space and the
+ * cluster cases go vacuous).
+ *
+ *  - anti-inflation: the anchor's own rect stays 20px on BOTH axes (a rect
+ *    ≥44 means the boxed idiom crept back) — the migration's red edge;
+ *  - the 44×44 target comes from the four resolved ::before insets
+ *    (asymmetric 10px title-side / 14px trailing), floored by the title row;
+ *  - rect-intersection: the overlay covers no pixel of the title, eyebrow,
+ *    subline, state chip, or close button, each asserted non-degenerate first.
+ */
+test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 390", async ({
+  page,
+}) => {
+  await openHarness(page, { width: 390, height: 844 }, "harness-long.html");
+  const m = await page.evaluate((ids) => {
+    const link = document.querySelector(`[data-testid="${ids.sheetlink}"]`);
+    if (!(link instanceof HTMLElement)) return { error: "sheetlink not found" };
+    const r = link.getBoundingClientRect();
+    const cs = getComputedStyle(link, "::before");
+    const overlay = {
+      left: r.left + parseFloat(cs.insetInlineStart || "0"),
+      top: r.top + parseFloat(cs.insetBlockStart || "0"),
+      right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+      bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
+    };
+    const named = (name: string, el: Element | null | undefined) => {
+      if (!(el instanceof HTMLElement)) return null;
+      const b = el.getBoundingClientRect();
+      return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    };
+    // The title row is the link's parent; the eyebrow is the row's previous
+    // sibling and the subline its next (structural — those lines carry no
+    // testids of their own).
+    const row = link.parentElement!;
+    const neighbours = [
+      named("title", document.querySelector(`[data-testid="${ids.title}"]`)),
+      named("eyebrow", row.previousElementSibling),
+      named("subline", row.nextElementSibling),
+      named("chip", document.querySelector(`[data-testid="${ids.chip}"]`)),
+      named("close", document.querySelector(`[data-testid="${ids.close}"]`)),
+    ].filter((n): n is NonNullable<typeof n> => n !== null);
+    return {
+      error: null,
+      w: r.width,
+      h: r.height,
+      targetW: overlay.right - overlay.left,
+      targetH: overlay.bottom - overlay.top,
+      rowH: row.getBoundingClientRect().height,
+      overlay,
+      neighbours,
+    };
+  }, {
+    sheetlink: tid("sheetlink"),
+    title: tid("title"),
+    chip: tid("chip"),
+    close: tid("close"),
+  });
+  expect(m.error, "fixture shape").toBeNull();
+  if (m.error !== null) return;
+  expect(m.w, "visible box stays 20px wide").toBeLessThan(44);
+  expect(m.h, "visible box stays 20px tall").toBeLessThan(44);
+  expect(m.targetW, "overlay target width").toBeGreaterThanOrEqual(44 - TOL);
+  expect(m.targetH, "overlay target height").toBeGreaterThanOrEqual(44 - TOL);
+  expect(m.rowH, "title row holds the 44px floor").toBeGreaterThanOrEqual(44 - TOL);
+  expect(
+    m.neighbours!.map((n) => n.name),
+    "title, eyebrow, subline, chip and close all measured",
+  ).toEqual(expect.arrayContaining(["title", "eyebrow", "subline", "chip", "close"]));
+  for (const n of m.neighbours!) {
+    expect(n.right - n.left, `${n.name} rect non-degenerate (width)`).toBeGreaterThan(0);
+    expect(n.bottom - n.top, `${n.name} rect non-degenerate (height)`).toBeGreaterThan(0);
+    const w = Math.min(m.overlay!.right, n.right) - Math.max(m.overlay!.left, n.left);
+    const h = Math.min(m.overlay!.bottom, n.bottom) - Math.max(m.overlay!.top, n.top);
+    expect(Math.max(0, w) * Math.max(0, h), `overlay does not cover the ${n.name}`).toBe(0);
+  }
+});
+
 test("§9.1 sheet footer safe-area @ 390: paddingBottom ≥ base padding + stylesheet mechanism", async ({
   page,
 }) => {
