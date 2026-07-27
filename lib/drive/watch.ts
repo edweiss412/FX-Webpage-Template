@@ -1143,7 +1143,7 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
   if ("kind" in folderRead && folderRead.kind === "infra_error") {
     // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion-race
     // residual, and the lease already absorbs a transient read failure (a
-    // channel is due ~6h before expiry against an hourly cron).
+    // channel is due ~6h before expiry against the 15-minute cron).
     void log.warn("refresh-watch configured-folder read failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_FOLDER_READ_FAILED",

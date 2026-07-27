@@ -1,7 +1,7 @@
 // Spec: docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md §3.1, §5.2
 //
 // The defect this pins: `files.watch` was called with no `expiration`, so Drive
-// granted its documented 1-hour default and the hourly renewal cron renewed each
+// granted its documented 1-hour default and the renewal cron renewed each
 // lease at the instant it expired (~1s of slack, measured on validation).
 //
 // DB-free by construction (tests/drive/** is the PARALLEL vitest project, run by
@@ -239,7 +239,7 @@ describe("short-grant anomaly (§3.3)", () => {
 
   test("STILL fires at P + T — being examined is not the same as completing", async () => {
     // The regression this pins: a lease with P+T+1ms at activation would, on the
-    // idealised hourly model, be examined with T+1ms left — barely more than the
+    // idealised fixed-period model, be examined with T+1ms left — barely more than the
     // budget a round-trip plus activation is sized against. That second T is why
     // the threshold is P + 2T rather than P + T: a sizing rationale, not a claim
     // that either T is enforced. (An earlier comment said 1ms left; the tick

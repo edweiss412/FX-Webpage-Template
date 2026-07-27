@@ -219,6 +219,20 @@ describe("duration-based escalation trigger (backoff spec §3.5, class 8)", () =
     expect(r.escalated).toBe(true);
   });
 
+  test("email bodies carry the canonical backoff sentence in text AND html (spec §3.7)", async () => {
+    const deps = clocked({ raised_at: at(ESCALATION_AFTER_MS + 60_000) });
+    const r = await maybeEscalateWatchOrphaned(INPUT, deps);
+    expect(r.escalated).toBe(true);
+    const sendEmail = deps.sendEmail as ReturnType<typeof vi.fn>;
+    const call = (sendEmail.mock.calls[0] as unknown[])[0] as { text: string; html: string };
+    const SENTENCE =
+      "FXAV keeps retrying the connection on its own, waiting longer between attempts the longer it fails.";
+    expect(call.text).toContain(SENTENCE);
+    expect(call.html).toContain(SENTENCE);
+    expect(call.text).not.toContain("every hour");
+    expect(call.html).not.toContain("every hour");
+  });
+
   test("future raised_at (skew) does not fire", async () => {
     const r = await maybeEscalateWatchOrphaned(
       INPUT,

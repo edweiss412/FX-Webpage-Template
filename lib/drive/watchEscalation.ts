@@ -68,13 +68,13 @@ function emailCopy(folderName: string | null, errorClass: string, errorMessage: 
   const text = [
     `The connection that makes sheet edits show up instantly is having trouble for "${name}". It couldn't be set up or renewed.`,
     `Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear.`,
-    `FXAV retries the connection automatically every hour. An admin can also retry immediately: open the dashboard banner or Settings → Drive connection and use "Retry now".`,
+    `FXAV keeps retrying the connection on its own, waiting longer between attempts the longer it fails. An admin can also retry immediately: open the dashboard banner or Settings → Drive connection and use "Retry now".`,
     `Technical detail (for support): ${errorClass}: ${errorMessage}`,
   ].join("\n\n");
   const html = [
     `<p>The connection that makes sheet edits show up instantly is having trouble for "<strong>${escapeHtml(name)}</strong>". It couldn't be set up or renewed.</p>`,
     `<p>Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear.</p>`,
-    `<p>FXAV retries the connection automatically every hour. An admin can also retry immediately: open the dashboard banner or Settings → Drive connection and use "Retry now".</p>`,
+    `<p>FXAV keeps retrying the connection on its own, waiting longer between attempts the longer it fails. An admin can also retry immediately: open the dashboard banner or Settings → Drive connection and use "Retry now".</p>`,
     `<p>Technical detail (for support): <code>${escapeHtml(errorClass)}: ${escapeHtml(errorMessage)}</code></p>`,
   ].join("\n");
   return { subject, text, html };
