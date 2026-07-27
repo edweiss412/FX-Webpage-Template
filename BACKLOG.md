@@ -77,7 +77,9 @@ addition needs an insert shape satisfying that table's NOT NULL siblings and com
 
 ## Admin lifecycle e2e (2026-07-24, share-link-chrome-backlog review r4)
 
-### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED
+### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
+
+**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename. The spec is now wired into `lifecycle-layout-e2e.yml`, so this class cannot recur silently.
 
 `tests/e2e/admin-lifecycle-transitions.spec.ts:305` asserts `admin-share-link-inactive` contains "The crew link is inactive while this show is unpublished." That testid was RETIRED by the share-hub consolidation (`docs/superpowers/specs/2026-07-20-share-hub-design.md:106` lists it under Removed); no production module emits it, and current unit tests assert its absence. The spec would fail if it ran.
 
@@ -581,6 +583,8 @@ The 2026-07-03 and 2026-07-25 sweeps (`BL-COPY-CRON-SWEEP`, `-2`) both removed j
 
 ## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted
 
+> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
+
 **Status:** OPEN · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25)
 
 `tests/e2e/attention-modal-gallery.spec.ts` runs only under the `dev-build` Playwright project (`playwright.config.ts:92`), and `dev-build` runs only in `dev-gate-e2e.yml`, which is `workflow_dispatch`-only. No PR ever triggers it. Its last green run was **2026-07-02**; the only other run since was a failure on 2026-06-22. Dispatching it during this branch's close-out failed two assertions:
@@ -926,6 +930,8 @@ Structural guards across the suite strip comments before scanning source, and **
 **Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
+
+> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` is no longer dark — it is wired into `lifecycle-layout-e2e.yml` and its allowlist row is deleted. Both named lifecycle specs now run on every PR. What remains under this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
 
