@@ -79,7 +79,11 @@ addition needs an insert shape satisfying that table's NOT NULL siblings and com
 
 ### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
 
-**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename. The spec is now wired into `lifecycle-layout-e2e.yml`, so this class cannot recur silently.
+**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename.
+
+The proposed fix below (**"replace the assertion with whatever now carries the crew-link-off copy"**) was investigated and **rejected on evidence**: nothing carries it. The nearest surviving string is a rotation confirmation in a different control, and `admin-current-share-link-unavailable` is an _error_ state gated on `published`. Everything below this line is the ORIGINAL entry, kept as provenance — its "It does not run" and "Fix:" paragraphs describe the pre-2026-07-26 state, not the current one.
+
+**Note on the host spec:** `admin-lifecycle-transitions.spec.ts` is still NOT wired into a workflow — see `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. This particular assertion can no longer rot further (it is gone), but the file remains CI-dark.
 
 `tests/e2e/admin-lifecycle-transitions.spec.ts:305` asserts `admin-share-link-inactive` contains "The crew link is inactive while this show is unpublished." That testid was RETIRED by the share-hub consolidation (`docs/superpowers/specs/2026-07-20-share-hub-design.md:106` lists it under Removed); no production module emits it, and current unit tests assert its absence. The spec would fail if it ran.
 
