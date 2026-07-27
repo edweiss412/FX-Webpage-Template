@@ -20,6 +20,7 @@
  * (spec §3.2a). Callers read with readFileSync(path, "utf8").
  */
 import ts from "typescript";
+import { commentRanges } from "../_shared/stripComments";
 
 /** The retired standalone re-apply page. `/api/...` paths are legitimate endpoints. */
 export const RETIRED_PATH = "/admin/onboarding/staged/";
@@ -46,16 +47,6 @@ function retiredPathIndexes(text: string): number[] {
   }
 }
 
-function commentRanges(src: string, sourceFile: ts.SourceFile): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
-  const visit = (node: ts.Node): void => {
-    for (const r of ts.getLeadingCommentRanges(src, node.pos) ?? []) ranges.push([r.pos, r.end]);
-    for (const r of ts.getTrailingCommentRanges(src, node.end) ?? []) ranges.push([r.pos, r.end]);
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return ranges;
-}
 
 /** Spans of every string/template literal, so a raw hit can be attributed to one. */
 function literalSpans(sourceFile: ts.SourceFile): Array<[number, number]> {
@@ -202,7 +193,7 @@ export function classifyRetiredPathOccurrences(
     objects: fileScope.objects,
     returns: new Map(),
   };
-  const comments = commentRanges(src, sourceFile);
+  const comments = commentRanges(src, ts.ScriptKind.TS, sourceFile);
   const literals = literalSpans(sourceFile);
 
   const kinds: OccurrenceKind[] = retiredPathIndexes(src).map((idx) => {
