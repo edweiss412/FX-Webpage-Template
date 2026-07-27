@@ -122,19 +122,25 @@ source-structural test in the DB-free suite (`tests/db/driveIdCoverage.test.ts`)
 consumer files and asserts, per file, REQUIRED patterns (with expected counts) and FORBIDDEN
 patterns:
 
-- `tests/db/validation-schema-parity.test.ts`: REQUIRED `assertValidationIdentity` (the first
-  validation-targeting test — spec §3.1), `withValidationIdentityGuard(` ≥ 2 (layer-2
-  introspection + CHECK parity), `execPsqlRedacted(` ≥ 2; FORBIDDEN `execFileSync("psql"`
-  anywhere outside the `canConnect` function body (extracted by brace matching; `canConnect` is
-  the ratified guard-exempt probe).
+- `tests/db/validation-schema-parity.test.ts`: REQUIRED `assertValidationIdentity` with a
+  POSITIONAL assertion — its first occurrence precedes the first occurrence of
+  `withValidationIdentityGuard(`, `execPsqlRedacted(`, and `censusInPinnedTx(` in file order
+  (plan-R3 finding 2a: the token alone does not prove it is the first validation test);
+  `withValidationIdentityGuard(` ≥ 2 (layer-2 introspection + CHECK parity);
+  `execPsqlRedacted(` ≥ 2; `identityGuardSql()` AND `preambleSql` (exactly 1 each — T3's census
+  layer attachment, plan-R3 finding 2b); FORBIDDEN `execFileSync("psql"` anywhere outside the
+  `canConnect` function body (extracted by brace matching; `canConnect` is the ratified
+  guard-exempt probe).
 - `tests/cross-cutting/pg-cron-coverage.test.ts`: REQUIRED `resolvePgCronMode(` (exactly 1),
   `assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL)` (exactly 1),
-  `assertValidationIdentity` (validation mode's first test), `withValidationIdentityGuard(` ≥ 1
-  (live queries route through the guarded runner helper), `buildPgCronUnreachableMessage(`
-  (exactly 1, in the CI-unreachable throw), `redactDsn(` ≥ 1 (local warn), `identity_mismatch`
-  (tri-state literal); FORBIDDEN raw `execFileSync("psql"` (every psql exec routes through
-  `execPsqlRedacted`), `process.env.TEST_DATABASE_URL` / `process.env.PG_CRON_COVERAGE_TARGET` /
-  `process.env.LOCAL_TEST_DATABASE_URL` outside the single resolver call site.
+  `assertValidationIdentity` with the same POSITIONAL rule (precedes the first
+  `withValidationIdentityGuard(`/`execPsqlRedacted(` occurrence), `execPsqlRedacted(` ≥ 1
+  (plan-R3 finding 2c — the routing claim needs its token), `withValidationIdentityGuard(` ≥ 1,
+  `buildPgCronUnreachableMessage(` (exactly 1, in the CI-unreachable throw), `redactDsn(` ≥ 1
+  (local warn), `identity_mismatch` (tri-state literal); FORBIDDEN raw `execFileSync("psql"`
+  (every psql exec routes through `execPsqlRedacted`), `process.env.TEST_DATABASE_URL` /
+  `process.env.PG_CRON_COVERAGE_TARGET` / `process.env.LOCAL_TEST_DATABASE_URL` outside the
+  single resolver call site.
 
 Stated honestly (and in the test's header): these are attachment TRIPWIRES — they make silent
 detachment a red diff, while the per-connection guarantee itself is enforced at runtime by the
@@ -193,17 +199,25 @@ Implementation notes pinned by the introspection: `pending_syncs.source_kind` CH
 (satisfied by omission); FK parents required only for rows 13/15/16/17 (public.shows via
 SHOW_SETUP; `dev.sync_audit.show_id` and `dev.sync_log.show_id` are nullable → omitted);
 `public.shows.id` carries a default, so SHOW_SETUP's explicit fixed id is legal. Column lists
-above contain the NOT-NULL-no-default siblings ONLY; defaulted columns are deliberately omitted.
-Blank-value rejects reuse the existing helper set `['', '   ', '\t']`.
+above contain AT LEAST the NOT-NULL-no-default siblings; rows 2, 4, and 7 (the ported `shows`
+probes) additionally carry defaulted/nullable columns their original hand-written shapes set —
+preserved for behavior parity, not required by the schema (plan-R3 finding 5). Blank-value
+rejects reuse the existing helper set `['', '   ', '\t']`.
 
 `EXPECTED_DEV_CENSUS` (six tuples, T3): `dev.pending_ingestions.drive_file_id`,
 `dev.pending_syncs.drive_file_id`, `dev.shows.drive_file_id`,
 `dev.shows.opening_reel_drive_file_id`, `dev.sync_audit.drive_file_id`,
 `dev.sync_log.drive_file_id`.
 
-`BACKLOG_GRADUATED` additions (T5; shape `{ id, provenance }` per
-`tests/docs/_metaDeferralLedgerGraduation.test.ts:123-129`): the four IDs, each with
-`provenance: "feat/driveid-guard-cluster"`.
+`BACKLOG_GRADUATED` additions (T5; shape per
+`tests/docs/_metaDeferralLedgerGraduation.test.ts:123-129`), inlined exactly:
+
+```ts
+{ id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
+{ id: "BL-VALIDATION-PARITY-DEFINITION-MATCH", provenance: "feat/driveid-guard-cluster" },
+{ id: "BL-VALIDATION-TARGET-BINDING", provenance: "feat/driveid-guard-cluster" },
+{ id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
+```
 
 ## Tasks (TDD each; every numbered step is a red/green MICRO-CYCLE — the test lands red, then
 the minimal implementation turns it green, within the step; commit per task)
@@ -290,8 +304,11 @@ the minimal implementation turns it green, within the step; commit per task)
 3. RED (the load-bearing one): completeness meta-test — `auditProbeRegistry` over the LIVE
    census (shared runner, incl. constraints) with 7 rows → red listing exactly the 16 unprobed
    tuples (record it).
-4. GREEN: add rows 8-23. Adopt `unreachableDbFailure` in this suite (CI fail-not-skip); the
-   DB-free suite's source-scan asserts the module-scope call + throw (removing it is a red).
+4. GREEN: add rows 8-23.
+5. RED→GREEN (its own micro-cycle — plan-R3 finding 4): write the source-scan asserting this
+   suite contains the module-scope `unreachableDbFailure` call + throw (red: the suite still
+   `skipIf`s only), then adopt `unreachableDbFailure` (CI fail-not-skip) → green. Removing the
+   call later is a red.
 5. Verify + commit `feat(db): registry-enforced behavioral probes for every Drive-ID column`.
 
 ### T5 — backlog graduation with executable proof (spec §9)
