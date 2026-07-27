@@ -25,7 +25,7 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `lib/driveIdCoverage/introspect.ts` | EDIT — add `CENSUS_COLUMNS_PG_CATALOG_SQL` (independent second census) |
 | `tests/db/driveIdCoverage.db.test.ts` | EDIT — import shared runner; add dual-source cross-check tests |
 | `tests/db/driveFileIdNonblank.db.test.ts` | EDIT — probe registry, 16 new probes, completeness meta-test, CI fail-not-skip |
-| `tests/db/driveIdCoverage.test.ts` | EDIT — DB-free collision negative control for `censusTupleKey` (AC-7) + `resolvePgCronMode` four-combination test (§3.1) |
+| `tests/db/driveIdCoverage.test.ts` | EDIT — DB-free collision negative control for `censusTupleKey` (AC-7) + `resolvePgCronMode` five-case test + source-structural resolver-binding test (§3.1) |
 | `tests/db/validation-schema-parity.test.ts` | EDIT — identity assert; new drive-id audit layer vs validation |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation` |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
@@ -177,20 +177,43 @@ becomes tri-state — `reachable` / `identity_mismatch` / `unreachable` — by r
 the guard's exception text) as `identity_mismatch`; the gate test reports the identity message
 for that state.
 
-**Mode resolution fails closed** (R3 finding 2). `coverageTarget` defaults to `"local"` and only
-the exact string `"validation"` activates the ref check and the guards
-(`tests/cross-cutting/pg-cron-coverage.test.ts:98`,
+**Mode resolution fails closed, with NO DSN judgment** (R3 finding 2; redesigned after R4
+finding 1 showed a loopback-authority classification reintroduces the ratified theatre —
+`?host=`/`hostaddr=` override the displayed authority, so no string test on the DSN may ever
+route trust). `coverageTarget` defaults to `"local"` and only the exact string `"validation"`
+activates the ref check and the guards (`tests/cross-cutting/pg-cron-coverage.test.ts:98`,
 `tests/cross-cutting/pg-cron-coverage.test.ts:141`,
-`tests/cross-cutting/pg-cron-coverage.test.ts:154`) — so a removed, empty, or
-misspelled `PG_CRON_COVERAGE_TARGET` with the remote DSN still wired would run every reachable
-query IDENTITY-UNGUARDED against whatever the DSN reaches. Extracted as a pure function
-(`unreachableDbFailure` is the template, `lib/driveIdCoverage/introspect.ts:103-119`):
-`resolvePgCronMode({ target, dbUrl })` returns `"local"` only for a LOOPBACK `dbUrl` (the
-`tests/db/_localDbUrl.ts` loopback rule), returns `"validation"` only for the exact string, and
-THROWS on every other combination — including non-loopback `dbUrl` with target unset/empty/
-misspelled, the fail-open path. All four combinations (target ∈ {exact, other} × dbUrl ∈
-{loopback, remote}) are asserted in the DB-free unit test — the remote+non-exact combination is
-the negative control for the silent-pass path R3 named. So the binding contract, stated precisely: **every statement whose result any
+`tests/cross-cutting/pg-cron-coverage.test.ts:154`) — today a removed, empty, or misspelled
+`PG_CRON_COVERAGE_TARGET` with the remote DSN still wired runs every reachable query
+IDENTITY-UNGUARDED against whatever the DSN reaches. The pure resolver
+(`unreachableDbFailure` is the template, `lib/driveIdCoverage/introspect.ts:103-119`) removes the
+DSN from the decision entirely:
+
+`resolvePgCronMode({ target, testDatabaseUrl })` →
+
+- `target === "validation"` → `{ mode: "validation", dbUrl: testDatabaseUrl }` (throwing the
+  existing refusals if the DSN or ref env is missing/empty). Every query on this path is
+  per-connection identity-guarded, so DSN games are answered by the guard, not by parsing.
+- `target` unset, empty, or `"local"` → `{ mode: "local", dbUrl: LOCAL_LOOPBACK_URL }` — the
+  HARDCODED loopback constant. `TEST_DATABASE_URL` is IGNORED in local mode, so an ambient
+  remote DSN (the `.env.local` dev-box case, or a workflow that dropped the target line but kept
+  the secret) can never be reached unguarded. This also retires the pre-existing exposure where
+  a dev-box run with ambient `TEST_DATABASE_URL` ran pg-cron live assertions against validation
+  while claiming local coverage.
+- any OTHER target string (misspelling) → THROW. Unknown mode names never downgrade.
+
+DB-free unit tests cover all five cases; the negative controls are the misspelled-target throw
+and the local-mode result ignoring a supplied remote `testDatabaseUrl`. (Verified: the only
+other pg-cron x-audits job, `x6-pg-cron-pivot` at `.github/workflows/x-audits.yml:244-274`, sets
+neither `PG_CRON_COVERAGE_TARGET` nor `TEST_DATABASE_URL`, so local-mode semantics are unchanged
+for it.)
+
+**The resolver is bound to its consumer structurally** (R4 finding 2 — an unused helper passes
+its own unit tests while the fail-open path survives). A source-structural test (same file as the
+resolver's unit tests) asserts `tests/cross-cutting/pg-cron-coverage.test.ts` reads
+`process.env.PG_CRON_COVERAGE_TARGET` and `process.env.TEST_DATABASE_URL` ONLY as arguments to
+`resolvePgCronMode`, and derives `coverageTarget`/`databaseUrl` only from its return value — so
+the module cannot compile a second, unresolved path to either env var without going red. So the binding contract, stated precisely: **every statement whose result any
 assertion consumes travels through the guard on its own connection; reachability probes either
 carry the guard with tri-state classification (pg-cron) or are guard-exempt with the
 first-guarded-query backstop (parity `canConnect`).** AC-1 uses this contract.
@@ -404,7 +427,9 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 | guarded query lands on a non-validation connection | multi-host / failover DSN | in-script `DO` guard aborts under `ON_ERROR_STOP` (§3.1) |
 | psql invocation fails, DSN in argv | any failure incl. forced identity aborts | shared runner rethrows with DSN redacted (§3.1, R2-1) |
 | suite-constructed message embeds `databaseUrl` | pg-cron CI throw / local warn | both rewritten redacted; sentinel test covers the builder (§3.1, R3-1) |
-| `PG_CRON_COVERAGE_TARGET` unset/empty/misspelled with remote DSN | fail-open bypass of guards | `resolvePgCronMode` throws — fail-closed (§3.1, R3-2) |
+| `PG_CRON_COVERAGE_TARGET` unset/empty/`local` with ambient remote DSN | fail-open bypass of guards | local mode uses the hardcoded loopback URL; the remote DSN is never touched (§3.1, R3-2/R4-1) |
+| `PG_CRON_COVERAGE_TARGET` misspelled | unknown mode | `resolvePgCronMode` throws — never downgrades (§3.1) |
+| env vars read outside the resolver | detached helper | source-structural binding test red (§3.1, R4-2) |
 | pg-cron reachability probe hits wrong cluster | identity abort in probe | tri-state `identity_mismatch`, reported as identity failure, never "unreachable" (§3.1, R2-3) |
 | local DB down, `CI` set (incl. empty string) | CI infra fault | throw (`unreachableDbFailure`, presence-not-truthiness) — now also in the probes suite |
 | local DB down, `CI` unset | dev box, no stack | skip |
@@ -449,8 +474,10 @@ Single named definitions later sections reference; no other section restates the
   first-guarded-query backstop; a guarded `select 1` against the local stack aborts (negative
   control); no error thrown by the shared psql runner AND no constructed message in either suite
   contains the DSN (sentinel-password unit test covers both the runner path and the pg-cron
-  CI-unreachable message builder); `resolvePgCronMode` throws on non-loopback DSN without the
-  exact validation target (four-combination DB-free test).
+  CI-unreachable message builder); `resolvePgCronMode` decides mode from the TARGET alone —
+  local mode uses the hardcoded loopback URL and ignores `TEST_DATABASE_URL`, misspelled targets
+  throw (five-case DB-free test) — and the source-structural binding test proves pg-cron reads
+  both env vars only through the resolver.
 - **AC-2** The validation audit layer runs `auditDriveIdCoverage` over a pinned-tx census of the
   validation DB and reports `[]`; manifest-derived public membership + the `EXPECTED_DEV_CENSUS`
   set-equality both assert; layer skips when `TEST_DATABASE_URL` unset.
