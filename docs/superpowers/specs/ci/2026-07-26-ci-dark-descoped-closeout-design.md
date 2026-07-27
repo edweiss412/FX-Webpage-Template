@@ -163,9 +163,16 @@ file. §5.3a consolidates it onto the shared parser-based plugin; closing
 
 A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
 
-1. Enumerates test-shaped files on disk: `tests/e2e/**/*.{spec,test}.{ts,tsx,js,mjs,mts}`
+1. Enumerates test-shaped files on disk: `tests/e2e/**/*.spec.{ts,tsx,js,mjs,mts}`
    (filesystem walk, so a NEW spec fails by default — same posture as the mutation-surface
-   meta-test). Widened beyond `*.spec.ts` per adversarial R1 F8. **Deliberate universe
+   meta-test). Widened beyond `*.spec.ts` per adversarial R1 F8; `*.test.*` is EXCLUDED per
+   adversarial R2 F1: files matching `tests/**/*.test.ts` are claimed by the Vitest project
+   globs (`vitest.projects.ts:34`) and already run in `unit-suite` — three live instances sit
+   under `tests/e2e/` today (`tests/e2e/_metaLiveEntryToolchain.test.ts`, the two
+   `tests/e2e/helpers/liveEntryToolchain.*.test.ts` files), so sweeping `.test.` into the
+   Playwright universe reds the guard on files that are not dark. A Playwright spec
+   misnamed `*.test.ts` cannot go SILENTLY dark either: the Vitest glob collects it and the
+   `@playwright/test` API fails loudly outside a Playwright runner. **Deliberate universe
    boundary:** config-declared SETUP files (`screenshots-help-setup.ts`,
    `help-docs-setup.ts` — `testMatch` targets at `playwright.config.ts:136` and
    `playwright.config.ts:169`) are infrastructure, not tests; an unregistered setup file is
@@ -249,10 +256,20 @@ times and is not attempted.
   `run:` exactly `node scripts/check-standalone-baseline.mjs`; (b) it is IMMEDIATELY adjacent
   to (directly precedes) the whole-config run step — no intervening step can mutate the tree
   or `$GITHUB_ENV` between comparison and run; (c) NEITHER step carries step-level `if:`,
-  `env:`, `continue-on-error`, or `shell:` — so both inherit the identical job-level context;
-  (d) the workflow keeps a bare `pull_request` trigger with no `paths:`/`paths-ignore:`, and
-  the job has no `needs:`, no `strategy.matrix`, and no `defaults.run.shell` override at any
-  level. Deleting or decorating the baseline step reds `unit-suite`, which is merge-blocking.
+  `env:`, `continue-on-error`, `shell:`, or `working-directory:` — so both inherit the
+  identical job-level context; (d) the workflow keeps a bare `pull_request` trigger with no
+  `paths:`/`paths-ignore:`, and the job has no `needs:`, no `strategy.matrix`, no job-level
+  `continue-on-error`, and no `defaults.run.shell` / `defaults.run.working-directory` override
+  at any level (adversarial R2 F3 classes, applied here too). Deleting or decorating the
+  baseline step reds `unit-suite`, which is merge-blocking.
+- **The script itself is behaviorally pinned (adversarial R2 F4 — a no-op script satisfies
+  every structural assertion while destroying the proof).** A unit-suite test executes
+  scripts/check-standalone-baseline.mjs as a child process against fixture inputs and asserts
+  it EXITS NON-ZERO on (i) a baseline file listing one spec the resolution lacks, (ii) a
+  resolution containing one spec the baseline lacks, and (iii) a matching file list with a
+  mismatched `totalTests` — and exits zero on a full match. This is the
+  guard-tests-the-real-control discipline: the thing pinned is the script's rejection
+  behavior, not its invocation.
 - **Transitivity:** local test proves `baseline == local resolution`; the pinned CI step proves
   `baseline == CI resolution` in the same context the run executes in; together `local == CI` —
   exactly the claim §10b of the parent spec records as unprovable from a developer machine
@@ -360,8 +377,12 @@ to `googleapis` (913 metafile inputs) and `postgres` is cut at its entry. Accept
 measured, not asserted:
 
 1. `_packListRescanLiveEntry.tsx` bundles with the plugin active; the esbuild **metafile** shows
-   no input under `node_modules/googleapis`, `node_modules/postgres`, or `lib/sync/` reached via
-   a value import (type-only edges are fine and invisible to the metafile anyway).
+   no input under `node_modules/googleapis`, `node_modules/postgres`, or
+   `node_modules/google-auth-library` — the SERVER-PACKAGE criterion, not a blanket `lib/sync/`
+   ban (adversarial R2 F2: the §2.6 spike measures two surviving client-safe `lib/sync` value
+   imports, `lib/sync/roleMappingOverlay.ts` and `lib/sync/pullSheetOverride.ts`, whose
+   subgraphs pull no server package; a blanket ban would contradict the measurement that
+   defines success).
 2. The spec runs green in a real browser locally and in the standalone CI job.
 3. `packlist-rescan-recovery.spec.ts` returns to `tests/e2e/standalone.config.ts` `testMatch`
    (`standalone.config.ts:83`); its `DARK_SPEC_ALLOWLIST` row (§3.1) and its
@@ -378,8 +399,10 @@ subsequent task conditions on that measurement.
 
 ### §5.5 Guard
 
-A meta-test pins the resolver contract: (a) a fixture module with a `"use server"` directive
-bundles to a throwing stub whose export names equal the fixture's; (b) a fixture with the
+A meta-test pins the resolver contract: (a) fixture modules with a `"use server"` directive
+bundle to throwing stubs whose export names equal the fixture's — ONE FIXTURE PER SUPPORTED
+§5.2 SHAPE (named async declaration, default async function, async-arrow const), so no
+supported branch ships without a fixture that executes it (adversarial R2 F5); (b) a fixture with the
 directive and a non-function export makes the bundle FAIL, and so does each unsupported §5.2
 shape (re-export forwarding, aliased export, sync const); (c) a directive-free fixture bundles
 its real body byte-for-byte (no stub); (d) a directive in a nested string/comment does NOT
@@ -413,14 +436,26 @@ EXACTLY `pnpm run-excluded <file>` (string equality after trim, the same exact-l
 as `WHOLE_CONFIG_RE`), with no `if:` on the step, no `continue-on-error`, and no pipe — all
 checked structurally on the parsed YAML. Any decoration makes it not the literal.
 
-**Job-and-workflow qualification (adversarial R1 F10 — command text alone proves nothing about
-whether the job runs).** The registry verifier additionally requires, on the parsed workflow:
-a `pull_request` trigger with no `paths:`/`paths-ignore:`; no job-level `if:` other than the
-exact schedule-exclusion literal `github.event_name != 'schedule'`; no `needs:` on the job; no
-`strategy.matrix` conditioning; and no `defaults.run.shell` override at workflow or job level.
-These are the same execution-override classes the existing scanner already disqualifies
-(`tests/ci/_workflowCoverageScan.ts:197` region); the verifier reuses that machinery rather
+**Job-and-workflow qualification (adversarial R1 F10 + R2 F3 — command text alone proves
+nothing about whether the job runs, or runs where it claims).** The registry verifier
+additionally requires, on the parsed workflow: a `pull_request` trigger with no
+`paths:`/`paths-ignore:`; no job-level `if:` other than the exact schedule-exclusion literal
+`github.event_name != 'schedule'`; no `needs:` on the job; no `strategy.matrix` conditioning;
+no `continue-on-error` at STEP OR JOB level; no `working-directory` on the step and no
+`defaults.run.working-directory` at workflow or job level (a redirected cwd re-points the
+package alias and the relative test path); and no `defaults.run.shell` override at workflow or
+job level. These are the same execution-override classes the existing scanner already
+disqualifies (`tests/ci/_workflowCoverageScan.ts:141` and
+`tests/ci/_workflowCoverageScan.ts:197` regions); the verifier reuses that machinery rather
 than re-deriving it.
+
+**The script and its alias are behaviorally pinned (adversarial R2 F4).** A unit-suite test
+(i) asserts the `package.json` `run-excluded` script is EXACTLY `node
+scripts/run-excluded-test.mjs` (alias-mapping pin — an alias rewired to a no-op passes the
+step-literal check otherwise), and (ii) executes the script against fixture vitest JSON
+reports, asserting non-zero exit on a zero-passed report, an all-skipped report, and a report
+with failures — and zero exit on a report with passing tests. Same
+guard-tests-the-real-control posture as the §4.1 baseline-script pin.
 
 **Honest ceiling, stated:** a green `pnpm run-excluded <file>` step proves the file resolved,
 executed, and passed at least one test under that job's environment. It does not prove every
@@ -477,8 +512,8 @@ no shared surface between PR-C and #613.
 | File | Change | PR |
 | --- | --- | --- |
 | tests/ci/\_metaSpecRegistration.test.ts | created — test-shaped disk files ⊆ three-config union ∪ dark-allowlist; invocation-census + filename-belt config tripwire; shadow/stale row checks; standalone baseline (files + totalTests) == local resolution; `standalone-e2e.yml` baseline-step structural pinning (§4.1) | PR-A |
-| tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed `{files, totalTests}`; `--write` regen; pinned CI-side comparison step in `standalone-e2e.yml` | PR-A |
-| tests/ci/\_metaEnvBoundExclusionCoverage.test.ts + scripts/run-excluded-test.mjs | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal `pnpm run-excluded` step verification; workflow/job qualification via the scanner's disqualification classes; dark rows are red | PR-B |
+| tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed `{files, totalTests}`; `--write` regen; pinned CI-side comparison step in `standalone-e2e.yml`; behavioral rejection test for the script (three mismatch classes exit non-zero) | PR-A |
+| tests/ci/\_metaEnvBoundExclusionCoverage.test.ts + scripts/run-excluded-test.mjs | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal `pnpm run-excluded` step verification; workflow/job qualification via the scanner's disqualification classes incl. job-level continue-on-error and working-directory redirection; alias-mapping pin + behavioral rejection test for the script (zero-passed / all-skipped / failed reports exit non-zero); dark rows are red | PR-B |
 | resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(f) | PR-C |
 | shared directive-plugin module (under `tests/e2e/helpers/`) | created — consumed by the bundleLiveEntry child script AND `tests/e2e/_step3ReviewModalBundle.mjs`, whose regex `useServerElision` is deleted (§5.3a) | PR-C |
 | `tests/e2e/_metaLiveEntryToolchain.test.ts` | edited — assertions follow the CLI→child-script move; `_step3ReviewModalBundle.mjs` exemption rationale rewritten; binary ban unchanged | PR-C |
