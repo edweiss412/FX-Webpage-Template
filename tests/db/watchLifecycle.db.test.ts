@@ -352,6 +352,104 @@ describe("a stopped row that never reached Drive stays recordable (R5 finding 1)
   });
 });
 
+describe("markStopped is guarded by the resource id GC read (R6 finding 1)", () => {
+  afterEach(cleanup);
+
+  test("an unchanged row is marked stopped and reports one affected row", async () => {
+    const id = `${PREFIX}stop-calm`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's', 'steady')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const count = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).markStopped(id, "steady"),
+    );
+    expect(count).toBe(1);
+  });
+
+  test("a resource id that landed mid-pass leaves the row untouched", async () => {
+    // Against the DATABASE, not the fake. The DB-free test mirrors this guard in
+    // the fake, so it stays green when the production predicate is deleted —
+    // only this test observes the real statement.
+    const id = `${PREFIX}stop-raced`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's', 'landed-late')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const count = await sql.begin(async (tx) =>
+      // GC read null before the stalled subscriber committed the id.
+      createPostgresWatchTx(tx as never).markStopped(id, null),
+    );
+    expect(count).toBe(0);
+
+    const rows = await sql<{ status: string }[]>`
+      select status from public.drive_watch_channels where id = ${id}
+    `;
+    // Still collectable, so the next pass stops it with the id it now has.
+    expect(rows[0]?.status).toBe("orphaned");
+  });
+
+  test("null on both sides compares equal, so the ordinary null case still stops", async () => {
+    const id = `${PREFIX}stop-null`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'orphaned', ${PREFIX + "h"}, 's', null)
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const count = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).markStopped(id, null),
+    );
+    expect(count).toBe(1);
+  });
+});
+
+describe("activatePending's COUNT comes from the production SQL (R6 finding 2)", () => {
+  afterEach(cleanup);
+
+  const row = (id: string) => ({
+    id,
+    watchedFolderId: `${PREFIX}f`,
+    resourceId: "res",
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+
+  test("returns 1 when a pending row is promoted", async () => {
+    const id = `${PREFIX}act-one`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${id}, 'pending', ${PREFIX + "f"}, 's')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const count = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).activatePending(row(id)),
+    );
+    expect(count).toBe(1);
+  });
+
+  test("returns 0 when promotion already orphaned the row", async () => {
+    // The DB-free test overrides activatePending with a fake that returns 0, so
+    // it cannot see the production statement returning a wrong count — an
+    // adapter hardcoded to 1 would restore silent activation success.
+    const id = `${PREFIX}act-zero`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const count = await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).activatePending(row(id)),
+    );
+    expect(count).toBe(0);
+
+    const rows = await sql<{ status: string }[]>`
+      select status from public.drive_watch_channels where id = ${id}
+    `;
+    expect(rows[0]?.status).toBe("orphaned");
+  });
+});
+
 describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)", () => {
   afterEach(cleanup);
 

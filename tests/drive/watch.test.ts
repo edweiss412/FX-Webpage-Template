@@ -177,15 +177,27 @@ class FakeWatchTx {
 
   async listGcCandidates() {
     this.operations.push("listGcCandidates");
-    return this.rows.filter(
-      (row) => row.status === "superseded" || row.status === "orphaned" || row.status === "expired",
-    );
+    // COPIES, like production. Returning live references let a later write in
+    // the same pass retroactively change what GC believed it had read, which
+    // silently disarmed every mid-pass race test written against this fake.
+    return this.rows
+      .filter(
+        (row) =>
+          row.status === "superseded" || row.status === "orphaned" || row.status === "expired",
+      )
+      .map((row) => ({ ...row }));
   }
 
-  async markStopped(id: string) {
+  async markStopped(id: string, expectedResourceId: string | null = null): Promise<number> {
     this.operations.push(`markStopped:${id}`);
-    const row = this.rows.find((existing) => existing.id === id);
-    if (row) row.status = "stopped";
+    // Mirrors production's resource-id guard EXACTLY: a candidate whose id moved
+    // between GC's read and its write must NOT be marked stopped.
+    const row = this.rows.find(
+      (existing) => existing.id === id && (existing.resourceId ?? null) === expectedResourceId,
+    );
+    if (!row) return 0;
+    row.status = "stopped";
+    return 1;
   }
 
   async deleteOldStopped() {
@@ -315,7 +327,28 @@ describe("Drive watch lifecycle", () => {
   test("default Postgres watch path wraps supersede and activate in one transaction", () => {
     const source = readFileSync(join(process.cwd(), "lib/drive/watch.ts"), "utf8");
 
-    expect(source).toMatch(/sql\.begin\s*\(/);
+    // Scoped to the default runner's body. Searching the whole FILE for any
+    // `sql.begin(` passed even if this path stopped using one — partial
+    // supersession could then commit before an activation failure without this
+    // named test noticing (whole-diff R6 finding 3).
+    // `sql.begin(` with the paren: the bare name also appears in two comments,
+    // and slicing from a comment measured nothing.
+    const begin = source.indexOf("sql.begin(");
+    expect(begin).toBeGreaterThan(-1);
+    const runner = source.slice(begin, source.indexOf("\n}", begin));
+    // The transaction hands its raw connection to the port every caller uses,
+    // so every statement in the callback shares it.
+    expect(runner).toMatch(/new PostgresWatchTx\s*\(/);
+    expect(source.slice(0, begin)).not.toContain("sql.begin(");
+
+    // And supersession lives INSIDE activatePending, which that transaction
+    // runs — so the two cannot be split without moving one of them.
+    const activate = source.slice(
+      source.indexOf("async activatePending("),
+      source.indexOf("async markStopped("),
+    );
+    expect(activate).toMatch(/set status = 'superseded'/);
+    expect(activate).toMatch(/set status = 'active'/);
   });
 
   test("subscribe inserts pending, activates it, and supersedes prior active channel", async () => {
@@ -1926,6 +1959,10 @@ describe("activation and GC failure branches (whole-diff findings 2 and 5)", () 
     // And the resourceId must be recorded, or GC's channels.stop exits early on
     // the null and the Drive channel stays live to its lease (finding 2).
     expect(tx.orphanedResourceIds).toEqual([["ch-zero", "google-resource-1"]]);
+    // And the ESCALATION EVIDENCE. Without this, bypassing the alert only on
+    // the zero-row branch keeps the outcome and the resourceId correct while
+    // the operator learns nothing (whole-diff R6 finding 2).
+    expect(tx.alerts.map((a) => a.code)).toContain("WATCH_CHANNEL_ORPHANED");
   });
 
   test("a SUPERSEDED row whose stop fails with a real 404 IS marked stopped", async () => {
@@ -2297,5 +2334,61 @@ describe("markOrphaned reopens a stopped row that never reached Drive (R5 findin
     await tx.markOrphaned("no-id");
 
     expect(tx.rows.find((r) => r.id === "no-id")!.status).toBe("stopped");
+  });
+});
+
+describe("GC never stops a row whose resource id moved under it (R6 finding 1)", () => {
+  test("a late resource id leaves the row orphaned for the next pass", async () => {
+    // GC reads candidates in one transaction and writes in later ones. A
+    // subscribe stalled in the credential fetch can commit a resource id in
+    // between. Marking the row stopped anyway strands it: stopped rows match
+    // neither listGcCandidates nor the markOrphaned reopen arm, so the live
+    // channel would run to lease expiry with nothing able to stop it.
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "raced",
+      status: "orphaned",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: null,
+      createdAt: new Date(tx.now.getTime() - 7_200_000).toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => tx.now.getTime(),
+      stopChannel: async () => {
+        // The stalled subscriber commits between GC's read and its write.
+        tx.rows.find((r) => r.id === "raced")!.resourceId = "late-resource";
+      },
+    });
+
+    expect(result.stopped).toEqual([]);
+    expect(tx.rows.find((r) => r.id === "raced")!.status).toBe("orphaned");
+    expect(logRecords.some((r) => r.code === "DRIVE_WATCH_GC_ROW_CHANGED")).toBe(true);
+  });
+
+  test("an unchanged row is still stopped, so the guard is not a blanket refusal", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "calm",
+      status: "orphaned",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: "steady",
+      createdAt: new Date(tx.now.getTime() - 7_200_000).toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => tx.now.getTime(),
+      stopChannel: async () => {},
+    });
+
+    expect(result.stopped).toEqual(["calm"]);
   });
 });

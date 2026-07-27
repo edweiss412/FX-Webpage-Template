@@ -103,7 +103,7 @@ export type WatchTx = {
     lifeFraction: number;
   }): Promise<WatchChannelRow[]>;
   listGcCandidates(limit?: number): Promise<WatchChannelRow[]>;
-  markStopped(id: string): Promise<void>;
+  markStopped(id: string, expectedResourceId?: string | null): Promise<number>;
   deleteOldStopped(): Promise<void>;
   sweepStalePending(cutoffIso: string): Promise<string[]>;
   hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
@@ -410,16 +410,28 @@ class PostgresWatchTx implements WatchTx {
     return rows.map(fromDbRow);
   }
 
-  async markStopped(id: string) {
-    await this.rows(
+  async markStopped(id: string, expectedResourceId: string | null = null): Promise<number> {
+    // Guarded by the resource id GC READ, not applied blindly. GC selects
+    // candidates in one transaction and stops them in later ones, so a subscribe
+    // that was stalled in the credential fetch can commit a resource id onto the
+    // row in between. Marking stopped anyway would leave a row that is stopped,
+    // holds a live channel's id, and matches neither listGcCandidates nor the
+    // markOrphaned reopen arm -- the channel would then run to lease expiry with
+    // nothing able to stop it (whole-diff R6 finding 1). On a mismatch this
+    // matches zero rows, the row stays orphaned, and the NEXT pass stops it with
+    // the id it now has. `is not distinct from` so the null case compares equal.
+    const rows = await this.rows<{ id: string }>(
       `
         update public.drive_watch_channels
            set status = 'stopped',
                stopped_at = now()
          where id = $1
+           and resource_id is not distinct from $2::text
+        returning id
       `,
-      [id],
+      [id, expectedResourceId],
     );
+    return rows.length;
   }
 
   async deleteOldStopped() {
@@ -1108,9 +1120,22 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       ) {
         continue;
       }
-      await runTx((tx) =>
-        callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
+      const marked = await runTx((tx) =>
+        callWatchTx("drive_watch_channels.mark_stopped", () =>
+          tx.markStopped(channel.id, channel.resourceId),
+        ),
       );
+      // Zero means the row changed under this pass -- see markStopped. Leave it
+      // for the next pass rather than reporting a stop that did not happen.
+      if (marked === 0) {
+        void log.warn("drive watch GC skipped a row whose resource id changed mid-pass", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GC_ROW_CHANGED",
+          channelId: channel.id,
+          channelStatus: String(channel.status),
+        });
+        continue;
+      }
       stopped.push(channel.id);
     }
     await runTx((tx) =>
