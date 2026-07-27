@@ -149,7 +149,10 @@ const strippedSourceOf = (f: string): string => {
 // "place"/"position" (not "popover/") are the necessary specifier fragments: a
 // RELATIVE import ("./place") still resolves to the core but never contains
 // "popover/" (whole-diff R2 F1). Substring match — wider parse set, still sound.
-const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|place|position/;
+// Specifier tails keep their closing quote/extension dot — still a necessary
+// contiguous fragment of any core-resolving specifier ("./place" contains `place"`),
+// but no longer matches every `.replace(` in the repo (CI-timeout regression).
+const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|(?:place|position)["'`.]/;
 const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
   MAY_MATCH.test(rawOf(f)) && test(strippedSourceOf(f));
 
@@ -165,14 +168,14 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
   });
 
-  it("discovers EXACTLY the two known consumers", () => {
+  it("discovers EXACTLY the two known consumers", { timeout: 60_000 }, () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();
     expect(rels).toEqual(
       ["components/admin/HoverHelp.tsx", "components/admin/showpage/ShareHub.tsx"].sort(),
     );
   });
 
-  it("only lib/popover/place.ts imports the placement core, repo-wide", () => {
+  it("only lib/popover/place.ts imports the placement core, repo-wide", { timeout: 60_000 }, () => {
     const direct = sourceFiles
       .filter((f) => matchesStripped(f, (c) => importsCorePlacement(f, c)))
       .map((f) => relative(REPO_ROOT, f))
@@ -180,7 +183,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(direct).toEqual([]);
   });
 
-  it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", () => {
+  it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", { timeout: 60_000 }, () => {
     const offenders = sourceFiles
       .filter((f) => matchesStripped(f, (c) => READS_LAYOUT_VIEWPORT.test(c)))
       .map((f) => relative(REPO_ROOT, f))
