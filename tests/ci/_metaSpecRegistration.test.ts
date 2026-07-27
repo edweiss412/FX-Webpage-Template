@@ -21,7 +21,16 @@ import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vi
 import { probeConfig } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
-const JSON_OUTPUT = "test-results/standalone-report.json";
+// Playwright resolves a reporter's relative `outputFile` against the CONFIG
+// directory, not the invocation cwd (playwright 1.59.1
+// lib/reporters/base.js `resolveOutputFile`: `path.resolve(options.configDir,
+// options.outputFile)`). The config lives in tests/e2e/, so the literal must
+// climb to the repo root — a bare "test-results/standalone-report.json" lands
+// at tests/e2e/test-results/ and the CI comparator (zero-args default: cwd's
+// test-results/) dies ENOENT, which is exactly how the first real Actions run
+// of the comparison step failed.
+const JSON_OUTPUT = "../../test-results/standalone-report.json";
+const CONFIG_DIR = join(ROOT, "tests/e2e");
 
 describe("standalone config reporters (spec §4.1 structural pinning)", () => {
   it("evaluated reporter contains BOTH the list entry and the json entry with the exact outputFile", () => {
@@ -35,6 +44,13 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
       | undefined;
     expect(jsonEntry).toBeDefined();
     expect(jsonEntry?.[1]?.outputFile).toBe(JSON_OUTPUT);
+    // The contract behind the literal: configDir-resolved reporter output must
+    // be the exact file the comparator's zero-args branch reads. Pinning only
+    // the literal would let both sides drift together into a path CI never
+    // writes; pinning the RESOLUTION catches any reporter/comparator split.
+    expect(resolve(CONFIG_DIR, jsonEntry![1]!.outputFile!)).toBe(
+      resolve(ROOT, "test-results", "standalone-report.json"),
+    );
   });
 
   it("committed baseline matches the local --list resolution (forces regen on membership change)", () => {
