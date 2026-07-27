@@ -27,10 +27,12 @@ No UI surface changes. No files under `app/` or `components/` are edited, so the
 
 - **Instrument choice is ratified.** A fifth property-heuristic round is rejected by the backlog entry itself (BACKLOG.md, entry body: "stop enumerating and change the mechanism"). The pixel baseline is the ratified replacement. Do not propose extending the transition sweep to the active state/SMIL/computed-clip-path instead.
 - **The new CI job ships as a NON-required status context.** Promotion into branch protection's required-context list is a deliberate follow-up after observed green runs, not part of this branch (the required list is a live repo setting with twelve contexts; see `~` memory note mirrored in BACKLOG close-out text). A red run is still a visible failing check on every PR.
+- **Baselines are produced ONLY by the regen workflow on the native-amd64 runner.** No local capture path exists, by construction (§3.6): the env gate refuses bare hosts and darwin-arm64 node_modules cannot execute in the linux image. Do not propose a local regen convenience.
+- **The version pin compares the INSTALLED `@playwright/test` version, exactly.** Major.minor-of-caret-literal was rejected as leaving patch skew and lockfile drift open (R1 finding 6).
 - **Fonts are container-resolved (DejaVu), deliberately.** Nothing loads Inter (`BL-HEADER-FONT-FALLBACK-WRAP`, BACKLOG.md). Inside one pinned image the fallback is deterministic, which is all a byte gate needs. Loading Inter is that entry's decision, not this one's; when it lands, baselines are regenerated once via the documented procedure (§3.6).
 - **Existing standalone/state-sweep suites are unchanged.** The 88-case matrix, transition sweep, and pusher suites in `tests/e2e/section-header-layout.layout.spec.ts` / `pusher-alignment.layout.spec.ts` stay as they are; the baseline gate is additive. Do not fold the screenshot spec into `standalone.config.ts` — its job runs on a bare runner (`.github/workflows/standalone-e2e.yml:58-61` installs chromium on the host), which violates the byte rule below.
 - **Per-cell PNGs were considered and rejected.** 15 cells × 5 widths × 2 themes = 150 idle baselines; the composite-page design (§3.3) covers the same pixels in 10. A per-cell diff is recoverable from the composite diff artifact.
-- **`maxDiffPixels: 0`** (§3.4) is the ratified strictness. If CI shows nondeterminism, that is a finding to fix (or explicitly ratify a tolerance in a follow-up), never a silent threshold bump.
+- **`maxDiffPixels: 0` AND `threshold: 0`** (§3.4) are the ratified strictness. `maxDiffPixels` alone leaves Playwright's default per-pixel YIQ `threshold: 0.2`, under which sub-threshold opacity/mask/filter/color shifts count as zero differing pixels — exactly residual finding 4's partial-transparency case. Both knobs are pinned; if CI shows nondeterminism, that is a finding to fix (or explicitly ratify a tolerance in a follow-up), never a silent threshold bump. (R1 finding 1.)
 
 ## 2. Part A — width chain completes to five widths
 
@@ -53,7 +55,7 @@ Committed PNG baselines of the section-header matrix; any future pixel change on
 | Finding | Why the baseline closes it |
 | --- | --- |
 | 2 — active state, hover+focus | Captures are taken in held-press and hover+focus states (§3.3). A future `active:*` geometry shift changes pressed-state pixels. |
-| 3 — SMIL | An `<animateTransform>` inside the tree changes rendered pixels at capture time (Playwright's `animations: "disabled"` pauses CSS/Web-Animations, not SMIL), so the diff fires — displaced or flaking, either is loud. |
+| 3 — SMIL | Two mechanisms, because a screenshot alone is temporally escapable (a `begin`-delayed animation, or one dwelling at baseline geometry in the compared frames, diffs nothing — R1 finding 4): (a) the spec's DOM contract asserts the harness tree contains ZERO SMIL elements (`animate, animateTransform, animateMotion, set` selector count = 0 — none exist today, `lucide-react` emits static paths), failing by default the day one is introduced and forcing deliberate handling; (b) for any future ratified SMIL, the baseline diff still catches geometry displaced at capture time. |
 | 4 — exotic paint | Any mechanism that suppresses paint — however expressed — produces missing pixels vs baseline. No pattern list. |
 
 ### 3.2 Capture tree — reuse of the existing static harness
@@ -67,13 +69,16 @@ The spec (`tests/e2e/section-header-visual.spec.ts`, new) reuses the exact servi
 
 Cell identity is asserted before any capture (each cell carries a distinct heading, `_sectionHeaderCellHarness.tsx:14-17`), and the 15-cell count is asserted, so a harness regression fails on a DOM contract before a screenshot diff — the anti-tautology pattern of `tests/e2e/empty-state-reachability.spec.ts:47-51`.
 
-### 3.3 Capture grid — 26 baselines
+### 3.3 Capture grid — 50 baselines
 
-Single-source-of-truth counts: **15** cells, **5** widths (`ROW_WIDTHS` keys), **2** themes, **4** interaction states, **2** state widths, **26** = 10 + 16 baselines.
+Single-source-of-truth counts: **15** cells, **5** widths (`ROW_WIDTHS` keys), **2** themes, **4** interaction states, **50** = 10 idle + 40 state baselines. States run at ALL five widths, not a representative pair: variants can be width-gated (the existing sweep visits all five for exactly that reason, `tests/e2e/section-header-layout.layout.spec.ts:1044-1048`), so a bounded responsive variant could regress at an uncaptured width while every captured one stays green. (R1 finding 2.)
 
 **Idle composites (10):** the spec writes one composite page per width — the 15 cell containers stacked vertically, each preceded by a plain-text label div. Theme is toggled per capture via `document.documentElement.setAttribute("data-theme", …)` (the mechanism at `section-header-layout.layout.spec.ts:1071`; pages default to `data-theme="light"`, `tests/e2e/section-header-layout.layout.spec.ts:81`). Viewport set to the width; full-page `toHaveScreenshot`. 5 widths × 2 themes.
 
-**State captures (16):** on the `G1-clean` cell page (its header holds the corner link, the header subtree's only interactive element — `section-header-layout.layout.spec.ts:1077`; selector `[data-cell="G1-clean"] a[href]`, `tests/e2e/section-header-layout.layout.spec.ts:889`), an element screenshot of the `[data-cell="G1-clean"]` container in each of: **hover** (`link.hover()`), **focus** (focus with pointer parked away first — the hover-contamination trap at `tests/e2e/section-header-layout.layout.spec.ts:1096-1098`), **active** (`mouse.move` to link center, `mouse.down()`, capture, `mouse.up()`), **hover+focus** (focus, then hover). 4 states × 2 widths (375 sheet presentation, 1280 wide) × 2 themes.
+**State captures (40):** on the `G1-clean` cell page (its header holds the corner link, the header subtree's only interactive element — `section-header-layout.layout.spec.ts:1077`; selector `[data-cell="G1-clean"] a[href]`, `tests/e2e/section-header-layout.layout.spec.ts:889`), an element screenshot of the `[data-cell="G1-clean"]` container in each of: **hover** (`link.hover()`), **focus** (focus with pointer parked away first — the hover-contamination trap at `tests/e2e/section-header-layout.layout.spec.ts:1096-1098`), **active** (`mouse.move` to link center, `mouse.down()`, capture, `mouse.up()`), **hover+focus** (focus, then hover). 4 states × 5 widths × 2 themes.
+
+<!-- spec-lint: ignore — pseudo-class selector literals in matches() calls, not file citations -->
+**State-reachability oracle (R1 finding 3):** before each state capture, the spec asserts the pseudo-state actually holds on the link via `link.evaluate(el => el.matches(sel))` with the selectors `el.matches(':hover')`, `el.matches(':focus:not(:hover)')` (focus with the pointer parked), `el.matches(':active')` (during the held press), and `el.matches(':hover:focus')` (compound) — so a capture can never silently record the idle rendering under a state-named baseline. The same configuration-vacuity class this spec exists to close applies to its own captures.
 
 Reduced motion is NOT forced for state captures (a transition would be mid-flight only if a duration exists on the channel — the transition sweep already bans that; the baseline additionally freezes whatever end-state paints). `animations: "disabled"` (Playwright default for `toHaveScreenshot`) settles CSS transitions for determinism.
 
@@ -83,50 +88,46 @@ Reduced motion is NOT forced for state captures (a transition would be mid-fligh
 <!-- spec-lint: ignore — section-header-visual.spec.ts is created by this spec's implementation -->
 Mirrors `standalone.config.ts`'s shape (no `webServer`, chromium-only project, explicit `testMatch` allow-list naming only `section-header-visual.spec.ts` — a spec not listed runs nowhere, `standalone.config.ts:37-39`). Additions:
 
-- `expect.toHaveScreenshot.maxDiffPixels: 0` — pinned-container rendering is deterministic; any diff is signal (§1.1).
+- `expect.toHaveScreenshot: { maxDiffPixels: 0, threshold: 0 }` — pinned-container rendering is deterministic; any diff is signal, including sub-YIQ-threshold color shifts (§1.1).
 - `snapshotPathTemplate: "{testFileDir}/{testFileName}-snapshots/{arg}{ext}"` — drops Playwright's default platform suffix. The platform is constant by construction (next bullet), and a platform-suffixed name would silently create a parallel darwin baseline set on a misconfigured local run instead of failing.
 - **Container gate:** the config throws at load unless `SECTION_HEADER_VISUAL_CONTAINER=1` is set. Only the CI workflow and the documented regen one-liner set it. A bare `pnpm exec playwright test --config tests/e2e/visual.config.ts` on a dev machine fails loud with the regen instructions, instead of producing host-font bytes that look like drift. This is the structural defense the byte rule demands (AGENTS.md, "Byte-comparison CI gates must pin BOTH the Docker image AND the host architecture").
 
 <!-- spec-lint: ignore — .github/workflows/section-header-visual.yml is created by this spec's implementation -->
 ### 3.5 CI — new `.github/workflows/section-header-visual.yml`
 
-- Triggers: `pull_request` (unfiltered — the standalone-e2e precedent: path filters made coverage un-countable, `phantom-gap-e2e.yml:58-64` comment) + `workflow_dispatch` (AGENTS.md "local-passes-CI-fails" rule).
+- Triggers: `pull_request` (unfiltered — the standalone-e2e precedent: path filters made coverage un-countable, `phantom-gap-e2e.yml:58-64` comment) + `workflow_dispatch` (AGENTS.md "local-passes-CI-fails" rule). No `--network host` (nothing on the host to reach) and the run command names the SPEC PATH literally, so `tests/ci/_metaE2eWorkflowCoverage.test.ts` counts the new spec as covered via its `SPEC_RE` extraction (`tests/ci/_workflowCoverageScan.ts:30`) — no allowlist row; the workflow avoids `needs:`/`shell:`/`working-directory:`/`defaults:` keys, which that scanner treats as unmodelled overrides.
 - One job, `ubuntu-latest` (amd64 native): checkout → `./.github/actions/setup` (host `pnpm install`; host linux-x64 binaries are what the container runs, the proven `screenshots-drift.yml:91-97` arrangement) → capture step:
 
 ```yaml
 - name: Visual baselines in pinned Playwright image
   run: |
-    docker run --rm --platform linux/amd64 --network host \
+    docker run --rm --platform linux/amd64 \
       -v "$PWD:/work" -w /work \
       -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 \
       mcr.microsoft.com/playwright:v1.59.1-jammy \
-      bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts"
+      bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts"
 ```
 
 - On failure: upload `test-results/` (holds `-actual` and `-diff` PNGs — the inspectable-diff lesson from `screenshots-drift.yml`'s drifted-captures artifact).
-- Image tag `v1.59.1-jammy` matches `@playwright/test: ^1.59.1` (`package.json:98`). A structural meta-test pins workflow tag ↔ package version (AGENTS.md byte rule: "Tie the Docker image tag to the package.json dependency version via a structural meta-test") — extend or mirror the existing one guarding `screenshots-drift.yml` (implementation task locates it; if it is generic over workflows, add this workflow to its registry).
+- Image tag `v1.59.1-jammy` matches `@playwright/test: ^1.59.1` (`package.json:98`). Structural pin (R1 finding 6): `tests/cross-cutting/playwright-version-pin.test.ts` currently hardcodes `screenshots-drift.yml` only and compares major.minor of the package.json CARET literal. It is rewritten as a registry over every pinned-image workflow — `screenshots-drift.yml`, `screenshots-regen.yml`, plus the two files this spec creates — comparing the image tag's FULL version against the RESOLVED installed `@playwright/test` version (read as the installed package's own `version` field by requiring the package manifest of `@playwright/test` — the executed version, immune to caret-range lockfile drift), and asserting `--platform linux/amd64` on every `docker run` in each registered workflow.
 
-### 3.6 Baseline generation + regeneration (operator procedure, documented in the spec file header)
+**Second workflow — the regen workflow (new file under `.github/workflows/`, named `section-header-visual-regen`):** the `screenshots-regen.yml` shape minus Supabase: `workflow_dispatch`, `permissions: contents: write`, checkout `ref: ${{ github.ref_name }}`, host setup, the same docker run with `--update-snapshots`, then a bot commit of `tests/e2e/section-header-visual.spec.ts-snapshots/` (only if changed) pushed back to the dispatched branch.
 
-```sh
-docker run --rm --platform linux/amd64 --network host \
-  -v "$PWD:/work" -w /work \
-  -e SECTION_HEADER_VISUAL_CONTAINER=1 \
-  mcr.microsoft.com/playwright:v1.59.1-jammy \
-  bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts --update-snapshots"
-```
+### 3.6 Baseline generation + regeneration — the regen workflow is the ONLY producer
 
-Run on the dev machine (arm64 hosts emulate amd64 via `--platform`, the AGENTS.md-mandated arrangement); inspect the pixel diff BEFORE committing regenerated baselines (pixel-diff-pre-rebaseline discipline); commit the `tests/e2e/section-header-visual.spec.ts-snapshots/*.png` set. Cross-machine byte determinism is proven on the first PR run: baselines generated on the dev machine must compare clean on the CI runner under the same image, or the gate is unshippable as designed (then: diagnose, do not loosen §3.4).
+Baselines are produced exclusively by the regen workflow (§3.5) on the native-amd64 runner (R1 finding 5, converging with `screenshots-regen.yml:3-11`'s recorded conclusion that emulated-arm64 bytes diverge from native x64). A local docker capture is impossible by construction, and deliberately so: the dev worktree's `node_modules` carry darwin-arm64 `esbuild`/`@tailwindcss/oxide` binaries that cannot execute inside the linux image (CI works because `./.github/actions/setup` installs linux-x64 deps on the runner first), and the config's env gate (§3.4) refuses a bare-host run.
 
-## 4. TDD shape
+Procedure (initial and every regeneration): push the branch → `gh workflow run` on the regen workflow with `--ref <branch>` → pull the bot commit → inspect the PNGs before relying on them (pixel-diff-before-rebaseline discipline; a blank or clipped capture committed as baseline would gate on nothing). Bot pushes trigger no CI; the branch's next human push provides the validating `section-header-visual` run, which must compare clean — cross-machine determinism proven runner-to-runner under the same image. If it does not: diagnose, never loosen §3.4.
 
-- **Part A:** the extended loop IS the test; red is only expected if a 320/430 derivation is wrong (then fix per §2 Risk). Run the two chain suites locally before/after the constant edit.
-- **Part B:** the gate's failing mode is proven by mutation once, during implementation: with baselines committed, apply a one-line visual mutation to the header tree (e.g. a 1px padding change on the corner link), run the spec in-container, observe the diff fail; revert. Recorded in the PR body, not committed as a test (the gate itself is the durable assertion; a committed mutation test would need a second baseline set).
-- Meta-test (image-tag pin, §3.5) lands red-first if written fresh (assert tag matches package version — verify it fails when pointed at a stale tag), or as a registry row if the existing meta-test is generic.
+## 4. TDD shape (red first, per invariant 1 — R1 finding 7)
+
+- **Part A:** a NEW structural assertion is the red: `REAL_ROUTE_WIDTHS` must equal the keys of `ROW_WIDTHS` (the exact invariant finding 1 wants — every matrix width is real-route-anchored). Added to the width-chain suite (or the shared fixture's own test), it FAILS against today's `[375, 640, 1280]`, then the constant extension turns it green and permanently prevents a sixth width from entering the matrix unanchored. The extended chain loops are then run as the behavioral proof.
+- **Part B:** the ordered sequence is red-first by construction: (1) spec + config + workflows land WITHOUT baselines; (2) the first in-container run (the regen dispatch's own capture, and a PR run if sequenced before the bot commit) FAILS with missing snapshots — the recorded red; (3) the regen bot commit supplies baselines — green; (4) sensitivity proof: a temporary harness-side visual mutation (e.g. 1px padding on the G1 fixture wrapper in `_sectionHeaderCellHarness.tsx` — harness file, no product surface) is pushed, the PR gate must FAIL, then the revert must restore green. Both run URLs recorded in the PR body.
+- **Meta-test:** the registry rewrite runs red first (registry names the two new workflows before they exist / before tags are pinned), green after.
 
 ## 5. Close-out edits
 
-`BACKLOG.md` `BL-HEADER-PROBE-RESIDUAL-VACUITY`: replace the four "Open" items with a closure record — finding 1 closed by the five-width chain; findings 2–4 subsumed by the pixel gate; pointer to this spec and the workflow; note the non-required-context follow-up (§1.1). The "What IS covered" paragraph is updated to include the 26 baselines and the five-width chain.
+`BACKLOG.md` `BL-HEADER-PROBE-RESIDUAL-VACUITY`: replace the four "Open" items with a closure record — finding 1 closed by the five-width chain; findings 2–4 subsumed by the pixel gate; pointer to this spec and the workflow; note the non-required-context follow-up (§1.1). The "What IS covered" paragraph is updated to include the 50 baselines and the five-width chain.
 
 ## 6. Out of scope
 
