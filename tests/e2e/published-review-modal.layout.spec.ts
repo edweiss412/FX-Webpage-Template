@@ -695,10 +695,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
         };
         const header = link.closest("header");
         const title = named("title", document.querySelector(`[data-testid="${base}-title"]`));
-        const subline = named(
-          "subline",
-          document.querySelector(`[data-testid="${base}-subline"]`),
-        );
+        const subline = named("subline", document.querySelector(`[data-testid="${base}-subline"]`));
         // The actions cluster is the header's last direct child (shrink-0 group
         // beside the flex-1 text block); its FIRST element child is the nearest
         // box the 14px trailing reach could touch, and the close button is the

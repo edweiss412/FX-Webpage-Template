@@ -117,11 +117,7 @@ describe("SheetIconLink hardening + passthrough", () => {
  *  repo defines no `dark:` variant, so per-theme splits are impossible —
  *  bg-surface is the bg-site wash that steps up in dark, where the defect
  *  was measured). */
-const BG_VARIANT_TOKENS = [
-  "focus-visible:ring-offset-bg",
-  "hover:bg-surface",
-  "active:bg-surface",
-];
+const BG_VARIANT_TOKENS = ["focus-visible:ring-offset-bg", "hover:bg-surface", "active:bg-surface"];
 const SURFACE_VARIANT_TOKENS = [
   "focus-visible:ring-offset-surface",
   "hover:bg-surface-sunken",

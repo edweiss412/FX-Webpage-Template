@@ -66,8 +66,7 @@ type SheetIconLinkProps = {
  *  branch — the Tailwind JIT must see complete class names. */
 const BACKDROP_SKIN = {
   bg: "focus-visible:ring-offset-bg hover:bg-surface active:bg-surface",
-  surface:
-    "focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken",
+  surface: "focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken",
 } satisfies Record<SheetIconLinkProps["ringOffset"], string>;
 
 const BASE_CLASSES =

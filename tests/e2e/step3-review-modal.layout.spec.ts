@@ -656,49 +656,52 @@ test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 3
   page,
 }) => {
   await openHarness(page, { width: 390, height: 844 }, "harness-long.html");
-  const m = await page.evaluate((ids) => {
-    const link = document.querySelector(`[data-testid="${ids.sheetlink}"]`);
-    if (!(link instanceof HTMLElement)) return { error: "sheetlink not found" };
-    const r = link.getBoundingClientRect();
-    const cs = getComputedStyle(link, "::before");
-    const overlay = {
-      left: r.left + parseFloat(cs.insetInlineStart || "0"),
-      top: r.top + parseFloat(cs.insetBlockStart || "0"),
-      right: r.right - parseFloat(cs.insetInlineEnd || "0"),
-      bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
-    };
-    const named = (name: string, el: Element | null | undefined) => {
-      if (!(el instanceof HTMLElement)) return null;
-      const b = el.getBoundingClientRect();
-      return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
-    };
-    // The title row is the link's parent; the eyebrow is the row's previous
-    // sibling and the subline its next (structural — those lines carry no
-    // testids of their own).
-    const row = link.parentElement!;
-    const neighbours = [
-      named("title", document.querySelector(`[data-testid="${ids.title}"]`)),
-      named("eyebrow", row.previousElementSibling),
-      named("subline", row.nextElementSibling),
-      named("chip", document.querySelector(`[data-testid="${ids.chip}"]`)),
-      named("close", document.querySelector(`[data-testid="${ids.close}"]`)),
-    ].filter((n): n is NonNullable<typeof n> => n !== null);
-    return {
-      error: null,
-      w: r.width,
-      h: r.height,
-      targetW: overlay.right - overlay.left,
-      targetH: overlay.bottom - overlay.top,
-      rowH: row.getBoundingClientRect().height,
-      overlay,
-      neighbours,
-    };
-  }, {
-    sheetlink: tid("sheetlink"),
-    title: tid("title"),
-    chip: tid("chip"),
-    close: tid("close"),
-  });
+  const m = await page.evaluate(
+    (ids) => {
+      const link = document.querySelector(`[data-testid="${ids.sheetlink}"]`);
+      if (!(link instanceof HTMLElement)) return { error: "sheetlink not found" };
+      const r = link.getBoundingClientRect();
+      const cs = getComputedStyle(link, "::before");
+      const overlay = {
+        left: r.left + parseFloat(cs.insetInlineStart || "0"),
+        top: r.top + parseFloat(cs.insetBlockStart || "0"),
+        right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+        bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
+      };
+      const named = (name: string, el: Element | null | undefined) => {
+        if (!(el instanceof HTMLElement)) return null;
+        const b = el.getBoundingClientRect();
+        return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      };
+      // The title row is the link's parent; the eyebrow is the row's previous
+      // sibling and the subline its next (structural — those lines carry no
+      // testids of their own).
+      const row = link.parentElement!;
+      const neighbours = [
+        named("title", document.querySelector(`[data-testid="${ids.title}"]`)),
+        named("eyebrow", row.previousElementSibling),
+        named("subline", row.nextElementSibling),
+        named("chip", document.querySelector(`[data-testid="${ids.chip}"]`)),
+        named("close", document.querySelector(`[data-testid="${ids.close}"]`)),
+      ].filter((n): n is NonNullable<typeof n> => n !== null);
+      return {
+        error: null,
+        w: r.width,
+        h: r.height,
+        targetW: overlay.right - overlay.left,
+        targetH: overlay.bottom - overlay.top,
+        rowH: row.getBoundingClientRect().height,
+        overlay,
+        neighbours,
+      };
+    },
+    {
+      sheetlink: tid("sheetlink"),
+      title: tid("title"),
+      chip: tid("chip"),
+      close: tid("close"),
+    },
+  );
   expect(m.error, "fixture shape").toBeNull();
   if (m.error !== null) return;
   expect(m.w, "visible box stays 20px wide").toBeLessThan(44);
@@ -744,13 +747,7 @@ test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 3
     },
     { sel: tid("sheetlink"), box: m.overlay! },
   );
-  expect(hits, "overlay centre + corners all hit the link").toEqual([
-    true,
-    true,
-    true,
-    true,
-    true,
-  ]);
+  expect(hits, "overlay centre + corners all hit the link").toEqual([true, true, true, true, true]);
 });
 
 test("§9.1 sheet footer safe-area @ 390: paddingBottom ≥ base padding + stylesheet mechanism", async ({
