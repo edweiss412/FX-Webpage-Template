@@ -192,7 +192,10 @@ export function auditProbeRegistry(input: {
     const k = censusTupleKey(p);
     const censusCol = censusByKey.get(k);
     if (censusCol === undefined) {
-      findings.push({ kind: "stale_probe", tuple: { schema: p.schema, table: p.table, column: p.column } });
+      findings.push({
+        kind: "stale_probe",
+        tuple: { schema: p.schema, table: p.table, column: p.column },
+      });
       continue;
     }
     if (censusCol.nullable !== p.nullable) {

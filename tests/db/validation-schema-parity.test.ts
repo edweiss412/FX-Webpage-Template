@@ -387,9 +387,8 @@ describe("drive-id audit parity (definition-based, vs validation)", () => {
     const { censusInPinnedTx, censusTupleKey, diffCensusSources, EXPECTED_DEV_CENSUS } =
       await import("@/tests/db/_censusRunner");
     const { identityGuardSql } = await import("@/tests/db/_validationTargetIdentity");
-    const { auditDriveIdCoverage, DRIVE_ID_COVERAGE_EXEMPTIONS } = await import(
-      "@/lib/driveIdCoverage/audit"
-    );
+    const { auditDriveIdCoverage, DRIVE_ID_COVERAGE_EXEMPTIONS } =
+      await import("@/lib/driveIdCoverage/audit");
     const client = postgres(raw, { max: 1, connect_timeout: 10, prepare: false });
     try {
       const { columns, constraints } = await censusInPinnedTx(client, {

@@ -105,9 +105,7 @@ export function buildPgCronUnreachableMessage(dbUrl: string): string {
   );
 }
 
-export type PgCronMode =
-  | { mode: "validation"; dbUrl: string }
-  | { mode: "local"; dbUrl: string };
+export type PgCronMode = { mode: "validation"; dbUrl: string } | { mode: "local"; dbUrl: string };
 
 /**
  * Mode from the TARGET alone — never from the DSN (spec §3.1, R4-1). Local mode reads only the

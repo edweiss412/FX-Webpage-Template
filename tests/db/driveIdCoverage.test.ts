@@ -639,12 +639,12 @@ describe("auditProbeRegistry — per-kind negative controls", () => {
       reason: "documented",
       ...over,
     });
-    expect(
-      probeAudit({ exemptions: [ex({ reason: "   " })] }).map((f) => f.kind),
-    ).toContain("empty_reason");
-    expect(
-      probeAudit({ exemptions: [ex({}), ex({})] }).map((f) => f.kind),
-    ).toContain("duplicate_exemption");
+    expect(probeAudit({ exemptions: [ex({ reason: "   " })] }).map((f) => f.kind)).toContain(
+      "empty_reason",
+    );
+    expect(probeAudit({ exemptions: [ex({}), ex({})] }).map((f) => f.kind)).toContain(
+      "duplicate_exemption",
+    );
     expect(probeAudit({ exemptions: [ex({})] }).map((f) => f.kind)).toContain("stale_exemption");
   });
 
