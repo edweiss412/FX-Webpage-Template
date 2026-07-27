@@ -24,16 +24,33 @@ export type LiveCaseCounter = {
   count: () => number;
 };
 
-export function makeLiveCaseCounter(register: CaseRegistrar): LiveCaseCounter {
+/**
+ * @param register vitest's `test` / `test.skip`.
+ * @param observe  a monotonically increasing count of live queries issued.
+ *                 When supplied, each case must issue at least one, ATTRIBUTED
+ *                 to that case — an aggregate total does not attribute, so six
+ *                 queries in one case with five empty ones satisfied it.
+ */
+export function makeLiveCaseCounter(
+  register: CaseRegistrar,
+  observe?: () => number,
+): LiveCaseCounter {
   let count = 0;
   return {
     liveCase: (name, fn) => {
       register(name, async () => {
+        const before = observe?.() ?? 0;
         // AWAITED, and counted only AFTER the body settles. Incrementing first
         // would count a case whose assertions had not run yet — and the
         // original wrapper took `() => void`, discarding the promise of the
         // one async case entirely, so vitest never waited for it.
         await fn();
+        if (observe && observe() === before) {
+          throw new Error(
+            `live case "${name}" issued NO database query — it is not a live case. ` +
+              "Either query the database or register it with plain `test`.",
+          );
+        }
         count += 1;
       });
     },

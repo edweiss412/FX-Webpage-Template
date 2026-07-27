@@ -11,9 +11,9 @@ import { describe, expect, it } from "vitest";
 import { makeLiveCaseCounter } from "./_liveCaseCounter";
 
 /** Captures what the wrapper registers, standing in for vitest's `test`. */
-function harness() {
+function harness(observe?: () => number) {
   const registered: Array<{ name: string; fn: () => Promise<void> }> = [];
-  const counter = makeLiveCaseCounter((name, fn) => registered.push({ name, fn }));
+  const counter = makeLiveCaseCounter((name, fn) => registered.push({ name, fn }), observe);
   return { registered, ...counter };
 }
 
@@ -65,5 +65,36 @@ describe("makeLiveCaseCounter", () => {
     expect(h.count()).toBe(1);
     await h.registered[1]!.fn();
     expect(h.count()).toBe(2);
+  });
+
+  it("rejects a case that issued NO query, naming it", async () => {
+    // Per-case attribution. An aggregate total does not attribute: six queries
+    // in one case with five empty ones satisfied the old check, so the count is
+    // now snapshotted around each case.
+    let queries = 0;
+    const h = harness(() => queries);
+    h.liveCase("queries the database", () => {
+      queries += 1;
+    });
+    h.liveCase("touches nothing", () => {});
+
+    await h.registered[0]!.fn();
+    expect(h.count()).toBe(1);
+    await expect(h.registered[1]!.fn()).rejects.toThrow(
+      /"touches nothing" issued NO database query/,
+    );
+    expect(h.count(), "a case that queried nothing must not count").toBe(1);
+  });
+
+  it("does not attribute another case's queries to an empty one", async () => {
+    // The exact bypass: one case issues several queries, the next issues none.
+    let queries = 0;
+    const h = harness(() => queries);
+    h.liveCase("busy", () => {
+      queries += 3;
+    });
+    h.liveCase("idle", () => {});
+    await h.registered[0]!.fn();
+    await expect(h.registered[1]!.fn()).rejects.toThrow(/issued NO database query/);
   });
 });

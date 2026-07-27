@@ -149,7 +149,7 @@ const liveDbTest = coverageTarget === "validation" || livePsqlReachable ? test :
  * tested — inline, an adversarial round showed that deleting its `fn()` call
  * left every guard green while each case ran nothing.
  */
-const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest);
+const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () => queryCount);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
@@ -202,6 +202,16 @@ afterAll(() => {
   // Cases can execute and still touch nothing. Require at least one live query
   // per live case that ran: emptying the bodies keeps the case count and the
   // case NAMES intact, and only this notices.
+  //
+  // HONEST CEILING, stated so this is not read as more than it is. The count is
+  // AGGREGATE, so it does not attribute a query to its case: six queries in one
+  // case with the other five empty satisfies it, as does replacing every body
+  // with `psql("SELECT 1")`. It is a floor against wholly-inert cases, NOT a
+  // proof that the assertions are meaningful. Proving that is equivalent to
+  // reviewing the assertions, which is a reviewer's job and not a meta-guard's
+  // — four adversarial rounds each defeated the next proxy (source patterns,
+  // then case names, then this count). Recorded as
+  // BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION.
   if (isCi && queryCount < liveCaseCount()) {
     throw new Error(
       `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
