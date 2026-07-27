@@ -240,7 +240,14 @@ function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
     out.opaque = true;
     return;
   }
-  if (ts.isParenthesizedExpression(expr)) {
+  if (
+    ts.isParenthesizedExpression(expr) ||
+    ts.isAsExpression(expr) ||
+    ts.isSatisfiesExpression(expr) ||
+    ts.isNonNullExpression(expr)
+  ) {
+    // Parens and type-only wrappers (as / satisfies / !) are transparent at
+    // every harvesting depth (§3, whole-diff R2 finding 2).
     harvestClassName(expr.expression, out);
     return;
   }
@@ -290,19 +297,28 @@ function mergeStyle(a: StyleGrow, b: StyleGrow): StyleGrow {
 /** Unsigned number + unit: a one-value flex BASIS, implicit grow 1 (§3.1). */
 const UNITFUL_NUMBER = /^(\d+(\.\d+)?|\.\d+)[a-z%]+$/i;
 
-/** Style resolution (§3.1) — TOTAL over TSX expression kinds via the default clause. */
-function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): StyleGrow {
-  if (!expr) return NO_STYLE_GROW;
-  // Type-only wrappers are transparent (§3.1). Angle-bracket assertions are
-  // not valid TSX, so they impose no obligation here.
-  if (
+/** Parens and type-only wrappers (as / satisfies / !) are transparent on
+ *  every style surface — the whole attribute AND property values (§3.1,
+ *  whole-diff R2 finding 3). */
+function unwrapTypeOnly(expr: ts.Expression): ts.Expression {
+  while (
     ts.isParenthesizedExpression(expr) ||
     ts.isAsExpression(expr) ||
     ts.isSatisfiesExpression(expr) ||
     ts.isNonNullExpression(expr)
   ) {
-    return resolveStyleGrow(expr.expression, sf);
+    expr = expr.expression;
   }
+  return expr;
+}
+
+/** Style resolution (§3.1) — TOTAL over TSX expression kinds via the default clause. */
+function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): StyleGrow {
+  if (!expr) return NO_STYLE_GROW;
+  // Type-only wrappers are transparent (§3.1). Angle-bracket assertions are
+  // not valid TSX, so they impose no obligation here.
+  const unwrapped = unwrapTypeOnly(expr);
+  if (unwrapped !== expr) return resolveStyleGrow(unwrapped, sf);
   if (ts.isConditionalExpression(expr)) {
     return mergeStyle(resolveStyleGrow(expr.whenTrue, sf), resolveStyleGrow(expr.whenFalse, sf));
   }
@@ -330,8 +346,9 @@ function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): S
       // Object-member handling is TOTAL over statically named forms
       // (whole-diff R1 finding 4): shorthand ({flexGrow}), methods, and
       // accessors named flex/flexGrow are fail-closed opaque growth; a
-      // computed key is opaque regardless of name.
-      if (ts.isPropertyAssignment(p) && ts.isComputedPropertyName(p.name)) {
+      // computed key is opaque regardless of name on EVERY member kind —
+      // assignment, method, getter, setter (whole-diff R2 finding 1).
+      if (p.name && ts.isComputedPropertyName(p.name)) {
         acc = mergeStyle(acc, opaqueAt(p.getText(sf)));
         continue;
       }
@@ -343,17 +360,26 @@ function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): S
         acc = mergeStyle(acc, opaqueAt(label)); // shorthand / method / accessor
         continue;
       }
-      const init = p.initializer;
+      const init = unwrapTypeOnly(p.initializer);
       if (ts.isNumericLiteral(init)) {
         if (Number(init.text) > 0) acc = mergeStyle(acc, { resolved: true, opaque: false, label });
         continue;
       }
-      if (
-        ts.isPrefixUnaryExpression(init) &&
-        init.operator === ts.SyntaxKind.MinusToken &&
-        ts.isNumericLiteral(init.operand)
-      ) {
-        continue; // negative: invalid CSS, grow stays initial 0 (§3.1)
+      if (ts.isPrefixUnaryExpression(init)) {
+        const operand = unwrapTypeOnly(init.operand);
+        if (ts.isNumericLiteral(operand)) {
+          // Signed numeric literals resolve numerically on every surface
+          // (§3.1, whole-diff R2 finding 3): negative is invalid CSS (grow
+          // stays initial 0); unary plus is the operand's value.
+          if (init.operator === ts.SyntaxKind.MinusToken) continue;
+          if (init.operator === ts.SyntaxKind.PlusToken) {
+            if (Number(operand.text) > 0)
+              acc = mergeStyle(acc, { resolved: true, opaque: false, label });
+            continue;
+          }
+        }
+        acc = mergeStyle(acc, opaqueAt(label)); // ~x, !x, non-literal operand — fail closed
+        continue;
       }
       if (ts.isStringLiteral(init)) {
         // String value, CSS flex shorthand semantics (§3.1): a bare-number

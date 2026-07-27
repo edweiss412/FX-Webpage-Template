@@ -345,6 +345,26 @@ describe("scanSource: className harvesting (spec §3)", () => {
   it("parenthesized expression harvested", () => {
     expectViolation(`<span className={("flex-1")} />`, "unpainted-childless-dom", "span");
   });
+  it("as-wrapper is transparent (R2 finding 2)", () => {
+    expectViolation(`<span className={"flex-1" as string} />`, "unpainted-childless-dom", "span");
+  });
+  it("satisfies-wrapper is transparent (R2 finding 2)", () => {
+    expectViolation(
+      `<span className={"flex-1" satisfies string} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("non-null wrapper is transparent (R2 finding 2)", () => {
+    expectViolation(`<span className={"flex-1"!} />`, "unpainted-childless-dom", "span");
+  });
+  it("wrappers are transparent at harvesting depth (R2 finding 2)", () => {
+    expectViolation(
+      `<span className={cn("flex-1" as const, dynamic)} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
   it("conditional branches harvested", () => {
     expectViolation(
       `<span className={cond ? "flex-1" : "w-4"} />`,
@@ -532,6 +552,15 @@ describe("scanSource: style resolution (spec §3.1)", () => {
   it("computed key fails closed", () => {
     expectViolation(`<span style={{ [k]: 1 }} />`, "opaque-style-grow", "span");
   });
+  it("computed METHOD key fails closed (R2 finding 1)", () => {
+    expectViolation(`<span style={{ [k]() { return 1; } }} />`, "opaque-style-grow", "span");
+  });
+  it("computed GETTER key fails closed (R2 finding 1)", () => {
+    expectViolation(`<span style={{ get [k]() { return 1; } }} />`, "opaque-style-grow", "span");
+  });
+  it("computed SETTER key fails closed (R2 finding 1)", () => {
+    expectViolation(`<span style={{ set [k](v: number) {} }} />`, "opaque-style-grow", "span");
+  });
   it("opaque value fails closed", () => {
     expectViolation(`<span style={{ flexGrow: grow }} />`, "opaque-style-grow", "span");
   });
@@ -717,15 +746,28 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
     const { exemptions } = scanSource(src, "probe.tsx");
     expect(exemptions.filter((e) => !e.used)).toHaveLength(1);
   });
-  it("a marker inside a REGEX LITERAL is not an exemption (R1 finding 1)", () => {
-    const src = wrap(`<b data-x={/childless-growable-ok: not a comment/} className="flex-1" />`);
+  it("a marker inside a REGEX LITERAL is not an exemption (R1 finding 1, R2 finding 4)", () => {
+    // Discriminating shape: the regex body embeds a comment-shaped substring
+    // (`//` inside a character class) directly above the candidate — without
+    // the regex-literal span exclusion it would parse as a binding line
+    // comment and exempt the span.
+    const src = wrap(
+      `<b data-x={/[//] childless-growable-ok: not a comment/}>keep</b>\n<span className="flex-1" />`,
+    );
     const { violations } = scanSource(src, "probe.tsx");
-    expect(violations.filter((v) => v.tag === "b")).toHaveLength(1);
+    const probe = violations.filter((v) => v.tag === "span");
+    expect(probe).toHaveLength(1);
+    expect(probe[0]?.line).toBe(PROBE_LINE + 1);
   });
-  it("a marker inside a SHEBANG is not an exemption (R1 finding 1)", () => {
-    const src = `#!/usr/bin/env node childless-growable-ok: nope\nexport function P() {\n  return (<div><span className="flex-1" />${SENTINEL}</div>);\n}\n`;
+  it("a marker inside a SHEBANG is not an exemption (R1 finding 1, R2 finding 4)", () => {
+    // Discriminating shape: the shebang embeds a `//`-shaped substring, and
+    // the candidate sits on the adjacent next line — without the shebang span
+    // exclusion, line 1 would parse as a binding line comment.
+    const src = `#!/usr/bin/env node // childless-growable-ok: nope\nexport const P = () => (<div><span className="flex-1" />${SENTINEL}</div>);\n`;
     const { violations } = scanSource(src, "probe.tsx");
-    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
+    const probe = violations.filter((v) => v.tag === "span");
+    expect(probe).toHaveLength(1);
+    expect(probe[0]?.line).toBe(2);
   });
   it("a distant comment two-plus lines above does not bind", () => {
     const src = wrap(
@@ -794,42 +836,58 @@ describe("live-tree gate (spec §6.1)", () => {
 describe("walker coverage — automated red-state proof (plan Task 4b)", () => {
   it("finds the planted violation in every root and extension, with the full diagnostic contract", () => {
     const { violations } = scanLiveTree({ root: FIXTURE_ROOT });
-    expect(violations).toHaveLength(4);
-    const byFile = (needle: string) => {
-      const hit = violations.find((v) => v.file.includes(needle));
-      if (!hit) throw new Error(`no fixture violation for ${needle}`);
-      return hit;
-    };
-    const classViolation = byFile("components/violation.tsx");
-    expect(classViolation.tag).toBe("span");
-    expect(classViolation.reason).toBe("unpainted-childless-dom");
-    expect(classViolation.sourceLabel).toBe("flex-1");
-    expect(classViolation.line).toBe(2);
-    expect(classViolation.approximate).toBeUndefined();
-    const appViolation = byFile("app/violation.tsx");
-    expect(appViolation.reason).toBe("unpainted-childless-dom");
-    expect(appViolation.line).toBe(2);
-    const styleViolation = byFile("styleViolation.tsx");
-    expect(styleViolation.reason).toBe("opaque-style-grow");
-    expect(styleViolation.sourceLabel).toBe("flexGrow: grow");
-    expect(styleViolation.line).toBe(2);
-    expect(renderViolation(styleViolation)).toContain("(flexGrow: grow)");
-    const mdxViolation = byFile("violation.mdx");
-    expect(mdxViolation.reason).toBe("unpainted-childless-dom");
-    expect(mdxViolation.approximate).toBe(true);
-    expect(renderViolation(mdxViolation)).toContain("position approximate — compiled MDX");
-    expect(renderViolation(classViolation)).toContain("add real children");
-    expect(renderViolation(classViolation)).toContain(
-      "PAINT_TOKENS member AND a proven extent token",
-    );
-    expect(renderViolation(classViolation)).toContain("APPROVED_GROWABLE_COMPONENTS row");
-    expect(renderViolation(classViolation)).toContain("childless-growable-ok: <reason>");
+    // Exact raw records, exact-path match (R2 finding 6): every field of every
+    // fixture violation is pinned, order-independent. The MDX line (8) is the
+    // compiled-JSX position under the committed @mdx-js/mdx version.
+    const sorted = [...violations].sort((a, b) => a.file.localeCompare(b.file));
+    expect(sorted).toEqual([
+      {
+        file: "app/violation.mdx",
+        line: 8,
+        tag: "span",
+        reason: "unpainted-childless-dom",
+        sourceLabel: "flex-1",
+        approximate: true,
+      },
+      {
+        file: "app/violation.tsx",
+        line: 2,
+        tag: "span",
+        reason: "unpainted-childless-dom",
+        sourceLabel: "flex-1",
+      },
+      {
+        file: "components/styleViolation.tsx",
+        line: 2,
+        tag: "span",
+        reason: "opaque-style-grow",
+        sourceLabel: "flexGrow: grow",
+      },
+      {
+        file: "components/violation.tsx",
+        line: 2,
+        tag: "span",
+        reason: "unpainted-childless-dom",
+        sourceLabel: "flex-1",
+      },
+    ]);
+    // Rendered contract, exact strings (R2 finding 6): location (with the MDX
+    // approximation form), tag, reason, source label, and every escape.
+    const ESCAPES =
+      " — escapes: add real children; " +
+      "DOM: add a PAINT_TOKENS member AND a proven extent token (extend the set in review if needed); " +
+      "component: add an APPROVED_GROWABLE_COMPONENTS row with a reason; or childless-growable-ok: <reason>";
+    expect(sorted.map(renderViolation)).toEqual([
+      `app/violation.mdx:~8 (position approximate — compiled MDX) <span> unpainted-childless-dom (flex-1)${ESCAPES}`,
+      `app/violation.tsx:2 <span> unpainted-childless-dom (flex-1)${ESCAPES}`,
+      `components/styleViolation.tsx:2 <span> opaque-style-grow (flexGrow: grow)${ESCAPES}`,
+      `components/violation.tsx:2 <span> unpainted-childless-dom (flex-1)${ESCAPES}`,
+    ]);
   });
 
   it("fixture unused exemption is reported (gate-branch proof, Task 4c)", () => {
     const { unusedExemptions } = scanLiveTree({ root: FIXTURE_ROOT });
-    expect(unusedExemptions).toHaveLength(1);
-    expect(unusedExemptions[0]?.file).toContain("unusedExemption.tsx");
+    expect(unusedExemptions).toEqual([{ file: "components/unusedExemption.tsx", line: 4 }]);
   });
 
   it("the LIVE walk sees components/, app/, and at least one MDX file", () => {
@@ -916,5 +974,65 @@ describe("style: statically named member kinds + unparseable strings (R1 finding
   });
   it('negative string values are not growable (style={{ flexGrow: "-.5" }})', () => {
     expectAccepted(`<span style={{ flexGrow: "-.5" }} />`);
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Whole-diff R2 repairs: value wrappers, signed literals, accessors.
+ * ------------------------------------------------------------------------- */
+
+describe("style: property-value wrappers + signed numeric literals (R2 finding 3)", () => {
+  it.each([
+    ["parenthesized", "(0)", "(2)"],
+    ["as", "0 as const", "2 as const"],
+    ["satisfies", "0 satisfies number", "2 satisfies number"],
+    ["non-null", "0!", "2!"],
+  ])("%s value wrapper is transparent: zero accepted, positive violates", (_kind, zero, pos) => {
+    expectAccepted(`<span style={{ flexGrow: ${zero} }} />`);
+    expectViolation(`<span style={{ flexGrow: ${pos} }} />`, "unpainted-childless-dom", "span");
+  });
+  it("unary plus resolves numerically: +0 accepted, +1 violates", () => {
+    expectAccepted(`<span style={{ flexGrow: +0 }} />`);
+    expectViolation(`<span style={{ flexGrow: +1 }} />`, "unpainted-childless-dom", "span");
+  });
+  it("wrapped signed literals resolve through the wrapper", () => {
+    expectAccepted(`<span style={{ flexGrow: -1 as const }} />`);
+    expectAccepted(`<span style={{ flexGrow: -(1) }} />`);
+    expectAccepted(`<span style={{ flexGrow: +(0) }} />`);
+    expectViolation(`<span style={{ flexGrow: +(2) }} />`, "unpainted-childless-dom", "span");
+  });
+  it("other unary operators fail closed", () => {
+    expectViolation(`<span style={{ flexGrow: ~0 }} />`, "opaque-style-grow", "span");
+  });
+  it("wrapped string values resolve through the wrapper", () => {
+    expectAccepted(`<span style={{ flex: "0" as string }} />`);
+    expectViolation(`<span style={{ flex: ("1") }} />`, "unpainted-childless-dom", "span");
+  });
+});
+
+describe("harvesting + style accessors (R2 finding 5)", () => {
+  it("object GETTER key is harvested", () => {
+    expectViolation(
+      `<span className={cn({ get "flex-1"() { return true; } })} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("object SETTER key is harvested", () => {
+    expectViolation(
+      `<span className={cn({ set grow(v: boolean) {} })} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("style GETTER named flexGrow is fail-closed opaque growth", () => {
+    expectViolation(
+      `<span style={{ get flexGrow() { return 1; } }} />`,
+      "opaque-style-grow",
+      "span",
+    );
+  });
+  it("style SETTER named flexGrow is fail-closed opaque growth", () => {
+    expectViolation(`<span style={{ set flexGrow(v: number) {} }} />`, "opaque-style-grow", "span");
   });
 });
