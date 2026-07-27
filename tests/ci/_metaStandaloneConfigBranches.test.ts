@@ -35,15 +35,39 @@ import { branchesOf, probeConfig } from "./_standaloneConfigProbe";
 const ROOT = process.cwd();
 
 describe("standalone config testMatch has no stale branches", () => {
-  it("throws rather than returning nothing on an unrecognised testMatch", () => {
+  it("refuses every matcher shape it cannot read exactly", () => {
     // A reader that silently returns [] makes the real assertion below pass
-    // vacuously — the failure mode this guard exists to prevent.
-    expect(() => branchesOf("something-else")).toThrow(/unrecognised testMatch shape/i);
-    expect(() => branchesOf("undefined")).toThrow(/unrecognised testMatch shape/i);
+    // vacuously — the failure mode this guard exists to prevent. Each case
+    // below produced a plausible WRONG answer in an earlier version.
+    const re = (source: string) => ({ isRegExp: true, testMatchSource: source, env: {} });
+    // A string matcher is a GLOB: this one looks like a regex and matches no
+    // file at all, but parsed into two believable branch names.
+    expect(() =>
+      branchesOf({ isRegExp: false, testMatchSource: "(a|b)\\.spec\\.ts", env: {} }),
+    ).toThrow(/not a RegExp/i);
+    expect(() => branchesOf(re("something-else"))).toThrow(/unrecognised testMatch shape/i);
+    for (const bad of ["a[|]b", "a\\|b", "a\\d", "a.*", "^a", "a{2}", "a\\\\b"]) {
+      expect(() => branchesOf(re(`(${bad})\\.spec\\.ts`)), bad).toThrow(
+        /not a plain filename stem/i,
+      );
+    }
+    // …and the real shape still reads.
+    expect(branchesOf(re("(alpha\\.layout|beta-two)\\.spec\\.ts"))).toEqual([
+      "alpha.layout",
+      "beta-two",
+    ]);
   });
 
+  it("the matcher is identical under the runner environment and without it", () => {
+    // A config that narrows under `process.env.CI` would otherwise be observed
+    // locally as full coverage while Actions ran a subset.
+    expect(probeConfig([], {}, true).testMatchSource).toBe(
+      probeConfig([], {}, false).testMatchSource,
+    );
+  }, 180_000);
+
   it("every branch of the EVALUATED testMatch resolves to an existing spec", () => {
-    const branches = branchesOf(probeConfig([]).testMatchSource);
+    const branches = branchesOf(probeConfig([]));
     // Floor check: a parse that "succeeds" with one useless branch would make
     // the assertion below trivially true.
     expect(branches.length).toBeGreaterThan(20);

@@ -122,9 +122,7 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // Whole-config membership, resolved from the LIVE config rather than listed
   // here: a hand-maintained copy would drift the moment a spec is registered,
   // and drift in a coverage guard reads as coverage.
-  const standaloneMembers = branchesOf(probeConfig([]).testMatchSource).map(
-    (b) => `tests/e2e/${b}.spec.ts`,
-  );
+  const standaloneMembers = branchesOf(probeConfig([])).map((b) => `tests/e2e/${b}.spec.ts`);
 
   const { covered } = scanWorkflowCoverage({
     workflows,
@@ -352,6 +350,34 @@ describe("the whole-config rule (spec §4.1)", () => {
         configSpecs: { [CFG]: members },
       });
       expect([...r.covered], `must claim nothing: ${run}`).toEqual([]);
+    }
+  });
+
+  it("claims nothing when the workflow uses a construct this scanner cannot model", () => {
+    // An adversarial round produced false coverage through all six of these.
+    // `shell: bash -c ":" {0}` makes the step succeed WITHOUT running the
+    // command; `working-directory:` makes the relative config path resolve to
+    // a different config; `needs: gate` where gate has `if: false` skips the
+    // job entirely even though its own head carries no condition. Rather than
+    // model any of them, a workflow using them yields nothing — the spec then
+    // reads as dark and keeps its allowlist row, which is the safe direction.
+    const cmd = `pnpm exec playwright test --config ${CFG}`;
+    const cases = [
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - shell: bash -c ":" {0}\n        run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: bash -c ":" {0}\n    steps:\n      - run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - working-directory: other\n        run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  gate:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n  j:\n    needs: gate\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${cmd}\n`,
+    ];
+    for (const [i, yaml] of cases.entries()) {
+      const r = scanWorkflowCoverage({
+        workflows: { "w.yml": yaml },
+        packageScripts: {},
+        configSpecs: { [CFG]: members },
+      });
+      expect([...r.covered], `case ${i} must claim nothing`).toEqual([]);
+      expect(r.rejected[0]?.reason, `case ${i} must be REPORTED, not dropped`).toBe(
+        "unmodelled execution override",
+      );
     }
   });
 

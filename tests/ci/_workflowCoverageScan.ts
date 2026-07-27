@@ -149,6 +149,25 @@ function hasContinueOnError(block: string): boolean {
   );
 }
 
+/**
+ * Constructs that change WHERE or WHETHER a `run:` command executes, and that
+ * this scanner deliberately refuses to model.
+ *
+ * An adversarial round produced false coverage through six of them:
+ * `shell: bash -c ":" {0}` at step, job-default, or workflow-default level
+ * (the command never runs, the step succeeds); `working-directory:` at the
+ * same three levels (a relative config path resolves to a DIFFERENT config);
+ * and `needs: gate` where `gate` carries `if: false`, so Actions skips the
+ * job even though its own head has no condition.
+ *
+ * Modelling these is a losing game — the previous two rounds died the same way
+ * — so a workflow using ANY of them yields no coverage at all. That is
+ * conservative in the correct direction: a spec reads as dark and keeps its
+ * allowlist row, rather than reading as covered by a job that never ran it.
+ * Nothing in this repo's e2e workflows uses any of them.
+ */
+const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container|needs)\s*:/;
+
 export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
@@ -175,6 +194,11 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
     // its specs "covered" even though the job does not run on every PR (found while
     // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
     const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
+    // Checked against the WHOLE file: `shell:`/`working-directory:`/`defaults:`
+    // apply at workflow, job, or step level, and `needs:` can point at a job
+    // that is skipped. Any of them anywhere means this scanner cannot say what
+    // ran, so it says nothing.
+    const unmodelled = UNMODELLED_RE.test(yaml);
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
@@ -198,6 +222,8 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
 
         for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
+          else if (unmodelled)
+            rejected.push({ file, spec, reason: "unmodelled execution override" });
           else if (hasPathsFilter)
             rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
           else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
