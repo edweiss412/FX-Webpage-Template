@@ -20,6 +20,7 @@ vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({
 const IN_SCOPE = [
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
   "DATE_ORDER_SUGGESTS_DMY",
 ] as const;
 

@@ -55,6 +55,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import sharp from "sharp";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import {
   scanForPhantomGaps,
   reconcilePhantomLedger,
@@ -163,11 +164,7 @@ test.beforeAll(async () => {
       .map((f) => `@source "${join(workDir, f)}";\n`)
       .join("") + globals,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

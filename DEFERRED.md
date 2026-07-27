@@ -8,6 +8,65 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+
+Ratified as accepted limits in spec §6.4 of
+`docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
+R4 on `fix/newtab-announcement-family`. Neither exists in the tree today; both are recorded so a
+future reader does not mistake them for oversights.
+
+**(a) Document-level `<base target="_blank">`.** It makes every relative anchor open a new tab
+with no per-anchor syntax to inspect, so the per-anchor guard cannot see it. **Fix when
+prioritized:** a one-line lexical assertion that no `<base target=` appears under `app/` or
+`components/` (cheap, and it would make the family closed under the base-target case too).
+Un-defer trigger: anyone proposing a `<base>` element, or the next pass on this guard.
+
+**(b) An effectful predicate evaluated twice — CLOSED 2026-07-25 by the R6 model change.** The
+original entry read: `{...(next() ? { target: "_blank" } : {})}` with `next()` also gating the hint
+passes, because the guard compared predicate TEXT and could not prove two calls agree (R4
+demonstrated it with a deterministic `next()` true only once). Its own prescribed fix was
+"restrict approved gating predicates to pure member/identifier expressions (reject call
+expressions)" — which is exactly what R6's fix did for an unrelated reason. A call expression is
+no longer an approved gating shape, so this case is now REPORTED, not accepted. Pinned by
+"an effectful gating predicate is reported, closing the R4 deferral" in
+`tests/styles/_metaNewTabAnnouncement.test.ts`. No follow-up work remains.
+
+**(c) A COMPOUND gating predicate is reported, not compared (new accepted limit, 2026-07-25).**
+Only an identifier, a property-access chain, or `!` over either is an approved gate. Deciding
+whether two DIFFERENT compound predicates denote the same runtime condition is not something a
+static pass can do: six review rounds each produced a new pair that a textual normalizer wrongly
+equated, and R6 alone enumerated eleven operator families. So the question is no longer asked.
+**If you hit this as a false positive** — a legitimate anchor gated on something like
+`isExternal && ready` — the fix is one line at the call site: hoist the condition into a named
+boolean (`const opensNewTab = isExternal && ready;`) and gate both the spread and the hint on
+that identifier. Do NOT widen the classifier; that is the loop this limit exists to end. Ratified
+in spec §6.4. Un-defer trigger: a case where hoisting is genuinely impossible.
+
+### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
+
+Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both
+deliberately left out of that diff.
+
+**(a) Diagram link exposes its name twice.** `components/admin/wizard/step3ReviewSections.tsx`
+gives the wrapping `<a>` an `aria-label` built from `alt` AND leaves the inner
+`<img alt={alt}>`, so a screen reader navigating into the link can hear the same
+string from both nodes. The clean fix is `alt=""` on the img (decorative, since
+the anchor is labelled). NOT taken here because it would reverse a previously
+accepted audit fix: `tests/components/admin/wizard/step3ReviewSections.test.tsx`
+explicitly pins that a blank `alt` falls back for BOTH the img and the anchor
+label ("a persisted empty alt must never yield a nameless link", impeccable audit
+P2). The anchor's `aria-label` now solves the nameless-link risk permanently, so
+the old belt-and-braces is redundant — but flipping it is a separate, reviewed
+decision, not a mid-sweep edit. Un-defer trigger: any further a11y pass on the
+Step-3 diagram tiles.
+
+**(b) An internal link wears the external glyph.** `components/admin/BellPanel.tsx`
+renders "View in telemetry ↗" for `/admin/dev/telemetry#health`, an internal
+route. After this sweep, `↗` means "opens a new tab" everywhere else in the
+codebase, so this is now the only one that lies. Out of family (no `target`, so
+the new structural guard does not see it). Un-defer trigger: next BellPanel copy
+or affordance change.
+
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
 The warning-announcer-copy bundle's manual assistive-technology half (spec §8
@@ -115,3 +174,27 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 **Accepted, not fixed.** The spec makes rows deliberately jump-only and moves destination naming onto the card's chip (§2.2/§2.3), so adding a destination phrase back into the row name is an amendment to that ratified division, not a defect against it. It also reads awkwardly against the existing sr-only tone prefix (`"needs review — Go to Sheet unavailable"`).
 
 **Un-defer trigger:** owner review of the row's accessible name, or the first screen-reader pass on the merged panel.
+
+### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
+
+From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
+
+**Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
+
+**Un-defer trigger:** the next DESIGN.md token pass, or any a11y sweep that touches focus appearance.
+
+### DESTRUCT-DURATION-TOKENS-1 — [P1] `duration-fast` / `duration-normal` emit no CSS
+
+From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-duration-*`; this repo defines `--duration-fast` / `--duration-normal`. Verified by compiling the token CSS: **no rule is emitted**. All **276 + 42 usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables therefore never applies to any Tailwind transition.**
+
+**Accepted, not fixed.** The rename is one line, but its blast radius is every transition in the app, and the thing that actually needs re-verifying afterwards is the reduced-motion path — an a11y contract with no current test. That belongs in a motion/token pass with its own verification, not inside this diff. Locally the impact here is nil: `transition-opacity` only animates opacity, which does not change idle↔armed.
+
+**Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
+
+### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
+
+From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
+
+**Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
+
+**Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.

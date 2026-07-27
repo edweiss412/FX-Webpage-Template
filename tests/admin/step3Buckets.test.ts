@@ -182,6 +182,7 @@ describe("FIELD_LABELS / fieldLabelFor", () => {
       name: "room name",
       guests: "guest list",
       order: "date order",
+      address: "hotel name and address",
     });
   });
 

@@ -35,6 +35,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 
 export type ReportSurface = "crew" | "admin";
 
@@ -582,7 +583,7 @@ export function ReportModal(props: ReportModalProps) {
                 rel="noopener noreferrer"
                 className="mt-3 inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
-                View on GitHub
+                View on GitHub <NewTabHint />
               </a>
             ) : (
               <p className="mt-2 text-sm text-text-subtle">Thanks, we&apos;ll take a look.</p>

@@ -71,6 +71,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import sharp from "sharp";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 // CommonJS package — Playwright's CJS loader provides __dirname (mirrors the
 // step3-card-dimensions.spec.ts template; do NOT use import.meta.url here).
@@ -162,11 +163,7 @@ test.beforeAll(async () => {
     entryCss,
     `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n@source "${join(workDir, "harness-resolution.html")}";\n@source "${join(workDir, "harness-linkonly.html")}";\n${globals}`,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
   compiledCss = readFileSync(join(workDir, "out.css"), "utf8");
 
   server = createServer((req, res) => {

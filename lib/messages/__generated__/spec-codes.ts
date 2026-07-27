@@ -410,6 +410,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
   },
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.",
+    "followUp": "Doug → spot-check hotel name and address",
+    "helpfulContext": "A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.",
+  },
   "HOTEL_CARDINALITY_EXCEEDED": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ lists more than 4 hotels; we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
@@ -418,9 +424,9 @@ export const SPEC_CODES = {
   },
   "HOTEL_GUEST_SPLIT_AMBIGUOUS": {
     "crewFacing": null,
-    "dougFacing": "A guest line in _<sheet-name>_'s hotel section may contain more than one person; check the hotel guest list against your sheet.",
+    "dougFacing": "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     "followUp": "Doug → spot-check hotel guests",
-    "helpfulContext": "A hotel guest cell looked like several people glued together, so we made a judgment call splitting them. Check the guest list in case two people were merged or one was split.",
+    "helpfulContext": "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
   },
   "IDEMPOTENCY_IN_FLIGHT": {
     "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",
@@ -1512,7 +1518,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "You'd chosen to use the sheet's raw text for _<target>_; that cell changed, so we're reading it fresh again.",
     "followUp": "Doug → re-choose if still needed",
-    "helpfulContext": "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+    "helpfulContext": "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, a hotel name and address, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
   },
   "VALIDATION_RESEED_FAILED": {
     "crewFacing": null,

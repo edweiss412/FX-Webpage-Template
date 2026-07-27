@@ -25,6 +25,7 @@ export const USE_RAW_CODES = [
   "ROOM_HEADER_SPLIT_AMBIGUOUS",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
   "DATE_ORDER_SUGGESTS_DMY",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
 ] as const;
 export type UseRawCode = (typeof USE_RAW_CODES)[number];
 
@@ -124,6 +125,16 @@ function applyReplacement(result: ParseResult, w: ParseWarning, consumedRooms: S
       const res = result.hotelReservations[idx]!;
       res.names = [...rep.names];
       res.confirmation_no = rep.confirmationNo;
+    }
+  } else if (rep.kind === "hotel-name") {
+    // Undo the name/address split: the whole line back as the name, address
+    // cleared. Anchored by `blockRef.index`, the reservation's position in the
+    // FINAL hotels array — the same anchor the guest branch uses.
+    const idx = w.blockRef?.index;
+    if (typeof idx === "number" && idx >= 0 && idx < result.hotelReservations.length) {
+      const res = result.hotelReservations[idx]!;
+      res.hotel_name = rep.hotelName;
+      res.hotel_address = rep.hotelAddress;
     }
   } else if (rep.kind === "dates") {
     const d = rep.dmyDates;

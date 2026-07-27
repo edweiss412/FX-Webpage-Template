@@ -9,6 +9,7 @@ import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { warningCardCopyFields } from "@/components/admin/PerShowActionableWarnings";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import type { ReactNode } from "react";
 
 /** First non-blank of the two values, returning the ORIGINAL (untrimmed) string;
@@ -85,7 +86,7 @@ export function NoteWarningCard({
       data-testid="note-warning-sheet-link"
       className="inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
     >
-      Open in Sheet <span aria-hidden="true">↗</span>
+      Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
     </a>
   ) : null;
 
