@@ -41,6 +41,7 @@
     "test:audit:branch-protection": "vitest run tests/cross-cutting/verify-branch-protection.test.ts",
     "test:audit:validation-schema-parity": "vitest run tests/db/schema-manifest-lib.test.ts tests/db/validation-schema-parity.test.ts",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
+    "screenshot:gallery": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-gallery",
     "screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture",
     "test": "vitest run",
     "test:fast": "pnpm pretest && node scripts/test-fast.mjs",
