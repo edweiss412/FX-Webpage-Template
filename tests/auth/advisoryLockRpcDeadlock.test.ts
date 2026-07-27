@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -7,12 +8,6 @@ import {
 } from "../db/_resetRpcSource.js";
 
 const ROOT = process.cwd();
-function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*--.*$/gm, "")
-    .replace(/^[ \t]*\/\/.*$/gm, "");
-}
 
 /**
  * PF11 invariant: a lock-taking RPC body must not `FOR UPDATE` row-lock BEFORE its
@@ -78,7 +73,7 @@ function lockTakingRpcNames(): string[] {
 
   const names = new Set<string>();
   for (const file of migrationFiles) {
-    const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+    const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
     const functionBlocks = source.matchAll(
       /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,
     );
@@ -163,7 +158,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     ];
 
     for (const file of sourceFiles) {
-      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
       const lockCallbacks = source.matchAll(
         /withShowAdvisoryLock\s*\([^]*?async\s*\([^)]*\)\s*=>\s*\{([^]*?)\n\s*\}\s*\)/g,
       );
@@ -183,9 +178,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     // path to the lock is the guarded Phase 3/4 helper — never a re-inlined or
     // JS-lock-wrapped RPC. (Negative-regression: re-inline a
     // supabase.rpc("mi11_approve_hold", …) here and this assertion fails.)
-    const feedActions = stripComments(
-      readFileSync(join(ROOT, "app/admin/show/[slug]/_actions/feed.ts"), "utf8"),
-    );
+    const feedActions = stripCommentsForFile(readFileSync(join(ROOT, "app/admin/show/[slug]/_actions/feed.ts"), "utf8"), "app/admin/show/[slug]/_actions/feed.ts");
     for (const name of ["mi11_approve_hold", "mi11_reject_hold", "undo_change"]) {
       expect(
         feedActions,
@@ -206,7 +199,7 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/api/admin/show/pull-sheet-override/route.ts",
       "lib/admin/setPublishedPullSheetOverrideRpc.ts",
     ]) {
-      const src = stripComments(readFileSync(join(ROOT, f), "utf8"));
+      const src = stripCommentsForFile(readFileSync(join(ROOT, f), "utf8"), f);
       expect(src, `${f} must NOT take a JS-side show lock (single-holder rule)`).not.toMatch(
         /withShowAdvisoryLock|withPostgresSyncPipelineLock|withShowLock|pg_advisory_xact_lock/,
       );
@@ -215,12 +208,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     // Targeted lock-order pin for the published override RPC: its own advisory lock must precede
     // the first row touch (the advisory-before-row list's FOR-UPDATE scan is vacuous here — the
     // RPC uses plain SELECT/UPDATE, so pin the ordering explicitly).
-    const pubMig = stripComments(
-      readFileSync(
-        join(ROOT, "supabase/migrations/20260723090000_published_pull_sheet_override.sql"),
-        "utf8",
-      ),
-    );
+    const pubMig = stripCommentsForFile(readFileSync(join(ROOT, "supabase/migrations/20260723090000_published_pull_sheet_override.sql"), "utf8"), "supabase/migrations/20260723090000_published_pull_sheet_override.sql");
     const advisoryAt = pubMig.search(/pg_advisory_xact_lock\(/);
     const firstShowTouch = pubMig.search(/\b(select|update)\b[^;]*\bpublic\.shows\b/i);
     expect(advisoryAt, "published override RPC must call pg_advisory_xact_lock").toBeGreaterThan(
@@ -269,7 +257,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     ];
 
     for (const file of lockTakingMigrations) {
-      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
       const functionBlocks = source.matchAll(
         /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,
       );
@@ -313,12 +301,7 @@ describe("advisory-lock RPC deadlock guard", () => {
   });
 
   test("claim_oauth_identity acquires multi-show locks in deterministic drive_file_id order", () => {
-    const source = stripComments(
-      readFileSync(
-        join(ROOT, "supabase/migrations/20260524000002_claim_oauth_identity.sql"),
-        "utf8",
-      ),
-    );
+    const source = stripCommentsForFile(readFileSync(join(ROOT, "supabase/migrations/20260524000002_claim_oauth_identity.sql"), "utf8"), "supabase/migrations/20260524000002_claim_oauth_identity.sql");
 
     expect(source).toMatch(
       /for\s+r\s+in[\s\S]*?order\s+by\s+s\.drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*r\.drive_file_id\)\)/i,
@@ -364,9 +347,7 @@ describe("advisory-lock RPC deadlock guard", () => {
   });
 
   test("abandoned finalize cleanup uses direct SQL locks and no lock-taking RPC boundary", () => {
-    const source = stripComments(
-      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
-    );
+    const source = stripCommentsForFile(readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"), "lib/onboarding/sessionLifecycle.ts");
 
     expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
     expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
@@ -381,9 +362,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     // extract-agenda), an AB-BA inversion. Pin advisory-before-row on the helper
     // body so a future edit reintroducing a FOR UPDATE ahead of the show: lock
     // fails at CI (reuses the file's stripComments + assertAdvisoryBeforeRowLock).
-    const source = stripComments(
-      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
-    );
+    const source = stripCommentsForFile(readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"), "lib/onboarding/sessionLifecycle.ts");
     const helperStart = source.indexOf("async function lockCleanupDriveFiles");
     expect(helperStart, "lockCleanupDriveFiles not found").toBeGreaterThan(-1);
     // The helper is defined immediately before purgeAndRotateOnboardingSession.
@@ -407,9 +386,7 @@ describe("advisory-lock RPC deadlock guard", () => {
   test("stale-session reap uses direct SQL locks (finalize then show), no lock-taking RPC, no rotation", () => {
     // F4 Task 4.3 — sibling of the cleanup pin above, for reapStaleOnboardingSessions
     // (spec §3.3 row "F4 stale-session reap": same layer as cleanup, single holder).
-    const source = stripComments(
-      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
-    );
+    const source = stripCommentsForFile(readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"), "lib/onboarding/sessionLifecycle.ts");
     // DEVIATION from the plan's literal slice point ("async function reapOneSession"):
     // the show-lock acquisition lives in the lockReapDriveFiles helper, which is
     // defined BEFORE reapOneSession — slicing at reapOneSession would exclude it
@@ -462,7 +439,7 @@ describe("advisory-lock RPC deadlock guard", () => {
       },
       { file: "app/api/admin/onboarding/finalize-cas/route.ts", handlerName: "runFinalizeCas" },
     ]) {
-      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
 
       // Top-level function bodies (closing brace at column 0).
       const fnBodies = new Map<string, string>();
@@ -501,7 +478,7 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/api/admin/onboarding/finalize/route.ts",
       "app/api/admin/onboarding/finalize-cas/route.ts",
     ]) {
-      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
 
       expect(source).toMatch(/pg_try_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
       expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
@@ -514,8 +491,8 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
     const HELPER = "lib/agenda/extractAgendaLease.ts";
 
-    const helperSrc = stripComments(readFileSync(join(ROOT, HELPER), "utf8"));
-    const routeSrc = stripComments(readFileSync(join(ROOT, ROUTE), "utf8"));
+    const helperSrc = stripCommentsForFile(readFileSync(join(ROOT, HELPER), "utf8"), HELPER);
+    const routeSrc = stripCommentsForFile(readFileSync(join(ROOT, ROUTE), "utf8"), ROUTE);
 
     // 1. Lease helper: EXACTLY ONE pg_advisory_xact_lock(hashtext('agenda-extract-admit'...))
     //    and ZERO 'show:' acquisitions (single-holder rule; round-14 — scanning the helper
@@ -600,9 +577,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     // finalize:<session> lock first, then the app_settings FOR UPDATE session re-check, then
     // the per-show lock — the identical order finalize/finalize-cas + cleanupAbandonedFinalize
     // use — or a rescan clicked during an in-flight finalize can AB-BA deadlock (spec §8).
-    const source = stripComments(
-      readFileSync(join(ROOT, "lib/onboarding/rescanWizardSheet.ts"), "utf8"),
-    );
+    const source = stripCommentsForFile(readFileSync(join(ROOT, "lib/onboarding/rescanWizardSheet.ts"), "utf8"), "lib/onboarding/rescanWizardSheet.ts");
     const finalizeAt = source.search(
       /pg_try_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/,
     );
@@ -629,7 +604,7 @@ describe("advisory-lock RPC deadlock guard", () => {
 
 describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)", () => {
   test("applyStagedCore.ts contains zero advisory-lock acquisitions and adopts via assertion only", () => {
-    const core = stripComments(readFileSync(join(ROOT, "lib/sync/applyStagedCore.ts"), "utf8"));
+    const core = stripCommentsForFile(readFileSync(join(ROOT, "lib/sync/applyStagedCore.ts"), "utf8"), "lib/sync/applyStagedCore.ts");
     // Acquire-free: any pg_advisory* in the core is a second holder under the Phase B/D/dashboard
     // holders — deadlock under burst (M5 R20 class, invariant 2).
     expect(core).not.toMatch(/pg_(?:try_)?advisory_xact_lock/i);
@@ -645,9 +620,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
     // cross-transaction deadlock. Pin: the source acquires NO advisory lock, writes NEITHER
     // table, and calls no lock-taking RPC. (The lock acquisition + app_settings re-check +
     // checkpoint reopen stay in rescanWizardSheet's wrapper / finalize's route.)
-    const core = stripComments(
-      readFileSync(join(ROOT, "lib/onboarding/applyRescanDecisionUnderLock.ts"), "utf8"),
-    );
+    const core = stripCommentsForFile(readFileSync(join(ROOT, "lib/onboarding/applyRescanDecisionUnderLock.ts"), "utf8"), "lib/onboarding/applyRescanDecisionUnderLock.ts");
     expect(core, "applyRescanDecisionUnderLock must acquire no advisory lock (§4.2)").not.toMatch(
       /pg_(?:try_)?advisory_xact_lock/i,
     );
@@ -685,7 +658,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       { file: "app/api/admin/onboarding/resolve-blocker/route.ts", acquisitions: 1 },
     ];
     for (const { file, acquisitions } of expected) {
-      const src = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const src = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
       const found = src.match(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/g) ?? [];
       expect(
         found,
@@ -705,7 +678,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
     // resolveRebuild — reach ONLY _unarchive_show_apply and applyRescanDecisionUnderLock
     // respectively as their mutation entry point (no other DB-mutating call site).
     const ROUTE = "app/api/admin/onboarding/resolve-blocker/route.ts";
-    const source = stripComments(readFileSync(join(ROOT, ROUTE), "utf8"));
+    const source = stripCommentsForFile(readFileSync(join(ROOT, ROUTE), "utf8"), ROUTE);
 
     // (a) restated at the whole-file level (belt-and-suspenders to the registry-table pin
     // above): exactly one pg_advisory_xact_lock call textually in the entire route.
@@ -810,7 +783,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       // causing the topology test above to FAIL.  After reverting, it passes at 1.
       // This confirms the structural guard is load-bearing.
       const FINALIZE = "app/api/admin/onboarding/finalize/route.ts";
-      const src = stripComments(readFileSync(join(ROOT, FINALIZE), "utf8"));
+      const src = stripCommentsForFile(readFileSync(join(ROOT, FINALIZE), "utf8"), FINALIZE);
 
       // (1) The generation-scoped re-SELECT pattern must be present (all four WHERE keys).
       expect(
