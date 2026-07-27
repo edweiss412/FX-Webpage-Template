@@ -454,7 +454,7 @@ under Actions would show a reduced test count in the run log.
 > (`2026-07-26-ci-dark-descoped-closeout-design.md` §4) shipped the
 > verify-in-the-environment guard — the standalone config emits a JSON run
 > report, and `scripts/check-standalone-baseline.mjs` compares the CI run's
-> own per-file executed-test counts against the committed
+> own executed spec-file list and total executed-test count against the committed
 > `tests/e2e/standalone-baseline.json` as a post-run workflow step. A config
 > that narrows only under Actions now reds the `standalone-e2e` job on its
 > own report. The paragraph above stays as the record of why local probing

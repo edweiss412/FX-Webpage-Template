@@ -1045,7 +1045,7 @@ discovered dark, which is the event this would have prevented.
 **Resolution.** Exactly the "if picked up" fix below: verify in the environment rather than predict
 it locally. `tests/e2e/standalone.config.ts` now emits a JSON run report under the gitignored
 test-results directory; `scripts/check-standalone-baseline.mjs` compares the run's
-own reported per-file executed-test counts against the committed
+own reported executed spec-file list and total executed-test count against the committed
 `tests/e2e/standalone-baseline.json`, and `.github/workflows/standalone-e2e.yml` runs the
 comparator as a post-run step — so a config that narrows only under Actions reds the job on its own
 report, with no env-var enumeration anywhere. Comparator behaviorally pinned at

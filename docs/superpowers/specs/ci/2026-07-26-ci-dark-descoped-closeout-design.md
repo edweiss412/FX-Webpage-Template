@@ -11,6 +11,13 @@ direction if resumed" lines name, or one that dissolves a recorded counterexampl
 patching around it. Nothing below re-litigates the descoped mechanisms themselves: the path-rule
 resolver, the shell-semantics reader, and the env-var enumeration stay dead.
 
+> **Merge delta (2026-07-27, PR-A implementation).** Every "three configs" / "trio" count in
+> this ratified text is three-AT-SPEC-TIME. Main's section-header visual gate added a FOURTH
+> Playwright config (`tests/e2e/visual.config.ts`), which joined the detector's `CONFIGS` set at
+> the eb4f282ce merge — the config-set tripwire itself forced the adaptation, exactly as
+> designed. The shipped detector unions four configs; the mechanism, guards, and everything else
+> in this spec are unchanged by the count.
+
 ---
 
 ## §1 Problem
