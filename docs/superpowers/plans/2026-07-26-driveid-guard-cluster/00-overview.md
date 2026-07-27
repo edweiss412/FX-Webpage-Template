@@ -107,12 +107,15 @@ timeouts.
      `process.env.TEST_DATABASE_URL`, and `process.env.LOCAL_TEST_DATABASE_URL` appear ONLY as
      `resolvePgCronMode` arguments; `coverageTarget`/`databaseUrl` derive only from its return.
      Failure mode: resolver exists, passes its unit tests, and nothing calls it.
-   - pgCronCiVacuity controls re-pointed (spec §3.1, R5-1): dead-endpoint injection via
-     `LOCAL_TEST_DATABASE_URL` = loopback port 1; both controls (CI-fail at
-     `tests/cross-cutting/pgCronCiVacuity.test.ts:99`, local-skip at `:107`) stay red-proving.
-     `_metaLocalDbUrlGuard` scan scope extended to the cross-cutting reader if not already
-     covered (`tests/db/_localDbUrlScan.ts`). Rewrite the pg-cron header mode comment (`:27-29`)
-     and both vacuity-control comments (spec §9).
+   - pgCronCiVacuity controls re-pointed (spec §3.1, R5-1/R6-2): dead-endpoint injection via
+     `LOCAL_TEST_DATABASE_URL` = loopback port 1; ALL THREE child invocations (CI-fail `:99`,
+     local-skip `:107`, reachable `:116`) explicitly pin `PG_CRON_COVERAGE_TARGET: "local"`
+     (child inherits ambient env at `:45-46`). Rewrite the pg-cron header mode comment
+     (`:27-29`) and both vacuity-control comments (spec §9).
+   - scanner-shape guard (spec §3.1, R6-1): the single `LOCAL_TEST_DATABASE_URL` read in
+     `pg-cron-coverage.test.ts` is wrapped at the call site in `assertLocalDbUrlIfSet(...)`
+     (`tests/db/_localDbUrl.ts:77`), passed to the pure resolver; guarded-reader census
+     `tests/db/_metaLocalDbUrlGuard.test.ts:393-403` bumps 56 → 57 with message row.
 2. GREEN: implement `tests/db/_validationTargetIdentity.ts` — pinned constant,
    `assertValidationIdentity` (two discriminable error shapes; timeout posture of
    `validation-schema-parity.test.ts:95-96`), `withValidationIdentityGuard(sql)` prepending the

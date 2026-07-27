@@ -31,6 +31,7 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `tests/cross-cutting/pgCronCiVacuity.test.ts` | EDIT — dead-endpoint injection moves to loopback `LOCAL_TEST_DATABASE_URL` (§3.1, R5-1) |
 | `tests/db/_metaLocalDbUrlGuard.test.ts` | EDIT — guarded-reader census 56 → 57 + message (§3.1, R6-1; the scanner itself needs no change — it already walks all of `tests/`) |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
+| `.github/workflows/x-audits.yml` | EDIT — comment block only: the "INHERITED CEILING" rewrite (§9); no wiring change |
 | parent spec §10/§11 | EDIT — status notes pointing here (see §9) |
 
 No migrations. No UI. No advisory-lock surfaces. No workflow WIRING changes — jobs, steps, and
@@ -240,9 +241,8 @@ resolver's unit tests) asserts `tests/cross-cutting/pg-cron-coverage.test.ts` re
 `process.env.LOCAL_TEST_DATABASE_URL` ONLY as arguments to `resolvePgCronMode`, and derives
 `coverageTarget`/`databaseUrl` only from its return value — so the module cannot compile a
 second, unresolved path to any of the three env vars without going red. The
-`_metaLocalDbUrlGuard` scan additionally covers the new `LOCAL_TEST_DATABASE_URL` read (its scan
-scope extends to this cross-cutting file if it does not already reach it — a registry/scan-root
-edit in `tests/db/_localDbUrlScan.ts`, listed in §0). So the binding contract, stated precisely: **every statement whose result any
+`_metaLocalDbUrlGuard` scan already reaches the new `LOCAL_TEST_DATABASE_URL` read (recursive
+`tests/` walk); the only lockstep edit is the census bump named above. So the binding contract, stated precisely: **every statement whose result any
 assertion consumes travels through the guard on its own connection; reachability probes either
 carry the guard with tri-state classification (pg-cron) or are guard-exempt with the
 first-guarded-query backstop (parity `canConnect`).** AC-1 uses this contract.
