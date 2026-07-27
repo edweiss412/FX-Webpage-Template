@@ -2,7 +2,7 @@
  * tests/messages/popoverContextCopy.test.ts
  * (spec 2026-07-20-alert-popover-context-design §6)
  *
- * Frozen-literal oracle for the 45 authored popover `helpfulContext` strings.
+ * Frozen-literal oracle for the 46 authored popover `helpfulContext` strings.
  * The catalog IS the subject under test, so the expected strings are hardcoded
  * here (inverting the usual derive-never-hardcode rule) — same posture as
  * tests/messages/_metaShowScopedTemplates.test.ts PAIRED. Editing a catalog
@@ -102,13 +102,15 @@ const FROZEN: Record<string, string> = {
     "From now on that row skips the picker and goes straight through Google sign-in. Routine success record; no action needed.",
   CALLBACK_CLAIM_THREW:
     "The callback never mints picker cookies, so nothing is left half-claimed. Picker bootstrap retries the claim automatically on the visitor's next show visit.",
+  PICKER_IDENTITY_CLAIMED_TAMPER:
+    "The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.",
 };
 
 describe("popover helpfulContext copy (frozen oracle)", () => {
-  it("the oracle is closed over exactly the 45 authored codes", () => {
+  it("the oracle is closed over exactly the 46 authored codes", () => {
     // F5: an omitted pair must not silently pass. Pin the count so dropping a
     // code from the oracle fails here rather than leaving its copy unchecked.
-    expect(Object.keys(FROZEN).length).toBe(45);
+    expect(Object.keys(FROZEN).length).toBe(46);
   });
 
   for (const [code, expected] of Object.entries(FROZEN)) {

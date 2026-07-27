@@ -3272,6 +3272,24 @@ export const MESSAGE_CATALOG = {
       "This appears when a browser submits cleanup for a picker cookie entry whose epoch or crew member no longer matches the show's current access state, typically after an admin reset or a roster change. The compare-and-delete cleanup path removes only that one stale entry and leaves any newer, still-valid selections untouched. No action is needed.",
     helpHref: "/help/errors#PICKER_SELECTION_RACE",
   },
+  PICKER_IDENTITY_CLAIMED_TAMPER: {
+    code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    resolution: "manual",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A malformed crew-page request was blocked automatically. Nothing needs your attention.",
+    dougFacing:
+      "A request tried to open a crew page as an already-claimed crew member, which the normal picker never offers. It was blocked and sent to sign-in. Nothing is exposed; text Eric if this repeats.",
+    crewFacing: null,
+    followUp: "Informational; Eric → check the picker tamper log if it repeats",
+    helpfulContext:
+      "The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.",
+    title: "A hand-built crew page request was blocked",
+    longExplanation:
+      "This appears when a request asks to open a crew page as a crew member whose spot is already claimed. The normal picker never offers a claimed spot, so a request naming one cannot come from the page itself; it is treated as tampering, blocked before anything loads, and redirected to sign-in. Crew pages and data are not exposed. Repeated attempts are worth mentioning to Eric, who can check the picker tamper log for the details each attempt records.",
+    helpHref: "/help/errors#PICKER_IDENTITY_CLAIMED_TAMPER",
+  },
   PICKER_EPOCH_STALE_BANNER: {
     code: "PICKER_EPOCH_STALE_BANNER",
     dougFacing: null,

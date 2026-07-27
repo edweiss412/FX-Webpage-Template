@@ -866,6 +866,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → pick name or sign in",
     "helpfulContext": null,
   },
+  "PICKER_IDENTITY_CLAIMED_TAMPER": {
+    "crewFacing": null,
+    "dougFacing": "A request tried to open a crew page as an already-claimed crew member, which the normal picker never offers. It was blocked and sent to sign-in. Nothing is exposed; text Eric if this repeats.",
+    "followUp": "Informational; Eric → check the picker tamper log if it repeats",
+    "helpfulContext": "The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.",
+  },
   "PICKER_INVALID_INPUT": {
     "crewFacing": "Something went wrong with that selection. Please try picking your name again.",
     "dougFacing": "A picker selection form submitted invalid input. The request was rejected before any cookie was written.",

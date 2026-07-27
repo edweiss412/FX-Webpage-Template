@@ -57,7 +57,7 @@ function adminAlertCodeUnionMembers(): string[] {
 
 // Registry: every catalog code currently used in a production admin_alerts.upsert
 // call. Extracted to tests/messages/adminAlertsRegistry.ts (imported above) so the
-// audience contract meta-test enforces the SAME 45-code set.
+// audience contract meta-test enforces the SAME 46-code set.
 
 type WriteSite = { path: string; pattern: RegExp };
 
@@ -95,6 +95,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   PICKER_EPOCH_RESET: {
     path: "lib/auth/picker/resetPickerEpoch.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_EPOCH_RESET"/,
+  },
+  PICKER_IDENTITY_CLAIMED_TAMPER: {
+    path: "lib/auth/picker/selectIdentity.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_IDENTITY_CLAIMED_TAMPER"/,
   },
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     path: "lib/sync/assetRecovery.ts",
@@ -274,7 +278,8 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
  * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
  * + 2 BRANCH_PROTECTION (bell-notification-center §9.3)
- * = 26 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
+ * = 26 "auto"; 18 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED plus
+ * PICKER_IDENTITY_CLAIMED_TAMPER from PR #623, which the
  * registry splits into its own "state-manual-justified" class — Flow-1 ONBOARDING_SHEET_UNREADABLE
  * is now the "hybrid" class per spec 2026-07-16, no longer event-manual);
  * 2 "hybrid" (ONBOARDING_SHEET_UNREADABLE and TILE_SERVER_RENDER_FAILED — each
@@ -282,7 +287,7 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * 0 "state-manual-justified" (TILE_SERVER_RENDER_FAILED was the only one and became
  * hybrid in spec 2026-07-24); 0 "deferred" (BRANCH_PROTECTION_* promoted by
  * bell-notification-center §9.3).
- * 26 + 17 + 2 + 0 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
+ * 26 + 18 + 2 + 0 + 0 = 46, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -470,7 +475,7 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
     ],
   },
 
-  // --- event-manual (17): one-shot EVENT notices, manual by design ---
+  // --- event-manual (18): one-shot EVENT notices, manual by design ---
   AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
   LIVE_ROW_CONFLICT: { class: "event-manual" },
   // Hybrid lifecycle (spec 2026-07-16): self-clears via the clean-scan + cron
@@ -496,6 +501,7 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: { class: "event-manual" },
   CALLBACK_CLAIM_THREW: { class: "event-manual" },
   PICKER_SELECTION_RACE: { class: "event-manual" },
+  PICKER_IDENTITY_CLAIMED_TAMPER: { class: "event-manual" },
   PICKER_EPOCH_RESET: { class: "event-manual" },
   WIZARD_SESSION_SUPERSEDED_RACE: { class: "event-manual" },
   REPORT_ORPHANED_LOST_LEASE: { class: "event-manual" },
@@ -787,9 +793,10 @@ describe("META admin_alerts catalog contract", () => {
     const stateManualCodes = allCodes.filter(
       (code) => ADMIN_ALERTS_LIFECYCLE[code].class === "state-manual-justified",
     );
-    expect(eventManualCodes.length, "event-manual is unchanged by the tile reclassification").toBe(
-      17,
-    );
+    expect(
+      eventManualCodes.length,
+      "event-manual: 17 from the tile reclassification + PICKER_IDENTITY_CLAIMED_TAMPER",
+    ).toBe(18);
     expect(
       stateManualCodes.length,
       "TILE_SERVER_RENDER_FAILED was the only state-manual-justified code and is now hybrid",
@@ -821,7 +828,7 @@ describe("META admin_alerts catalog contract", () => {
   // every code: registry "auto" ⇒ catalog "auto"; everything else ⇒ catalog "manual". This is
   // the guard that keeps the promoted runtime metadata (isAutoResolving / the suppressed manual
   // button) honest against the test-only lifecycle classification.
-  test("catalog.resolution matches registry class for all 45 codes", () => {
+  test("catalog.resolution matches registry class for all 46 codes", () => {
     for (const code of ADMIN_ALERTS_CODES) {
       const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
         | { resolution?: "auto" | "manual" }

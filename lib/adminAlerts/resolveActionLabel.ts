@@ -56,6 +56,7 @@ export const RESOLVE_INTENTS: Readonly<Record<string, ResolveIntentRow>> = {
   CALLBACK_CLAIM_THREW: { intent: "resolve" },
   PICKER_SELECTION_RACE: { intent: "resolve" },
   PICKER_EPOCH_RESET: { intent: "resolve" },
+  PICKER_IDENTITY_CLAIMED_TAMPER: { intent: "resolve" },
   LIVE_ROW_CONFLICT: { intent: "resolve" },
   SHOW_FIRST_PUBLISHED: { intent: "resolve" },
   REPORT_ORPHANED_LOST_LEASE: { intent: "resolve" },

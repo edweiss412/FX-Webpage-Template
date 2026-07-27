@@ -1,6 +1,6 @@
 // Per-code "at-a-glance identity" declarations (spec §3.1 / §4).
 //
-// `ALERT_IDENTITY_MAP` is pure data: for each of the 42 admin_alerts codes,
+// `ALERT_IDENTITY_MAP` is pure data: for each of the 46 admin_alerts codes,
 // it declares HOW to identify that code's entity, as an ordered list of
 // segment producers, OR declares the code `{ kind: "global" }` — an
 // explicit, first-class "this code has no per-entity identity" value (not
@@ -51,7 +51,7 @@ export type SegmentSpec =
 export type IdentityMapEntry = { kind: "global" } | { segments: SegmentSpec[] };
 
 /**
- * The full 45-code matrix (spec §4 + admin-field-overrides §10). 15 `global`
+ * The full 46-code matrix (spec §4 + admin-field-overrides §10). 16 `global`
  * entries, 30 with >=1 segment. Row numbers in comments match the spec §4 table
  * for traceability.
  */
@@ -117,6 +117,10 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
   //     scoped, no resolvable per-show entity; the pre-existing
   //     error_message <code> block is unchanged by this spec).
   WATCH_CHANNEL_ORPHANED: { kind: "global" },
+  // PICKER_IDENTITY_CLAIMED_TAMPER — global (justified: the producer passes
+  // showId:null on a rejected-tamper path rather than buying a slug lookup;
+  // the slug rides in context for forensics, not for card identity).
+  PICKER_IDENTITY_CLAIMED_TAMPER: { kind: "global" },
 
   // 12. WEBHOOK_TOKEN_INVALID — global (only channel_id/reason
   //     diagnostics; sheet not resolvable).

@@ -194,6 +194,9 @@ export const INTERNAL_CODE_ENUMS = {
   PICKER_EPOCH_RESET: {
     source: "admin_alerts.code"
   },
+  PICKER_IDENTITY_CLAIMED_TAMPER: {
+    source: "admin_alerts.code"
+  },
   PICKER_INVALID_INPUT: {
     source: "admin_alerts.code"
   },

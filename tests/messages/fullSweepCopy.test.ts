@@ -298,7 +298,7 @@ describe("full-sweep copy batch C (§6.c — 17 codes)", () => {
 
 /**
  * Task 9 (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md
- * §4.4): every one of the 45 ADMIN_ALERTS_CODES — the canonical registry of
+ * §4.4): every one of the 46 ADMIN_ALERTS_CODES — the canonical registry of
  * codes used in a production admin_alerts.upsert call, incl. the two
  * severity:"info" codes ROLE_FLAGS_NOTICE and SHOW_FIRST_PUBLISHED — must be
  * renderable on /help/errors: it satisfies the shared catalogDocsValidator
@@ -308,9 +308,9 @@ describe("full-sweep copy batch C (§6.c — 17 codes)", () => {
  * E-content.md R2) changes helpHref's TARGET, not whether the code is
  * renderable at all, so it is not exempted here.
  */
-describe("full-sweep copy: all 45 ADMIN_ALERTS_CODES are renderable on /help/errors", () => {
-  test("registry has exactly 45 entries", () => {
-    expect(ADMIN_ALERTS_CODES).toHaveLength(45);
+describe("full-sweep copy: all 46 ADMIN_ALERTS_CODES are renderable on /help/errors", () => {
+  test("registry has exactly 46 entries", () => {
+    expect(ADMIN_ALERTS_CODES).toHaveLength(46);
   });
 
   test.each(ADMIN_ALERTS_CODES)("%s satisfies the shared renderability predicate", (code) => {

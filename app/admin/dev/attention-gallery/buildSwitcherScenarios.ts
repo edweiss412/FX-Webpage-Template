@@ -153,7 +153,7 @@ export function partitionScenarios(): {
       excluded.push({ id: s.id, label: s.label, reason: "cut" });
       continue;
     }
-    // AFTER cut on purpose: the five health-audience global-scope codes fail
+    // AFTER cut on purpose: the six health-audience global-scope codes fail
     // isModalVisible first and keep their existing "cut" label, so this arm
     // moves exactly the four doug-audience tier-1 cards. It applies to EVERY
     // tier: the catalogue no longer contains a composite that picks a
