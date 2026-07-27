@@ -52,14 +52,16 @@ narrowing on a variable only GitHub sets is invisible to any local probe by cons
 `pnpm exec playwright test --config <cfg> --list --reporter=json` resolves membership without
 booting browsers or the `webServer` (measured ~1.1 s for the standalone config):
 
-| Config | Spec files resolved |
+| Config | Files resolved (specs + config-declared setup files) |
 | --- | --- |
 | `tests/e2e/standalone.config.ts` | 30 (423 tests) |
-| `playwright.config.ts` (default) | 62 |
+| `playwright.config.ts` (default) | 62 (includes 2 setup files) |
 | `playwright.screenshots.config.ts` | 7 (5 spec files + 2 setup files) |
 
-Disk holds **91** `tests/e2e/**/*.spec.ts` files; the three-config union covers **88**; **3** are
-dark:
+Disk holds **91** `tests/e2e/**/*.spec.ts` files. The spike's first pass unioned only the
+FIRST TWO configs and found 3 unresolved; the full THREE-config union resolves
+`screenshots-help-capture.spec.ts` as well (adversarial R3 F7 measured 89 of 91 at HEAD), so
+the detector's actual dark set is **2**:
 
 1. `tests/e2e/packlist-rescan-recovery.spec.ts` — known; the `BL-HARNESS-PACKLIST-SERVER-GRAPH`
    subject. PR-C restores it.
@@ -67,9 +69,10 @@ dark:
    Its allowlist row (`tests/ci/_metaE2eWorkflowCoverage.test.ts:85`, reason `UNSEEN` =
    app-dependent local-only) claims it runs locally; it is a member of NO config, so even a
    local `pnpm exec playwright test` never resolves it. The row's premise is false today.
-3. `tests/e2e/screenshots-help-capture.spec.ts` — deliberate third-config membership
-   (`playwright.config.ts:161` documents that the WebP-writing project lives only in the
-   screenshots config). Dark only to a two-config union; resolved by unioning all three.
+(A third file, `tests/e2e/screenshots-help-capture.spec.ts`, is NOT dark: it is deliberate
+third-config membership — `playwright.config.ts:161` documents that the WebP-writing project
+lives only in the screenshots config. It appeared unresolved only to the spike's initial
+two-config union, and is why the detector unions all three configs.)
 
 ### §2.2 The `"use server"` boundary, verified per module
 
@@ -163,9 +166,13 @@ file. §5.3a consolidates it onto the shared parser-based plugin; closing
 
 A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
 
-1. Enumerates test-shaped files on disk: `tests/e2e/**/*.spec.{ts,tsx,js,mjs,mts}`
-   (filesystem walk, so a NEW spec fails by default — same posture as the mutation-surface
-   meta-test). Widened beyond `*.spec.ts` per adversarial R1 F8; `*.test.*` is EXCLUDED per
+1. Enumerates test-shaped files on disk: every file under `tests/e2e/` whose name matches the
+   `.spec.` side of Playwright's OWN default matcher — `**/*.spec.?(c|m)[jt]s?(x)`, taken
+   verbatim from the installed Playwright's common/config default matcher (adversarial R3 F2:
+   a hand-rolled extension list missed seven suffixes Playwright accepts, e.g. spec.cts and
+   spec.jsx forms). Filesystem walk, so a NEW spec fails by default — same posture as the
+   mutation-surface meta-test. Widened beyond `*.spec.ts` per adversarial R1 F8; `*.test.*`
+   is EXCLUDED per
    adversarial R2 F1: files matching `tests/**/*.test.ts` are claimed by the Vitest project
    globs (`vitest.projects.ts:34`) and already run in `unit-suite` — three live instances sit
    under `tests/e2e/` today (`tests/e2e/_metaLiveEntryToolchain.test.ts`, the two
@@ -247,41 +254,53 @@ times and is not attempted.
 - **Local side:** a case in tests/ci/\_metaSpecRegistration.test.ts (or its own meta-test —
   plan decides file placement) asserts baseline == local `--list` resolution of the standalone
   config. Adding a spec without regenerating the baseline reds this locally and in `unit-suite`.
-- **CI side:** a new step in `.github/workflows/standalone-e2e.yml`, BEFORE the run step, runs
-  the `--list` comparison under the real Actions environment via a small new script
-  (scripts/check-standalone-baseline.mjs) so the workflow diff is one `run:` line.
-- **CI-side structural pinning (adversarial R1 F2 — the two comparisons must share an
-  execution context, structurally, not by convention).** The same meta-test parses
-  `standalone-e2e.yml` and asserts, on the parsed YAML: (a) the baseline step exists with
-  `run:` exactly `node scripts/check-standalone-baseline.mjs`; (b) it is IMMEDIATELY adjacent
-  to (directly precedes) the whole-config run step — no intervening step can mutate the tree
-  or `$GITHUB_ENV` between comparison and run; (c) NEITHER step carries step-level `if:`,
-  `env:`, `continue-on-error`, `shell:`, or `working-directory:` — so both inherit the
-  identical job-level context; (d) the workflow keeps a bare `pull_request` trigger with no
-  `paths:`/`paths-ignore:`, and the job has no `needs:`, no `strategy.matrix`, no job-level
-  `continue-on-error`, and no `defaults.run.shell` / `defaults.run.working-directory` override
-  at any level (adversarial R2 F3 classes, applied here too). Deleting or decorating the
-  baseline step reds `unit-suite`, which is merge-blocking.
+- **CI side — compare the RUN'S OWN REPORT, not a sibling probe (adversarial R3 F1; this is
+  the backlog entry's named fix verbatim).** Adjacent steps do NOT share an environment:
+  GitHub assigns per-step values (`GITHUB_ACTION`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY` paths
+  change every step), so a `--list` in a sibling step — R1's design, R1-F2's pinning
+  notwithstanding — could see full membership while the run step narrows. Instead:
+  `tests/e2e/standalone.config.ts` adds a `json` reporter with a fixed `outputFile` alongside
+  its current reporter (a CONFIG change; the run command literal is untouched), and a new step
+  in `.github/workflows/standalone-e2e.yml` DIRECTLY AFTER the run step executes
+  `node scripts/check-standalone-baseline.mjs` to compare the report the run itself produced —
+  executed spec files and total test count — against the committed baseline. Whatever
+  environment the run step had, the report records what actually ran in it; there is no second
+  context to diverge.
+- **Structural pinning.** The meta-test parses `standalone-e2e.yml` and asserts on the parsed
+  YAML: (a) the comparison step exists with `run:` exactly
+  `node scripts/check-standalone-baseline.mjs`; (b) it DIRECTLY FOLLOWS the whole-config run
+  step; (c) neither step carries step-level `if:`, `env:`, `continue-on-error`, `shell:`, or
+  `working-directory:`; (d) the workflow keeps a bare `pull_request` trigger (no `paths:`,
+  `paths-ignore:`, `types:`, `branches:`, or `branches-ignore:`), and the job has no `needs:`,
+  no `strategy.matrix`, no job-level `continue-on-error`, and no `defaults.run.shell` /
+  `defaults.run.working-directory` override at any level (adversarial R2 F3 classes). The
+  json-reporter declaration is pinned by OBSERVATION: the `_standaloneConfigProbe`-style
+  import asserts the evaluated config's `reporter` includes the json entry with the exact
+  `outputFile`. Deleting or decorating the comparison step, or dropping the reporter, reds
+  `unit-suite`, which is merge-blocking. (Default Actions behavior already skips the
+  comparison step when the run step fails — a red run is loud on its own.)
 - **The script itself is behaviorally pinned (adversarial R2 F4 — a no-op script satisfies
   every structural assertion while destroying the proof).** A unit-suite test executes
-  scripts/check-standalone-baseline.mjs as a child process against fixture inputs and asserts
-  it EXITS NON-ZERO on (i) a baseline file listing one spec the resolution lacks, (ii) a
-  resolution containing one spec the baseline lacks, and (iii) a matching file list with a
-  mismatched `totalTests` — and exits zero on a full match. This is the
-  guard-tests-the-real-control discipline: the thing pinned is the script's rejection
+  scripts/check-standalone-baseline.mjs as a child process against fixture report/baseline
+  pairs and asserts it EXITS NON-ZERO on (i) a baseline listing one spec the report lacks,
+  (ii) a report containing one spec the baseline lacks, (iii) matching file lists with a
+  mismatched total test count, and (iv) a missing or malformed report file — and exits zero
+  on a full match. Guard-tests-the-real-control: the thing pinned is the script's rejection
   behavior, not its invocation.
-- **Transitivity:** local test proves `baseline == local resolution`; the pinned CI step proves
-  `baseline == CI resolution` in the same context the run executes in; together `local == CI` —
-  exactly the claim §10b of the parent spec records as unprovable from a developer machine
-  alone.
+- **Transitivity:** the local test proves `baseline == local resolution`; the post-run
+  comparison proves `baseline == what the CI run actually executed`; together
+  `local resolution == CI execution` — a STRONGER claim than R1's resolution-equality, and
+  exactly the "verify in the environment rather than predict it locally" fix the backlog
+  entry names.
 
 ### §4.2 Scanner and workflow contract
 
-The run command literal at the bottom of `standalone-e2e.yml` stays byte-identical —
+The run command literal in `standalone-e2e.yml` stays byte-identical —
 `WHOLE_CONFIG_RE` (`tests/ci/_workflowCoverageScan.ts:74`) anchors `^pnpm exec playwright test
---config (\S+)$`, and the baseline step is a separate `run:` naming a `node` script, which the
-scanner does not read as a spec invocation and which carries no trailing pipe. Verified at plan
-time by running `scanWorkflowCoverage` over the edited workflow in the TDD step that touches it.
+--config (\S+)$`, and the post-run comparison step is a separate `run:` naming a `node`
+script, which the scanner does not read as a spec invocation and which carries no trailing
+pipe. The json-reporter addition lives in the CONFIG, not the command. Verified at plan time
+by running `scanWorkflowCoverage` over the edited workflow in the TDD step that touches it.
 
 Baseline maintenance cost, owned: adding/removing a standalone spec now requires regenerating
 one JSON file, enforced fail-loud on both sides. The script gains a
@@ -401,10 +420,12 @@ subsequent task conditions on that measurement.
 
 A meta-test pins the resolver contract: (a) fixture modules with a `"use server"` directive
 bundle to throwing stubs whose export names equal the fixture's — ONE FIXTURE PER SUPPORTED
-§5.2 SHAPE (named async declaration, default async function, async-arrow const), so no
-supported branch ships without a fixture that executes it (adversarial R2 F5); (b) a fixture with the
-directive and a non-function export makes the bundle FAIL, and so does each unsupported §5.2
-shape (re-export forwarding, aliased export, sync const); (c) a directive-free fixture bundles
+§5.2 SHAPE, enumerated exhaustively per adversarial R3 F3: named async declaration, NAMED
+default async function, ANONYMOUS default async function, async-ARROW const, async
+FUNCTION-EXPRESSION const, and a type-only-exports module (stubs to an empty module rather
+than failing); (b) one FAILING fixture per unsupported §5.2 shape, also exhaustive:
+`export { f } from` re-export forwarding, `export * from`, local aliased `export { f as g }`,
+sync-initializer const, class declaration, and sync function declaration; (c) a directive-free fixture bundles
 its real body byte-for-byte (no stub); (d) a directive in a nested string/comment does NOT
 trigger (parse, not grep); (e) a SINGLE-QUOTED `'use server'` directive triggers identically
 to the double-quoted form; (f) a client-rendered fixture passing a stubbed action to
@@ -438,8 +459,11 @@ checked structurally on the parsed YAML. Any decoration makes it not the literal
 
 **Job-and-workflow qualification (adversarial R1 F10 + R2 F3 — command text alone proves
 nothing about whether the job runs, or runs where it claims).** The registry verifier
-additionally requires, on the parsed workflow: a `pull_request` trigger with no
-`paths:`/`paths-ignore:`; no job-level `if:` other than the exact schedule-exclusion literal
+additionally requires, on the parsed workflow: a BARE `pull_request` trigger — no `paths:`,
+`paths-ignore:`, `types:`, `branches:`, or `branches-ignore:` (adversarial R3 F4: a
+`types: [closed]` or branch-filtered trigger passes a paths-only check while never running on
+ordinary PRs; other triggers such as `schedule` may coexist, the `pull_request` KEY itself
+must be bare); no job-level `if:` other than the exact schedule-exclusion literal
 `github.event_name != 'schedule'`; no `needs:` on the job; no `strategy.matrix` conditioning;
 no `continue-on-error` at STEP OR JOB level; no `working-directory` on the step and no
 `defaults.run.working-directory` at workflow or job level (a redirected cwd re-points the
@@ -452,9 +476,12 @@ than re-deriving it.
 **The script and its alias are behaviorally pinned (adversarial R2 F4).** A unit-suite test
 (i) asserts the `package.json` `run-excluded` script is EXACTLY `node
 scripts/run-excluded-test.mjs` (alias-mapping pin — an alias rewired to a no-op passes the
-step-literal check otherwise), and (ii) executes the script against fixture vitest JSON
-reports, asserting non-zero exit on a zero-passed report, an all-skipped report, and a report
-with failures — and zero exit on a report with passing tests. Same
+step-literal check otherwise), and (ii) executes the script against fixture scenarios,
+asserting non-zero exit on: a zero-passed report, an all-skipped report, a report with
+failures, a missing/malformed report, AND a child vitest process that exits non-zero even
+when its report shows passing tests (adversarial R3 F5: collection, setup, teardown, and
+unhandled-runtime failures can coexist with passed test cases — the script requires BOTH
+child exit 0 AND ≥1 passed with 0 failed). Zero exit only when both hold. Same
 guard-tests-the-real-control posture as the §4.1 baseline-script pin.
 
 **Honest ceiling, stated:** a green `pnpm run-excluded <file>` step proves the file resolved,
@@ -522,19 +549,25 @@ no shared surface between PR-C and #613.
 ## §8 Acceptance criteria
 
 1. A new `tests/e2e/**/*.spec.ts` file registered in no config reds `unit-suite` locally and in
-   CI, naming the file and the three configs it is absent from. (Mutation-verified: temp file.)
-2. A standalone-config narrowing that only manifests under Actions env — whether it drops
-   FILES or drops TESTS while keeping every file — reds the `standalone-e2e` job's baseline
-   step; the same edit with the baseline regenerated reds the local baseline test until both
-   the file list and the total test count match. Deleting or decorating the baseline step reds
-   the structural pin in `unit-suite`. (Mutation-verified in CI via a `workflow_dispatch` run
-   on a scratch branch carrying a `GITHUB_EVENT_NAME`-conditioned `grep` narrowing — the exact
-   mutation class the backlog entry names as invisible today, in its file-preserving form.)
+   CI, naming the file and the three configs it is absent from. (Mutation-verified with TWO
+   temp files: one plain spec.ts form and one exotic-suffix member of Playwright's matcher
+   such as the spec.cts form — adversarial R3 F2 — so the widened universe glob is itself
+   exercised.)
+2. A standalone-config narrowing that only manifests under the RUN's environment — whether it
+   drops FILES or drops TESTS while keeping every file — reds the `standalone-e2e` job's
+   post-run comparison, because the comparison reads the run's own json report; the same edit
+   with the baseline regenerated reds the local baseline test until both the file list and
+   the total test count match. Deleting or decorating the comparison step, or removing the
+   config's json reporter, reds the structural pin in `unit-suite`. (Mutation-verified in CI
+   via a `workflow_dispatch` run on a scratch branch carrying a
+   `GITHUB_EVENT_NAME`-conditioned `grep` narrowing — the exact mutation class the backlog
+   entry names as invisible today, in its file-preserving form.)
 3. Every `ENV_BOUND_EXCLUDES` entry has a verified execution home; the array reaching a state
    where an entry runs nowhere is a red `unit-suite`, not a silent fact. `test-auth-gate`
    Layer 1 executes in CI again (either disposition).
 4. `packlist-rescan-recovery.spec.ts` runs in the standalone CI job, green, with a metafile
-   clean of `googleapis`/`postgres` inputs (prototype already measures 0, §2.6);
+   satisfying the §5.4 server-package criterion — no `googleapis`, `postgres`, OR
+   `google-auth-library` inputs (prototype already measures 0 for all three, §2.6);
    `BL-HARNESS-PACKLIST-SERVER-GRAPH` and `BL-HARNESS-RESOLVER-POLICY` close in BACKLOG.md
    with the resolver's contract cited — and no regex-based directive detection remains
    anywhere under `tests/e2e/` (the §5.3a consolidation is part of the close, not a
