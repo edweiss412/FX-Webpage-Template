@@ -24,8 +24,12 @@ Convergence: after the fix commits, BOTH gates re-ran against the resulting diff
 ## Notes for reviewers
 
 - **Pre-existing parallel-run flake, not this diff:** running `tests/components/admin/settings` + `tests/app` in ONE vitest invocation intermittently times out unrelated dashboard suites (5s timeouts under parallel load; duplicate-h1 from a leaked render). Reproduced on origin/main tree at HIGHER failure counts (9 vs 3–5). Each directory green in isolation; CI runs the projects separately.
+- **Pre-existing, not this diff (baseline-verified on origin/main @ 6a11b4a3f):** running `tests/cross-cutting/pg-cron-coverage.test.ts` and `tests/cross-cutting/pgCronCiVacuity.test.ts` in ONE local vitest invocation reports a suite-level FAIL on pg-cron-coverage carrying the vacuity harness's injected child env (`CI=true`, dead-DB `127.0.0.1:59999`). Reproduced identically on the origin/main baseline worktree. pg-cron-coverage passes in isolation on this branch (8/8, including the live SAMPLING_PERIOD_MS / cron.job parity cases against the rescheduled local DB). Real CI partitions these; CI is the adjudicator.
 - The §3.7 cadence-copy sweep dispositions (incl. frozen dated artifacts) live in the spec; re-grep at close-out returned zero undispositioned watch-relevant hits.
 
-## Class-21 live validation probe
+## Class-21 live validation probe (2026-07-27)
 
-(appended at Task 14 execution)
+- Both migrations applied surgically to `vzakgrxqwcalbmagufjh` + `notify pgrst, 'reload schema'` (the reschedule needed the session GUC `set app.fxav_vercel_url = 'https://fxav-crew-pages-validation.vercel.app'` — the pooler connection does not carry a database-level GUC, and none is set there).
+- `select public.watch_backoff_ms(3)` → `3600000` on validation.
+- `cron.job` shows `fxav_cron_refresh_watch` at `7,22,37,52 * * * *`.
+- `pnpm observe watch --env validation --json`: newest channel `createdAt 2026-07-27T02:00:02 / expiresAt 2026-07-28T02:00:02` (24h lease); the historical hourly-churn rows end at the lease-slack deploy; no 15-minute churn. Zero `drive_watch_reconcile_state` rows yet (no reconnect attempt has occurred), so the CLI emits the legacy array shape by design — the state table read executed against validation without error.

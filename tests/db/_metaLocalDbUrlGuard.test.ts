@@ -394,12 +394,15 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 54 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 60 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
+          "+ tests/db/watchReconcileState.test.ts + tests/db/watchReconcileStateWrites.test.ts " +
+          "+ tests/db/watchSurfaceStateIntegration.test.ts (watch backoff 2026-07-27; " +
+          "all three delete their RUN-scoped rows, local-only) " +
           "+ tests/db/driveIdCoverage.db.test.ts (the Drive-ID coverage guard, 2026-07-25)",
-      ).toBe(57);
+      ).toBe(60);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
