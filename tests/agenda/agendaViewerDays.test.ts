@@ -118,6 +118,18 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     expect(r).toEqual({ kind: "subset", rows: new Set([0]) });
   });
 
+  test("an UNPARSEABLE row between parseable ones fails open", () => {
+    // Whole-diff review, HIGH. Date-completeness alone passes here: May 5 is located at row 0,
+    // so |L| == |R|. But row 1's ownership is unknown, and if it is a continuation of May 5 it
+    // is the viewer's own day being folded and unmarked -- the worst outcome this feature has.
+    const r = visibleAgendaDaysForViewer(
+      ext(["Tuesday, May 5, 2026", "Day 1 continued", "Wednesday, May 6, 2026"]),
+      viewerDates(["2026-05-05"]),
+      ["2026-05-05"],
+    );
+    expect(r).toEqual({ kind: "all" });
+  });
+
   test("nothing parses and the positional fallback is unavailable → fail open", () => {
     const r = visibleAgendaDaysForViewer(ext(["Day 1", "Day 2"]), viewerDates(["2026-05-05"]), [
       "2026-05-05",

@@ -75,6 +75,14 @@ export function visibleAgendaDaysForViewer(
   // `located` ⊆ `R` by construction, so equal sizes means every assigned day was found.
   if (R.size === 0 || located.size !== R.size) return ALL;
 
+  // EVERY row must also be identifiable, not just every assigned DATE (whole-diff review, HIGH).
+  // Proving "May 5 appears somewhere" does not prove which rows belong to May 5. Given
+  // ["Tuesday, May 5, 2026", "Day 1 continued", "Wednesday, May 6, 2026"] and a May 5 assignment,
+  // date-completeness passes on row 0 and folds row 1 -- a continuation of the viewer's own day,
+  // hidden and unmarked. A row whose label does not parse has UNKNOWN ownership, and unknown
+  // ownership is exactly the partial knowledge this function refuses to fold on.
+  if (parsed.some((iso) => iso === null)) return ALL;
+
   // An empty subset is the dangerous value ("fold iff my index is absent" would fold every
   // row, including the viewer's own), and it is UNREACHABLE here by construction rather than
   // by a guard: reaching this line means R is non-empty and `located.size === R.size`, so
