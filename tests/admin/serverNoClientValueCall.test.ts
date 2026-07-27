@@ -14,6 +14,7 @@
  * and jsdom suites render client trees where the call is legal — so only a real
  * SSR request surfaced it. This filesystem walk fails-by-default: a NEW server
  * file added to the tree that calls a client import trips it with no allowlist.
+
  *
  * Precision: it flags a call `name(` of a value binding imported (non-`type`)
  * from a resolved `"use client"` module. Rendering the binding as JSX (`<Name`)
@@ -22,6 +23,7 @@
  * fine; it must not CALL a client function).
  */
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join, dirname, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -44,19 +46,10 @@ function walk(relDir: string): string[] {
     .sort();
 }
 
-/** Strip block + line comments so a doc-comment mentioning a call never trips. */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\/\/[^\n]*/, ""))
-    .join("\n");
-}
-
 /** True when the module's first meaningful token is a `"use client"` directive. */
 function isUseClientModule(abs: string): boolean {
   try {
-    return /^\s*(?:\/\*[\s\S]*?\*\/\s*)?["']use client["']/.test(readFileSync(abs, "utf8"));
+    return /^["']use client["']/.test(stripCommentsForFile(readFileSync(abs, "utf8"), abs).trimStart());
   } catch {
     return false;
   }
@@ -100,7 +93,7 @@ function offendersIn(rel: string): string[] {
   const abs = join(ROOT, rel);
   if (isUseClientModule(abs)) return []; // client file may call client exports
   const src = readFileSync(abs, "utf8");
-  const code = stripComments(src);
+  const code = stripCommentsForFile(src, abs);
   const offenders: string[] = [];
   for (const m of src.matchAll(IMPORT_RE)) {
     if (m[1]) continue; // `import type ...`
@@ -146,15 +139,17 @@ describe("server files under app/admin/show never CALL a use-client import", () 
     expect(clientMod).not.toBeNull();
     expect(isUseClientModule(clientMod as string)).toBe(true);
 
-    const callSrc = stripComments(
+    const callSrc = stripCommentsForFile(
       `import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";\n` +
         `const ids = step3Sections(data);`,
+      "synthetic.tsx",
     );
     expect(/\bstep3Sections\s*\(/.test(callSrc)).toBe(true);
 
-    const renderSrc = stripComments(
+    const renderSrc = stripCommentsForFile(
       `import { PublishedReviewModal } from "@/components/admin/showpage/PublishedReviewModal";\n` +
         `return <PublishedReviewModal data={data} />;`,
+      "synthetic.tsx",
     );
     expect(/\bPublishedReviewModal\s*\(/.test(renderSrc)).toBe(false);
   });
