@@ -349,6 +349,9 @@ describe("validation-schema-parity", () => {
         "`expired` — apply supabase/migrations/" +
         STATUS_MIGRATION +
         ' to validation via `psql "$TEST_DATABASE_URL" -f <migration>`.',
-    ).toMatch(/'expired'/);
+    ).toMatch(/=\s*ANY\s*\(ARRAY\[[^)]*'expired'/i);
+    // Matching a bare /'expired'/ would also pass a constraint such as
+    // `status <> 'expired'`, which REJECTS the value this gate exists to admit
+    // (whole-diff finding 7).
   });
 });

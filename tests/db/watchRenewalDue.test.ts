@@ -72,11 +72,18 @@ async function foldersProductionWouldRenew(configuredFolderId: string): Promise<
 /** Status of a seeded row after the production refresh path has run. */
 async function statusAfterRefresh(id: string, folderId: string): Promise<string> {
   const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+  const attempted: string[] = [];
   await refreshWatchSubscriptions({
     now: () => NOW,
-    subscribeToWatchedFolder: async () => ({ outcome: "active" as const, channelId: "x" }),
+    subscribeToWatchedFolder: async (attemptedFolder: string) => {
+      attempted.push(attemptedFolder);
+      return { outcome: "active" as const, channelId: "x" };
+    },
     getActiveWatchedFolder: async () => ({ folderId, folderName: null }),
   });
+  // A reaped row must not ALSO have been submitted for renewal. Asserting only
+  // the final status lets both happen (whole-diff finding 6).
+  expect(attempted).toEqual([]);
   const [row] = await sql<{ status: string }[]>`
     select status from public.drive_watch_channels where id = ${id}
   `;

@@ -20,6 +20,11 @@ function importsOf(absPath: string): string[] {
   const out: string[] = [];
   for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) out.push(m[1]!);
   for (const m of src.matchAll(/import\s*\(\s*["']([^"']+)["']\s*\)/g)) out.push(m[1]!);
+  // Side-effect and CJS forms load the module just as well, and a `from`-only
+  // parser would let `import "xlsx"` through while the guard stayed green
+  // (whole-diff finding 8).
+  for (const m of src.matchAll(/^\s*import\s+["']([^"']+)["']/gm)) out.push(m[1]!);
+  for (const m of src.matchAll(/require\s*\(\s*["']([^"']+)["']\s*\)/g)) out.push(m[1]!);
   return out;
 }
 

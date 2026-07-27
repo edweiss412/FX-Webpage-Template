@@ -7,6 +7,8 @@ import {
   isGrantTooShort,
   redactWatchError,
   DRIVE_CALL_TIMEOUT_MS,
+  GC_CANDIDATES_PER_PASS,
+  GC_RUN_BUDGET_MS,
   REFRESH_RUN_BUDGET_MS,
   REAP_ID_LOG_CAP,
   RENEWAL_LIFE_FRACTION,
@@ -67,7 +69,14 @@ export type WatchTx = {
     resourceId: string;
     expiresAt: string;
   }): Promise<number>;
-  markOrphaned(id: string): Promise<void>;
+  /**
+   * Orphan a still-`pending` row, recording the Drive `resourceId` when the
+   * caller knows it. Without that id GC's `channels.stop` exits early on the
+   * null and marks the row stopped, leaving the Drive channel live until its
+   * lease expires (whole-diff finding 2) — `files.watch` had already succeeded
+   * in exactly the case that matters.
+   */
+  markOrphaned(id: string, resourceId?: string | null): Promise<void>;
   upsertAdminAlert(input: {
     code: typeof WATCH_CHANNEL_ORPHANED;
     context: Record<string, unknown>;
@@ -90,7 +99,7 @@ export type WatchTx = {
     minLeadMs: number;
     lifeFraction: number;
   }): Promise<WatchChannelRow[]>;
-  listGcCandidates(): Promise<WatchChannelRow[]>;
+  listGcCandidates(limit?: number): Promise<WatchChannelRow[]>;
   markStopped(id: string): Promise<void>;
   deleteOldStopped(): Promise<void>;
   sweepStalePending(cutoffIso: string): Promise<string[]>;
@@ -223,15 +232,16 @@ class PostgresWatchTx implements WatchTx {
     return promoted.length;
   }
 
-  async markOrphaned(id: string) {
+  async markOrphaned(id: string, resourceId?: string | null) {
     await this.rows(
       `
         update public.drive_watch_channels
-           set status = 'orphaned'
+           set status = 'orphaned',
+               resource_id = coalesce($2, resource_id)
          where id = $1
            and status = 'pending'
       `,
-      [id],
+      [id, resourceId ?? null],
     );
   }
 
@@ -329,7 +339,7 @@ class PostgresWatchTx implements WatchTx {
     return rows.map(fromDbRow);
   }
 
-  async listGcCandidates(): Promise<WatchChannelRow[]> {
+  async listGcCandidates(limit: number = GC_CANDIDATES_PER_PASS): Promise<WatchChannelRow[]> {
     const rows = await this.rows<{
       id: string;
       status: WatchChannelStatus;
@@ -343,7 +353,9 @@ class PostgresWatchTx implements WatchTx {
           from public.drive_watch_channels
          where status in ('superseded', 'orphaned', 'expired')
          order by created_at
+         limit $1
       `,
+      [limit],
     );
     return rows.map(fromDbRow);
   }
@@ -563,8 +575,11 @@ export async function markWatchOrphanedWithTx(
   tx: WatchTx,
   pendingChannelId: string,
   context: Record<string, unknown>,
+  resourceId?: string | null,
 ): Promise<void> {
-  await callWatchTx("drive_watch_channels.mark_orphaned", () => tx.markOrphaned(pendingChannelId));
+  await callWatchTx("drive_watch_channels.mark_orphaned", () =>
+    tx.markOrphaned(pendingChannelId, resourceId),
+  );
   await callWatchTx("admin_alerts.upsert_watch_orphaned", () =>
     tx.upsertAdminAlert({
       code: WATCH_CHANNEL_ORPHANED,
@@ -700,16 +715,22 @@ export async function subscribeToWatchedFolder(
       webhookSecret,
     });
     await runTx((tx) =>
-      markWatchOrphanedWithTx(tx, channelId, {
-        watched_folder_id: folderId,
-        channel_id: watch.id,
-        requested_channel_id: channelId,
-        resource_id: watch.resourceId,
-        expiration: watch.expiration,
-        reason: "activate_failed_after_watch_created",
-        error_class: errorClass,
-        error_message: errorMessage,
-      }),
+      markWatchOrphanedWithTx(
+        tx,
+        channelId,
+        {
+          watched_folder_id: folderId,
+          channel_id: watch.id,
+          requested_channel_id: channelId,
+          resource_id: watch.resourceId,
+          expiration: watch.expiration,
+          reason: "activate_failed_after_watch_created",
+          error_class: errorClass,
+          error_message: errorMessage,
+        },
+        // Drive DID create this channel, so GC must be able to stop it.
+        watch.resourceId,
+      ),
     );
     await log.error("drive watch subscribe failed", {
       source: "drive.watch",
@@ -929,7 +950,24 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
     );
     const stopped: string[] = [];
+    // Bound the pass. Candidates are ordered oldest-first and capped, and the
+    // loop also stops on elapsed time: a `superseded` row whose stop keeps
+    // failing is retried forever BY DESIGN, so without both bounds ~20 such
+    // rows would consume the GC cron's 300s window and — being the oldest —
+    // would be served first on every subsequent pass, starving every expired
+    // and orphaned row behind them (whole-diff finding 1).
+    const gcStartedMs = Date.now();
     for (const channel of candidates) {
+      if (Date.now() - gcStartedMs >= GC_RUN_BUDGET_MS) {
+        void log.warn("drive watch GC run budget exhausted", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_GC_BUDGET_EXHAUSTED",
+          stoppedCount: stopped.length,
+          remainingCount: candidates.length - stopped.length,
+          budgetMs: GC_RUN_BUDGET_MS,
+        });
+        break;
+      }
       // `expired` means the lease ran out, so Google already stopped delivering
       // and there is nothing left to stop (spec §3.1.4). Reading the STATUS
       // rather than comparing `expires_at` keeps this population distinct from

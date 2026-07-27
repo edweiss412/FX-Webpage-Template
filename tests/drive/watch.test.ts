@@ -89,7 +89,10 @@ class FakeWatchTx {
     return 1;
   }
 
-  async markOrphaned(id: string) {
+  orphanedResourceIds: Array<[string, string | null | undefined]> = [];
+
+  async markOrphaned(id: string, resourceId?: string | null) {
+    this.orphanedResourceIds.push([id, resourceId]);
     this.operations.push(`markOrphaned:${id}`);
     // Mirrors production's `status = 'pending'` filter
     // (lib/drive/watch.ts markOrphaned). A permissive fake would mask
@@ -1859,5 +1862,94 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
     });
 
     expect(result.failures).toEqual([{ folderId: "*", operation: "folder_read" }]);
+  });
+});
+
+describe("activation and GC failure branches (whole-diff findings 2 and 5)", () => {
+  test("activatePending returning ZERO orphans the channel AND records its Drive resourceId", async () => {
+    // Promotion orphaned the pending row between the insert and the activation,
+    // so activatePending matches zero rows and returns 0 WITHOUT throwing —
+    // the case no existing test covered, since they all threw instead.
+    class ZeroActivationTx extends FakeWatchTx {
+      override async activatePending(): Promise<number> {
+        this.operations.push("activatePending:zero-rows");
+        return 0;
+      }
+    }
+    const tx = new ZeroActivationTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx: tx as never,
+      uuid: () => "ch-zero",
+      webhookSecret: () => "s",
+      now: () => tx.now.getTime(),
+      watchFolder: async () => ({
+        id: "ch-zero",
+        resourceId: "google-resource-1",
+        expiration: new Date(tx.now.getTime() + 86_400_000).toISOString(),
+      }),
+    });
+
+    // Removing the zero-count check would make this resolve `active`: the
+    // existing tests only ever THREW from activatePending, so none of them
+    // discriminated (finding 5).
+    expect(result).toMatchObject({ outcome: "orphaned" });
+    // And the resourceId must be recorded, or GC's channels.stop exits early on
+    // the null and the Drive channel stays live to its lease (finding 2).
+    expect(tx.orphanedResourceIds).toEqual([["ch-zero", "google-resource-1"]]);
+  });
+
+  test("a SUPERSEDED row whose stop fails with a real 404 IS marked stopped", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "sup-404",
+      status: "superseded",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: tx.now.toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      stopChannel: async () => {
+        // A REAL gaxios 404 shape. The pre-existing test threw
+        // `new Error("channels.stop 404")`, whose message contains "404" but
+        // carries no numeric status — so it never exercised the classification.
+        throw Object.assign(new Error("Channel not found"), { response: { status: 404 } });
+      },
+    });
+
+    expect(result.stopped).toEqual(["sup-404"]);
+    expect(tx.rows[0]!.status).toBe("stopped");
+  });
+
+  test("a SUPERSEDED row whose stop fails non-404 is LEFT superseded for retry", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "sup-503",
+      status: "superseded",
+      watchedFolderId: "f",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: tx.now.toISOString(),
+      expiresAt: tx.now.toISOString(),
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      stopChannel: async () => {
+        throw Object.assign(new Error("backend error"), { response: { status: 503 } });
+      },
+    });
+
+    // Abandoning it here would leak a possibly-live channel — the exact reason
+    // §3.1.2 routes invalid leases to `superseded` rather than `expired`.
+    expect(result.stopped).toEqual([]);
+    expect(tx.rows[0]!.status).toBe("superseded");
   });
 });

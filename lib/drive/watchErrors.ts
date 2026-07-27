@@ -34,6 +34,23 @@ export const REAP_ID_LOG_CAP = 20;
  */
 export const DRIVE_CALL_TIMEOUT_MS = 15_000;
 
+/**
+ * Cap on candidates examined in one GC pass, and the elapsed budget that stops
+ * the loop early.
+ *
+ * Both exist because a `superseded` row whose `channels.stop` keeps failing is
+ * left for retry indefinitely — deliberately, since abandoning it would leak a
+ * live Drive channel. Without a cap, ~20 such rows at DRIVE_CALL_TIMEOUT_MS
+ * each consume the GC cron's 300s request window, and since candidates are
+ * ordered oldest-first they are served first on every subsequent pass too, so
+ * everything behind them is never collected.
+ *
+ * The budget is well under the cron's 300s so the pass ends on its own terms
+ * rather than being cut off mid-row.
+ */
+export const GC_CANDIDATES_PER_PASS = 200;
+export const GC_RUN_BUDGET_MS = 120_000;
+
 // Lease-slack constants (spec 2026-07-25-watch-lease-slack-design §2).
 //
 // Requested channel lifetime. Google's documented maximum for the `files`

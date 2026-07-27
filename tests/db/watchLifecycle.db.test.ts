@@ -121,6 +121,28 @@ describe("promotion supersedes the prior folder's channels (spec §3.2.4)", () =
 
   afterEach(cleanup);
 
+  test("the PRODUCTION promoteSettings carries both statements, inside the settings-swap transaction", async () => {
+    // The behavioural tests below run COPIED SQL, so deleting the production
+    // statements, changing their scope, or moving them outside the transaction
+    // would leave them green (whole-diff finding 4). This pins the real source:
+    // both updates must appear inside promoteSettings, between its
+    // `update public.app_settings` and the function's close.
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("app/api/admin/onboarding/finalize-cas/route.ts", "utf8");
+    const body = src.slice(
+      src.indexOf("async function promoteSettings"),
+      src.indexOf("async function markFinalCasDone"),
+    );
+    expect(body).not.toBe("");
+    expect(body).toMatch(/update public\.app_settings/);
+    expect(body).toMatch(
+      /update public\.drive_watch_channels[\s\S]*?set status = 'superseded'[\s\S]*?watched_folder_id is distinct from/,
+    );
+    expect(body).toMatch(
+      /update public\.drive_watch_channels[\s\S]*?set status = 'orphaned'[\s\S]*?watched_folder_id is distinct from/,
+    );
+  });
+
   test("committed: prior folder's active -> superseded, pending -> orphaned, new folder untouched", async () => {
     await seed();
     await sql.begin(async (tx) => {
