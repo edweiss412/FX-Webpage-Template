@@ -57,8 +57,9 @@ describe("SAMPLING_PERIOD_MS agrees with the canonical refresh-watch schedule", 
 
   test("T_EXEC_BUDGET_MS matches the registry's declared pg_net timeout", () => {
     // Whole-diff R17: the descope that moved this assertion onto the live
-    // `cron.job` row left T_EXEC_BUDGET_MS with NO guard that runs in CI —
-    // pg-cron-coverage is excluded from unit-suite and is not run by any x-audit
+    // `cron.job` row left T_EXEC_BUDGET_MS with no guard that ran in CI. That
+    // is FIXED as of 2026-07-26 — pg-cron-coverage is no longer excluded from
+    // unit-suite-db and also runs against the validation project via x-audit
     // (filed as BL-PG-CRON-COVERAGE-UNRUN), and every other test derives its
     // expectation from the constant itself, so mutating it stayed green.
     //

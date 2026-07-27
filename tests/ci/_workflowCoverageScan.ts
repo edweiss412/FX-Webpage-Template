@@ -27,13 +27,64 @@
  */
 
 const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
-const SUPPRESS_RE = /(\|\|\s*true)|(;\s*exit\s+0)|(\|\s*(tee|cat|grep)[^|]*$)/;
+/**
+ * Whether the line that invokes a spec can swallow a non-zero exit.
+ *
+ * ALLOWLIST, not a leak hunt. The previous version enumerated three leak
+ * forms (`|| true`, `; exit 0`, a trailing `tee|cat|grep` pipe) and an
+ * adversarial round walked straight past all three with `|| :`, `; true`, and
+ * `| sed -n 1p`. Enumerating bad shapes loses to whoever writes the next one,
+ * so this asks the opposite question: is anything AT ALL chained after the
+ * invocation that could replace its status?
+ *
+ * `;`, `|`, and `||` are all status-replacing (`a; b` and `a | b` both report
+ * b's status absent `pipefail`, and `a || b` runs b precisely when a failed).
+ * `&&` is NOT: `setup && playwright test …` still fails the step when either
+ * side fails, and real workflows here use it, so it stays allowed.
+ *
+ * Scoped to the lines that actually carry an invocation, so an unrelated
+ * `echo … | tee` elsewhere in a multi-line run block does not disqualify a
+ * step. Where it is ambiguous this errs toward REJECTING — a false "dark"
+ * reading costs an allowlist row with a reason, while a false "covered" one
+ * silently deletes real coverage.
+ */
+function suppressesExit(cmd: string): boolean {
+  return cmd
+    .split("\n")
+    .filter((line) => /\bplaywright\b|\bpnpm\b/.test(line))
+    .some((line) => /[;|]/.test(line));
+}
+
+/**
+ * The ONE command form that covers a whole config rather than a named spec.
+ *
+ * A whole-config command names no spec, so spec-path extraction finds nothing
+ * and the job would claim nothing at all — not "rejected", but invisible. That
+ * gap is closed by recognizing a single exact literal and nothing else.
+ *
+ * Deliberately not a grammar. Four adversarial rounds failed to make general
+ * narrowing semantics (`--grep`, `--shard`, positional filters, arguments
+ * forwarded from a call site) sound, and each repair introduced the next
+ * contradiction; those ambitions are filed as backlog items instead. Anything
+ * that is not this exact string yields no whole-config claim, which cannot be
+ * attacked on grammar because there is none.
+ *
+ * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.1.
+ */
+const WHOLE_CONFIG_RE = /^pnpm exec playwright test --config (\S+)$/;
 
 type Opts = {
   /** workflow file basename -> raw YAML text */
   workflows: Record<string, string>;
   /** package.json "scripts" map, for alias resolution */
   packageScripts: Record<string, string>;
+  /**
+   * config path -> the spec paths its `testMatch` resolves to. Supplied by the
+   * caller (the meta-test resolves it from the live config) so this module
+   * stays pure and hardcodes no membership. A config absent from this map
+   * yields no whole-config claim.
+   */
+  configSpecs?: Record<string, string[]>;
 };
 
 /** The `on:` block (from the `on:` line to the next top-level key). */
@@ -77,7 +128,47 @@ function jobs(yaml: string): Array<{ head: string; steps: string[] }> {
   });
 }
 
-export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
+/**
+ * Whether a block declares `continue-on-error` in any status-swallowing form.
+ *
+ * ALLOWLIST again: only a literal `false` is safe. Matching literal `true`
+ * missed `${{ true }}` — an expression GitHub evaluates to true — and would
+ * equally miss `${{ github.event_name == 'push' }}` or a `yes`/`on` YAML
+ * boolean. Anything that is not exactly `false` is treated as swallowing,
+ * because the scanner cannot evaluate an expression and must not guess in the
+ * permissive direction.
+ */
+function hasContinueOnError(block: string): boolean {
+  const m = block.match(/(^|\n)\s*continue-on-error\s*:\s*([^\n]*)/);
+  if (!m) return false;
+  return (
+    m[2]!
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .toLowerCase() !== "false"
+  );
+}
+
+/**
+ * Constructs that change WHERE or WHETHER a `run:` command executes, and that
+ * this scanner deliberately refuses to model.
+ *
+ * An adversarial round produced false coverage through six of them:
+ * `shell: bash -c ":" {0}` at step, job-default, or workflow-default level
+ * (the command never runs, the step succeeds); `working-directory:` at the
+ * same three levels (a relative config path resolves to a DIFFERENT config);
+ * and `needs: gate` where `gate` carries `if: false`, so Actions skips the
+ * job even though its own head has no condition.
+ *
+ * Modelling these is a losing game — the previous two rounds died the same way
+ * — so a workflow using ANY of them yields no coverage at all. That is
+ * conservative in the correct direction: a spec reads as dark and keeps its
+ * allowlist row, rather than reading as covered by a job that never ran it.
+ * Nothing in this repo's e2e workflows uses any of them.
+ */
+const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container|needs)\s*:/;
+
+export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
 } {
@@ -103,23 +194,41 @@ export function scanWorkflowCoverage({ workflows, packageScripts }: Opts): {
     // its specs "covered" even though the job does not run on every PR (found while
     // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
     const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
+    // Checked against the WHOLE file: `shell:`/`working-directory:`/`defaults:`
+    // apply at workflow, job, or step level, and `needs:` can point at a job
+    // that is skipped. Any of them anywhere means this scanner cannot say what
+    // ran, so it says nothing.
+    const unmodelled = UNMODELLED_RE.test(yaml);
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
-      const jobCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(job.head);
+      const jobCoe = hasContinueOnError(job.head);
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
         if (!runMatch) continue;
         const cmd = runMatch[2]!;
         const stepIf = /(^|\n)\s*if\s*:/.test(step);
-        const stepCoe = /(^|\n)\s*continue-on-error\s*:\s*true/.test(step);
-        for (const spec of resolveSpecs(cmd)) {
+        const stepCoe = hasContinueOnError(step);
+        // Whole-config claim. Evaluated against the ENTIRE run block, and
+        // deliberately NOT through alias resolution: an adversarial round
+        // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
+        // `set +e` block, and for a backgrounded `… &`, because alias
+        // recursion applied the exact match to the package-script BODY while
+        // qualification only ever saw the outer command. Requiring the whole
+        // run block to BE the literal removes the shell reasoning entirely —
+        // there is no surrounding context left to smuggle anything into.
+        const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+        const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+
+        for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
           if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
+          else if (unmodelled)
+            rejected.push({ file, spec, reason: "unmodelled execution override" });
           else if (hasPathsFilter)
             rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
           else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
           else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
-          else if (SUPPRESS_RE.test(cmd))
+          else if (suppressesExit(cmd))
             rejected.push({ file, spec, reason: "exit-code suppression" });
           else covered.add(spec);
         }
