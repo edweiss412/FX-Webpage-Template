@@ -43,7 +43,11 @@ interface Scanned {
 const REQUIRED_DECLARATIONS: Record<string, readonly string[]> = {
   "crew.ts": ["CREW_COLUMN_POSITIONAL_FALLBACK"],
   "rooms.ts": ["ROOM_HEADER_SPLIT_AMBIGUOUS"],
-  "hotels.ts": ["HOTEL_GUEST_SPLIT_AMBIGUOUS", "HOTEL_CARDINALITY_EXCEEDED"],
+  "hotels.ts": [
+    "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    "HOTEL_CARDINALITY_EXCEEDED",
+    "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+  ],
   "dates.ts": ["DATE_ORDER_SUGGESTS_DMY"],
 };
 
@@ -114,6 +118,23 @@ describe("transform-sites source walker", () => {
       undeclared,
       `AMBIGUITY_CODES members with no declared TRANSFORM_SITES site: ${undeclared.join(", ")}`,
     ).toEqual([]);
+  });
+
+  // REQUIRED_DECLARATIONS alone cannot prove BOTH hotel deferrals were closed:
+  // it only checks a code occurs SOMEWHERE in the file, and
+  // HOTEL_GUEST_SPLIT_AMBIGUOUS was already present for the structured site. So
+  // an implementation could flip only the address site, leave "inline guest
+  // paths" deferred with its backlog row intact, and pass every other check.
+  it("hotels.ts declares ZERO deferred exempts (both 2026-07-25 deferrals closed)", async () => {
+    const scanned = await scanFiles();
+    const hotels = scanned.find((s) => s.file === "hotels.ts");
+    expect(hotels, "hotels.ts not found under lib/parser/blocks/").toBeTruthy();
+    const deferred = (hotels?.sites ?? []).filter(
+      (e) => "exempt" in e && e.exempt.startsWith("deferred:"),
+    );
+    expect(deferred, `hotels.ts still defers: ${deferred.map((e) => e.site).join(", ")}`).toEqual(
+      [],
+    );
   });
 
   it("deferred exemptions use a concrete BL-<REF> present in BACKLOG.md", async () => {

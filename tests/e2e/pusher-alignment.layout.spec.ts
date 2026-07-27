@@ -32,6 +32,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
@@ -92,11 +93,7 @@ test.beforeAll(async () => {
     entryCss,
     `${sources.join("\n")}\n${readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8")}`,
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

@@ -67,9 +67,25 @@ export const GAP_CLASSES = [
   // push-worthy alert (Flow 8.3a §6/§10). Mirrors VENUE_GEOCODE_UNRESOLVED.
   { code: "VENUE_TIMEZONE_UNRESOLVED", label: "undetermined venue time zone", gateExempt: true },
   { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
-  { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "possibly merged hotel guests" },
-  { code: "DATE_ORDER_SUGGESTS_DMY", label: "dates may be day-first" },
-  { code: "HOTEL_CARDINALITY_EXCEEDED", label: "too many hotels" },
+  // `plural` (optional): clause-shaped labels cannot take the default bare "s"
+  // — "2 hotel line may be read wrongs" reached staged-review chips and badge
+  // breakdowns (whole-diff R6 f2). Noun labels keep the default.
+  {
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    label: "hotel line may be read wrong",
+    plural: "hotel lines may be read wrong",
+  },
+  {
+    code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    label: "hotel name and address may be split wrong",
+    plural: "hotel names and addresses may be split wrong",
+  },
+  {
+    code: "DATE_ORDER_SUGGESTS_DMY",
+    label: "dates may be day-first",
+    plural: "dates may be day-first",
+  },
+  { code: "HOTEL_CARDINALITY_EXCEEDED", label: "too many hotels", plural: "too many hotels" },
 ] as const;
 
 export type GapCode = (typeof GAP_CLASSES)[number]["code"];
@@ -330,10 +346,13 @@ export function dataGapClassDetails(
   summary: DataGapsSummary,
 ): Array<{ key: GapCode; count: number; label: string }> {
   const out: Array<{ key: GapCode; count: number; label: string }> = [];
-  for (const { code, label } of GAP_CLASSES) {
-    const count = summary.classes[code];
+  for (const row of GAP_CLASSES) {
+    const count = summary.classes[row.code];
     if (count > 0) {
-      out.push({ key: code, count, label: count === 1 ? label : `${label}s` });
+      // Clause-shaped labels carry an explicit `plural` (R6 f2); the bare "s"
+      // default is for noun labels only.
+      const plural = ("plural" in row ? row.plural : undefined) ?? `${row.label}s`;
+      out.push({ key: row.code, count, label: count === 1 ? row.label : plural });
     }
   }
   return out;

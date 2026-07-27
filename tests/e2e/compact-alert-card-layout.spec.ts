@@ -36,11 +36,11 @@
  *     tests/e2e/compact-alert-card-layout.spec.ts
  */
 import { test, expect, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
@@ -60,26 +60,14 @@ test.beforeAll(async () => {
 <body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  execFileSync(
-    "pnpm",
-    [
-      "dlx",
-      "esbuild@0.28.0",
-      join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx"),
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      "--external:node:fs",
-      `--alias:node:crypto=${join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts")}`,
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--alias:next/navigation=${join(REPO_ROOT, "tests", "e2e", "_nextNavigationStub.ts")}`,
-      `--outfile=${join(workDir, "bundle.js")}`,
-    ],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
-  );
+  bundleLiveEntry({
+    entry: join(REPO_ROOT, "tests", "e2e", "_compactAlertCardLiveEntry.tsx"),
+    outFile: join(workDir, "bundle.js"),
+    aliases: {
+      "node:crypto": join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts"),
+      "next/navigation": join(REPO_ROOT, "tests", "e2e", "_nextNavigationStub.ts"),
+    },
+  });
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
@@ -96,11 +84,7 @@ test.beforeAll(async () => {
       globals,
     ].join("\n"),
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

@@ -32,11 +32,11 @@
  * Runs standalone via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
 import { test, expect } from "@playwright/test";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 // CommonJS package — Playwright's CJS loader provides __dirname. Mirrors
 // agendaScheduleLayout.spec.ts.
@@ -158,11 +158,7 @@ test.beforeAll(async () => {
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
   writeFileSync(entryCss, `@source "${join(workDir, "harness.html")}";\n${globals}`);
 
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";

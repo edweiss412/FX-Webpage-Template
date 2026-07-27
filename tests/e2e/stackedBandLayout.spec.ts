@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import { syncStatusBucket } from "../../lib/admin/syncStatus";
 import { formatRelative } from "../../lib/admin/showDisplay";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 // Derived, never literal: longest catalog label + the longest minute-form
@@ -51,11 +52,7 @@ test.beforeAll(async () => {
     `@source "${join(workDir, "parity.html")}";\n` +
       readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8"),
   );
-  execFileSync(
-    "pnpm",
-    ["dlx", "@tailwindcss/cli@4.2.4", "-i", entryCss, "-o", join(workDir, "out.css")],
-    { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
-  );
+  compileEntryCss({ entryCss: entryCss, outFile: join(workDir, "out.css") });
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
     const file = url === "/" || url === "" ? "parity.html" : url.replace(/^\//, "");

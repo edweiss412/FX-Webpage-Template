@@ -24,6 +24,7 @@ import {
   hasRecoveredToBaseline,
   isQualityRegression,
 } from "@/lib/parser/dataGaps";
+import { AMBIGUITY_CODES } from "@/lib/parser/ambiguityCodes";
 import type { ParseWarning } from "@/lib/parser/types";
 
 const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseWarning => ({
@@ -39,9 +40,9 @@ const classesWith = (overrides: Record<string, number>): Record<string, number> 
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 33 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(33);
-    expect(DATA_GAP_CODES.size).toBe(33);
+  it("has exactly 34 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(34);
+    expect(DATA_GAP_CODES.size).toBe(34);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
@@ -75,12 +76,46 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     const s = summarizeDataGaps([
       warn("ROOM_HEADER_SPLIT_AMBIGUOUS"),
       warn("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+      warn("HOTEL_ADDRESS_SPLIT_AMBIGUOUS"),
       warn("DATE_ORDER_SUGGESTS_DMY"),
       warn("HOTEL_CARDINALITY_EXCEEDED"),
     ]);
-    expect(s.total).toBe(4);
+    expect(s.total).toBe(5);
     // recovery symmetry: an ambiguity regression blocks recovery to baseline
     expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
+  });
+
+  it("clause-shaped labels pluralize as sentences, not with a bare 's' (R6 f2)", () => {
+    // The naive `${label}s` renders "2 hotel line may be read wrongs" on
+    // staged-review chips and badge breakdowns. Clause-shaped rows carry an
+    // explicit plural; noun rows keep the default.
+    const two = (code: string) =>
+      summarizeDataGaps([warn(code), warn(code)] as Parameters<typeof summarizeDataGaps>[0]);
+    const labelFor = (code: string) =>
+      dataGapClassDetails(two(code)).find((d) => d.key === code)!.label;
+    expect(labelFor("HOTEL_GUEST_SPLIT_AMBIGUOUS")).toBe("hotel lines may be read wrong");
+    expect(labelFor("HOTEL_ADDRESS_SPLIT_AMBIGUOUS")).toBe(
+      "hotel names and addresses may be split wrong",
+    );
+    expect(labelFor("DATE_ORDER_SUGGESTS_DMY")).toBe("dates may be day-first");
+    expect(labelFor("HOTEL_CARDINALITY_EXCEEDED")).toBe("too many hotels");
+    // The noun default is untouched.
+    expect(labelFor("FIELD_UNREADABLE")).toBe("unreadable fields");
+  });
+
+  it("no ambiguity code's GAP row is gateExempt (whole-diff R4 f4)", () => {
+    // gateExempt would keep membership/summary/copy tests green while silently
+    // dropping the code from RESYNC_QUALITY_REGRESSED participation and the
+    // first-seen/drift digests. Pinned for EVERY ambiguity code, so a new
+    // member cannot ship dark either.
+    for (const code of AMBIGUITY_CODES) {
+      const row = GAP_CLASSES.find((g) => g.code === code);
+      expect(row, `${code} must be a GAP class`).toBeTruthy();
+      expect(
+        (row as { gateExempt?: boolean }).gateExempt,
+        `${code} must NOT be gateExempt`,
+      ).toBeUndefined();
+    }
   });
 
   it("regression gate stays UNPARTITIONED for ambiguity + cardinality classes (§3.4 carve-out)", () => {
@@ -119,7 +154,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 33
+    expect(out.total).toBe(GAP_CLASSES.length); // 34
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 

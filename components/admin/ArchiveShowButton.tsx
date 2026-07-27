@@ -37,12 +37,12 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
-const ARM_REVERT_MS = 4_000;
 
 // §12.4 codes this button may surface inline. ADMIN_LINK_SHOW_NOT_FOUND is
 // RETIRED — a show_not_found result renders the generic refresh prompt, NOT a

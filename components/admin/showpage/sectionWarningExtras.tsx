@@ -119,7 +119,7 @@ function SectionWarningItemControls(props: {
         mode={mode}
         reportSurfaceId={reportSurfaceId}
       />
-      {/* spec §8: use-raw toggle for the 3 recoverable structural-transform warnings; self-hides
+      {/* spec §8: use-raw toggle for the 4 recoverable structural-transform warnings; self-hides
           (null) for every other code. */}
       <UseRawControlBoundary
         surface="show"

@@ -40,11 +40,16 @@ describe("computeNewShowGaps (spec §3.2, §3.3)", () => {
         "DATE_ORDER_SUGGESTS_DMY",
         "ROOM_HEADER_SPLIT_AMBIGUOUS",
         "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+        "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
       ]),
     ]);
+    // GAP_CLASSES order. The address code appearing here also pins that its row
+    // is not gateExempt — an exempt row is excluded from first-seen digests
+    // (whole-diff R4 f4).
     expect(out[0]!.items).toEqual([
       label("ROOM_HEADER_SPLIT_AMBIGUOUS"),
       label("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+      label("HOTEL_ADDRESS_SPLIT_AMBIGUOUS"),
       label("DATE_ORDER_SUGGESTS_DMY"),
     ]);
   });

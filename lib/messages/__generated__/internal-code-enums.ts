@@ -107,6 +107,9 @@ export const INTERNAL_CODE_ENUMS = {
   GOOGLE_NO_CREW_MATCH: {
     source: "admin_alerts.code"
   },
+  HOTEL_ADDRESS_SPLIT_AMBIGUOUS: {
+    source: "parse_warnings.code"
+  },
   HOTEL_CARDINALITY_EXCEEDED: {
     source: "parse_warnings.code"
   },
