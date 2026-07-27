@@ -25,14 +25,17 @@ Also EDITED (all tracked, cited normally elsewhere):
 | `lib/driveIdCoverage/introspect.ts` | EDIT — add `CENSUS_COLUMNS_PG_CATALOG_SQL` (independent second census) |
 | `tests/db/driveIdCoverage.db.test.ts` | EDIT — import shared runner; add dual-source cross-check tests |
 | `tests/db/driveFileIdNonblank.db.test.ts` | EDIT — probe registry, 16 new probes, completeness meta-test, CI fail-not-skip |
+| `tests/db/driveIdCoverage.test.ts` | EDIT — DB-free collision negative control for `censusTupleKey` (AC-7) + `resolvePgCronMode` four-combination test (§3.1) |
 | `tests/db/validation-schema-parity.test.ts` | EDIT — identity assert; new drive-id audit layer vs validation |
 | `tests/cross-cutting/pg-cron-coverage.test.ts` | EDIT — identity assert when `PG_CRON_COVERAGE_TARGET=validation` |
 | `BACKLOG.md` / `BACKLOG-archive.md` | EDIT — graduate the four entries (archive move, not in-place terminal status) |
 | parent spec §10/§11 | EDIT — status notes pointing here (see §9) |
 
-No migrations. No UI. No advisory-lock surfaces. No workflow YAML changes (both CI jobs already
-carry the env this design needs: `.github/workflows/x-audits.yml:313-346` and
-`.github/workflows/x-audits.yml:348-394`).
+No migrations. No UI. No advisory-lock surfaces. No workflow WIRING changes — jobs, steps, and
+env untouched (both CI jobs already carry what this design needs:
+`.github/workflows/x-audits.yml:313-346` and `.github/workflows/x-audits.yml:348-394`) — but one
+comment block in `x-audits.yml` is rewritten by §9's lockstep (its "inherited ceiling" claim
+becomes false when §3.1 lands).
 
 ## 1. Problem
 
@@ -172,7 +175,22 @@ which would relabel an identity abort as generic "psql unreachable" in the CI `b
 becomes tri-state — `reachable` / `identity_mismatch` / `unreachable` — by running one guarded
 `select 1` when the target is validation and classifying a caught guard exception (matched on
 the guard's exception text) as `identity_mismatch`; the gate test reports the identity message
-for that state. So the binding contract, stated precisely: **every statement whose result any
+for that state.
+
+**Mode resolution fails closed** (R3 finding 2). `coverageTarget` defaults to `"local"` and only
+the exact string `"validation"` activates the ref check and the guards
+(`tests/cross-cutting/pg-cron-coverage.test.ts:98`,
+`tests/cross-cutting/pg-cron-coverage.test.ts:141`,
+`tests/cross-cutting/pg-cron-coverage.test.ts:154`) — so a removed, empty, or
+misspelled `PG_CRON_COVERAGE_TARGET` with the remote DSN still wired would run every reachable
+query IDENTITY-UNGUARDED against whatever the DSN reaches. Extracted as a pure function
+(`unreachableDbFailure` is the template, `lib/driveIdCoverage/introspect.ts:103-119`):
+`resolvePgCronMode({ target, dbUrl })` returns `"local"` only for a LOOPBACK `dbUrl` (the
+`tests/db/_localDbUrl.ts` loopback rule), returns `"validation"` only for the exact string, and
+THROWS on every other combination — including non-loopback `dbUrl` with target unset/empty/
+misspelled, the fail-open path. All four combinations (target ∈ {exact, other} × dbUrl ∈
+{loopback, remote}) are asserted in the DB-free unit test — the remote+non-exact combination is
+the negative control for the silent-pass path R3 named. So the binding contract, stated precisely: **every statement whose result any
 assertion consumes travels through the guard on its own connection; reachability probes either
 carry the guard with tri-state classification (pg-cron) or are guard-exempt with the
 first-guarded-query backstop (parity `canConnect`).** AC-1 uses this contract.
@@ -188,6 +206,16 @@ probe) route through it — which also retires the PRE-EXISTING leak on those pa
 failed `introspectManifest` or CHECK-parity exec already prints the DSN via the raw
 `execFileSync` error. A unit test forces a failure through the runner with a
 sentinel-password DSN and asserts the sentinel appears nowhere in the thrown error.
+
+**The contract covers CONSTRUCTED messages, not only runner throws** (R3 finding 1). pg-cron
+builds two messages that interpolate `databaseUrl` raw — the CI-unreachable throw
+(`tests/cross-cutting/pg-cron-coverage.test.ts:174-183`) and the local skip warning
+(`tests/cross-cutting/pg-cron-coverage.test.ts:184-190`); those are the only two raw-DSN
+emissions in either touched suite (swept: every `databaseUrl`/`dbUrl` interpolation into a
+message string; `validation-schema-parity.test.ts` interpolates none — its messages name the env
+VAR, and its `LOCAL_DB_URL` literal carries no secret). Both are rewritten to the redacted form,
+and the sentinel unit test additionally exercises the message-builder path for the CI-unreachable
+error so a reintroduced raw interpolation goes red, not just runner throws.
 
 Negative controls that run on every developer box: asserting identity against the LOCAL stack
 must throw with the mismatch message (local identifier ≠ pinned), and a
@@ -375,6 +403,8 @@ export const PROBE_EXEMPTIONS: { schema: string; table: string; column: string; 
 | `system_identifier` mismatch | wrong DB / re-provisioned | throw with both values + remediation |
 | guarded query lands on a non-validation connection | multi-host / failover DSN | in-script `DO` guard aborts under `ON_ERROR_STOP` (§3.1) |
 | psql invocation fails, DSN in argv | any failure incl. forced identity aborts | shared runner rethrows with DSN redacted (§3.1, R2-1) |
+| suite-constructed message embeds `databaseUrl` | pg-cron CI throw / local warn | both rewritten redacted; sentinel test covers the builder (§3.1, R3-1) |
+| `PG_CRON_COVERAGE_TARGET` unset/empty/misspelled with remote DSN | fail-open bypass of guards | `resolvePgCronMode` throws — fail-closed (§3.1, R3-2) |
 | pg-cron reachability probe hits wrong cluster | identity abort in probe | tri-state `identity_mismatch`, reported as identity failure, never "unreachable" (§3.1, R2-3) |
 | local DB down, `CI` set (incl. empty string) | CI infra fault | throw (`unreachableDbFailure`, presence-not-truthiness) — now also in the probes suite |
 | local DB down, `CI` unset | dev box, no stack | skip |
@@ -417,8 +447,10 @@ Single named definitions later sections reference; no other section restates the
   distinguishable; the §3.1 binding contract holds — every assertion-feeding statement guarded on
   its own connection, pg-cron's reachability probe tri-state, parity `canConnect` exempt with the
   first-guarded-query backstop; a guarded `select 1` against the local stack aborts (negative
-  control); and no error thrown by the shared psql runner contains the DSN (sentinel-password
-  unit test).
+  control); no error thrown by the shared psql runner AND no constructed message in either suite
+  contains the DSN (sentinel-password unit test covers both the runner path and the pg-cron
+  CI-unreachable message builder); `resolvePgCronMode` throws on non-loopback DSN without the
+  exact validation target (four-combination DB-free test).
 - **AC-2** The validation audit layer runs `auditDriveIdCoverage` over a pinned-tx census of the
   validation DB and reports `[]`; manifest-derived public membership + the `EXPECTED_DEV_CENSUS`
   set-equality both assert; layer skips when `TEST_DATABASE_URL` unset.
@@ -465,4 +497,11 @@ Single named definitions later sections reference; no other section restates the
   §11 table rows likewise. §10 items 3/6 stand.
 - The `BL-PG-CRON-COVERAGE-UNRUN` entry ("this job inherits `BL-VALIDATION-TARGET-BINDING`"):
   update to record the ceiling is closed by §3.1.
+- Two source comments this design makes false are rewritten in the same PR (R3 finding 4):
+  `lib/driveIdCoverage/introspect.ts:7-10` ("a regression in THIS query is not self-detecting …
+  the control on it is review of these ~15 lines") — rewritten to name the §3.3 dual-source
+  cross-check as the mechanical control, with review remaining only for the identical-two-site
+  residue; and the `x-audits.yml` "INHERITED CEILING" block
+  (`.github/workflows/x-audits.yml:365-370`) — rewritten to record that the connected-server
+  identity guard now proves the target, citing this spec.
 - No §12.4 catalog rows touched (no error-code changes).
