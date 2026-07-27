@@ -44,6 +44,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertValidationIdentity,
+  execPsqlRedacted,
+  withValidationIdentityGuard,
+} from "@/tests/db/_validationTargetIdentity";
+import {
   INTROSPECT_PUBLIC_COLUMNS_SQL,
   diffManifestAgainstLive,
   manifestFromRows,
@@ -57,6 +62,15 @@ import {
 const MANIFEST_PATH = "supabase/__generated__/schema-manifest.json";
 const MIGRATIONS_DIR = "supabase/migrations";
 const LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+// ── Target binding (spec 2026-07-26-driveid-guard-cluster-design §3.1) ──────
+// Runs BEFORE any helper below can touch the target: when this suite is pointed at validation
+// (TEST_DATABASE_URL set), the connected cluster must BE validation. A mismatch fails the whole
+// file at collection with the discriminable two-identifier message — no later layer runs against
+// an unproven target. Locally (unset) the local target is deliberate and nothing asserts.
+if (process.env.TEST_DATABASE_URL !== undefined && process.env.TEST_DATABASE_URL.trim() !== "") {
+  assertValidationIdentity(process.env.TEST_DATABASE_URL);
+}
 
 function loadManifest(): SchemaManifest {
   return JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
@@ -95,13 +109,16 @@ function localFreshnessDbUrl(): string {
 const PSQL_CONNECT_TIMEOUT_S = "10";
 const PSQL_PROCESS_TIMEOUT_MS = 30_000;
 
-function introspectManifest(dbUrl: string): SchemaManifest {
-  const stdout = execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
-    input: INTROSPECT_PUBLIC_COLUMNS_SQL,
-    encoding: "utf8",
-    timeout: PSQL_PROCESS_TIMEOUT_MS,
-    env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
-  });
+/**
+ * `guarded` binds the introspection to the validation cluster ON ITS OWN CONNECTION (the DO
+ * guard aborts under ON_ERROR_STOP if a multi-host/failover DSN routed this psql elsewhere).
+ * Layer 3 introspects the LOCAL stack and passes false — the local target is deliberate.
+ */
+function introspectManifest(dbUrl: string, guarded: boolean): SchemaManifest {
+  const sql = guarded
+    ? withValidationIdentityGuard(INTROSPECT_PUBLIC_COLUMNS_SQL)
+    : INTROSPECT_PUBLIC_COLUMNS_SQL;
+  const stdout = execPsqlRedacted(dbUrl, ["-qAt"], sql);
   return manifestFromRows(parsePsqlRows(stdout));
 }
 
@@ -177,7 +194,9 @@ describe("validation-schema-parity", () => {
       );
     }
     const manifest = loadManifest();
-    const live = introspectManifest(dbUrl);
+    // Guarded exactly when the target is validation (TEST_DATABASE_URL set); the local
+    // fallback target is deliberate and must not be identity-bound.
+    const live = introspectManifest(dbUrl, process.env.TEST_DATABASE_URL !== undefined);
     const { missingTables, missingColumns } = diffManifestAgainstLive(manifest, live);
 
     const report = [
@@ -205,7 +224,7 @@ describe("validation-schema-parity", () => {
       return; // skip
     }
     const committed = readFileSync(MANIFEST_PATH, "utf8");
-    const fresh = serializeManifest(introspectManifest(local));
+    const fresh = serializeManifest(introspectManifest(local, false));
     expect(
       fresh,
       `${MANIFEST_PATH} does not match a fresh introspection of the local DB. ` +
@@ -259,20 +278,16 @@ describe("validation-schema-parity", () => {
           `TEST_DATABASE_URL to the validation session-pooler URL.`,
       );
     }
-    const stdout = execFileSync(
-      "psql",
-      [
-        raw,
-        "-qAtc",
+    // Guarded on its own connection: the DO block aborts before the conname read if this psql
+    // landed anywhere but validation (spec §3.1).
+    const stdout = execPsqlRedacted(
+      raw,
+      ["-qAt"],
+      withValidationIdentityGuard(
         "select conname from pg_constraint where conname like " +
           "'%\\_drive\\_file\\_id\\_nonblank' and connamespace = 'public'::regnamespace " +
           "and contype = 'c'",
-      ],
-      {
-        encoding: "utf8",
-        timeout: PSQL_PROCESS_TIMEOUT_MS,
-        env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
-      },
+      ),
     );
     const live = new Set(
       stdout
@@ -288,5 +303,138 @@ describe("validation-schema-parity", () => {
         `via \`psql "$TEST_DATABASE_URL" -f <migration>\`, then \`notify pgrst, 'reload schema'\`:\n` +
         missing.map((c) => `  - ${c}`).join("\n"),
     ).toEqual([]);
+  });
+
+  // ── Status-CHECK parity (validation-observable) ─────────────────────────
+  // Sibling of the block above, added for the `expired` status migration
+  // (spec docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md §4.4).
+  // It is a SEPARATE parse rather than an addition to NONBLANK_MIGRATIONS,
+  // whose `toBe(17)` non-vacuity guard is scoped to that constraint family.
+  //
+  // It asserts the constraint DEFINITION, not just its name: the name
+  // `drive_watch_channels_status_check` already existed in validation carrying
+  // the OLD six-value list, so a name-only superset check passes whether or not
+  // the migration was ever applied.
+  it("status-CHECK parity — validation's drive_watch_channels status CHECK admits `expired`", () => {
+    const STATUS_MIGRATION = "20260726000000_drive_watch_expired_status.sql";
+    const migrationSql = readFileSync(join(MIGRATIONS_DIR, STATUS_MIGRATION), "utf8");
+
+    const re = /alter\s+table\s+public\.\w+\s+add\s+constraint\s+(\w+)\s+check/gi;
+    const parsed = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(migrationSql)) !== null) parsed.add(m[1]!);
+
+    // Non-vacuity guard: a drifted or empty parse would make the definition
+    // check below unreachable and the test trivially green.
+    expect(parsed.size, "migration parse must yield exactly 1 public CHECK name").toBe(1);
+    expect(parsed.has("drive_watch_channels_status_check")).toBe(true);
+
+    const raw = process.env.TEST_DATABASE_URL;
+    if (raw === undefined) return; // skip locally, like the layer above
+    if (raw.trim() === "") {
+      throw new Error(
+        "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+          "registered with an empty value.",
+      );
+    }
+    if (!canConnect(raw)) {
+      throw new Error(
+        "Cannot connect to the validation DB for status-CHECK parity. In CI set " +
+          "TEST_DATABASE_URL to the validation session-pooler URL.",
+      );
+    }
+    // Guarded + redacted like every other validation-targeting statement (spec
+    // 2026-07-26-driveid-guard-cluster-design §3.1).
+    const def = execPsqlRedacted(
+      raw,
+      ["-qAt"],
+      withValidationIdentityGuard(
+        "select pg_get_constraintdef(oid) from pg_constraint where conname = " +
+          "'drive_watch_channels_status_check' and connamespace = 'public'::regnamespace",
+      ),
+    ).trim();
+
+    expect(
+      def,
+      "The validation project's drive_watch_channels status CHECK does not admit " +
+        "`expired` — apply supabase/migrations/" +
+        STATUS_MIGRATION +
+        ' to validation via `psql "$TEST_DATABASE_URL" -f <migration>`.',
+    ).toMatch(/=\s*ANY\s*\(ARRAY\[[^)]*'expired'/i);
+    // Matching a bare /'expired'/ would also pass a constraint such as
+    // `status <> 'expired'`, which REJECTS the value this gate exists to admit
+    // (whole-diff finding 7).
+  });
+});
+
+// ── Drive-ID audit parity (spec 2026-07-26-driveid-guard-cluster-design §3.2) ─
+// The definition-based layer: run the SAME auditor the local guard runs, against validation,
+// over a census taken in ONE pinned transaction whose first statement is the identity guard.
+// Tuple-keyed, definition-matched, column-substituted — a same-named constraint on another
+// table, or one weakened to CHECK (true), cannot satisfy it (the conname layer above stays as
+// the migration-anchored complement).
+describe("drive-id audit parity (definition-based, vs validation)", () => {
+  it("validation's Drive-ID columns all carry canonical CHECKs; census anchored both ways", async () => {
+    const raw = process.env.TEST_DATABASE_URL;
+    if (raw === undefined) return; // local dev: the local guard suite covers this machine
+    if (raw.trim() === "") {
+      throw new Error(
+        "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+          "registered with an empty value.",
+      );
+    }
+    const postgres = (await import("postgres")).default;
+    const { censusInPinnedTx, censusTupleKey, diffCensusSources, EXPECTED_DEV_CENSUS } =
+      await import("@/tests/db/_censusRunner");
+    const { identityGuardSql } = await import("@/tests/db/_validationTargetIdentity");
+    const { auditDriveIdCoverage, DRIVE_ID_COVERAGE_EXEMPTIONS } =
+      await import("@/lib/driveIdCoverage/audit");
+    const client = postgres(raw, { max: 1, connect_timeout: 10, prepare: false });
+    try {
+      const { columns, constraints } = await censusInPinnedTx(client, {
+        preambleSql: [identityGuardSql()],
+      });
+
+      // Anti-vacuity 1 — manifest-derived public membership. The committed manifest is
+      // BASE-TABLE/public introspection with its own layer-1 freshness tripwires; every
+      // manifest column matching the census pattern must appear in validation's census.
+      const manifest: Record<string, string[]> = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+      const expectedPublic = Object.entries(manifest)
+        .filter(([table]) => !table.startsWith("_"))
+        .flatMap(([table, cols]) =>
+          cols
+            .filter((c) => /drive_file_id/.test(c))
+            .map((column) => ({ schema: "public", table, column })),
+        );
+      expect(
+        expectedPublic.length,
+        "a broken derivation regex would empty the expected set and pass vacuously",
+      ).toBeGreaterThan(0);
+      const censusKeys = new Set(columns.map((c) => censusTupleKey(c)));
+      const missingFromCensus = expectedPublic.filter((t) => !censusKeys.has(censusTupleKey(t)));
+      expect(
+        missingFromCensus,
+        "manifest-derived Drive-ID columns absent from the validation census",
+      ).toEqual([]);
+
+      // Anti-vacuity 2 — the dev slice set-equals the committed six-tuple expectation,
+      // both directions (dev is not in the manifest, so the first anchor cannot see it).
+      const devSlice = columns
+        .filter((c) => c.schema === "dev")
+        .map((c) => ({ schema: c.schema, table: c.table, column: c.column }));
+      expect(
+        diffCensusSources(devSlice, EXPECTED_DEV_CENSUS),
+        "validation's dev census does not match the committed expectation",
+      ).toEqual({ onlyA: [], onlyB: [] });
+
+      // The audit itself: zero findings = every census column canonically covered.
+      const findings = auditDriveIdCoverage(columns, constraints, DRIVE_ID_COVERAGE_EXEMPTIONS);
+      expect(
+        findings,
+        `validation Drive-ID coverage findings:\n${findings.map((f) => JSON.stringify(f)).join("\n")}`,
+      ).toEqual([]);
+    } finally {
+      await client.end();
+    }
   });
 });

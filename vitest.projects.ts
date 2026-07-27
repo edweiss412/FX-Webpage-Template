@@ -45,9 +45,12 @@ export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
 // project already defines its own `exclude` (the bug that broke the first run of
 // this split — the CLI flags silently did nothing and email-canonicalization
 // ran + timed out).
+// pg-cron-coverage was removed from this list on 2026-07-26: unit-suite-db
+// boots a Postgres and applies the pg_cron migrations, so it has a live
+// database to introspect. See tests/cross-cutting/pgCronCiVacuity.test.ts for
+// the anti-vacuity guards that keep it from passing without asserting.
 export const ENV_BOUND_EXCLUDES = [
   "**/tests/admin/test-auth-gate.test.ts",
-  "**/tests/cross-cutting/pg-cron-coverage.test.ts",
   "**/tests/cross-cutting/email-canonicalization.test.ts",
 ];
 

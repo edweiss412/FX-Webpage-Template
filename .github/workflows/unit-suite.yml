@@ -59,7 +59,7 @@ name: Unit + DB suite (full vitest gate)
 # REQUIRED check-context name) needs BOTH jobs and fails unless BOTH rolled up
 # success.
 #
-# Three files are EXCLUDED via VITEST_EXCLUDE_ENV_BOUND=1 (a project-level
+# TWO files are EXCLUDED via VITEST_EXCLUDE_ENV_BOUND=1 (a project-level
 # exclude in vitest.config.ts) — they need environments this local-bootstrap
 # runner cannot provide, or starve under full-suite concurrency. (That rationale
 # once said "the 2-core runner"; measured 2026-07-20, these runners are 4-core /
@@ -67,10 +67,15 @@ name: Unit + DB suite (full vitest gate)
 # stands on its own; the core count was stale and had already been cited as
 # grounds for a since-retracted optimization proposal.) Each excluded file is
 # gated elsewhere, so excluding them here is not a regression:
-#   - tests/cross-cutting/pg-cron-coverage.test.ts — live-DB cron.job
-#     introspection; runs against the validation project (like
-#     validation-schema-parity). The bootstrap holds aside the GUC-guarded
-#     pg_cron migrations, so no cron jobs exist locally.
+# (pg-cron-coverage was the third until 2026-07-26 and now RUNS here. Its
+# exclusion rested on a false premise recorded in this very comment — "the
+# bootstrap holds aside the GUC-guarded pg_cron migrations, so no cron jobs
+# exist locally". supabase-local-bootstrap.sh holds them aside for the INITIAL
+# boot only, then applies them with `supabase migration up --include-all`, so
+# this job has always had a Postgres whose cron.job rows were produced by
+# PostgreSQL parsing this branch's SQL. Under CI the suite now throws rather
+# than skipping when psql is unreachable, and asserts a non-zero live-case
+# count, so it cannot report success without touching the database.)
 #   - tests/admin/test-auth-gate.test.ts — drives a real auth.admin.createUser →
 #     signInWithPassword chain needing the running instance's service-role key.
 #   - tests/cross-cutting/email-canonicalization.test.ts — 15s per-test

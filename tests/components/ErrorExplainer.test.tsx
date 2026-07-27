@@ -57,7 +57,7 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext={true} AND catalog.helpfulContext is non-null, renders the helpful-context block", () => {
-    // AMBIGUOUS_EMAIL_BINDING is one of the 45 ADMIN_ALERTS_CODES: the
+    // AMBIGUOUS_EMAIL_BINDING is one of the 46 ADMIN_ALERTS_CODES: the
     // alert-copy-full-sweep (docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md
     // §5) forces every admin alert code's helpfulContext to null (content
     // migrated to longExplanation on /help/errors), so it no longer fits this

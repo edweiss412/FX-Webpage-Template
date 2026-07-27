@@ -26,6 +26,7 @@
  * copy button's "Copy") cannot satisfy them. Expected values derive from the props fixture.
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -435,9 +436,7 @@ describe("StatusStrip", () => {
       // Comments are stripped first: the file deliberately DOCUMENTS the removed
       // `alertCount > 0` disjunct so a future reader does not re-add it, and that
       // prose must not read as a live reference.
-      const code = readFileSync(STRIP_SRC, "utf8")
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\/\/.*$/gm, "");
+      const code = stripCommentsForFile(readFileSync(STRIP_SRC, "utf8"), STRIP_SRC);
       expect(code).not.toMatch(/alertCount/);
       // Non-vacuity: the comment-stripper must not have eaten the whole file.
       expect(code).toMatch(/export function StatusStrip/);

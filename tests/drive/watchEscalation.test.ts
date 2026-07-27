@@ -1,12 +1,21 @@
 import { describe, expect, test, vi } from "vitest";
 import { maybeEscalateWatchOrphaned } from "@/lib/drive/watchEscalation";
-import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
+import { ESCALATION_AFTER_MS } from "@/lib/drive/watchErrors";
 
 const ALERT = (
-  over: Partial<{ id: string; occurrence_count: number; context: Record<string, unknown> }> = {},
+  over: Partial<{
+    id: string;
+    occurrence_count: number;
+    raised_at: string;
+    context: Record<string, unknown>;
+  }> = {},
 ) => ({
   id: "alert-1",
-  occurrence_count: ESCALATION_THRESHOLD,
+  occurrence_count: 3,
+  // Default: past the escalation window relative to the REAL clock, so the
+  // pre-existing suites (which assume "ALERT() is due") keep their premise
+  // under the duration trigger.
+  raised_at: new Date(Date.now() - ESCALATION_AFTER_MS - 60_000).toISOString(),
   context: { error_class: "drive_api" },
   ...over,
 });
@@ -30,7 +39,7 @@ describe("maybeEscalateWatchOrphaned", () => {
     const deps = makeDeps({
       readUnresolvedWatchAlert: vi
         .fn()
-        .mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD - 1 })),
+        .mockResolvedValue(ALERT({ raised_at: new Date(Date.now() - 60_000).toISOString() })),
     });
     const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: false, faults: [] });
@@ -55,9 +64,7 @@ describe("maybeEscalateWatchOrphaned", () => {
   });
   test("still fires above threshold when no guard exists (multi-bump robustness)", async () => {
     const deps = makeDeps({
-      readUnresolvedWatchAlert: vi
-        .fn()
-        .mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD + 4 })),
+      readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: 7 })),
     });
     expect(
       (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated,
@@ -170,5 +177,73 @@ describe("maybeEscalateWatchOrphaned", () => {
     expect((deps.captureException as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toMatchObject({
       extra: { watchedFolderId: "folder-1" },
     });
+  });
+});
+
+// Backoff spec §3.5 / §6 class 8: escalation triggers on raised_at AGE, decoupled
+// from occurrence_count. Real harness identifiers: makeDeps(over) + ALERT(over);
+// each case injects `now` and a raised_at derived from ESCALATION_AFTER_MS.
+describe("duration-based escalation trigger (backoff spec §3.5, class 8)", () => {
+  const NOW = new Date("2026-07-27T12:00:00.000Z");
+  const at = (ageMs: number) => new Date(NOW.getTime() - ageMs).toISOString();
+  const INPUT = { folderId: "folder-1", folderName: "F" };
+  const clocked = (alertOver: Record<string, unknown>) =>
+    makeDeps({
+      now: () => NOW,
+      readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT(alertOver)),
+    });
+
+  test("fires at raised_at age >= window even at occurrence_count 1", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(ESCALATION_AFTER_MS + 60_000), occurrence_count: 1 }),
+    );
+    expect(r.escalated).toBe(true);
+  });
+
+  test("fires at EXACTLY the window boundary (>= is normative; > would stay green without this pin)", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(ESCALATION_AFTER_MS), occurrence_count: 1 }),
+    );
+    expect(r.escalated).toBe(true);
+  });
+
+  test("does NOT fire below the window even at occurrence_count 99 - the decoupling", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(ESCALATION_AFTER_MS - 60_000), occurrence_count: 99 }),
+    );
+    expect(r.escalated).toBe(false);
+  });
+
+  test("config class fires at age 0", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(0), occurrence_count: 1, context: { error_class: "config" } }),
+    );
+    expect(r.escalated).toBe(true);
+  });
+
+  test("email bodies carry the canonical backoff sentence in text AND html (spec §3.7)", async () => {
+    const deps = clocked({ raised_at: at(ESCALATION_AFTER_MS + 60_000) });
+    const r = await maybeEscalateWatchOrphaned(INPUT, deps);
+    expect(r.escalated).toBe(true);
+    const sendEmail = deps.sendEmail as ReturnType<typeof vi.fn>;
+    const call = (sendEmail.mock.calls[0] as unknown[])[0] as { text: string; html: string };
+    const SENTENCE =
+      "FXAV keeps retrying the connection on its own, waiting longer between attempts the longer it fails.";
+    expect(call.text).toContain(SENTENCE);
+    expect(call.html).toContain(SENTENCE);
+    expect(call.text).not.toContain("every hour");
+    expect(call.html).not.toContain("every hour");
+  });
+
+  test("future raised_at (skew) does not fire", async () => {
+    const r = await maybeEscalateWatchOrphaned(
+      INPUT,
+      clocked({ raised_at: at(-3_600_000), occurrence_count: 99 }),
+    );
+    expect(r.escalated).toBe(false);
   });
 });

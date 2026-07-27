@@ -297,7 +297,7 @@ export async function resolveHealthAlertFormAction(formData: FormData): Promise<
 // Shared by the AlertBanner action slot and the Settings Drive panel.
 // Infra faults THROW typed (invariant 9 / R2-3) — the Next error boundary
 // surfaces them; no_folder_configured is a deliberate, logged no-op (nothing
-// to retry; the hourly reconcile treats no-folder as vacuous-healthy).
+// to retry; the 15-minute reconcile treats no-folder as vacuous-healthy).
 export async function retryWatchSubscriptionFormAction(_formData: FormData): Promise<void> {
   await requireAdmin();
 
@@ -323,7 +323,7 @@ export async function retryWatchSubscriptionFormAction(_formData: FormData): Pro
     return;
   }
 
-  const result = await subscribeToWatchedFolder(folder.folderId);
+  const result = await subscribeToWatchedFolder(folder.folderId, { recordAttempt: true });
   if (result.outcome === "active") {
     await resolveAdminAlert({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
     // Invariant #10: successful-renewal is the only branch that emits (post-commit,

@@ -222,6 +222,20 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?source=eq.postgrest-dml-lockdown-test-no-such-row",
   },
   {
+    // Watch reconnect bookkeeping (backoff spec §3.2): fully private, written
+    // ONLY through the WatchTx pg port inside subscribeToWatchedFolder; read
+    // ONLY by the service-role surface helper. anon/authenticated have zero
+    // access; RLS is enabled with no policy.
+    table: "drive_watch_reconcile_state",
+    closed_at: "supabase/migrations/20260727000000_drive_watch_reconcile_state.sql:30",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      watched_folder_id: "postgrest-dml-lockdown-test",
+    },
+    rowFilter: "?watched_folder_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
     table: "admin_emails",
     closed_at: "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:97",
     selectAnon: false,

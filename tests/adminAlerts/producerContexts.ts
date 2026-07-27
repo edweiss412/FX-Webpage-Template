@@ -92,6 +92,16 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { show_id: SHOW_ID, new_epoch: 2, admin_email_hash: "h" },
   },
+  // lib/auth/picker/selectIdentity.ts:74 — global (showId null on the rejected-tamper path)
+  {
+    code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    showId: null,
+    context: {
+      slug: "show-one",
+      crew_member_id: "22222222-2222-2222-2222-222222222222",
+      reason: "hand_crafted_post_bypassed_deactivated_row",
+    },
+  },
   // 8. lib/sync/assetRecovery.ts:500-504 — showId is the row column
   {
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",

@@ -21,7 +21,8 @@
  *
  * AC-10.2: every documented success/failure path renders via messageFor — never
  * a raw §12.4 code (AGENTS.md invariant 5). Mid-run failures arrive as a
- * terminal { ok:false, code:null } → the generic copy (no raw code).
+ * terminal { ok:false, code:"ONBOARDING_SCAN_FAILED" } → that row's cataloged
+ * copy; a null or unrecognized code still falls back to the generic copy.
  *
  * WIZARD_SESSION_SUPERSEDED_DURING_SCAN is admin-log-only (spec §12.4:2693): the
  * client routes the "superseded" outcome through router.refresh(), never copy.
@@ -55,14 +56,18 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "OPERATOR_ERROR_NOT_FOLDER",
   "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
   "WIZARD_ISOLATION_INDEXES_MISSING",
+  "ONBOARDING_SCAN_FAILED",
 ]);
 
-// not-subject:M5-D8 — code-less generic fallbacks (network unreachable / unknown
-// or null code). There is no §12.4 code to route through messageFor for these;
-// the prior component used these same literals inline at the callsites.
+// not-subject:M5-D8 — code-less generic fallback: the fetch itself threw, so no
+// response body and no §12.4 code ever arrived to route through messageFor.
 const GENERIC_DRIVE_ERROR =
   "We could not reach Drive just now. Check your connection and try again.";
-// not-subject:M5-D8 — generic verify fallback for a null/unrecognized code.
+// Defensive fallback for a null or UNRECOGNIZED code. Every documented scan
+// failure now carries a §12.4 code (the mid-run throw graduated to
+// ONBOARDING_SCAN_FAILED), so this renders only for codes newer than this
+// client or a body that lost its code in transit.
+// not-subject:M5-D8 — code-less by definition; nothing to route through messageFor.
 const GENERIC_VERIFY_ERROR =
   "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.";
 

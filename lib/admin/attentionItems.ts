@@ -116,6 +116,7 @@ export const ATTENTION_ROUTES: Record<string, AttentionRoute> = {
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: { sectionId: "overview" },
   CALLBACK_CLAIM_THREW: { sectionId: "overview" },
   PICKER_SELECTION_RACE: { sectionId: "overview" },
+  PICKER_IDENTITY_CLAIMED_TAMPER: { sectionId: "overview" },
   PICKER_EPOCH_RESET: { sectionId: "overview" },
   ASSET_RECOVERY_BYTES_EXCEEDED: { sectionId: "rooms", anchor: "diagrams" },
   ASSET_RECOVERY_REVISION_DRIFT: { sectionId: "overview" },

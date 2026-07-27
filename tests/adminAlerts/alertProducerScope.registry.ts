@@ -52,6 +52,12 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
+    site: "lib/auth/picker/selectIdentity.ts:74",
+    contextKeys: ["crew_member_id", "reason", "slug"],
+    code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    scope: "global",
+  },
+  {
     site: "lib/auth/validateGoogleSession.ts:40",
     contextKeys: ["crew_member_ids", "email"],
     code: "AMBIGUOUS_EMAIL_BINDING",
@@ -211,7 +217,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
 
   // ── DYNAMIC (one row per resolvable literal; code-completeness is the §3.0 residual risk) ──
   {
-    site: "lib/drive/watch.ts:463",
+    site: "lib/drive/watch.ts:817",
     computedContext: true,
     contextKeys: ["watched_folder_id", "channel_id", "reason", "error_class", "error_message"],
     code: "WATCH_CHANNEL_ORPHANED",
@@ -508,7 +514,7 @@ function rowsFor(code: string): ProducerScopeRow[] {
   return PRODUCER_SCOPE.filter((row) => row.code === code);
 }
 
-/** Whether the discovery pass found any producer for this code. 13 of the 45
+/** Whether the discovery pass found any producer for this code. 13 of the 46
  *  registered codes have none — they are raised outside the discovered surface.
  *  Callers MUST branch on this before applying a subset rule: an empty
  *  `allowedKeys` rejects every non-empty context rather than permitting it. */

@@ -26,6 +26,7 @@
  * mask the auth-gate proof. Set inline by Vitest's env setup below.
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { admin } from "../e2e/helpers/supabaseAdmin";
@@ -44,7 +45,10 @@ const FIXTURE_HAPPY = "2026-03-rpas-central-four-seasons.md";
 const ACTIONS_SOURCE_PATH = join(process.cwd(), "app/admin/dev/actions.ts");
 
 function firstStatementOfExportedAction(name: string): string {
-  const source = readFileSync(ACTIONS_SOURCE_PATH, "utf8");
+  const source = stripCommentsForFile(
+    readFileSync(ACTIONS_SOURCE_PATH, "utf8"),
+    ACTIONS_SOURCE_PATH,
+  );
   const headerMatch = new RegExp(`export\\s+async\\s+function\\s+${name}\\b`).exec(source);
   expect(
     headerMatch,
@@ -67,16 +71,11 @@ function firstStatementOfExportedAction(name: string): string {
   expect(closeBrace, `expected to find closing brace for ${name}`).toBeGreaterThan(openBrace);
 
   const body = source.slice(openBrace + 1, closeBrace);
+  // Source is comment-stripped above, so blanked comment lines trim to empty.
   const executableLines = body
     .split("\n")
     .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length > 0 &&
-        !line.startsWith("//") &&
-        !line.startsWith("*") &&
-        !line.startsWith("/*"),
-    );
+    .filter((line) => line.length > 0);
   return executableLines[0] ?? "";
 }
 

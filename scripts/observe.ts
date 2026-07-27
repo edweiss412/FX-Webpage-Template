@@ -192,7 +192,7 @@ export async function runObserve(
   if (command === "watch") {
     const r = await deps.queryWatchChannels(parsed.watchFilters);
     if (r.kind === "infra_error") return fail(r.message, parsed.json);
-    return { stdout: formatWatch(r.rows, parsed.json), stderr: "", exitCode: 0 };
+    return { stdout: formatWatch(r.rows, parsed.json, r.stateRows), stderr: "", exitCode: 0 };
   }
   if (command === "events" || command === "tail") {
     // Clamp to the CLI contract (1..500; command-specific default). collectEvents

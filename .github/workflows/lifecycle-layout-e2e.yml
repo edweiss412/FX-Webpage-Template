@@ -79,6 +79,27 @@ jobs:
       - run: pnpm exec playwright install chromium webkit
       - name: Run admin lifecycle layout e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
+      # admin-lifecycle-transitions is NOT wired here yet, deliberately, and the
+      # reason is measured rather than assumed. Spec §6.1 sets acceptance at
+      # FIVE CONSECUTIVE GREEN RUNS and pre-ratifies the fallback: "if it cannot
+      # reach that, it stays dark with a recorded reason. An admitted flake is
+      # worse than a known gap."
+      #
+      # Best measured: 4/5 locally, and this job failed once in real CI on the
+      # "Published toggle round-trip" case (Expected "false", Received "true" —
+      # the unpublish had not landed inside a 30s window). Local runs could not
+      # settle it either: this box carried load average 16-21 with a sibling
+      # worktree mutating the SAME local Supabase, so the failing cases move
+      # between runs for reasons unrelated to the spec.
+      #
+      # What DID land in this PR: the retired `admin-share-link-inactive`
+      # assertion is deleted, the unreachable compound Archive case is retired,
+      # and the pre-hydration swallow is fixed properly (prove hydration on a
+      # non-mutating control, then dispatch the mutation exactly once). Those
+      # took the spec from "fails every run" to "one flaky case", which is what
+      # makes the remaining gap small enough to state precisely.
+      #
+      # Tracked: BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE.
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

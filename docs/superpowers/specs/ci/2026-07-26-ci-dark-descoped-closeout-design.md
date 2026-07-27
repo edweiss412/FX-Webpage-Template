@@ -196,7 +196,10 @@ A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
    total regardless of extension or directory because Playwright itself resolves it.
 2. Resolves membership of each of the three configs with
    `playwright test --config <cfg> --list --reporter=json` in a child process, unioning file
-   paths normalized against each report's `rootDir`.
+   paths normalized against each report's `rootDir`. (Three at spec time. The §3.1 config-set
+   tripwire exists to force extension, and did: `tests/e2e/visual.config.ts` joined the set
+   2026-07-27 when merging main's section-header visual gate; its bare-host load refusal is
+   satisfied for `--list` only, which executes nothing and compares no bytes.)
 3. Asserts every disk spec is a member of the union OR of `DARK_SPEC_ALLOWLIST`, a
    reason-and-backlog-ref-keyed record seeded with exactly one row:
    `packlist-rescan-recovery.spec.ts` → `BL-HARNESS-PACKLIST-SERVER-GRAPH` (deleted again by

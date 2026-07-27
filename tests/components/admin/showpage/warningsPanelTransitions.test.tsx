@@ -21,6 +21,7 @@
  * is to prove nothing animates rather than to prove an animation is correct.
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { resolve } from "node:path";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -125,11 +126,14 @@ describe("transition audit: nothing in the four-state path animates", () => {
       // test could not have.
       "parseNotes.length > 0",
     ];
-    const src = readFileSync(resolve(process.cwd(), FILES[0]!), "utf8");
+    const src = stripCommentsForFile(
+      readFileSync(resolve(process.cwd(), FILES[0]!), "utf8"),
+      FILES[0]!,
+    );
     const start = src.indexOf("const routedWarningsRenderElsewhere = chrome?.");
     const region = src.slice(start, src.indexOf("No parse warnings for this sheet."));
 
-    const code = region.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const code = region;
 
     // Every expected condition is still present...
     for (const expr of EXPECTED) {
@@ -169,7 +173,7 @@ describe("transition audit: nothing in the four-state path animates", () => {
     // consumption in the layout effect.
     const compMatch = src.match(/function ElsewherePointerSentence\([\s\S]*?\n\}\n/);
     expect(compMatch, "ElsewherePointerSentence body located").not.toBeNull();
-    const comp = compMatch![0].replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const comp = compMatch![0];
     const compTernaries = (comp.match(/(?<!\?)\?(?![.?])/g) ?? []).length;
     const compIfs = (comp.match(/\bif\s*\(/g) ?? []).length;
     const compGuards = (comp.match(/&&/g) ?? []).length;

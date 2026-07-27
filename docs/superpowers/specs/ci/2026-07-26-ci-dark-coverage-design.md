@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-26 · **Branch family:** `feat/ci-dark-coverage` (4 PRs) · **Class:** CI wiring / test-coverage integrity
 
-**Backlog items closed:** `BL-STANDALONE-CONFIG-CI-DARK`, `BL-E2E-LIFECYCLE-SPECS-CI-DARK`, `BL-CRON-REGISTRY-MIGRATION-PARITY`
+**Backlog items closed:** `BL-STANDALONE-CONFIG-CI-DARK`, `BL-CRON-REGISTRY-MIGRATION-PARITY`
+**Reduced but still open:** `BL-E2E-LIFECYCLE-SPECS-CI-DARK` — 30 rows closed by PR2, but `admin-lifecycle-transitions` stayed dark on measurement (§6.1's own fallback; see the §6.1 amendment)
 **Partially closed, stays open:** `BL-PG-CRON-COVERAGE-UNRUN` (per-job smoke-test residue, §9) · `BL-DEV-GATE-GALLERY-SPEC-ROT` (still not PR-gated, §6.2)
 **Backlog items FILED by this spec:** four, in §10 — guard ambitions descoped after four review rounds. **Their measurements live in `BACKLOG.md`, not only here**, so a future session finds them by grepping the backlog rather than this document.
 
@@ -299,6 +300,8 @@ Host assertions are **out of scope** and filed as `BL-PG-CRON-HOST-ASSERTION` (�
 
 ### §6.1 `admin-lifecycle-transitions`
 
+> **AMENDED at implementation time.** The spec below planned to ADD this to `.github/workflows/lifecycle-layout-e2e.yml`. It was NOT added: acceptance is five consecutive green runs and this reached 4/5 locally plus one real-CI failure on the Published-toggle round-trip, so §6.1's own pre-ratified fallback applies — "it stays dark with a recorded reason. An admitted flake is worse than a known gap." Both DETERMINISTIC breaks below were fixed and shipped, taking the spec from failing every run to one flaky case; a third repair (the pre-hydration swallow) is also in. The allowlist row is retained carrying that measurement, and `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` records the CI-loop procedure a follow-up should use. Everything from here to the end of §6.1 describes the planned wiring, kept as provenance.
+
 Add to `.github/workflows/lifecycle-layout-e2e.yml:81`, after repairing **two** distinct failure classes — an earlier draft named only the first, which would have made AC-6 unreachable:
 
 1. **Three pre-hydration click-swallow flakes**, whose failing cases move between runs. Repair with the `toPass` hydration-retry pattern the sibling layout spec already uses.
@@ -312,7 +315,7 @@ Add to `.github/workflows/lifecycle-layout-e2e.yml:81`, after repairing **two** 
 
    Worth stating plainly, because it is this cluster's thesis in miniature: **a merged redesign silently broke a spec, and nothing noticed for months** because no workflow ran it. A spec that ran would have failed the redesign's own PR. Acceptance is **five consecutive green runs**; the recorded failure mode is cases that move between runs, so one green proves nothing.
 
-Its allowlist row is deleted in the same PR: that workflow is unfiltered, so adding the spec makes it genuinely covered and the shadowing assertion fires while an `UNSEEN` row survives.
+Its allowlist row would have been deleted in the same PR, because that workflow is unfiltered and adding the spec would make it genuinely covered. Since the spec was NOT added (see the amendment above), the row is RETAINED — rewritten to carry the measurement rather than the old generic `UNSEEN` reason.
 
 **Isolation is mandatory when running it**: `E2E_PORT=<free port>` (`playwright.config.ts:8-13`), because `reuseExistingServer` will otherwise attach to a sibling worktree's dev server and test the wrong code, and the spec seeds the shared local database.
 
@@ -351,7 +354,7 @@ Not touched, with reason: `tests/log/_auditableMutations.ts` (no mutation surfac
 - **AC-3** The toolchain guard is red against `main` (33 sites) and green after migration; a recorded mutation turns the `testMatch`-branch guard red.
 - **AC-4** `pg-cron-coverage` executes in `unit-suite-db` with a non-zero live-DB test count, and an `x-audits.yml` job runs it against validation.
 - **AC-5** Under `CI`, an unreachable `psql` fails the job rather than skipping.
-- **AC-6** `admin-lifecycle-transitions` is in a workflow, green five consecutive times, and its allowlist row is deleted.
+- **AC-6** `admin-lifecycle-transitions` is in a workflow, green five consecutive times, and its allowlist row is deleted. **NOT MET, and resolved by this AC's own fallback (§11): 4/5 locally plus one real-CI failure on the Published-toggle round-trip, so the spec stays dark with a recorded reason rather than shipping an admitted flake.** Both deterministic breaks were fixed and the pre-hydration swallow repaired, so it went from failing every run to one flaky case; the row is retained carrying that measurement. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`.
 - **AC-7** `attention-modal-gallery` passes and fires on a schedule of at most 24 hours; its row is rewritten, not deleted.
 - **AC-8** No file under `components/`, `app/`, `DESIGN.md`, or `tailwind.config.*` is modified in any of the four PRs.
 

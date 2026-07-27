@@ -104,6 +104,7 @@ const CONFIGS = [
   "playwright.config.ts",
   "tests/e2e/standalone.config.ts",
   "playwright.screenshots.config.ts",
+  "tests/e2e/visual.config.ts",
 ] as const;
 
 export const DARK_SPEC_ALLOWLIST: Record<string, string> = {
@@ -139,6 +140,11 @@ function resolvedFiles(config: string): Set<string> {
       timeout: 180_000,
       maxBuffer: 64 * 1024 * 1024,
       encoding: "utf8",
+      // visual.config.ts refuses to LOAD on a bare host (its byte-pinned
+      // baselines are container-only; tests/e2e/visual.config.ts:25). --list
+      // executes nothing and compares no bytes, so satisfying the gate here
+      // keeps membership observation total without weakening the run-time refusal.
+      env: { ...process.env, SECTION_HEADER_VISUAL_CONTAINER: "1" },
     },
   );
   const json = JSON.parse(out.slice(out.indexOf("{")));
@@ -195,7 +201,7 @@ describe("spec registration detector (spec §3.1)", () => {
     ).toEqual([]);
   });
 
-  it("config-set tripwire: invocation census + filename belt both equal the known trio", () => {
+  it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const texts: string[] = Object.values(pkg.scripts as Record<string, string>);
     const wfDir = join(ROOT, ".github", "workflows");

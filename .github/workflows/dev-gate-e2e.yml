@@ -23,11 +23,25 @@ name: Dev-gate e2e (build-vs-runtime)
 # shape instead. `workflow_dispatch` so the orchestrator can fire it during
 # close-out (real-CI-green is its own gate — local-passes-CI-fails class).
 on:
-  # workflow_dispatch-only: the three serialized cold builds make this gate
-  # heavy + slow, so it is fired as an orchestrator close-out via
+  # Dispatch + daily schedule (NOT per-PR): the three serialized cold builds
+  # make this gate heavy + slow, so it is fired as an orchestrator close-out via
   # `gh workflow run dev-gate-e2e.yml` (real-CI-green is its own gate — the
-  # local-passes-CI-fails class), NOT on every PR. B1-D4.
+  # local-passes-CI-fails class). B1-D4. The schedule below was added 2026-07-26
+  # so a break is bounded to 24h; this comment said "workflow_dispatch-only"
+  # until then.
   workflow_dispatch:
+  # Plus a DAILY schedule, added 2026-07-26 (PR4 of the CI-dark coverage
+  # cluster). Dispatch-only meant this gate fired when someone remembered, and
+  # tests/e2e/attention-modal-gallery.spec.ts rotted behind it: two assertions
+  # went stale with nothing to notice. Twenty-four hours is the maximum interval
+  # that still bounds how long a break can hide.
+  #
+  # Owned honestly: a schedule is NOT PR-blocking-capable, so the gallery spec
+  # keeps an allowlist row — rewritten with a schedule reason rather than
+  # deleted. The workflow_dispatch trigger stays, since orchestrator close-out
+  # still fires it on demand (B1-D4).
+  schedule:
+    - cron: "17 6 * * *"
 
 jobs:
   dev-gate-e2e:

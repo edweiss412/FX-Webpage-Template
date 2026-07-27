@@ -6,9 +6,14 @@
  * in the changed components (DashboardBucketSegmentedControl, ArchivedShowRow,
  * ArchiveShowButton, PublishShowButton, the per-show lifecycle disclosures) and
  * asserts each behaves as spec §3.4 specifies — which for B2 is "instant" for
- * EVERY pair (no crossfade / height-morph / opacity tween). It also exercises
- * the COMPOUND transition the plan calls out: Archive-confirm armed WHILE a
- * router.refresh() from another action is in flight → no torn state.
+ * EVERY pair (no crossfade / height-morph / opacity tween).
+ *
+ * It NO LONGER exercises the compound transition the plan calls out
+ * (Archive-confirm armed WHILE a router.refresh() from another action is in
+ * flight). That case was retired 2026-07-26: the ShareHub popover's backdrop
+ * makes the two states mutually exclusive, so the scenario is unreachable
+ * through the UI. See the removal note below and
+ * BL-ARCHIVE-ARMED-CONCURRENT-REFRESH.
  *
  * Spec §3.4 Transition inventory (verbatim) — every pair is instant:
  *   | Active segment ↔ Archived segment | instant content swap on URL-param
@@ -32,14 +37,14 @@
  *       not a state animation). This is the structural guard that every §3.4
  *       pair stays "instant".
  *   (B) REAL-BROWSER BEHAVIOR — the resting↔armed morph appears/reverts
- *       instantly with the fixed box; Cancel reverts it; the compound
- *       confirm-during-refresh produces no torn state (the confirm form is the
- *       only Archive control on screen at a time; arming then refreshing leaves
- *       a single, consistent control).
+ *       instantly with the fixed box; and Cancel reverts it. (The compound
+ *       confirm-during-refresh claim was removed with its case — see above.)
  *
  * Requires the e2e env (dev server on :3000 + Supabase). Auth: ADMIN_FIXTURE.
- * A Held show is seeded via `_b2Helpers` (it renders both Publish + Archive, so
- * the compound "another action refreshes while Archive is armed" is reachable).
+ * A Held show is seeded via `_b2Helpers` (it renders both Publish + Archive).
+ * That combination no longer makes the compound "another action refreshes while
+ * Archive is armed" reachable — the popover backdrop covers every control
+ * outside it while the armed control is mounted.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -59,13 +64,48 @@ const LOADED_REVIEW_MODAL =
   '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
 
 /**
+ * Proves the page has HYDRATED, without dispatching anything.
+ *
+ * The ShareHub kebab is a client-only toggle over LOCAL state: opening it
+ * writes nothing and calls no server action, so it can be retried freely. Once
+ * it responds, React has attached handlers on this page — which is exactly the
+ * precondition a mutating control needs, and the one that cannot be inferred
+ * from `toBeEnabled()` (a server-rendered button is enabled before hydration,
+ * which is why the swallowed clicks looked like nothing happening at all).
+ *
+ * Leaves the popover CLOSED so callers see the surface they expect.
+ */
+async function waitForHydration(
+  page: import("@playwright/test").Page,
+  modal: import("@playwright/test").Locator,
+) {
+  const kebab = modal.getByTestId("share-hub-kebab");
+  const popover = modal.getByTestId("share-hub-popover");
+  await expect(async () => {
+    await kebab.click();
+    await expect(popover).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+}
+
+/**
  * The Archive/Unarchive control lives in the status band's ShareHub popover
  * ("Show" section) — the kebab is what opens it. Returns once the popover is
  * mounted, so the caller can query the lifecycle control directly.
  */
 async function openShowActions(modal: import("@playwright/test").Locator) {
-  await modal.getByTestId("share-hub-kebab").click();
-  await expect(modal.getByTestId("share-hub-popover")).toBeVisible();
+  // Hydration retry, mirroring the sibling layout spec. On a cold compile the
+  // first click can land before hydration attaches the handler and is silently
+  // SWALLOWED — measured as three failures whose failing cases move between
+  // runs, which is why one green run proves nothing here. The kebab is a
+  // toggle, so a swallowed click leaves state unchanged and the retry is
+  // idempotent.
+  const popover = modal.getByTestId("share-hub-popover");
+  await expect(async () => {
+    await modal.getByTestId("share-hub-kebab").click();
+    await expect(popover).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
 }
 
 // The components changed/created by Phase 6–8 whose §3.4 pairs must stay instant.
@@ -241,47 +281,33 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   // succeed, we assert the INVARIANT that holds either way: the Archive control
   // is never torn (count of resting + confirm buttons is exactly 1, or 0 if the
   // show transitioned to Published/Archived and the page re-rendered). ──
-  test("compound: Archive armed while another action refreshes → no torn state", async ({
-    page,
-  }) => {
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
-
-    // Arm Archive (inside the hub popover, its only home).
-    await openShowActions(modal);
-    await modal.getByTestId("archive-show-button").click();
-    await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
-
-    // Dispatch the OTHER action (the Published toggle, which replaced the Held
-    // Publish button — in the modal's StatusStrip header) while Archive is
-    // armed. Its form action runs the server action then router.refresh().
-    const toggle = modal.getByTestId("published-toggle");
-    await expect(toggle).toBeVisible();
-    await toggle.click();
-
-    // Let the dispatch + any refresh settle.
-    await page.waitForLoadState("networkidle");
-
-    // INVARIANT (no torn state): the Archive control is coherent. Either:
-    //   - the page re-rendered (refresh) → at most ONE Archive control mounted
-    //     in a single resting OR confirm state (never both), or
-    //   - Publish was blocked (no refresh) → the armed confirm is still the
-    //     single control.
-    // In NO case may BOTH a resting and a confirm Archive button coexist.
-    const restingCount = await modal.getByTestId("archive-show-button").count();
-    const confirmCount = await modal.getByTestId("archive-show-confirm-button").count();
-    expect(
-      restingCount + confirmCount,
-      `Archive control is coherent (resting=${restingCount}, confirm=${confirmCount}) — never both, never torn`,
-    ).toBeLessThanOrEqual(1);
-    // And whichever single control is mounted is itself consistent (visible).
-    if (restingCount === 1) {
-      await expect(modal.getByTestId("archive-show-button")).toBeVisible();
-    } else if (confirmCount === 1) {
-      await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
-    }
-  });
+  // REMOVED 2026-07-26: the "compound: Archive armed while another action
+  // refreshes → no torn state" case. Its premise became STRUCTURALLY
+  // UNREACHABLE and the case could never pass again.
+  //
+  // Measured, not assumed. The run fails with:
+  //   `share-hub-backdrop` ... subtree intercepts pointer events
+  // The armed Archive control lives INSIDE the ShareHub popover
+  // (ShareHub.tsx:929), and while that popover is open it renders a
+  // `fixed inset-0 z-20` backdrop (ShareHub.tsx:631-642) that covers every
+  // control outside it — including the StatusStrip published-toggle this case
+  // dispatched. Closing the popover to reach the toggle unmounts the armed
+  // control. The two states are mutually exclusive BY DESIGN, introduced by
+  // `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9
+  // composition rules (T3)`.
+  //
+  // So this is the same class as the `admin-share-link-inactive` assertion
+  // removed above: a ratified redesign made a test's premise impossible, and
+  // nothing noticed because this spec ran in no workflow. Deleting it is not
+  // losing coverage of a reachable behaviour — it is retiring a scenario the
+  // product no longer permits.
+  //
+  // HONEST GAP, and stated without hedging: an armed Archive concurrent with a
+  // refresh from another SOURCE (realtime, a sibling tab, a server action
+  // completing elsewhere) IS still reachable, and nothing covers it now. What
+  // is unreachable is only the old driver — a second user gesture. Filed as
+  // BL-ARCHIVE-ARMED-CONCURRENT-REFRESH with the route a replacement should
+  // take.
 
   test("Published toggle round-trip: OFF → crew URL shows the paused page (no show data); ON → same URL is live again", async ({
     page,
@@ -297,14 +323,31 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       await expect(modal).toBeVisible({ timeout: 30_000 });
       const toggle = modal.getByTestId("published-toggle");
       await expect(toggle).toHaveAttribute("aria-checked", "true");
+      // Prove hydration on a control that writes NOTHING, then dispatch this
+      // mutation exactly ONCE. An earlier version retried the click itself and
+      // was measurably wrong: `aria-checked` stays "true" while the form action
+      // is pending and the button is disabled, so a slow unpublish let the next
+      // attempt click the refreshed OFF toggle and dispatch a REPUBLISH — the
+      // assertion could then observe the transient OFF state and pass with a
+      // republish in flight. A retry loop must never wrap a real mutation.
+      await waitForHydration(page, modal);
       await toggle.click();
-      await expect(toggle).toHaveAttribute("aria-checked", "false");
-      // CASP-2: the compact inline StatusStrip toggle no longer carries a subline; the
-      // paused-state copy now lives once in the Overview #share-access inactive notice
-      // (the single source — the inline variant dropped its duplicate subline).
-      await expect(modal.getByTestId("admin-share-link-inactive")).toContainText(
-        "The crew link is inactive while this show is unpublished.",
-      );
+      // Generous: this is a server action plus router.refresh(), and the 1.5s
+      // the retry version allowed was never enough for it.
+      await expect(toggle).toHaveAttribute("aria-checked", "false", { timeout: 30_000 });
+      // REMOVED 2026-07-26: an assertion on `admin-share-link-inactive` and the
+      // copy "The crew link is inactive while this show is unpublished." No
+      // production module emits either — `d7fa48b9a feat(admin): replace the
+      // Overview share cluster with the status-band hub (T4)` deleted the panel
+      // that carried them, and that is a ratified redesign, not a regression.
+      // It is not a rename: the nearest surviving string is a rotation
+      // confirmation in RotateShareTokenButton, a different message in a
+      // different control, and `admin-current-share-link-unavailable` is an
+      // ERROR state gated on `published`.
+      //
+      // This is the cluster's thesis in miniature: a merged redesign silently
+      // broke this spec and nothing noticed for months, because no workflow ran
+      // it. A spec that ran would have failed the redesign's own PR.
 
       // Crew view in a FRESH context (no admin session — admins bypass the gate).
       const crewContext = await browser.newContext();
@@ -322,7 +365,13 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
         // a paused link renders crew-show-paused-root instead, so the welcome
         // appearing IS the republish signal.
         await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-checked", "true");
+        // Same 30s budget as the OFF flip above: this is a server action plus
+        // router.refresh(), and the default 5s expect window was the ONLY
+        // failure across five consecutive local runs (4/5, "Expected: true /
+        // Received: false" — the round-trip simply had not landed yet). No
+        // retry here: the click is post-hydration by construction, and wrapping
+        // a mutation in a retry is the defect this file just removed.
+        await expect(toggle).toHaveAttribute("aria-checked", "true", { timeout: 30_000 });
         await crewPage.goto(crewUrl);
         await expect(crewPage.getByTestId("crew-show-paused-root")).not.toBeVisible({
           timeout: 10_000,

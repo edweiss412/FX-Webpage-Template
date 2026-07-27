@@ -121,8 +121,26 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/scan-sse-null-code (2026-07-27, PR #621): PR4 of the BL-NULLCODE-STAMP-BATCH-2
+  // residual sweep — the scan SSE terminal body now carries the cataloged code.
+  { id: "BL-SCAN-SSE-BODY-NULL-CODE", provenance: "feat/scan-sse-null-code" },
+  // feat/picker-tamper-alert (2026-07-27, PR #623): PR5 of the same sweep — the tamper
+  // breadcrumb now raises a global admin alert.
+  { id: "BL-PICKER-TAMPER-ADMIN-ALERT", provenance: "feat/picker-tamper-alert" },
+  // test/alert-action-links-e2e (2026-07-27): PR6, the last of the sweep — live-app
+  // e2e over every registered alert action link.
+  { id: "BL-ALERT-ACTION-LINKS-E2E", provenance: "test/alert-action-links-e2e" },
+  // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
+  // Drive-ID coverage guard filed, closed by the guard-cluster spec.
+  { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
+  { id: "BL-VALIDATION-PARITY-DEFINITION-MATCH", provenance: "feat/driveid-guard-cluster" },
+  { id: "BL-VALIDATION-TARGET-BINDING", provenance: "feat/driveid-guard-cluster" },
+  { id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
   // behind the skipped picker-flow e2e stubs, all fixed in that branch.
+  // feat/watch-reconcile-backoff (2026-07-27): the deferred backoff half shipped
+  // once the four lifecycle prerequisites cleared it.
+  { id: "BL-WATCH-RECONCILE-BACKOFF", provenance: "feat/watch-reconcile-backoff" },
   { id: "BL-PICKER-BOOTSTRAP-HOST-FLIP", provenance: "fix/picker-flow-app-bugs" },
   { id: "BL-PICKER-GATE-SKIP-MISMATCH", provenance: "fix/picker-flow-app-bugs" },
   { id: "BL-PICKER-CLAIMED-ROW-NEXT-DROP", provenance: "fix/picker-flow-app-bugs" },
@@ -142,6 +160,12 @@ const BACKLOG_GRADUATED = [
   { id: "BL-SHAREHUB-ARM-VIEWPORT-REVEAL", provenance: "feat/sharehub-archive-copy-reveal" },
   // 2026-07-25: shipped, not reconciled -- PR #592 closed it by implementing it.
   { id: "BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y", provenance: "fix/newtab-announcement-family" },
+  // feat/childless-growable-static-guard (2026-07-26): the guard shipped as
+  // tests/styles/_childlessGrowableScan.ts + _metaChildlessGrowable.test.ts.
+  {
+    id: "BL-CHILDLESS-GROWABLE-STATIC-GUARD",
+    provenance: "feat/childless-growable-static-guard",
+  },
   // feat/section-header-rebuild-phantom-spacers (2026-07-25). The three
   // phantom-gap items, all repaid in that branch.
   {

@@ -50,6 +50,9 @@ STASH_DIR="$(mktemp -d)"
 HELD_MIGRATIONS=(
   "supabase/migrations/20260527000003_schedule_cron_jobs.sql"
   "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql"
+  # 20260727000001 carries the same app.fxav_vercel_url prod-safety guard
+  # (backoff spec §3.1 reschedule) and must apply AFTER the GUC lands.
+  "supabase/migrations/20260727000001_reschedule_refresh_watch.sql"
 )
 restore() {
   for h in "${HELD_MIGRATIONS[@]}"; do

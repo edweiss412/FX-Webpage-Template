@@ -18,7 +18,7 @@ describe("runSummary constants", () => {
       sync: 5 * 60_000,
       "notify.realtime": 5 * 60_000,
       "notify.digest": 3_600_000,
-      "refresh-watch": 3_600_000,
+      "refresh-watch": 900_000,
       "gc-watch": 3_600_000,
       "asset-recovery": 15 * 60_000,
       "diagram-gc": 3_600_000,
@@ -31,6 +31,12 @@ describe("runSummary constants", () => {
     }
     // the 9 logical jobs we expect (must match the CADENCE_MS keys)
     expect(new Set(names)).toEqual(new Set(Object.keys(CADENCE_MS)));
+  });
+
+  test("refresh-watch runs every 15 min with a 45-min staleness window (backoff spec §3.1)", () => {
+    const row = CRON_JOBS.find((j) => j.jobName === "refresh-watch");
+    expect(row?.cadence).toBe("every 15 min");
+    expect(row?.staleAfterMs).toBe(45 * 60_000);
   });
 
   test("module stays keyword-clean (scanner safety)", () => {

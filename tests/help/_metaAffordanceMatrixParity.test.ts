@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { AFFORDANCE_MATRIX, DEFERRED_TESTIDS } from "@/app/help/_affordanceMatrix";
@@ -29,11 +30,6 @@ function domainFiles(): string[] {
 // (HoverHelp.tsx doc header) and reported line numbers stay valid. The
 // EXEMPTION check reads the RAW source — "// not-a-help-affordance:" is
 // itself a comment and must survive for that rule.
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:"'])\/\/[^\n]*/gm, (m, pre) => pre + " ".repeat(m.length - pre.length));
-}
 
 const concreteIds = new Set(
   AFFORDANCE_MATRIX.flatMap((r) => (r.kind === "concrete" ? [r.testid] : [])),
@@ -58,13 +54,13 @@ describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
       path: f,
       rel: relative(ROOT, f),
       raw, // exemption comments are read from RAW source
-      src: stripComments(raw), // call sites + literals scanned comment-free
+      src: stripCommentsForFile(raw, f), // call sites + literals scanned comment-free
     };
   });
 
   it("stripComments: prose mentions of <HelpTooltip> in comments are not call sites", () => {
     const sample = `// Distinct from <HelpTooltip>\nconst x = 1; /* <HoverHelp testId="y"> */\nrender(<HoverHelp label="z" />);\n`;
-    const stripped = stripComments(sample);
+    const stripped = stripCommentsForFile(sample, "sample.tsx");
     expect(stripped.match(/<(HoverHelp|HelpTooltip)\b/g)).toHaveLength(1);
     expect(stripped.split("\n").length).toBe(sample.split("\n").length); // line numbers preserved
   });

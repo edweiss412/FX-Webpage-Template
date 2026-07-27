@@ -1,0 +1,59 @@
+name: section-header-visual
+
+# Pixel-baseline gate over the 15-cell section-header matrix — spec
+# docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md §3.5.
+# Compares the committed tests/e2e/section-header-visual.spec.ts-snapshots/
+# PNGs against a fresh capture inside the pinned Playwright image. Byte rule
+# (AGENTS.md): the image tag AND --platform linux/amd64 are both pinned, and
+# tests/cross-cutting/playwright-version-pin.test.ts asserts the tag matches
+# the installed @playwright/test exactly.
+#
+# UNFILTERED pull_request, deliberately: path filters would make this job
+# invisible to the coverage scanner's PR-blocking-capable contract
+# (tests/ci/_workflowCoverageScan.ts), reintroducing the dark-spec class this
+# branch closes. The run command names the spec path literally for the same
+# reason — the scanner's SPEC_RE extraction is what marks the spec covered.
+# The job is short (static harness, no dev server, no Supabase).
+#
+# NOTE for the scanner: this workflow must not gain `needs:`, `shell:`,
+# `working-directory:`, or `defaults:` keys — any of them anywhere in the file
+# reclassifies every spec it runs as unmodelled (scanner header, ibid).
+#
+# Baseline production: NEVER on a dev host. Initial baselines came from this
+# job's own failure artifact (spec §3.6); regenerations go through
+# section-header-visual-regen.yml.
+
+on:
+  pull_request:
+  # Close-out verification without waiting for a matching PR (AGENTS.md:
+  # "local-passes-CI-fails is its own bug class").
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  section-header-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Visual baselines in pinned Playwright image
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD:/work" -w /work \
+            -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 \
+            mcr.microsoft.com/playwright:v1.59.1-jammy \
+            bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts"
+      # On failure the -actual/-diff PNGs make the drift inspectable — and on
+      # the branch's first-ever run they ARE the baseline production mechanism
+      # (spec §3.6: download, strip -actual, commit).
+      - name: Upload actual/diff captures (diagnosis + initial-baseline artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section-header-visual-actuals
+          path: test-results/
+          retention-days: 7

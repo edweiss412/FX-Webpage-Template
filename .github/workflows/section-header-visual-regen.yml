@@ -1,0 +1,70 @@
+name: Section-header visual regen (manual)
+
+# Manual, byte-correct regeneration of the committed section-header visual
+# baselines (tests/e2e/section-header-visual.spec.ts-snapshots/) — spec
+# docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md
+# §3.5/§3.6. Mirrors screenshots-regen.yml: capture on the native-amd64 runner
+# in the SAME pinned image as the section-header-visual gate, then commit the
+# regenerated PNGs back to the dispatched branch. Regenerating from a dev host
+# produces different bytes (host fonts; Apple Silicon / arm64 emulation
+# diverges from native x64), so this job is the only sanctioned producer after
+# the branch's initial gate-artifact bootstrap.
+#
+# POST-MERGE TOOL: workflow_dispatch resolves against the default branch, so
+# this is dispatchable only once merged to main. Dispatch it with
+# `--ref <feature-branch>` from any branch that changes header pixels.
+#
+# After the bot commit lands, PUSH A VALIDATING COMMIT to the branch
+# (`git commit --allow-empty` suffices): bot pushes trigger no CI, and a
+# baseline commit whose SHA never ran the gate is untested. The in-job
+# re-comparison below proves same-runner determinism only.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  section-header-visual-regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: ./.github/actions/setup
+      - name: Regenerate baselines in pinned Playwright image (native amd64)
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD:/work" -w /work \
+            -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 \
+            mcr.microsoft.com/playwright:v1.59.1-jammy \
+            bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts --update-snapshots"
+      # Same-runner determinism proof BEFORE committing: a second capture must
+      # compare clean against the bytes just written, or the regeneration
+      # itself is nondeterministic and must not be committed.
+      - name: Re-compare against the fresh baselines (no update flag)
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD:/work" -w /work \
+            -e CI=true -e SECTION_HEADER_VISUAL_CONTAINER=1 \
+            mcr.microsoft.com/playwright:v1.59.1-jammy \
+            bash -lc "corepack enable && pnpm exec playwright test --config tests/e2e/visual.config.ts tests/e2e/section-header-visual.spec.ts"
+      - name: Commit regenerated baselines (only if changed)
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          SNAP_DIR="tests/e2e/section-header-visual.spec.ts-snapshots"
+          if git diff --quiet "$SNAP_DIR" && [ -z "$(git ls-files --others --exclude-standard "$SNAP_DIR")" ]; then
+            echo "No baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$SNAP_DIR"
+          git commit \
+            -m "test(admin): regen section-header visual baselines (amd64 CI runner)" \
+            -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner (section-header-visual-regen workflow_dispatch job), so the bytes match the section-header-visual gate capture environment. Push a validating commit to run the gate on these baselines."
+          git push origin "HEAD:$BRANCH"

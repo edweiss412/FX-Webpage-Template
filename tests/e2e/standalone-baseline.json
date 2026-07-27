@@ -31,5 +31,5 @@
     "tests/e2e/toggle-edge-layout.spec.ts",
     "tests/e2e/wizard-blocker-modal.layout.spec.ts"
   ],
-  "totalTests": 423
+  "totalTests": 440
 }

@@ -22,6 +22,7 @@
 //     is intentionally narrow.
 
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { describe, it, expect } from "vitest";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import * as roleRecognizeCopy from "@/components/admin/roleRecognizeCopy";
@@ -161,10 +162,8 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
   ] as const;
   const RAW_JSX_TEXT = />[^<>{}\n]*[A-Za-z]{3,}[^<>{}\n]*</g;
 
-  function stripCodeNoise(src: string): string {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
-      .replace(/\/\/[^\n]*/g, "") // line comments
+  function blankStringNoise(src: string, filePath: string): string {
+    return stripCommentsForFile(src, filePath) // comments via the shared module
       .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
       .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
       .replace(/`(?:[^`\\]|\\.)*`/g, "``") // template strings
@@ -174,7 +173,7 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
   it("recognize-role components hold no raw JSX text nodes (all copy via roleRecognizeCopy)", () => {
     const violations: string[] = [];
     for (const file of ROLE_COMPONENT_FILES) {
-      const src = stripCodeNoise(readFileSync(file, "utf8"));
+      const src = blankStringNoise(readFileSync(file, "utf8"), file);
       for (const match of src.matchAll(RAW_JSX_TEXT)) {
         violations.push(`${file}: raw JSX text node ${JSON.stringify(match[0])}`);
       }

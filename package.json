@@ -41,6 +41,7 @@
     "test:audit:branch-protection": "vitest run tests/cross-cutting/verify-branch-protection.test.ts",
     "test:audit:validation-schema-parity": "vitest run tests/db/schema-manifest-lib.test.ts tests/db/validation-schema-parity.test.ts",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
+    "screenshot:gallery": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-gallery",
     "screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture",
     "test": "vitest run",
     "test:fast": "pnpm pretest && node scripts/test-fast.mjs",
@@ -51,6 +52,7 @@
     "test:e2e": "playwright test",
     "test:e2e:destructive-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReal.layout.spec.ts tests/e2e/pendingDiscardReflow.layout.spec.ts",
     "test:e2e:modal-header": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/skeletonBandParity.spec.ts tests/e2e/stackedBandLayout.spec.ts tests/e2e/statusStripToggleLayout.spec.ts tests/e2e/step3-review-modal.layout.spec.ts",
+    "test:e2e:agenda-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/agendaScheduleLayout.spec.ts tests/e2e/agendaBreakdown.layout.spec.ts",
     "test:e2e:attention-anchor": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/attention-anchor-placement.spec.ts",
     "test:e2e:share-link-flash": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/share-link-flash.spec.ts",
     "test:e2e:attention-pill-focus": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/attention-pill-focus.spec.ts",
@@ -61,7 +63,8 @@
     "db:reset-pool": "node scripts/db-reset-pool.mjs",
     "test:e2e:bulk-ignore-eyebrow": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts",
     "test:e2e:hoverhelp-geometry": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts",
-    "test:e2e:standalone": "playwright test --config tests/e2e/standalone.config.ts"
+    "test:e2e:standalone": "playwright test --config tests/e2e/standalone.config.ts",
+    "test:audit:pg-cron-validation": "vitest run tests/cross-cutting/pg-cron-coverage.test.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import { captureAll } from "@/scripts/help-screenshots";
 
 const scriptPath = join(process.cwd(), "scripts/help-screenshots.ts");
+// Shared capture helpers (sharp settings, animation suppression, quiescence)
+// were extracted to capture-core.ts; body guards scan the file that HOLDS each
+// body, while call-site ordering guards keep scanning the capture script.
+const corePath = join(process.cwd(), "scripts/capture-core.ts");
 
 describe("help screenshot capture script (Task F.3)", () => {
   it("exists and exports captureAll", () => {
@@ -12,7 +16,7 @@ describe("help screenshot capture script (Task F.3)", () => {
   });
 
   it("uses the pinned sharp WebP encoder settings", () => {
-    const source = readFileSync(scriptPath, "utf8");
+    const source = readFileSync(corePath, "utf8");
     expect(source).toContain("quality: 90");
     expect(source).toContain("effort: 4");
     expect(source).toContain("smartSubsample: true");
@@ -27,8 +31,10 @@ describe("help screenshot capture script (Task F.3)", () => {
   // mid-animation intermediate frame.
   it("M11-F-D1: registers animation suppression pre-navigation (addInitScript), never addStyleTag", () => {
     const source = readFileSync(scriptPath, "utf8");
+    const coreSource = readFileSync(corePath, "utf8");
     expect(source).not.toContain("addStyleTag");
-    const disableFn = source.match(/async function disableAnimations[\s\S]*?\n}/)?.[0];
+    expect(coreSource).not.toContain("addStyleTag");
+    const disableFn = coreSource.match(/async function disableAnimations[\s\S]*?\n}/)?.[0];
     expect(disableFn, "disableAnimations() should exist").toBeTruthy();
     expect(disableFn).toContain("addInitScript");
     expect(disableFn).toContain("animation-duration: 0s !important");
@@ -103,7 +109,7 @@ describe("help screenshot capture script (Task F.3)", () => {
   // Failure mode caught: waitForQuiescence loses its fonts.ready / paint-settle
   // barrier and the drift gate regresses to runner-load-dependent bytes.
   it("waitForQuiescence awaits document.fonts.ready and a double-rAF paint settle", () => {
-    const source = readFileSync(scriptPath, "utf8");
+    const source = readFileSync(corePath, "utf8");
     const quiesceFn = source.match(/async function waitForQuiescence[\s\S]*?\n}/)?.[0];
     expect(quiesceFn, "waitForQuiescence() should exist").toBeTruthy();
     expect(quiesceFn).toContain("document.fonts.ready");

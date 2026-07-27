@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { stripComments } from "../../styles/_classScanUtils";
+import { stripCommentsForFile } from "../../styles/_classScanUtils";
 
 /** Words that must NOT appear in the three component files. */
 const FORBIDDEN_IN_COMPONENTS = [
@@ -39,7 +39,7 @@ const LABEL_MODULE = "lib/adminAlerts/resolveActionLabel.ts";
 describe("resolve labels have exactly one home", () => {
   for (const file of BUTTON_FILES) {
     it(`${file} contains no hardcoded label text`, () => {
-      const src = stripComments(readFileSync(file, "utf8"));
+      const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
       const hits = FORBIDDEN_IN_COMPONENTS.filter((w) => new RegExp(`\\b${w}\\b`).test(src));
       expect(hits, "import the pair from lib/adminAlerts/resolveActionLabel.ts").toEqual([]);
     });
@@ -49,7 +49,7 @@ describe("resolve labels have exactly one home", () => {
     // Without this control the scan would still pass if someone renamed every
     // label and the strings no longer existed anywhere. Comment-stripped too,
     // so a label surviving only in a JSDoc example does not satisfy it.
-    const live = stripComments(readFileSync(LABEL_MODULE, "utf8"));
+    const live = stripCommentsForFile(readFileSync(LABEL_MODULE, "utf8"), LABEL_MODULE);
     for (const w of REQUIRED_IN_MODULE) {
       expect(live, `${w} vanished from the label module`).toMatch(new RegExp(`\\b${w}\\b`));
     }

@@ -31,3 +31,5 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-15-observe-cli-telemetry-gaps/`](./2026-07-15-observe-cli-telemetry-gaps/) | 2026-07-15 |
 | [`2026-07-16-digest-autofix-per-show-detail/`](./2026-07-16-digest-autofix-per-show-detail/) | 2026-07-16 |
 | [`2026-07-17-rescan-decision-telemetry/`](./2026-07-17-rescan-decision-telemetry/) | 2026-07-17 |
+| [`2026-07-24-gallery-alert-producer-parity.md`](./2026-07-24-gallery-alert-producer-parity.md) | 2026-07-24 |
+| [`2026-07-26-watch-renewal-lifecycle.md`](./2026-07-26-watch-renewal-lifecycle.md) | 2026-07-26 |

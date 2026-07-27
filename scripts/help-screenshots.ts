@@ -2,18 +2,22 @@ import { existsSync, mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
-import sharp from "sharp";
 import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
-import { MANIFEST, type ManifestEntry, type ScreenshotTheme } from "./help-screenshots.manifest";
+import {
+  type CaptureTheme,
+  disableAnimations,
+  encodeWebp,
+  installDeterminism,
+  waitForQuiescence,
+} from "./capture-core";
+import { MANIFEST, type ManifestEntry } from "./help-screenshots.manifest";
 import { parseFixtureDateRangeFromPath } from "./help-screenshots-fixture-range";
 import { ADMIN_FIXTURE } from "@/tests/e2e/helpers/fixtures";
 import { signInAs } from "@/tests/e2e/helpers/signInAs";
 
 const DEFAULT_BASE_URL = "http://localhost:3004";
-const DEFAULT_EXPECT_STABLE_MS = 500;
 const OUTPUT_DIR = join(process.cwd(), "public/help/screenshots");
 const REQUIRED_TEST_AUTH = "true";
-type CaptureTheme = Exclude<ScreenshotTheme, "both">;
 
 function requireCaptureEnv(): { baseUrl: string; testAuthSecret: string } {
   if (process.env.ENABLE_TEST_AUTH !== REQUIRED_TEST_AUTH) {
@@ -69,116 +73,11 @@ function themesFor(entry: ManifestEntry): CaptureTheme[] {
   return ["light", "dark"];
 }
 
-async function installDeterminism(page: Page, theme: CaptureTheme): Promise<void> {
-  await page.addInitScript((selectedTheme) => {
-    document.documentElement.setAttribute("data-theme", selectedTheme);
-  }, theme);
-
-  await page.addInitScript(() => {
-    class NoopWebSocket {
-      static CONNECTING = 0;
-      static OPEN = 1;
-      static CLOSING = 2;
-      static CLOSED = 3;
-
-      binaryType = "blob";
-      bufferedAmount = 0;
-      extensions = "";
-      onclose: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-      onmessage: ((event: Event) => void) | null = null;
-      onopen: ((event: Event) => void) | null = null;
-      protocol = "";
-      readyState = NoopWebSocket.CLOSED;
-      url = "";
-
-      addEventListener(): void {}
-      close(): void {}
-      dispatchEvent(): boolean {
-        return true;
-      }
-      removeEventListener(): void {}
-      send(): void {}
-    }
-
-    Object.defineProperty(window, "WebSocket", {
-      configurable: true,
-      value: NoopWebSocket,
-    });
-  });
-}
-
-// M11-F-D1: registered PRE-navigation via addInitScript (not a post-navigation
-// style-tag injection) so a captured surface with an entrance animation (framer-motion
-// initial/animate, CSS @keyframes, spinner) can never start animating during
-// the goto→inject gap and hand the drift gate a mid-animation frame. The init
-// script attaches the <style> the moment documentElement exists — before any
-// element renders — falling back to a MutationObserver for documents where
-// the root hasn't been created yet at init-script time.
-async function disableAnimations(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const css = `
-      *, *::before, *::after {
-        animation-delay: 0s !important;
-        animation-duration: 0s !important;
-        animation-iteration-count: 1 !important;
-        scroll-behavior: auto !important;
-        transition-delay: 0s !important;
-        transition-duration: 0s !important;
-      }
-    `;
-    const attach = () => {
-      const style = document.createElement("style");
-      style.setAttribute("data-screenshot-animation-suppression", "");
-      style.textContent = css;
-      (document.head ?? document.documentElement).appendChild(style);
-    };
-    if (document.documentElement) {
-      attach();
-    } else {
-      new MutationObserver((_mutations, observer) => {
-        if (document.documentElement) {
-          attach();
-          observer.disconnect();
-        }
-      }).observe(document, { childList: true });
-    }
-  });
-}
-
-async function waitForQuiescence(page: Page, entry: ManifestEntry): Promise<void> {
-  const waitFor = entry.waitFor ?? entry.captureSelector ?? "body";
-  await page.locator(waitFor).first().waitFor({ state: "visible" });
-  await page.waitForLoadState("networkidle");
-  // M11-A-D5 recipe: networkidle does not guarantee fonts are rasterized or
-  // the last layout/paint has flushed — on loaded CI runners the same content
-  // captured different bytes run-to-run (needs-attention-mobile-dark, PR #22).
-  // fonts.ready + a double-rAF flush pins the paint before the stable wait.
-  await page.evaluate(async () => {
-    await document.fonts.ready;
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
-  });
-  await page.waitForTimeout(entry.expectStableMs ?? DEFAULT_EXPECT_STABLE_MS);
-}
-
 async function screenshotPng(page: Page, entry: ManifestEntry): Promise<Buffer> {
   if (entry.captureSelector) {
     return await page.locator(entry.captureSelector).first().screenshot({ type: "png" });
   }
   return await page.screenshot({ type: "png", fullPage: true });
-}
-
-async function encodeWebp(pngBuffer: Buffer): Promise<Buffer> {
-  return await sharp(pngBuffer)
-    .webp({
-      quality: 90,
-      effort: 4,
-      smartSubsample: true,
-      nearLossless: false,
-    })
-    .toBuffer();
 }
 
 async function captureEntryTheme(
@@ -200,7 +99,10 @@ async function captureEntryTheme(
       Authorization: `Bearer ${testAuthSecret}`,
     });
     await page.goto(new URL(entry.route, baseUrl).toString(), { waitUntil: "domcontentloaded" });
-    await waitForQuiescence(page, entry);
+    await waitForQuiescence(page, {
+      waitForSelector: entry.waitFor ?? entry.captureSelector ?? "body",
+      ...(entry.expectStableMs !== undefined ? { stableMs: entry.expectStableMs } : {}),
+    });
 
     const pngBuffer = await screenshotPng(page, entry);
     const webpBuffer = await encodeWebp(pngBuffer);
