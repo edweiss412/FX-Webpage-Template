@@ -544,7 +544,7 @@ export function scanSource(
  * ------------------------------------------------------------------------- */
 import { compileSync } from "@mdx-js/mdx";
 
-import { LINE_TERMINATORS } from "./_newTabScan";
+import { LINE_TERMINATORS, commentRanges } from "../_shared/stripComments";
 
 export const EXEMPTION_MARKER = "childless-growable-ok:";
 
@@ -560,66 +560,33 @@ interface ExemptionRange {
   used: boolean;
 }
 
-const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
-const LINE_COMMENT = new RegExp("//[^" + LINE_TERMINATORS.source.slice(1, -1) + "]*", "g");
-
-/** Spans whose contents are string-ish — a marker inside one is data, not an
- *  exemption (§6.4 probe). */
-function stringishSpans(sf: ts.SourceFile, source: string): Array<[number, number]> {
-  const spans: Array<[number, number]> = [];
-  // A shebang line is not a comment surface (whole-diff R1 finding 1).
-  if (source.startsWith("#!")) {
-    const nl = source.search(new RegExp(LINE_TERMINATORS.source));
-    spans.push([0, nl === -1 ? source.length : nl]);
-  }
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isStringLiteral(node) ||
-      ts.isNoSubstitutionTemplateLiteral(node) ||
-      ts.isRegularExpressionLiteral(node) ||
-      ts.isJsxText(node) ||
-      ts.isTemplateHead(node) ||
-      ts.isTemplateMiddle(node) ||
-      ts.isTemplateTail(node)
-    ) {
-      spans.push([node.getStart(sf), node.getEnd()]);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
-  return spans;
-}
-
 /**
  * Collect reasoned exemption comments (template mechanics, _newTabScan.ts:49
  * and ~:2835): trailing block delimiter stripped, then per-line jsdoc
- * decoration; a reason must remain after the marker.
+ * decoration; a reason must remain after the marker. Comment discovery is the
+ * shared `commentRanges` (single-source contract,
+ * tests/cross-cutting/_metaStripCommentsSingleSource.test.ts): it is literal-
+ * aware — a marker inside a string/template/regex/JSX-text span is data — and
+ * shebang-aware (whole-diff R1 finding 1).
  */
 function collectExemptions(source: string, sf: ts.SourceFile): ExemptionRange[] {
-  const strings = stringishSpans(sf, source);
-  const inString = (pos: number) => strings.some(([a, b]) => pos >= a && pos < b);
   const out: ExemptionRange[] = [];
-  for (const re of [BLOCK_COMMENT, LINE_COMMENT]) {
-    re.lastIndex = 0;
-    for (const match of source.matchAll(re)) {
-      const start = match.index ?? 0;
-      if (inString(start)) continue;
-      const text = match[0]
-        .replace(/\*+\/$/, "")
-        .split(new RegExp(LINE_TERMINATORS.source))
-        .map((l) => l.replace(/^\s*\*+\s?/, ""))
-        .join("\n");
-      const at = text.indexOf(EXEMPTION_MARKER);
-      if (at < 0) continue;
-      if (text.slice(at + EXEMPTION_MARKER.length).trim().length === 0) continue;
-      const end = start + match[0].length;
-      out.push({
-        end,
-        startLine: sf.getLineAndCharacterOfPosition(start).line + 1,
-        endLine: sf.getLineAndCharacterOfPosition(end).line + 1,
-        used: false,
-      });
-    }
+  for (const [start, end] of commentRanges(source, ts.ScriptKind.TSX, sf)) {
+    const text = source
+      .slice(start, end)
+      .replace(/\*+\/$/, "")
+      .split(new RegExp(LINE_TERMINATORS.source))
+      .map((l) => l.replace(/^\s*\*+\s?/, ""))
+      .join("\n");
+    const at = text.indexOf(EXEMPTION_MARKER);
+    if (at < 0) continue;
+    if (text.slice(at + EXEMPTION_MARKER.length).trim().length === 0) continue;
+    out.push({
+      end,
+      startLine: sf.getLineAndCharacterOfPosition(start).line + 1,
+      endLine: sf.getLineAndCharacterOfPosition(end).line + 1,
+      used: false,
+    });
   }
   return out.sort((a, b) => a.end - b.end);
 }
