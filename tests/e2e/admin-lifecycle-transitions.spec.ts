@@ -75,18 +75,31 @@ const LOADED_REVIEW_MODAL =
  *
  * Leaves the popover CLOSED so callers see the surface they expect.
  */
-async function waitForHydration(
-  page: import("@playwright/test").Page,
-  modal: import("@playwright/test").Locator,
-) {
+async function waitForHydration(modal: import("@playwright/test").Locator) {
   const kebab = modal.getByTestId("share-hub-kebab");
   const popover = modal.getByTestId("share-hub-popover");
   await expect(async () => {
     await kebab.click();
     await expect(popover).toBeVisible({ timeout: 1500 });
   }).toPass({ timeout: 15_000 });
-  await page.keyboard.press("Escape");
-  await expect(popover).toHaveCount(0);
+  // Close WITHOUT Escape. ReviewModalShell listens for Escape at the DOCUMENT
+  // level and closes the whole modal (a router.push off `?show=`) on any
+  // Escape the popover does not swallow — and the popover can vanish on its
+  // own between the visibility assert above and a keypress: ShareHub's
+  // lifecycle-change effect closes the hub the moment a wedged Published flip
+  // flushes, and the nudge call site exists precisely to force that flush.
+  // Measured in run 30237953882 (repeat3): the Escape landed after the
+  // self-close, the shell navigated to /admin (final trace frameUrl has no
+  // `?show=`), and the ON-flip click then starved against an unmounted modal
+  // for the rest of the test budget. The kebab is a toggle, so clicking it
+  // only while the popover is still open converges to closed and touches
+  // client-local state only — nothing here can reach the shell's close nav.
+  await expect(async () => {
+    if ((await popover.count()) > 0) {
+      await kebab.click();
+    }
+    await expect(popover).toHaveCount(0, { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
 }
 
 /**
@@ -118,7 +131,7 @@ async function openShowActions(modal: import("@playwright/test").Locator) {
  * recovery is tiered, and every non-plain tier is logged so CI output names
  * what it took:
  *   plain  — ordinary wait (the healthy path);
- *   nudge  — a NON-MUTATING interaction (the ShareHub kebab open/Escape
+ *   nudge  — a NON-MUTATING interaction (the ShareHub kebab open/toggle-close
  *            pair, client-local state only) prompts React to flush the lost
  *            commit, then wait again;
  *   reload — the server committed long ago (POST 200 {ok:true}); reload
@@ -140,7 +153,7 @@ async function expectFlipLanded(
   const tiers = ["plain", "nudge", "reload"] as const;
   for (const tier of tiers) {
     if (tier === "nudge") {
-      await waitForHydration(page, modal); // kebab open/Escape — writes nothing
+      await waitForHydration(modal); // kebab open/toggle-close — writes nothing
     } else if (tier === "reload") {
       await page.reload();
       await expect(modal).toBeVisible({ timeout: 20_000 });
@@ -385,7 +398,7 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       // attempt click the refreshed OFF toggle and dispatch a REPUBLISH — the
       // assertion could then observe the transient OFF state and pass with a
       // republish in flight. A retry loop must never wrap a real mutation.
-      await waitForHydration(page, modal);
+      await waitForHydration(modal);
       await toggle.click();
       // NOT a plain 30s wait any more: the CI loop proved the failure is a
       // client commit wedge, not slowness (POST 200 {ok:true} in ~230ms, then
@@ -421,6 +434,15 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
         // "live" here is the picker welcome (the route's real first surface) —
         // a paused link renders crew-show-paused-root instead, so the welcome
         // appearing IS the republish signal.
+        // Fail FAST and NAMED if the modal is gone. The click below waits for
+        // actionability against LOADED_REVIEW_MODAL; if a modal close leaked
+        // (the Escape-vector class waitForHydration now avoids), the click
+        // would silently starve the remaining test budget with no signal
+        // naming what died. 5s is generous for a modal asserted open moments
+        // ago on a page the test has not navigated since.
+        await expect(modal, "review modal must still be open for the ON flip").toBeVisible({
+          timeout: 5_000,
+        });
         await toggle.click();
         // Same wedge exposure as the OFF flip (5/10 loop samples wedged HERE);
         // same tiered read-only recovery. The click stays single-shot: it is
