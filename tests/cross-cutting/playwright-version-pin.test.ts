@@ -18,6 +18,11 @@
  *  - The amd64 pin is asserted on each `docker run` CONTINUATION BLOCK that
  *    references the image, so a compliant-looking tag in commit-message prose
  *    cannot stand in for a real invocation's platform pin.
+ *  - Each block is PARSED BY ARGUMENT ROLE (whole-diff R3): the pinned tag
+ *    must be the actual positional image argument and linux/amd64 the actual
+ *    value of a --platform flag. A substring check would accept
+ *    `--label 'note=<pinned tag> --platform linux/amd64'` wrapping a real
+ *    invocation of :latest with no platform pin.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -45,6 +50,78 @@ const KNOWN_PINNED_IMAGE_WORKFLOWS = [
 ] as const;
 
 const localRequire = createRequire(import.meta.url);
+
+/** docker-run flags that take NO value. Any other `-`/`--` token either
+ *  carries its value inline (`--flag=value`) or consumes the next token.
+ *  An omission here is fail-safe: the flag would swallow the following token
+ *  and the image assertion below would fail LOUD, never pass vacuously. */
+const BOOLEAN_DOCKER_FLAGS = new Set([
+  "--rm",
+  "--init",
+  "--privileged",
+  "--read-only",
+  "-d",
+  "--detach",
+  "-i",
+  "--interactive",
+  "-t",
+  "--tty",
+  "-it",
+  "-P",
+  "--publish-all",
+]);
+
+/** Split one logical shell line into tokens, honoring single/double quotes
+ *  (a quoted span is one token, quotes stripped). Enough shell for a
+ *  workflow `docker run` line; NOT a general shell parser. */
+function tokenizeShell(line: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let sawQuote = false;
+  let quote: '"' | "'" | null = null;
+  for (const ch of line) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      sawQuote = true;
+    } else if (/\s/.test(ch)) {
+      if (current.length > 0 || sawQuote) tokens.push(current);
+      current = "";
+      sawQuote = false;
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 0 || sawQuote) tokens.push(current);
+  return tokens;
+}
+
+/** Parse a docker-run continuation block by ARGUMENT ROLE: the image is the
+ *  first positional token after flag consumption; the platform is the value
+ *  of an actual --platform flag (space or `=` form). Strings inside flag
+ *  VALUES (-e, --label, ...) can never be reported as image or platform —
+ *  the whole-diff R3 bypass. Returns null when the block does not parse as
+ *  `docker run ...` (callers treat that as a loud failure). */
+function parseDockerRunBlock(block: string): { image: string | null; platform: string | null } | null {
+  const tokens = tokenizeShell(block.replace(/\\\n/g, " "));
+  if (tokens[0] !== "docker" || tokens[1] !== "run") return null;
+  let platform: string | null = null;
+  for (let i = 2; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (!token.startsWith("-")) return { image: token, platform };
+    if (BOOLEAN_DOCKER_FLAGS.has(token)) continue;
+    const eq = token.indexOf("=");
+    if (eq !== -1) {
+      if (token.slice(0, eq) === "--platform") platform = token.slice(eq + 1);
+    } else {
+      if (token === "--platform") platform = tokens[i + 1] ?? null;
+      i++; // value-taking flag: consume its value token
+    }
+  }
+  return { image: null, platform };
+}
 
 /** The RESOLVED installed @playwright/test version — what actually executes —
  *  not the caret range declared in package.json. */
@@ -97,20 +174,57 @@ describe("every workflow referencing the pinned Playwright image matches the ins
           `${file} references the image but has no docker run block invoking it`,
         ).toBeGreaterThan(0);
         for (const block of blocks) {
+          // Role-parsed, not substring-matched (whole-diff R2 + R3): the
+          // exact pinned tag must be the ACTUAL image argument, and
+          // linux/amd64 the ACTUAL --platform value. A pinned-looking string
+          // buried in a -e/--label value cannot satisfy either.
+          const parsed = parseDockerRunBlock(block);
           expect(
-            block,
-            `${file}: a docker run of the pinned image is missing --platform linux/amd64`,
-          ).toContain("--platform linux/amd64");
-          // The EXACT installed tag inside the block itself (whole-diff R2):
-          // the global reference check above cannot stop one invocation
-          // drifting to :latest or a variable while a valid tag survives in
-          // prose elsewhere in the file.
+            parsed,
+            `${file}: docker run block did not parse as \`docker run ...\`:\n${block}`,
+          ).not.toBeNull();
           expect(
-            block,
-            `${file}: a docker run block must name the exact pinned tag v${installed}-jammy`,
-          ).toContain(`${IMAGE_MARKER}:v${installed}-jammy`);
+            parsed!.image,
+            `${file}: the image ARGUMENT of a docker run block must be the exact pinned tag v${installed}-jammy`,
+          ).toBe(`${IMAGE_MARKER}:v${installed}-jammy`);
+          expect(
+            parsed!.platform,
+            `${file}: a docker run of the pinned image is missing a real --platform linux/amd64 flag`,
+          ).toBe("linux/amd64");
         }
       });
     });
   }
+});
+
+describe("docker-run block parser sensitivity (the whole-diff R3 bypass shapes must not parse as compliant)", () => {
+  const pinned = `${IMAGE_MARKER}:v${installedPlaywrightVersion()}-jammy`;
+
+  it("rejects the flag-value smuggle: pinned tag + platform inside a --label value, real image :latest", () => {
+    const bypass = `docker run --label 'note=${pinned} --platform linux/amd64' ${IMAGE_MARKER}:latest bash`;
+    const parsed = parseDockerRunBlock(bypass);
+    expect(parsed?.image).toBe(`${IMAGE_MARKER}:latest`);
+    expect(parsed?.platform).toBeNull();
+  });
+
+  it("rejects a smuggle via -e value with no platform flag at all", () => {
+    const bypass = `docker run --rm -e NOTE="${pinned} --platform linux/amd64" ${IMAGE_MARKER}:latest bash`;
+    const parsed = parseDockerRunBlock(bypass);
+    expect(parsed?.image).toBe(`${IMAGE_MARKER}:latest`);
+    expect(parsed?.platform).toBeNull();
+  });
+
+  it("accepts a real continuation block in the workflows' shape", () => {
+    const real = `docker run --rm --platform linux/amd64 --network host \\\n  -v "$PWD:/work" \\\n  -w /work \\\n  -e CI=true \\\n  ${pinned} \\\n  bash -lc "corepack enable && pnpm screenshot:help"`;
+    expect(parseDockerRunBlock(real)).toEqual({ image: pinned, platform: "linux/amd64" });
+  });
+
+  it("accepts the --platform=VALUE equals form", () => {
+    const real = `docker run --rm --platform=linux/amd64 ${pinned} bash`;
+    expect(parseDockerRunBlock(real)).toEqual({ image: pinned, platform: "linux/amd64" });
+  });
+
+  it("returns null (loud, not vacuous) for a block that is not docker run", () => {
+    expect(parseDockerRunBlock(`docker build -t x .`)).toBeNull();
+  });
 });
