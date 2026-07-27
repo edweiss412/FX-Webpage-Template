@@ -609,11 +609,27 @@ green while the ACTUAL admin wrapper overflows. Production Step 3 renders `Agend
 (`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
 does not reproduce.
 
-**Why PR #610 did not close it.** `AgendaBreakdown` is `"use client"` with ~30 hook usages, requires
-`driveFileId` + `wizardSessionId`, and performs an extract POST plus polling. Rendering it in the
-static harness needs network and provider stubs — the unsound-stub path (a strict stub breaks
-esbuild's named-export resolution; a permissive one is consumable without a call, so render checks go
-blind). Closing this properly means a seeded live-render harness, which is its own change.
+**Why PR #610 did not close it — cost premise CORRECTED by review R3.** The first version of this
+entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
+error is worth naming: the hook count came from `grep -c` over the whole 4000-line
+`step3ReviewSections.tsx` and was attributed to the component. Measured properly,
+`AgendaBreakdown` is **236 lines with 4 hook call sites** (`useContext`, `useEffect`,
+`useLayoutEffect`).
+
+The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
+modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
+pass-through for anything it does not intercept). The one thing standing between that harness and real
+coverage is a single line: `tests/e2e/_step3ReviewModalHarness.tsx:158` hands the modal
+`agendaBaseline: []`.
+
+**Still deferred, on the corrected grounds:** closing it needs a non-empty `AdminAgendaItem[]` fixture
+(`lib/agenda/agendaAdminPreview.ts:34`), an extract-route intercept, and its own bundle entry + spec —
+because `buildSectionData` is shared, so changing the default fixture in place would perturb every
+existing step3-review-modal spec. Additive work, not a new harness. Sized in hours, not the days the
+original entry implied.
+
+**Start here:** add an optional `agendaBaseline` override to `buildSectionData`
+(`tests/e2e/_step3ReviewModalHarness.tsx:128`) defaulting to `[]`, so existing callers are untouched.
 
 **Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
 on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
@@ -676,7 +692,24 @@ New `admin_alert` code → the ~9-surface lockstep fan-out applies (catalog row,
 
 ### BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
 
-**Status:** OPEN — product posture decided 2026-07-24; queued as PR3 of the residual sweep · **Severity:** low · **Class:** VISIBILITY SCOPE
+**Status:** ✅ SHIPPED in PR #610 (2026-07-26) · **Severity:** low · **Class:** VISIBILITY SCOPE
+
+> **Retained for the decision record; the prescriptions below are HISTORY, not open work.** Two
+> statements in this entry are now contradicted by shipped code and are corrected here rather than
+> edited away, because the reasoning is what makes the entry worth keeping:
+>
+> 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
+>    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because `AgendaDay.date` is
+>    always null in production (`lib/parser/extractAgendaSchedule.ts:653` is its sole constructor).
+> 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
+>    implement the positional fallback. Ratified at
+>    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
+>    tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Short version: its trigger never fires on the
+>    measured corpus, and folding on positional index means folding in the state of least knowledge —
+>    the shape behind all four viewer-day-folding bugs review found.
+>
+> Everything else — the middle posture, the "Your day" marker, native `<details>` keeping the block a
+> Server Component, and mandatory fail-open — shipped as written.
 
 The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:143-163`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:168-179`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5).
 

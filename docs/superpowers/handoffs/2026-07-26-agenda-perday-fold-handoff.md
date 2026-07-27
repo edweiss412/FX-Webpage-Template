@@ -141,10 +141,12 @@ was local where the problem was systemic.
 
 ## Known limits, disclosed rather than defended
 
-- **The layout spec is PATH-GATED, not PR-blocking.** It runs when its filter matches the spec, its renderer,
-  or the two components it measures. Its allowlist row reads `PATH_GATED` and was re-valued rather than
-  deleted: the scanner rejects path-filtered workflows from `covered`, so deleting the row would report the
-  spec DARK. Better than dark, weaker than PR-blocking, and the reason string says so.
+- **~~The layout spec is PATH-GATED, not PR-blocking.~~ SUPERSEDED — it is now PR-blocking.** This
+  bullet described the wiring this PR originally built. `origin/main` then retired seven per-feature
+  workflows for one unfiltered `standalone-e2e.yml`, so both agenda specs run on EVERY PR and their
+  allowlist rows were deleted (the registry's `shadowing` check fails on an allowlisted spec that is
+  covered). Kept, struck through, because review R3 caught the un-struck version still asserting
+  `PATH_GATED` two paragraphs after the merge account said the opposite.
 - **jsdom cannot see visibility.** Adding `hidden` to the marker leaves all 12 jsdom tests green. Documented
   in that file's header with the mutation evidence, and covered instead by a browser assertion on the
   marker's box. A `toBeVisible()` there would be vacuous.
