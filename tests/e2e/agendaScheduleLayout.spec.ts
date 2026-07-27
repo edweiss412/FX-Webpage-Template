@@ -432,6 +432,10 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   // outside the model the spec assumed. Whether a browser still exposes the heading AND the
   // disclosure is therefore empirical. The impeccable audit's P1 was this exact class: the fold
   // silently dropped every day from the document outline while roles and geometry stayed green.
+  // ENGINE COVERAGE: this runs Chromium only (standalone.config.ts defines one project), and
+  // Safari is a crew target. Measured by hand during review R5 with a temporary Desktop Safari
+  // project: green in 5.0s, config then reverted. A hand-run measurement is not coverage --
+  // filed as BL-AGENDA-A11Y-WEBKIT-COVERAGE.
   await page.goto(baseUrl);
 
   // 1. The heading survives into the accessibility tree, at the right level, named by its day.

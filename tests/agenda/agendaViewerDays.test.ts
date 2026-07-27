@@ -200,6 +200,10 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // weekday signal, which left the date-count guard deletable with every test still
       // green -- the same dead-guard shape this suite hit once already.
       ["May 5, 2026 / May 6, 2026", "two full dates, no weekday words"],
+      // R5 HIGH, the sixth counterexample: a second day written WITHOUT a year. One full date,
+      // one weekday, no ordinal -- invisible to all three signals until date counting dropped
+      // the year requirement.
+      ["Tuesday, May 5, 2026 / May 6", "a second month-day with no year"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];

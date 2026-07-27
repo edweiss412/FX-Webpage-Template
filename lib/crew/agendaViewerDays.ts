@@ -59,9 +59,17 @@ function isAmbiguousLabel(dayLabel: string): boolean {
 function distinctLabelDates(dayLabel: string): number {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
   const found = new Set<string>();
-  for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*,?\s*(\d{4})\b/g)) {
+  // The YEAR is optional here, unlike in `parseIsoFromDayLabel`, and that difference is the
+  // whole point. Review R5 (HIGH) found the sixth counterexample by dropping it:
+  //   "Tuesday, May 5, 2026 / May 6"
+  // carries one FULL date, one weekday and no ordinal, so a full-date counter saw an
+  // unambiguous May 5 row and folded it for a May 6 viewer. Counting month-day PAIRS sees two.
+  //
+  // Keyed on month+day without the year, so "May 5, 2026 (May 5, 2026 rehearsal)" -- one date
+  // written twice -- still counts as one and does not fail open.
+  for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\b/g)) {
     const month = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
-    if (month) found.add(`${m[3]}-${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+    if (month) found.add(`${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
   }
   return found.size;
 }

@@ -90,7 +90,7 @@ const BODY_PAD = 16; // mirrors px-4 gutter used on the Step3Review list column
  * Step 3 renders `AgendaBreakdown` (step3ReviewSections.tsx:3300), which has a modal-chrome branch
  * this harness does not reproduce.
  *
- * Not closed here because `AgendaBreakdown` is "use client" with ~30 hooks, needs a
+ * Not closed here because `AgendaBreakdown` is "use client" (4 hook calls of its own), needs a
  * driveFileId/wizardSessionId, and does an extract POST plus polling; rendering it statically needs
  * network and provider stubs, which is the unsound path. Filed as
  * BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY.

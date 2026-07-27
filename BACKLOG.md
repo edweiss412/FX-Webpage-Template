@@ -668,6 +668,46 @@ so nothing is merge-blocked. It fails only for whoever runs it by hand on one of
 **Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
 retiring spec itself, where the old name is legitimate history.
 
+### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
+
+`visibleAgendaDaysForViewer` requires ONE link to locate EVERY date the viewer is assigned before it
+will fold anything (`located.size === R.size`, with `R` the show-wide viewer date set). When a show
+publishes several agenda PDFs partitioned by date — link A covering May 5+7, link B covering May 6+8,
+viewer assigned May 5+6 — each link locates one of two and both fail open. Folding is therefore
+systematically disabled for that shape even though each link's own rows are completely identifiable.
+
+**Deliberately not changed in #610.** Completeness is show-wide precisely because loosening it is what
+produced six separate fold-the-viewer's-day defects across five review rounds. Narrowing it to "this
+link's own rows are identifiable AND it located at least one viewer date" is probably the right rule,
+but it re-opens that class and belongs in a change that can carry its own adversarial pass. The
+current behaviour is SAFE — it fails open — so the cost is a missing improvement, not a wrong page.
+
+**Fix (when prioritized):** per-link completeness, with the invariant search in
+`tests/agenda/agendaViewerDaysInvariant.test.ts` extended to multi-link fixtures first, so the
+loosening is measured against the property before it ships.
+
+### BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** very low · **Class:** TEST COVERAGE
+
+`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
+accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
+matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
+is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
+claim per engine.
+
+**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
+ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
+hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
+
+**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
+second time and would surface unrelated engine differences mid-review.
+
+**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
+`--project` matrix leg in `standalone-e2e.yml`.
+
 ### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
 
 **Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS
