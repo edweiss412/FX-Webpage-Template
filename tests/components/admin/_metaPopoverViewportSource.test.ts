@@ -183,13 +183,17 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(direct).toEqual([]);
   });
 
-  it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", { timeout: 60_000 }, () => {
-    const offenders = sourceFiles
-      .filter((f) => matchesStripped(f, (c) => READS_LAYOUT_VIEWPORT.test(c)))
-      .map((f) => relative(REPO_ROOT, f))
-      .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
-    expect(offenders).toEqual([]);
-  });
+  it(
+    "no scanned file reads the LAYOUT viewport (import-independent, repo-wide)",
+    { timeout: 60_000 },
+    () => {
+      const offenders = sourceFiles
+        .filter((f) => matchesStripped(f, (c) => READS_LAYOUT_VIEWPORT.test(c)))
+        .map((f) => relative(REPO_ROOT, f))
+        .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
+      expect(offenders).toEqual([]);
+    },
+  );
 
   it("the allowlist has no stale rows", () => {
     for (const [rel] of LAYOUT_VIEWPORT_ALLOWLIST) {
