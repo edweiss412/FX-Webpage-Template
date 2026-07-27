@@ -39,7 +39,7 @@ tests/ci/_metaSpecRegistration.test.ts        PR-A  reporter pin; workflow pinni
 .github/workflows/standalone-e2e.yml          PR-A  post-run comparison step
 tests/e2e/standalone.config.ts                PR-A  json reporter; PR-C: two testMatch members
 tests/ci/_standaloneConfigProbe.ts            PR-A  expose evaluated reporter
-package.json                                  PR-A  yaml devDep; PR-B: run-excluded alias
+package.json + pnpm-lock.yaml                 PR-A  yaml devDep (+lockfile); PR-B: run-excluded alias
 scripts/run-excluded-test.mjs                 PR-B  vitest child + JSON report + exit-status oracle
 tests/scripts/runExcludedTest.test.ts         PR-B  behavioral rejection tests + alias pin
 tests/ci/_metaEnvBoundExclusionCoverage.test.ts PR-B registry totality + workflow qualification
@@ -303,7 +303,7 @@ if (args.includes("--write")) {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass** — 6/6 green.
+- [ ] **Step 4: Run to verify pass** — all cases green.
 - [ ] **Step 5: Commit** — `git add scripts/check-standalone-baseline.mjs tests/scripts/checkStandaloneBaseline.test.ts && git commit -m "feat(ci): standalone baseline comparator, behaviorally pinned"`
 
 ### Task A2: json reporter in the standalone config, observed structurally + committed baseline
@@ -361,7 +361,7 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
 
 **Files:**
 - Modify: `.github/workflows/standalone-e2e.yml` (one step after the run step)
-- Modify: `package.json` (add `"yaml": "^2.8.0"` to devDependencies; `pnpm install`)
+- Modify: `package.json` + `pnpm-lock.yaml` (add `"yaml": "^2.8.0"` to devDependencies; the lockfile update commits with it)
 - Modify: scripts/check-standalone-baseline.mjs (zero-args branch defaults to the CI report path)
 - Test: extend tests/scripts/checkStandaloneBaseline.test.ts AND tests/ci/\_metaSpecRegistration.test.ts
 
@@ -371,13 +371,26 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
 
 ```ts
   it("zero args: reads test-results/standalone-report.json relative to cwd and compares (A3 amendment)", () => {
-    // Arrange a fake repo cwd holding a matching default-path report + baseline override via env-free CLI:
+    // Self-contained (plan-R3 F5): the fixture report's rootDir points INSIDE the temp cwd,
+    // because the script computes repo-relativity against ITS process.cwd().
     const cwd = mkdtempSync(join(tmpdir(), "default-report-"));
     mkdirSync(join(cwd, "test-results"), { recursive: true });
-    const rep = JSON.parse(readFileSync(report([A_REPORT], 2), "utf8"));
-    writeFileSync(join(cwd, "test-results", "standalone-report.json"), JSON.stringify(rep));
-    // rootDir in the fixture is ROOT/tests/e2e; baseline is repo-relative to the SCRIPT's cwd;
-    // the script resolves repo-relativity against ITS cwd, so pass the baseline override:
+    writeFileSync(
+      join(cwd, "test-results", "standalone-report.json"),
+      JSON.stringify({
+        config: { rootDir: join(cwd, "tests", "e2e") },
+        suites: [
+          {
+            file: "a.spec.ts",
+            suites: [],
+            specs: [
+              { file: "a.spec.ts", title: "t0", tests: [{ status: "expected" }] },
+              { file: "a.spec.ts", title: "t1", tests: [{ status: "expected" }] },
+            ],
+          },
+        ],
+      }),
+    );
     expect(run(["--baseline", baseline(["tests/e2e/a.spec.ts"], 2)], cwd)).toBe(0);
   });
 
@@ -387,7 +400,7 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
   });
 ```
 
-(`mkdirSync` joins the existing `node:fs` import. NOTE for the implementer: with cwd != ROOT, `relative(ROOT...)` in the script is relative to ITS `process.cwd()` — the fixture's rootDir must be `join(cwd, "tests", "e2e")` for the zero-args cases; build the fixture report inline here with that rootDir rather than reusing `report()`. Write it so the SUCCESS case is red before the amendment — with the usage-fail branch it exits 1, failing `toBe(0)`.)
+(`mkdirSync` joins the existing `node:fs` import list in this file — the A1 header import line becomes `import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";`. The SUCCESS case is red before the amendment: the usage-fail branch exits 1, failing `toBe(0)`.)
 
 - [ ] **Step 1b: Failing workflow-pinning cases** (extend tests/ci/\_metaSpecRegistration.test.ts):
 
@@ -532,10 +545,13 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(Object.keys(DARK_SPEC_ALLOWLIST).filter((p) => !existsSync(join(ROOT, p)))).toEqual([]);
   });
 
-  it("drift tie: every Vitest include glob claims only .test.ts/.test.tsx shapes", () => {
-    // plan-R1 F6: value-import the real exports; assert the SUFFIX CLAIM, not glob identity;
-    // tests/sample.test.ts (a literal member of PARALLEL_TEST_GLOBS) ends in .test.ts and passes.
-    const globs = [...BASE_INCLUDE, ...PARALLEL_TEST_GLOBS, ...MUTATION_TEST_GLOBS];
+  it("drift tie: the subtraction's premise is pinned, not approximated", () => {
+    // plan-R3 F2: the detector's VITEST_CLAIMED subtraction is sound iff the serial
+    // include set still claims exactly tests/**/*.test.{ts,tsx}. Pin BASE_INCLUDE
+    // VERBATIM (a narrowed dir, dropped suffix, or new shape re-opens the subtraction),
+    // and keep the suffix-claim sweep over the remaining glob families.
+    expect(BASE_INCLUDE).toEqual(["tests/**/*.test.ts", "tests/**/*.test.tsx"]);
+    const globs = [...PARALLEL_TEST_GLOBS, ...MUTATION_TEST_GLOBS];
     const offenders = globs.filter(
       (g) => !(g.endsWith(".test.ts") || g.endsWith(".test.tsx") || g.endsWith(".test.{ts,tsx}")),
     );
@@ -588,7 +604,7 @@ describe("spec registration detector (spec §3.1)", () => {
 ### Task A5: CI-side mutation verification + close-out docs
 
 - [ ] **Step 1:** Push branch; open PR; confirm `standalone-e2e` green (real report + comparison exercised in the real environment).
-- [ ] **Step 2: AC-2 mutation:** `git checkout -b scratch/ci-dark-ac2-mutation`; edit `tests/e2e/standalone.config.ts` adding `grep: process.env.GITHUB_ACTIONS === "true" ? /skeletonBandParity/ : undefined,` (locally-invisible narrowing class; `workflow_dispatch` does not set `GITHUB_EVENT_NAME=pull_request`, so the GITHUB_ACTIONS predicate replaces the backlog's example while staying in the same class); **`git commit -am "scratch: ac2 mutation"` and `git push -u origin scratch/ci-dark-ac2-mutation`** (plan-R1 F9: the mutation must be committed to be observable); `gh workflow run standalone-e2e.yml --ref scratch/ci-dark-ac2-mutation`; expect RED at the comparison step. Record run URL in the PR body; then RETURN to the PR branch before any further work (plan-R2 F3): `git checkout feat/ci-dark-descoped-guards && git branch -D scratch/ci-dark-ac2-mutation && git push origin :scratch/ci-dark-ac2-mutation`.
+- [ ] **Step 2: AC-2 mutation:** `git checkout -b scratch/ci-dark-ac2-mutation`; edit `tests/e2e/standalone.config.ts` adding `repeatEach: process.env.GITHUB_ACTIONS === "true" ? 2 : 1,` (plan-R3 F3: the FILE-PRESERVING vector the spec's AC-2 names, expressed deterministically — every file stays in the report while the executed-test count shifts under the Actions env, and the comparator is an inequality so direction is irrelevant; `workflow_dispatch` does not set `GITHUB_EVENT_NAME=pull_request`, so the GITHUB_ACTIONS predicate stays in the locally-invisible class); **`git commit -am "scratch: ac2 mutation"` and `git push -u origin scratch/ci-dark-ac2-mutation`** (plan-R1 F9: the mutation must be committed to be observable); `gh workflow run standalone-e2e.yml --ref scratch/ci-dark-ac2-mutation`; expect RED at the comparison step. Record run URL in the PR body; then RETURN to the PR branch before any further work (plan-R2 F3): `git checkout feat/ci-dark-descoped-guards && git branch -D scratch/ci-dark-ac2-mutation && git push origin :scratch/ci-dark-ac2-mutation`.
 - [ ] **Step 3: Docs:** BACKLOG.md — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` ✅ RESOLVED (mechanism + shipped test paths); parent spec §10b supersession note. `pnpm spec:lint` both docs.
 - [ ] **Step 4: Commit** — `git commit -am "docs(ci): close the two PR-A backlog items; supersede the parent §10b ceiling"`
 
@@ -615,7 +631,7 @@ New worktree AFTER PR-A merges: `git worktree add -b feat/ci-dark-vitest-exclusi
 - Produces: `pnpm run-excluded <test-file>` — spawns `pnpm vitest run <file> --reporter=json --outputFile=<tmpfile>`; exit 0 IFF child exit 0 AND report `numPassedTests >= 1` AND `numFailedTests === 0`. (Field names verified against real output before writing fixtures: run `pnpm vitest run tests/messages/lookup.test.ts --reporter=json --outputFile=/tmp/probe.json` once and confirm `numPassedTests`/`numFailedTests`/`numPendingTests` are top-level; adjust ONLY the field names if vitest 4's schema differs, never the three-condition gate.)
 - Test seam: env `RUN_EXCLUDED_CMD_OVERRIDE` — a JSON `{ "cmd": string, "args": string[] }` replacing the spawned command; REFUSED (hard error) when `GITHUB_ACTIONS` is set, so CI always runs real vitest. The stub command still receives `--outputFile=<tmpfile>` as its final argument and must write the canned report there (the fixture stubs are tiny `node -e` scripts that copy a canned report to the path in their last argv and exit with a chosen code).
 
-- [ ] **Step 1: Write the failing behavioral test** — seven cases, exit-code capture identical to A1's `run()` helper:
+- [ ] **Step 1: Write the failing behavioral test** — the case checklist below (exit-code capture identical to A1's `run()` helper); cases 1-4 and 6 write canned reports via their stubs, case 5 deliberately writes none, case 5b writes malformed bytes:
 
 ```ts
 // tests/scripts/runExcludedTest.test.ts: case inventory (full bodies follow the A1 pattern):
@@ -629,7 +645,7 @@ New worktree AFTER PR-A merges: `git worktree add -b feat/ci-dark-vitest-exclusi
 // 7. alias pin: package.json scripts["run-excluded"] === "node scripts/run-excluded-test.mjs"
 ```
 
-Each of cases 1-6 writes a canned report JSON and a stub script to a temp dir, sets `RUN_EXCLUDED_CMD_OVERRIDE`, and invokes the script via `execFileSync("node", [SCRIPT, "tests/whatever.test.ts"], { env: {...} })`. Case 6's stub writes the PASSING report then `process.exit(1)`. An eighth case: `RUN_EXCLUDED_CMD_OVERRIDE` set together with `GITHUB_ACTIONS: "true"` → non-zero (the seam is CI-refused).
+Each case builds its stub script in a temp dir and sets `RUN_EXCLUDED_CMD_OVERRIDE`, and invokes the script via `execFileSync("node", [SCRIPT, "tests/whatever.test.ts"], { env: {...} })`. Case 6's stub writes the PASSING report then `process.exit(1)`. A final case: `RUN_EXCLUDED_CMD_OVERRIDE` set together with `GITHUB_ACTIONS: "true"` → non-zero (the seam is CI-refused).
 
 - [ ] **Step 2: Verify failure.** **Step 3: Implement** (spawn via `execFileSync` with the override parsing, tmp report path via `mkdtempSync`, three-condition gate, one-line loud failure naming the violated condition). **Step 4: Verify pass** + one real run: `pnpm run-excluded tests/cross-cutting/email-canonicalization.test.ts` → exit 0 locally. **Step 5: Commit** — `feat(ci): run-excluded execution oracle`
 
@@ -657,7 +673,7 @@ export const ENV_BOUND_COVERAGE_REGISTRY: Record<string, EnvBoundCoverageRow> = 
 };
 ```
 
-- [ ] **Step 1: Write the failing meta-test.** Cases: (1) totality both directions — every `ENV_BOUND_EXCLUDES` entry (strip the `**/` prefix) has exactly one registry row; every row's file is in the array (stale check); (2) for each `{workflow, job}` row, `yaml`-parse the workflow: some step in that job has `run` EXACTLY `pnpm run-excluded <file>`, and that step carries none of `if`/`continue-on-error`/`working-directory` and its run contains no `|`; (3) workflow qualification: `on.pull_request` key EXISTS and is bare (no paths/paths-ignore/types/branches/branches-ignore); job `if` absent or exactly `github.event_name != 'schedule'`; job and workflow carry none of `needs`/`strategy`/`continue-on-error`/`environment`/`defaults`; (4) any `dark: true` row → `expect.fail` quoting its `backlogRef`. Run: RED — two ways at once with the current tree: totality fails (`test-auth-gate` in the array, no row) and the step case fails (no x5 step yet). That is the failing test that DRIVES the row deletion (TDD).
+- [ ] **Step 1: Write the failing meta-test.** Cases: (1) totality both directions — every `ENV_BOUND_EXCLUDES` entry (strip the `**/` prefix) has exactly one registry row; every row's file is in the array (stale check); (2) for each `{workflow, job}` row, `yaml`-parse the workflow: some step in that job has `run` EXACTLY `pnpm run-excluded <file>`, and that step carries none of `if`/`continue-on-error`/`working-directory`/`shell` (plan-R3 F1: a step-level `shell: bash -c ":" {0}` override consumes the literal without executing it) and its run contains no `|`; (3) workflow qualification: `on.pull_request` key EXISTS and is bare (no paths/paths-ignore/types/branches/branches-ignore); job `if` absent or exactly `github.event_name != 'schedule'`; job and workflow carry none of `needs`/`strategy`/`continue-on-error`/`environment`/`defaults`; (4) any `dark: true` row → `expect.fail` quoting its `backlogRef`. Writing the failing test includes scaffolding an EMPTY registry export in `vitest.projects.ts` (`export const ENV_BOUND_COVERAGE_REGISTRY: Record<string, EnvBoundCoverageRow> = {};`) so the test COMPILES (plan-R3 F7) and then fails BEHAVIORALLY: totality (both remaining `ENV_BOUND_EXCLUDES` entries uncovered) and, once the email-canon row is drafted, the missing x5 step. That failing state DRIVES the row deletion and the workflow edit (TDD).
 - [ ] **Step 2: Implement in one commit:** registry export; delete `"**/tests/admin/test-auth-gate.test.ts"` from `ENV_BOUND_EXCLUDES`; x5 step after the audit step:
 
 ```yaml
@@ -698,14 +714,14 @@ New worktree AFTER PR-A merges (independent of PR-B): `git worktree add -b feat/
 - [ ] **Step 1: Write fixtures + the failing test.** Fixture inventory (each a small real module):
 
 ```
-namedDecl.ts       "use server"; export async function f() { return 1; }            -> stubs [f]
-defaultNamed.ts    "use server"; export default async function g() { return 1; }    -> stubs [default]
-defaultAnon.ts     "use server"; export default async function () { return 1; }     -> stubs [default]
-arrowConst.ts      "use server"; export const h = async () => 1;                    -> stubs [h]
-fnExprConst.ts     "use server"; export const k = async function () { return 1; };  -> stubs [k]
-typeOnly.ts        "use server"; export type T = { x: number };                     -> empty stub
-singleQuote.ts     'use server'; export async function f() { return 1; }            -> stubs [f]      (case e)
-escapedSpace.ts    "use\x20server"; export async function f() { return 1; }         -> stubs [f]      (case g)
+namedDecl.ts       "use server"; export async function f() { return "NAMED_BODY_SENTINEL"; }        -> stubs [f]
+defaultNamed.ts    "use server"; export default async function g() { return "DEFN_BODY_SENTINEL"; }  -> stubs [default]
+defaultAnon.ts     "use server"; export default async function () { return "DEFA_BODY_SENTINEL"; }   -> stubs [default]
+arrowConst.ts      "use server"; export const h = async () => "ARROW_BODY_SENTINEL";                 -> stubs [h]
+fnExprConst.ts     "use server"; export const k = async function () { return "FNEX_BODY_SENTINEL"; };-> stubs [k]
+typeOnly.ts        "use server"; export type T = { x: number };                                      -> empty stub
+singleQuote.ts     'use server'; export async function f() { return "SQ_BODY_SENTINEL"; }            -> stubs [f]  (case e)
+escapedSpace.ts    "use\x20server"; export async function f() { return "ESC_BODY_SENTINEL"; }        -> stubs [f]  (case g)
 noDirective.ts     export const plain = "PLAIN_BODY_SENTINEL";                      -> real body      (case c)
 nestedString.ts    export const s = '"use server"' + "NESTED_BODY_SENTINEL"; // "use server" in a comment -> real body (case d)
 reexportFrom.ts    "use server"; export { f } from "./namedDecl";                   -> build FAILS
@@ -777,7 +793,7 @@ The test builds EVERY fixture through a real `esbuild.build` (plan-R1 F13 — th
 ### Task C5: PR-C docs + close-out gates
 
 - [ ] `tests/e2e/helpers/liveEntryToolchain.ts:15` header: replace the "DELIBERATELY NOT a resolver policy" paragraph with the directive-rule contract + spec pointer (ratified supersession, spec §1.1 row 3).
-- [ ] BACKLOG.md: `BL-HARNESS-RESOLVER-POLICY` + `BL-HARNESS-PACKLIST-SERVER-GRAPH` ✅ RESOLVED, citing the plugin contract, the measured metafile, the consolidation. Sweep evidence: `rg -n "use.?server" tests/e2e --iglob '!__fixtures__'` over ALL file types (plan-R1 F15: not just `.mjs`) — every hit is either the shared plugin, a fixture, or a comment; record the output. Parent spec §10.1/§10.2 supersession notes. `pnpm spec:lint` the edited docs.
+- [ ] BACKLOG.md: `BL-HARNESS-RESOLVER-POLICY` ✅ RESOLVED, citing the plugin contract and the consolidation. `BL-HARNESS-PACKLIST-SERVER-GRAPH` ✅ RESOLVED ONLY IF C4 shipped (plan-R3 F4: under the C1 Step 5 descope branch it STAYS OPEN, updated with the fresh metafile trace and a pointer at the shipped resolver as the remaining path); the parent-spec §10.2 supersession note follows the same condition. Sweep evidence: `rg -n "use.?server" tests/e2e --iglob '!__fixtures__'` over ALL file types (plan-R1 F15: not just `.mjs`) — every hit is either the shared plugin, a fixture, or a comment; record the output. Parent spec §10.1/§10.2 supersession notes. `pnpm spec:lint` the edited docs.
 - [ ] Close-out gates as A6. PR-C's diff is wide — dispatch TWO scoped reviews per the split-tight-scope default (surface 1: helpers/plugin/fixtures/child; surface 2: config/meta-tests/specs/workflow), both REVIEWER ONLY with the §1.1 table.
 
 ---
