@@ -194,11 +194,46 @@ instance. What ended it was R7 reporting, in a single round, that the rule *both
 number" check read from opposite sides — so rounds 6 and 7 had been trading one failure for the
 other, and no adjustment could satisfy both. That is the tell, not the round count.
 
-Ambiguity is now six named signals, each matching one specific way a label denotes a second DAY:
-two month-days; two years *attached to a date*; two weekday names; two ordinal-position phrases; a
-plural day span; a spoken ordinal with its article. The two refinements carrying the most weight
-are the narrow ones — counting only attached years is what saves `"2025 Awards — Tuesday, May 5,
-2026"`, and requiring "the" is what separates `"the 6th"` from `"8th Floor"`.
+**The rule as it FINALLY ships** (this paragraph described the round-7 design until round 10; it
+is corrected here because the mechanism changed three more times and a close-out artifact that
+describes a superseded design is worse than none).
+
+A label is ambiguous — and the extraction fails open — when any of these hold:
+
+| Signal | Catches |
+| --- | --- |
+| more than one distinct month-day, read from FOUR date shapes: month-led, day-first (year required), slash, ISO | `"May 5, 2026 / May 6"`, `"/ 05/06/2026"`, `"/ 2026-05-06"`, `"/ 6 May 2026"` |
+| more than one distinct year, recorded by EVERY shape | `"May 5, 2026 / 2027-05-05"` and every other pairing |
+| more than one weekday name anywhere, OR any weekday after the date | `"Wednesday / Tuesday, May 5, 2026"`, `"May 5, 2026 / Wednesday"` |
+| more than one `Day N` phrase | `"... Day 1 / Day 2"` |
+| a plural day span, wherever it sits | `"Days 1-2, May 5, 2026"` |
+| a spoken ordinal not followed by a capitalized noun | `"and the 6th"`, but not `"The 8th Floor"` |
+
+Two decisions inside that are worth keeping visible. **Count AND position, never either alone** —
+counting misses `"May 5, 2026 / Wednesday"` (one weekday, because the date carries none), and
+position misses `"Wednesday / Tuesday, May 5, 2026"` (the second day leads). **A trailing `Day N`
+is deliberately NOT a signal**, reversing a round-8 call: `"Tuesday, May 5, 2026 — Day 1"`,
+`"Show Day 1"` and `"(Travel Day 2)"` name one day, and since ambiguity is checked with `.some()`,
+one such heading unfolded an entire link. An over-fire silently disables the feature; an
+under-fire only shows more than necessary.
+
+## Rounds 8-10
+
+| Round | Finding | Disposition |
+| --- | --- | --- |
+| R8 | HIGH six more second-day forms; counting fails when the primary date lacks the token | FIXED — replaced counting with position |
+| R8 | MEDIUM signal-2 / signal-6 over-fires (`"2025 Awards"`, `"The 8th Floor"`) | FIXED |
+| R8 | MEDIUM the a11y proof read a DOM property, not the accessibility tree | FIXED — role asserted; the measured limits recorded |
+| R8 | LOW corpus guard claimed seven labels, held six | FIXED |
+| R9 | HIGH leading second-day references | Already FIXED in `11652d7af` — I had swept the same forms myself |
+| R9 | HIGH year mismatch escaped across date SHAPES | FIXED — every shape records its year |
+| R9 | MEDIUM trailing `Day N` over-fire | FIXED, reversing the R8 call |
+| R9 | MEDIUM the plan's reconciliation proofs never landed | FIXED — all three §5.2 behaviours pinned |
+
+**Found by re-reading the function whole rather than from any report:** day-first matching required
+no year, so the bare `"<number> <word>"` pattern invented a phantom second date in
+`"Day 1 May 5, 2026"`, `"Session 3 May 5, 2026"`, `"Room 12 May 5, 2026"` and the pdfjs glyph-split
+`"2 6 May 5, 2026"` — four ordinary headings silently unfolded.
 
 ## Three things this PR taught about its own tests
 
