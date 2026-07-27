@@ -64,8 +64,17 @@ const LOADED_REVIEW_MODAL =
  * mounted, so the caller can query the lifecycle control directly.
  */
 async function openShowActions(modal: import("@playwright/test").Locator) {
-  await modal.getByTestId("share-hub-kebab").click();
-  await expect(modal.getByTestId("share-hub-popover")).toBeVisible();
+  // Hydration retry, mirroring the sibling layout spec. On a cold compile the
+  // first click can land before hydration attaches the handler and is silently
+  // SWALLOWED — measured as three failures whose failing cases move between
+  // runs, which is why one green run proves nothing here. The kebab is a
+  // toggle, so a swallowed click leaves state unchanged and the retry is
+  // idempotent.
+  const popover = modal.getByTestId("share-hub-popover");
+  await expect(async () => {
+    await modal.getByTestId("share-hub-kebab").click();
+    await expect(popover).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
 }
 
 // The components changed/created by Phase 6–8 whose §3.4 pairs must stay instant.
@@ -258,6 +267,13 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     // armed. Its form action runs the server action then router.refresh().
     const toggle = modal.getByTestId("published-toggle");
     await expect(toggle).toBeVisible();
+    // DELIBERATELY NOT retried, unlike the two sites above. This case dispatches
+    // ONE action while Archive is armed and then asserts a no-torn-state
+    // invariant; a retry could double-dispatch and change what is being tested.
+    // It is also not exposed to the hydration race those sites hit: the
+    // retrying `openShowActions` and the arming click have both already landed
+    // by here, which is itself proof that hydration completed. It was not among
+    // the three measured swallow failures.
     await toggle.click();
 
     // Let the dispatch + any refresh settle.
@@ -297,14 +313,24 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       await expect(modal).toBeVisible({ timeout: 30_000 });
       const toggle = modal.getByTestId("published-toggle");
       await expect(toggle).toHaveAttribute("aria-checked", "true");
-      await toggle.click();
-      await expect(toggle).toHaveAttribute("aria-checked", "false");
-      // CASP-2: the compact inline StatusStrip toggle no longer carries a subline; the
-      // paused-state copy now lives once in the Overview #share-access inactive notice
-      // (the single source — the inline variant dropped its duplicate subline).
-      await expect(modal.getByTestId("admin-share-link-inactive")).toContainText(
-        "The crew link is inactive while this show is unpublished.",
-      );
+      // Pre-hydration swallow retry; see the sibling site above.
+      await expect(async () => {
+        if ((await toggle.getAttribute("aria-checked")) !== "false") await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-checked", "false", { timeout: 1500 });
+      }).toPass({ timeout: 15_000 });
+      // REMOVED 2026-07-26: an assertion on `admin-share-link-inactive` and the
+      // copy "The crew link is inactive while this show is unpublished." No
+      // production module emits either — `d7fa48b9a feat(admin): replace the
+      // Overview share cluster with the status-band hub (T4)` deleted the panel
+      // that carried them, and that is a ratified redesign, not a regression.
+      // It is not a rename: the nearest surviving string is a rotation
+      // confirmation in RotateShareTokenButton, a different message in a
+      // different control, and `admin-current-share-link-unavailable` is an
+      // ERROR state gated on `published`.
+      //
+      // This is the cluster's thesis in miniature: a merged redesign silently
+      // broke this spec and nothing noticed for months, because no workflow ran
+      // it. A spec that ran would have failed the redesign's own PR.
 
       // Crew view in a FRESH context (no admin session — admins bypass the gate).
       const crewContext = await browser.newContext();

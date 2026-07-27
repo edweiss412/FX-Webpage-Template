@@ -79,6 +79,14 @@ jobs:
       - run: pnpm exec playwright install chromium webkit
       - name: Run admin lifecycle layout e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
+      # admin-lifecycle-transitions was matched by the mobile-safari project but
+      # named by NO workflow, so it ran nowhere. While it was dark, a ratified
+      # redesign (d7fa48b9a) deleted the panel one of its assertions targeted,
+      # and nothing noticed for months — a spec that ran would have failed that
+      # redesign's own PR. That assertion is removed and the three pre-hydration
+      # click-swallow sites now retry, so it is wired here.
+      - name: Run admin lifecycle transitions e2e (mobile-safari, :3000 only)
+        run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
