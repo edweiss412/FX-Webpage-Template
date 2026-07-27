@@ -10,6 +10,11 @@
 
 **Spec (canonical):** `docs/superpowers/specs/ci/2026-07-26-ci-dark-descoped-closeout-design.md` — adversarially APPROVED at R8 (finding counts 12/5/7/2/1/2/1/0). Where this plan and the spec disagree, the spec wins.
 
+## Amendments (2026-07-27, during A6 — supersede the task bodies below where they conflict)
+
+1. **Reporter `outputFile` is `"../../test-results/standalone-report.json"`, not the bare literal the A2/A3 bodies quote.** The first real Actions run of the comparison step (run 30295240580, and the PR-run rerun on eb4f282ce) failed ENOENT: Playwright resolves a relative reporter `outputFile` against the CONFIG directory (1.59.1 `lib/reporters/base.js` `resolveOutputFile`), so the bare literal wrote `tests/e2e/test-results/` while the comparator's zero-args default reads the repo-root `test-results/`. The `../../` prefix restores the intended repo-root path; `_metaSpecRegistration.test.ts` now pins the RESOLUTION (configDir-resolved reporter path === comparator default) alongside the literal, so the two sides cannot drift apart again. The comparator default and workflow step are unchanged. One more instance of the plan-wide "local-passes-CI-fails is its own bug class" rule (AGENTS.md): the local `--list-check` never exercises the reporter write, so only the real Actions run could surface it.
+2. **The A6-adjacent "mark ✅ RESOLVED in BACKLOG.md" step is superseded by graduation.** Main's `tests/docs/_metaDeferralLedgerGraduation.test.ts` (merged into this branch at eb4f282ce) forbids terminal-status entries sitting in BACKLOG.md. `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` therefore moved to `BACKLOG-archive.md` (substance intact, provenance `feat/ci-dark-descoped-guards`) and are registered in the test's `BACKLOG_GRADUATED` list.
+
 ## Global Constraints
 
 - TDD per task: failing test → minimal implementation → passing test → commit (AGENTS.md invariant 1); one conventional commit per task (invariant 6; scopes `ci`, `e2e`).

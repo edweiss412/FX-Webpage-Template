@@ -1001,3 +1001,68 @@ The five sites `BL-PHANTOM-GAP-CHROME-SPACER-CROWDED-ROW` repaid are covered by 
 Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rather than shipped at 63% agreement with itself.
 
 **Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
+
+---
+
+## BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered — ✅ RESOLVED (2026-07-27, ci-dark descoped close-out PR-A)
+
+**Resolved by:** `feat/ci-dark-descoped-guards` (PR #626, PR-A of the ci-dark descoped close-out, spec `docs/superpowers/specs/ci/2026-07-26-ci-dark-descoped-closeout-design.md`).
+**Status:** ✅ RESOLVED · **Severity:** medium · **Class:** GUARD COMPLETENESS
+
+**Resolution.** The detector never inspects a spec at all — the two failed definitions below
+modelled harness shape, and the shipped guard replaces the model with observation. The universe is
+Playwright's own default file matcher (installed 1.59.1, common/config.js line 164) applied to a
+`readdirSync` walk of `tests/e2e/`, minus the exact suffix pair the Vitest include globs claim;
+membership is the union of `--list --reporter=json` output across every registered Playwright
+config (`playwright.config.ts`, `tests/e2e/standalone.config.ts`,
+`playwright.screenshots.config.ts`, and `tests/e2e/visual.config.ts` — the last joined at merge
+time when main shipped the section-header visual gate). A
+test-shaped file resolved by no config and absent from `DARK_SPEC_ALLOWLIST` (each row carries a
+backlog ref) fails one aggregate assertion naming every offender and every config. A
+config-set tripwire (invocation census over `package.json` scripts + workflow `run:` blocks, plus a
+filename belt) pins the config set, and a drift tie pins the Vitest-claim subtraction verbatim. Shipped
+at `tests/ci/_metaSpecRegistration.test.ts` ("spec registration detector (spec §3.1)"); mutation-
+verified with three filename shapes (spec-ts, spec-cts, and test-mjs variants). The live instance it caught,
+`tests/e2e/report-modal.spec.ts`, was dispositioned per spec §3.2.
+
+`standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
+adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
+caught the stale `overrideableField.layout`), but cannot see a spec that was never listed.
+
+Two detector definitions were tried and both fail: "calls the toolchain helper" is neither
+necessary nor sufficient, and "imports `node:http`/`node:https`" misses harnesses that boot no
+server — `tests/e2e/phantomGapHelper.layout.spec.ts` drives `page.setContent`, and `data:`
+navigation and route-fulfillment harnesses evade it identically. **Trigger:** a new standalone spec
+discovered dark, which is the event this would have prevented.
+
+---
+
+## BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets — ✅ RESOLVED (2026-07-27, ci-dark descoped close-out PR-A)
+
+**Resolved by:** `feat/ci-dark-descoped-guards` (PR #626, PR-A of the ci-dark descoped close-out, spec `docs/superpowers/specs/ci/2026-07-26-ci-dark-descoped-closeout-design.md`).
+**Status:** ✅ RESOLVED · **Severity:** LOW (guard completeness, not a live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR2 of the CI-dark cluster, adversarial R4)
+
+**Resolution.** Exactly the "if picked up" fix below: verify in the environment rather than predict
+it locally. `tests/e2e/standalone.config.ts` now emits a JSON run report under the gitignored
+test-results directory; `scripts/check-standalone-baseline.mjs` compares the run's
+own reported per-file executed-test counts against the committed
+`tests/e2e/standalone-baseline.json`, and `.github/workflows/standalone-e2e.yml` runs the
+comparator as a post-run step — so a config that narrows only under Actions reds the job on its own
+report, with no env-var enumeration anywhere. Comparator behaviorally pinned at
+`tests/scripts/checkStandaloneBaseline.test.ts`; reporter/baseline/workflow-step structure pinned
+at `tests/ci/_metaSpecRegistration.test.ts`; the workflow mutation `repeatEach:
+process.env.GITHUB_ACTIONS === "true" ? 2 : 1` (file-preserving, locally invisible) verified red in
+a real Actions run — URL in the PR body. The parent spec's §10b ceiling paragraph carries the
+supersession note.
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; the measurements are below.
+
+`tests/ci/_standaloneConfigProbe.ts` proves that under the environment it can construct, `tests/e2e/standalone.config.ts` resolves to exactly the 30 spec files whose allowlist rows PR #609 deleted. Membership comes from Playwright's own `--list`, so `projects[].testMatch`, `testIgnore`, `testDir`, `projects: []`, and `grep`/`grepInvert` are all resolved by Playwright rather than modelled, and a companion assertion requires that resolved set to equal what the top-level `testMatch` declares (verified by mutation: a project-level `testMatch` reds it).
+
+**The gap:** a config branching on a variable only the runner sets. The probe pins `CI` and `GITHUB_ACTIONS` and asserts the matcher is identical with and without them, but a branch on `GITHUB_EVENT_NAME`, on another runner default, or on workflow/job/step `env` is invisible to any LOCAL probe **by construction** — the CI environment is not reproducible on a developer machine. Two concrete mutations that pass today's parity check while narrowing under Actions: `process.env.GITHUB_EVENT_NAME === "pull_request"` and `process.env.NODE_ENV === "test"`.
+
+**Why it is not patched:** enumerating variables is the mechanism that failed in rounds 1–3 (regex reader → AST reader → semantics modelling), each replaced rather than extended. A fourth enumeration would be the same shape.
+
+**Mitigation already in place (procedural, and it holds):** the job is unfiltered and runs the WHOLE config on every PR, so a config that narrowed under Actions would show a reduced test count in the run log — 404 tests across 30 files is the current baseline.
+
+**If picked up:** the sound fix is to compare the CI run's own reported test count against a committed baseline, i.e. verify in the environment rather than predict it locally.
