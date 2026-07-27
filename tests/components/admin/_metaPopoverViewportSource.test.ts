@@ -123,9 +123,30 @@ const importsCorePlacement = (file: string, code: string): boolean =>
   );
 
 const sourceFiles = ROOTS.flatMap((r) => walk(join(REPO_ROOT, r), []));
-const strippedSourceOf = (f: string): string => stripCommentsForFile(readFileSync(f, "utf8"), f);
+const rawCache = new Map<string, string>();
+const rawOf = (f: string): string => {
+  let v = rawCache.get(f);
+  if (v === undefined) {
+    v = readFileSync(f, "utf8");
+    rawCache.set(f, v);
+  }
+  return v;
+};
+const strippedCache = new Map<string, string>();
+const strippedSourceOf = (f: string): string => {
+  let v = strippedCache.get(f);
+  if (v === undefined) {
+    v = stripCommentsForFile(rawOf(f), f);
+    strippedCache.set(f, v);
+  }
+  return v;
+};
+/** Fast path: stripping only REMOVES text, so a stripped-source match implies a raw
+ *  match — test raw first and parse only the candidates. */
+const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
+  test(rawOf(f)) && test(strippedSourceOf(f));
 
-const consumers = sourceFiles.filter((f) => importsModule(f, strippedSourceOf(f), CANONICAL.place));
+const consumers = sourceFiles.filter((f) => matchesStripped(f, (c) => importsModule(f, c, CANONICAL.place)));
 
 describe("popover placement consumers read the visible viewport, not the layout viewport", () => {
   it("discovers EXACTLY the two known consumers", () => {
@@ -137,7 +158,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
 
   it("only lib/popover/place.ts imports the placement core, repo-wide", () => {
     const direct = sourceFiles
-      .filter((f) => importsCorePlacement(f, strippedSourceOf(f)))
+      .filter((f) => matchesStripped(f, (c) => importsCorePlacement(f, c)))
       .map((f) => relative(REPO_ROOT, f))
       .filter((rel) => !CORE_IMPORT_ALLOWLIST.has(rel));
     expect(direct).toEqual([]);
@@ -145,7 +166,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
 
   it("no scanned file reads the LAYOUT viewport (import-independent, repo-wide)", () => {
     const offenders = sourceFiles
-      .filter((f) => READS_LAYOUT_VIEWPORT.test(strippedSourceOf(f)))
+      .filter((f) => matchesStripped(f, (c) => READS_LAYOUT_VIEWPORT.test(c)))
       .map((f) => relative(REPO_ROOT, f))
       .filter((rel) => !LAYOUT_VIEWPORT_ALLOWLIST.has(rel));
     expect(offenders).toEqual([]);
