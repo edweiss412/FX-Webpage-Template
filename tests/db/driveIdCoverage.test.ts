@@ -491,3 +491,36 @@ describe("attachment tripwires — pg-cron consumer", () => {
     expect(src).not.toContain('execFileSync("psql"');
   });
 });
+
+// ─── T2: census runner pure exports ─────────────────────────────────────────
+import { censusTupleKey, diffCensusSources } from "@/tests/db/_censusRunner";
+
+describe("censusTupleKey", () => {
+  test("quoted identifiers with dots produce DISTINCT keys — dot-join collapse (R2-2)", () => {
+    // `public.a."b.drive_file_id"` vs `public."a.b".drive_file_id`: a dot-joined key
+    // collapses these two different columns into one, letting one vanish silently.
+    const a = censusTupleKey({ schema: "public", table: "a", column: "b.drive_file_id" });
+    const b = censusTupleKey({ schema: "public", table: "a.b", column: "drive_file_id" });
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("diffCensusSources", () => {
+  const t = (schema: string, table: string, column: string) => ({ schema, table, column });
+
+  test("equal sets diff empty in both directions", () => {
+    const a = [t("public", "shows", "drive_file_id"), t("dev", "shows", "drive_file_id")];
+    const b = [t("dev", "shows", "drive_file_id"), t("public", "shows", "drive_file_id")];
+    expect(diffCensusSources(a, b)).toEqual({ onlyA: [], onlyB: [] });
+  });
+
+  test("disjoint elements land in BOTH arrays — a length/subset comparator cannot pass this", () => {
+    // Failure mode: the production comparator weakened to `a.length === b.length` or ⊆.
+    const shared = t("public", "shows", "drive_file_id");
+    const a = [shared, t("public", "sync_log", "drive_file_id")];
+    const b = [shared, t("dev", "sync_log", "drive_file_id")];
+    const diff = diffCensusSources(a, b);
+    expect(diff.onlyA).toEqual([t("public", "sync_log", "drive_file_id")]);
+    expect(diff.onlyB).toEqual([t("dev", "sync_log", "drive_file_id")]);
+  });
+});

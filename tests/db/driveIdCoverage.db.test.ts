@@ -94,50 +94,16 @@ afterAll(async () => {
   if (sql) await sql.end().catch(() => {});
 });
 
-/**
- * Introspect inside ONE explicit transaction on ONE connection, with the search_path pinned.
- *
- * `SET LOCAL` is transaction- AND connection-scoped: issued autocommit, or followed by a query that
- * lands on a different pooled connection, it silently expires and the rendering is taken under the
- * ambient path — which is the whole thing the pin exists to prevent (spec §4.2 limit 1).
- * `current_setting` is asserted INSIDE the transaction before any rendering is trusted.
- */
-async function censusInPinnedTx(): Promise<{
-  columns: DriveIdColumn[];
-  constraints: DriveIdConstraint[];
-  searchPath: string;
-}> {
-  return await sql!.begin(async (tx) => {
-    await tx.unsafe("set local search_path = pg_catalog, public", []);
-    const [{ search_path: searchPath }] = (await tx.unsafe(
-      "select current_setting('search_path') as search_path",
-      [],
-    )) as unknown as [{ search_path: string }];
-    const columnRows = await tx.unsafe(CENSUS_COLUMNS_SQL, [
-      CENSUS_SCHEMAS as unknown as string[],
-      CENSUS_COLUMN_PREDICATE,
-    ]);
-    const constraintRows = await tx.unsafe(CENSUS_CONSTRAINTS_SQL, [
-      CENSUS_SCHEMAS as unknown as string[],
-    ]);
-    return {
-      columns: toColumns(columnRows as never),
-      constraints: toConstraints(constraintRows as never),
-      searchPath,
-    };
-  });
-}
-
 describe("Drive-ID coverage guard (live)", () => {
   test.skipIf(!dbUp)("the search_path pin actually takes effect inside the tx", async () => {
-    const { searchPath } = await censusInPinnedTx();
+    const { searchPath } = await censusInPinnedTx(sql!);
     expect(searchPath).toBe("pg_catalog, public");
   });
 
   test.skipIf(!dbUp)(
     "PRODUCTION ASSERTION — every Drive-ID column carries a canonical nonblank CHECK",
     async () => {
-      const { columns, constraints } = await censusInPinnedTx();
+      const { columns, constraints } = await censusInPinnedTx(sql!);
       const findings = auditDriveIdCoverage(columns, constraints, DRIVE_ID_COVERAGE_EXEMPTIONS);
       expect(
         findings,
@@ -227,7 +193,7 @@ describe("Drive-ID coverage guard (live)", () => {
       // Deriving would let a poisoned constraint redefine canonicality itself (spec §4.2).
       // A Postgres upgrade that changes the deparser fails these two named assertions with a clear
       // message, instead of failing every column at once for no obvious reason.
-      const { constraints } = await censusInPinnedTx();
+      const { constraints } = await censusInPinnedTx(sql!);
       const find = (schema: string, table: string, name: string): string | undefined =>
         constraints.find((c) => c.schema === schema && c.table === table && c.name === name)
           ?.definition;
@@ -260,7 +226,7 @@ describe("Drive-ID coverage guard (live)", () => {
   test.skipIf(!dbUp)("the census is non-empty and covers both repo-owned schemas", async () => {
     // Guards against the census silently returning nothing — every assertion above would then be
     // vacuously green. This is a floor on a LIVE query, not on a stored artifact.
-    const { columns } = await censusInPinnedTx();
+    const { columns } = await censusInPinnedTx(sql!);
     expect(columns.length).toBeGreaterThan(0);
     expect(new Set(columns.map((c) => c.schema))).toEqual(new Set(["public", "dev"]));
   });
@@ -320,6 +286,56 @@ describe("validation target identity (negative controls vs the local stack)", ()
         aborted = /validation identity guard/.test(String((e as Error).message));
       }
       expect(aborted, "guarded select must abort with the guard exception").toBe(true);
+    },
+  );
+});
+
+// ─── T2: dual-source census cross-check (spec §3.3) ─────────────────────────
+import { censusInPinnedTx, diffCensusSources } from "@/tests/db/_censusRunner";
+import { CENSUS_COLUMNS_PG_CATALOG_SQL } from "@/lib/driveIdCoverage/introspect";
+
+describe("dual-source census cross-check", () => {
+  test.skipIf(!dbUp)(
+    "information_schema census SET-EQUALS the pg_catalog census, in ONE pinned tx",
+    async () => {
+      // Failure mode: any single-site narrowing of either query — predicate, schema list,
+      // added filter, relkind drift. Both censuses come from the SAME transaction, so a
+      // mid-flight DDL cannot explain a mismatch away.
+      const { columns, columnsPgCatalog } = await censusInPinnedTx(sql!);
+      const diff = diffCensusSources(columns, columnsPgCatalog);
+      expect(diff, "the two catalog paths disagree about the census").toEqual({
+        onlyA: [],
+        onlyB: [],
+      });
+      expect(columns.length, "an empty census would make the equality vacuous").toBeGreaterThan(0);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "NEGATIVE CONTROL — a narrowed pg_catalog predicate is caught by the SAME comparator",
+    async () => {
+      // Proves the production comparison bites; goes through diffCensusSources itself, so
+      // weakening the comparator breaks this too (plan-R1 finding 5).
+      const narrowed = CENSUS_COLUMNS_PG_CATALOG_SQL.replace(
+        "~ 'drive_file_id'",
+        "~ 'drive_file_idX'",
+      );
+      expect(narrowed, "the substitution must have changed the query").not.toBe(
+        CENSUS_COLUMNS_PG_CATALOG_SQL,
+      );
+      const { columns } = await censusInPinnedTx(sql!);
+      const rows = (await sql!.unsafe(narrowed, [])) as unknown as {
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+      }[];
+      const narrowedTuples = rows.map((r) => ({
+        schema: r.table_schema,
+        table: r.table_name,
+        column: r.column_name,
+      }));
+      const diff = diffCensusSources(columns, narrowedTuples);
+      expect(diff.onlyA.length, "narrowing must surface as a non-empty diff").toBeGreaterThan(0);
     },
   );
 });
