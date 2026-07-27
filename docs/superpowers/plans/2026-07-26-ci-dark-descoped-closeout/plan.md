@@ -597,7 +597,7 @@ describe("spec registration detector (spec §3.1)", () => {
 
 - [ ] **Step 4: Verify pass** — `pnpm vitest run tests/ci/_metaSpecRegistration.test.ts` green.
 
-- [ ] **Step 5: AC-1 mutation check** — three temp files, each `import { test } from "@playwright/test"; test("x", () => {});`: tests/e2e/zz-mutation.spec.ts, tests/e2e/zz-mutation.spec.cts, tests/e2e/zz-mutation.test.mjs. Re-run the detector: THREE failures naming the three files AND the three configs (the message template carries `CONFIGS.join`). Delete the temp files; green again. Transcript into the PR body.
+- [ ] **Step 5: AC-1 mutation check** — three temp files, each `import { test } from "@playwright/test"; test("x", () => {});`: tests/e2e/zz-mutation.spec.ts, tests/e2e/zz-mutation.spec.cts, tests/e2e/zz-mutation.test.mjs. Re-run the detector: ONE failing aggregate assertion naming ALL THREE files AND the three configs in its message (plan-R4 F2: the detector is a single test with one aggregate expectation; the transcript shows one red test whose diff lists all three paths). Delete the temp files; green again. Transcript into the PR body.
 
 - [ ] **Step 6: Commit** — `git commit -am "feat(ci): spec registration detector over all three Playwright configs"`
 
@@ -706,6 +706,7 @@ New worktree AFTER PR-A merges (independent of PR-B): `git worktree add -b feat/
 **Files:**
 - Create: tests/e2e/helpers/useServerDirectivePlugin.mjs (plain JS; JSDoc types; NO TypeScript syntax — plan-R1 F14)
 - Create: tests/e2e/helpers/\_\_fixtures\_\_/directive/ (the 18 modules from the inventory below)
+- Modify: `tests/e2e/_metaLiveEntryToolchain.test.ts` EXEMPT map (plan-R4 F1: the contract test imports esbuild directly to run its build-boundary cases; without its own exemption row the toolchain guard reds the suite — add the row in THIS task, rationale "the plugin contract test builds fixtures through the real esbuild API")
 - Test: tests/e2e/helpers/useServerDirectivePlugin.test.ts
 
 **Interfaces:**
