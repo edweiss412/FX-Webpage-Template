@@ -456,7 +456,10 @@ its real body byte-for-byte (no stub); (d) a directive in a nested string/commen
 trigger (parse, not grep); (e) a SINGLE-QUOTED `'use server'` directive triggers identically
 to the double-quoted form; (g) an escape-spelled directive-position literal (hex-escaped
 space, `"use\x20server"`) DOES trigger — cooked-text matching per §5.1, verified against
-Next's SWC behavior; (f) a client-rendered fixture passing a stubbed action to
+Next's SWC behavior; (h) a diagnostic-bearing directive module FAILS the bundle rather than
+stubbing — two fixtures per the R6 counterexamples: an octal-escape directive (TypeScript
+cooks it, SWC rejects it) and a valid directive followed by trailing garbage (TypeScript
+recovers, SWC refuses); (f) a client-rendered fixture passing a stubbed action to
 `<form action={stub}>` and submitting produces the loud harness throw (the §5.2 form-action
 consumption path, measured rather than asserted). Mutation check per the guard-design ledger:
 break the plugin (make it skip stubbing) and confirm (a) reds.
