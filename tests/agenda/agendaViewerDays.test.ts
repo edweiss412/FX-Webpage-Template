@@ -216,6 +216,17 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       // R7 HIGH: the ordinal-position strip was GLOBAL, so any number of "Day N" phrases
       // passed. One names a single day; two do not.
       ["Tuesday, May 5, 2026 — Day 1 / Day 2", "two ordinal-position phrases"],
+      // R8 HIGH, all six. The first four are second DATES in shapes the month-name scan alone
+      // did not read. The last two are why counting stopped being the mechanism: each contains
+      // exactly ONE weekday / ONE Day-N, so a "more than one" threshold read them as single-day.
+      // What separates them is position -- these sit AFTER the date, so they add a day rather
+      // than qualify one.
+      ["May 5, 2026 / May 6th, 2026", "an ordinal-suffixed second date"],
+      ["May 5, 2026 / 05/06/2026", "a slash-format second date"],
+      ["May 5, 2026 / 2026-05-06", "an ISO second date"],
+      ["May 5, 2026 / 6 May 2026", "a day-first second date"],
+      ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
+      ["May 5, 2026 / Day 2", "a trailing Day-N, the label's only one"],
       ["Tuesday, May 5, 2026 / Wednesday", "two weekday names, one date"],
       ["Tuesday, May 5, 2026 and the 6th", "an ordinal day reference"],
     ];

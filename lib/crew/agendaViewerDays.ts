@@ -28,6 +28,8 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  */
 const WEEKDAY_SOURCE = "\\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\\b";
 const WEEKDAYS = new RegExp(WEEKDAY_SOURCE, "gi");
+/** Non-global twin: `.test()` on a /g regex is stateful and skips every other call. */
+const WEEKDAYS_ANY = new RegExp(WEEKDAY_SOURCE, "i");
 
 /**
  * Can this label be attributed to exactly ONE day?
@@ -64,74 +66,68 @@ const WEEKDAYS = new RegExp(WEEKDAY_SOURCE, "gi");
 function isAmbiguousLabel(dayLabel: string): boolean {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
 
-  // SIGNAL 1 -- more than one distinct month-day. The year is intentionally not part of the key,
-  // so "May 5, 2026 / May 6" counts as two (review R5).
-  const pairs = new Set<string>();
+  // SIGNAL 1 -- more than one distinct calendar day, in ANY of the shapes a date gets written.
+  // The month-name form is what the parser reads; the rest are here because review R8 listed
+  // them as second-day forms the earlier version missed.
+  const days = new Set<string>();
   const spans: [number, number][] = [];
-  for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\b/g)) {
-    const month = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
-    if (!month) continue;
-    pairs.add(`${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+  const add = (key: string, m: RegExpMatchArray) => {
+    days.add(key);
     spans.push([m.index!, m.index! + m[0]!.length]);
+  };
+  for (const m of collapsed.matchAll(
+    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/g, // "May 5", "May 6th"
+  )) {
+    const mo = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
+    if (mo) add(`${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m);
   }
-  if (pairs.size === 0) return false; // unparseable -- the caller's null guard owns this
-  if (pairs.size > 1) return true;
+  for (const m of collapsed.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\b/g)) {
+    const mo = MONTHS[m[2]!.toLowerCase().replace(/\.$/, "")]; // "6 May"
+    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m);
+  }
+  for (const m of collapsed.matchAll(/\b(\d{1,2})\/(\d{1,2})\/\d{2,4}\b/g)) {
+    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m); // "05/06/2026"
+  }
+  for (const m of collapsed.matchAll(/\b\d{4}-(\d{2})-(\d{2})\b/g)) {
+    add(`${m[1]}-${m[2]}`, m); // ISO "2026-05-06"
+  }
+  if (days.size === 0) return false; // unparseable -- the caller's null guard owns this
+  if (days.size > 1) return true;
 
-  // SIGNAL 2 -- the same month-day in two YEARS (review R6). Only years sitting immediately
-  // AFTER the date are counted: a free-floating year is metadata, not a second day, and counting
-  // every four-digit token rejected "2025 Awards -- Tuesday, May 5, 2026" (review R7).
+  // SIGNAL 2 -- the same month-day in two YEARS. Only years attached to a MONTH-led date count.
   const attachedYears = new Set<string>();
   for (const m of collapsed.matchAll(
     /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g,
   )) {
-    // The leading word must BE a month. Without it, "Track 2, 2025 — Tuesday, May 5, 2026"
-    // reads "Track 2, 2025" as a dated token and yields two years (review R8).
-    //
-    // KEPT DESPITE BEING UNOBSERVABLE TODAY, and the distinction matters. Mutation-checked:
-    // deleting this guard changes no test, because `parseIsoFromDayLabel` takes the FIRST
-    // `Word N, YYYY` hit in a label and returns null when that word is not a month -- so any
-    // input this guard would catch has already failed open via the caller's null guard. That
-    // is a coupling to another function's current behaviour, not a logical impossibility, which
-    // is why it stays where the provably-dead year-strip was deleted.
+    // KEPT DESPITE BEING UNOBSERVABLE TODAY: `parseIsoFromDayLabel` takes the FIRST
+    // `Word N, YYYY` hit and returns null when that word is not a month, so anything this
+    // would catch has already failed open. A coupling to another function, not a logical
+    // impossibility -- which is why it stays where the provably-dead year-strip was deleted.
     if (MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")]) attachedYears.add(m[3]!);
   }
   if (attachedYears.size > 1) return true;
 
-  // Blank out every occurrence of the single date so the remaining checks see only the rest.
-  let rest = "";
-  let cursor = 0;
-  for (const [a, b] of spans) {
-    rest += collapsed.slice(cursor, a);
-    cursor = b;
-  }
-  rest += collapsed.slice(cursor);
-
-  // SIGNAL 3 -- two weekday names ("... / Wednesday", review R4).
-  const weekdays = new Set((rest.match(WEEKDAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)));
-  if (weekdays.size > 1) return true;
-
-  // SIGNAL 4 -- two ordinal-position phrases. One ("Day 1 - Tuesday, May 5, 2026") is an
-  // extremely common heading and names a single day; two ("... Day 1 / Day 2") do not. The
-  // earlier version stripped them GLOBALLY, so any number of them passed (review R7).
-  if ((rest.match(/\bday\s*#?\s*\d{1,2}\b/gi) ?? []).length > 1) return true;
-
-  // SIGNAL 5 -- a PLURAL day span ("Days 1-2, May 5, 2026"). Its own signal now, and the reason
-  // is worth keeping: the previous rule caught this only by accident, because a generic
-  // "any leftover number" check tripped on the residual "-2". Removing that check to stop it
-  // rejecting "Room 54" and "Track 2" (review R7) silently un-caught this, and the existing test
-  // is what surfaced it. Singular "Day 1" stays a single day; plural does not.
-  if (/\bdays\s*#?\s*\d/i.test(rest)) return true;
-
-  // SIGNAL 6 -- a spoken ordinal date: "... and the 6th", "Wednesday the 6th".
+  // POSITION IS THE RULE FOR EVERYTHING ELSE, and it is what replaced a set of "more than one
+  // of X" thresholds. Those broke whenever the primary date lacked the token: "May 5, 2026 /
+  // Wednesday" has exactly ONE weekday and "May 5, 2026 / Day 2" exactly ONE Day-N, so a
+  // count-based rule read both as unambiguous (review R8).
   //
-  // The discriminator is what FOLLOWS the ordinal, not what precedes it. A date ordinal ends its
-  // phrase ("and the 6th", "the 6th,"), while an ordinal that modifies a noun is followed by
-  // that noun -- "The 8th Floor", "The 6th Annual Awards", "The 2nd Session", all of which
-  // review R8 showed a bare `the \d+(st|nd|rd|th)` rule rejects.
-  //
-  // Adjacency to a weekday was tried first and is wrong: it reads "Wednesday the 6th" but not
-  // "Tuesday, May 5, 2026 and the 6th", where the weekday sits at the far end of the label.
-  return /\bthe\s+\d{1,2}(st|nd|rd|th)\b(?!\s+[A-Za-z])/i.test(rest);
+  // What actually separates them is WHERE the token sits. Text BEFORE the date qualifies it --
+  // "Tuesday, May 5, 2026", "Day 1 - Tuesday, May 5, 2026". Text AFTER introduces something new
+  // -- "... / Wednesday", "... / Day 2", "... and the 6th". Trailing day-talk is the signal.
+  const lastSpanEnd = Math.max(...spans.map(([, end]) => end));
+  const trailing = collapsed.slice(lastSpanEnd).replace(/^[^A-Za-z0-9]*\d{4}\b/, "");
+
+  if (WEEKDAYS_ANY.test(trailing)) return true; // SIGNAL 3 -- a weekday after the date
+  // SIGNAL 4 -- a Day-N phrase. Position-sensitive for the SINGULAR ("Day 1 - <date>" qualifies
+  // the date; "<date> / Day 2" adds one), but a PLURAL span covers two days wherever it sits,
+  // so "Days 1-2, May 5, 2026" is ambiguous despite leading. Caught by an existing test the
+  // moment position alone was applied to both.
+  if (/\bdays\s*#?\s*\d/i.test(collapsed)) return true;
+  if (/\bday\s*#?\s*\d/i.test(trailing)) return true;
+  // SIGNAL 5 -- a spoken ordinal date after it. An ordinal followed by a noun modifies that
+  // noun ("The 8th Floor", "The 2nd Session") and is not a date.
+  return /\b\d{1,2}(st|nd|rd|th)\b(?!\s+[A-Za-z])/i.test(trailing);
 }
 
 export function visibleAgendaDaysForViewer(
