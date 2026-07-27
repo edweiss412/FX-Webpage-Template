@@ -53,6 +53,13 @@ on:
       - "tests/e2e/_statusStripToggleHarness.tsx"
       - "tests/e2e/_step3ReviewModalHarness.tsx"
       - "tests/e2e/standalone.config.ts"
+      # Agenda day fold: the spec, its out-of-process renderer, and the two components
+      # whose markup it measures. Named explicitly rather than globbing components/**,
+      # which would run this job on every unrelated component change.
+      - "tests/e2e/agendaScheduleLayout.spec.ts"
+      - "tests/e2e/_renderAgendaScheduleHtml.ts"
+      - "components/crew/AgendaScheduleBlock.tsx"
+      - "components/crew/sections/ScheduleSection.tsx"
       - "components/admin/showpage/**"
       - "components/admin/review/**"
       - "components/admin/ReSyncButton.tsx"
@@ -104,6 +111,8 @@ jobs:
       - run: pnpm exec playwright install chromium
       - name: Run modal-header standalone layout specs (no webServer)
         run: pnpm test:e2e:modal-header
+      - name: Run the agenda day-fold layout spec (no webServer)
+        run: pnpm test:e2e:agenda-layout
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

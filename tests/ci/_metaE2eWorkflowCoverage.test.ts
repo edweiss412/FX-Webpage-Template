@@ -46,7 +46,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
   "tests/e2e/agendaBreakdown.layout.spec.ts": UNSEEN,
-  "tests/e2e/agendaScheduleLayout.spec.ts": UNSEEN,
+  "tests/e2e/agendaScheduleLayout.spec.ts": PATH_GATED,
   "tests/e2e/appHealthIndicator.layout.spec.ts": UNSEEN,
   "tests/e2e/attention-anchor-placement.spec.ts": PATH_GATED,
   "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
@@ -150,7 +150,7 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     .filter((f) => f.endsWith(".spec.ts"))
     .map((f) => `tests/e2e/${f}`);
 
-  const { covered } = scanWorkflowCoverage({ workflows, packageScripts });
+  const { covered, rejected } = scanWorkflowCoverage({ workflows, packageScripts });
 
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
     const dark = specs.filter((s) => !covered.has(s) && !(s in LOCAL_ONLY_ALLOWLIST));
@@ -162,6 +162,27 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     expect(stale, "allowlist rows for deleted specs").toEqual([]);
     const shadowing = Object.keys(LOCAL_ONLY_ALLOWLIST).filter((s) => covered.has(s));
     expect(shadowing, "allowlisted specs that ARE covered - remove the row").toEqual([]);
+  });
+
+  it("the agenda layout spec is INVOKED by a workflow, not merely allowlisted", () => {
+    // The allowlist value alone proves nothing: these assertions check membership, never the
+    // reason string, so editing UNSEEN -> PATH_GATED would go green while CI stayed dark.
+    //
+    // `rejected` is the unfakeable signal. A spec named in NO workflow appears in neither
+    // `covered` nor `rejected`, because the scanner only records a rejection for a spec it
+    // actually found in a run command. So this fails until a workflow genuinely invokes it,
+    // and the allowlist edit cannot move it.
+    const spec = "tests/e2e/agendaScheduleLayout.spec.ts";
+    const entry = rejected.find((r) => r.spec === spec);
+    expect(
+      entry,
+      `${spec} must be named in a workflow run command (it is in neither covered nor rejected)`,
+    ).toBeDefined();
+    // Path-gated is the honest category: it runs when its filter matches, not on every PR.
+    expect(entry?.reason).toBe("pull_request.paths/paths-ignore filter");
+    expect(LOCAL_ONLY_ALLOWLIST[spec], "its allowlist row states that same reason").toBe(
+      PATH_GATED,
+    );
   });
 
   it("the lifecycle layout spec is covered by lifecycle-layout-e2e.yml (not allowlisted)", () => {
