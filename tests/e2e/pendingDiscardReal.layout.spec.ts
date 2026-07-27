@@ -21,6 +21,7 @@
  * Runs standalone via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
 import { test, expect } from "@playwright/test";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -393,22 +394,13 @@ test("TRIPWIRE: the production geometry the rails mirror is still declared", () 
    * the real className and failing the guard. Regex comment-stripping does not survive
    * TSX. So do not rewrite the source: require the token to appear on a line that is
    * live code carrying it in the attribute it belongs to. */
-  const src = (path: string) => readFileSync(join(REPO_ROOT, path), "utf8").split("\n");
+  /* Comment handling now lives in tests/_shared/stripComments (parser-backed, so a
+   * span cannot swallow real code — the failure that sank the R15 whole-file regex
+   * attempt). Lines arrive pre-stripped; a token surviving here is on a live line. */
+  const src = (path: string) =>
+    stripCommentsForFile(readFileSync(join(REPO_ROOT, path), "utf8"), path).split("\n");
   const onLiveLine = (lines: string[], token: string, context: string) =>
-    lines.some((l) => {
-      const t = l.trim();
-      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("{/*")) {
-        return false; // R16 F1: JSX `{/* … */}` is a comment too.
-      }
-      /* R17 F2: a whole-line test still accepted `<div className="x" /> {/* token *\/}` —
-       * the token sitting in an INLINE comment on a line that also carries className.
-       * Strip comment spans within the line before looking. Per-line stripping is safe
-       * in a way whole-file stripping is not: a span cannot run away across lines and
-       * delete real code, which is what broke the R15 attempt. `://` is preserved so a
-       * URL is not mistaken for a line comment. */
-      const code = l.replace(/\{?\/\*.*?\*\/\}?/g, "").replace(/(^|[^:])\/\/.*$/, "$1");
-      return code.includes(token) && code.includes(context);
-    });
+    lines.some((l) => l.includes(token) && l.includes(context));
 
   const dashboard = src("components/admin/Dashboard.tsx");
   /* TWO independent constraints decide this rail's width, and checking only the grid
@@ -429,9 +421,7 @@ test("TRIPWIRE: the production geometry the rails mirror is still declared", () 
     "page358 assumes the admin layout pads the mobile page with px-page-pad-mobile",
   ).toBe(true);
 
-  const padLine = src("app/globals.css").find(
-    (l) => l.includes("--spacing-page-pad-mobile:") && !l.trim().startsWith("/*"),
-  );
+  const padLine = src("app/globals.css").find((l) => l.includes("--spacing-page-pad-mobile:"));
   const pad = /--spacing-page-pad-mobile:\s*(\d+)px/.exec(padLine ?? "")?.[1];
   expect(pad, "page-pad-mobile token not found in globals.css").toBeDefined();
   /* page358 = a 390px viewport minus this token per side. If the token moves, the rail
