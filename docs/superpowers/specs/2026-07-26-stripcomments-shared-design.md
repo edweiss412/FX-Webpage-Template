@@ -41,7 +41,7 @@ Swept 2026-07-26 against `origin/main` (2411d4450) with the FIVE detector famili
 | A1 | `tests/styles/_newTabScan.ts:2747` + `tests/styles/_newTabScan.ts:2800` | **Canonical source** — extract; fix `ScriptKind` routing (§3). Consumers: `tests/styles/_metaNewTabAnnouncement.test.ts` (imports at `tests/styles/_metaNewTabAnnouncement.test.ts:12-17`), `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`. |
 | A2 | `tests/styles/_classScanUtils.ts:60` (+ `tests/styles/_classScanUtils.ts:56`, `tests/styles/_classScanUtils.ts:33`) | TS/TSX path → shared; MDX logic → shared `stripMdxComments`. Consumers: `tests/styles/_metaDestructiveConfirm.test.ts`, `tests/styles/_metaDoublePrefixColorToken.test.ts`, `tests/styles/_metaBgAccentInventory.test.ts`, `tests/styles/_metaRawAccentText.test.ts`, `tests/components/admin/_metaResolveLabelSingleSource.test.ts`, `tests/admin/_metaAttentionItemsTopology.test.ts` (R1 F5 list). |
 | A3 | `tests/help/_metaServerTimeGuard.test.ts:54` | Hand-rolled state machine — delete, import shared. |
-| A4 | `tests/admin/no-inline-email-normalization.test.ts:41` | Keep `canonicalize-exempt:` line filter local; compose. Scans `lib/sync/attachWarningAnchors.ts` — the F2 poison file; scriptKind regression's proof case. |
+| A4 | `tests/admin/no-inline-email-normalization.test.ts:41` | Keep `canonicalize-exempt:` line filter local; compose — and RENAME it (it no longer strips comments, so a family-5 name must not survive, §5.3b). Scans `lib/sync/attachWarningAnchors.ts` — the F2 poison file; scriptKind regression's proof case. |
 | A5 | `tests/admin/serverNoClientValueCall.test.ts:48` | Second inline idiom at `tests/admin/serverNoClientValueCall.test.ts:59` migrates in the same commit. |
 | A6 | `tests/messages/_metaAdminAlertProducer.test.ts:33` | Blanking FIXES its line-number bug: `tests/messages/_metaAdminAlertProducer.test.ts:46` derives line numbers via `indexOf` + `slice().split("\n").length`; deletion collapses multi-line comments (recon 2026-07-26). |
 | A7 | `tests/admin/dev-requires-developer.test.ts:32` | Watch: `tests/admin/dev-requires-developer.test.ts:56-62` 40-char window after `indexOf`; whitespace-normalization mitigates blanking drift — verify at migration. |
@@ -50,13 +50,13 @@ Swept 2026-07-26 against `origin/main` (2411d4450) with the FIVE detector famili
 | A10 | `tests/crew/stageRestrictionThreading.test.ts:20` | `indexOf` + brace-balance — ordering survives blanking. |
 | A11 | `tests/sync/_livePartitionClassificationContract.test.ts:48` | |
 | A12 | `tests/sync/no-direct-drive-folder-env.test.ts:8` | |
-| A13 | `tests/components/admin/_metaPopoverViewportSource.test.ts:77` | Corpus includes `.mts`/`.cts` (`tests/components/admin/_metaPopoverViewportSource.test.ts:15`, `tests/components/admin/_metaPopoverViewportSource.test.ts:71`) → §3 router covers them (R2 F4). |
+| A13 | `tests/components/admin/_metaPopoverViewportSource.test.ts:77` | Second symbol: `codeOf` wrapper at `tests/components/admin/_metaPopoverViewportSource.test.ts:127` — after migration it delegates to the shared API and is RENAMED per §5.3b (R3 F3). Corpus includes `.mts`/`.cts` (`tests/components/admin/_metaPopoverViewportSource.test.ts:15`, `tests/components/admin/_metaPopoverViewportSource.test.ts:71`) → §3 router covers them (R2 F4). |
 | A14 | `tests/components/admin/review/reviewModalShell.test.tsx:535` | Same commit handles D2 (CSS remover at `tests/components/admin/review/reviewModalShell.test.tsx:444`). |
 | A15 | `tests/components/admin/wizard/venueTransitionAudit.test.ts:10` | |
 | A16 | `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:72` (`stripTsComments`) | Hand-rolled char scanner — migrate. YAML stripper at `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:47` stays (D1). |
 | A17 | `tests/docs/designSevenAEmptyHiddenSites.test.ts:37` (`stripNonCode`) | JSX `{/* */}` comments are real AST comments — handled natively. |
-| A18 | `tests/crew/_metaTileProducerTopology.test.ts:65` (`codeOf`) | |
-| A19 | `tests/messages/_metaCatalogCopyHygiene.test.ts:164` (`stripCodeNoise`) | Composite: only the comment-strip step migrates; string-blanking replaces stay. |
+| A18 | `tests/crew/_metaTileProducerTopology.test.ts:65` (`codeOf`) | Retained read-and-strip wrapper delegates to shared and is RENAMED per §5.3b. |
+| A19 | `tests/messages/_metaCatalogCopyHygiene.test.ts:164` (`stripCodeNoise`) | Composite: only the comment-strip step migrates; string-blanking replaces stay — retained function RENAMED per §5.3b (e.g. `blankStringNoise`). |
 | A20 | `tests/admin/stagedPageRefScan.ts:49` (`commentRanges(src, sourceFile)`) | AST-based already; migrates for single-source. Shared `commentRanges` takes optional pre-parsed `SourceFile`. Consumers: `tests/admin/stagedPageRefScan.test.ts`, `tests/admin/step3DeletionSafety.test.ts` (R1 F5). |
 
 **Tier B — SQL strippers. One commit each; migrate to shared `stripSqlComments`.**
@@ -110,10 +110,10 @@ Swept 2026-07-26 against `origin/main` (2411d4450) with the FIVE detector famili
 | E8 | `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts:588` + `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts:1861` | Keep — loop-integrated `--` doc-line skips; migrating changes doc-scan semantics. Standing allowlist. |
 | E9 | `tests/log/mutationSurface/exemptions.ts:24` (`fileHasNoTelemetry`) | Keep — comment-READER: searches leading comments for the `// no-telemetry:` marker; comments are its subject. Standing allowlist. |
 | E10 | `tests/drive/loadLocalEnv.ts:15` | Keep — dotenv `#` grammar. Standing allowlist. |
-| E11 | `tests/drive/pin15ExportProbe.mjs:18` | Keep — dotenv `#`; `.mjs` is outside the meta-test walk (§4) — recorded here for completeness. |
+| E11 | `tests/drive/pin15ExportProbe.mjs:18` | Keep — dotenv `#`; `.mjs` is OUTSIDE the meta-test walk (§4), so this row is documentation-only: no allowlist entry exists or is needed (R3 F2). |
 | E12 | `tests/auth/oauth-flow.test.ts:42` | Not comment handling at all (`location.startsWith("//")` is a protocol-relative-URL assertion) — standing allowlist as a detector false-positive row. |
 
-Summary counts (single source of truth): **54 rows** (20 A, 6 B, 13 C, 3 D, 12 E) across **52 distinct files** (D1 shares A16's file; D2 shares A14's). Migrating: all A+B+C, D2+D3, E1–E4 = **45 rows**; keep-with-allowlist: D1, E5–E12 = **9 rows**. Commits ≈ shared-module + meta-test + 20 A + 6 B + 13 C + 1 (D3) + 4 (E1–E4) + final-scaffold-removal ≈ **47**.
+Summary counts (single source of truth): **54 rows** (20 A, 6 B, 13 C, 3 D, 12 E) across **52 distinct files** (D1 shares A16's file; D2 shares A14's). Migrating: all A+B+C, D2+D3, E1–E4 = **45 rows**; keep-with-standing-allowlist: D1, E5–E10, E12 = **8 rows**; documentation-only (outside the walk): E11 = **1 row**. Detector coverage claims apply to the 53 walked rows. Commits ≈ shared-module + meta-test + 20 A + 6 B + 13 C + 1 (D3) + 4 (E1–E4) + final-scaffold-removal ≈ **47**.
 
 <!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
 ## 3. Shared module — `tests/_shared/stripComments.ts`
@@ -140,7 +140,7 @@ Guard conditions: all strippers total on strings — empty in/empty out; comment
 Filesystem-walked over `tests/**/*.{ts,tsx,mts,cts}` (fails-by-default on NEW files; `.mjs` outside the walk — E11 noted). Detection runs on comment-STRIPPED source (via the shared module — so comment TEXT mentioning these idioms, e.g. `tests/styles/_metaDoublePrefixColorToken.test.ts:46-65`, cannot false-positive). **Five detector families** (R2 F2 widened):
 
 1. **Block-comment regex literals** — the `/\*[\s\S]*?\*\//`, `/\*.*?\*\//`, and `/\*[^]*?\*\//` spelling families (R2 F2's `[^]` variant included).
-2. **Line-comment replace idioms** — `//`-to-EOL regex used in `.replace`.
+2. **Line-comment replace idioms** — `//`-to-EOL AND `--`-to-EOL regex used in `.replace` (R3 F1: the SQL line-comment replace shape at B5/B6/C3 is this family's second half; without it those rows had no detector hit and no red-first cycle).
 3. **Two-char scanner literals** — a string literal exactly `"//"`, `"/*"`, or `"*/"` (any quote style) in executable code: any hand-rolled char scanner must name its markers (this is what catches A16's `two === "//"` shape and D3's `indexOf("*/")`).
 4. **Line-start skip filters** — `startsWith` with argument exactly `"//"`, `"--"`, `"#"`, `"/*"`, or `"*"`, and bare marker-skip regex literals (`/^\s*--/`, `/^\s*#/`, `/^\s*\/\//` — exact shapes only, so `--color-([a-z0-9-]+)` at `tests/styles/_metaDoublePrefixColorToken.test.ts:28` does not hit).
 5. **Name family** — definitions matching `strip\w*[Cc]omment\w*|commentRanges|stripNonCode|stripCodeNoise|codeOf` (belt and braces).
@@ -153,7 +153,7 @@ A hit in a file other than `tests/_shared/stripComments.ts` must appear in one o
 
 **Honest bound (R2 F2):** static shape detection cannot prove the absence of every conceivable comment-handling implementation — a novel scanner built without regex literals, marker string literals, marker `startsWith`, or a family name would evade all five families. The meta-test's contract is therefore: fails-by-default for the five enumerated idiom families (which cover all 54 discovered rows), making evasion require active novelty rather than a rename. Residual risk accepted; on any future discovery of a sixth family, extend the detector set in the same commit (structural-defense calibration rule).
 
-Anti-tautology proofs (negative tests): plant in a temp walked file (a) a naive regex `stripComments`, (b) a RENAMED char-loop copy (`removeNoise` with `two === "//"` — R2 F2's exact evasion), (c) a bare inline `.replace(/\/\*[^]*?\*\//g, "")` chain (alternate spelling), (d) a `filter((l) => !l.trim().startsWith("//"))` line filter — assert all four flagged.
+Anti-tautology proofs (negative tests): plant in a temp walked file (a) a naive regex `stripComments`, (b) a RENAMED char-loop copy (`removeNoise` with `two === "//"` — R2 F2's exact evasion), (c) a bare inline `.replace(/\/\*[^]*?\*\//g, "")` chain (alternate spelling), (d) a `filter((l) => !l.trim().startsWith("//"))` line filter, (e) a `.replace(/--.*$/gm, "")` SQL line-comment idiom — assert all five flagged.
 
 ## 5. Migration procedure
 
@@ -163,7 +163,7 @@ Commit order:
 2. **Meta-test** with `STANDING_ALLOWLIST` + fully-populated `PENDING_MIGRATIONS` — TDD: negative-proof plants red first; standing green with the scaffold in place.
 3. **Per-row migration commits** (grain per §1.1). Each commit:
    a. Delete the file's `PENDING_MIGRATIONS` entries → meta-test **red** (failing-test-first, R1 F3).
-   b. Migrate. Named strippers: replace definition with the shared import (`stripCommentsForFile` wherever a path exists). Inline idioms and Tier-C/E rows: **pre-strip pattern** — strip the whole input once (offset-preserving), then the existing extraction/matching logic runs verbatim on stripped text.
+   b. Migrate. Named strippers: replace definition with the shared import (`stripCommentsForFile` wherever a path exists). Inline idioms and Tier-C/E rows: **pre-strip pattern** — strip the whole input once (offset-preserving), then the existing extraction/matching logic runs verbatim on stripped text. **Rename rule (R3 F3):** any RETAINED local wrapper or filter whose name matches detector family 5 (`codeOf`, `stripCodeNoise`, A4's exempt-line filter, etc.) is renamed to a non-matching name in the same commit — the family-5 list keeps the OLD names so a re-introduction is caught; a wrapper that merely delegates to the shared API must not carry a stripper's name.
    c. Run the row's guard file AND every consumer named in its §2 row (A1/A2/A20 fan-outs — R1 F5).
    d. Triage new findings per §1.1: trivial → fix here; non-trivial → BACKLOG row + per-guard allowlist entry citing it. Suite never left red at commit boundaries.
    e. Commit `test(<area>): migrate <file> to shared stripComments` with triage notes.
