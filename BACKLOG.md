@@ -691,6 +691,33 @@ counterexamples from rounds R2-R6.
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
 
+### BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+
+**Status:** OPEN — disclosed during PR #610 · **Severity:** low · **Class:** TEST COVERAGE
+
+Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
+self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
+fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
+`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`node:http` server rather than the app.
+
+**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
+`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
+member, loading a real share link, sees their day expanded — the composition of
+`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
+fold is only ever verified in pieces.
+
+**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
+extraction with parseable day labels, plus a date-restricted crew member and a share link.
+`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
+fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
+one PR.
+
+**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
+viewer's row is `open` and marked while another day is folded. Related:
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
+`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
