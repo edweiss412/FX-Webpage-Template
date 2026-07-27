@@ -1075,6 +1075,21 @@ for (const viewport of [320, 375] as const) {
         `overlay does not cover the ${n.name} @ ${viewport}`,
       ).toBe(0);
     }
+    // Anti-vacuity saturation bound (whole-diff r12): this case's RED edge is
+    // real only while the count actually sits one row-gap (10px) from the
+    // link box — i.e. flush against the 10px overlay reach. A shortened
+    // fixture name would drift the count away and every assertion above would
+    // stay green on the pre-fix tree too. Bound the geometry: the count's
+    // trailing edge lies within half a pixel of the overlay's leading edge,
+    // on the link's own row.
+    const count = m.neighbours!.find((n) => n.name === "count")!;
+    expect(
+      Math.abs(m.overlay!.left - count.right),
+      `count sits flush against the overlay edge (saturated) @ ${viewport}`,
+    ).toBeLessThanOrEqual(0.5);
+    const vOverlap =
+      Math.min(m.overlay!.bottom, count.bottom) - Math.max(m.overlay!.top, count.top);
+    expect(vOverlap, `count shares the link's row @ ${viewport}`).toBeGreaterThan(0);
   });
 }
 

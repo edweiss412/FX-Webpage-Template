@@ -69,6 +69,9 @@ const SOURCE_EXTS = [".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".mts", ".cts
 // imported by app code was in the module graph but never scanned. Only these
 // known VCS/build outputs are skipped; every other directory, dotted or not,
 // is walked. The `.next-*` dist dirs ride the live tsconfig `exclude` list.
+// ROOT-ONLY (r12): the names are meaningful as repo-root outputs; matching
+// them at every depth made a nested `app/coverage/` or `lib/.next/` source
+// tree invisible, so the skip applies only at depth zero.
 const ARTIFACT_DIRS = new Set([
   "node_modules",
   "coverage",
@@ -78,13 +81,33 @@ const ARTIFACT_DIRS = new Set([
   ".next",
 ]);
 
-/** tsconfig's `exclude` — read live so fixture-tree edits stay tracked. */
+/**
+ * tsconfig's `exclude` — read live so fixture-tree edits stay tracked, but
+ * VALIDATED, never trusted (r12): `exclude` only stops entry-point inclusion —
+ * an excluded file still enters Next's graph when something imports it, so
+ * skipping an excluded tree is sound ONLY where the import channel is closed
+ * by another rule. That holds for exactly three shapes: `node_modules`
+ * (package territory, never first-party source), `.next*` build outputs, and
+ * `tests/`-rooted trees (the everywhere tests/-import ban denies their
+ * specifiers). Any other entry — a future `fixtures/` — would carve an
+ * unscanned, importable tree, so it throws here and forces this guard to
+ * learn it first.
+ */
 function tsconfigExcludes(root: string): string[] {
   const raw = ts.readConfigFile(join(root, "tsconfig.json"), ts.sys.readFile);
   if (raw.error !== undefined) {
     throw new Error(ts.flattenDiagnosticMessageText(raw.error.messageText, "\n"));
   }
-  return (raw.config as { exclude?: string[] }).exclude ?? [];
+  const excludes = (raw.config as { exclude?: string[] }).exclude ?? [];
+  const unsound = excludes.filter(
+    (e) => e !== "node_modules" && !/^\.next(?:-|$)/.test(e) && !/^tests\//.test(e),
+  );
+  if (unsound.length > 0) {
+    throw new Error(
+      `tsconfig exclude entries the walk cannot soundly skip (no closed import channel): ${unsound.join(", ")}`,
+    );
+  }
+  return excludes;
 }
 
 /**
@@ -101,7 +124,7 @@ function walkedFiles(root: string): string[] {
       const rel = full.slice(root.length + 1);
       if (excludes.some((e) => rel === e || rel.startsWith(`${e}/`))) continue;
       if (statSync(full).isDirectory()) {
-        if (ARTIFACT_DIRS.has(entry)) continue;
+        if (rel === entry && ARTIFACT_DIRS.has(entry)) continue;
         walk(full);
       } else if (SOURCE_EXTS.some((ext) => entry.endsWith(ext))) {
         out.push(full);
@@ -380,6 +403,48 @@ function hiddenPhraseCount(src: string, rel: string): number {
   return hidden;
 }
 
+/**
+ * Alias spellings in next.config.ts (r12 — the r11 pin was a raw-text regex
+ * for `resolveAlias`/`resolve.alias`, and a property spelled
+ * `resolveAlias` compiles to the same runtime key while never matching;
+ * an intermediate binding `const r = config.resolve; r.alias = …` matched
+ * neither substring). Scanned on the AST instead: identifiers and string
+ * literals normalize escapes in `.text`, so ANY cooked spelling of
+ * `resolveAlias` or `alias` — property name, member access, destructuring,
+ * shorthand, quoted key — is flagged wherever it appears, and any element
+ * access with a non-string-literal argument (`config["ali" + "as"]`,
+ * template keys) is flagged as statically unclearable. Comments are not AST
+ * nodes, so prose mentions stay clean. String CONCATENATION feeding
+ * Reflect/JSON tricks is runtime construction, ratified out of scope with
+ * the other computed forms.
+ */
+function nextConfigAliasOffenders(src: string): string[] {
+  const out: string[] = [];
+  const sf = ts.createSourceFile(
+    "next.config.ts",
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) {
+      if (node.text === "resolveAlias" || node.text === "alias")
+        out.push(`alias spelling "${node.text}" (cooked) in next.config.ts`);
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      !ts.isStringLiteralLike(node.argumentExpression) &&
+      !ts.isNumericLiteral(node.argumentExpression)
+    ) {
+      out.push(`computed element access in next.config.ts — cannot be statically cleared`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
 describe("sheet-link phrase containment (spec §7.10)", () => {
   it("per-file occurrence counts equal the pinned set exactly", () => {
     const root = join(__dirname, "..", "..", "..");
@@ -644,9 +709,24 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(pkg.imports).toBeUndefined();
     // Next-level aliasing (turbopack `resolveAlias`, webpack
     // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
-    // is code, so the pin is the absence of both API spellings.
+    // is code, so the pin is an AST scan for any cooked alias spelling or
+    // statically unclearable computed access (r12 — see
+    // nextConfigAliasOffenders; a raw regex missed escape spellings and
+    // intermediate bindings).
     const nextConfig = readFileSync(join(root, "next.config.ts"), "utf8");
-    expect(nextConfig).not.toMatch(/resolveAlias|resolve\.alias/);
+    expect(nextConfigAliasOffenders(nextConfig)).toEqual([]);
+    // Plants: escape-spelled property key, intermediate-binding assignment,
+    // quoted key, computed key — all flagged; the alias-free real config and
+    // prose-comment mentions are not.
+    expect(
+      nextConfigAliasOffenders("const c = { resolv\\u0065Alias: {} };").length,
+    ).toBeGreaterThan(0);
+    expect(nextConfigAliasOffenders("const r = cfg.resolve; r.alias = {};").length).toBeGreaterThan(
+      0,
+    );
+    expect(nextConfigAliasOffenders('const c = { "alias": {} };').length).toBeGreaterThan(0);
+    expect(nextConfigAliasOffenders('cfg.resolve["ali" + "as"] = {};').length).toBeGreaterThan(0);
+    expect(nextConfigAliasOffenders("// alias is fine in prose\nconst x = 1;")).toEqual([]);
   });
 
   it("every live SheetIconLink call site keeps className positional-only string literals", () => {
