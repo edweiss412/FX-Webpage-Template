@@ -23,8 +23,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
@@ -48,9 +47,21 @@ const LINK_SEL = `[data-cell="${STATE_CELL}"] a[href]`;
 let server: Server;
 let baseUrl = "";
 let cellCount = 0;
+let workDir = "";
 
 test.beforeAll(async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "section-header-visual-"));
+  // INSIDE the repo, not os.tmpdir(): the Tailwind CLI resolves the entry's
+  // `@import "tailwindcss"` by walking ancestors of the INPUT file for a
+  // node_modules dir. From /tmp that depends on a CLI-location fallback which
+  // proved environment-sensitive (green on the bare runner and in an
+  // emulated local container, red on the native CI container — first gate
+  // run of PR #617). From node_modules/.cache the walk-up reaches the repo's
+  // own node_modules deterministically, the same mechanism `next build`
+  // exercises in-container daily. The dir is inside node_modules so git never
+  // sees it; afterAll removes it best-effort.
+  const cacheRoot = join(REPO_ROOT, "node_modules", ".cache");
+  mkdirSync(cacheRoot, { recursive: true });
+  workDir = mkdtempSync(join(cacheRoot, "section-header-visual-"));
 
   const cellsJson = join(workDir, "cells.json");
   execFileSync(
@@ -123,6 +134,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server.close(() => r()));
+  if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
 /** Fresh-navigation setup shared by every capture (spec §3.3 isolation): the
