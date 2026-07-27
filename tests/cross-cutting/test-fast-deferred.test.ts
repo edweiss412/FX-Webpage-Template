@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -61,10 +62,7 @@ describe("TEST_FAST_DEFERRED contract", () => {
   it("config wires the deferred set into the parallel project only under VITEST_TEST_FAST=1", () => {
     // Comment-proof: strip line comments before matching, and require BOTH the
     // gated binding and its use in the parallel project's exclude.
-    const config = readFileSync("vitest.config.ts", "utf8")
-      .split("\n")
-      .filter((l) => !l.trimStart().startsWith("//"))
-      .join("\n");
+    const config = stripCommentsForFile(readFileSync("vitest.config.ts", "utf8"), "vitest.config.ts");
     expect(config).toMatch(
       /const testFastExcludes =[^;]*VITEST_TEST_FAST[^;]*===\s*"1"[^;]*TEST_FAST_DEFERRED/,
     );

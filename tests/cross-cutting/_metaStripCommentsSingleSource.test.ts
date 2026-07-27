@@ -71,7 +71,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
 /** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
  *  a whole file at once — spec §5.3a). Task 47 deletes the emptied constant. */
 export const PENDING_MIGRATIONS: string[] = [
-  "tests/cross-cutting/test-fast-deferred.test.ts",
   "tests/admin/parseAndStage-auth.test.ts",
   "tests/sync/jsonbBoundaryRepresentation.meta.test.ts",
 ];
