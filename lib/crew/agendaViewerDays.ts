@@ -26,7 +26,8 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  * "how many". Kept adjacent so the two regexes are visibly the same shape; if the shared one
  * changes, this must change with it, which the mixed-format test pins.
  */
-const WEEKDAYS = /\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\b/gi;
+const WEEKDAY_SOURCE = "\\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\\b";
+const WEEKDAYS = new RegExp(WEEKDAY_SOURCE, "gi");
 
 /**
  * Can this label be attributed to exactly ONE day?
@@ -79,11 +80,21 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   // SIGNAL 2 -- the same month-day in two YEARS (review R6). Only years sitting immediately
   // AFTER the date are counted: a free-floating year is metadata, not a second day, and counting
   // every four-digit token rejected "2025 Awards -- Tuesday, May 5, 2026" (review R7).
-  const attachedYears = new Set(
-    [...collapsed.matchAll(/\b[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g)].map(
-      (m) => m[1]!,
-    ),
-  );
+  const attachedYears = new Set<string>();
+  for (const m of collapsed.matchAll(
+    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g,
+  )) {
+    // The leading word must BE a month. Without it, "Track 2, 2025 — Tuesday, May 5, 2026"
+    // reads "Track 2, 2025" as a dated token and yields two years (review R8).
+    //
+    // KEPT DESPITE BEING UNOBSERVABLE TODAY, and the distinction matters. Mutation-checked:
+    // deleting this guard changes no test, because `parseIsoFromDayLabel` takes the FIRST
+    // `Word N, YYYY` hit in a label and returns null when that word is not a month -- so any
+    // input this guard would catch has already failed open via the caller's null guard. That
+    // is a coupling to another function's current behaviour, not a logical impossibility, which
+    // is why it stays where the provably-dead year-strip was deleted.
+    if (MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")]) attachedYears.add(m[3]!);
+  }
   if (attachedYears.size > 1) return true;
 
   // Blank out every occurrence of the single date so the remaining checks see only the rest.
@@ -111,10 +122,16 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   // is what surfaced it. Singular "Day 1" stays a single day; plural does not.
   if (/\bdays\s*#?\s*\d/i.test(rest)) return true;
 
-  // SIGNAL 6 -- a spoken ordinal date ("Wednesday the 6th", review R4). Requires the article,
-  // which is what distinguishes it from ordinary numeric furniture: "8th Floor", "Track 2",
-  // "Room 54", "Session 3" and clock times all name one day and must keep folding.
-  return /\bthe\s+\d{1,2}(st|nd|rd|th)\b/i.test(rest);
+  // SIGNAL 6 -- a spoken ordinal date: "... and the 6th", "Wednesday the 6th".
+  //
+  // The discriminator is what FOLLOWS the ordinal, not what precedes it. A date ordinal ends its
+  // phrase ("and the 6th", "the 6th,"), while an ordinal that modifies a noun is followed by
+  // that noun -- "The 8th Floor", "The 6th Annual Awards", "The 2nd Session", all of which
+  // review R8 showed a bare `the \d+(st|nd|rd|th)` rule rejects.
+  //
+  // Adjacency to a weekday was tried first and is wrong: it reads "Wednesday the 6th" but not
+  // "Tuesday, May 5, 2026 and the 6th", where the weekday sits at the far end of the label.
+  return /\bthe\s+\d{1,2}(st|nd|rd|th)\b(?!\s+[A-Za-z])/i.test(rest);
 }
 
 export function visibleAgendaDaysForViewer(

@@ -325,6 +325,11 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["Tuesday, May 5, 2026 Session 3", "2026-05-05"],
       ["Day #1 — Tuesday, May 5, 2026", "2026-05-05"],
       ["Tuesday, May 5, 2026 at 9 AM", "2026-05-05"], // colonless time
+      // R8 MEDIUM: an ordinal that modifies a NOUN is not a date. The discriminator is what
+      // follows it -- a date ordinal ends its phrase ("and the 6th"), these do not.
+      ["Tuesday, May 5, 2026 — The 8th Floor", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — The 6th Annual Awards", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — The 2nd Session", "2026-05-05"],
     ];
     for (const [label, iso] of corpus) {
       const r = visibleAgendaDaysForViewer(
