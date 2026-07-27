@@ -53,6 +53,7 @@ export type StandingRow = { file: string; family: string; marker: string; reason
 export const STANDING_ALLOWLIST: StandingRow[] = [
   { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "commentRanges", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
   { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "stripCommentsSafely", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
+  { file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts", family: "name-family", marker: "stripYamlComments", reason: "D1: YAML # stripper — different grammar, quote-aware, block-safe (renamed from stripComments in A16)" },
   { file: "tests/auth/oauth-flow.test.ts", family: "two-char-literal", marker: "//", reason: "E12: protocol-relative-URL assertion string" },
   { file: "tests/auth/oauth-flow.test.ts", family: "startswith-filter", marker: "//", reason: "E12: protocol-relative-URL assertion, not comment handling" },
   { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "two-char-literal", marker: "//", reason: "E7: marker literal in the documented loud-error design (its lines 110-114)" },
@@ -70,7 +71,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
 /** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
  *  a whole file at once — spec §5.3a). Task 47 deletes the emptied constant. */
 export const PENDING_MIGRATIONS: string[] = [
-  "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts",
   "tests/docs/designSevenAEmptyHiddenSites.test.ts",
   "tests/crew/_metaTileProducerTopology.test.ts",
   "tests/messages/_metaCatalogCopyHygiene.test.ts",
