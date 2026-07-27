@@ -139,6 +139,39 @@ wiring for two specs, and the better answer was a change someone else was making
 the general mechanism. The finding that motivated it (a dark spec had rotted) was correct; the fix
 was local where the problem was systemic.
 
+## Searching for the fifth bug, and two guards that had gone dead
+
+Four review rounds each found a different input that folded a day the viewer works, and each fix
+added one guard plus one example. That kills four known shapes; it says nothing about a fifth. So
+the last step searched instead of enumerating.
+
+**The property:** if a row's label mentions a date the viewer is assigned, that row must not be
+folded. Ground truth comes from a date scanner written independently of the implementation —
+reusing `parseIsoFromDayLabel` would have inherited its first-match-only behaviour, which is
+precisely the defect behind the R2 HIGH, and the test would have confirmed the bug rather than
+caught it. 6912 combinations run in 27ms; a wider exploratory pass over 29160 found nothing either.
+
+**What the search turned up was not a fifth input — it was two guards nothing tested.** Deleting
+either clause of `if (R.size === 0 || located.size !== R.size)` left all 16 tests green:
+
+- the completeness clause had no isolated case at all; every fixture that would have reached it
+  now trips an earlier guard first;
+- the "never returns an empty subset" test used the label `"Day 1"`, which the unidentifiable-row
+  guard added in R2 catches **before** the empty-R guard — so that test had silently stopped
+  exercising the thing it is named after.
+
+Both were casualties of their own suite improving around them: each new guard shifted the earlier
+ones out of reach of the fixtures that used to cover them. Worth generalising — **when a guard is
+added upstream of existing ones, the tests for the downstream guards should be re-verified by
+mutation, not assumed.** A green suite is equally consistent with "the rule holds" and "nothing
+reaches the rule."
+
+One method note. The first attempt at that mutation appeared to survive, and it hadn't run at all:
+the regex targeted `if (located.size !== R.size)` while the real line reads
+`if (R.size === 0 || located.size !== R.size)`. A mutation that does not mutate is
+indistinguishable from a guard that is genuinely covered. Verify the edit landed before believing
+a survivor.
+
 ## Known limits, disclosed rather than defended
 
 - **~~The layout spec is PATH-GATED, not PR-blocking.~~ SUPERSEDED — it is now PR-blocking.** This
