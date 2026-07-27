@@ -13,7 +13,28 @@
  * The browser-driving `captureGallery()` (plan Task 3) composes this core with
  * Playwright; it is exercised by tests/e2e/screenshots-gallery-capture.spec.ts.
  */
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
+import {
+  disableAnimations,
+  encodeWebp,
+  installDeterminism,
+  waitForQuiescence,
+} from "./capture-core";
 import type { ExcludedScenario, GallerySwitcherScenario } from "@/lib/dev/galleryModalTypes";
+import { partitionScenarios } from "@/app/admin/dev/attention-gallery/buildSwitcherScenarios";
+import type { TestAuthFixture } from "@/tests/e2e/helpers/fixtures";
+import { signInAs } from "@/tests/e2e/helpers/signInAs";
 
 export const GALLERY_OUTPUT_DIR = "screenshots/attention-gallery";
 export const GALLERY_STAGING_DIR = `${GALLERY_OUTPUT_DIR}/.staging`;
@@ -356,8 +377,11 @@ export async function runGallerySweep(opts: {
 
   const entriesById = new Map(plan.entries.map((e) => [e.id, e]));
   const staged: { basename: string }[] = [];
-  for (const scenario of plan.selected) {
-    for (const theme of GALLERY_THEMES) {
+  // THEME-major on purpose (§3 item 2): the browser layer holds one authenticated
+  // context per theme, and a second signInAs revokes the prior context's session —
+  // so all of theme A's scenarios capture before theme B begins.
+  for (const theme of GALLERY_THEMES) {
+    for (const scenario of plan.selected) {
       const result = await capture(scenario, theme);
       const entry = entriesById.get(scenario.id)!;
       const shotName = `${scenario.id}-${theme}.webp`;
@@ -397,4 +421,169 @@ export async function runGallerySweep(opts: {
   }
   fs.write(GALLERY_INDEX_PATH, `${JSON.stringify(index, null, 2)}\n`);
   return index;
+}
+
+const GALLERY_ROUTE = "/admin/dev/attention-gallery";
+const DIALOG_SELECTOR = '[data-testid="published-show-review-modal"]';
+const CONTROLS_SELECTOR = '[data-testid="attention-switcher-controls"]';
+const SCAN_ATTR = "data-gallery-scan-idx";
+
+// The JWT-arm developer identity (same fixture the gallery acceptance suite
+// uses): requireDeveloper() admits the developer:true claim without any seed.
+const DEVELOPER_FIXTURE: TestAuthFixture = {
+  email: "fxav-developer@example.com",
+  isAdmin: true,
+  label: "developer (gallery capture)",
+};
+
+/** node:fs-backed adapter; paths are repo-relative per the GalleryFsAdapter contract. */
+function realFsAdapter(root: string): GalleryFsAdapter {
+  return {
+    read: (p) => (existsSync(join(root, p)) ? readFileSync(join(root, p), "utf8") : null),
+    mkdir: (p) => mkdirSync(join(root, p), { recursive: true }),
+    write: (p, data) => writeFileSync(join(root, p), data),
+    rename: (from, to) => renameSync(join(root, from), join(root, to)),
+    delete: (p) => rmSync(join(root, p), { force: true }),
+    list: (p) => (existsSync(join(root, p)) ? readdirSync(join(root, p)) : []),
+  };
+}
+
+/** Bounded goto retry (pattern: tests/e2e/attention-modal-gallery.spec.ts gotoScenario). */
+async function gotoScenario(page: Page, baseUrl: string, id: string): Promise<void> {
+  const ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    await page.goto(`${baseUrl}${GALLERY_ROUTE}?scenario=${encodeURIComponent(id)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    try {
+      await page.locator(DIALOG_SELECTOR).waitFor({ state: "visible", timeout: 8000 });
+      return;
+    } catch (error) {
+      if (attempt === ATTEMPTS) throw error;
+    }
+  }
+}
+
+/**
+ * Overflow companion protocol (§4 step 7): evaluate #1 tags scrollable dialog
+ * descendants in document order and returns their metrics; Node runs the
+ * unit-tested pickScrollContainer; evaluate #2 scrolls the winner by tag and
+ * strips every scan tag. No element handle crosses an evaluate boundary.
+ */
+async function shootOverflowCompanion(page: Page): Promise<Buffer | null> {
+  const metrics = await page.evaluate(
+    ({ dialogSelector, scanAttr }) => {
+      const out: { scrollHeight: number; clientHeight: number; clientWidth: number }[] = [];
+      const dialog = document.querySelector(dialogSelector);
+      if (!dialog) return out;
+      let idx = 0;
+      for (const el of dialog.querySelectorAll("*")) {
+        if (el.scrollHeight > el.clientHeight + 1) {
+          el.setAttribute(scanAttr, String(idx));
+          out.push({
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            clientWidth: el.clientWidth,
+          });
+          idx += 1;
+        }
+      }
+      return out;
+    },
+    { dialogSelector: DIALOG_SELECTOR, scanAttr: SCAN_ATTR },
+  );
+
+  const winner = pickScrollContainer(metrics);
+  await page.evaluate(
+    ({ scanAttr, winner: winnerIdx }) => {
+      if (winnerIdx !== null) {
+        const el = document.querySelector(`[${scanAttr}="${winnerIdx}"]`);
+        if (el) el.scrollTop = el.scrollHeight;
+      }
+      for (const el of document.querySelectorAll(`[${scanAttr}]`)) {
+        el.removeAttribute(scanAttr);
+      }
+    },
+    { scanAttr: SCAN_ATTR, winner },
+  );
+  if (winner === null) return null;
+
+  await page.evaluate(
+    async () =>
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  return await encodeWebp(await page.screenshot({ type: "png" }));
+}
+
+/**
+ * The browser-driving sweep (§3 item 2, §4): prepareRun validates BEFORE
+ * chromium.launch; themes run strictly sequentially — one authenticated context
+ * per theme, CLOSED before the next theme's signInAs (fixture deletion revokes
+ * the prior session); one page per scenario with the capture-core determinism
+ * init scripts registered pre-navigation. All filesystem effects flow through
+ * runGallerySweep's adapter.
+ */
+export async function captureGallery(): Promise<void> {
+  const now = new Date().toISOString();
+  const partition = partitionScenarios();
+  const plan = prepareRun(process.env, partition, now);
+
+  const browser = await chromium.launch({ args: CAPTURE_LAUNCH_ARGS });
+  let context: BrowserContext | null = null;
+  let currentTheme: GalleryTheme | null = null;
+  try {
+    await runGallerySweep({
+      fs: realFsAdapter(process.cwd()),
+      warn: (line) => console.warn(line),
+      partition,
+      env: process.env,
+      now,
+      capture: async (scenario, theme) => {
+        if (theme !== currentTheme) {
+          if (context) await context.close();
+          context = await browser.newContext({
+            baseURL: plan.baseUrl,
+            colorScheme: theme,
+            locale: "en-US",
+            reducedMotion: "reduce",
+            timezoneId: "America/New_York",
+            viewport: { ...GALLERY_VIEWPORT },
+          });
+          const authPage = await context.newPage();
+          try {
+            await signInAs(authPage, DEVELOPER_FIXTURE, { baseUrl: plan.baseUrl });
+          } finally {
+            await authPage.close();
+          }
+          currentTheme = theme;
+        }
+
+        const page = await context!.newPage();
+        try {
+          await installDeterminism(page, theme);
+          await disableAnimations(page);
+          await gotoScenario(page, plan.baseUrl, scenario.id);
+
+          // §5 identity guard: catches resolveInitialScenario's silent
+          // fallback-to-index-0 against a stale :3004 server build.
+          const controlsText = await page.locator(CONTROLS_SELECTOR).innerText();
+          if (!controlsText.includes(scenario.label)) {
+            throw buildScenarioMismatchError(scenario.id, scenario.label, controlsText);
+          }
+
+          await waitForQuiescence(page, { waitForSelector: DIALOG_SELECTOR });
+          const shot = await encodeWebp(await page.screenshot({ type: "png" }));
+          const overflow = await shootOverflowCompanion(page);
+          return { shot, overflow };
+        } finally {
+          await page.close();
+        }
+      },
+    });
+  } finally {
+    if (context) await (context as BrowserContext).close();
+    await browser.close();
+  }
 }

@@ -82,6 +82,15 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     expect(config).toContain('JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"');
   });
 
+  it("declares the screenshots-gallery local capture project with its measured ceiling", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+    const galleryBlock = config.match(
+      /name: "screenshots-gallery",\s*testMatch: \/screenshots-gallery-capture\\\.spec\\\.ts\/,\s*timeout: 1_800_000,/,
+    );
+
+    expect(galleryBlock, "screenshots-gallery project (name/testMatch/timeout pin)").not.toBeNull();
+  });
+
   it("uses the established 300s cold-build timeout for the port-3004 screenshot webServer", () => {
     const config = readFileSync(screenshotConfigPath, "utf8");
     const screenshotServerBlock = config.match(
