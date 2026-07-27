@@ -205,7 +205,11 @@ function tokenWordStable(t: ShellToken): boolean {
 function dockerRunInvocationsOf(block: string): string[] {
   const logical = block.replace(/\\\n/g, "");
   const slices: string[] = [];
-  for (let idx = logical.indexOf("docker run"); idx !== -1; idx = logical.indexOf("docker run", idx + 1)) {
+  for (
+    let idx = logical.indexOf("docker run");
+    idx !== -1;
+    idx = logical.indexOf("docker run", idx + 1)
+  ) {
     slices.push(logical.slice(idx));
   }
   return slices;
@@ -216,7 +220,9 @@ function dockerRunInvocationsOf(block: string): string[] {
  *  flag, or null when the invocation cannot be vouched for — unknown flag,
  *  attached short value, non-word-stable token, or no image. Callers treat
  *  null as a loud failure, so every escape from the grammar fails the build. */
-function parseDockerRunInvocation(invocation: string): { image: string; platform: string | null } | null {
+function parseDockerRunInvocation(
+  invocation: string,
+): { image: string; platform: string | null } | null {
   const tokens = tokenizeShell(invocation);
   if (tokens[0]?.text !== "docker" || tokens[1]?.text !== "run") return null;
   let platform: string | null = null;
@@ -322,7 +328,9 @@ describe("docker-run role parser sensitivity (whole-diff R3–R5 bypass shapes)"
     dockerRunInvocationsOf(block).map((inv) => parseDockerRunInvocation(inv));
 
   it("R3 flag-value smuggle: pinned tag + platform inside a --label value, real image :latest", () => {
-    const [parsed] = parseAll(`docker run --label 'note=${pinned} --platform linux/amd64' ${latest} bash`);
+    const [parsed] = parseAll(
+      `docker run --label 'note=${pinned} --platform linux/amd64' ${latest} bash`,
+    );
     expect(parsed).toEqual({ image: latest, platform: null });
   });
 
@@ -330,7 +338,9 @@ describe("docker-run role parser sensitivity (whole-diff R3–R5 bypass shapes)"
     // NOTE="..." is a MIXED token (plain prefix + quoted segment) under the
     // R5 word-stability rule, so the parser refuses to vouch at all — a loud
     // failure, which is even stronger than surfacing the :latest image.
-    const [parsed] = parseAll(`docker run --rm -e NOTE="${pinned} --platform linux/amd64" ${latest} bash`);
+    const [parsed] = parseAll(
+      `docker run --rm -e NOTE="${pinned} --platform linux/amd64" ${latest} bash`,
+    );
     expect(parsed).toBeNull();
   });
 
@@ -370,27 +380,35 @@ describe("docker-run role parser sensitivity (whole-diff R3–R5 bypass shapes)"
     // bash ran the smuggled image. Bash-correct joining makes `sh=--name`
     // one token, so the image role lands on the smuggled token and the
     // exact-tag assertion fails loud.
-    const [parsed] = parseAll(`docker run --entrypoint sh=\\\n--name alpine:latest --platform linux/amd64 ${pinned}`);
+    const [parsed] = parseAll(
+      `docker run --entrypoint sh=\\\n--name alpine:latest --platform linux/amd64 ${pinned}`,
+    );
     expect(parsed?.image).not.toBe(pinned);
   });
 
-  it("R5 mixed-quoting token (\"\"$SHIFT) is not word-stable — fails loud", () => {
+  it('R5 mixed-quoting token (""$SHIFT) is not word-stable — fails loud', () => {
     const [parsed] = parseAll(`docker run --entrypoint ""$SHIFT --platform linux/amd64 ${pinned}`);
     expect(parsed).toBeNull();
   });
 
   it('R5 quoted multi-word expansions ("$@", "${array[@]}") fail loud', () => {
     expect(parseAll(`docker run --entrypoint "$@" --platform linux/amd64 ${pinned}`)[0]).toBeNull();
-    expect(parseAll(`docker run --entrypoint "\${array[@]}" --platform linux/amd64 ${pinned}`)[0]).toBeNull();
+    expect(
+      parseAll(`docker run --entrypoint "\${array[@]}" --platform linux/amd64 ${pinned}`)[0],
+    ).toBeNull();
   });
 
   it("R5 legacy backtick substitution fails loud", () => {
-    const [parsed] = parseAll("docker run --entrypoint `emit_args` --platform linux/amd64 " + pinned);
+    const [parsed] = parseAll(
+      "docker run --entrypoint `emit_args` --platform linux/amd64 " + pinned,
+    );
     expect(parsed).toBeNull();
   });
 
   it("R5 brace expansion fails loud", () => {
-    const [parsed] = parseAll(`docker run --entrypoint {sh,alpine:latest} --platform linux/amd64 ${pinned}`);
+    const [parsed] = parseAll(
+      `docker run --entrypoint {sh,alpine:latest} --platform linux/amd64 ${pinned}`,
+    );
     expect(parsed).toBeNull();
   });
 
