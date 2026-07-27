@@ -172,6 +172,49 @@ the regex targeted `if (located.size !== R.size)` while the real line reads
 indistinguishable from a guard that is genuinely covered. Verify the edit landed before believing
 a survivor.
 
+## Whole-diff review rounds 5-7: one class, and what finally closed it
+
+| Round | Finding | Disposition |
+| --- | --- | --- |
+| R5 | HIGH sixth counterexample `"... / May 6"` (month-day, no year) | FIXED, then superseded by the rewrite |
+| R5 | MEDIUM date-partitioned multi-PDF never folds | ACCEPTED, `BL-AGENDA-PERLINK-COMPLETENESS` |
+| R5 | MEDIUM `<summary>` model + Chromium-only proof | Spec corrected; verified in WebKit by hand, `BL-AGENDA-A11Y-WEBKIT-COVERAGE` |
+| R5 | MEDIUM the AS SHIPPED table's throw contract was wrong | FIXED — my own authority table was incorrect |
+| R6 | HIGH "this is not a whitelist" | CONCEDED; docstring corrected, `BL-AGENDA-PROSE-SECOND-DAY` |
+| R6 | HIGH same month-day in two years | FIXED |
+| R6 | MEDIUM month PREFIXES matched Marriott/Marketing/Augusta | FIXED — the worst of the set |
+| R7 | HIGH global `Day N` strip; two phrases passed | FIXED by the rewrite below |
+| R7 | MEDIUM `Track 2` / `Room 54` / `8th Floor` over-fire | FIXED by the same rewrite |
+| R7 | LOW marker never measured collapsed | FIXED |
+
+**The rewrite, and why it took seven rounds to reach.** Six counterexamples arrived one per round,
+each a new way for a label to name a second day. Every fix was correct and every one was another
+instance. What ended it was R7 reporting, in a single round, that the rule *both* under-fires
+(`"Day 1 / Day 2"`) *and* over-fires (`"Room 54"`). Those are one generic "reject any leftover
+number" check read from opposite sides — so rounds 6 and 7 had been trading one failure for the
+other, and no adjustment could satisfy both. That is the tell, not the round count.
+
+Ambiguity is now six named signals, each matching one specific way a label denotes a second DAY:
+two month-days; two years *attached to a date*; two weekday names; two ordinal-position phrases; a
+plural day span; a spoken ordinal with its article. The two refinements carrying the most weight
+are the narrow ones — counting only attached years is what saves `"2025 Awards — Tuesday, May 5,
+2026"`, and requiring "the" is what separates `"the 6th"` from `"8th Floor"`.
+
+## Three things this PR taught about its own tests
+
+- **An oracle that shares the implementation's blind spot proves nothing.** The property test
+  recognised only full `Month day, year` tokens — exactly what the code recognised — and reported
+  zero violations across 6912 combinations while two reachable counterexamples sat in the space.
+- **Later guards silently kill earlier ones.** Twice, adding a broader check upstream made a
+  narrower downstream guard unreachable, leaving it deletable with the whole suite green. Both
+  were found by mutation, not by reading. Removing the generic number scan then un-caught
+  `"Days 1-2"`, which had only ever passed via a residual `-2` — the existing test failed
+  immediately, which is the case for keeping tests that look redundant.
+- **A mutation that does not apply is indistinguishable from a guard that holds.** Three times a
+  mutation "survived" and had simply never run: a regex anchor reformatted by prettier, a `${i}`
+  where the source says `${di}`, a replacement string that matched nothing. Assert the edit landed
+  before reading anything into a survivor.
+
 ## Known limits, disclosed rather than defended
 
 - **~~The layout spec is PATH-GATED, not PR-blocking.~~ SUPERSEDED — it now runs on every PR.** This
