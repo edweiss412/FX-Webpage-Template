@@ -110,7 +110,9 @@ describe("drive_watch_reconcile_state writes through PostgresWatchTx (spec §3.3
     // wall-clock test cannot hold `now()` at exact equality, so the literal is
     // pinned at the source level and the past-due arm behaviorally.
     const { readFileSync } = await import("node:fs");
-    expect(readFileSync("lib/drive/watch.ts", "utf8")).toContain("next_attempt_at > now() as waiting");
+    expect(readFileSync("lib/drive/watch.ts", "utf8")).toContain(
+      "next_attempt_at > now() as waiting",
+    );
     await sqlA`insert into drive_watch_reconcile_state (watched_folder_id, next_attempt_at)
                values (${RUN + "-due"}, now() - interval '1 millisecond')`;
     const gate = await txA.readReconcileGate(`${RUN}-due`);

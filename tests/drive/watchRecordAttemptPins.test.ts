@@ -11,9 +11,7 @@ const src = readFileSync("lib/drive/watch.ts", "utf8");
 
 describe("recordAttempt call-site pins (spec §3.3a)", () => {
   it("reconcile's default subscribe binding opts IN", () => {
-    const m = src.match(
-      /deps\.subscribeToWatchedFolder \?\?[\s\S]{0,200}?recordAttempt: true/,
-    );
+    const m = src.match(/deps\.subscribeToWatchedFolder \?\?[\s\S]{0,200}?recordAttempt: true/);
     expect(m, "reconcile call site must pass recordAttempt: true").toBeTruthy();
   });
 

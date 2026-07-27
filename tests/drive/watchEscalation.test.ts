@@ -64,9 +64,7 @@ describe("maybeEscalateWatchOrphaned", () => {
   });
   test("still fires above threshold when no guard exists (multi-bump robustness)", async () => {
     const deps = makeDeps({
-      readUnresolvedWatchAlert: vi
-        .fn()
-        .mockResolvedValue(ALERT({ occurrence_count: 7 })),
+      readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: 7 })),
     });
     expect(
       (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated,

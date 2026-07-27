@@ -352,13 +352,11 @@ function reconcileDeps(tx: FakeWatchTx, over: Record<string, unknown> = {}) {
     getActiveWatchedFolder: vi.fn().mockResolvedValue({ folderId: "folder-1", folderName: "F" }),
     resolveAdminAlert: vi.fn().mockResolvedValue(undefined),
     maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [] }),
-    subscribeToWatchedFolder: vi
-      .fn()
-      .mockResolvedValue({
-        outcome: "active",
-        channelId: "c",
-        attempt: { consecutiveFailures: 0, nextAttemptAt: "2026-05-09T12:00:00.000Z" },
-      }),
+    subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+      outcome: "active",
+      channelId: "c",
+      attempt: { consecutiveFailures: 0, nextAttemptAt: "2026-05-09T12:00:00.000Z" },
+    }),
     ...over,
   };
 }
@@ -686,7 +684,11 @@ describe("Drive watch lifecycle", () => {
       expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "x",
+      attempt: null,
+    }));
 
     const result = await refreshWatchSubscriptions({
       tx,
@@ -751,7 +753,11 @@ describe("Drive watch lifecycle", () => {
       expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "x",
+      attempt: null,
+    }));
 
     const result = await refreshWatchSubscriptions({
       tx,
@@ -1942,7 +1948,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "folder-configured");
     dueRow(tx, "folder-stale");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
 
     await runRefresh(tx, { folderId: "folder-configured", folderName: null }, subscribe);
 
@@ -1956,7 +1966,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
     dueRow(tx, "f2");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
     const getFolder = vi.fn(async () => ({ folderId: "f1", folderName: null }));
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
     await refreshWatchSubscriptions({
@@ -1973,7 +1987,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("no_folder_configured renews nothing, with a DUE row present", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1"); // precondition: without it the assertion holds vacuously
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
 
     const result = await runRefresh(tx, { kind: "no_folder_configured" }, subscribe);
 
@@ -1984,7 +2002,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("folder-read infra_error with due rows: renews NOTHING and records the '*' failure", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
 
     const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
 
@@ -1994,7 +2016,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
 
   test("folder-read failure with ZERO due rows records NO failure, but still emits", async () => {
     const tx = new FakeWatchTx(); // no due rows seeded
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
 
     const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
 
@@ -2010,7 +2036,11 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("a thrown folder read behaves like infra_error and never rejects", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
+    const subscribe = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "c",
+      attempt: null,
+    }));
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
     const result = await refreshWatchSubscriptions({
@@ -2192,7 +2222,11 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
+      subscribeToWatchedFolder: vi.fn(async () => ({
+        outcome: "active" as const,
+        channelId: "c",
+        attempt: null,
+      })),
       getActiveWatchedFolder: async () => ({ folderId: "f-dead", folderName: null }),
     });
 
@@ -2216,7 +2250,11 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
+      subscribeToWatchedFolder: vi.fn(async () => ({
+        outcome: "active" as const,
+        channelId: "c",
+        attempt: null,
+      })),
       getActiveWatchedFolder: async () => ({ folderId: "configured", folderName: null }),
     });
 
@@ -2238,7 +2276,11 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
+      subscribeToWatchedFolder: vi.fn(async () => ({
+        outcome: "active" as const,
+        channelId: "c",
+        attempt: null,
+      })),
       getActiveWatchedFolder: (async () => {
         throw new Error("settings read failed: Bearer sk-abc123 while fetching KEEPME");
       }) as never,
@@ -2633,9 +2675,7 @@ describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", ()
       consecutiveFailures: 0,
       nextAttemptAt: tx.now.toISOString(),
     });
-    expect(tx.attemptRecords).toEqual([
-      { kind: "success", folderId: "folder-1" },
-    ]);
+    expect(tx.attemptRecords).toEqual([{ kind: "success", folderId: "folder-1" }]);
   });
 
   test("pre-boundary insertPending throw records NOTHING", async () => {
@@ -2645,7 +2685,11 @@ describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", ()
       throw new Error("db down");
     };
     await expect(
-      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+      subscribeToWatchedFolder("folder-1", {
+        tx,
+        recordAttempt: true,
+        watchFolder: rejectingWatch,
+      }),
     ).rejects.toThrow();
     expect(tx.attemptRecords).toEqual([]);
   });
@@ -2724,7 +2768,11 @@ describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", ()
       throw new Error("orphan write down");
     };
     await expect(
-      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+      subscribeToWatchedFolder("folder-1", {
+        tx,
+        recordAttempt: true,
+        watchFolder: rejectingWatch,
+      }),
     ).rejects.toThrow();
     expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(1);
   });
@@ -2736,7 +2784,11 @@ describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", ()
       throw new Error("alert write down");
     };
     await expect(
-      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+      subscribeToWatchedFolder("folder-1", {
+        tx,
+        recordAttempt: true,
+        watchFolder: rejectingWatch,
+      }),
     ).rejects.toThrow();
     expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(1);
   });
@@ -2926,20 +2978,25 @@ describe("fault-vs-attempt independence (spec §6 class 17)", () => {
     "recipients_read",
     "email_send",
     "alert_row_read",
-  ])("post-attempt escalation fault %s → infra_error AND the attempt bookkeeping survives", async (faultName) => {
-    const tx = new FakeWatchTx();
-    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
-    const deps = reconcileDeps(tx, {
-      subscribeToWatchedFolder: vi.fn().mockResolvedValue(ORPHANED_WITH_ATTEMPT),
-      maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [faultName] }),
-    });
+  ])(
+    "post-attempt escalation fault %s → infra_error AND the attempt bookkeeping survives",
+    async (faultName) => {
+      const tx = new FakeWatchTx();
+      const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+      const deps = reconcileDeps(tx, {
+        subscribeToWatchedFolder: vi.fn().mockResolvedValue(ORPHANED_WITH_ATTEMPT),
+        maybeEscalateWatchOrphaned: vi
+          .fn()
+          .mockResolvedValue({ escalated: false, faults: [faultName] }),
+      });
 
-    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+      const result = await reconcileWatchChannels(NO_REFRESH, deps);
 
-    expect(result.outcome).toBe("infra_error");
-    expect(result.faults).toContain(faultName);
-    expect(result.consecutiveFailures).toBe(3); // the §3.3a write already landed
-  });
+      expect(result.outcome).toBe("infra_error");
+      expect(result.faults).toContain(faultName);
+      expect(result.consecutiveFailures).toBe(3); // the §3.3a write already landed
+    },
+  );
 
   test("alert_resolve_write after a recovered attempt → infra_error, attempt bookkeeping survives", async () => {
     const tx = new FakeWatchTx();

@@ -62,8 +62,7 @@ function renderRow(entry: BellEntry, viewerIsDeveloper = false) {
   return container.querySelector('[data-testid="bell-action-cell-watch-1"]') as HTMLElement;
 }
 
-const lineIn = (row: HTMLElement) =>
-  row.querySelector('[data-testid="bell-next-attempt-watch-1"]');
+const lineIn = (row: HTMLElement) => row.querySelector('[data-testid="bell-next-attempt-watch-1"]');
 
 describe("bell next-attempt line (spec §3.6, classes 11/19)", () => {
   it("failed + future nextAttemptAt → 'Trying again at <time> · N reconnect attempts so far'", () => {
@@ -120,7 +119,9 @@ describe("bell next-attempt line (spec §3.6, classes 11/19)", () => {
   });
 
   it("lastAttemptOutcome null (row exists, no attempt yet) → absent", () => {
-    expect(lineIn(renderRow(watchEntry({ watchState: state({ lastAttemptOutcome: null }) })))).toBeNull();
+    expect(
+      lineIn(renderRow(watchEntry({ watchState: state({ lastAttemptOutcome: null }) }))),
+    ).toBeNull();
   });
 
   it("sentinel scan: developer-tier error fields never render even if smuggled onto the state", () => {

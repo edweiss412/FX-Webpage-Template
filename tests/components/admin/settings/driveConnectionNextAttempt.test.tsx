@@ -118,7 +118,9 @@ describe("Settings next-attempt sentence (spec §3.6, class 12)", () => {
     );
     expect(line()).toBeNull();
     cleanup();
-    render(<DriveConnectionPanel health={warnHealth("watch_expired")} now={NOW} watchState={null} />);
+    render(
+      <DriveConnectionPanel health={warnHealth("watch_expired")} now={NOW} watchState={null} />,
+    );
     expect(line()).toBeNull();
     cleanup();
     render(<DriveConnectionPanel health={warnHealth("watch_expired")} now={NOW} />);

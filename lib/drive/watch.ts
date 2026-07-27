@@ -916,7 +916,14 @@ export async function subscribeToWatchedFolder(
       channelId,
       errorClass,
     });
-    return { outcome: "orphaned", channelId, reason: "watch_create_failed", errorClass, errorMessage, attempt };
+    return {
+      outcome: "orphaned",
+      channelId,
+      reason: "watch_create_failed",
+      errorClass,
+      errorMessage,
+      attempt,
+    };
   }
 
   try {
@@ -1461,11 +1468,25 @@ export async function reconcileWatchChannels(
     folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
   } catch {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   if ("kind" in folder && folder.kind === "infra_error") {
     faults.push("folder_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   if ("kind" in folder) {
     // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
@@ -1498,7 +1519,14 @@ export async function reconcileWatchChannels(
     );
   } catch {
     faults.push("channel_read");
-    return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
+    return {
+      outcome: "infra_error",
+      sweptPending,
+      escalated: false,
+      faults,
+      nextAttemptAt: null,
+      consecutiveFailures: null,
+    };
   }
   const renewalFailed =
     refresh.orphaned.includes(folder.folderId) ||
@@ -1553,7 +1581,14 @@ export async function reconcileWatchChannels(
       }
     } catch {
       faults.push("state_read");
-      return { outcome: "infra_error", sweptPending, escalated: false, faults, nextAttemptAt: null, consecutiveFailures: null };
+      return {
+        outcome: "infra_error",
+        sweptPending,
+        escalated: false,
+        faults,
+        nextAttemptAt: null,
+        consecutiveFailures: null,
+      };
     }
     if (waiting) {
       // Suppress exactly one Drive call. Escalation still runs below
@@ -1562,10 +1597,10 @@ export async function reconcileWatchChannels(
       outcome = "backoff_waiting";
     } else {
       try {
-        const result = await (deps.subscribeToWatchedFolder ??
-          ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true })))(
-          folder.folderId,
-        );
+        const result = await (
+          deps.subscribeToWatchedFolder ??
+          ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true }))
+        )(folder.folderId);
         // §3.3a observer: a RETURNED result with attempt === null means the
         // state write failed (this caller always opts in). A thrown flow has no
         // result; the swallow-site warn is its record.

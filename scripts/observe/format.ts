@@ -145,9 +145,8 @@ export function formatWatch(
   // Reconcile-state companion section (backoff spec §3.6 D10): the retry
   // bookkeeping is per-folder, not per-channel, so it renders as its own block.
   const state = stateRows
-    .map(
-      (s) =>
-        `${s.watchedFolderId.padEnd(44)}  failures=${s.consecutiveFailures}  next=${s.nextAttemptAt ?? "-"}  last=${s.lastAttemptOutcome ?? "-"}  class=${s.lastErrorClass ?? "-"}  ${s.lastErrorMessage ?? ""}`.trimEnd(),
+    .map((s) =>
+      `${s.watchedFolderId.padEnd(44)}  failures=${s.consecutiveFailures}  next=${s.nextAttemptAt ?? "-"}  last=${s.lastAttemptOutcome ?? "-"}  class=${s.lastErrorClass ?? "-"}  ${s.lastErrorMessage ?? ""}`.trimEnd(),
     )
     .join("\n");
   return `${channels}\n\nreconcile state:\n${state}`;

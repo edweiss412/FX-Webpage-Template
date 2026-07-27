@@ -328,26 +328,26 @@ export function BellActionRow({
           View in telemetry <span aria-hidden="true">↗</span>
         </a>
       ) : null}
-      {!entry.isHealth && entry.actions.length > 0 ? (
-        entry.actions.map((action, i) => (
-          <a
-            key={action.href}
-            href={action.href}
-            data-testid={`bell-action-${entry.alertId}-${i}`}
-            {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className={LINK_CTA}
-          >
-            {action.label}
-            {action.external ? <span aria-hidden="true"> ↗</span> : null}
-            {action.external ? (
-              <>
-                {" "}
-                <NewTabHint />
-              </>
-            ) : null}
-          </a>
-        ))
-      ) : null}
+      {!entry.isHealth && entry.actions.length > 0
+        ? entry.actions.map((action, i) => (
+            <a
+              key={action.href}
+              href={action.href}
+              data-testid={`bell-action-${entry.alertId}-${i}`}
+              {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className={LINK_CTA}
+            >
+              {action.label}
+              {action.external ? <span aria-hidden="true"> ↗</span> : null}
+              {action.external ? (
+                <>
+                  {" "}
+                  <NewTabHint />
+                </>
+              ) : null}
+            </a>
+          ))
+        : null}
       {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
           Retry form (idempotent — no two-tap confirm). Pending state derives
           from useFormStatus inside RetryWatchButton, so the button re-enables
@@ -470,7 +470,9 @@ function ActionCell({
   onRefetch: () => void;
   viewerIsDeveloper?: boolean;
 }) {
-  return <BellActionRow entry={entry} onRefetch={onRefetch} viewerIsDeveloper={viewerIsDeveloper} />;
+  return (
+    <BellActionRow entry={entry} onRefetch={onRefetch} viewerIsDeveloper={viewerIsDeveloper} />
+  );
 }
 
 // Message-text renderer (WI-3 + WI-4). ROLE_FLAGS_NOTICE with ≥2 structured
