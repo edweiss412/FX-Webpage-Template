@@ -23,8 +23,12 @@
  * The rect-intersection e2e assertions pin these per site.
  *
  * Colour: `text-text` at rest — `text-text-subtle` is banned for action
- * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` on hover AND
- * on :active (colour-only press feedback for touch, where hover never fires).
+ * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` plus the house
+ * `bg-surface-sunken` wash on hover AND on :active (impeccable critique P1:
+ * the ~12/255-per-channel text lift alone is perceptually null on a 16px
+ * stroke; the wash is the sibling icon-control press idiom — ModalCloseButton,
+ * BellPanel, HelpSheet — and gives touch users real press feedback where hover
+ * never fires).
  * NO transform in any state: :active sits outside the transition sweep
  * (BL-HEADER-PROBE-RESIDUAL-VACUITY item 2), so geometry must not move there.
  * The unit suite pins the whole class-token set by equality; adding ANY
@@ -55,7 +59,7 @@ const RING_OFFSET = {
 } satisfies Record<SheetIconLinkProps["ringOffset"], string>;
 
 const BASE_CLASSES =
-  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
 
 export function SheetIconLink({
   href,

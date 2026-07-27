@@ -83,6 +83,7 @@ relative inline-grid size-5 shrink-0 place-items-center rounded-sm
 text-text transition-colors duration-fast
 before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-['']
 hover:text-text-strong active:text-text-strong
+hover:bg-surface-sunken active:bg-surface-sunken
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring
 focus-visible:ring-offset-2 focus-visible:ring-offset-bg | focus-visible:ring-offset-surface
 ```
@@ -99,7 +100,7 @@ focus-visible:ring-offset-2 focus-visible:ring-offset-bg | focus-visible:ring-of
 
 No numeric props exist. TypeScript excludes `null` statically on every prop; the `?? ""` append is the one place a runtime null could otherwise leak into output, and it is neutralised there. The component has zero branches other than the aria-label ternary, the ring-offset lookup, and that append.
 
-**Colour rationale (item 1):** `text-text` at rest (16.5:1/14.8:1 — `DESIGN.md` §1.2), `text-text-strong` on hover AND on active. Active is **colour-only, no transform**: BL-HEADER-PROBE-RESIDUAL-VACUITY item 2 (BACKLOG.md:147 (root)) documents that :active is outside the transition sweep, so geometry must not move in that state; colour-active also gives touch users press feedback where hover never fires. The no-transform contract is asserted by the §7.6 token test.
+**Colour rationale (item 1):** `text-text` at rest (16.5:1/14.8:1 — `DESIGN.md` §1.2), `text-text-strong` PLUS the house `bg-surface-sunken` wash on hover AND on active (impeccable-gate amendment: the text lift alone measures ~12/255 per channel on a 16px stroke — perceptually null — and the wash is the established sibling icon-control idiom; still colour-only, no geometry). Active is **colour-only, no transform**: BL-HEADER-PROBE-RESIDUAL-VACUITY item 2 (BACKLOG.md:147 (root)) documents that :active is outside the transition sweep, so geometry must not move in that state; colour-active also gives touch users press feedback where hover never fires. The no-transform contract is asserted by the §7.6 token test.
 
 ## §4 Per-site changes
 

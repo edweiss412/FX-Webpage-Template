@@ -43,6 +43,8 @@ const BASE_TOKENS = [
   "before:content-['']",
   "hover:text-text-strong",
   "active:text-text-strong",
+  "hover:bg-surface-sunken",
+  "active:bg-surface-sunken",
   "focus-visible:outline-none",
   "focus-visible:ring-2",
   "focus-visible:ring-focus-ring",
