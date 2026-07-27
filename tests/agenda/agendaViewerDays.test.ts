@@ -230,14 +230,16 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["May 5, 2026 / 2027-05-05", "same month-day, ISO second, different year"],
       ["May 5, 2026 / 5 May 2027", "same month-day, day-first second, different year"],
       ["May 5, 2026 / 05/05/2027", "same month-day, slash second, different year"],
-      // The year check must hold for EVERY pairing of shapes, not just month-led-first. Swept
-      // all of them; these are the pairings where neither date is month-led, which the
-      // month-led-only version could not have caught even in principle.
-      ["2026-05-05 / 2027-05-05", "ISO on both sides"],
-      ["5 May 2026 / 5 May 2027", "day-first on both sides"],
-      ["05/05/2026 / 05/05/2027", "slash on both sides"],
-      ["2026-05-05 / May 5, 2027", "ISO first, month-led second"],
-      ["05/05/26 / 05/05/27", "two-digit years"],
+      // DELETED, not fixed: five pairings where NEITHER date is month-led -- ISO/ISO,
+      // day-first/day-first, slash/slash, ISO-first, and two-digit-only. They passed, and they
+      // proved nothing. `parseIsoFromDayLabel` is month-first only, so such a row resolves to
+      // null and the unidentifiable-row guard opens the extraction before ambiguity is ever
+      // consulted. Verified by disabling `isAmbiguousLabel` wholesale: 24 of the 29 fail-open
+      // cases went red, these five stayed green.
+      //
+      // The mixed pairings below ARE reachable, because the month-led date gives the parser
+      // something to resolve while the second shape supplies the conflicting year. That is the
+      // only way the alternate-shape year code can matter in production.
       // R10 HIGH: two-digit and apostrophe years in the NAME-based forms. The slash form already
       // normalized them, so omitting these was an inconsistency inside the accepted domain.
       // NOTE the dates: these must fall INSIDE the fixture's aggregate (May 4-7). A first draft
