@@ -729,6 +729,9 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   // picker mutation boundaries (BL-CREW-PICKER-OBSERVABILITY; inside log.* spans, NOT
   // cataloged, NOT logAdminOutcome — the actor is an anonymous crew member on an emailed link).
   "PICKER_IDENTITY_SELECTED",
+  // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): emitted when the tamper-branch admin
+  // alert upsert itself fails; log-only inside a log.error span, never cataloged.
+  "PICKER_ALERT_FAILED",
   "PICKER_IDENTITY_CLEARED",
   "PICKER_STALE_ENTRY_CLEANED",
   // Pull-sheet override route (spec §5.4, Task 8) — forensic infra/fault codes emitted
@@ -753,6 +756,4 @@ export const GRADUATED_TO_CATALOG: ReadonlySet<string> = new Set([
   // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): the tamper branch now raises a global
   // admin_alerts row via upsertAdminAlert; catalog + §12.4 row landed in lockstep.
   "PICKER_IDENTITY_CLAIMED_TAMPER",
-  // BL-PICKER-TAMPER-ADMIN-ALERT (PR5): the tamper branch now raises a global
-  // admin_alerts row via upsertAdminAlert; catalog + §12.4 row landed in lockstep.
 ]);

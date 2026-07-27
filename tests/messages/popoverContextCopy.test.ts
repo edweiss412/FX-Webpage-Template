@@ -2,7 +2,7 @@
  * tests/messages/popoverContextCopy.test.ts
  * (spec 2026-07-20-alert-popover-context-design §6)
  *
- * Frozen-literal oracle for the 45 authored popover `helpfulContext` strings.
+ * Frozen-literal oracle for the 46 authored popover `helpfulContext` strings.
  * The catalog IS the subject under test, so the expected strings are hardcoded
  * here (inverting the usual derive-never-hardcode rule) — same posture as
  * tests/messages/_metaShowScopedTemplates.test.ts PAIRED. Editing a catalog

@@ -58,6 +58,7 @@ const EXPECTED_CUT_IDS = [
   "alert-picker-bootstrap-resolve-show-failed",
   "alert-picker-bootstrap-rpc-failed",
   "alert-picker-epoch-reset",
+  "alert-picker-identity-claimed-tamper",
   "alert-picker-selection-race",
   "alert-report-duplicate-live-matches",
   "alert-report-lease-thrashing",

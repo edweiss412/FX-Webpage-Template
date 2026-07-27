@@ -965,3 +965,11 @@ Structural guards across the suite strip comments before scanning source, and **
 **Resolved by:** `feat/scan-sse-null-code` (PR #621), PR4 of the 2026-07-24 BL-NULLCODE-STAMP-BATCH-2 residual sweep.
 
 The scan route's mid-run-throw catch logged a forensic `ONBOARDING_SCAN_FAILED` but emitted `{ ok:false, code:null }` to the wizard client, forcing the generic fallback copy. The string was promoted to a real §12.4 code as the three-way lockstep in one commit (master-spec §12.4 row + helpfulContext map, `pnpm gen:spec-codes`, `lib/messages/catalog.ts` predicate row) plus the route emit and `Step2Verify` `RECOGNIZED_CODES`, so the operator now gets the cataloged copy and a HelpAffordance. The code graduated out of `NEW_FORENSIC_CODES` via the new `GRADUATED_TO_CATALOG` ledger (tests/log/\_auditableMutations.ts), whose contract test pins disjointness, catalog-row presence, and producer presence; the forensic log stamp remains pinned by `NULLCODE_BATCH2_STAMPS`.
+
+---
+
+## BL-PICKER-TAMPER-ADMIN-ALERT — selectIdentity tamper breadcrumb now raises an `admin_alerts` upsert — ✅ RESOLVED (2026-07-27)
+
+**Resolved by:** `feat/picker-tamper-alert` (PR #623), PR5 of the 2026-07-24 BL-NULLCODE-STAMP-BATCH-2 residual sweep.
+
+The `selectIdentity` claimed-row rejection logged only a forensic `PICKER_IDENTITY_CLAIMED_TAMPER` warn. It now also upserts a global `admin_alerts` row before the sign-in redirect, honoring both verified placement constraints (no JS-side advisory lock — held inside `select_identity_atomic`; before `redirect()`, which throws to unwind), with `showId: null`, context `{ slug, crew_member_id, reason }`, never the share token, and a mandatory try/catch that logs `PICKER_ALERT_FAILED` rather than replacing the security redirect. Audience `health` / weight `notice` / resolution `manual` on the `PICKER_SELECTION_RACE` precedent; deliberately no `ALERT_ACTIONS` row and not an inline-identity code. Full ~15-surface lockstep landed in one feature commit; the code graduated out of `NEW_FORENSIC_CODES` via `GRADUATED_TO_CATALOG` with its forensic stamp still pinned.

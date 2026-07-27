@@ -20,7 +20,7 @@
  * ABSENT: it can reach a show modal, so it is not global-only. That is the
  * fail-safe direction — a reachable code keeps its surface.
  *
- * NOT an audience list. Five of these nine are health-audience and are already
+ * NOT an audience list. Six of these ten are health-audience and are already
  * filtered upstream by `HEALTH_CODES`; scope and audience are orthogonal axes.
  */
 export const GLOBAL_SCOPE_CODES: ReadonlySet<string> = new Set([

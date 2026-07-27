@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-// Canonical registry — the SAME 45-code list the _metaAdminAlertCatalog registry pins.
+// Canonical registry — the SAME 46-code list the _metaAdminAlertCatalog registry pins.
 import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
 // The 42 admin-alert codes (spec §3; keep in sync with the ADMIN_ALERTS_CODES registry).

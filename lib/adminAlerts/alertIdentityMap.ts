@@ -1,6 +1,6 @@
 // Per-code "at-a-glance identity" declarations (spec §3.1 / §4).
 //
-// `ALERT_IDENTITY_MAP` is pure data: for each of the 42 admin_alerts codes,
+// `ALERT_IDENTITY_MAP` is pure data: for each of the 46 admin_alerts codes,
 // it declares HOW to identify that code's entity, as an ordered list of
 // segment producers, OR declares the code `{ kind: "global" }` — an
 // explicit, first-class "this code has no per-entity identity" value (not
@@ -51,7 +51,7 @@ export type SegmentSpec =
 export type IdentityMapEntry = { kind: "global" } | { segments: SegmentSpec[] };
 
 /**
- * The full 45-code matrix (spec §4 + admin-field-overrides §10). 15 `global`
+ * The full 46-code matrix (spec §4 + admin-field-overrides §10). 16 `global`
  * entries, 30 with >=1 segment. Row numbers in comments match the spec §4 table
  * for traceability.
  */

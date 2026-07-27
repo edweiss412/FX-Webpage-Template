@@ -514,7 +514,7 @@ function rowsFor(code: string): ProducerScopeRow[] {
   return PRODUCER_SCOPE.filter((row) => row.code === code);
 }
 
-/** Whether the discovery pass found any producer for this code. 13 of the 45
+/** Whether the discovery pass found any producer for this code. 13 of the 46
  *  registered codes have none — they are raised outside the discovered surface.
  *  Callers MUST branch on this before applying a subset rule: an empty
  *  `allowedKeys` rejects every non-empty context rather than permitting it. */

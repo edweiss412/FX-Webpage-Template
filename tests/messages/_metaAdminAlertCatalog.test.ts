@@ -57,7 +57,7 @@ function adminAlertCodeUnionMembers(): string[] {
 
 // Registry: every catalog code currently used in a production admin_alerts.upsert
 // call. Extracted to tests/messages/adminAlertsRegistry.ts (imported above) so the
-// audience contract meta-test enforces the SAME 45-code set.
+// audience contract meta-test enforces the SAME 46-code set.
 
 type WriteSite = { path: string; pattern: RegExp };
 

@@ -4,7 +4,7 @@
 //
 // Extracted from tests/messages/_metaAdminAlertCatalog.test.ts so BOTH that
 // meta-test AND tests/messages/_metaAlertAudienceContract.test.ts import the
-// SAME 45-code list — the audience contract enforces the FULL registered set,
+// SAME 46-code list — the audience contract enforces the FULL registered set,
 // not a private copy (plan-R3 finding 2).
 export const ADMIN_ALERTS_CODES = [
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
