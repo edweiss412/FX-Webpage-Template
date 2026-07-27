@@ -124,3 +124,94 @@ describe("agenda transition audit — content-driven swap is instant (no orphane
     expect(screen.queryByTestId("agenda-sheet")).toBeNull();
   });
 });
+
+/**
+ * The three REFRESH behaviours spec §5.2 requires and plan:250 specified. Review R9 (MEDIUM) was
+ * right that they never landed: the audit above never passes `viewerDays`, and the browser specs
+ * toggle native <details> without re-rendering, so nothing pinned what happens when the server
+ * re-renders underneath a user's toggle.
+ *
+ * These are React reconciliation facts, established by probe before being written down: React
+ * diffs the `open` prop against ITS OWN last rendered value, not against the live DOM. So an
+ * unchanged prop leaves a user's toggle alone, while a changed prop overwrites it. That is the
+ * behaviour the fold depends on across `router.refresh()`, and it is why the fold can be a Server
+ * Component with no client state at all.
+ */
+describe("agenda fold — refresh reconciliation (spec §5.2)", () => {
+  const days = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      dayLabel: `Day ${i}`,
+      date: null,
+      sessions: [{ time: "9am", title: "S", room: null, tracks: [], drift: null }],
+    }));
+  const ext = (n: number) => ({
+    confidence: "high" as const,
+    corrections: 0,
+    extractorVersion: 2,
+    days: days(n),
+  });
+  const subset = (...rows: number[]) => ({ kind: "subset" as const, rows: new Set(rows) });
+  const openStates = (c: HTMLElement) =>
+    [...c.querySelectorAll("details")].map((d) => (d as HTMLDetailsElement).open);
+
+  it("a user toggle SURVIVES a same-props refresh", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    // The viewer opens a folded row themselves.
+    (container.querySelectorAll("details")[2] as HTMLDetailsElement).open = true;
+    expect(openStates(container)).toEqual([true, false, true]);
+
+    // router.refresh() with identical data must not close it again.
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />);
+    expect(openStates(container), "an unchanged prop leaves the user's toggle alone").toEqual([
+      true,
+      false,
+      true,
+    ]);
+  });
+
+  it("a CHANGED assignment moves `open` to the new row", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    // The crew member's dates change; the server re-renders with a different viewer row.
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(2)} />);
+    expect(openStates(container), "a changed prop overwrites the DOM state").toEqual([
+      false,
+      false,
+      true,
+    ]);
+    // ...and the marker moves with it.
+    expect(container.querySelector('[data-testid="agenda-day-marker-2"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).toBeNull();
+  });
+
+  it("a user toggle plus a now-AGREEING server value does not conflict", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    // The viewer opens row 1 by hand, then their assignment catches up to include it.
+    (container.querySelectorAll("details")[1] as HTMLDetailsElement).open = true;
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0, 1)} />);
+    expect(openStates(container), "agreement is not a conflict; the row stays open").toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("EVERY row collapsed is a reachable state and still renders every row", () => {
+    // The compound state review R9 listed: nothing is the viewer's, so nothing is marked, and
+    // `kind:"all"` expands rather than leaving an empty-looking section.
+    const { container } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={{ kind: "all" }} />,
+    );
+    expect(container.querySelectorAll("details")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-testid^='agenda-day-marker-']")).toHaveLength(0);
+  });
+});

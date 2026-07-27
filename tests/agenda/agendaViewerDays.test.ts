@@ -224,9 +224,14 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["May 5, 2026 / May 6th, 2026", "an ordinal-suffixed second date"],
       ["May 5, 2026 / 05/06/2026", "a slash-format second date"],
       ["May 5, 2026 / 2026-05-06", "an ISO second date"],
+      // R9 HIGH: a year mismatch is caught whichever SHAPES the two dates use. Keying dates on
+      // month-day alone missed these, and recovering years from only the month-led form (the
+      // R6 fix) still missed them whenever the second date used a different shape.
+      ["May 5, 2026 / 2027-05-05", "same month-day, ISO second, different year"],
+      ["May 5, 2026 / 5 May 2027", "same month-day, day-first second, different year"],
+      ["May 5, 2026 / 05/05/2027", "same month-day, slash second, different year"],
       ["May 5, 2026 / 6 May 2026", "a day-first second date"],
       ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
-      ["May 5, 2026 / Day 2", "a trailing Day-N, the label's only one"],
       // LEADING second-day references. Found by sweeping the positional rule's blind side
       // before review reported it: examining only trailing text sees none of these.
       ["Wednesday / Tuesday, May 5, 2026", "a second weekday BEFORE the date"],
@@ -350,6 +355,20 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["Tuesday, May 5, 2026 Session 3", "2026-05-05"],
       ["Day #1 — Tuesday, May 5, 2026", "2026-05-05"],
       ["Tuesday, May 5, 2026 at 9 AM", "2026-05-05"], // colonless time
+      // R9 MEDIUM, and a REVERSAL of a call made in R8. A trailing Day-N names the date it
+      // follows far more often than it introduces a new one, and because ambiguity is checked
+      // with `.some()`, one such heading unfolds the whole link. R8 read "May 5, 2026 / Day 2"
+      // as a second day; that case now folds, deliberately. Two Day-N phrases remain ambiguous,
+      // which still catches the genuine list form.
+      ["Tuesday, May 5, 2026 — Day 1", "2026-05-05"],
+      ["Tuesday, May 5, 2026 — Show Day 1", "2026-05-05"],
+      ["Tuesday, May 5, 2026 (Travel Day 2)", "2026-05-05"],
+      // Day-first needs a YEAR to count as a date; without that requirement the bare pattern
+      // "<number> <word>" invented a second date in all four of these.
+      ["Day 1 May 5, 2026", "2026-05-05"],
+      ["Session 3 May 5, 2026", "2026-05-05"],
+      ["Room 12 May 5, 2026", "2026-05-05"],
+      ["2 6 May 5, 2026", "2026-05-05"], // pdfjs glyph split
       // R8 MEDIUM: an ordinal that modifies a NOUN is not a date. The discriminator is what
       // follows it -- a date ordinal ends its phrase ("and the 6th"), these do not.
       ["Tuesday, May 5, 2026 — The 8th Floor", "2026-05-05"],

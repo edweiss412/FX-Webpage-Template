@@ -70,42 +70,49 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   // The month-name form is what the parser reads; the rest are here because review R8 listed
   // them as second-day forms the earlier version missed.
   const days = new Set<string>();
+  const years = new Set<string>();
   const spans: [number, number][] = [];
-  const add = (key: string, m: RegExpMatchArray) => {
+  // The YEAR is recorded separately from the month-day key, and by EVERY form. Keying dates on
+  // month-day alone is what lets "May 5, 2026 / May 5, 2027" read as one day; recovering years
+  // from only the month-led form (the previous fix) left the same hole open whenever the two
+  // dates use different shapes -- "May 5, 2026 / 2027-05-05", "/ 5 May 2027", "/ 05/05/2027"
+  // all slipped through (review R9). A missing year matches anything and is simply not recorded.
+  const add = (key: string, m: RegExpMatchArray, year?: string) => {
     days.add(key);
+    if (year) years.add(year);
     spans.push([m.index!, m.index! + m[0]!.length]);
   };
   for (const m of collapsed.matchAll(
     /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/g, // "May 5", "May 6th"
   )) {
     const mo = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
-    if (mo) add(`${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m);
+    if (mo) {
+      const after = collapsed.slice(m.index! + m[0]!.length).match(/^\s*,?\s*(\d{4})\b/);
+      add(`${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, after?.[1]);
+    }
   }
-  for (const m of collapsed.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\b/g)) {
-    const mo = MONTHS[m[2]!.toLowerCase().replace(/\.$/, "")]; // "6 May"
-    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m);
+  // Day-first REQUIRES a year, and that is not cosmetic. Without it the pattern is just
+  // "<number> <word>", which matched the number in "Day 1 May 5, 2026", "Session 3 May 5, 2026",
+  // "Room 12 May 5, 2026" and the pdfjs glyph-split "2 6 May 5, 2026" -- reading a phantom second
+  // date into four ordinary headings and unfolding them. Found by re-reading the function whole
+  // rather than by a failing test, which is why the corpus cases below now cover it.
+  for (const m of collapsed.matchAll(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})\b/g, // "6 May 2026"
+  )) {
+    const mo = MONTHS[m[2]!.toLowerCase().replace(/\.$/, "")];
+    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m, m[3]);
   }
-  for (const m of collapsed.matchAll(/\b(\d{1,2})\/(\d{1,2})\/\d{2,4}\b/g)) {
-    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m); // "05/06/2026"
+  for (const m of collapsed.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g)) {
+    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, m[3]!.padStart(4, "20")); // "05/06/2026"
   }
-  for (const m of collapsed.matchAll(/\b\d{4}-(\d{2})-(\d{2})\b/g)) {
-    add(`${m[1]}-${m[2]}`, m); // ISO "2026-05-06"
+  for (const m of collapsed.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
+    add(`${m[2]}-${m[3]}`, m, m[1]); // ISO "2026-05-06"
   }
   if (days.size === 0) return false; // unparseable -- the caller's null guard owns this
   if (days.size > 1) return true;
 
   // SIGNAL 2 -- the same month-day in two YEARS. Only years attached to a MONTH-led date count.
-  const attachedYears = new Set<string>();
-  for (const m of collapsed.matchAll(
-    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/g,
-  )) {
-    // KEPT DESPITE BEING UNOBSERVABLE TODAY: `parseIsoFromDayLabel` takes the FIRST
-    // `Word N, YYYY` hit and returns null when that word is not a month, so anything this
-    // would catch has already failed open. A coupling to another function, not a logical
-    // impossibility -- which is why it stays where the provably-dead year-strip was deleted.
-    if (MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")]) attachedYears.add(m[3]!);
-  }
-  if (attachedYears.size > 1) return true;
+  if (years.size > 1) return true; // the same month-day in two different years
 
   // COUNT **AND** POSITION. Both were tried alone across review rounds R4-R8 and each is
   // insufficient in a way the other covers:
@@ -131,7 +138,14 @@ function isAmbiguousLabel(dayLabel: string): boolean {
   if (/\bdays\s*#?\s*\d/i.test(collapsed)) return true; // a plural span, wherever it sits
   const dayNs = collapsed.match(/\bday\s*#?\s*\d{1,2}\b/gi) ?? [];
   if (dayNs.length > 1) return true; // "... Day 1 / Day 2"
-  if (/\bday\s*#?\s*\d/i.test(trailing)) return true; // "... / Day 2"
+  // A TRAILING Day-N is deliberately NOT a signal. "Tuesday, May 5, 2026 — Day 1" names one
+  // day, and so do "Show Day 1" and "(Travel Day 2)" -- review R9 showed the trailing rule
+  // rejected all three, and because ambiguity is checked with `.some()`, ONE such heading
+  // unfolds the entire link. This reverses a call made in R8, where "May 5, 2026 / Day 2" was
+  // read as a second day. Both readings are defensible; a trailing Day-N naming the date it
+  // follows is far more common in real agendas, and the over-fire is the worse failure because
+  // it silently disables the feature rather than merely showing more than necessary. Two Day-N
+  // phrases are still ambiguous, which is what catches the genuine list case.
 
   // A spoken ordinal date, anywhere. An ordinal FOLLOWED BY A NOUN modifies that noun
   // ("The 8th Floor", "The 2nd Session") and is not a date; that lookahead is the whole
