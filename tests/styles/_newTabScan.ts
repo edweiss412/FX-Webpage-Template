@@ -42,7 +42,8 @@ export function walkFiles(dir: string, ext: RegExp): string[] {
  *  findings -- a `//` comment that ran past CR (R14), a jsdoc continuation strip that kept
  *  its decoration (R17), and the JSX whitespace model below -- so the class lives in one
  *  place. `\r`, U+2028 and U+2029 are line terminators to the JS grammar and to JSX. */
-export const LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
+export { LINE_TERMINATORS } from "../_shared/stripComments";
+import { LINE_TERMINATORS, commentRanges as sharedCommentRanges, stripCommentsSafely as sharedStripCommentsSafely } from "../_shared/stripComments";
 
 export const PHRASE = "opens in a new tab";
 const HINT = "NewTabHint";
@@ -2744,68 +2745,15 @@ function hasSpreadOnHintPath(anchor: ts.JsxElement | ts.JsxSelfClosingElement): 
  * them. A raw scanner cannot do this because it cannot know a `/` begins a regex
  * without the parser's rescan.
  */
+/** Old-arity compat wrappers delegating to tests/_shared/stripComments (spec A1).
+ * This file's corpus is TSX/MDX-compiled, so TSX kind preserves its behavior exactly;
+ * callers that know their file type use the shared module's stripCommentsForFile. */
 export function commentRanges(src: string): [number, number][] {
-  const sf = ts.createSourceFile("__cmt.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const protectedRanges: [number, number][] = [];
-  const collect = (n: ts.Node): void => {
-    if (
-      ts.isStringLiteral(n) ||
-      ts.isNoSubstitutionTemplateLiteral(n) ||
-      ts.isRegularExpressionLiteral(n) ||
-      ts.isTemplateHead(n) ||
-      ts.isTemplateMiddle(n) ||
-      ts.isTemplateTail(n) ||
-      ts.isJsxText(n)
-    ) {
-      protectedRanges.push([n.getStart(sf), n.getEnd()]);
-    }
-    ts.forEachChild(n, collect);
-  };
-  collect(sf);
-  const inProtected = (i: number): boolean => protectedRanges.some(([a, b]) => i >= a && i < b);
-
-  // A shebang is not a comment: blanking its bytes destroyed real content, and a URL
-  // inside it contains `//` (review R14 LOW 6).
-  let from = 0;
-  if (src.startsWith("#!")) {
-    const nl = src.search(/[\n\r\u2028\u2029]/);
-    from = nl === -1 ? src.length : nl;
-  }
-
-  // A `//` comment ends at ANY JavaScript line terminator, not only LF. CR, U+2028 and
-  // U+2029 are all valid, and stopping at LF alone blanked the rest of the file
-  // (review R14 BLOCKING 2).
-  const isLineTerminator = (ch: string | undefined): boolean => LINE_TERMINATORS.test(ch ?? "");
-
-  const out: [number, number][] = [];
-  for (let i = from; i < src.length - 1; i += 1) {
-    if (src[i] !== "/" || inProtected(i)) continue;
-    if (src[i + 1] === "/") {
-      let j = i + 2;
-      while (j < src.length && !isLineTerminator(src[j])) j += 1;
-      out.push([i, j]);
-      i = j;
-    } else if (src[i + 1] === "*") {
-      let j = i + 2;
-      while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) j += 1;
-      const endEx = Math.min(j + 2, src.length);
-      out.push([i, endEx]);
-      i = endEx - 1;
-    }
-  }
-  return out;
+  return sharedCommentRanges(src, ts.ScriptKind.TSX);
 }
 
-/** Blank every comment to spaces, preserving length, offsets and line numbers. */
 export function stripCommentsSafely(src: string): string {
-  const out = src.split("");
-  for (const [a, b] of commentRanges(src)) {
-    for (let i = a; i < b; i += 1) {
-      const ch = out[i];
-      if (ch !== "\n" && ch !== "\r" && ch !== "\u2028" && ch !== "\u2029") out[i] = " ";
-    }
-  }
-  return out.join("");
+  return sharedStripCommentsSafely(src, ts.ScriptKind.TSX);
 }
 
 export function scanSource(sf: ts.SourceFile, path: string, sc: Scan): void {

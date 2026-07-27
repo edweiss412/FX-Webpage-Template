@@ -51,6 +51,8 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  false positives). NEVER file-wide: an unlisted (family, marker) in the same file
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
+  { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "commentRanges", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
+  { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "stripCommentsSafely", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
   { file: "tests/auth/oauth-flow.test.ts", family: "two-char-literal", marker: "//", reason: "E12: protocol-relative-URL assertion string" },
   { file: "tests/auth/oauth-flow.test.ts", family: "startswith-filter", marker: "//", reason: "E12: protocol-relative-URL assertion, not comment handling" },
   { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "two-char-literal", marker: "//", reason: "E7: marker literal in the documented loud-error design (its lines 110-114)" },
@@ -68,7 +70,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
 /** Migration-window scaffold (file-granular is CORRECT here: a migration commit clears
  *  a whole file at once — spec §5.3a). Task 47 deletes the emptied constant. */
 export const PENDING_MIGRATIONS: string[] = [
-  "tests/styles/_newTabScan.ts",
   "tests/styles/_classScanUtils.ts",
   "tests/help/_metaServerTimeGuard.test.ts",
   "tests/admin/no-inline-email-normalization.test.ts",
