@@ -8,6 +8,81 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
+
+**Graduated:** 2026-07-27 (reconciliation) — resolved by `feat/ci-lifecycle-gallery` (PR #615, PR4 of the CI-dark cluster); the entry had been annotated RESOLVED in place. Filed 2026-07-24 under the "Admin lifecycle e2e" section (share-link-chrome-backlog review r4).
+
+**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename.
+
+The proposed fix below (**"replace the assertion with whatever now carries the crew-link-off copy"**) was investigated and **rejected on evidence**: nothing carries it. The nearest surviving string is a rotation confirmation in a different control, and `admin-current-share-link-unavailable` is an _error_ state gated on `published`. Everything below this line is the ORIGINAL entry, kept as provenance — its "It does not run" and "Fix:" paragraphs describe the pre-2026-07-26 state, not the current one.
+
+**Note on the host spec:** `admin-lifecycle-transitions.spec.ts` is still NOT wired into a workflow — see `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. This particular assertion can no longer rot further (it is gone), but the file remains CI-dark.
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts:305` asserts `admin-share-link-inactive` contains "The crew link is inactive while this show is unpublished." That testid was RETIRED by the share-hub consolidation (`docs/superpowers/specs/2026-07-20-share-hub-design.md:106` lists it under Removed); no production module emits it, and current unit tests assert its absence. The spec would fail if it ran.
+
+It does not run: no workflow references `admin-lifecycle-transitions`, so it is CI-dark. Confirmed pre-existing — the identical assertion is on `origin/main`, and the share-link-chrome-backlog branch does not touch the file.
+
+**Fix:** replace the assertion with whatever now carries the crew-link-off copy (the hub's paused primary label, per `shareHub.test.tsx`), then decide whether the spec should be in a workflow at all — a permanently dark e2e is the reason this survived.
+
+**Surfaced by:** round-4 adversarial review of #598, which found it while checking that branch's retirement of the testid. Recorded rather than fixed there: out of scope for that PR, and it cannot be validated without first un-darkening it.
+
+## BL-HEADER-PROBE-RESIDUAL-VACUITY — CLOSED 2026-07-26 (branch `test/header-probe-residual-closure`)
+
+**Graduated:** 2026-07-27 (reconciliation) — closed by `test/header-probe-residual-closure` (PR #617); the entry had been annotated CLOSED in place. The one live follow-up (promote the `section-header-visual` context into branch protection's required set after observed-green soak) is carried by `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` in BACKLOG.md.
+
+**Filed:** 2026-07-26 (branch `feat/section-header-rebuild-phantom-spacers`, adversarial review round 3). **Class:** test hardening. **Closed:** 2026-07-26, all four findings, by changing the instrument rather than adding a fifth heuristic — exactly the disposition the original entry recommended. Spec: `docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` (Codex APPROVE R3 + plan APPROVE R4, 19 accepted findings across both artifacts).
+
+**How each finding closed:**
+
+1. **Width chain anchors all five widths.** `REAL_ROUTE_WIDTHS` now equals the `ROW_WIDTHS` key set (320/430 measured 280px/390px on the real hydrated modal, confirming the viewport-minus-40 derivation), and `tests/cross-cutting/section-header-width-anchors.test.ts` pins the set equality so a sixth matrix width cannot enter unanchored.
+2. **Interaction states are pixel-baselined.** `tests/e2e/section-header-visual.spec.ts` captures hover, keyboard focus (`:focus-visible`), held-press active, and hover+focus at all five widths in both themes (40 state baselines), each behind an exclusive pseudo-state oracle and fresh-navigation isolation.
+3. **SMIL is closed structurally.** The visual spec's DOM contract asserts zero SMIL elements in the tree (a screenshot alone is temporally escapable); a future `<animateTransform>` fails by default and forces deliberate handling.
+4. **Exotic paint suppression is subsumed by pixels.** 10 idle composite baselines (5 widths × 2 themes over all 15 matrix cells) compared at `maxDiffPixels: 0` AND `threshold: 0` — no property enumeration; any mechanism that suppresses or moves paint produces differing bytes.
+
+**Mechanism:** committed PNG baselines captured ONLY inside pinned `mcr.microsoft.com/playwright:v1.59.1-jammy` on native amd64 (`.github/workflows/section-header-visual.yml`, unfiltered PR gate; `section-header-visual-regen.yml`, post-merge dispatch regen with in-job re-comparison). Initial baselines were the gate's own failure-artifact actuals; `tests/cross-cutting/playwright-version-pin.test.ts` is now a four-workflow registry pinning image tags to the INSTALLED `@playwright/test` exactly.
+
+**Follow-up (deliberate, small):** the `section-header-visual` context is NOT yet in branch protection's required set — promote after observed-green soak, per spec §1.1.
+
+**What IS covered, cumulatively:** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 10 real-route width-chain cases (all five widths × 2 loops), green in CI; 18 mutations mapped to distinct catchers; the transition sweep both themes × five widths × three states with per-channel duration AND delay; pusher absence at three widths with a pixel-level paint test; chain coverage anchored on the canonical `SectionId` list; and the 50-baseline visual gate above.
+
+## BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
+
+**Graduated:** 2026-07-27 (reconciliation) — shipped by `feat/agenda-perday-viewer-fold` (PR #610, 2026-07-26); the entry had been annotated SHIPPED in place and retained "for the decision record", which this archive is the home for. Originally a `###` sub-entry of the BL-NULLCODE-STAMP-BATCH-2 residuals section.
+
+**Status:** ✅ SHIPPED in PR #610 (2026-07-26) · **Severity:** low · **Class:** VISIBILITY SCOPE
+
+> **Retained for the decision record; the prescriptions below are HISTORY, not open work.** Two
+> statements in this entry are now contradicted by shipped code and are corrected here rather than
+> edited away, because the reasoning is what makes the entry worth keeping:
+>
+> 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
+>    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because the current
+>    extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole
+>    constructor; stored rows from older writers may carry strings — see the spec's §2.5
+>    narrowed scope), so dates cannot identify a row.
+> 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
+>    implement the positional fallback. Ratified at
+>    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
+>    tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Short version: its trigger never fires on the
+>    measured corpus, and folding on positional index means folding in the state of least knowledge —
+>    the shape behind all four viewer-day-folding bugs review found.
+>
+> Everything else — the middle posture, the "Your day" marker, native `<details>` keeping the block a
+> Server Component, and mandatory fail-open — shipped as written.
+
+The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:143-163`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:168-179`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5).
+
+**Not a privacy issue — a scan-cost issue.** The `AgendaEmbed` "View agenda" affordance sits directly above the structured block and opens the unfilterable whole-show PDF, so no filtering of the structured rows can withhold a date that the viewer could not reach in one tap. The question is purely how much a part-time crew member has to scan to find their own day.
+
+**Decision (2026-07-24, Eric):** viewer's day expanded and marked, other days folded — the middle posture, not whole-show and not trimmed-to-worked-days. Concretely:
+
+- The day matching the viewer's effective visible-day set renders in full, carrying a "Your day" marker.
+- Every other agenda day collapses to a single tappable row (day label + session count) that expands in place. Native `<details>`/`<summary>` — `AgendaScheduleBlock` is a Server Component (no `'use client'`), and this posture must not force it client-side.
+- **Fail-open is mandatory.** Day-to-date matching is best-effort, and it is split across two functions in `lib/crew/agendaDayForToday.ts`: `parseIsoFromDayLabel` (`:36-43`) ONLY parses a date-bearing heading into an ISO date — it has no fallback. The positional fallback lives inside `agendaSessionsForToday` (`:64-73`) and fires only when no label in that extraction parsed AND `ext.days.length === showDays.length`, matching a single `todayIso`. When neither path resolves a day for this viewer, render every day expanded (today's behavior) — a failed match must never cost the viewer the agenda, and must never fold the day they actually work.
+- Rejected: trimming the list to worked days only (loses on-page visibility of load-in/strike days that a strike-only crew member legitimately uses), and keeping whole-show unchanged (leaves the scan cost that prompted the item).
+
+**Fix:** thread the effective visible-day set into `AgendaScheduleBlock`. Note that **no reusable day-set matcher exists** — `agendaSessionsForToday` maps to ONE `todayIso` and returns sessions, not days — so PR3 writes a day-set variant beside it, reusing `parseIsoFromDayLabel` and the same positional-fallback rule rather than duplicating either. Needs the invariant-8 impeccable dual-gate, a Dimensional-Invariants pass, and a real-browser layout assertion (the fold changes the block's height contract). Mockup of the three postures considered, at phone width in both themes: `docs/superpowers/specs/2026-07-24-agenda-visibility-mock/agenda-visibility-options.html`.
+
 ## Drive-ID coverage guard — deliberately-undone parts (2026-07-25) — ✅ RESOLVED (2026-07-27)
 
 All four closed by `feat/driveid-guard-cluster` per
