@@ -271,6 +271,34 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     expect(r).toEqual({ kind: "all" });
   });
 
+  test("REAL corpus labels still fold — the over-fire guard", () => {
+    // The whitelist rule fails open on anything it does not fully understand, so the risk it
+    // carries is the opposite of the one it fixes: over-firing on ordinary labels would disable
+    // the feature in production while every counterexample test stayed green.
+    //
+    // These are actual labels from the parser corpus (tests/crew/agendaDayForToday.test.ts),
+    // including the pdfjs glyph-split forms where a day or year arrives with spaces inside it.
+    const corpus: [string, string][] = [
+      ["Friday, Sept. 18, 2026", "2026-09-18"],
+      ["Monday, May 4, 2026", "2026-05-04"],
+      ["Thursday, October 9, 202 5", "2025-10-09"], // year split by pdfjs
+      ["Tuesday May 13,2024", "2024-05-13"], // no comma after the weekday
+      ["Tuesday, March 2 4 , 202 6", "2026-03-24"], // day AND year split
+      ["Wednesday, March 2 5, 2026", "2026-03-25"], // day split
+    ];
+    for (const [label, iso] of corpus) {
+      const r = visibleAgendaDaysForViewer(
+        ext([label, "Thursday, December 31, 2099"]),
+        [iso],
+        [iso],
+      );
+      expect(r, `real corpus label must still fold: "${label}"`).toEqual({
+        kind: "subset",
+        rows: new Set([0]),
+      });
+    }
+  });
+
   test("a low-confidence or empty extraction folds nothing", () => {
     // The component renders nothing for these, so there is nothing to fold. Catches a
     // matcher that returns a subset for a link that never renders rows.

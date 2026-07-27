@@ -27,51 +27,66 @@ const ALL: ViewerAgendaDays = { kind: "all" };
  * changes, this must change with it, which the mixed-format test pins.
  */
 const WEEKDAYS = /\b(mon|tues?|wed(nes)?|thur?s?|fri|satur|sun)(day)?\b/gi;
-/** "the 6th", "21st" -- a day reference the full Month-day-year scan cannot see. */
-const ORDINAL_DAY = /\b\d{1,2}(st|nd|rd|th)\b/i;
+
+/** Any month name, used to detect a SECOND month reference in the leftover text. */
+const MONTH_NAME = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i;
+/** Any 1-2 digit number, with or without an ordinal suffix. Years are removed before this runs. */
+const DAY_NUMBER = /\b\d{1,2}(st|nd|rd|th)?\b/i;
 
 /**
- * Does this label point at more than one day?
+ * Can this label be attributed to exactly ONE day?
  *
- * Three independent signals, because review found each of the first two insufficient on its own:
+ * WHITELIST, not blacklist, and that inversion is the point. The previous version enumerated
+ * signals that indicate a second day, and review found a new shape for six consecutive rounds --
+ * two full dates, then a second weekday name, then an ordinal ("the 6th"), then a month-day with
+ * no year ("/ May 6"). Every fix was correct and every one was another instance. A list of known
+ * ways to say "another day" cannot be finished; the set of ways English writes a date is not
+ * bounded by what a reviewer has thought of yet.
  *
- *  1. more than one distinct full date            "May 5, 2026 / May 6, 2026"     (R2 HIGH)
- *  2. more than one distinct weekday name         "May 5, 2026 / Wednesday ..."   (R4 HIGH)
- *  3. any ordinal day reference                   "... / Wednesday the 6th"       (R4 HIGH)
+ * So this asks the opposite question. Find the one month-day pair, remove every occurrence of it,
+ * allow a single weekday name, and require what remains to contain NOTHING
+ * day-shaped. Anything left over -- another month name, another number, an ordinal, a second
+ * weekday -- means the label says something about days that this function did not understand, and
+ * an ununderstood label is not safe to fold.
  *
- * The R4 counterexample is why 2 and 3 exist: "Tuesday, May 5, 2026 / Wednesday the 6th" carries
- * exactly ONE full date, so signal 1 saw an unambiguous May 5 row and folded it for a Wednesday
- * viewer -- while the label plainly covers their day.
+ * Over-firing is the intended direction: a false positive costs a fully expanded agenda, which is
+ * today's behaviour and what spec §1.1 calls acceptable. A false negative hides the day the viewer
+ * came to see. Verified against the real corpus, including pdfjs glyph-split forms like
+ * "Tuesday, March 2 4 , 202 6" (tests/crew/agendaDayForToday.test.ts), which collapse first and
+ * pass.
  *
- * These are heuristics and they over-fire; that is the intended direction. A false positive costs
- * the viewer a fully expanded agenda, which is today's behaviour and what spec §1.1 calls
- * acceptable. A false negative hides the day they came to see.
+ * Zero pairs deliberately returns false: that is the unparseable case, and the null guard in the
+ * caller owns it. Claiming it here would make that guard unreachable -- twice already in this file
+ * a broader check upstream has silently killed a narrower one downstream.
  */
 function isAmbiguousLabel(dayLabel: string): boolean {
-  if (distinctLabelDates(dayLabel) > 1) return true;
-  if (ORDINAL_DAY.test(dayLabel)) return true;
-  const weekdays = new Set(
-    (dayLabel.match(WEEKDAYS) ?? []).map((w) => w.toLowerCase().slice(0, 3)),
-  );
-  return weekdays.size > 1;
-}
-
-function distinctLabelDates(dayLabel: string): number {
   const collapsed = dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "");
-  const found = new Set<string>();
-  // The YEAR is optional here, unlike in `parseIsoFromDayLabel`, and that difference is the
-  // whole point. Review R5 (HIGH) found the sixth counterexample by dropping it:
-  //   "Tuesday, May 5, 2026 / May 6"
-  // carries one FULL date, one weekday and no ordinal, so a full-date counter saw an
-  // unambiguous May 5 row and folded it for a May 6 viewer. Counting month-day PAIRS sees two.
-  //
-  // Keyed on month+day without the year, so "May 5, 2026 (May 5, 2026 rehearsal)" -- one date
-  // written twice -- still counts as one and does not fail open.
+
+  const pairs = new Set<string>();
+  const spans: [number, number][] = [];
   for (const m of collapsed.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\b/g)) {
     const month = MONTHS[m[1]!.toLowerCase().replace(/\.$/, "")];
-    if (month) found.add(`${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+    if (!month) continue;
+    pairs.add(`${String(month).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
+    spans.push([m.index!, m.index! + m[0]!.length]);
   }
-  return found.size;
+  if (pairs.size === 0) return false; // unparseable -- the caller's null guard owns this
+  if (pairs.size > 1) return true;
+
+  // Blank out every occurrence of the single date, then the year, then ONE weekday name.
+  let rest = "";
+  let cursor = 0;
+  for (const [a, b] of spans) {
+    rest += collapsed.slice(cursor, a);
+    cursor = b;
+  }
+  rest += collapsed.slice(cursor);
+
+  const weekdays = rest.match(WEEKDAYS) ?? [];
+  if (new Set(weekdays.map((w) => w.toLowerCase().slice(0, 3))).size > 1) return true;
+  rest = rest.replace(WEEKDAYS, " ");
+
+  return MONTH_NAME.test(rest) || DAY_NUMBER.test(rest);
 }
 
 export function visibleAgendaDaysForViewer(
