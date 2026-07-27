@@ -22,7 +22,7 @@
 - **EXTENDS** `tests/db/postgrest-dml-lockdown.test.ts` — new `RPC_GATED_TABLES` row (Task 3).
 - **EXTENDS** `tests/sync/_metaInfraContract.test.ts` — rows for the two `WatchTx` state-write methods + gate read (Task 4/5).
 - **EXTENDS** `tests/admin/_metaInfraContract.test.ts` — row for `readWatchSurfaceState` (Task 8).
-- **CREATES** CHECK↔array meta-test (`tests/db/watchReconcileStateChecks.test.ts`, Task 3) pinning both CHECKs against `ATTEMPT_OUTCOMES` / `WATCH_ERROR_CLASSES` with negative controls.
+- **CREATES** CHECK↔array meta-test (tests/db/watchReconcileStateChecks.test.ts, Task 3) pinning both CHECKs against `ATTEMPT_OUTCOMES` / `WATCH_ERROR_CLASSES` with negative controls.
 - **CREATES** structural source pins: reconcile call-site `recordAttempt: true`; refresh default binding WITHOUT `recordAttempt` (Task 5).
 - Advisory-lock topology: N/A — zero holders on watch surfaces (§1.1a-5), none added.
 - Layout-dimensions Playwright task: N/A per spec Dimensional Invariants (no fixed-dimension parent); the one layout contract (`w-full` in the bell flex-wrap row) is asserted in Task 9's component test via class list, and visually via the impeccable gate (Task 13).
@@ -38,12 +38,12 @@ The cadence-copy sweep was run at spec time with per-hit dispositions (§3.7 tab
 
 **Files:**
 - Modify: `lib/drive/watchErrors.ts` (add `BACKOFF_LADDER_MS`, `BACKOFF_MAX_MS`, `ESCALATION_AFTER_MS`, `ATTEMPT_OUTCOMES`; refactor `WatchErrorClass` to derive from new `WATCH_ERROR_CLASSES`; do NOT touch `ESCALATION_THRESHOLD` yet — Task 6 deletes it)
-- Test: `tests/drive/watchBackoffConstants.test.ts` (new)
+- Test: tests/drive/watchBackoffConstants.test.ts (new)
 
 **Interfaces:**
 - Produces: `export const BACKOFF_LADDER_MS: readonly [number, number, number, number]`; `export const BACKOFF_MAX_MS: number`; `export const ESCALATION_AFTER_MS: number`; `export const WATCH_ERROR_CLASSES = ["config", "drive_api", "db"] as const`; `export type WatchErrorClass = (typeof WATCH_ERROR_CLASSES)[number]` (structurally identical to today's union — zero consumer edits); `export const ATTEMPT_OUTCOMES = ["failed", "succeeded"] as const`; `export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number]`.
 
-- [ ] **Step 1: Write the failing test** — `tests/drive/watchBackoffConstants.test.ts`:
+- [ ] **Step 1: Write the failing test** — tests/drive/watchBackoffConstants.test.ts:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -60,7 +60,7 @@ import {
 } from "@/lib/drive/watchErrors";
 
 // Independent literal expectation table (spec §6 class 1): human units,
-// converted here — NEVER derived from BACKOFF_LADDER_MS itself.
+// converted here - NEVER derived from BACKOFF_LADDER_MS itself.
 const LADDER_EXPECTATION: ReadonlyArray<readonly [number, string]> = [
   [1, "15m"], [2, "30m"], [3, "1h"], [4, "2h"], [5, "2h"], [6, "2h"],
 ];
@@ -84,7 +84,7 @@ describe("backoff constants (spec §2.1)", () => {
   });
 });
 
-describe("I1 phase sweep (spec §2.1a) — simulated tick series, not the formula", () => {
+describe("I1 phase sweep (spec §2.1a) - simulated tick series, not the formula", () => {
   // L(G) mirrors the SHIPPED predicate shape (lib/drive/watch.ts:362-365).
   const L = (g: number) => Math.max(RENEWAL_MIN_LEAD_MS, g * (1 - RENEWAL_LIFE_FRACTION));
   const P = SAMPLING_PERIOD_MS;
@@ -106,7 +106,7 @@ describe("I1 phase sweep (spec §2.1a) — simulated tick series, not the formul
       if (G > P + T) {
         expect(examinedDueBeforeExpiry, `G=${G} offset=${offset}`).toBe(true);
       }
-      // G <= P + T: anomalous band — no assertion; GRANT_TOO_SHORT posture is
+      // G <= P + T: anomalous band - no assertion; GRANT_TOO_SHORT posture is
       // pinned by the shipped tests/drive/watchExpiration.test.ts suite.
     }
   });
@@ -126,10 +126,10 @@ export const BACKOFF_LADDER_MS = [900_000, 1_800_000, 3_600_000, 7_200_000] as c
 export const BACKOFF_MAX_MS: number = BACKOFF_LADDER_MS[BACKOFF_LADDER_MS.length - 1];
 
 // Escalate once an unresolved WATCH_CHANNEL_ORPHANED has persisted this long
-// (replaces the count-based ESCALATION_THRESHOLD — deleted in the escalation task).
+// (replaces the count-based ESCALATION_THRESHOLD - deleted in the escalation task).
 export const ESCALATION_AFTER_MS = 10_800_000;
 
-// The only two values a completed subscribe attempt can persist (spec §3.2) —
+// The only two values a completed subscribe attempt can persist (spec §3.2) -
 // deliberately narrower than ReconcileOutcome.
 export const ATTEMPT_OUTCOMES = ["failed", "succeeded"] as const;
 export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
@@ -141,7 +141,7 @@ export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
 ### Task 2: 15-minute cadence cluster (migration + registry + tests, atomic)
 
 **Files:**
-- Create: `supabase/migrations/20260727000001_reschedule_refresh_watch.sql`
+- Create: supabase/migrations/20260727000001_reschedule_refresh_watch.sql
 - Modify: `lib/drive/watchErrors.ts` (`SAMPLING_PERIOD_MS` 3_600_000 → 900_000, line ~68)
 - Modify: `lib/cron/runSummary.ts:54-59` (`cadence: "every 15 min"`, `staleAfterMs: 45 * 60_000`)
 - Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json:10` (schedule value only)
@@ -195,7 +195,7 @@ end $$;
 
   (The implementer copies the real body + variable plumbing from the source migration — the snippet marks WHAT to copy, the copy itself must be verbatim. `tests/db/b3-notify-cron-idempotency.test.ts`-style apply-twice safety comes from unschedule-if-exists.)
   - `pg-cron-jobs.json:10`: `"schedule": "7,22,37,52 * * * *"`.
-  - `SCHEDULE_MIGRATION_PATHS` in `tests/cross-cutting/pg-cron-coverage.test.ts:68-71`: append `"supabase/migrations/20260727000001_reschedule_refresh_watch.sql"`.
+  - `SCHEDULE_MIGRATION_PATHS` in `tests/cross-cutting/pg-cron-coverage.test.ts:68-71`: append "supabase/migrations/20260727000001_reschedule_refresh_watch.sql".
   - Read `tests/cron/samplingPeriodParity.test.ts`; update any pinned literal that names the old schedule/period so it derives or matches the new values.
 - [ ] **Step 4: Apply migration locally + run** — `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/20260727000001_reschedule_refresh_watch.sql` then `pnpm vitest run tests/cron tests/drive tests/cross-cutting/pg-cron-coverage.test.ts`. Expected: PASS.
 - [ ] **Step 5: Commit** — `feat(sync): move fxav_cron_refresh_watch to 15-minute cadence`
@@ -203,16 +203,16 @@ end $$;
 ### Task 3: State table + `watch_backoff_ms` migration, lockdown, meta-tests
 
 **Files:**
-- Create: `supabase/migrations/20260727000000_drive_watch_reconcile_state.sql` (DDL + function + lockdown EXACTLY as spec §3.2/§3.3 — copy the three SQL blocks verbatim: `create table` with the three CHECKs, `revoke/grant/enable row level security`, `create function public.watch_backoff_ms`)
+- Create: supabase/migrations/20260727000000_drive_watch_reconcile_state.sql (DDL + function + lockdown EXACTLY as spec §3.2/§3.3 — copy the three SQL blocks verbatim: `create table` with the three CHECKs, `revoke/grant/enable row level security`, `create function public.watch_backoff_ms`)
 - Modify: `tests/db/postgrest-dml-lockdown.test.ts` (new `RPC_GATED_TABLES` row)
-- Test: `tests/db/watchReconcileState.test.ts` (new — class 4 + class 20)
-- Test: `tests/db/watchReconcileStateChecks.test.ts` (new — CHECK↔array meta-test)
+- Test: tests/db/watchReconcileState.test.ts (new — class 4 + class 20)
+- Test: tests/db/watchReconcileStateChecks.test.ts (new — CHECK↔array meta-test)
 - Modify: `supabase/__generated__/schema-manifest.json` via `pnpm gen:schema-manifest`
 
 **Interfaces:**
 - Produces: table `public.drive_watch_reconcile_state` (columns per spec §3.2: `watched_folder_id` PK text, `consecutive_failures` int, `last_attempt_at`, `next_attempt_at`, `last_attempt_outcome`, `last_error_class`, `last_error_message`, `updated_at`); `public.watch_backoff_ms(integer) returns bigint`.
 
-- [ ] **Step 1: Failing tests** — `tests/db/watchReconcileState.test.ts`:
+- [ ] **Step 1: Failing tests** — tests/db/watchReconcileState.test.ts:
 
 ```ts
 import { beforeAll, describe, expect, it } from "vitest";
@@ -220,7 +220,7 @@ import postgres from "postgres";
 import { ATTEMPT_OUTCOMES, BACKOFF_LADDER_MS } from "@/lib/drive/watchErrors";
 
 // Serial DB project; TEST_DATABASE_URL per repo harness (mirror the connection
-// helper used by tests/db/watchRenewalDue.test.ts — reuse its exported sql
+// helper used by tests/db/watchRenewalDue.test.ts - reuse its exported sql
 // bootstrap if one exists rather than reconnecting).
 const sql = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
 
@@ -230,7 +230,7 @@ const cleanup = () => sql`delete from drive_watch_reconcile_state where watched_
 describe("drive_watch_reconcile_state (spec §3.2, §6 class 4)", () => {
   beforeAll(async () => { await cleanup(); });
 
-  it("rejects a ReconcileOutcome value in last_attempt_outcome — the narrowing pin", async () => {
+  it("rejects a ReconcileOutcome value in last_attempt_outcome - the narrowing pin", async () => {
     await expect(
       sql`insert into drive_watch_reconcile_state (watched_folder_id, last_attempt_outcome)
           values (${FOLDER + "-chk"}, 'still_orphaned')`,
@@ -262,7 +262,7 @@ describe("drive_watch_reconcile_state (spec §3.2, §6 class 4)", () => {
 });
 ```
 
-  `tests/db/watchReconcileStateChecks.test.ts` (meta-test, DB-free file read — still under tests/db for pathing consistency with its subject):
+  tests/db/watchReconcileStateChecks.test.ts (meta-test, DB-free file read — still under tests/db for pathing consistency with its subject):
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -294,7 +294,7 @@ describe("CHECK <-> runtime array parity (spec §4.2)", () => {
 ```
 
 - [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/db/watchReconcileState.test.ts tests/db/watchReconcileStateChecks.test.ts` (serial project command per repo). Expected: FAIL (migration file absent / relation absent).
-- [ ] **Step 3: Write the migration** — spec §3.2 DDL + lockdown + §3.3 `watch_backoff_ms`, copied verbatim. Apply locally (`psql ... -f`). Add the `RPC_GATED_TABLES` row copying the `app_events` row shape (`tests/db/postgrest-dml-lockdown.test.ts:213`) with every field the row type (`:138`) requires: table name, `selectAnon: false`, `selectAuthenticated: false`, a minimal valid `postBody` (`{ watched_folder_id: "probe" }`), `rowFilter` (`watched_folder_id=eq.probe`), `closed_at: "20260727000000"`.
+- [ ] **Step 3: Write the migration** — spec §3.2 DDL + lockdown + §3.3 `watch_backoff_ms`, copied verbatim. Apply locally (`psql ... -f`). Add the `RPC_GATED_TABLES` row copying the `app_events` row shape (`tests/db/postgrest-dml-lockdown.test.ts:213`) with every field the row type (`tests/db/postgrest-dml-lockdown.test.ts:138`) requires: table name, `selectAnon: false`, `selectAuthenticated: false`, a minimal valid `postBody` (`{ watched_folder_id: "probe" }`), `rowFilter` (`watched_folder_id=eq.probe`), `closed_at: "20260727000000"`.
 - [ ] **Step 4: Run** — the two new files + `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts`; then `pnpm gen:schema-manifest` and commit the regenerated manifest. Expected: all PASS, manifest diff shows the new table only.
 - [ ] **Step 5: Commit** — `feat(db): drive_watch_reconcile_state table, watch_backoff_ms, full lockdown`
 
@@ -302,7 +302,7 @@ describe("CHECK <-> runtime array parity (spec §4.2)", () => {
 
 **Files:**
 - Modify: `lib/drive/watch.ts` — `WatchTx` interface (+2 methods), `PostgresWatchTx` (+2 impls with spec §3.3a SQL verbatim), `SubscribeResult` widening, `SubscribeDeps.recordAttempt`, write calls at the three §3.3a sites
-- Test: extend `tests/drive/watch.test.ts` (16b/16c cells) and `tests/db/watchReconcileStateWrites.test.ts` (new — 16d)
+- Test: extend `tests/drive/watch.test.ts` (16b/16c cells) and tests/db/watchReconcileStateWrites.test.ts (new — 16d)
 
 **Interfaces:**
 - Produces:
@@ -378,7 +378,7 @@ describe("write-iff-attempt inside subscribeToWatchedFolder (spec §3.3a, 16b/16
   - `WatchTx` + `PostgresWatchTx` methods with spec §3.3a statements (A)/(B) verbatim, wrapped `callWatchTx("drive_watch_reconcile_state.record_attempt", …)`.
   - `SubscribeResult`/`SubscribeDeps` widening per Interfaces (all `return` sites updated; `errorClass`/`errorMessage` are already computed at both catch sites `lib/drive/watch.ts:724`, `lib/drive/watch.ts:817` — attach them).
   - Write sites: helper `recordAttemptSafe(kind, …)` inside the module — calls the tx method, catches, emits the `DRIVE_WATCH_STATE_WRITE_FAILED` warn per spec §3.3a (fire-and-forget `.catch(() => {})` per the house pattern at `lib/drive/watch.ts:798-809`), returns `SubscribeAttempt`. Invoked: first line of the `watchFolder` catch (before `markWatchOrphanedWithTx`); first line of the activation catch; after activation commit on the success path. All three gated on `deps.recordAttempt === true`.
-- [ ] **Step 4: Failing-then-passing DB test (16d)** — `tests/db/watchReconcileStateWrites.test.ts`: two concurrent `recordAttemptFailure` through real `PostgresWatchTx` → final `consecutive_failures === 2` and each `returning` distinct; first-failure insert → `1`; mixed-outcome interleaving — `recordAttemptSuccess` commits, then a delayed `recordAttemptFailure` → row reads `failed`/`1` (the §3.3a accepted race, pinned):
+- [ ] **Step 4: Failing-then-passing DB test (16d)** — tests/db/watchReconcileStateWrites.test.ts: two concurrent `recordAttemptFailure` through real `PostgresWatchTx` → final `consecutive_failures === 2` and each `returning` distinct; first-failure insert → `1`; mixed-outcome interleaving — `recordAttemptSuccess` commits, then a delayed `recordAttemptFailure` → row reads `failed`/`1` (the §3.3a accepted race, pinned):
 
 ```ts
 it("two concurrent failures both count (16d)", async () => {
@@ -386,28 +386,28 @@ it("two concurrent failures both count (16d)", async () => {
   const [row] = await sql`select consecutive_failures from drive_watch_reconcile_state where watched_folder_id = ${F}`;
   expect(row!.consecutive_failures).toBe(2);
 });
-it("success-then-late-failure lands failed/1 — accepted bounded race (spec §3.3a)", async () => {
+it("success-then-late-failure lands failed/1 - accepted bounded race (spec §3.3a)", async () => {
   await succeedViaTx(F2); await failViaTx(F2);
   const [row] = await sql`select consecutive_failures, last_attempt_outcome from drive_watch_reconcile_state where watched_folder_id = ${F2}`;
   expect(row).toMatchObject({ consecutive_failures: 1, last_attempt_outcome: "failed" });
 });
 ```
 
-- [ ] **Step 5: Run all** — `pnpm vitest run tests/drive/watch.test.ts tests/db/watchReconcileStateWrites.test.ts` + typecheck. PASS. Add `tests/sync/_metaInfraContract.test.ts` registry rows for the two methods (pattern: existing `lib/drive/watch.ts` rows near `:43-55`; contract text "state-write faults surface as DriveWatchInfraError via callWatchTx; swallowed at the subscribe layer into attempt:null + forensic warn").
+- [ ] **Step 5: Run all** — `pnpm vitest run tests/drive/watch.test.ts tests/db/watchReconcileStateWrites.test.ts` + typecheck. PASS. Add `tests/sync/_metaInfraContract.test.ts` registry rows for the two methods (pattern: existing `lib/drive/watch.ts` rows near `tests/sync/_metaInfraContract.test.ts:43-55`; contract text "state-write faults surface as DriveWatchInfraError via callWatchTx; swallowed at the subscribe layer into attempt:null + forensic warn").
 - [ ] **Step 6: Commit** — `feat(sync): record reconnect attempts inside subscribeToWatchedFolder behind recordAttempt opt-in`
 
 ### Task 5: Reconcile backoff gate, `backoff_waiting`, route body, structural pins
 
 **Files:**
-- Modify: `lib/drive/watch.ts` — `WatchTx.readReconcileGate`, `ReconcileOutcome` + `ReconcileResult` widening, gate in the `!live` branch (`:1334`), `recordAttempt: true` at the reconcile call site, escalation condition (`:1372`) + `state_write` mapping
+- Modify: `lib/drive/watch.ts` — `WatchTx.readReconcileGate`, `ReconcileOutcome` + `ReconcileResult` widening, gate in the `!live` branch (`lib/drive/watch.ts:1334`), `recordAttempt: true` at the reconcile call site, escalation condition (`lib/drive/watch.ts:1372`) + `state_write` mapping
 - Modify: `app/api/cron/refresh-watch/route.ts` only if it enumerates outcome literals (read it; §3.4 step 5 says the route serializes `ReconcileResult` — if pass-through, no edit)
-- Test: extend `tests/drive/watch.test.ts` (16a matrix, class 6, class 7 additions), `tests/cron/refreshWatchRoute.test.ts` (class 10), new structural pin file `tests/drive/watchRecordAttemptPins.test.ts`
+- Test: extend `tests/drive/watch.test.ts` (16a matrix, class 6, class 7 additions), `tests/cron/refreshWatchRoute.test.ts` (class 10), new structural pin file tests/drive/watchRecordAttemptPins.test.ts
 
 **Interfaces:**
 - Produces:
 
 ```ts
-// WatchTx addition — verdict computed in the DB clock domain (spec D8):
+// WatchTx addition - verdict computed in the DB clock domain (spec D8):
 readReconcileGate(folderId: string): Promise<
   { consecutiveFailures: number; nextAttemptAt: string; waiting: boolean } | null>;
 // SQL: select consecutive_failures, next_attempt_at, next_attempt_at > now() as waiting
@@ -448,7 +448,7 @@ describe("backoff gate (spec §3.4, 16a)", () => {
 });
 ```
 
-  Structural pins — `tests/drive/watchRecordAttemptPins.test.ts`:
+  Structural pins — tests/drive/watchRecordAttemptPins.test.ts:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -476,9 +476,9 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 ### Task 6: Duration-based escalation
 
 **Files:**
-- Modify: `lib/drive/watchEscalation.ts` (`:8` import → `ESCALATION_AFTER_MS`; `:19-23` `WatchAlertRow` + `raised_at`; `:32` SELECT + `raised_at`; `:102` `due`)
+- Modify: `lib/drive/watchEscalation.ts` (`lib/drive/watchEscalation.ts:8` import → `ESCALATION_AFTER_MS`; `lib/drive/watchEscalation.ts:19-23` `WatchAlertRow` + `raised_at`; `lib/drive/watchEscalation.ts:32` SELECT + `raised_at`; `lib/drive/watchEscalation.ts:102` `due`)
 - Modify: `lib/drive/watchErrors.ts` (DELETE `ESCALATION_THRESHOLD`)
-- Test: extend `tests/drive/watchEscalation*.test.ts` (class 8); new scan in `tests/drive/watchBackoffConstants.test.ts` (class 9)
+- Test: extend `tests/drive/watchEscalation*.test.ts` (class 8); new scan in tests/drive/watchBackoffConstants.test.ts (class 9)
 
 **Interfaces:**
 - Consumes: `ESCALATION_AFTER_MS` (Task 1). Produces: `WatchAlertRow` gains `raised_at: string`.
@@ -487,12 +487,12 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 
 ```ts
 it("fires at raised_at age >= ESCALATION_AFTER_MS even at occurrence_count 1", ...);
-it("does NOT fire below the window even at occurrence_count 99 — the decoupling", ...);
+it("does NOT fire below the window even at occurrence_count 99 - the decoupling", ...);
 it("config class fires at age 0", ...);
 it("future raised_at (skew) does not fire", ...);
 ```
 
-  Ages derived `ESCALATION_AFTER_MS ± 60_000` from the injected clock. Class 9 (anti-tautology on the retired constant), added to `tests/drive/watchBackoffConstants.test.ts`:
+  Ages derived `ESCALATION_AFTER_MS ± 60_000` from the injected clock. Class 9 (anti-tautology on the retired constant), added to tests/drive/watchBackoffConstants.test.ts:
 
 ```ts
 it("ESCALATION_THRESHOLD is fully retired (spec §2.1)", () => {
@@ -527,10 +527,10 @@ it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async
 ### Task 8: `readWatchSurfaceState` + both loaders
 
 **Files:**
-- Create: `lib/admin/watchSurfaceState.ts`
+- Create: lib/admin/watchSurfaceState.ts
 - Modify: `lib/admin/bellFeed.ts` (BellEntry + loader mapping), `app/admin/settings/page.tsx` (service-role read + prop)
 - Modify: `tests/admin/_metaInfraContract.test.ts` (+1 row)
-- Test: `tests/admin/watchSurfaceState.test.ts` (new), extend the bellFeed suite + a settings-page loader test (class 18 loader pins)
+- Test: tests/admin/watchSurfaceState.test.ts (new), extend the bellFeed suite + a settings-page loader test (class 18 loader pins)
 
 **Interfaces:**
 - Produces:
@@ -548,7 +548,7 @@ export async function readWatchSurfaceState(folderId: string):
 ```
 
 - [ ] **Step 1: Failing tests** — helper: returned `{error}` → `{kind:"infra_error"}`; thrown query → same; client-construction throw → same; zero rows → `null`; row → mapped camelCase. Loaders (class 18): bellFeed with helper faulting → `watchState: null` on the watch entry, feed intact; settings read faulting → prop `null`. Follow the existing bellFeed suite's mock harness (`tests/admin/bellFeed.test.ts`).
-- [ ] **Step 2: FAIL.** **Step 3: Implement** — service-role client per the bellFeed pattern; single `.select("next_attempt_at, consecutive_failures, last_attempt_outcome").eq("watched_folder_id", folderId).maybeSingle()`; loader mapping with the inline render-boundary comment (spec §3.6); bell folder id from `getActiveWatchedFolderId()` (`lib/appSettings/getWatchedFolderId.ts:76` shape); settings folder id from the health union's `folderId` (`lib/admin/driveConnectionHealth.ts:43`/`:52`), helper not called when null. Registry row in the admin meta-test (pattern `:287-313`) stating both halves (typed infra result; deliberate hide-on-fault in consumers).
+- [ ] **Step 2: FAIL.** **Step 3: Implement** — service-role client per the bellFeed pattern; single `.select("next_attempt_at, consecutive_failures, last_attempt_outcome").eq("watched_folder_id", folderId).maybeSingle()`; loader mapping with the inline render-boundary comment (spec §3.6); bell folder id from `getActiveWatchedFolderId()` (`lib/appSettings/getWatchedFolderId.ts:76` shape); settings folder id from the health union's `folderId` (`lib/admin/driveConnectionHealth.ts:43`/`lib/admin/driveConnectionHealth.ts:52`), helper not called when null. Registry row in the admin meta-test (pattern `tests/admin/_metaInfraContract.test.ts:287-313`) stating both halves (typed infra result; deliberate hide-on-fault in consumers).
 - [ ] **Step 4: Run `tests/admin` + typecheck — PASS.** **Step 5: Commit** — `feat(admin): watch surface state read with typed infra fault, wired to bell feed and settings`
 
 ### Task 9: Bell line + developer telemetry link
@@ -558,7 +558,7 @@ export async function readWatchSurfaceState(folderId: string):
 - Test: extend `tests/components/bellPanel.test.tsx` (or the suite covering `BellActionRow` — locate by `bell-action-cell` testid)
 
 - [ ] **Step 1: Failing tests (classes 11, 19, per spec §3.6 tables)** — cases: `failed`+future → `Trying again at <formatted> · 2 reconnect attempts so far` (expected string built through the SAME exported formatter, never hardcoded); `failed`+past and `failed`+null → `Trying again shortly …`; `succeeded` / state null → line ABSENT; count 0 → clause omitted; count 1 → singular; error class/message strings NEVER present anywhere in the rendered tree (scan the whole container against the fixture's `errorMessage` literal); `w-full` present in the line's class list; developer link visible only when `viewerIsDeveloper` and href is the unfiltered telemetry route; transition-audit step: assert no `AnimatePresence`/`motion.` import added by the diff (source scan) and the `<time>` element carries `suppressHydrationWarning`.
-- [ ] **Step 2: FAIL.** **Step 3: Implement** — `<p data-testid={...} className="w-full wrap-break-word text-sm text-text-subtle">` as last child of the `:303-306` flex row; module-local `formatNextAttempt` copying `formatStagedAt` (`components/admin/StagedReviewCard.tsx:104-113`) incl. NaN guard + `<time dateTime={iso} suppressHydrationWarning>`; thread `viewerIsDeveloper` into the action cell; render condition `entry.isHealth || (isWatch && viewerIsDeveloper)` with per-arm href (spec §3.6).
+- [ ] **Step 2: FAIL.** **Step 3: Implement** — `<p data-testid={...} className="w-full wrap-break-word text-sm text-text-subtle">` as last child of the `components/admin/BellPanel.tsx:303-306` flex row; module-local `formatNextAttempt` copying `formatStagedAt` (`components/admin/StagedReviewCard.tsx:104-113`) incl. NaN guard + `<time dateTime={iso} suppressHydrationWarning>`; thread `viewerIsDeveloper` into the action cell; render condition `entry.isHealth || (isWatch && viewerIsDeveloper)` with per-arm href (spec §3.6).
 - [ ] **Step 4: Run `tests/components` + typecheck — PASS.** **Step 5: Commit** — `feat(admin): bell next-attempt line and developer telemetry link`
 
 ### Task 10: Settings line
@@ -568,20 +568,20 @@ export async function readWatchSurfaceState(folderId: string):
 - Test: extend `tests/admin/driveConnectionHealth.test.ts` companion component suite (locate the panel's test file via `grep -rln "DriveConnectionPanel" tests/`)
 
 - [ ] **Step 1: Failing tests (class 12)** — line present for `watch_inactive`/`watch_expired`/`not_configured`-with-folder when state `failed`; absent for `not_configured` without folder, for healthy/`sync_*`/`stale_*`/`infra_error` reasons, and when `watchState` null/absent; same copy branches as Task 9 (reuse the same formatter contract).
-- [ ] **Step 2: FAIL.** **Step 3: Implement** per spec §3.6 placement (sibling `<p>` AFTER the flex row at `:234`, no width class). **Step 4: PASS + typecheck.** **Step 5: Commit** — `feat(admin): settings next-attempt line`
+- [ ] **Step 2: FAIL.** **Step 3: Implement** per spec §3.6 placement (sibling `<p>` AFTER the flex row at `components/admin/settings/DriveConnectionPanel.tsx:234`, no width class). **Step 4: PASS + typecheck.** **Step 5: Commit** — `feat(admin): settings next-attempt line`
 
 ### Task 11: Observe CLI columns
 
 **Files:**
-- Modify: `lib/observe/query/watch.ts` (second query keyed on `watched_folder_id`; SELECT constant untouched by the secret pin `:1-5`/`:9-10`)
+- Modify: `lib/observe/query/watch.ts` (second query keyed on `watched_folder_id`; SELECT constant untouched by the secret pin, `lib/observe/query/watch.ts:1-5` and `lib/observe/query/watch.ts:9-10`)
 - Test: extend `tests/observe/queryWatch.test.ts`
 
-- [ ] **Step 1: Failing tests (class 13)** — output includes `consecutive_failures`, `next_attempt_at`, `last_attempt_outcome`, `last_error_class`, sanitized `last_error_message` (through the `sanitizeIdentityString` treatment used at `lib/observe/query/failures.ts:55`/`:61`); the structural secret-scan (`:61-63`) still green.
+- [ ] **Step 1: Failing tests (class 13)** — output includes `consecutive_failures`, `next_attempt_at`, `last_attempt_outcome`, `last_error_class`, sanitized `last_error_message` (through the `sanitizeIdentityString` treatment used at `lib/observe/query/failures.ts:55` and `lib/observe/query/failures.ts:61`); the structural secret-scan (`tests/observe/queryWatch.test.ts:61-63`) still green.
 - [ ] **Step 2: FAIL.** **Step 3: Implement.** **Step 4: PASS.** **Step 5: Commit** — `feat(observe): reconcile state columns on observe watch`
 
 ### Task 12: Copy lockstep + full cadence sweep execution
 
-**Files:** every §3.7 disposition — `lib/messages/catalog.ts:364/366/369`; master spec `:1321`, `:2817` (both `followUp` literal AND the "kept current by the hourly reconcile" clause), `:3336`, `:3844` residual "hourly"; `docs/superpowers/plans/coverage.md:143`; `docs/alerts/admin-alert-system-explainer.html:915`+`:924`; `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:346`; `lib/drive/watchEscalation.ts:67`/`:73`; `tests/messages/popoverContextCopy.test.ts:30`; comment-only hits (`lib/drive/watch.ts:956`, `app/admin/actions.ts:300`, `lib/drive/errorStatus.ts:7`, `tests/drive/watchImportGraph.test.ts:4`/`:70`, `tests/drive/watchExpiration.test.ts:4`/`:242`, `tests/db/watchRenewalDue.test.ts:145`); regen `lib/messages/__generated__/spec-codes.ts`.
+**Files:** every §3.7 disposition — `lib/messages/catalog.ts:364`, `lib/messages/catalog.ts:366`, `lib/messages/catalog.ts:369`; master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1321`, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2817` (both `followUp` literal AND the "kept current by the hourly reconcile" clause), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3336`, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3844` residual "hourly"; `docs/superpowers/plans/coverage.md:143`; `docs/alerts/admin-alert-system-explainer.html:915`+`docs/alerts/admin-alert-system-explainer.html:924`; `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:346`; `lib/drive/watchEscalation.ts:67` and `lib/drive/watchEscalation.ts:73`; `tests/messages/popoverContextCopy.test.ts:30`; comment-only hits (`lib/drive/watch.ts:956`, `app/admin/actions.ts:300`, `lib/drive/errorStatus.ts:7`, `tests/drive/watchImportGraph.test.ts:4`, `tests/drive/watchImportGraph.test.ts:70`, `tests/drive/watchExpiration.test.ts:4`, `tests/drive/watchExpiration.test.ts:242`, `tests/db/watchRenewalDue.test.ts:145`); regen `lib/messages/__generated__/spec-codes.ts`.
 
 - [ ] **Step 1:** Update `tests/messages/popoverContextCopy.test.ts:30` + escalation-email test assertions to the spec §3.7 literals FIRST — run; FAIL (red).
 - [ ] **Step 2:** Apply every disposition with the exact §3.7 replacement strings (copy verbatim from the spec — they are canonical); `pnpm gen:spec-codes`; never run prettier on the master spec.
