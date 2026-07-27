@@ -11,9 +11,9 @@ import {
   GC_RUN_BUDGET_MS,
   REFRESH_RUN_BUDGET_MS,
   REAP_ID_LOG_CAP,
+  STALE_PENDING_MAX_AGE_MS,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
-  STALE_PENDING_MAX_AGE_MS,
   WATCH_TTL_MS,
 } from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
@@ -52,6 +52,8 @@ export type WatchChannelRow = {
   webhookSecret: string;
   resourceId: string | null;
   expiresAt: string | null;
+  /** Needed by GC's young-orphan guard; null only for rows a fake omitted. */
+  createdAt?: string | null;
 };
 
 export type WatchTx = {
@@ -357,24 +359,31 @@ class PostgresWatchTx implements WatchTx {
       webhook_secret: string;
       resource_id: string | null;
       expires_at: string | null;
+      created_at: string | null;
     }>(
       `
-        select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
+        select id, status, watched_folder_id, webhook_secret, resource_id, expires_at, created_at
           from public.drive_watch_channels
          where status in ('superseded', 'orphaned', 'expired')
-         -- Rows that need no Drive call, or that resolve either way, come
-         -- FIRST. A superseded row whose stop keeps failing is retried forever
-         -- by design and keeps its age, so ordering purely by created_at lets a
-         -- poisoned prefix be re-selected every pass and starve everything
-         -- behind it. With this ordering, expired (no call at all) and orphaned
-         -- (stopped either way) always drain; only superseded retries can
-         -- delay each other.
+         -- Two-level ordering, and BOTH levels matter.
+         --
+         -- Status tier first: expired needs no Drive call and orphaned resolves
+         -- either way, so both always drain and can never be starved.
+         --
+         -- Then RANDOM, not created_at. A superseded row whose stop keeps
+         -- failing is retried forever by design and keeps its status and age,
+         -- so any deterministic order re-selects the same poisoned prefix every
+         -- pass and the rows behind it are never attempted at all. Random
+         -- selection makes it fair IN EXPECTATION: every superseded row is
+         -- reached eventually. It is not a strict queue, and this comment does
+         -- not claim one — an earlier revision claimed fairness that the
+         -- ordering did not deliver.
          order by case status
                     when 'expired' then 0
                     when 'orphaned' then 1
                     else 2
                   end,
-                  created_at
+                  random()
          limit $1
       `,
       [limit],
@@ -452,6 +461,7 @@ function fromDbRow(row: {
   webhook_secret: string;
   resource_id: string | null;
   expires_at: string | null;
+  created_at?: string | null;
 }): WatchChannelRow {
   return {
     id: row.id,
@@ -460,6 +470,7 @@ function fromDbRow(row: {
     webhookSecret: row.webhook_secret,
     resourceId: row.resource_id,
     expiresAt: row.expires_at,
+    createdAt: row.created_at ?? null,
   };
 }
 
@@ -1000,6 +1011,21 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       // rather than comparing `expires_at` keeps this population distinct from
       // the never-activated `orphaned` rows, which exit `defaultStopChannel`
       // early on their null `resourceId`.
+      // An `orphaned` row with no resource_id may be an in-flight subscribe:
+      // promotion and the stale-pending sweep both orphan a PENDING row, and
+      // `files.watch` can still be running. Consuming it here would mark it
+      // stopped, after which markOrphaned (which excludes `stopped`) can never
+      // record the resourceId — the live channel becomes untrackable. Leave it
+      // until it is older than the stale-pending window, by which point no
+      // subscribe can still be in flight.
+      if (
+        channel.status === "orphaned" &&
+        channel.resourceId === null &&
+        typeof channel.createdAt === "string" &&
+        Date.now() - Date.parse(channel.createdAt) < STALE_PENDING_MAX_AGE_MS
+      ) {
+        continue;
+      }
       if (channel.status === "expired") {
         await runTx((tx) =>
           callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),

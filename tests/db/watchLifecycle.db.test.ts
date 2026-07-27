@@ -141,6 +141,10 @@ describe("promotion supersedes the prior folder's channels (spec §3.2.4)", () =
     expect(body).toMatch(
       /update public\.drive_watch_channels[\s\S]*?set status = 'orphaned'[\s\S]*?watched_folder_id is distinct from/,
     );
+    // And the BINDING: production could pass null, the old folder, or anything
+    // else to $1 while every textual assertion above still matched, retiring
+    // the promoted folder's own channels.
+    expect(body.match(/\[promoted\]/g) ?? []).toHaveLength(2);
   });
 
   test("committed: prior folder's active -> superseded, pending -> orphaned, new folder untouched", async () => {
@@ -318,7 +322,16 @@ describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)"
       return rows.filter((r) => r.id.startsWith(PREFIX)).map((r) => r.id);
     });
 
-    expect(ids.indexOf(`${PREFIX}new-exp`)).toBeLessThan(ids.indexOf(`${PREFIX}old-sup`));
-    expect(ids.indexOf(`${PREFIX}new-orp`)).toBeLessThan(ids.indexOf(`${PREFIX}old-sup`));
+    // PRESENCE first. `indexOf` returns -1 for a missing row, so dropping
+    // `expired` or `orphaned` from listGcCandidates would satisfy both
+    // "less than" assertions while making those rows permanently uncollectable.
+    expect(ids.sort()).toEqual([`${PREFIX}new-exp`, `${PREFIX}new-orp`, `${PREFIX}old-sup`].sort());
+    const order = await sql.begin(async (tx) => {
+      const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+      const rows = await createPostgresWatchTx(tx as never).listGcCandidates();
+      return rows.filter((r) => r.id.startsWith(PREFIX)).map((r) => r.id);
+    });
+    expect(order.indexOf(`${PREFIX}new-exp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
+    expect(order.indexOf(`${PREFIX}new-orp`)).toBeLessThan(order.indexOf(`${PREFIX}old-sup`));
   });
 });

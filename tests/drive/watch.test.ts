@@ -1965,6 +1965,11 @@ describe("refresh never reaches the ambient settings read (structural)", () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("tests/drive/watch.test.ts", "utf8");
     const offenders: number[] = [];
+    // A zero-argument call is the FORM that reaches the ambient read, so it is
+    // an offender by definition — matching only `({` would miss it entirely.
+    for (const m of src.matchAll(/refreshWatchSubscriptions\(\s*\)/g)) {
+      offenders.push(src.slice(0, m.index!).split("\n").length);
+    }
     for (const m of src.matchAll(/refreshWatchSubscriptions\(\s*\{/g)) {
       let depth = 0;
       let j = m.index! + m[0].length - 1;
@@ -1980,5 +1985,107 @@ describe("refresh never reaches the ambient settings read (structural)", () => {
       }
     }
     expect(offenders, `lines missing getActiveWatchedFolder: ${offenders.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6)", () => {
+  function due(tx: FakeWatchTx, folderId: string, id = `e-${folderId}`) {
+    const t = tx.now.getTime();
+    tx.rows.push({
+      id,
+      status: "active",
+      watchedFolderId: folderId,
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t - 19 * 3_600_000).toISOString(),
+      expiresAt: new Date(t + 5 * 3_600_000).toISOString(),
+    });
+  }
+  const codeOf = (code: string) => logRecords.filter((r) => r.code === code);
+
+  test("DRIVE_WATCH_EXPIRED_REAPED reports the two populations SEPARATELY", async () => {
+    const tx = new FakeWatchTx();
+    const t = tx.now.getTime();
+    tx.rows.push({
+      id: "dead-1",
+      status: "active",
+      watchedFolderId: "f-dead",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t - 30 * 3_600_000).toISOString(),
+      expiresAt: new Date(t - 3_600_000).toISOString(),
+    });
+    tx.rows.push({
+      id: "inv-1",
+      status: "active",
+      watchedFolderId: "f-inv",
+      webhookSecret: "s",
+      resourceId: "r",
+      createdAt: new Date(t + 30 * 3_600_000).toISOString(),
+      expiresAt: new Date(t + 24 * 3_600_000).toISOString(),
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      getActiveWatchedFolder: async () => ({ folderId: "f-dead", folderName: null }),
+    });
+
+    const rec = codeOf("DRIVE_WATCH_EXPIRED_REAPED")[0];
+    // A merged id list would file the future-dated invalid lease under
+    // "expired" — the misattribution the two-status split exists to prevent.
+    expect(rec?.context).toMatchObject({
+      expiredIds: ["dead-1"],
+      supersededIds: ["inv-1"],
+      expiredCount: 1,
+      supersededCount: 1,
+    });
+  });
+
+  test("DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER carries sorted ids, counts, folder and reason", async () => {
+    const tx = new FakeWatchTx();
+    due(tx, "zzz-stale");
+    due(tx, "aaa-stale");
+    due(tx, "configured");
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      getActiveWatchedFolder: async () => ({ folderId: "configured", folderName: null }),
+    });
+
+    const rec = codeOf("DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER")[0];
+    // Fed in reverse order; must come out sorted, or the telemetry preserves
+    // nondeterministic database order.
+    expect(rec?.context).toMatchObject({
+      skippedFolderIds: ["aaa-stale", "zzz-stale"],
+      skippedCount: 2,
+      configuredFolderId: "configured",
+      reason: "not_configured_folder",
+    });
+  });
+
+  test("DRIVE_WATCH_FOLDER_READ_FAILED carries dueCount and a REDACTED message", async () => {
+    const tx = new FakeWatchTx();
+    due(tx, "f1");
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    await refreshWatchSubscriptions({
+      tx: tx as never,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      getActiveWatchedFolder: (async () => {
+        throw new Error("settings read failed: Bearer sk-abc123 while fetching KEEPME");
+      }) as never,
+    });
+
+    const rec = codeOf("DRIVE_WATCH_FOLDER_READ_FAILED")[0];
+    expect(rec?.context.dueCount).toBe(1);
+    // Secret-bearing input AND a surviving benign marker: asserting only that
+    // the payload "looks clean" passes an implementation that skipped redaction
+    // and equally one that discarded the message entirely.
+    expect(String(rec?.context.errorMessage)).not.toContain("sk-abc123");
+    expect(String(rec?.context.errorMessage)).toContain("KEEPME");
   });
 });
