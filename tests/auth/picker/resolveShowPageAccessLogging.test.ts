@@ -23,10 +23,14 @@ vi.mock("@/lib/supabase/server", () => ({
     rpc: state.rpc,
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: state.maybeSingle }),
+        eq: () => ({
+          maybeSingle: state.maybeSingle,
+          eq: () => ({ maybeSingle: state.maybeSingle }),
+        }),
       }),
     }),
   }),
+  createSupabaseServerClient: async () => ({ rpc: state.rpc }),
 }));
 
 async function captureRecords(): Promise<LogRecord[]> {
@@ -84,6 +88,64 @@ describe("resolveShowPageAccess fail-closed logging", () => {
     const rec = records.find((r) => r.code === "PICKER_RESOLVER_LOOKUP_FAILED");
     expect(rec).toBeDefined();
     expect(rec!.context).toMatchObject({ site: "resolve_rpc_threw" });
+    expect(rec!.context).toHaveProperty("error");
+  });
+
+  test("resolvePickerSelection: a missing PICKER_COOKIE_SIGNING_KEY warns with site cookie_key", async () => {
+    // THE gap that hid for months: lifecycle-layout-e2e.yml booted the dev
+    // server without the key, pickerCookieSigningKey() threw, and the chain
+    // failed closed with no record naming the boundary (40/40 silent
+    // fail-closed attempts in CI run 30236837082, all site picker_selection
+    // one level up). The inner module must name its own failing call.
+    const saved = process.env.PICKER_COOKIE_SIGNING_KEY;
+    delete process.env.PICKER_COOKIE_SIGNING_KEY;
+    try {
+      const records = await captureRecords();
+      const { resolvePickerSelection } = await import("@/lib/auth/picker/resolvePickerSelection");
+      const result = await resolvePickerSelection({
+        showId: "11111111-1111-1111-1111-111111111111",
+        cookie: undefined,
+      });
+      expect(result.kind).toBe("infra_error");
+      const rec = records.find(
+        (r) =>
+          r.code === "PICKER_RESOLVER_LOOKUP_FAILED" &&
+          r.source === "auth.picker.resolvePickerSelection",
+      );
+      expect(rec).toBeDefined();
+      expect(rec!.level).toBe("warn");
+      expect(rec!.context).toMatchObject({ site: "cookie_key" });
+      expect(rec!.context).toHaveProperty("error");
+    } finally {
+      if (saved !== undefined) process.env.PICKER_COOKIE_SIGNING_KEY = saved;
+    }
+  });
+
+  test("resolvePickerSelection: auth_email_canonical RPC error warns with site auth_email", async () => {
+    process.env.PICKER_COOKIE_SIGNING_KEY = "0".repeat(64);
+    state.rpc.mockResolvedValue({ data: null, error: { message: "upstream invalid" } });
+    const records = await captureRecords();
+    const { encodePickerCookie } = await import("@/lib/auth/picker/cookieEnvelope");
+    const showId = "11111111-1111-1111-1111-111111111111";
+    const cookie = encodePickerCookie(
+      {
+        v: 1,
+        selections: {
+          [showId]: { id: "22222222-2222-2222-2222-222222222222", e: 1, t: 0 },
+        },
+      },
+      "0".repeat(64),
+    );
+    const { resolvePickerSelection } = await import("@/lib/auth/picker/resolvePickerSelection");
+    const result = await resolvePickerSelection({ showId, cookie });
+    expect(result.kind).toBe("infra_error");
+    const rec = records.find(
+      (r) =>
+        r.code === "PICKER_RESOLVER_LOOKUP_FAILED" &&
+        r.source === "auth.picker.resolvePickerSelection",
+    );
+    expect(rec).toBeDefined();
+    expect(rec!.context).toMatchObject({ site: "auth_email" });
     expect(rec!.context).toHaveProperty("error");
   });
 
