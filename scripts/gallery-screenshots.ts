@@ -263,7 +263,12 @@ export function loadPriorIndex(
 }
 
 function isIsoTimestamp(value: unknown): value is string {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  // Strict round-trip: this module only ever WRITES new Date().toISOString(),
+  // so a valid self-produced index always passes; RFC dates, offset forms, and
+  // JS-normalized impossible dates do not.
+  if (typeof value !== "string") return false;
+  const parsed = Date.parse(value);
+  return !Number.isNaN(parsed) && new Date(parsed).toISOString() === value;
 }
 
 function isNullableString(value: unknown): boolean {
@@ -279,14 +284,33 @@ function isGalleryIndex(value: unknown): value is GalleryIndex {
     typeof viewport !== "object" ||
     viewport === null ||
     typeof viewport.width !== "number" ||
-    typeof viewport.height !== "number"
+    typeof viewport.height !== "number" ||
+    !Number.isInteger(viewport.width) ||
+    !Number.isInteger(viewport.height) ||
+    viewport.width <= 0 ||
+    viewport.height <= 0
   ) {
     return false;
   }
-  if (!Array.isArray(v.themes) || !v.themes.every((t) => t === "light" || t === "dark")) {
+  // Themes are the FIXED §7 tuple, not any light/dark subset or permutation.
+  if (
+    !Array.isArray(v.themes) ||
+    v.themes.length !== GALLERY_THEMES.length ||
+    !GALLERY_THEMES.every((t, i) => v.themes && (v.themes as unknown[])[i] === t)
+  ) {
     return false;
   }
   if (!Array.isArray(v.excluded) || !Array.isArray(v.scenarios)) return false;
+  const excludedOk = v.excluded.every((x) => {
+    if (typeof x !== "object" || x === null) return false;
+    const row = x as Record<string, unknown>;
+    return (
+      typeof row.id === "string" &&
+      typeof row.label === "string" &&
+      (row.reason === "structural" || row.reason === "cut" || row.reason === "global")
+    );
+  });
+  if (!excludedOk) return false;
   return v.scenarios.every((s) => {
     if (typeof s !== "object" || s === null) return false;
     const e = s as Record<string, unknown>;
@@ -294,8 +318,14 @@ function isGalleryIndex(value: unknown): value is GalleryIndex {
     return (
       typeof e.id === "string" &&
       typeof e.label === "string" &&
-      typeof e.tier === "number" &&
+      (e.tier === 1 || e.tier === 2 || e.tier === 3) &&
+      // group is non-empty-string checked, deliberately NOT pinned to the
+      // ScenarioGroupId union: that union is type-only (no runtime value list),
+      // and duplicating its literals here would drift. Reconciliation refreshes
+      // group from the CURRENT catalog on carry anyway, so a stale group in a
+      // prior index never reaches the rebuilt index.
       typeof e.group === "string" &&
+      e.group.length > 0 &&
       Array.isArray(e.codes) &&
       e.codes.every((c) => typeof c === "string") &&
       isIsoTimestamp(e.capturedAt) &&

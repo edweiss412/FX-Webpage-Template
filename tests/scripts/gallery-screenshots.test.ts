@@ -240,6 +240,21 @@ describe("loadPriorIndex", () => {
     expect(mutate((d) => (d.scenarios[0]!.codes = "A")).prior).toBeNull();
     expect(mutate((d) => (d.scenarios[0]!.tier = "one")).prior).toBeNull();
     expect(mutate((d) => (d.scenarios[0]!.files.lightOverflow = 7)).prior).toBeNull();
+    // Strictness beyond primitives (whole-diff scope-A round 2): JS-normalized
+    // and non-round-trip timestamps, out-of-union tier, theme permutations,
+    // non-positive viewport, malformed excluded rows.
+    expect(
+      mutate((d) => (d.scenarios[0]!.capturedAt = "2026-02-30T00:00:00.000Z")).prior,
+    ).toBeNull();
+    expect(mutate((d) => (d.generatedAt = "Sun, 26 Jul 2026 12:00:00 GMT")).prior).toBeNull();
+    expect(mutate((d) => (d.scenarios[0]!.tier = 4)).prior).toBeNull();
+    expect(mutate((d) => (d.themes = ["dark", "light"])).prior).toBeNull();
+    expect(mutate((d) => (d.themes = ["light"])).prior).toBeNull();
+    expect(mutate((d) => (d.viewport = { width: 0, height: 800 })).prior).toBeNull();
+    expect(mutate((d) => (d.excluded = [{ id: "x" }])).prior).toBeNull();
+    expect(
+      mutate((d) => (d.excluded = [{ id: "x", label: "X", reason: "whim" }])).prior,
+    ).toBeNull();
   });
 
   it("malformed JSON and schema-invalid JSON -> null prior + warning", () => {
