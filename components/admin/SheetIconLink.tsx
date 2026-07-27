@@ -80,16 +80,20 @@ export function SheetIconLink({
   className,
 }: SheetIconLinkProps) {
   const trimmed = subjectLabel.trim();
-  const ariaLabel = trimmed
-    ? `Open the source sheet for ${trimmed} in Google Sheets (opens in a new tab)`
-    : "Open the source sheet in Google Sheets (opens in a new tab)";
+  // The ternary lives INLINE in the attribute so the _metaNewTabAnnouncement
+  // static census can SEE the announcement inside the aria-label expression —
+  // hoisting it to a const made the anchor unverifiable to that guard.
   return (
     <a
       data-testid={testId}
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={ariaLabel}
+      aria-label={
+        trimmed
+          ? `Open the source sheet for ${trimmed} in Google Sheets (opens in a new tab)`
+          : "Open the source sheet in Google Sheets (opens in a new tab)"
+      }
       className={`${BASE_CLASSES} ${BACKDROP_SKIN[ringOffset]} ${className ?? ""}`.trim()}
     >
       <ExternalLink aria-hidden="true" className="size-4" />
