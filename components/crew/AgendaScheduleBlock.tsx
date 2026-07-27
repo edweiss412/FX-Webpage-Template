@@ -20,7 +20,8 @@
  * `label` (optional) is the per-document badge (e.g. "RFI" / "PCF"); rendered as
  * a caption above the days so multiple agenda blocks are distinguishable
  * (impeccable MEDIUM). The signpost <h2> "Agenda" lives one level up in
- * ScheduleSection, so day labels here are <h3>.
+ * ScheduleSection, so day labels here are <h3> -- still true after the fold: the h3 lives
+ * INSIDE each day's <summary>, so the disclosure and the document outline coexist.
  *
  * Dimensional invariants (§6 — Tailwind v4 has NO default
  * `align-items: stretch`):
@@ -111,7 +112,12 @@ export function AgendaScheduleBlock({
             data-testid={`agenda-day-summary-${di}`}
             className="flex min-h-tap-min min-w-0 cursor-pointer list-none items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
-            <span className="min-w-0 wrap-break-word">{day.dayLabel}</span>
+            {/* Still an <h3>, inside the <summary> (impeccable audit P1). Replacing the day
+                heading with a bare span removed every per-day heading from the document
+                outline, so a screen-reader user navigating by heading lost the day labels
+                entirely. A heading inside a summary keeps BOTH: the disclosure role and its
+                expanded state come from <details>/<summary>, the outline entry from the h3. */}
+            <h3 className="min-w-0 font-medium wrap-break-word">{day.dayLabel}</h3>
             {day.date ? (
               <span className="max-w-[12ch] shrink-0 truncate font-normal normal-case tabular-nums text-text-subtle">
                 {day.date}

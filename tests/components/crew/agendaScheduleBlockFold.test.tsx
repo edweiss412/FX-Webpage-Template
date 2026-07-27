@@ -138,6 +138,18 @@ describe("AgendaScheduleBlock — the fold", () => {
     );
   });
 
+  test("each day keeps a real heading, inside the summary", () => {
+    // Impeccable audit P1: the fold replaced the per-day <h3> with a bare span, which removed
+    // every day from the document outline. Heading navigation is how a screen-reader user
+    // skims this section, and no dimension or role assertion would have noticed.
+    const { container } = renderFold(["Day A", "Day B"], subset(0));
+    const headings = container.querySelectorAll("summary h3");
+    expect(headings.length, "one heading per day, inside its summary").toBe(2);
+    expect(headings[0]?.textContent).toBe("Day A");
+    // The disclosure still owns the interactive role; the heading is nested, not a replacement.
+    expect(container.querySelectorAll("details > summary").length).toBe(2);
+  });
+
   test("the row and summary test ids exist per row; the count is folded-rows-only", () => {
     const { container } = renderFold(["Day A", "Day B"], subset(0));
     for (const i of [0, 1]) {
