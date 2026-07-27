@@ -150,7 +150,7 @@ describe("AgendaScheduleBlock — the fold", () => {
     expect(container.querySelectorAll("details > summary").length).toBe(2);
   });
 
-  test("the row and summary test ids exist per row; the count is folded-rows-only", () => {
+  test("the row, summary and count test ids exist on every row", () => {
     const { container } = renderFold(["Day A", "Day B"], subset(0));
     for (const i of [0, 1]) {
       for (const id of ["agenda-day", "agenda-day-summary"]) {
@@ -160,10 +160,12 @@ describe("AgendaScheduleBlock — the fold", () => {
         ).not.toBeNull();
       }
     }
-    // Row 0 is the viewer's and therefore open: its sessions are listed below, so a count
-    // there would restate what is already visible. Row 1 is folded and the count is the only
-    // signal of what the fold hides.
-    expect(container.querySelector('[data-testid="agenda-day-count-0"]')).toBeNull();
+    // The count is rendered on EVERY row and hidden by CSS on the open one. It cannot be
+    // conditioned on the initial open state, because <details> toggles at runtime without a
+    // re-render -- so a prop-gated count would persist above sessions the viewer just opened.
+    // jsdom computes no CSS, so this file can only assert PRESENCE; whether it is actually
+    // hidden on an open row is a browser assertion, in tests/e2e/agendaScheduleLayout.spec.ts.
+    expect(container.querySelector('[data-testid="agenda-day-count-0"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="agenda-day-count-1"]')).not.toBeNull();
   });
 });

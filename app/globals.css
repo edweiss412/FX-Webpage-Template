@@ -724,6 +724,12 @@ body {
 details[open] > summary [data-agenda-day-chevron] {
   transform: rotate(90deg);
 }
+/* The session count answers "what is this fold hiding", so it belongs on a CLOSED row only.
+   Driven by CSS rather than a React prop because <details> toggles without re-rendering: a
+   prop-conditioned count would keep showing above sessions the crew member just opened. */
+details[open] > summary [data-agenda-day-count] {
+  display: none;
+}
 
 /* Step-3 "More" review modal (components/admin/wizard/Step3ReviewModal).
    The responsive overlay that replaced the inline height-morph breakdown (and,

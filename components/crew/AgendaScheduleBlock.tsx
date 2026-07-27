@@ -123,19 +123,20 @@ export function AgendaScheduleBlock({
                 {day.date}
               </span>
             ) : null}
-            {/* Only on a FOLDED row. On an open row the sessions are listed directly below,
-                so the count restates what is already on screen -- and it costs a fourth atom
-                on the summary line at 320px, which is exactly where space is tightest. On a
-                folded row it is the only signal of what the fold is hiding, which is what
-                earns it the space. */}
-            {isOpen(di) ? null : (
-              <span
-                data-testid={`agenda-day-count-${di}`}
-                className="shrink-0 font-normal normal-case tabular-nums text-text-subtle"
-              >
-                {day.sessions.length === 1 ? "1 session" : `${day.sessions.length} sessions`}
-              </span>
-            )}
+            {/* Rendered ALWAYS, hidden by CSS when the row is open (`details[open]` in
+                app/globals.css). It must not be conditioned on `isOpen(di)`: that is the
+                INITIAL state, while <details> toggles at runtime with no React involved, so a
+                crew member who opens a folded day would keep its count above the now-visible
+                sessions, and one who collapses their own day would get no count at all
+                (whole-diff review, MEDIUM -- a defect introduced by the first version of this
+                very fix). CSS follows the live open state; a prop cannot. */}
+            <span
+              data-testid={`agenda-day-count-${di}`}
+              data-agenda-day-count=""
+              className="shrink-0 font-normal normal-case tabular-nums text-text-subtle"
+            >
+              {day.sessions.length === 1 ? "1 session" : `${day.sessions.length} sessions`}
+            </span>
             {markerOn(di) ? (
               <span
                 data-testid={`agenda-day-marker-${di}`}
