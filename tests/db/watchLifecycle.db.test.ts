@@ -352,6 +352,54 @@ describe("a stopped row that never reached Drive stays recordable (R5 finding 1)
   });
 });
 
+describe("young orphans never consume a candidate slot (R8 finding 2)", () => {
+  afterEach(cleanup);
+
+  test("a young null-resource orphan is excluded by the QUERY, not skipped after selection", async () => {
+    // Skipping in JavaScript happens AFTER the row has taken one of the LIMIT
+    // slots, and orphaned outranks superseded — a few hundred in-flight
+    // subscribes filled an entire pass, made zero progress, and left a
+    // possibly-live superseded channel unattempted on every tick. The fake
+    // ignores the limit entirely, so only the real query can show this.
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+      values
+        (${PREFIX + "young"}, 'orphaned', ${PREFIX + "y"}, 's', null, now(), now()),
+        (${PREFIX + "old"},   'orphaned', ${PREFIX + "o"}, 's', null, now() - interval '2 d', now()),
+        (${PREFIX + "sup"},   'superseded', ${PREFIX + "s"}, 's', 'r', now(), now())
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const ids = await sql.begin(async (tx) => {
+      const rows = await createPostgresWatchTx(tx as never).listGcCandidates();
+      return rows.filter((r) => r.id.startsWith(PREFIX)).map((r) => r.id);
+    });
+
+    expect(ids).not.toContain(`${PREFIX}young`);
+    // The superseded row must still be REACHABLE in the same pass.
+    expect(ids.sort()).toEqual([`${PREFIX}old`, `${PREFIX}sup`].sort());
+  });
+
+  test("a young orphan that HAS a resource id is still a candidate", async () => {
+    // The exclusion is scoped to rows with nothing to stop. A young orphan
+    // holding an id is a watch that succeeded and failed to activate, and GC
+    // must be able to stop it.
+    const id = `${PREFIX}young-with-res`;
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+      values (${id}, 'orphaned', ${PREFIX + "w"}, 's', 'res', now(), now())
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const ids = await sql.begin(async (tx) => {
+      const rows = await createPostgresWatchTx(tx as never).listGcCandidates();
+      return rows.map((r) => r.id);
+    });
+
+    expect(ids).toContain(id);
+  });
+});
+
 describe("the GC queries return the SHAPE the collector reads (R7 finding 2)", () => {
   afterEach(cleanup);
 

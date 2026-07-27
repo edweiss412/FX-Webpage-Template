@@ -384,6 +384,19 @@ class PostgresWatchTx implements WatchTx {
         select id, status, watched_folder_id, webhook_secret, resource_id, expires_at, created_at
           from public.drive_watch_channels
          where status in ('superseded', 'orphaned', 'expired')
+           -- Young null-resource orphans are excluded HERE, not skipped in JS
+           -- after the fact. The collector skips them (a subscribe may still be
+           -- in flight), but a skipped row has already consumed one of the
+           -- LIMIT slots, and orphaned outranks superseded: a few hundred such
+           -- rows filled an entire pass, made zero progress, and left a
+           -- possibly-live superseded channel unattempted every tick
+           -- (whole-diff R8 finding 2). The JS guard stays as the port-level
+           -- contract for any other WatchTx implementation.
+           and not (
+             status = 'orphaned'
+             and resource_id is null
+             and created_at > now() - ($2::double precision * interval '1 millisecond')
+           )
          -- Two-level ordering, and BOTH levels matter.
          --
          -- Status tier first: expired needs no Drive call and orphaned resolves
@@ -405,7 +418,7 @@ class PostgresWatchTx implements WatchTx {
                   random()
          limit $1
       `,
-      [limit],
+      [limit, STALE_PENDING_MAX_AGE_MS],
     );
     return rows.map(fromDbRow);
   }
@@ -1140,8 +1153,18 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
       // stopped. `orphaned` keeps its "either way" behaviour. An unrecognised
       // error shape counts as non-404, so ambiguity retries rather than
       // abandoning a live channel.
+      // The discriminator is WHETHER WE HOLD A RESOURCE ID, not the status.
+      // The canonical "either way" for `orphaned`
+      // (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1329) was
+      // written when an orphaned row never had one. It does now: a
+      // `files.watch` that succeeds and then fails to activate persists the id
+      // precisely so GC can stop the channel Drive created. Marking such a row
+      // stopped on a 503 or a timeout retires the only record of a LIVE channel
+      // — it stops matching listGcCandidates, and deleteOldStopped eventually
+      // removes it (whole-diff R8 finding 1). A row with no resource id keeps
+      // the old behaviour: there is nothing to retry with.
       if (
-        channel.status === "superseded" &&
+        channel.resourceId !== null &&
         stopFailedStatus !== undefined &&
         stopFailedStatus !== 404
       ) {

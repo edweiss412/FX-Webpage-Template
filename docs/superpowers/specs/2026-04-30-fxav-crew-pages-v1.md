@@ -1327,7 +1327,7 @@ A separate cron `15 * * * *` (offset from the renewal cron to avoid collision) r
 
 - For each `superseded` row: call `channels.stop`. On success → `status = 'stopped'`. On 404 (already gone) → `status = 'stopped'`. On other error → leave as `superseded`; retry next pass.
 - For each `stopped` row older than 7 days: DELETE.
-- For each `orphaned` row: call `channels.stop` with the row's id (Drive will 404 if it was never created or is already gone). Either way, set `status = 'stopped'` after the call returns.
+- For each `orphaned` row: call `channels.stop` with the row's id (Drive will 404 if it was never created or is already gone). **AMENDED 2026-07-26 (watch renewal lifecycle, whole-diff R8 finding 1): "Either way" is superseded — the outcome now keys on whether the row HOLDS a resource id.** A row with no resource id keeps the original behaviour and becomes `stopped` after the call returns, because there is nothing to retry with. A row that HAS one is treated like `superseded`: `stopped` on success or a definite 404, but left `orphaned` and retried on any other error. When "either way" was written an orphaned row never carried a resource id; `activate_failed_after_watch_created` now persists one precisely so GC can stop the channel Drive created, and retiring such a row on a 503 or a timeout destroys the only record of a live channel — it stops matching the GC candidate query and is deleted after seven days by the rule above.
 
 This GC runs idempotently — if it crashes mid-pass, the next pass picks up where it left off. The webhook handler (§5.5.3) ignores everything except `status = 'active'` rows, so a non-`active` row in any state cannot affect serving traffic.
 

@@ -1657,7 +1657,7 @@ describe("Drive watch telemetry", () => {
     expect(records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED")).toEqual([]);
   });
 
-  test("gcWatchChannels logs DRIVE_WATCH_STOP_FAILED but still marks the channel stopped (control flow unchanged)", async () => {
+  test("gcWatchChannels logs DRIVE_WATCH_STOP_FAILED and RETAINS an orphaned row that holds a resource id", async () => {
     const tx = new FakeWatchTx();
     tx.rows.push({
       id: "orphaned-channel",
@@ -1674,9 +1674,14 @@ describe("Drive watch telemetry", () => {
 
     const result = await gcWatchChannels({ tx, stopChannel });
 
-    // Non-fatal: the row is STILL marked stopped and returned despite the Drive fault.
-    expect(result).toEqual({ stopped: ["orphaned-channel"] });
-    expect(tx.rows.map((row) => row.status)).toEqual(["stopped"]);
+    // This row HOLDS a resource id, so Drive created the channel and it may
+    // still be live. An unrecognised error shape counts as non-404, so the row
+    // is left orphaned and retried; marking it stopped would retire the only
+    // record of a live channel, after which listGcCandidates stops selecting it
+    // and deleteOldStopped eventually removes it (whole-diff R8 finding 1).
+    // This test previously asserted the opposite and encoded the defect.
+    expect(result).toEqual({ stopped: [] });
+    expect(tx.rows.map((row) => row.status)).toEqual(["orphaned"]);
 
     const warns = records().filter((r) => r.code === "DRIVE_WATCH_STOP_FAILED");
     expect(warns).toHaveLength(1);
@@ -2410,5 +2415,72 @@ describe("GC never stops a row whose resource id moved under it (R6 finding 1)",
 
     expect(source.match(/tx\.markStopped\(/g) ?? []).toHaveLength(1);
     expect(source).toMatch(/tx\.markStopped\(channel\.id,\s*channel\.resourceId\)/);
+  });
+});
+
+describe("the stop-failure retry keys on the resource id, not the status (R8 finding 1)", () => {
+  function orphan(tx: FakeWatchTx, id: string, resourceId: string | null) {
+    tx.rows.push({
+      id,
+      status: "orphaned",
+      watchedFolderId: `f-${id}`,
+      webhookSecret: "s",
+      resourceId,
+      createdAt: new Date(tx.now.getTime() - 7_200_000).toISOString(),
+      expiresAt: null,
+    });
+  }
+
+  test("no resource id: nothing to retry with, so the row is still marked stopped", async () => {
+    // The canonical "either way" behaviour, preserved for the population it was
+    // written for. Retrying here would loop forever on a row GC can never act on.
+    const tx = new FakeWatchTx();
+    orphan(tx, "no-res", null);
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => tx.now.getTime(),
+      stopChannel: async () => {
+        throw Object.assign(new Error("boom"), { response: { status: 503 } });
+      },
+    });
+
+    expect(result.stopped).toEqual(["no-res"]);
+    expect(tx.rows[0]!.status).toBe("stopped");
+  });
+
+  test("resource id plus a REAL 404: already gone at Drive, so it is stopped", async () => {
+    const tx = new FakeWatchTx();
+    orphan(tx, "gone", "r-gone");
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => tx.now.getTime(),
+      stopChannel: async () => {
+        throw Object.assign(new Error("not found"), { response: { status: 404 } });
+      },
+    });
+
+    expect(result.stopped).toEqual(["gone"]);
+    expect(tx.rows[0]!.status).toBe("stopped");
+  });
+
+  test("resource id plus a 503: possibly live, so it stays orphaned for the next pass", async () => {
+    const tx = new FakeWatchTx();
+    orphan(tx, "maybe-live", "r-live");
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+
+    const result = await gcWatchChannels({
+      tx: tx as never,
+      now: () => tx.now.getTime(),
+      stopChannel: async () => {
+        throw Object.assign(new Error("unavailable"), { response: { status: 503 } });
+      },
+    });
+
+    expect(result.stopped).toEqual([]);
+    expect(tx.rows[0]!.status).toBe("orphaned");
   });
 });
