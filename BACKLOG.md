@@ -100,6 +100,24 @@ Titles and alt text come from admin-entered Google Sheet cells, so the input is 
 
 Cheap partial if it ever bites in practice: strip a trailing occurrence from the interpolated value before appending.
 
+## BL-HEADER-JUDGMENT-CHIP-CONTRAST — the judgment icon chip is near-invisible, and the sm+ row made it load-bearing
+
+**Filed:** 2026-07-26 (late-arriving impeccable Assessment A on PR #612 — the dispatched sub-agents' results landed post-merge; the inline degraded run had missed all three findings below).
+
+`bg-info-bg` (#eeeae3, `app/globals.css:295`) against the clean chip's `bg-surface-sunken` (#f4f3f1, `app/globals.css:278`) is ~1.06:1 in light mode; at 28px the two chips differ only by a hairline `border-border`. Below `sm` this barely mattered — the "Parsed with judgment" pill sat directly under the name. At `sm`+ (PR #612) the pill migrates to the row's far edge (up to ~600px away at the 744px cap), so the only cue NEXT TO the name for the judgment state is a chip that reads as clean. Flagged is unaffected (amber is distinct). Fix candidates that do not touch the ratified pill placement: `border-border-strong` on the judgment chip, or an info fill separable from `surface-sunken`. Contrast-pin any new/repurposed token per the pre-code mechanical UI gate.
+
+## BL-HEADER-PILL-LINK-TOUCH-BUFFER — zero dead zone between the inline pill and the sheet link's hit area on touch
+
+**Filed:** 2026-07-26 (same late Assessment A).
+
+`sm:gap-2.5` + `sm:ml-0.5` = 12px, exactly the `before:-inset-3` reach — the 44px hit area is TANGENT to the pill's right edge (the #612 spec fixed the 2px overlap to tangency, pinned by an `elementFromPoint` case at the pill's right-edge-minus-1px). But `sm`+ is not mouse-only: a phone in landscape (~852px viewport) takes the inline branch, and a thumb landing 1px right of "Needs a look" opens a new tab. `sm:ml-1` (4px, tokenized) would buy a 2px dead zone at negligible visual cost; the existing tangency test keeps passing and a second probe just outside the pill edge could pin the buffer.
+
+## BL-HEADER-SUBBLOCK-HIERARCHY-WIDE — the Diagrams sub-block's subordination signal thins out in the sm+ row
+
+**Filed:** 2026-07-26 (same late Assessment A; extends the narrow-mode footprint item 6 in the 2026-07-25 post-merge review list above).
+
+The sub-block is always linkless and never flagged (its chrome provider sets no sectionId/dfid), so nothing in its header is tappable — yet `sm:min-h-tap-min` gives it the same 44px one-row shape as its parent section at `sm`+, leaving subordination to a 4px-smaller chip and 2px-smaller text. Candidates: drop the floor for `sub` at `sm`+ (`sm:min-h-0` — the narrow-mode fix already filed as item 6 applies the same conditional idea), or an `sm:pl-*` indent nesting it under its parent. Confirm-only sibling note (P3): a linkless+PILLED row would sit 32px right of a linked row's pill at `sm`+, but that combination appears unreachable in production (Diagrams is never flagged; "report" carries no pill) — verify before treating as real.
+
 ## BL-HEADER-LINK-AFFORDANCE-CLASS — the corner sheet link paints as non-interactive, in three spellings, across three call sites
 
 **Filed:** 2026-07-26 (post-merge independent design review of PR #605 — see that batch's close-out §12 for why the review landed late). **Class:** UI affordance + a11y. **Effort:** S per item, M if taken as the class sweep it should be. **Gate:** invariant-8 impeccable dual-run, since every item is a UI surface.
