@@ -19,9 +19,16 @@
  * drift the next time someone copies it; reword instead, see spec §4.3).
  *
  * Filesystem-walked, never a named file list, so a new file cannot dodge the
- * walk. Walks components/ AND app/ (excluding app/api — no UI there), because
- * an inline anchor in a page/layout would otherwise slip the set-equality
- * (audit P3).
+ * walk. Since r9 the walked set is the FULL compile-eligible surface — every
+ * file tsconfig.json admits (parsed with the TypeScript config loader, so the
+ * set tracks include/exclude edits automatically) — unioned with the js/jsx/
+ * mdx walk of components/ and app/. r9 found that walking only components/
+ * and app/ left every other tsconfig root (lib/, scripts/, tests/, app/api/)
+ * open as an alias laundry: `lib/x.ts` re-exporting `SheetIconLink as X` was
+ * never visited, and its consumer contains neither the identifier nor the
+ * module path. tsconfig's `exclude` dirs (node_modules, cross-cutting
+ * fixture trees) stay out — they are not compile targets, and the fixture
+ * trees deliberately contain planted violations.
  */
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -34,6 +41,14 @@ const EXPECTED: Record<string, number> = {
   "components/admin/SheetIconLink.tsx": 2,
   "components/admin/wizard/Step3SheetCard.tsx": 1,
   "components/admin/wizard/step3ReviewSections.tsx": 1,
+  // Test files quoting the phrase as assertion material (r9 — the walk now
+  // covers the whole compile surface, so these pin like everything else; a
+  // new assertion legitimately bumps its row here).
+  "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 2,
+  "tests/components/admin/sheetIconLink.test.tsx": 4,
+  "tests/components/admin/sheetIconLinkContainment.test.ts": 2,
+  "tests/components/admin/showpage/publishedReviewModal.test.tsx": 3,
+  "tests/components/admin/wizard/Step3ReviewModal.test.tsx": 6,
 };
 
 // .js/.jsx included (r7): tsconfig sets allowJs, so a plain-JS consumer is a
@@ -51,6 +66,32 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /**
+ * The scanned surface (r9): everything tsconfig.json compiles — resolved by
+ * the TypeScript config loader itself so include/exclude edits are tracked,
+ * never re-derived by hand — unioned with the js/jsx/mdx walk of the UI
+ * trees (allowJs consumers and MDX are Next-compiled but sit outside
+ * tsconfig's ts/tsx/mts include globs) plus the live root MDX component map.
+ */
+function compileEligibleFiles(root: string): string[] {
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    join(root, "tsconfig.json"),
+    {},
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (d) => {
+        throw new Error(ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+      },
+    },
+  );
+  if (parsed === undefined) throw new Error("tsconfig.json failed to parse");
+  const files = new Set<string>(parsed.fileNames);
+  for (const f of [...walk(join(root, "components")), ...walk(join(root, "app"))]) files.add(f);
+  const mdxMap = join(root, "mdx-components.tsx");
+  if (existsSync(mdxMap)) files.add(mdxMap);
+  return [...files];
+}
+
+/**
  * Whole-diff r5; TS-AST since r7; DEFAULT-DENY since r8. The component's own
  * token set is pinned by set-equality in the unit suite, but that covers only
  * what SheetIconLink renders — a NEW consumer passing colour/size/hit-area
@@ -63,12 +104,14 @@ function walk(dir: string, out: string[] = []): string[] {
  * construction rather than by list:
  *
  *   Every reference to the identifier `SheetIconLink` outside the component's
- *   own file must be one of exactly TWO sanctioned shapes — (1) an un-renamed
- *   `import { SheetIconLink }` specifier, or (2) the tag name of a JSX
- *   element whose attributes satisfy the className contract. ANY other
- *   reference — assignment, destructuring, parameter default, parenthesized
- *   or `as`-wrapped initializer, object property, default export, export
- *   clause, property access, argument position, anything — is a violation.
+ *   own file must be one of exactly THREE sanctioned shapes — (1) an
+ *   un-renamed `import { SheetIconLink }` specifier, (2) the tag name of a
+ *   JSX element whose attributes satisfy the className contract, or (3) a
+ *   `typeof SheetIconLink` type query (r9 — type space is erased at compile;
+ *   no runtime alias can come out of it). ANY other reference — assignment,
+ *   destructuring, parameter default, parenthesized or `as`-wrapped
+ *   initializer, object property, default export, export clause, property
+ *   access, argument position, anything — is a violation.
  *
  *   Independently, any import/export whose module specifier resolves to the
  *   component module (path suffix `SheetIconLink`) in a form other than the
@@ -88,6 +131,13 @@ function walk(dir: string, out: string[] = []): string[] {
  * positional allowlist (non-negative margin 0-3 in half steps + order
  * utilities). `.mdx` files are checked by raw substring — MDX is not TSX, and
  * no MDX surface has a sanctioned use.
+ *
+ * tests/ carve (r9, attribute contract ONLY): a file under tests/ may render
+ * the tag with spreads / non-literal className — its JSX reaches jsdom, never
+ * a user, and the unit suite's render helper needs `{...overrides}` to probe
+ * the contract itself. The identifier and module-path rules still bind in
+ * full there, so a test file cannot mint an alias for a shipped consumer to
+ * launder through; only the at-tag attribute checks are relaxed.
  */
 const POSITIONAL =
   /^(?:sm:|md:|lg:)?(?:m[lrtb]-(?:0(?:\.5)?|1(?:\.5)?|2(?:\.5)?|3)|order-(?:\d|first|last|none))$/;
@@ -101,6 +151,9 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
     if (src.includes(NAME)) out.push(`${NAME} referenced in MDX — no sanctioned MDX use exists`);
     return out;
   }
+  // tests/ carve — attribute contract only; see header. Alias rules below
+  // (identifier + module path) are NOT relaxed.
+  const attributeContractRelaxed = /(^|\/)tests\//.test(fileName);
   const kind = /\.(ts|mts|cts)$/.test(fileName) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
   const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true, kind);
   const snip = (node: ts.Node) => src.slice(node.getStart(sf), node.getStart(sf) + 100);
@@ -143,8 +196,8 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
         );
       if (!sanctioned) out.push(`unsanctioned import/export of the ${NAME} module: ${snip(node)}`);
     }
-    // Identifier rule, default-deny: outside the two sanctioned shapes, any
-    // occurrence of the identifier is a violation.
+    // Identifier rule, default-deny: outside the three sanctioned shapes,
+    // any occurrence of the identifier is a violation.
     if (ts.isIdentifier(node) && node.text === NAME) {
       const p = node.parent;
       const sanctionedImport =
@@ -156,9 +209,12 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
         p !== undefined &&
         (ts.isJsxOpeningElement(p) || ts.isJsxSelfClosingElement(p) || ts.isJsxClosingElement(p)) &&
         p.tagName === node;
-      if (sanctionedJsxTag && !ts.isJsxClosingElement(p)) {
+      // `typeof SheetIconLink` — pure type space, erased at compile, cannot
+      // produce a runtime alias (r9).
+      const sanctionedTypeQuery = p !== undefined && ts.isTypeQueryNode(p) && p.exprName === node;
+      if (sanctionedJsxTag && !ts.isJsxClosingElement(p) && !attributeContractRelaxed) {
         checkTagAttributes(p);
-      } else if (!sanctionedImport && !sanctionedJsxTag) {
+      } else if (!sanctionedImport && !sanctionedJsxTag && !sanctionedTypeQuery) {
         out.push(
           `unsanctioned reference to ${NAME} (aliases defeat this guard): ${snip(p ?? node)}`,
         );
@@ -174,10 +230,7 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
   it("per-file occurrence counts equal the pinned set exactly", () => {
     const root = join(__dirname, "..", "..", "..");
     const found: Record<string, number> = {};
-    const files = [
-      ...walk(join(root, "components")),
-      ...walk(join(root, "app")).filter((f) => !f.includes("/app/api/")),
-    ];
+    const files = compileEligibleFiles(root);
     for (const file of files) {
       const rel = file.slice(root.length + 1);
       const count = readFileSync(file, "utf8").split(PHRASE).length - 1;
@@ -254,16 +307,51 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('import { SheetIconLink } from "@/components/admin/SheetIconLink";'),
     ).toHaveLength(0);
+    // r9 forms — type query is sanctioned (type space, no runtime alias):
+    expect(
+      classNameViolations(
+        'import { SheetIconLink } from "@/components/admin/SheetIconLink";\ntype P = React.ComponentProps<typeof SheetIconLink>;',
+      ),
+    ).toHaveLength(0);
+    // r9 tests/ carve — attribute contract relaxed there…
+    expect(
+      classNameViolations(
+        "<SheetIconLink {...overrides} className={dynamic} />",
+        "tests/components/admin/probe.test.tsx",
+      ),
+    ).toHaveLength(0);
+    // …but alias creation is NOT: identifier and module-path rules bind.
+    expect(
+      classNameViolations("const X = SheetIconLink;", "tests/components/admin/probe.test.tsx"),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'export { SheetIconLink as X } from "@/components/admin/SheetIconLink";',
+        "tests/components/admin/probe.test.tsx",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("walked surface covers every compile-eligible root, not just the UI trees (r9)", () => {
+    const root = join(__dirname, "..", "..", "..");
+    const files = compileEligibleFiles(root);
+    const rels = new Set(files.map((f) => f.slice(root.length + 1)));
+    // The r9 escape: a static alias parked in lib/ (or tests/, scripts/,
+    // app/api/) was never visited. Pin that each root is now in the walk via
+    // a known real file, so a scope regression fails here even before anyone
+    // plants an alias.
+    expect(rels.has("lib/email/canonicalize.ts")).toBe(true);
+    expect(rels.has("tests/components/admin/sheetIconLinkContainment.test.ts")).toBe(true);
+    expect([...rels].some((r) => r.startsWith("app/api/"))).toBe(true);
+    expect([...rels].some((r) => r.startsWith("scripts/"))).toBe(true);
+    // Non-compile trees stay out.
+    expect([...rels].some((r) => r.includes("node_modules/"))).toBe(false);
+    expect([...rels].some((r) => r.startsWith("tests/cross-cutting/fixtures/auth-x3"))).toBe(false);
   });
 
   it("every live SheetIconLink call site keeps className positional-only string literals", () => {
     const root = join(__dirname, "..", "..", "..");
-    const files = [
-      ...walk(join(root, "components")),
-      ...walk(join(root, "app")).filter((f) => !f.includes("/app/api/")),
-      // Root-level MDX component map is a live consumer surface (r8).
-      ...["mdx-components.tsx"].map((f) => join(root, f)).filter((f) => existsSync(f)),
-    ];
+    const files = compileEligibleFiles(root);
     const violations = files.flatMap((file) => {
       const rel = file.slice(root.length + 1);
       // The component's own file defines and exports the identifier — it is
