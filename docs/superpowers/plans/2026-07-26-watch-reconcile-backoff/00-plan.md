@@ -182,10 +182,12 @@ declare
   v_url text;
   v_secret text;
 begin
-  -- read the same vault/url plumbing the original migration uses: copy the
-  -- surrounding declare/select block VERBATIM from
-  -- supabase/migrations/20260527000003_schedule_cron_jobs.sql (lines 40-88)
-  -- so the command body is byte-identical except the schedule.
+  -- read the same vault/url plumbing the original migration uses: copy ONLY the
+  -- v_url/v_secret declare + select statements from
+  -- supabase/migrations/20260527000003_schedule_cron_jobs.sql. Do NOT copy the
+  -- migration's global fxav_cron_* unschedule loop (its lines ~60-88) - copying
+  -- that block would unschedule EVERY job (plan review r2 finding 1). This
+  -- migration touches exactly one jobname.
   if exists (select 1 from cron.job where jobname = 'fxav_cron_refresh_watch') then
     perform cron.unschedule('fxav_cron_refresh_watch');
   end if;
@@ -221,10 +223,13 @@ import { beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { ATTEMPT_OUTCOMES, BACKOFF_LADDER_MS } from "@/lib/drive/watchErrors";
 
-// Serial DB project; TEST_DATABASE_URL per repo harness (mirror the connection
-// helper used by tests/db/watchRenewalDue.test.ts - reuse its exported sql
-// bootstrap if one exists rather than reconnecting).
-const sql = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
+// Serial DB project. MUTATING suite: MUST use the loopback-guarded local URL
+// helper (tests/db/_localDbUrl.ts:5) - TEST_DATABASE_URL can point at the
+// validation project and must never receive test deletes (plan review r2
+// finding 2). Same guard + `await sql.end()` teardown in every new DB suite
+// in this plan (Tasks 3, 4, 8).
+import { localDbUrl } from "./_localDbUrl";
+const sql = postgres(localDbUrl(), { max: 1 });
 
 const FOLDER = "plan-t3-folder";
 const cleanup = () => sql`delete from drive_watch_reconcile_state where watched_folder_id like 'plan-t3-%'`;
@@ -305,6 +310,9 @@ describe("CHECK <-> runtime array parity (spec §4.2)", () => {
 **Files:**
 - Modify: `lib/drive/watch.ts` — `WatchTx` interface (+2 methods), `PostgresWatchTx` (+2 impls with spec §3.3a SQL verbatim), `SubscribeResult` widening, `SubscribeDeps.recordAttempt`, write calls at the three §3.3a sites
 - Test: extend `tests/drive/watch.test.ts` (16b/16c cells) and tests/db/watchReconcileStateWrites.test.ts (new — 16d)
+- Modify: `tests/drive/watchExpiration.test.ts` (exact-assertion dispositions below)
+
+**Exact-assertion dispositions (plan review r1 finding 4 / r2 finding 3 — the widening breaks ten exact-result sites; each becomes `toMatchObject` on the shipped fields OR gains the new fields, in THIS task's commit):** `tests/drive/watch.test.ts:384`, `tests/drive/watch.test.ts:422`, `tests/drive/watch.test.ts:495`, `tests/drive/watch.test.ts:542`, `tests/drive/watch.test.ts:1549`, `tests/drive/watch.test.ts:1632`; `tests/drive/watchExpiration.test.ts:121`, `tests/drive/watchExpiration.test.ts:316`, `tests/drive/watchExpiration.test.ts:342`, `tests/drive/watchExpiration.test.ts:373`. After widening, re-grep `toEqual({ outcome` across BOTH files and disposition any residue.
 
 **Interfaces:**
 - Produces:
@@ -411,12 +419,13 @@ describe("write-iff-attempt inside subscribeToWatchedFolder (spec §3.3a, 16b/16
 });
 ```
 
-  (Adapt fake-method names to the file's actual fake — read `tests/drive/watch.test.ts:1-120` first; the fake's method surface mirrors `WatchTx` at `lib/drive/watch.ts:60-111`. `warnSpy` follows the file's existing log-spy pattern.)
+  (SHAPE GUIDE, not paste-ready (plan review r2 finding 13): the live harness is a `FakeWatchTx` CLASS with ordinary methods and the sanctioned `logRecords` sink - NOT vi.fn fields. Adapt each cell: override the class method (subclass or property assignment) instead of `.mockImplementation`/`.mockRejectedValue`; count invocations with a local counter in the override; assert warn emits against `logRecords` entries (`code: "DRIVE_WATCH_STATE_WRITE_FAILED"`) instead of a `warnSpy`. Read `tests/drive/watch.test.ts:1-120` for the harness before writing any cell; the method surface mirrors `WatchTx` at `lib/drive/watch.ts:60-111`.)
 - [ ] **Step 2: Run to verify failure** — the new describe FAILS (`recordAttempt` unknown / methods missing).
 - [ ] **Step 3: Implement** —
   - `WatchTx` + `PostgresWatchTx` methods with spec §3.3a statements (A)/(B) verbatim, wrapped `callWatchTx("drive_watch_reconcile_state.record_attempt", …)`.
   - `SubscribeResult`/`SubscribeDeps` widening per Interfaces (all `return` sites updated; `errorClass`/`errorMessage` are already computed at both catch sites `lib/drive/watch.ts:724`, `lib/drive/watch.ts:817` — attach them).
   - Write sites: helper `recordAttemptSafe(kind, …)` inside the module — calls the tx method, catches, emits the `DRIVE_WATCH_STATE_WRITE_FAILED` warn per spec §3.3a (fire-and-forget `.catch(() => {})` per the house pattern at `lib/drive/watch.ts:798-809`), returns `SubscribeAttempt`. Invoked: first line of the `watchFolder` catch (before `markWatchOrphanedWithTx`); first line of the activation catch; after activation commit on the success path. All three gated on `deps.recordAttempt === true`.
+  - **Row-shape mapping (r1 finding 6 / r2 finding 8), explicit implementation step:** postgres.js returns snake_case columns with `timestamptz` as `Date`. BOTH `PostgresWatchTx` methods map: `{ consecutiveFailures: Number(row.consecutive_failures), nextAttemptAt: new Date(row.next_attempt_at as Date | string).toISOString() }`. The 16d DB tests pin the shape for BOTH methods (`failViaPort` AND `succeedViaPort`): `typeof r.nextAttemptAt === "string"`, `Number.isFinite(Date.parse(r.nextAttemptAt))`.
 - [ ] **Step 4: Failing-then-passing DB test (16d)** — tests/db/watchReconcileStateWrites.test.ts: two concurrent `recordAttemptFailure` through real `PostgresWatchTx` → final `consecutive_failures === 2` and each `returning` distinct; first-failure insert → `1`; mixed-outcome interleaving — `recordAttemptSuccess` commits, then a delayed `recordAttemptFailure` → row reads `failed`/`1` (the §3.3a accepted race, pinned):
 
 ```ts
@@ -432,27 +441,38 @@ it("two SEQUENTIAL failures from a stale in-memory zero still reach 2 (class 4)"
   const [row] = await sqlA`select consecutive_failures from drive_watch_reconcile_state where watched_folder_id = ${F4}`;
   expect(row!.consecutive_failures).toBe(2);
 });
-it("in-flight failure committing AFTER success lands failed/1 - accepted bounded race (spec §3.3a)", async () => {
-  // hold statement (A) open in an explicit tx on session A, commit (B) on session B first
-  await sqlA.begin(async (tx) => {
-    await failVia(tx, F2);              // (A) executed, uncommitted
-    await succeedVia(sqlB, F2);         // (B) commits mid-flight... blocks on the row lock
-      .catch(() => {});                 // tolerate ordering: see note below
-  });
-  // Row-level locking serializes the two upserts; whichever commits second wins the
-  // scalar columns while the increment applies against the committed value. Assert the
-  // documented end state of the A-after-B ordering by re-running deterministically:
-  await sqlA`delete from drive_watch_reconcile_state where watched_folder_id = ${F2}`;
+it("(B) commits, then a delayed (A) lands failed/1 - the accepted bounded race end state (spec §3.3a/16d)", async () => {
+  // The spec's 16d case IS this deterministic ordering ("(B) commits, then a
+  // delayed (A)"). An in-flight variant that holds (A) uncommitted while awaiting
+  // (B) is an application-level wait cycle on the row lock - it hangs the test,
+  // not the system (plan review r2 finding 6) - so the ordering is pinned
+  // deterministically on two separate sessions.
   await succeedVia(sqlB, F2);
   await failVia(sqlA, F2);
   const [row] = await sqlA`select consecutive_failures, last_attempt_outcome from drive_watch_reconcile_state where watched_folder_id = ${F2}`;
   expect(row).toMatchObject({ consecutive_failures: 1, last_attempt_outcome: "failed" });
 });
-it("port methods return camelCase ISO strings (row-shape pin, finding 6)", async () => {
-  const r = await failViaPort(F5); // through real PostgresWatchTx
-  expect(typeof r.nextAttemptAt).toBe("string");
-  expect(Number.isFinite(Date.parse(r.nextAttemptAt))).toBe(true);
-  expect(r.consecutiveFailures).toBe(1);
+it("three sequential failures persist consecutive_failures === 3 (16c persistence half)", async () => {
+  await failVia(sqlA, F3c); await failVia(sqlA, F3c); await failVia(sqlA, F3c);
+  const [row] = await sqlA`select consecutive_failures from drive_watch_reconcile_state where watched_folder_id = ${F3c}`;
+  expect(row!.consecutive_failures).toBe(3);
+  // pairs with the unit half: three subscribe cycles under a persistent
+  // finalization fault call recordAttemptFailure three times (16c unit cell).
+});
+it("BOTH port methods return camelCase ISO strings (row-shape pin, r2 finding 8)", async () => {
+  const rf = await failViaPort(F5); // real PostgresWatchTx.recordAttemptFailure
+  expect(typeof rf.nextAttemptAt).toBe("string");
+  expect(Number.isFinite(Date.parse(rf.nextAttemptAt))).toBe(true);
+  expect(rf.consecutiveFailures).toBe(1);
+  const rs = await succeedViaPort(F5); // real PostgresWatchTx.recordAttemptSuccess
+  expect(typeof rs.nextAttemptAt).toBe("string");
+  expect(rs.consecutiveFailures).toBe(0);
+});
+it("readReconcileGate returns waiting boolean + ISO string against the real DB", async () => {
+  await failViaPort(F6);
+  const gate = await gateViaPort(F6);
+  expect(gate).toMatchObject({ consecutiveFailures: 1, waiting: true });
+  expect(typeof gate!.nextAttemptAt).toBe("string");
 });
 ```
 
@@ -463,7 +483,10 @@ it("port methods return camelCase ISO strings (row-shape pin, finding 6)", async
 
 **Files:**
 - Modify: `lib/drive/watch.ts` — `WatchTx.readReconcileGate`, `ReconcileOutcome` + `ReconcileResult` widening, gate in the `!live` branch (`lib/drive/watch.ts:1334`), `recordAttempt: true` at the reconcile call site, escalation condition (`lib/drive/watch.ts:1372`) + `state_write` mapping
-- Modify: `app/api/cron/refresh-watch/route.ts` only if it enumerates outcome literals (read it; §3.4 step 5 says the route serializes `ReconcileResult` — if pass-through, no edit)
+- Modify: `app/api/cron/refresh-watch/route.ts` — MANDATORY (plan review r2 finding 4): the live route manually constructs BOTH response branches (`app/api/cron/refresh-watch/route.ts:18` region); add `nextAttemptAt` and `consecutiveFailures` to both
+- Modify: `tests/sync/_metaInfraContract.test.ts` — registry row for `readReconcileGate` (plan review r2 finding 5; contract: "reconcile gate read faults become DriveWatchInfraError via callWatchTx; reconcile maps them to the state_read fault")
+
+**Exact-assertion dispositions (r2 finding 4):** `tests/drive/watch.test.ts:1023`, `tests/drive/watch.test.ts:1077`, `tests/drive/watch.test.ts:1097` gain the two new `ReconcileResult` fields (or become `toMatchObject`); re-grep `toEqual({ outcome` in the reconcile suite after widening.
 - Test: extend `tests/drive/watch.test.ts` (16a matrix, class 6, class 7 additions), `tests/cron/refreshWatchRoute.test.ts` (class 10), new structural pin file tests/drive/watchRecordAttemptPins.test.ts
 
 **Interfaces:**
@@ -549,6 +572,7 @@ describe("recordAttempt call-site pins (spec §6 class 18/7)", () => {
 **Straggler dispositions (plan review r1 finding 9 - every remaining occurrence of the retired constant):**
 - `tests/drive/watchErrors.test.ts:5` (import) and `tests/drive/watchErrors.test.ts:66` (assertion): replace with `ESCALATION_AFTER_MS === 10_800_000`.
 - `tests/e2e/helpers/seedAlerts.ts:96`: comment reworded to "escalation window" phrasing without the identifier.
+- `tests/drive/watchEscalation.test.ts:3`, `tests/drive/watchEscalation.test.ts:9`, `tests/drive/watchEscalation.test.ts:33`, `tests/drive/watchEscalation.test.ts:60` (plan review r2 finding 9): the import and every count-based fixture/assertion move to `ESCALATION_AFTER_MS`-derived ages in the same commit - the class-8 rewrite owns these lines.
 - The class-9 scan builds the identifier by concatenation (`"ESCALATION_" + "THRESHOLD"`) in both its title-adjacent comment and grep argument, and excludes its own file: `grep -rl "ESCALATION_THRESHOLD" lib/ app/ tests/ --exclude=watchBackoffConstants.test.ts` composed from the concatenated parts - so the scan cannot find itself.
 
 - [ ] **Step 1: Failing tests (class 8)** — in the escalation suite (fixtures gain `raised_at`):
@@ -618,9 +642,10 @@ export async function readWatchSurfaceState(folderId: string):
 // DriveConnectionPanel gains prop: watchState?: WatchSurfaceState | null
 ```
 
-- [ ] **Step 1: Failing tests** — helper: returned `{error}` → `{kind:"infra_error"}`; thrown query → same; client-construction throw → same; zero rows → `null`; row → mapped camelCase. Loaders (class 18, BOTH directions - plan review r1 finding 12): bellFeed with helper faulting → `watchState: null` on the watch entry, feed intact; bellFeed with helper returning a state row → the watch entry's `watchState` carries those exact values (assert against the fixture, not a snapshot); settings read faulting → prop `null`; settings read succeeding → prop carries the fixture values. Follow the existing bellFeed suite's mock harness (`tests/admin/bellFeed.test.ts`). Plus a real-DB helper integration test, tests/db/watchSurfaceStateIntegration.test.ts (new): seed a real `drive_watch_reconcile_state` row, call the REAL `readWatchSurfaceState` against the local stack, assert the mapped camelCase values and ISO-string `nextAttemptAt` round-trip.
+- [ ] **Step 1: Failing tests** — helper: returned `{error}` → `{kind:"infra_error"}`; thrown query → same; client-construction throw → same; zero rows → `null`; row → mapped camelCase. Loaders (class 18, BOTH directions - plan review r1 finding 12): bellFeed with helper faulting → `watchState: null` on the watch entry, feed intact; bellFeed with helper returning a state row → the watch entry's `watchState` carries those exact values (assert against the fixture, not a snapshot); settings read faulting → prop `null`; settings read succeeding → prop carries the fixture values; AND `getActiveWatchedFolderId()` returning its typed infra result → feed still renders, `watchState: null`, helper NOT called (plan review r2 finding 14 - the folder read is its own boundary and must not fail the feed). Follow the existing bellFeed suite's mock harness (`tests/admin/bellFeed.test.ts`). Plus a real-DB helper integration test, tests/db/watchSurfaceStateIntegration.test.ts (new): seed a real `drive_watch_reconcile_state` row, call the REAL `readWatchSurfaceState` against the local stack, assert the mapped camelCase values and ISO-string `nextAttemptAt` round-trip.
 - [ ] **Step 2: FAIL.** **Step 3: Implement** — service-role client per the bellFeed pattern; single `.select("next_attempt_at, consecutive_failures, last_attempt_outcome").eq("watched_folder_id", folderId).maybeSingle()`; loader mapping with the inline render-boundary comment (spec §3.6); bell folder id from `getActiveWatchedFolderId()` (`lib/appSettings/getWatchedFolderId.ts:76` shape); settings folder id from the health union's `folderId` (`lib/admin/driveConnectionHealth.ts:43`/`lib/admin/driveConnectionHealth.ts:52`), helper not called when null. Registry row in the admin meta-test (pattern `tests/admin/_metaInfraContract.test.ts:287-313`) stating both halves (typed infra result; deliberate hide-on-fault in consumers).
-- [ ] **Step 4: Run `tests/admin` + typecheck — PASS.** **Step 5: Commit** — `feat(admin): watch surface state read with typed infra fault, wired to bell feed and settings`
+- [ ] **Step 4: Companion suites (plan review r2 finding 10):** the Settings page import is exercised DB-free by `tests/app` suites (`settingsDataLoad`, `settingsHeader`, `settings-developer-visibility`) with no helper mock - add a `vi.mock("@/lib/admin/watchSurfaceState", ...)` returning `null` to each (or to their shared harness) so the page's new service-role read never fires in the DB-free project.
+- [ ] **Step 5: Run `tests/admin` AND `tests/app` AND the new DB integration file + typecheck — PASS.** **Step 6: Commit** — `feat(admin): watch surface state read with typed infra fault, wired to bell feed and settings`
 
 ### Task 9: Bell line + developer telemetry link
 
@@ -628,8 +653,8 @@ export async function readWatchSurfaceState(folderId: string):
 - Modify: `components/admin/BellPanel.tsx` (line in `BellActionRow`; `viewerIsDeveloper` threading; link condition)
 - Test: extend `tests/components/bellPanel.test.tsx` (or the suite covering `BellActionRow` — locate by `bell-action-cell` testid)
 
-- [ ] **Step 1: Failing tests (classes 11, 19, per spec §3.6 tables)** — cases: `failed`+future → `Trying again at <formatted> · 2 reconnect attempts so far` (expected string built through the SAME exported formatter, never hardcoded); `failed`+past and `failed`+null → `Trying again shortly …`; `succeeded` / state null → line ABSENT; count 0 → clause omitted; count 1 → singular; error class/message strings NEVER present anywhere in the rendered tree (scan the whole container against the fixture's `errorMessage` literal); `w-full` present in the line's class list; developer link visible only when `viewerIsDeveloper` and href is the unfiltered telemetry route; transition-audit step: assert no `AnimatePresence`/`motion.` import added by the diff (source scan) and the `<time>` element carries `suppressHydrationWarning`.
-- [ ] **Step 2: FAIL.** **Step 3: Implement** — `<p data-testid={...} className="w-full wrap-break-word text-sm text-text-subtle">` as last child of the `components/admin/BellPanel.tsx:303-306` flex row; module-local `formatNextAttempt` copying `formatStagedAt` (`components/admin/StagedReviewCard.tsx:104-113`) incl. NaN guard + `<time dateTime={iso} suppressHydrationWarning>`; thread `viewerIsDeveloper` into the action cell; render condition `entry.isHealth || (isWatch && viewerIsDeveloper)` with per-arm href (spec §3.6).
+- [ ] **Step 1: Failing tests (classes 11, 19, per spec §3.6 tables)** — cases: `failed`+future → `Trying again at <formatted> · 2 reconnect attempts so far` (the formatter stays module-local per spec §3.6; the test derives the expected string by calling `toLocaleString` on the fixture timestamp with the SAME options literal the spec mandates — `{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }` — never a hardcoded string; plan review r2 finding 11 resolves the exported-vs-local contradiction in favor of module-local, and Task 10 duplicates the ~8-line local formatter rather than sharing); `failed`+past and `failed`+null → `Trying again shortly …`; `succeeded` / state null → line ABSENT; count 0 → clause omitted; count 1 → singular; error class/message strings NEVER present anywhere in the rendered tree (scan the whole container against the fixture's `errorMessage` literal); `w-full` present in the line's class list; developer link visible only when `viewerIsDeveloper` and href is the unfiltered telemetry route; transition-audit step: assert no `AnimatePresence`/`motion.` import added by the diff (source scan) and the `<time>` element carries `suppressHydrationWarning`.
+- [ ] **Step 2: FAIL.** **Step 2a: Companion render sites (plan review r2 finding 12):** the threaded prop is OPTIONAL (`viewerIsDeveloper?: boolean`, default false), so the direct `BellActionRow` renders at `tests/components/a11y/newTabAnnouncementBehavior.test.tsx:181`, `tests/components/a11y/newTabAnnouncementBehavior.test.tsx:188`, `tests/e2e/_pusherRowsHarness.tsx:54`, and `tests/components/admin/bellActionRow.export.test.tsx:40`, `tests/components/admin/bellActionRow.export.test.tsx:69`, `tests/components/admin/bellActionRow.export.test.tsx:106` stay green unchanged - verified by running those suites in Step 4, not assumed. **Step 3: Implement** — `<p data-testid={...} className="w-full wrap-break-word text-sm text-text-subtle">` as last child of the `components/admin/BellPanel.tsx:303-306` flex row; module-local `formatNextAttempt` copying `formatStagedAt` (`components/admin/StagedReviewCard.tsx:104-113`) incl. NaN guard + `<time dateTime={iso} suppressHydrationWarning>`; thread `viewerIsDeveloper` into the action cell; render condition `entry.isHealth || (isWatch && viewerIsDeveloper)` with per-arm href (spec §3.6).
 - [ ] **Step 4: Run `tests/components` + typecheck — PASS.** **Step 5: Commit** — `feat(admin): bell next-attempt line and developer telemetry link`
 
 ### Task 10: Settings line
