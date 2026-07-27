@@ -345,6 +345,47 @@ jobs:
           if-no-files-found: warn
           path: validation-schema-parity.log
 
+  pg-cron-validation-parity:
+    # The pg_cron registry on the PERSISTENT validation project, introspected
+    # live. Complements the same suite now running in unit-suite-db against a
+    # locally-bootstrapped Postgres: that proves the migrations produce the
+    # canonical jobs when PostgreSQL parses this branch's SQL, this proves the
+    # deployed project actually carries them. `supabase db push` is blocked on
+    # validation (Phase-0 history divergence), so its migrations are applied
+    # surgically and CAN silently drift — the same class validation-schema-parity
+    # exists to catch, for cron rows rather than columns.
+    #
+    # THREE env values, not one. The suite's beforeAll refuses to run unless
+    # TEST_DATABASE_URL is non-local, VALIDATION_SUPABASE_PROJECT_REF is set,
+    # AND the URL contains that ref. Copying the validation-schema-parity
+    # template verbatim (TEST_DATABASE_URL only) yields a job that throws before
+    # reaching a single live assertion — it would look wired and prove nothing.
+    # The project ref is not a secret: it appears in tracked AGENTS.md.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Install psql (postgresql-client) for cron.job introspection
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: Run pg-cron coverage against the validation project
+        shell: bash
+        env:
+          TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
+          VALIDATION_SUPABASE_PROJECT_REF: vzakgrxqwcalbmagufjh
+          PG_CRON_COVERAGE_TARGET: validation
+        run: |
+          set -o pipefail
+          pnpm test:audit:pg-cron-validation 2>&1 | tee pg-cron-validation.log
+      - name: Upload pg-cron validation audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-cron-validation-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: pg-cron-validation.log
+
   parser-fuzz-deep:
     # Deep property-fuzz exploration (spec 2026-07-09-parser-property-fuzz §5).
     # Random seed each run; failures print seed + shrunk counterexample —
