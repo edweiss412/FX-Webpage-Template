@@ -2,7 +2,7 @@
 
 <!-- spec-lint: not-ui — no UI surface is modified; components/ and app/ citations are incidental (import-graph tracing for the harness resolver and Server Action directive verification). Same posture as the parent spec's waiver. -->
 
-**Status:** draft for adversarial review · **Owner ratification:** 2026-07-26, "looks good ship autonomously" (all four items, sequenced; autonomous pipeline per AGENTS.md gate)
+**Status:** adversarially APPROVED (R8, 2026-07-27) · **Owner ratification:** 2026-07-26, "looks good ship autonomously" (all four items, sequenced; autonomous pipeline per AGENTS.md gate)
 **Parent:** `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10 (the descope record) and the BACKLOG.md section "Descoped from the CI-dark coverage cluster (2026-07-26)".
 
 This spec re-attempts the four items the parent cluster descoped after four adversarial rounds
