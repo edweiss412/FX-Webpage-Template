@@ -233,10 +233,12 @@ describe("the four body-empty states", () => {
     const heading = body.querySelector("h3, h4");
     // The chrome HEADER BLOCK, not the heading's parent. Those were the same
     // element until the §3.1 header rebuild (spec 2026-07-25) split the header
-    // into two lines: the heading's parent is now the centred name+count GROUP,
-    // and the status pill sits on a sibling line one level up. Anchoring on the
-    // heading's parent therefore stopped excluding the pill, and "Needs a look"
-    // started reading as stray panel copy in three states.
+    // into two lines below `sm` (at `sm`+ the wrappers flatten back into one
+    // row — spec 2026-07-26): the heading's parent is now the name+count GROUP,
+    // and the status pill sits on a sibling line one level up (same DOM at
+    // every width). Anchoring on the heading's parent therefore stopped
+    // excluding the pill, and "Needs a look" started reading as stray panel
+    // copy in three states.
     //
     // Anchored on the icon chip — the header row's first child in every state —
     // then up one to the block that holds both lines. The containment assertion
@@ -313,8 +315,9 @@ describe("the four body-empty states", () => {
       if (text.length === 0) continue;
       const parent = n.parentElement;
       if (parent === null) continue;
-      // The chrome header BLOCK (icon, title, count, sheet link on line one; the
-      // status pill on line two) is chrome, not body copy, and has its own tests.
+      // The chrome header BLOCK (icon, title, count, sheet link, status pill —
+      // two lines below `sm`, one row at `sm`+; same DOM either way) is chrome,
+      // not body copy, and has its own tests.
       // Located structurally rather than by a testid, because it carries none.
       if (headingRow !== null && headingRow.contains(parent)) continue;
       // Each listed row renders its own guidance inside its `<li>`; that is the

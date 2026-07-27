@@ -533,10 +533,12 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  // BOTH viewports: 375 is the sheet presentation, 1280 the two-pane popup, and
-  // the rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
-  // alone is why the harness suite runs both).
-  for (const width of [375, 1280] as const) {
+  // THREE viewports: 375 is the sheet presentation, 640 the popup at its pane
+  // floor (where the header wrappers flatten to `display: contents` — the mode
+  // the 2026-07-26 wide-inline spec adds), 1280 the full two-pane popup. The
+  // rail/chip trees genuinely differ between them (the `lg:hidden` chip rail
+  // alone is why the harness suite runs both extremes).
+  for (const width of [375, 640, 1280] as const) {
     test(`T-NOPHANTOM-SHOW @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
       page,
     }) => {
@@ -635,14 +637,14 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     });
   }
   /**
-   * The WIDTH CHAIN — what makes the 61-case static matrix mean anything.
+   * The WIDTH CHAIN — what makes the 88-case static matrix mean anything.
    *
    * `section-header-layout.layout.spec.ts` measures all 15 header cells inside
    * containers of a fixed width per viewport, and every geometry contract it holds
    * (name on one line, 44px header line, the centring offset) is conditioned on
    * that width. Those numbers came from measuring this route once. Nothing pinned
    * them afterwards, so a layout change to the modal's panes would leave the matrix
-   * measuring a width the product no longer renders — 61 green cases proving a
+   * measuring a width the product no longer renders — 88 green cases proving a
    * counterfactual.
    *
    * This closes the loop from the other end: the REAL mount, at the same viewports,
@@ -683,6 +685,19 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(MODAL, { timeout: 30_000 });
+      // Streamed content + hydration, not just the title (2026-07-26 plan R2 f2):
+      // the title streams before section content, and the inert marker is applied
+      // by a client effect, so these three gates together prove the tree this
+      // evaluate measures is the settled, hydrated one.
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
+        { timeout: 30_000 },
+      );
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
 
       const found = await page.evaluate((modalSel) => {
         const modal = document.querySelector(modalSel);
@@ -691,6 +706,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         // A header ROW is the flex row whose first child is the decorative icon
         // chip and which contains the section heading. Selected structurally
         // because no production `data-testid` is added for this measurement.
+        // MEASURED on the row's PARENT (`outer`): at sm+ the line-1 wrapper is
+        // deliberately boxless (`display: contents`), and at narrow the two
+        // content boxes are identical (both `w-full`, no horizontal padding) —
+        // 2026-07-26 spec §4.2 row K.
         const rows: Array<{ heading: string; contentWidth: number }> = [];
         for (const heading of Array.from(modal.querySelectorAll("h3, h4"))) {
           const group = heading.parentElement;
@@ -700,8 +719,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
           if (!(icon instanceof HTMLElement) || icon.getAttribute("aria-hidden") !== "true") {
             continue;
           }
-          const cs = getComputedStyle(row);
-          const r = row.getBoundingClientRect();
+          const outerEl = row.parentElement;
+          if (!(outerEl instanceof HTMLElement)) continue;
+          const cs = getComputedStyle(outerEl);
+          const r = outerEl.getBoundingClientRect();
           rows.push({
             heading: (heading.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40),
             contentWidth:
@@ -800,7 +821,9 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
    * padding — so the paddings are subtracted from the computed style.
    *
    * §5 separates GUARANTEED links (this batch adds the class: outer column, header
-   * line, pill line) from ASSERTED-ONLY ones (pre-existing, not modified here).
+   * line, pill line — the latter two below `sm` only; at `sm`+ both wrappers are
+   * deliberately boxless and their links are replaced by counted checks, spec
+   * 2026-07-26 §4.2 rows L-N) from ASSERTED-ONLY ones (pre-existing, not modified here).
    * Both are checked; the distinction is about attribution, not coverage — an
    * asserted-only failure means an upstream regression, not a defect in this batch.
    */
@@ -812,218 +835,269 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(MODAL, { timeout: 30_000 });
+      // Streamed content + hydration gates — same trio as the width-chain test
+      // above (2026-07-26 plan R2 f2).
+      await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.locator(`${MODAL} [data-testid*="-review-section-"]`).first()).toBeAttached(
+        { timeout: 30_000 },
+      );
+      await expect(page.locator("[data-inert-root][inert]").first()).toBeAttached({
+        timeout: 30_000,
+      });
 
-      const found = await page.evaluate((modalSel) => {
-        const modal = document.querySelector(modalSel);
-        if (!(modal instanceof HTMLElement)) return { error: "modal not found" };
+      const found = await page.evaluate(
+        ({ modalSel, isWide }) => {
+          const modal = document.querySelector(modalSel);
+          if (!(modal instanceof HTMLElement)) return { error: "modal not found" };
 
-        const pane = modal.querySelector('[data-testid$="-review-content"]');
-        if (!(pane instanceof HTMLElement)) return { error: "content pane not found" };
-        // EVERY panel card. Review round 1: measuring only the first meant a
-        // regression in any other section was unobserved by a test whose name
-        // claims the chain holds.
-        // STRUCTURALLY, not by testid. A panel card is the element immediately
-        // following a header block inside a breakdown section, and the Diagrams
-        // sub-block renders one with `sectionId === undefined` — so it carries no
-        // testid and a testid-based selector skipped it entirely (review round 2).
-        const cards: HTMLElement[] = [];
-        for (const icon of Array.from(modal.querySelectorAll('span[aria-hidden="true"]'))) {
-          const headerLine = icon.parentElement;
-          if (headerLine === null || headerLine.firstElementChild !== icon) continue;
-          const headerBlock = headerLine.parentElement;
-          if (!(headerBlock instanceof HTMLElement)) continue;
-          // TWO constraints the first version lacked, both learned from CI: the icon
-          // must live inside a registry section, and its header block must actually
-          // contain a section heading. Without them the walk matched
-          // `strip-publish-toggle` — a StatusStrip icon that is its parent's first
-          // child but belongs to no section — and then failed looking for a registry
-          // ancestor it never had.
-          if (icon.closest('[data-testid*="-review-section-"]') === null) continue;
-          if (headerBlock.querySelector("h3, h4") === null) continue;
-          // VERIFY the sibling really is the panel card rather than assuming it.
-          // Review round 3: a full-width guidance row inserted between the header and
-          // a narrowed card would be measured AS the card, and the real one never
-          // visited. The card is identified by its own contract — the rounded,
-          // bordered `bg-surface` box carrying the section body — so scan forward
-          // rather than taking the first sibling on faith.
-          let candidate: Element | null = headerBlock.nextElementSibling;
-          while (candidate !== null) {
-            if (candidate instanceof HTMLElement) {
-              const testid = candidate.getAttribute("data-testid") ?? "";
-              const cs = getComputedStyle(candidate);
-              const looksLikeCard =
-                testid.includes("-panel-card") ||
-                (parseFloat(cs.borderTopWidth || "0") > 0 &&
-                  parseFloat(cs.borderTopLeftRadius || "0") > 0);
-              if (looksLikeCard) {
-                if (!cards.includes(candidate)) cards.push(candidate);
-                break;
+          const pane = modal.querySelector('[data-testid$="-review-content"]');
+          if (!(pane instanceof HTMLElement)) return { error: "content pane not found" };
+          // EVERY panel card. Review round 1: measuring only the first meant a
+          // regression in any other section was unobserved by a test whose name
+          // claims the chain holds.
+          // STRUCTURALLY, not by testid. A panel card is the element immediately
+          // following a header block inside a breakdown section, and the Diagrams
+          // sub-block renders one with `sectionId === undefined` — so it carries no
+          // testid and a testid-based selector skipped it entirely (review round 2).
+          const cards: HTMLElement[] = [];
+          for (const icon of Array.from(modal.querySelectorAll('span[aria-hidden="true"]'))) {
+            const headerLine = icon.parentElement;
+            if (headerLine === null || headerLine.firstElementChild !== icon) continue;
+            const headerBlock = headerLine.parentElement;
+            if (!(headerBlock instanceof HTMLElement)) continue;
+            // TWO constraints the first version lacked, both learned from CI: the icon
+            // must live inside a registry section, and its header block must actually
+            // contain a section heading. Without them the walk matched
+            // `strip-publish-toggle` — a StatusStrip icon that is its parent's first
+            // child but belongs to no section — and then failed looking for a registry
+            // ancestor it never had.
+            if (icon.closest('[data-testid*="-review-section-"]') === null) continue;
+            if (headerBlock.querySelector("h3, h4") === null) continue;
+            // VERIFY the sibling really is the panel card rather than assuming it.
+            // Review round 3: a full-width guidance row inserted between the header and
+            // a narrowed card would be measured AS the card, and the real one never
+            // visited. The card is identified by its own contract — the rounded,
+            // bordered `bg-surface` box carrying the section body — so scan forward
+            // rather than taking the first sibling on faith.
+            let candidate: Element | null = headerBlock.nextElementSibling;
+            while (candidate !== null) {
+              if (candidate instanceof HTMLElement) {
+                const testid = candidate.getAttribute("data-testid") ?? "";
+                const cs = getComputedStyle(candidate);
+                const looksLikeCard =
+                  testid.includes("-panel-card") ||
+                  (parseFloat(cs.borderTopWidth || "0") > 0 &&
+                    parseFloat(cs.borderTopLeftRadius || "0") > 0);
+                if (looksLikeCard) {
+                  if (!cards.includes(candidate)) cards.push(candidate);
+                  break;
+                }
+              }
+              candidate = candidate.nextElementSibling;
+            }
+          }
+          if (cards.length === 0) return { error: "no panel card found" };
+          const untestidedCards = cards.filter(
+            (c) => !(c.getAttribute("data-testid") ?? "").includes("-panel-card"),
+          ).length;
+
+          const contentWidth = (el: HTMLElement) => {
+            const cs = getComputedStyle(el);
+            return (
+              el.getBoundingClientRect().width -
+              parseFloat(cs.paddingLeft || "0") -
+              parseFloat(cs.paddingRight || "0") -
+              parseFloat(cs.borderLeftWidth || "0") -
+              parseFloat(cs.borderRightWidth || "0")
+            );
+          };
+          const describe = (el: HTMLElement) =>
+            `${el.tagName.toLowerCase()}` +
+            `${el.getAttribute("data-testid") ? `#${el.getAttribute("data-testid")}` : ""}` +
+            `[${(el.className || "").toString().slice(0, 36)}]`;
+
+          const links: Array<{ link: string; child: number; parentContent: number }> = [];
+          const addLink = (child: HTMLElement, parent: HTMLElement) => {
+            links.push({
+              link: `${describe(parent)} > ${describe(child)}`,
+              child: Math.round(child.getBoundingClientRect().width * 100) / 100,
+              parentContent: Math.round(contentWidth(parent) * 100) / 100,
+            });
+          };
+
+          let pillLinesMeasured = 0;
+          let pillLinesPresent = 0;
+          // sm+ only: counts the per-card boxless verification that REPLACES the
+          // headerLine→column link, so the substitution cannot silently not-run
+          // (2026-07-26 spec §4.2 rows L/N).
+          let boxlessHeaders = 0;
+          // PER CARD, not a global total. The descent from registry section to panel
+          // card is not the same depth for every section, so `cards * 5` is simply the
+          // wrong arithmetic — and a total lets a surplus in one card mask a card that
+          // contributed nothing.
+          const perCard: Array<{ id: string; section: string; links: number }> = [];
+
+          for (const card of cards) {
+            const before = links.length;
+            // The registry section this card lives in — the top of this card's walk.
+            let registry: HTMLElement | null = card.parentElement;
+            while (
+              registry &&
+              !(registry.getAttribute("data-testid") ?? "").includes("-review-section-")
+            ) {
+              registry = registry.parentElement;
+            }
+            if (!registry)
+              return { error: `registry ancestor not found for ${card.dataset.testid}` };
+            const breakdown = card.parentElement;
+            if (!(breakdown instanceof HTMLElement)) {
+              return { error: `panel card has no parent: ${card.dataset.testid}` };
+            }
+
+            // Link 1 — pane -> registry section (ASSERTED ONLY; the pane's padding is
+            // exactly the trap this comparison exists to avoid).
+            addLink(registry, pane);
+
+            // Links 2..n — every node on the path from the registry section down to the
+            // panel card, which is where the unlabelled breakdown section and outer
+            // column live.
+            const path: HTMLElement[] = [];
+            for (let el: HTMLElement | null = card; el && el !== registry; el = el.parentElement) {
+              path.unshift(el);
+            }
+            let cursor: HTMLElement = registry;
+            for (const node of path) {
+              addLink(node, cursor);
+              cursor = node;
+            }
+
+            // The header block is a SIBLING of the panel card, not an ancestor of it —
+            // the first run of this walk found only 4 links because the descent above
+            // never passes through it. Its own link to the breakdown section is added
+            // explicitly. Located from the icon chip rather than by class, so a class
+            // rename does not silently drop these links from the chain.
+            const icon = breakdown.querySelector('span[aria-hidden="true"]');
+            const headerLine = icon?.parentElement ?? null;
+            const column = headerLine?.parentElement ?? null;
+            if (!(headerLine instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+              return { error: `header line / outer column not found for ${card.dataset.testid}` };
+            }
+            // EVERY node from the breakdown section down to the header block, not just
+            // the block's immediate parent. Review round 1: a shrink-wrapping wrapper
+            // inserted between them narrows the header while every recorded immediate
+            // pair stays equal, so the walk has to traverse the path rather than jump it.
+            const headerPath: HTMLElement[] = [];
+            for (
+              let el: HTMLElement | null = column;
+              el !== null && el !== breakdown;
+              el = el.parentElement
+            ) {
+              headerPath.unshift(el);
+            }
+            if (headerPath.length === 0) {
+              return { error: `header block is not inside its breakdown: ${card.dataset.testid}` };
+            }
+            let hcursor: HTMLElement = breakdown;
+            for (const node of headerPath) {
+              addLink(node, hcursor);
+              hcursor = node;
+            }
+            // Narrow: the line-1 wrapper carries the box. Wide: it is deliberately
+            // boxless (`display: contents`) — the link is DROPPED and replaced by a
+            // counted assertion (2026-07-26 spec §4.2 rows L/N; `column` here IS
+            // that spec's `outer`, so an outer→column link would compare a node
+            // with itself).
+            if (!isWide) {
+              addLink(headerLine, column);
+            } else {
+              if (headerLine.getBoundingClientRect().width !== 0) {
+                return { error: `headerLine has a box at a wide width: ${card.dataset.testid}` };
+              }
+              boxlessHeaders += 1;
+            }
+
+            // The pill line is asserted when one EXISTS, and its presence is reported so
+            // the caller can require the link was actually traversed rather than
+            // inferring it from a total count (review round 1: `hasPillLine` was
+            // computed and discarded, so a later section's pill line could lose full
+            // width unmeasured).
+            // PRESENCE is counted from the pill itself, MEASUREMENT from the element
+            // actually linked. Incrementing both inside one `if` made their equality
+            // tautological — an intervening sibling counted as both present and
+            // measured while the real pill line went unmeasured (review round 2).
+            const pill = column.querySelector('[class*="rounded-pill"]');
+            if (pill !== null) pillLinesPresent += 1;
+            const pillLine = headerLine.nextElementSibling;
+            if (!isWide) {
+              if (pillLine instanceof HTMLElement && pillLine.contains(pill)) {
+                addLink(pillLine, column);
+                pillLinesMeasured += 1;
+              }
+            } else if (pill instanceof HTMLElement) {
+              // Row M: the boxless wrapper still `.contains(pill)`, so linking it
+              // would compare 0 against the column width. The wide replacement:
+              // the pill participates in the single row — its centre sits in the
+              // heading's band.
+              const headingEl = column.querySelector("h3, h4");
+              if (headingEl instanceof HTMLElement) {
+                const hb = headingEl.getBoundingClientRect();
+                const pb = pill.getBoundingClientRect();
+                if (Math.abs((pb.top + pb.bottom) / 2 - (hb.top + hb.bottom) / 2) <= 0.5) {
+                  pillLinesMeasured += 1;
+                }
               }
             }
-            candidate = candidate.nextElementSibling;
-          }
-        }
-        if (cards.length === 0) return { error: "no panel card found" };
-        const untestidedCards = cards.filter(
-          (c) => !(c.getAttribute("data-testid") ?? "").includes("-panel-card"),
-        ).length;
-
-        const contentWidth = (el: HTMLElement) => {
-          const cs = getComputedStyle(el);
-          return (
-            el.getBoundingClientRect().width -
-            parseFloat(cs.paddingLeft || "0") -
-            parseFloat(cs.paddingRight || "0") -
-            parseFloat(cs.borderLeftWidth || "0") -
-            parseFloat(cs.borderRightWidth || "0")
-          );
-        };
-        const describe = (el: HTMLElement) =>
-          `${el.tagName.toLowerCase()}` +
-          `${el.getAttribute("data-testid") ? `#${el.getAttribute("data-testid")}` : ""}` +
-          `[${(el.className || "").toString().slice(0, 36)}]`;
-
-        const links: Array<{ link: string; child: number; parentContent: number }> = [];
-        const addLink = (child: HTMLElement, parent: HTMLElement) => {
-          links.push({
-            link: `${describe(parent)} > ${describe(child)}`,
-            child: Math.round(child.getBoundingClientRect().width * 100) / 100,
-            parentContent: Math.round(contentWidth(parent) * 100) / 100,
-          });
-        };
-
-        let pillLinesMeasured = 0;
-        let pillLinesPresent = 0;
-        // PER CARD, not a global total. The descent from registry section to panel
-        // card is not the same depth for every section, so `cards * 5` is simply the
-        // wrong arithmetic — and a total lets a surplus in one card mask a card that
-        // contributed nothing.
-        const perCard: Array<{ id: string; section: string; links: number }> = [];
-
-        for (const card of cards) {
-          const before = links.length;
-          // The registry section this card lives in — the top of this card's walk.
-          let registry: HTMLElement | null = card.parentElement;
-          while (
-            registry &&
-            !(registry.getAttribute("data-testid") ?? "").includes("-review-section-")
-          ) {
-            registry = registry.parentElement;
-          }
-          if (!registry) return { error: `registry ancestor not found for ${card.dataset.testid}` };
-          const breakdown = card.parentElement;
-          if (!(breakdown instanceof HTMLElement)) {
-            return { error: `panel card has no parent: ${card.dataset.testid}` };
+            perCard.push({
+              id: card.getAttribute("data-testid") ?? `untestided:${card.className.slice(0, 24)}`,
+              // The section this card belongs to, so coverage can be asserted PER
+              // SECTION. `cards === registrySections` was satisfied by one section
+              // contributing two cards while another contributed none (review round 2).
+              section: (() => {
+                const raw = registry.getAttribute("data-testid") ?? "?";
+                return raw.slice(raw.lastIndexOf("-review-section-") + "-review-section-".length);
+              })(),
+              links: links.length - before,
+            });
           }
 
-          // Link 1 — pane -> registry section (ASSERTED ONLY; the pane's padding is
-          // exactly the trap this comparison exists to avoid).
-          addLink(registry, pane);
-
-          // Links 2..n — every node on the path from the registry section down to the
-          // panel card, which is where the unlabelled breakdown section and outer
-          // column live.
-          const path: HTMLElement[] = [];
-          for (let el: HTMLElement | null = card; el && el !== registry; el = el.parentElement) {
-            path.unshift(el);
-          }
-          let cursor: HTMLElement = registry;
-          for (const node of path) {
-            addLink(node, cursor);
-            cursor = node;
-          }
-
-          // The header block is a SIBLING of the panel card, not an ancestor of it —
-          // the first run of this walk found only 4 links because the descent above
-          // never passes through it. Its own link to the breakdown section is added
-          // explicitly. Located from the icon chip rather than by class, so a class
-          // rename does not silently drop these links from the chain.
-          const icon = breakdown.querySelector('span[aria-hidden="true"]');
-          const headerLine = icon?.parentElement ?? null;
-          const column = headerLine?.parentElement ?? null;
-          if (!(headerLine instanceof HTMLElement) || !(column instanceof HTMLElement)) {
-            return { error: `header line / outer column not found for ${card.dataset.testid}` };
-          }
-          // EVERY node from the breakdown section down to the header block, not just
-          // the block's immediate parent. Review round 1: a shrink-wrapping wrapper
-          // inserted between them narrows the header while every recorded immediate
-          // pair stays equal, so the walk has to traverse the path rather than jump it.
-          const headerPath: HTMLElement[] = [];
-          for (
-            let el: HTMLElement | null = column;
-            el !== null && el !== breakdown;
-            el = el.parentElement
-          ) {
-            headerPath.unshift(el);
-          }
-          if (headerPath.length === 0) {
-            return { error: `header block is not inside its breakdown: ${card.dataset.testid}` };
-          }
-          let hcursor: HTMLElement = breakdown;
-          for (const node of headerPath) {
-            addLink(node, hcursor);
-            hcursor = node;
-          }
-          addLink(headerLine, column);
-
-          // The pill line is asserted when one EXISTS, and its presence is reported so
-          // the caller can require the link was actually traversed rather than
-          // inferring it from a total count (review round 1: `hasPillLine` was
-          // computed and discarded, so a later section's pill line could lose full
-          // width unmeasured).
-          // PRESENCE is counted from the pill itself, MEASUREMENT from the element
-          // actually linked. Incrementing both inside one `if` made their equality
-          // tautological — an intervening sibling counted as both present and
-          // measured while the real pill line went unmeasured (review round 2).
-          const pill = column.querySelector('[class*="rounded-pill"]');
-          if (pill !== null) pillLinesPresent += 1;
-          const pillLine = headerLine.nextElementSibling;
-          if (pillLine instanceof HTMLElement && pillLine.contains(pill)) {
-            addLink(pillLine, column);
-            pillLinesMeasured += 1;
-          }
-          perCard.push({
-            id: card.getAttribute("data-testid") ?? `untestided:${card.className.slice(0, 24)}`,
-            // The section this card belongs to, so coverage can be asserted PER
-            // SECTION. `cards === registrySections` was satisfied by one section
-            // contributing two cards while another contributed none (review round 2).
-            section: (() => {
-              const raw = registry.getAttribute("data-testid") ?? "?";
-              return raw.slice(raw.lastIndexOf("-review-section-") + "-review-section-".length);
-            })(),
-            links: links.length - before,
-          });
-        }
-
-        return {
-          error: null,
-          links,
-          cards: cards.length,
-          pillLinesPresent,
-          pillLinesMeasured,
-          registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
-          perCard,
-          untestidedCards,
-        };
-      }, MODAL);
+          return {
+            error: null,
+            links,
+            cards: cards.length,
+            pillLinesPresent,
+            pillLinesMeasured,
+            boxlessHeaders,
+            registrySections: modal.querySelectorAll('[data-testid*="-review-section-"]').length,
+            perCard,
+            untestidedCards,
+          };
+        },
+        { modalSel: MODAL, isWide: width >= 640 },
+      );
 
       expect(found.error, "modal shape").toBeNull();
       if (found.error !== null) return;
 
-      // Non-vacuity, tied to the tree rather than to a hardcoded floor. Each card
-      // contributes five named links — pane -> registry, registry -> breakdown,
-      // breakdown -> panel card, breakdown -> header block, header block -> header
-      // line — so the total must scale with the number of cards. A walk that
-      // collapsed to one card, or to one link, fails here.
+      // Non-vacuity, tied to the tree rather than to a hardcoded floor. Below `sm`
+      // each card contributes five named links — pane -> registry, registry ->
+      // breakdown, breakdown -> panel card, breakdown -> header block, header
+      // block -> header line; at `sm`+ the fifth is replaced by the counted
+      // boxless check (LINK_FLOOR below) — so the total must scale with the
+      // number of cards. A walk that collapsed to one card, or to one link,
+      // fails here.
       expect(found.cards, `the modal rendered its panel cards [@ ${width}]`).toBeGreaterThan(1);
       // NOT `cards === registrySections`. 12 cards over 11 sections is correct — the
       // Diagrams sub-block renders a card inside another section — and that equality
       // was the same wrong shape twice over: it fails on a correct tree, and when it
       // does hold it does not mean one card per section. The per-section coverage
       // assertion below is what actually carries that claim.
-      // Every card walked its own chain. Five is the floor per card — pane ->
-      // registry, registry -> ... -> panel card, breakdown -> ... -> header block,
-      // header block -> header line — and a deeper section legitimately reports more.
+      // Every card walked its own chain. The floor per card is five below `sm`
+      // (pane -> registry, registry -> ... -> panel card, breakdown -> ... ->
+      // header block, header block -> header line) and four at `sm`+ (the header
+      // line is boxless; its check is counted separately) — a deeper section
+      // legitimately reports more.
       expect(found.perCard.length, `every panel card was walked [@ ${width}]`).toBe(found.cards);
       // Per SECTION: each expected section contributed at least one card, so a
       // section losing its card cannot be masked by another contributing two
@@ -1041,16 +1115,27 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
         found.untestidedCards,
         `the walk reached the testid-less sub-block card too [@ ${width}]`,
       ).toBeGreaterThan(0);
+      // Wide drops the headerLine→column link (the wrapper is boxless), so the
+      // floor is 4 there — PLUS the counted boxless replacement below, so the
+      // accounting still balances (2026-07-26 spec §4.2 row N).
+      const LINK_FLOOR = width >= 640 ? 4 : 5;
       expect(
-        found.perCard.filter((c) => c.links < 5),
-        `every card contributed at least five chain links [@ ${width}]`,
+        found.perCard.filter((c) => c.links < LINK_FLOOR),
+        `every card contributed at least ${LINK_FLOOR} chain links [@ ${width}]`,
       ).toEqual([]);
+      if (width >= 640) {
+        expect(found.boxlessHeaders, `every card's header line verified boxless [@ ${width}]`).toBe(
+          found.cards,
+        );
+      }
       expect(found.links.length, `the recorded links are exactly the cards' own [@ ${width}]`).toBe(
         found.perCard.reduce((n, c) => n + c.links, 0),
       );
       // Every pill line that EXISTS was measured — `hasPillLine` used to be computed
       // and discarded, so a later section's pill line could lose full width without
-      // any assertion seeing it (review round 1).
+      // any assertion seeing it (review round 1). At `sm`+ "measured" means the
+      // row-band check (the wrapper is boxless), so the equality keeps its shape
+      // in both modes.
       expect(found.pillLinesMeasured, `every pill line present was measured [@ ${width}]`).toBe(
         found.pillLinesPresent,
       );

@@ -61,7 +61,8 @@
     "preflight": "node scripts/preflight-env.mjs",
     "db:reset-pool": "node scripts/db-reset-pool.mjs",
     "test:e2e:bulk-ignore-eyebrow": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts",
-    "test:e2e:hoverhelp-geometry": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts"
+    "test:e2e:hoverhelp-geometry": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts",
+    "test:e2e:standalone": "playwright test --config tests/e2e/standalone.config.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

@@ -9,15 +9,21 @@
  * blessed.
  *
  * Guarantee scope (spec R18 honesty correction): "covered" means the spec
- * RUNS AND REPORTS on every PR. Branch protection requires only the `quality`
- * context (owner-directed solo posture, plans DEFERRED.md 2026-06-22 entry),
- * so GitHub-enforced merge blocking is out of any scanner's reach; the ship
- * pipeline's all-checks-green gate is the procedural enforcement.
+ * RUNS AND REPORTS on every PR — NOT that GitHub will block a merge on it.
+ *
+ * The claim that "branch protection requires only the `quality` context" was
+ * STALE and is corrected here: measured 2026-07-26, the live required set
+ * holds TWELVE contexts. The e2e jobs are advisory not because one context is
+ * required, but because none of them is in that set. Merge blocking is out of
+ * any scanner's reach either way; the ship pipeline's all-checks-green gate is
+ * the procedural enforcement. Measurement: spec
+ * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanWorkflowCoverage } from "./_workflowCoverageScan";
+import { listedSpecFiles } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
 
@@ -36,8 +42,6 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
-  "tests/e2e/pusher-alignment.layout.spec.ts": PATH_GATED,
-  "tests/e2e/section-header-layout.layout.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts": UNSEEN,
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
@@ -45,28 +49,14 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
-  // Was UNSEEN and had rotted while dark (pre-fold markup, an invented attribute).
-  // Now rendered from the real component and run by modal-header-layout-e2e.
-  "tests/e2e/agendaBreakdown.layout.spec.ts": PATH_GATED,
-  "tests/e2e/agendaScheduleLayout.spec.ts": PATH_GATED,
-  "tests/e2e/appHealthIndicator.layout.spec.ts": UNSEEN,
-  "tests/e2e/attention-anchor-placement.spec.ts": PATH_GATED,
   "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
-  "tests/e2e/attention-pill-focus.spec.ts": PATH_GATED,
-  "tests/e2e/autoAppliedCardGrid.layout.spec.ts": UNSEEN,
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
-  "tests/e2e/blocked-row-resolver-transitions.spec.ts": UNSEEN,
-  "tests/e2e/bulk-ignore-eyebrow.layout.spec.ts": UNSEEN,
-  "tests/e2e/collapse-panel-morph.spec.ts": UNSEEN,
-  "tests/e2e/compact-alert-card-layout.spec.ts": UNSEEN,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
-  "tests/e2e/dataQualityBadge.layout.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
   "tests/e2e/dev-capture.spec.ts": UNSEEN,
   "tests/e2e/developer-tier.spec.ts": UNSEEN,
-  "tests/e2e/developer-toggle-layout.spec.ts": UNSEEN,
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
   "tests/e2e/empty-state.spec.ts": UNSEEN,
   "tests/e2e/help-auth.spec.ts": UNSEEN,
@@ -74,7 +64,6 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/help-pages.spec.ts": UNSEEN,
   "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
   "tests/e2e/help-typography.spec.ts": UNSEEN,
-  "tests/e2e/hoverhelp-geometry.spec.ts": PATH_GATED,
   "tests/e2e/layout-dimensions.spec.ts": UNSEEN,
   "tests/e2e/me-page.spec.ts": UNSEEN,
   "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
@@ -84,30 +73,16 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
   "tests/e2e/pack-list.spec.ts": UNSEEN,
   "tests/e2e/packlist-rescan-recovery.spec.ts": UNSEEN,
-  "tests/e2e/phantomGapHelper.layout.spec.ts": PATH_GATED,
-  "tests/e2e/pendingDiscardReal.layout.spec.ts": PATH_GATED,
-  "tests/e2e/pendingDiscardReflow.layout.spec.ts": PATH_GATED,
   "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.interactions.spec.ts": PATH_GATED,
-  "tests/e2e/published-review-modal.layout.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.prefetch.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.realtime.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
-  "tests/e2e/resolve-label-layout.spec.ts": UNSEEN,
-  // Its own dedicated workflow (share-link-flash-e2e.yml), path-gated like the
-  // rest of the standalone family — but with a DELIBERATELY BROAD filter
-  // (components/**, lib/**, app/admin/**), because the harness hydrates the real
-  // StatusStrip -> ShareHub tree and its bundle pulls 155 production inputs. A
-  // per-file filter for a graph that size was drafted five times and was short
-  // every time. Not the BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella: this one is
-  // wired, it is only path-gated rather than unconditional.
-  "tests/e2e/share-link-flash.spec.ts":
-    "dedicated path-gated PR workflow share-link-flash-e2e.yml (broad component/lib/admin filter); not PR-blocking-capable per the scanner contract",
   "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
   "tests/e2e/right-now.spec.ts": UNSEEN,
   "tests/e2e/role-spoof.spec.ts": UNSEEN,
@@ -117,25 +92,16 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/schedule-tile.spec.ts": UNSEEN,
   "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
-  "tests/e2e/skeletonBandParity.spec.ts": PATH_GATED,
   "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
   // Landed on main via the sibling strip-mobile-stacked-band branch while this
   // guard was in flight - part of the pre-existing inventory, not a post-guard
   // regression.
-  "tests/e2e/stackedBandLayout.spec.ts": UNSEEN,
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": UNSEEN,
   "tests/e2e/status-financials.spec.ts": UNSEEN,
-  "tests/e2e/statusStripToggleLayout.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-modal.interactions.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-modal.layout.spec.ts": PATH_GATED,
-  "tests/e2e/step3-review-page.layout.spec.ts": UNSEEN,
-  "tests/e2e/step3-schedule-bookend-layout.spec.ts": UNSEEN,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
   "tests/e2e/theme-toggle.spec.ts": UNSEEN,
-  "tests/e2e/toggle-edge-layout.spec.ts": UNSEEN,
   "tests/e2e/transport-tile.spec.ts": UNSEEN,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
-  "tests/e2e/wizard-blocker-modal.layout.spec.ts": UNSEEN,
 };
 
 describe("e2e workflow coverage (spec §6 item 6)", () => {
@@ -153,7 +119,21 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     .filter((f) => f.endsWith(".spec.ts"))
     .map((f) => `tests/e2e/${f}`);
 
-  const { covered, rejected } = scanWorkflowCoverage({ workflows, packageScripts });
+  // Whole-config membership, resolved from the LIVE config rather than listed
+  // here: a hand-maintained copy would drift the moment a spec is registered,
+  // and drift in a coverage guard reads as coverage.
+  // Membership is what Playwright ACTUALLY resolves, not what the top-level
+  // testMatch declares: project-level matchers, testIgnore, testDir, an empty
+  // projects list, and grep/grepInvert all narrow what runs while leaving that
+  // matcher intact. Deleting an allowlist row for a spec that does not really
+  // run is the exact harm this guard exists to prevent.
+  const standaloneMembers = listedSpecFiles().map((f) => `tests/e2e/${f}`);
+
+  const { covered } = scanWorkflowCoverage({
+    workflows,
+    packageScripts,
+    configSpecs: { "tests/e2e/standalone.config.ts": standaloneMembers },
+  });
 
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
     const dark = specs.filter((s) => !covered.has(s) && !(s in LOCAL_ONLY_ALLOWLIST));
@@ -167,25 +147,24 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     expect(shadowing, "allowlisted specs that ARE covered - remove the row").toEqual([]);
   });
 
-  it("the agenda layout spec is INVOKED by a workflow, not merely allowlisted", () => {
-    // The allowlist value alone proves nothing: these assertions check membership, never the
-    // reason string, so editing UNSEEN -> PATH_GATED would go green while CI stayed dark.
+  it("the agenda layout specs are COVERED on every PR, with no allowlist row", () => {
+    // This assertion got STRONGER at merge. It used to demand the spec appear in `rejected`
+    // with reason "pull_request.paths/paths-ignore filter", because the only thing running it
+    // was a path-gated workflow -- honest, but weaker than PR-blocking. origin/main then
+    // retired seven per-feature workflows for one unfiltered standalone-e2e.yml, so both
+    // specs are now covered outright and their allowlist rows had to GO: the shadowing check
+    // fails on an allowlisted spec that is covered.
     //
-    // `rejected` is the unfakeable signal. A spec named in NO workflow appears in neither
-    // `covered` nor `rejected`, because the scanner only records a rejection for a spec it
-    // actually found in a run command. So this fails until a workflow genuinely invokes it,
-    // and the allowlist edit cannot move it.
-    const spec = "tests/e2e/agendaScheduleLayout.spec.ts";
-    const entry = rejected.find((r) => r.spec === spec);
-    expect(
-      entry,
-      `${spec} must be named in a workflow run command (it is in neither covered nor rejected)`,
-    ).toBeDefined();
-    // Path-gated is the honest category: it runs when its filter matches, not on every PR.
-    expect(entry?.reason).toBe("pull_request.paths/paths-ignore filter");
-    expect(LOCAL_ONLY_ALLOWLIST[spec], "its allowlist row states that same reason").toBe(
-      PATH_GATED,
-    );
+    // Asserted per spec rather than left to the generic dark/shadowing tests so a failure
+    // names which one regressed, and so re-adding a row is caught by an explicit expectation.
+    for (const spec of [
+      "tests/e2e/agendaScheduleLayout.spec.ts",
+      "tests/e2e/agendaBreakdown.layout.spec.ts",
+    ]) {
+      expect(specs, `${spec} must exist on disk`).toContain(spec);
+      expect(covered.has(spec), `${spec} must be covered by an unfiltered workflow`).toBe(true);
+      expect(spec in LOCAL_ONLY_ALLOWLIST, `${spec} must carry NO allowlist row`).toBe(false);
+    }
   });
 
   it("the lifecycle layout spec is covered by lifecycle-layout-e2e.yml (not allowlisted)", () => {
@@ -273,8 +252,175 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     );
     expect(r.rejected[0]!.reason).toBe("continue-on-error");
   });
-  it("rejects exit-code suppression", () => {
-    const r = S(base("  pull_request:", "", `playwright test ${spec} || true`));
-    expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+  it("rejects exit-code suppression in ANY status-replacing form", () => {
+    // An adversarial round walked past the previous leak-enumeration with all
+    // three of these. The gate is now an allowlist, so the list below is a
+    // regression pin rather than the definition.
+    for (const tail of ["|| true", "|| :", "; true", "; exit 0", "| sed -n 1p", "| tee out.txt"]) {
+      const r = S(base("  pull_request:", "", `playwright test ${spec} ${tail}`));
+      expect(r.covered.has(spec), `must not cover: ${tail}`).toBe(false);
+      expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+    }
+  });
+
+  it("still counts a PRECEDING && chain, which does not swallow status", () => {
+    const r = S(base("  pull_request:", "", `pnpm setup && playwright test ${spec}`));
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects continue-on-error in any form that is not literally false", () => {
+    // `${{ true }}` is an expression GitHub evaluates to true; matching the
+    // literal `true` missed it entirely and reported false coverage.
+    for (const value of ["true", "${{ true }}", "${{ github.event_name == 'push' }}", "'true'"]) {
+      const job = S(
+        base("  pull_request:", `    continue-on-error: ${value}\n`, `playwright test ${spec}`),
+      );
+      expect(job.covered.has(spec), `job-level: ${value}`).toBe(false);
+    }
+    // …and an explicit `false` must still COUNT, or the gate is just off.
+    const ok = S(
+      base("  pull_request:", "    continue-on-error: false\n", `playwright test ${spec}`),
+    );
+    expect(ok.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects a step-level continue-on-error expression placed before run:", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - continue-on-error: \${{ true }}\n        run: playwright test ${spec}\n`;
+    expect(S(w).covered.has(spec)).toBe(false);
+  });
+});
+
+/**
+ * The whole-config rule (spec §4.1).
+ *
+ * A command that runs a Playwright config WITHOUT naming a spec used to be
+ * invisible to the scanner: it extracts spec paths, that command has none, so
+ * it claimed nothing at all — not "rejected for a reason", but no claim to
+ * reject. The whole-config workflow that PR2 ships is exactly that shape.
+ *
+ * The rule is deliberately the narrowest thing that closes the gap: ONE exact
+ * literal command form covers every spec in that config's `testMatch`, and any
+ * deviation of any kind yields no claim. Four adversarial rounds could not make
+ * a general narrowing grammar (`--grep`, `--shard`, positionals, forwarded
+ * call-site arguments) sound, so there is no grammar here to attack — there is
+ * a string comparison. What was descoped is filed as BL-CI-* backlog items.
+ *
+ * Recognition and QUALIFICATION stay separate: everything below still passes
+ * through the same `if:` / `continue-on-error` / path-filter / exit-suppression
+ * gates, and the tests pin that a recognized command in a disqualified job
+ * still yields nothing.
+ */
+describe("the whole-config rule (spec §4.1)", () => {
+  const CFG = "tests/e2e/standalone.config.ts";
+  const members = ["tests/e2e/alpha.spec.ts", "tests/e2e/beta.spec.ts"];
+  const wf = (run: string, trigger = "  pull_request:", extra = "") =>
+    `name: x\non:\n${trigger}\njobs:\n  j:\n    runs-on: ubuntu-latest\n${extra}    steps:\n      - run: ${run}\n`;
+  const S = (run: string, trigger?: string, extra?: string) =>
+    scanWorkflowCoverage({
+      workflows: { "w.yml": wf(run, trigger, extra) },
+      packageScripts: {},
+      configSpecs: { [CFG]: members },
+    });
+
+  it("the exact shipping literal covers every member of that config", () => {
+    const r = S(`pnpm exec playwright test --config ${CFG}`);
+    expect([...r.covered].sort()).toEqual([...members].sort());
+  });
+
+  it("claims NOTHING for any deviation from the literal", () => {
+    // Each of these is a narrowing form that a general grammar would have had
+    // to reason about correctly. This rule reasons about none of them: they
+    // are simply not the string.
+    for (const run of [
+      `pnpm exec playwright test --config ${CFG} --shard=1/2`,
+      `pnpm exec playwright test --config ${CFG} -g foo`,
+      `pnpm exec playwright test --config ${CFG} --grep-invert bar`,
+      `pnpm exec playwright test --reporter=list --config ${CFG}`,
+      `pnpm exec playwright test --config ${CFG} --list`,
+      `pnpm exec playwright test --config=${CFG}`,
+      `pnpm exec playwright test --config ${CFG} --project=chromium`,
+    ]) {
+      const r = S(run);
+      expect([...r.covered], `must claim nothing: ${run}`).toEqual([]);
+    }
+  });
+
+  it("a positional spec still covers THAT spec, and not the whole config", () => {
+    // The two mechanisms are independent: naming a spec explicitly has always
+    // covered it, and must keep doing so. What the deviation must not do is
+    // claim the config's OTHER members.
+    const r = S(`pnpm exec playwright test --config ${CFG} tests/e2e/alpha.spec.ts`);
+    expect([...r.covered]).toEqual(["tests/e2e/alpha.spec.ts"]);
+  });
+
+  it("claims nothing when the literal is wrapped in ANY shell context", () => {
+    // An adversarial round claimed full coverage for all three of these,
+    // because alias recursion applied the exact match to the package-script
+    // BODY while qualification only saw the outer command. The whole-config
+    // claim now requires the entire run block to BE the literal, so an alias
+    // does not carry it either — `pnpm test:e2e:standalone` is deliberately
+    // NOT recognized, and that is the safe direction: it reads as dark rather
+    // than as falsely covered.
+    const scripts = { "test:e2e:standalone": `pnpm exec playwright test --config ${CFG}` };
+    for (const run of [
+      "echo pnpm test:e2e:standalone",
+      "pnpm test:e2e:standalone",
+      `pnpm exec playwright test --config ${CFG} &`,
+      "|\n          set +e\n          pnpm test:e2e:standalone\n          true",
+      `# pnpm exec playwright test --config ${CFG}`,
+    ]) {
+      const r = scanWorkflowCoverage({
+        workflows: { "w.yml": wf(run) },
+        packageScripts: scripts,
+        configSpecs: { [CFG]: members },
+      });
+      expect([...r.covered], `must claim nothing: ${run}`).toEqual([]);
+    }
+  });
+
+  it("claims nothing when the workflow uses a construct this scanner cannot model", () => {
+    // An adversarial round produced false coverage through all six of these.
+    // `shell: bash -c ":" {0}` makes the step succeed WITHOUT running the
+    // command; `working-directory:` makes the relative config path resolve to
+    // a different config; `needs: gate` where gate has `if: false` skips the
+    // job entirely even though its own head carries no condition. Rather than
+    // model any of them, a workflow using them yields nothing — the spec then
+    // reads as dark and keeps its allowlist row, which is the safe direction.
+    const cmd = `pnpm exec playwright test --config ${CFG}`;
+    const cases = [
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - shell: bash -c ":" {0}\n        run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: bash -c ":" {0}\n    steps:\n      - run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - working-directory: other\n        run: ${cmd}\n`,
+      `name: x\non:\n  pull_request:\njobs:\n  gate:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n  j:\n    needs: gate\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${cmd}\n`,
+    ];
+    for (const [i, yaml] of cases.entries()) {
+      const r = scanWorkflowCoverage({
+        workflows: { "w.yml": yaml },
+        packageScripts: {},
+        configSpecs: { [CFG]: members },
+      });
+      expect([...r.covered], `case ${i} must claim nothing`).toEqual([]);
+      expect(r.rejected[0]?.reason, `case ${i} must be REPORTED, not dropped`).toBe(
+        "unmodelled execution override",
+      );
+    }
+  });
+
+  it("claims nothing for a config it was given no member list for", () => {
+    const r = S("pnpm exec playwright test --config tests/e2e/other.config.ts");
+    expect([...r.covered]).toEqual([]);
+  });
+
+  it("still applies every qualification gate to a recognized command", () => {
+    const cmd = `pnpm exec playwright test --config ${CFG}`;
+    expect([...S(cmd, "  workflow_dispatch:").covered]).toEqual([]);
+    expect([...S(cmd, '  pull_request:\n    paths:\n      - "lib/**"').covered]).toEqual([]);
+    expect([...S(cmd, "  pull_request:", "    continue-on-error: true\n").covered]).toEqual([]);
+    expect([...S(`${cmd} || true`).covered]).toEqual([]);
+    // …and the rejection is REPORTED, not silently dropped, so a disqualified
+    // whole-config job cannot look like an absent one.
+    const r = S(cmd, "  workflow_dispatch:");
+    expect(r.rejected.map((x) => x.spec).sort()).toEqual([...members].sort());
+    expect(new Set(r.rejected.map((x) => x.reason))).toEqual(new Set(["no pull_request trigger"]));
   });
 });

@@ -77,7 +77,7 @@ function expectSectionStillRendered(container: HTMLElement, path: "modal" | "leg
 /**
  * No count chip ELEMENT beside the heading. Identified by position rather than by a
  * testid, because the chip carries none: it is the heading's next element sibling
- * inside the centred group, and `tabular-nums` is the class only it uses there.
+ * inside the name group, and `tabular-nums` is the class only it uses there.
  */
 function expectNoCountChip(container: HTMLElement, path: "modal" | "legacy") {
   const heading = container.querySelector("h3, h4");
@@ -102,7 +102,7 @@ function expectNoCountChip(container: HTMLElement, path: "modal" | "legacy") {
       (c) => `<${c.tagName.toLowerCase()} class="${c.className}">${(c.textContent ?? "").trim()}`,
     ),
     `${path}: no count chip renders beside the heading — an empty or parenthesised` +
-      " sibling still occupies space in the centred group",
+      " sibling still occupies space in the name group",
   ).toEqual([]);
 }
 
@@ -117,7 +117,7 @@ describe("non-finite section counts render no chip", () => {
       expectSectionStillRendered(container, "modal");
       // The chip ELEMENT is absent, not merely its text. Review round 2: an empty
       // `()` or a placeholder glyph passes a text-absence check while still
-      // occupying flex space in the centred group, which is exactly the chip this
+      // occupying flex space in the name group, which is exactly the chip this
       // contract says must not render.
       expectNoCountChip(container, "modal");
       // The chip is the only place a bare "(…)" is emitted in this subtree.
