@@ -230,6 +230,11 @@ test.beforeAll(async () => {
   if (negatives.length !== NEGATIVE_ROWS.length) {
     throw new Error(`seeded ${negatives.length}/${NEGATIVE_ROWS.length} negative rows`);
   }
+  // EVERY positive must resolve a link (review R1: set-equality proves seed
+  // NAMES, not that each context satisfies its builder — a broken context
+  // would otherwise be silently discarded by every downstream filter).
+  const unresolved = positives.filter((row) => !expectedLink(row)).map((row) => row.code);
+  expect(unresolved, `positive contexts must all resolve: ${unresolved.join(", ")}`).toEqual([]);
 });
 
 test.afterAll(async () => {
@@ -254,7 +259,7 @@ test("bell panel renders every registry link verbatim; negative rows render none
   // Needs-attention inbox owns those, and its links are generic deep-links, not
   // registry links (their registry links are asserted on the banner instead).
   const bellRows = positives.filter(
-    (row) => !isHealth(row.code) && !INBOX_ROUTED_CODES.includes(row.code) && expectedLink(row),
+    (row) => !isHealth(row.code) && !INBOX_ROUTED_CODES.includes(row.code),
   );
   // Non-vacuity: if a surface-routing change drains the bell of action-bearing
   // codes, this spec must complain rather than quietly assert nothing.
@@ -273,7 +278,10 @@ test("bell panel renders every registry link verbatim; negative rows render none
   }
   expect(missing, missing.join("\n")).toEqual([]);
 
-  for (const row of negatives) {
+  // Health-audience negatives are asserted on the health panel (below) — the
+  // bell suppresses actions for health rows unconditionally, so asserting
+  // their absence HERE would pass regardless of resolver behavior (review R1).
+  for (const row of negatives.filter((r) => !isHealth(r.code))) {
     // The row may render (global rows are bell-eligible); its ACTION must not.
     await expect(
       page.getByTestId(`bell-action-${row.id}-0`),
@@ -325,30 +333,38 @@ test("attention banner renders the footer action / external destination chip per
   // The banner renders inside the show review surface; wait for it to settle.
   await page.waitForLoadState("networkidle");
 
-  let footer = 0;
-  let chips = 0;
+  // Exact expected set, pinned (review R1: a floor lets anchors vanish while
+  // the test stays green, and unexpected anchors inflate it). Checked in like
+  // EXPECTED_CUT_IDS: a routing/derivation change must fail loudly here.
+  const EXPECTED_BANNER_CODES = [
+    "EMBEDDED_ASSET_DRIFTED",
+    "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    "LIVE_ROW_CONFLICT",
+    "ONBOARDING_SHEET_UNREADABLE",
+    "OPENING_REEL_NOT_VIDEO",
+    "OPENING_REEL_PERMISSION_DENIED",
+    "REEL_DRIFTED",
+    "SHEET_UNAVAILABLE",
+  ].sort();
+
+  const renderedCodes: string[] = [];
   for (const row of positives) {
-    const link = expectedLink(row);
-    if (!link) continue;
+    const link = expectedLink(row)!;
     const action = page.getByTestId(`attention-banner-action-${row.id}`);
     const chip = page.getByTestId(`attention-banner-destination-${row.id}`);
     if ((await action.count()) > 0) {
       await assertAnchor(page, `attention-banner-action-${row.id}`, link);
-      footer++;
+      renderedCodes.push(row.code);
     } else if ((await chip.count()) > 0) {
       // §2.3: the destination chip is EXTERNAL-ONLY by design.
       expect(link.external, `${row.code} destination chip implies external`).toBe(true);
       await expect(chip).toHaveAttribute("href", link.href);
       await expect(chip).toHaveAttribute("target", "_blank");
       await expect(chip).toHaveAttribute("rel", "noopener noreferrer");
-      chips++;
+      renderedCodes.push(row.code);
     }
   }
-  // Non-vacuity: the seeded show must surface real anchors in the banner. The
-  // exact split between footer and chip tracks each item's actionable /
-  // clearingKind derivation, which is unit-tested; here we require the live
-  // render produced a healthy number of them and every one matched verbatim.
-  expect(footer + chips).toBeGreaterThanOrEqual(5);
+  expect(renderedCodes.sort()).toEqual(EXPECTED_BANNER_CODES);
 });
 
 test("health panel renders health-audience registry links verbatim at /admin/dev/telemetry", async ({
@@ -360,5 +376,13 @@ test("health panel renders health-audience registry links verbatim at /admin/dev
   await page.goto("/admin/dev/telemetry");
   for (const row of healthRows) {
     await assertAnchor(page, `health-alert-action-${row.id}`, expectedLink(row)!);
+  }
+  // Health-audience NEGATIVE rows belong to this surface (the bell suppresses
+  // health actions unconditionally, so absence there is vacuous — review R1).
+  for (const row of negatives.filter((r) => isHealth(r.code))) {
+    await expect(
+      page.getByTestId(`health-alert-action-${row.id}`),
+      `${row.code} (${NEGATIVE_ROWS.find((n) => n.code === row.code)?.why}) must render NO action`,
+    ).toHaveCount(0);
   }
 });
