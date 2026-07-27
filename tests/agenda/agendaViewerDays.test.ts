@@ -150,6 +150,30 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
     expect(r).toEqual({ kind: "all" });
   });
 
+  test("where the two label scans DISAGREE, the result is fail-open", () => {
+    // `distinctLabelDates` re-implements parseIsoFromDayLabel's regex with /g rather than
+    // calling it, so the two can disagree, and this pins that every disagreement lands safe.
+    //
+    // The disagreement case: the FIRST regex hit has an unknown month name. parseIsoFromDayLabel
+    // takes that first hit, fails the MONTHS lookup and returns null WITHOUT trying the next
+    // hit; the counter skips it and counts the later real date. So parse says "unidentifiable"
+    // (null) while the counter says "exactly one" -- and the row must still fail open, which the
+    // null guard delivers.
+    //
+    // Probed before being written: parseIso=null, counter=1, result=all.
+    for (const label of [
+      "Foo 5, 2026 / Wednesday, May 6, 2026",
+      "Zebra 99, 2026 and May 6, 2026",
+    ]) {
+      const r = visibleAgendaDaysForViewer(
+        ext([label, "Thursday, May 7, 2026"]),
+        viewerDates(["2026-05-06"]),
+        ["2026-05-06"],
+      );
+      expect(r, `disagreement on "${label}" must fail open`).toEqual({ kind: "all" });
+    }
+  });
+
   test("a single date repeated within one label is NOT ambiguous", () => {
     // The over-fire guard. "Tuesday, May 5, 2026 (May 5, 2026 rehearsal)" names one DATE
     // twice; treating any second regex hit as ambiguity would fail open on a row that is
