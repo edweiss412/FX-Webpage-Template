@@ -28,12 +28,12 @@
  * rather than traded.
  *
  * Colour: `text-text` at rest — `text-text-subtle` is banned for action
- * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` plus the house
- * `bg-surface-sunken` wash on hover AND on :active (impeccable critique P1:
- * the ~12/255-per-channel text lift alone is perceptually null on a 16px
- * stroke; the wash is the sibling icon-control press idiom — ModalCloseButton,
- * BellPanel, HelpSheet — and gives touch users real press feedback where hover
- * never fires).
+ * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` plus the
+ * backdrop-matched wash from BACKDROP_SKIN on hover AND on :active (impeccable
+ * critique P1 + audit P2: the ~12/255-per-channel text lift alone is
+ * perceptually null on a 16px stroke; the wash is the sibling icon-control
+ * press idiom — ModalCloseButton, BellPanel, HelpSheet — and gives touch users
+ * real press feedback where hover never fires).
  * NO transform in any state: :active sits outside the transition sweep
  * (BL-HEADER-PROBE-RESIDUAL-VACUITY item 2), so geometry must not move there.
  * The unit suite pins the whole class-token set by equality; adding ANY

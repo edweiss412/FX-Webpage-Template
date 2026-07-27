@@ -17,7 +17,7 @@ The class sweep mandated by AGENTS.md ("class-sweep before patching") found a **
 5. **Site C (`Step3SheetCard.tsx:141-168`) keeps its text-link pattern.** Title-as-link wraps, works for no-details rows, and carries the affordance in `text-text-strong` + hover underline; its trailing glyph is aria-hidden decoration beside a strong text link, not the affordance itself. BACKLOG.md:127 (root) names only the icon-only sites for the token violation. Site C is untouched by this change.
 6. **`duration-fast` is retained on the new component.** The token emits no CSS repo-wide (Tailwind v4 reads `--transition-duration-*`; this repo defines `--duration-fast`) — a known, class-wide defect across ~89 files with its own fix shape. Repairing it here would be scope creep; parity with every sibling is kept deliberately.
 7. **Phrasing at site A supersedes PR #592's wording by extension only.** #592's new-tab announcement and `.trim()` fallback are preserved verbatim; this change adds "in Google Sheets" so all sites share one phrasing (2 of 3 already had it). BACKLOG.md:128 (root) records #592's closure of item 2; nothing in that closure is reverted.
-8. **`min-h-tap-min` removal is scoped to sub-blocks only** and amends the 2026-07-26 wide-inline spec §2.4 ("44px regardless of pill") to top-level sections only. That is exactly BACKLOG.md:132 (root)'s filed intent (the Diagrams sub-block never renders a link, so the floor buys nothing and defeats the deliberate `size-6`/`text-sm` subordination).
+8. **`min-h-tap-min` removal is scoped to LINKLESS sub-blocks only** (`sub && sheetHref === null` — ratified audit P2 amendment, §4.1 item 6) and amends the 2026-07-26 wide-inline spec §2.4 ("44px regardless of pill") to link-bearing rows. That is exactly BACKLOG.md:132 (root)'s filed intent (the Diagrams sub-block never renders a link, so the floor buys nothing and defeats the deliberate `size-6`/`text-sm` subordination); a future linked sub-block gets its floor back by construction.
 9. **Link presence remains instant** (no enter/exit animation): presence follows data, not a state transition — existing ratified comment at `step3ReviewSections.tsx:978`.
 10. **B/D title rows gain the 44px floor and a 2px trailing margin.** Codex r1 finding 1: without a floor, the overlay's 12px vertical reach lands on B's subline and D's eyebrow/subline, and the 14px right reach can cross the shell header's 12px `gap-3` toward the actions cluster. The repair — `min-h-tap-min` + `gap-2.5` + `mr-0.5` on the consuming rows (§5.1) — is the same containment recipe site A already uses and is ratified here; do not propose per-site inset variants or a boxed-idiom revert instead. **Height effect: none** (Codex r2 finding 3): the rows are already 44px tall because the current boxed anchor is a 44px child; the floor preserves that band when the anchor shrinks to 20px. The baseline effect is markup-only.
 11. **The agenda error-state source link (`step3ReviewSections.tsx:3480-3490`, testid `agenda-source-link`) is NOT in the class.** Visible words "Open the source sheet" + `text-text-strong` + underline carry the affordance — the same text-carried pattern as site C. Retained unchanged; it earns the file a pinned row in the §7.10 guard.
@@ -76,16 +76,22 @@ Renders one `<a target="_blank" rel="noopener noreferrer">` containing `<Externa
 - `subjectLabel.trim()` non-empty → `Open the source sheet for ${trimmed} in Google Sheets (opens in a new tab)`
 - else → `Open the source sheet in Google Sheets (opens in a new tab)`
 
-**Class string (single literal + ring-offset lookup; full literals per branch so the Tailwind JIT sees complete names, same discipline as `SourceLink.tsx:60`):**
+**Class string (single base literal + backdrop-skin lookup keyed by `ringOffset`; full literals per branch so the Tailwind JIT sees complete names, same discipline as `SourceLink.tsx:60`):**
 
 ```
 relative inline-grid size-5 shrink-0 place-items-center rounded-sm
 text-text transition-colors duration-fast
 before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-['']
 hover:text-text-strong active:text-text-strong
-hover:bg-surface-sunken active:bg-surface-sunken
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring
-focus-visible:ring-offset-2 focus-visible:ring-offset-bg | focus-visible:ring-offset-surface
+focus-visible:ring-offset-2
+```
+
+plus exactly one backdrop-matched skin selected by `ringOffset` (ratified amendment, impeccable audit P2 — see §12.2 of the handoff doc: the press/hover wash must sit one REAL neutral step above its backdrop in both themes; `bg-surface-sunken` over `bg-bg` measures 1.03:1 in dark — invisible — so the `bg` site steps up to `bg-surface`; no `dark:` variant exists in this repo, so per-theme splits would be dead classes):
+
+```
+bg      = focus-visible:ring-offset-bg hover:bg-surface active:bg-surface
+surface = focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken
 ```
 
 **Guard conditions, every prop × every degenerate value (explicit dispositions):**
@@ -98,9 +104,9 @@ focus-visible:ring-offset-2 focus-visible:ring-offset-bg | focus-visible:ring-of
 | `ringOffset` | type-excluded (closed union, required) | type-excluded | type-excluded | type-excluded |
 | `className` | undefined AND null → base classes only (the component appends `className ?? ""`, so a runtime `null` from an untyped JS caller is inert rather than rendering the string "null") | base classes only (empty append) | tolerated — class parsing ignores extra whitespace | n/a (string) |
 
-No numeric props exist. TypeScript excludes `null` statically on every prop; the `?? ""` append is the one place a runtime null could otherwise leak into output, and it is neutralised there. The component has zero branches other than the aria-label ternary, the ring-offset lookup, and that append.
+No numeric props exist. TypeScript excludes `null` statically on every prop; the `?? ""` append is the one place a runtime null could otherwise leak into output, and it is neutralised there. The component has zero branches other than the aria-label ternary, the backdrop-skin lookup, and that append.
 
-**Colour rationale (item 1):** `text-text` at rest (16.5:1/14.8:1 — `DESIGN.md` §1.2), `text-text-strong` PLUS the house `bg-surface-sunken` wash on hover AND on active (impeccable-gate amendment: the text lift alone measures ~12/255 per channel on a 16px stroke — perceptually null — and the wash is the established sibling icon-control idiom; still colour-only, no geometry). Active is **colour-only, no transform**: BL-HEADER-PROBE-RESIDUAL-VACUITY item 2 (BACKLOG.md:147 (root)) documents that :active is outside the transition sweep, so geometry must not move in that state; colour-active also gives touch users press feedback where hover never fires. The no-transform contract is asserted by the §7.6 token test.
+**Colour rationale (item 1):** `text-text` at rest (16.5:1/14.8:1 — `DESIGN.md` §1.2), `text-text-strong` PLUS the backdrop-matched wash on hover AND on active — `bg-surface` at the `bg`-backed site, `bg-surface-sunken` at the `surface`-backed sites, per the §3 skin lookup (impeccable-gate amendments, critique P1 + audit P2: the text lift alone measures ~12/255 per channel on a 16px stroke — perceptually null — the wash is the established sibling icon-control idiom, and it must be a real neutral step above its own backdrop in both themes; still colour-only, no geometry). Active is **colour-only, no transform**: BL-HEADER-PROBE-RESIDUAL-VACUITY item 2 (BACKLOG.md:147 (root)) documents that :active is outside the transition sweep, so geometry must not move in that state; colour-active also gives touch users press feedback where hover never fires. The no-transform contract is asserted by the §7.6 token test.
 
 ## §4 Per-site changes
 
@@ -109,7 +115,7 @@ No numeric props exist. TypeScript excludes `null` statically on every prop; the
 - Replace the inline `<a>` (`components/admin/wizard/step3ReviewSections.tsx:991-1006`) with `<SheetIconLink href={sheetHref} subjectLabel={label} testId={…same…} ringOffset="bg" className="sm:order-1 sm:ml-0.5" />`. The testid string is unchanged.
 - Delete the wrong-precedent sentence (item 3) with the rest of the superseded comment block; the component carries the idiom rationale, the call site keeps only site-specific notes (the §11 instant-presence line, the `sm:order-1` positioning rationale).
 - Aria gains "in Google Sheets" (item 4; supersession note §1.7).
-- **Item 6 floors:** line 932's `min-h-tap-min` and line 930's `sm:min-h-tap-min` both become conditional on `!sub`. Guard comment at the site: the floor exists for link-bearing headers; sub-blocks never carry links (§2 fact); if a future sub-block gains a link, the floor condition must be revisited with it.
+- **Item 6 floors:** line 932's `min-h-tap-min` and line 930's `sm:min-h-tap-min` both become conditional on link presence — dropped only when `sub && sheetHref === null` (ratified amendment, impeccable audit P2: keying on `!sub` alone detached the floor from the link it exists to contain; a future sub-block that gains a `sheetHref` now gets its floor back by construction). Guard comment at the site: the floor is SheetIconLink consuming-context requirement 1 and must never detach from the link; today's sub-blocks never carry links (§2 fact), so the Diagrams subordination is unchanged.
 - A's consuming context already satisfies §5.1: floor present (top-level rows), left clearance 10px (`gap-2.5`), right side has no interactive neighbour (row end; ≥20px `p-tile-pad` non-interactive padding beyond).
 
 ### 4.2 Site B — `PublishedReviewModal.tsx`
@@ -143,7 +149,7 @@ Site C; `SourceLink`; `DriveConnectionPanel`; `pr-header-link-slot` (§2); aria 
 
 | Requirement | Site A | Sites B/D |
 | --- | --- | --- |
-| 44px row floor containing the anchor (vertical containment) | `min-h-tap-min` line-1 wrapper below `sm` / `sm:min-h-tap-min` outer row (top-level sections; §4.1) | ADDED to the title row (§4.2/§4.3) |
+| 44px row floor containing the anchor (vertical containment) | `min-h-tap-min` line-1 wrapper below `sm` / `sm:min-h-tap-min` outer row (link-keyed: dropped only when `sub && sheetHref === null`; §4.1 item 6) | ADDED to the title row (§4.2/§4.3) |
 | Left interactive clearance ≥ 10px | `gap-2.5` (below `sm`, name side); `gap-2.5` + `sm:ml-0.5` = 12px (pill side, `sm`+) | `gap-2.5` (title side) |
 | Right clearance ≥ 14px to the nearest CONTENT box (interactive or not — a chip or pill under the overlay is a capture defect too), or no neighbouring box | no neighbouring box — row end, then ≥20px `p-tile-pad` padding | `mr-0.5` (2px) + shell `gap-3` (12px) = 14px to the cluster's first box (D: state chip; B: state pill — §2) |
 | Anchor vertically centred in the floor | row centring (line-1 `items-center`) | title row `items-center` |
@@ -181,7 +187,7 @@ Updated:
 
 New:
 
-6. `SheetIconLink` unit suite: aria builder (subject / whitespace-only fallback / `.trim()`), ring-offset lookup (each variant present, other absent), className passthrough, `rel`/`target` hardening, aria-hidden icon, **and the colour/motion contract via SET-EQUALITY** (Codex r2 finding 4 killed the ban-pattern form — negative utilities, `skew-*`, arbitrary transforms, and stacked variants all slipped a prefix regex): the rendered anchor's whitespace-split className token set must EQUAL, exactly, the expected literal set (the §3 base literal ∪ the selected ring-offset literal ∪ the tokens of the `className` prop passed in the test). Set-equality makes every unexpected utility — any transform spelling under any variant stack, and `text-text-subtle` — fail by construction, with no enumeration to outgrow (the project's ring-token precedent). This, not the bleed probe, is what narrows BL-HEADER-PROBE-RESIDUAL-VACUITY item 2's untested-:active exposure. Expected label strings and the expected token set are literals in the test, never imported from the component.
+6. `SheetIconLink` unit suite: aria builder (subject / whitespace-only fallback / `.trim()`), backdrop-skin lookup (each variant's full skin present, other absent), className passthrough, `rel`/`target` hardening, aria-hidden icon, **and the colour/motion contract via SET-EQUALITY** (Codex r2 finding 4 killed the ban-pattern form — negative utilities, `skew-*`, arbitrary transforms, and stacked variants all slipped a prefix regex): the rendered anchor's whitespace-split className token set must EQUAL, exactly, the expected literal set (the §3 base literal ∪ the selected backdrop-skin literal ∪ the tokens of the `className` prop passed in the test). Set-equality makes every unexpected utility — any transform spelling under any variant stack, and `text-text-subtle` — fail by construction, with no enumeration to outgrow (the project's ring-token precedent). This, not the bleed probe, is what narrows BL-HEADER-PROBE-RESIDUAL-VACUITY item 2's untested-:active exposure. Expected label strings and the expected token set are literals in the test, never imported from the component.
 7. **Edge-complete bleed assertions via RECT INTERSECTION** (Codex r3 finding 1 killed the coordinate-probe form — a centred line-2 pill does not span the link's centre-x, "1px below the row" lands in `mt-0.5` margin, and the shell's `items-start` puts the link's centre-y below D's ~24px chip; hand-picked probe points cannot be guaranteed to land inside their named neighbour). The replacement needs no coordinate guessing: compute the OVERLAY RECT as the anchor's `getBoundingClientRect()` expanded by the four resolved pseudo-element ::before inset components (exactly the §7.2 oracle's computation), read each neighbour's own rect, and assert the **intersection is empty** for EVERY neighbouring content box — title/heading, count, pill, subline, eyebrow, action-cluster chip — regardless of where that box sits. Pure geometry, immune to margins, centring, and alignment offsets. Per site, the asserted neighbour sets:
    - **A, below `sm` (saturated-name cell added to `_sectionHeaderCellHarness.tsx` — long name + count filling the row at 320/375):** count node (`step3ReviewSections.tsx:970-976`), heading, line-2 pill (`step3ReviewSections.tsx:1014-1027`).
    - **A, `sm`+:** inline pill (both orders: pilled and no-pill saturated cases), count/heading. The existing `elementFromPoint` case (`tests/e2e/section-header-layout.layout.spec.ts:809-832`) is retained as the paint-order spot check and re-derived for the 10px reach.
