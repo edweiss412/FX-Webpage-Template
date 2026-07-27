@@ -91,9 +91,12 @@ function passedNames(output: string): Set<string> {
 
 describe("pg-cron coverage cannot pass vacuously in CI", () => {
   it("FAILS in CI when the database is unreachable, instead of skipping", () => {
+    // Uses CI="true", which is what GitHub Actions actually sets — probing
+    // with "1" let a mutation to `process.env.CI === "1"` pass every case here
+    // while losing both anti-vacuity checks on the real runner.
     // Kills the `isCi = false` bypass: no source pattern is consulted, only
     // whether the suite actually refuses to succeed.
-    const run = runSuite({ CI: "1", TEST_DATABASE_URL: DEAD_DB });
+    const run = runSuite({ CI: "true", TEST_DATABASE_URL: DEAD_DB });
     expect(run.status, "CI + unreachable DB must FAIL").not.toBe(0);
     expect(run.output).toMatch(/psql is unreachable/i);
   }, 300_000);
@@ -110,7 +113,7 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
     // Kills the sentinel bypass: a counted-but-empty case with the six real
     // ones skipped would leave the count non-zero but drop the PASSED total.
     // The floor is the full case set, so skipping any of them reds this.
-    const run = runSuite({ CI: "1" });
+    const run = runSuite({ CI: "true" });
     expect(run.status, "CI + reachable DB must pass").toBe(0);
     const passed = passedNames(run.output);
     // Require each live case BY NAME. A count would be satisfied by swapping

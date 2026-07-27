@@ -99,7 +99,17 @@ const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const coverageTarget = process.env.PG_CRON_COVERAGE_TARGET ?? "local";
 
+/**
+ * Live queries actually issued. Names and counts of CASES prove registration,
+ * not behaviour: an adversarial round emptied every live case body to `() => {}`
+ * and the suite still reported six named live cases passing, having issued zero
+ * queries and made zero assertions. Only the query itself distinguishes a case
+ * that touched the database from one that did not.
+ */
+let queryCount = 0;
+
 function psql(query: string): string {
+  queryCount += 1;
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt", "-c", query], {
     encoding: "utf8",
   }).trim();
@@ -187,6 +197,15 @@ afterAll(() => {
     throw new Error(
       "pg-cron-coverage: CI is set but ZERO live-DB cases executed — the suite " +
         "would be reporting success on static assertions alone.",
+    );
+  }
+  // Cases can execute and still touch nothing. Require at least one live query
+  // per live case that ran: emptying the bodies keeps the case count and the
+  // case NAMES intact, and only this notices.
+  if (isCi && queryCount < liveCaseCount()) {
+    throw new Error(
+      `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
+        "database queries were issued — cases are executing without touching the database.",
     );
   }
 });
