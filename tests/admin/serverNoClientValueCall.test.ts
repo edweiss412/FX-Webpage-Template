@@ -49,7 +49,9 @@ function walk(relDir: string): string[] {
 /** True when the module's first meaningful token is a `"use client"` directive. */
 function isUseClientModule(abs: string): boolean {
   try {
-    return /^["']use client["']/.test(stripCommentsForFile(readFileSync(abs, "utf8"), abs).trimStart());
+    return /^["']use client["']/.test(
+      stripCommentsForFile(readFileSync(abs, "utf8"), abs).trimStart(),
+    );
   } catch {
     return false;
   }

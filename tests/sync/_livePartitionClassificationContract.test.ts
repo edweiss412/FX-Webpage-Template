@@ -46,7 +46,6 @@ function stripRegistry(src: string): string {
   return src.slice(0, start) + src.slice(end + 2);
 }
 
-
 // Structural probes for live-only ops classified reachableFromCore:false — the proof is that the
 // core's executable source (registry + comments stripped) never references the op's concrete
 // symbols/tables. Every non-reachable live-only registry row MUST have a probe here (the
@@ -136,6 +135,8 @@ describe("live-partition classification contract (spec §3.2 / §9 R17)", () => 
     const raw = coreSource();
     expect(raw).not.toMatch(/resolveStaleSyncProblemAlerts_unlocked\s*\(/);
     expect(raw).not.toMatch(/import[^;]*resolveStaleSyncProblemAlerts/);
-    expect(stripCommentsForFile(stripRegistry(raw), "core.ts")).not.toContain("resolveStaleSyncProblemAlerts");
+    expect(stripCommentsForFile(stripRegistry(raw), "core.ts")).not.toContain(
+      "resolveStaleSyncProblemAlerts",
+    );
   });
 });

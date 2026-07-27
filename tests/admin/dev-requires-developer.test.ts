@@ -30,7 +30,6 @@ const DEV_PAGE_FILES = [
   "app/admin/dev/telemetry-dim/page.tsx",
 ];
 
-
 describe("/admin/dev PAGES are developer-gated (source contract)", () => {
   for (const rel of DEV_PAGE_FILES) {
     test(`${rel}: first executable statement is await requireDeveloper(); no requireAdmin`, () => {

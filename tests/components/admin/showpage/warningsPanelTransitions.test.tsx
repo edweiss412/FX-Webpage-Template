@@ -126,7 +126,10 @@ describe("transition audit: nothing in the four-state path animates", () => {
       // test could not have.
       "parseNotes.length > 0",
     ];
-    const src = stripCommentsForFile(readFileSync(resolve(process.cwd(), FILES[0]!), "utf8"), FILES[0]!);
+    const src = stripCommentsForFile(
+      readFileSync(resolve(process.cwd(), FILES[0]!), "utf8"),
+      FILES[0]!,
+    );
     const start = src.indexOf("const routedWarningsRenderElsewhere = chrome?.");
     const region = src.slice(start, src.indexOf("No parse warnings for this sheet."));
 

@@ -52,7 +52,6 @@ const expectedBoundaryChecks: readonly ExpectedBoundaryCheck[] = [
   { table: "admin_bell_state", column: "admin_email", nullability: "not-null" },
 ] as const;
 
-
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
 }

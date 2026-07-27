@@ -96,7 +96,8 @@ describe("META tile producer topology", () => {
     // an existing tileId, which would make two tiles share one alert identity.
     const found: string[] = [];
     for (const f of PRODUCTION_FILES) {
-      for (const m of strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g)) found.push(m[1] as string);
+      for (const m of strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g))
+        found.push(m[1] as string);
     }
     expect(found.slice().sort()).toEqual(EXPECTED_TILE_IDS);
     expect(new Set(found).size, "a tileId is used by more than one wrapper").toBe(found.length);
@@ -107,7 +108,9 @@ describe("META tile producer topology", () => {
     const actual: Record<string, string[]> = {};
     for (const f of PRODUCTION_FILES) {
       if (!f.startsWith(SECTIONS_DIR)) continue;
-      const ids = [...strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g)].map((m) => m[1] as string);
+      const ids = [...strippedSourceOf(f).matchAll(/tileId="(crew:[^"]+)"/g)].map(
+        (m) => m[1] as string,
+      );
       if (ids.length > 0) actual[f.split("/").pop() as string] = ids;
     }
     const flattened = Object.fromEntries(

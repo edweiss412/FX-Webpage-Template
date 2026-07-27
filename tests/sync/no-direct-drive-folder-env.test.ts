@@ -6,7 +6,6 @@ import { describe, expect, test } from "vitest";
 const ROOT = process.cwd();
 const ALLOWED_HELPER = "lib/appSettings/getWatchedFolderId.ts";
 
-
 function collectSourceFiles(relDir: string): string[] {
   const absDir = join(ROOT, relDir);
   return readdirSync(absDir)

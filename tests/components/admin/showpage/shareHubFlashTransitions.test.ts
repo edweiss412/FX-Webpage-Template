@@ -124,7 +124,10 @@ describe("share-link cue motion contract (N0/N1)", () => {
 
     // Self-check first: a scanner that miscounts would make the assertion below
     // meaningless, so require the whole file to balance before trusting it.
-    expect(depthAt(GLOBALS_CSS_CODE, GLOBALS_CSS_CODE.length), "stylesheet braces do not balance").toBe(0);
+    expect(
+      depthAt(GLOBALS_CSS_CODE, GLOBALS_CSS_CODE.length),
+      "stylesheet braces do not balance",
+    ).toBe(0);
     expect(depthAt(GLOBALS_CSS_CODE, at), "normative block is nested inside an at-rule").toBe(0);
   });
 

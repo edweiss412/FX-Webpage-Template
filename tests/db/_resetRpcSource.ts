@@ -16,7 +16,6 @@ import { join } from "node:path";
 const ROOT = process.cwd();
 const MIGRATIONS_DIR = join(ROOT, "supabase/migrations");
 
-
 const BODY_RE =
   /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i;
 

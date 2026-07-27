@@ -631,9 +631,9 @@ describe("structural guards (spec §7.6)", () => {
   // guard must live in clearPanelDragStyles itself — the chokepoint — not at
   // each call site.
   it("clearPanelDragStyles early-returns while dismissing", () => {
-    expect(bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function clearPanelDragStyles")).toContain(
-      "if (dismissingRef.current) return;",
-    );
+    expect(
+      bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function clearPanelDragStyles"),
+    ).toContain("if (dismissingRef.current) return;");
   });
 
   // Failure mode: a new motion state is added with no normalization row, so

@@ -45,7 +45,10 @@ const FIXTURE_HAPPY = "2026-03-rpas-central-four-seasons.md";
 const ACTIONS_SOURCE_PATH = join(process.cwd(), "app/admin/dev/actions.ts");
 
 function firstStatementOfExportedAction(name: string): string {
-  const source = stripCommentsForFile(readFileSync(ACTIONS_SOURCE_PATH, "utf8"), ACTIONS_SOURCE_PATH);
+  const source = stripCommentsForFile(
+    readFileSync(ACTIONS_SOURCE_PATH, "utf8"),
+    ACTIONS_SOURCE_PATH,
+  );
   const headerMatch = new RegExp(`export\\s+async\\s+function\\s+${name}\\b`).exec(source);
   expect(
     headerMatch,

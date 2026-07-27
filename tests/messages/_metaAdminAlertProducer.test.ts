@@ -31,7 +31,6 @@ const RAW_ADMIN_ALERT_SUPABASE_ALLOWLIST: ReadonlyArray<{
   },
 ];
 
-
 function rawAdminAlertSupabaseWriteSites(): string[] {
   const allowlisted = new Set(RAW_ADMIN_ALERT_SUPABASE_ALLOWLIST.map((entry) => entry.path));
   const findings: string[] = [];

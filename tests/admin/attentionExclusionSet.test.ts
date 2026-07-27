@@ -168,10 +168,7 @@ describe("the seam is test-only", () => {
     // was removed.
     const stripped = new Map<string, string>();
     for (const f of files) {
-      stripped.set(
-        f,
-        stripCommentsForFile(readFileSync(f, "utf8"), f),
-      );
+      stripped.set(f, stripCommentsForFile(readFileSync(f, "utf8"), f));
     }
     const callers = files.filter(
       (f) => f !== definition && stripped.get(f)!.includes("deriveAttentionItems("),

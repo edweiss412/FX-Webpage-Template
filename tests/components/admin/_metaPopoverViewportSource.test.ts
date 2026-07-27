@@ -153,7 +153,9 @@ const MAY_MATCH = /inner(?:Width|Height)|client(?:Width|Height)|place|position/;
 const matchesStripped = (f: string, test: (code: string) => boolean): boolean =>
   MAY_MATCH.test(rawOf(f)) && test(strippedSourceOf(f));
 
-const consumers = sourceFiles.filter((f) => matchesStripped(f, (c) => importsModule(f, c, CANONICAL.place)));
+const consumers = sourceFiles.filter((f) =>
+  matchesStripped(f, (c) => importsModule(f, c, CANONICAL.place)),
+);
 
 describe("popover placement consumers read the visible viewport, not the layout viewport", () => {
   it("prefilter accepts relative core specifiers and comment-gap viewport reads (regression pins)", () => {
@@ -162,7 +164,6 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(MAY_MATCH.test('import { x } from "./position";')).toBe(true);
     expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
   });
-
 
   it("discovers EXACTLY the two known consumers", () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();

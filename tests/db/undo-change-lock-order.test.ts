@@ -14,7 +14,6 @@ import { describe, expect, it } from "vitest";
 
 const MIGRATION = join(process.cwd(), "supabase/migrations/20260608000003_undo_change_rpc.sql");
 
-
 describe("undo_change migration — advisory-lock-before-row-lock order (PF11)", () => {
   it("no FOR UPDATE precedes the first pg_advisory_xact_lock in any lock-taking body", () => {
     const src = stripSqlComments(readFileSync(MIGRATION, "utf8"));

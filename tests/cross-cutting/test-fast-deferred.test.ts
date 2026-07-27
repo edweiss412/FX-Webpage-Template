@@ -62,7 +62,10 @@ describe("TEST_FAST_DEFERRED contract", () => {
   it("config wires the deferred set into the parallel project only under VITEST_TEST_FAST=1", () => {
     // Comment-proof: strip line comments before matching, and require BOTH the
     // gated binding and its use in the parallel project's exclude.
-    const config = stripCommentsForFile(readFileSync("vitest.config.ts", "utf8"), "vitest.config.ts");
+    const config = stripCommentsForFile(
+      readFileSync("vitest.config.ts", "utf8"),
+      "vitest.config.ts",
+    );
     expect(config).toMatch(
       /const testFastExcludes =[^;]*VITEST_TEST_FAST[^;]*===\s*"1"[^;]*TEST_FAST_DEFERRED/,
     );

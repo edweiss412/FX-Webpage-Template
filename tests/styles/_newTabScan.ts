@@ -43,7 +43,11 @@ export function walkFiles(dir: string, ext: RegExp): string[] {
  *  its decoration (R17), and the JSX whitespace model below -- so the class lives in one
  *  place. `\r`, U+2028 and U+2029 are line terminators to the JS grammar and to JSX. */
 export { LINE_TERMINATORS } from "../_shared/stripComments";
-import { LINE_TERMINATORS, commentRanges as sharedCommentRanges, stripCommentsSafely as sharedStripCommentsSafely } from "../_shared/stripComments";
+import {
+  LINE_TERMINATORS,
+  commentRanges as sharedCommentRanges,
+  stripCommentsSafely as sharedStripCommentsSafely,
+} from "../_shared/stripComments";
 
 export const PHRASE = "opens in a new tab";
 const HINT = "NewTabHint";

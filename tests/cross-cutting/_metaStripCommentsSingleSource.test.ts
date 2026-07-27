@@ -1,4 +1,12 @@
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -20,7 +28,8 @@ export type IdiomHit = { family: string; marker: string };
 export function detectCommentIdioms(strippedSrc: string): IdiomHit[] {
   const hits: IdiomHit[] = [];
   // 1. Block-comment regex literals — [\s\S], [^], and .*? spellings.
-  if (/\\\/\\\*(\[\\s\\S\]|\[\^\]|\.)\*\?/.test(strippedSrc)) hits.push({ family: "block-regex-literal", marker: "/*" });
+  if (/\\\/\\\*(\[\\s\\S\]|\[\^\]|\.)\*\?/.test(strippedSrc))
+    hits.push({ family: "block-regex-literal", marker: "/*" });
   // 2. Line-comment replace idioms — // or -- to EOL inside .replace(/.../).
   for (const m of strippedSrc.matchAll(/\.replace\(\s*\/(\\\/\\\/|--)/g)) {
     hits.push({ family: "line-replace-idiom", marker: m[1] === "--" ? "--" : "//" });
@@ -51,23 +60,99 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  false positives). NEVER file-wide: an unlisted (family, marker) in the same file
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
-  { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "commentRanges", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
-  { file: "tests/styles/_newTabScan.ts", family: "name-family", marker: "stripCommentsSafely", reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)" },
-  { file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts", family: "name-family", marker: "stripYamlComments", reason: "D1: YAML # stripper — different grammar, quote-aware, block-safe (renamed from stripComments in A16)" },
-  { file: "tests/auth/oauth-flow.test.ts", family: "two-char-literal", marker: "//", reason: "E12: protocol-relative-URL assertion string" },
-  { file: "tests/auth/oauth-flow.test.ts", family: "startswith-filter", marker: "//", reason: "E12: protocol-relative-URL assertion, not comment handling" },
-  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "two-char-literal", marker: "//", reason: "E7: marker literal in the documented loud-error design (its lines 110-114)" },
-  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "#", reason: "E7: documented loud-error trailing-comment design, YAML half" },
-  { file: "tests/cross-cutting/db-test-connection-hygiene.test.ts", family: "startswith-filter", marker: "//", reason: "E7: same documented design, JS half" },
-  { file: "tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts", family: "marker-skip-regex", marker: "--", reason: "E8: loop-integrated SQL doc-line skips (two sites, one row)" },
-  { file: "tests/cross-cutting/unit-suite-shard-topology.test.ts", family: "marker-skip-regex", marker: "#", reason: "E6: YAML # directives filter" },
-  { file: "tests/cross-cutting/vitest-projects-partition.test.ts", family: "startswith-filter", marker: "#", reason: "E5: YAML # line filter" },
-  { file: "tests/db/_localDbUrl.ts", family: "line-replace-idiom", marker: "//", reason: "DSN credential redaction (its line 31), not comment handling — detector false positive (plan-review R2 F2)" },
-  { file: "tests/drive/loadLocalEnv.ts", family: "startswith-filter", marker: "#", reason: "E10: dotenv # grammar" },
-  { file: "tests/log/mutationSurface/exemptions.ts", family: "two-char-literal", marker: "//", reason: "E9: marker literal in the comment-READER" },
-  { file: "tests/log/mutationSurface/exemptions.ts", family: "startswith-filter", marker: "//", reason: "E9: comment-READER — searches leading comments for the no-telemetry marker" },
+  {
+    file: "tests/styles/_newTabScan.ts",
+    family: "name-family",
+    marker: "commentRanges",
+    reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)",
+  },
+  {
+    file: "tests/styles/_newTabScan.ts",
+    family: "name-family",
+    marker: "stripCommentsSafely",
+    reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)",
+  },
+  {
+    file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts",
+    family: "name-family",
+    marker: "stripYamlComments",
+    reason:
+      "D1: YAML # stripper — different grammar, quote-aware, block-safe (renamed from stripComments in A16)",
+  },
+  {
+    file: "tests/auth/oauth-flow.test.ts",
+    family: "two-char-literal",
+    marker: "//",
+    reason: "E12: protocol-relative-URL assertion string",
+  },
+  {
+    file: "tests/auth/oauth-flow.test.ts",
+    family: "startswith-filter",
+    marker: "//",
+    reason: "E12: protocol-relative-URL assertion, not comment handling",
+  },
+  {
+    file: "tests/cross-cutting/db-test-connection-hygiene.test.ts",
+    family: "two-char-literal",
+    marker: "//",
+    reason: "E7: marker literal in the documented loud-error design (its lines 110-114)",
+  },
+  {
+    file: "tests/cross-cutting/db-test-connection-hygiene.test.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason: "E7: documented loud-error trailing-comment design, YAML half",
+  },
+  {
+    file: "tests/cross-cutting/db-test-connection-hygiene.test.ts",
+    family: "startswith-filter",
+    marker: "//",
+    reason: "E7: same documented design, JS half",
+  },
+  {
+    file: "tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts",
+    family: "marker-skip-regex",
+    marker: "--",
+    reason: "E8: loop-integrated SQL doc-line skips (two sites, one row)",
+  },
+  {
+    file: "tests/cross-cutting/unit-suite-shard-topology.test.ts",
+    family: "marker-skip-regex",
+    marker: "#",
+    reason: "E6: YAML # directives filter",
+  },
+  {
+    file: "tests/cross-cutting/vitest-projects-partition.test.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason: "E5: YAML # line filter",
+  },
+  {
+    file: "tests/db/_localDbUrl.ts",
+    family: "line-replace-idiom",
+    marker: "//",
+    reason:
+      "DSN credential redaction (its line 31), not comment handling — detector false positive (plan-review R2 F2)",
+  },
+  {
+    file: "tests/drive/loadLocalEnv.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason: "E10: dotenv # grammar",
+  },
+  {
+    file: "tests/log/mutationSurface/exemptions.ts",
+    family: "two-char-literal",
+    marker: "//",
+    reason: "E9: marker literal in the comment-READER",
+  },
+  {
+    file: "tests/log/mutationSurface/exemptions.ts",
+    family: "startswith-filter",
+    marker: "//",
+    reason: "E9: comment-READER — searches leading comments for the no-telemetry marker",
+  },
 ];
-
 
 /** Necessary-condition prefilter built ONLY from contiguous match fragments:
  *  f1 regex bodies, f2's `/--`|`/\/\/` regex heads plus `.replace(`, f3/f4a quoted
@@ -106,7 +191,8 @@ export function offendersOf(
     if (!mayContainIdiom(src)) continue;
     const stripped = stripCommentsForFile(src, rel);
     const residual = detectCommentIdioms(stripped).filter(
-      (h) => !standing.some((r) => r.file === rel && r.family === h.family && r.marker === h.marker),
+      (h) =>
+        !standing.some((r) => r.file === rel && r.family === h.family && r.marker === h.marker),
     );
     if (residual.length > 0)
       offenders.push(`${rel}: ${residual.map((h) => `${h.family}(${h.marker})`).join(", ")}`);
@@ -123,17 +209,21 @@ function walk(dir: string): string[] {
 }
 
 describe("single-source comment stripping (spec §4)", () => {
-  it("no walked test file implements its own comment handling outside the shared module", { timeout: 60_000 }, () => {
-    const entries: ScanEntry[] = walk(TESTS_DIR).map((abs) => ({
-      rel: relative(ROOT, abs),
-      src: readFileSync(abs, "utf8"),
-    }));
-    const offenders = offendersOf(entries, STANDING_ALLOWLIST, []);
-    expect(
-      offenders,
-      `local comment-handling idioms found — import tests/_shared/stripComments, or add a reasoned STANDING_ALLOWLIST row:\n${offenders.join("\n")}`,
-    ).toEqual([]);
-  });
+  it(
+    "no walked test file implements its own comment handling outside the shared module",
+    { timeout: 60_000 },
+    () => {
+      const entries: ScanEntry[] = walk(TESTS_DIR).map((abs) => ({
+        rel: relative(ROOT, abs),
+        src: readFileSync(abs, "utf8"),
+      }));
+      const offenders = offendersOf(entries, STANDING_ALLOWLIST, []);
+      expect(
+        offenders,
+        `local comment-handling idioms found — import tests/_shared/stripComments, or add a reasoned STANDING_ALLOWLIST row:\n${offenders.join("\n")}`,
+      ).toEqual([]);
+    },
+  );
 
   it("every STANDING_ALLOWLIST row still matches a live hit (no stale rows)", () => {
     for (const row of STANDING_ALLOWLIST) {
@@ -173,37 +263,61 @@ describe("detector negative proofs — through the WALK pipeline (spec §4 plant
   };
 
   it("(a) naive regex stripper in a walked file fails by default", () => {
-    const entries = plant("a.ts", 'function stripComments(s: string) { return s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, ""); }\n');
+    const entries = plant(
+      "a.ts",
+      'function stripComments(s: string) { return s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, ""); }\n',
+    );
     expect(offendersOf(entries, [], []).length).toBe(1);
   });
   it("(b) RENAMED char-loop copy is caught (spec R2 F2 evasion)", () => {
-    const entries = plant("b.ts", 'function removeNoise(s: string) { const two = s.slice(0, 2); if (two === "//") return ""; return s; }\n');
+    const entries = plant(
+      "b.ts",
+      'function removeNoise(s: string) { const two = s.slice(0, 2); if (two === "//") return ""; return s; }\n',
+    );
     expect(offendersOf(entries, [], []).join("")).toContain("two-char-literal");
   });
   it("(c) alternate-spelling inline chain is caught", () => {
-    const entries = plant("c.ts", 'export const x = (s: string) => s.replace(/\\/\\*[^]*?\\*\\//g, "");\n');
+    const entries = plant(
+      "c.ts",
+      'export const x = (s: string) => s.replace(/\\/\\*[^]*?\\*\\//g, "");\n',
+    );
     expect(offendersOf(entries, [], []).length).toBe(1);
   });
   it("(d) line-start skip filter is caught", () => {
-    const entries = plant("d.ts", 'export const l = (s: string) => s.split("\\n").filter((x) => !x.trim().startsWith("//"));\n');
+    const entries = plant(
+      "d.ts",
+      'export const l = (s: string) => s.split("\\n").filter((x) => !x.trim().startsWith("//"));\n',
+    );
     expect(offendersOf(entries, [], []).join("")).toContain("startswith-filter");
   });
   it("(f) comment-gap evasion is caught (whole-diff R1 F1 — the case that killed the raw-first shortcut)", () => {
-    const entries = plant("f.ts", 'export const g = (sql: string) => sql.replace(/* gap */ /--.*$/gm, "");\n');
+    const entries = plant(
+      "f.ts",
+      'export const g = (sql: string) => sql.replace(/* gap */ /--.*$/gm, "");\n',
+    );
     expect(offendersOf(entries, [], []).join("")).toContain("line-replace-idiom");
     expect(mayContainIdiom(entries[0]?.src ?? "")).toBe(true);
   });
 
   it("(e) SQL line-comment replace idiom is caught (spec R3 F1)", () => {
-    const entries = plant("e.ts", 'export const y = (sql: string) => sql.replace(/--.*$/gm, "");\n');
+    const entries = plant(
+      "e.ts",
+      'export const y = (sql: string) => sql.replace(/--.*$/gm, "");\n',
+    );
     expect(offendersOf(entries, [], []).join("")).toContain("line-replace-idiom");
   });
 
   it("standing rows are SITE-granular: an unlisted idiom in an allowlisted file still fails (A16/D1 case)", () => {
-    const src = 'function stripYamlComments(y: string) { return y.split("\\n").filter((l) => !l.trim().startsWith("#")).join("\\n"); }\nconst two = "//";\n';
+    const src =
+      'function stripYamlComments(y: string) { return y.split("\\n").filter((l) => !l.trim().startsWith("#")).join("\\n"); }\nconst two = "//";\n';
     const entries: ScanEntry[] = [{ rel: "planted/mixed.ts", src }];
     const standing: StandingRow[] = [
-      { file: "planted/mixed.ts", family: "name-family", marker: "stripYamlComments", reason: "plant" },
+      {
+        file: "planted/mixed.ts",
+        family: "name-family",
+        marker: "stripYamlComments",
+        reason: "plant",
+      },
       { file: "planted/mixed.ts", family: "startswith-filter", marker: "#", reason: "plant" },
     ];
     const offenders = offendersOf(entries, standing, []);

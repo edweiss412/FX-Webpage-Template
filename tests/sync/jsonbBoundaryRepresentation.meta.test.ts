@@ -47,7 +47,6 @@ const SUBTREES = [
 ];
 const EXEMPTION = "jsonb-text-exempt";
 
-
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {

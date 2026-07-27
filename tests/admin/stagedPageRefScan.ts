@@ -47,7 +47,6 @@ function retiredPathIndexes(text: string): number[] {
   }
 }
 
-
 /** Spans of every string/template literal, so a raw hit can be attributed to one. */
 function literalSpans(sourceFile: ts.SourceFile): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
