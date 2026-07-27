@@ -2,7 +2,12 @@ import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtractio
 import type { AgendaDay, AgendaExtraction, AgendaSession } from "@/lib/agenda/types";
 import { clockToMinutes } from "@/lib/time/clockToMinutes";
 
-const MONTHS: Record<string, number> = {
+/**
+ * Exported ONLY so `lib/crew/agendaViewerDays.ts` can count how many distinct dates a label
+ * names without keeping a second copy of this table. A duplicate would drift silently and the
+ * drift would present as a viewer's day being folded.
+ */
+export const MONTHS: Record<string, number> = {
   january: 1,
   jan: 1,
   february: 2,

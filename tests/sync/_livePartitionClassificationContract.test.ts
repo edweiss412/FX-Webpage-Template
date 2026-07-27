@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { applyStagedCore, LIVE_PARTITION_CLASSIFICATION } from "@/lib/sync/applyStagedCore";
@@ -43,10 +44,6 @@ function stripRegistry(src: string): string {
   const end = src.indexOf("];", start);
   if (end === -1) throw new Error("LIVE_PARTITION_CLASSIFICATION array is unterminated");
   return src.slice(0, start) + src.slice(end + 2);
-}
-
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 }
 
 // Structural probes for live-only ops classified reachableFromCore:false — the proof is that the
@@ -101,7 +98,7 @@ describe("live-partition classification contract (spec §3.2 / §9 R17)", () => 
     );
     expect(result.outcome).toBe("applied");
 
-    const executableCore = stripComments(stripRegistry(coreSource()));
+    const executableCore = stripCommentsForFile(stripRegistry(coreSource()), "core.ts");
     for (const row of liveOnly) {
       if (row.reachableFromCore) {
         // Reachable live-only ops: prove the wizard run resolved each to a no-op.
@@ -138,6 +135,8 @@ describe("live-partition classification contract (spec §3.2 / §9 R17)", () => 
     const raw = coreSource();
     expect(raw).not.toMatch(/resolveStaleSyncProblemAlerts_unlocked\s*\(/);
     expect(raw).not.toMatch(/import[^;]*resolveStaleSyncProblemAlerts/);
-    expect(stripComments(stripRegistry(raw))).not.toContain("resolveStaleSyncProblemAlerts");
+    expect(stripCommentsForFile(stripRegistry(raw), "core.ts")).not.toContain(
+      "resolveStaleSyncProblemAlerts",
+    );
   });
 });

@@ -11,6 +11,7 @@
  * Fast unit signal; superseded structurally by developerGatingContract (Task 20).
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 
@@ -29,16 +30,12 @@ const DEV_PAGE_FILES = [
   "app/admin/dev/telemetry-dim/page.tsx",
 ];
 
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-}
-
 describe("/admin/dev PAGES are developer-gated (source contract)", () => {
   for (const rel of DEV_PAGE_FILES) {
     test(`${rel}: first executable statement is await requireDeveloper(); no requireAdmin`, () => {
       const source = readFileSync(join(process.cwd(), rel), "utf8");
 
-      const stripped = stripComments(source);
+      const stripped = stripCommentsForFile(source, rel);
 
       // Imports the developer gate, not the admin gate.
       expect(source, `${rel} must import requireDeveloper`).toMatch(
@@ -68,7 +65,7 @@ describe("/admin/dev PAGES are developer-gated (source contract)", () => {
 describe("/admin/dev server actions are developer-gated (reject when gate throws)", () => {
   test("actions.ts imports requireDeveloper and no longer calls requireAdmin", () => {
     const source = readFileSync(join(process.cwd(), "app/admin/dev/actions.ts"), "utf8");
-    const stripped = stripComments(source);
+    const stripped = stripCommentsForFile(source, "app/admin/dev/actions.ts");
     expect(source).toMatch(/from ["']@\/lib\/auth\/requireDeveloper["']/);
     expect(stripped).not.toMatch(/\brequireAdmin\b/);
     expect(stripped).not.toMatch(/lib\/auth\/requireAdmin/);

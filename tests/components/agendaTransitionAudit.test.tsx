@@ -124,3 +124,124 @@ describe("agenda transition audit — content-driven swap is instant (no orphane
     expect(screen.queryByTestId("agenda-sheet")).toBeNull();
   });
 });
+
+/**
+ * The three REFRESH behaviours spec §5.2 requires and plan:250 specified. Review R9 (MEDIUM) was
+ * right that they never landed: the audit above never passes `viewerDays`, and the browser specs
+ * toggle native <details> without re-rendering, so nothing pinned what happens when the server
+ * re-renders underneath a user's toggle.
+ *
+ * These are React reconciliation facts, established by probe before being written down: React
+ * diffs the `open` prop against ITS OWN last rendered value, not against the live DOM. So an
+ * unchanged prop leaves a user's toggle alone, while a changed prop overwrites it. That is the
+ * behaviour the fold depends on across `router.refresh()`, and it is why the fold can be a Server
+ * Component with no client state at all.
+ */
+describe("agenda fold — refresh reconciliation (spec §5.2)", () => {
+  const days = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      dayLabel: `Day ${i}`,
+      date: null,
+      sessions: [{ time: "9am", title: "S", room: null, tracks: [], drift: null }],
+    }));
+  const ext = (n: number) => ({
+    confidence: "high" as const,
+    corrections: 0,
+    extractorVersion: 2,
+    days: days(n),
+  });
+  const subset = (...rows: number[]) => ({ kind: "subset" as const, rows: new Set(rows) });
+  const openStates = (c: HTMLElement) =>
+    [...c.querySelectorAll("details")].map((d) => (d as HTMLDetailsElement).open);
+
+  it("a user toggle SURVIVES a same-props refresh", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    // The viewer opens a folded row themselves.
+    (container.querySelectorAll("details")[2] as HTMLDetailsElement).open = true;
+    expect(openStates(container)).toEqual([true, false, true]);
+
+    // router.refresh() with identical data must not close it again.
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />);
+    expect(openStates(container), "an unchanged prop leaves the user's toggle alone").toEqual([
+      true,
+      false,
+      true,
+    ]);
+  });
+
+  it("a CHANGED assignment moves `open` to the new row", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    // The crew member's dates change; the server re-renders with a different viewer row.
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(2)} />);
+    expect(openStates(container), "a changed prop overwrites the DOM state").toEqual([
+      false,
+      false,
+      true,
+    ]);
+    // ...and the marker moves with it.
+    expect(container.querySelector('[data-testid="agenda-day-marker-2"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).toBeNull();
+  });
+
+  it("a user toggle plus a now-AGREEING server value does not conflict", () => {
+    const { container, rerender } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    // The viewer opens row 1 by hand, then their assignment catches up to include it.
+    (container.querySelectorAll("details")[1] as HTMLDetailsElement).open = true;
+    rerender(<AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0, 1)} />);
+    expect(openStates(container), "agreement is not a conflict; the row stays open").toEqual([
+      true,
+      true,
+      false,
+    ]);
+    // Both halves of the compound state, not just the open flags (review R11, LOW): row 1 is now
+    // the viewer's, so it must GAIN its marker while staying open. Asserting open state alone
+    // would pass on a render that moved `open` correctly and left the marker behind.
+    expect(container.querySelector('[data-testid="agenda-day-marker-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).not.toBeNull();
+  });
+
+  it("EVERY row collapsed still renders every row, with no empty state", () => {
+    // Review R10 (MEDIUM) caught the first version of this test asserting nothing it claimed:
+    // it passed `{ kind: "all" }`, which OPENS every row, then checked only the row count and
+    // the absence of markers -- so it never created the all-collapsed state and stayed green
+    // even with every row forced open. The name described one state and the fixture built the
+    // opposite.
+    //
+    // All-collapsed is reachable only by the USER: the viewer's row starts open, and they close
+    // it. What must hold then is that the section still shows every day with its label and
+    // count, rather than collapsing to something that looks broken or empty.
+    const { container } = render(
+      <AgendaScheduleBlock extraction={ext(3)} viewerDays={subset(0)} />,
+    );
+    const rows = [...container.querySelectorAll("details")] as HTMLDetailsElement[];
+    expect(openStates(container)).toEqual([true, false, false]);
+
+    rows.forEach((r) => (r.open = false));
+    expect(openStates(container), "the user can close every row").toEqual([false, false, false]);
+
+    // Every row is still present, labelled, and counted -- nothing vanishes when nothing is open.
+    expect(container.querySelectorAll("details")).toHaveLength(3);
+    expect(container.querySelectorAll("summary h3")).toHaveLength(3);
+    for (const i of [0, 1, 2]) {
+      const c = container.querySelector(`[data-testid="agenda-day-count-${i}"]`);
+      expect(c, `row ${i} keeps its count while collapsed`).not.toBeNull();
+      // Presence alone is too weak: `hidden` leaves the node in the DOM and jsdom computes no
+      // visibility, so a mutation adding `hidden={!isOpen(di)}` passed a presence-only check.
+      // The attribute IS observable here; actual painted visibility is asserted in the browser
+      // spec, which is the division of labour this repo uses for every jsdom/CSS boundary.
+      expect(c!.hasAttribute("hidden"), `row ${i} count is not hidden while collapsed`).toBe(false);
+    }
+    // The viewer's row is still identifiable even though it is now closed.
+    expect(container.querySelector('[data-testid="agenda-day-marker-0"]')).not.toBeNull();
+  });
+});

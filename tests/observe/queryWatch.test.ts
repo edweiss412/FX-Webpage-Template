@@ -5,8 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   rows: [] as unknown[],
   error: null as { message: string } | null,
+  stateRows: [] as unknown[],
+  stateError: null as { message: string } | null,
+  stateThrows: false,
   calls: [] as Array<{ method: string; args: unknown[] }>,
   selectArg: "",
+  stateSelectArg: "",
   throwOnFrom: false,
 }));
 
@@ -19,20 +23,37 @@ vi.mock("@/lib/supabase/server", () => ({
         },
       };
     }
-    const builder: Record<string, unknown> = {};
-    const chain =
-      (method: string) =>
-      (...args: unknown[]) => {
-        state.calls.push({ method, args });
-        if (method === "select") state.selectArg = args[0] as string;
-        return builder;
+    // Table-keyed builder: the module now issues TWO reads (channels + the
+    // reconcile-state table, backoff spec §3.6 D10).
+    const makeBuilder = (table: string) => {
+      const builder: Record<string, unknown> = {};
+      const chain =
+        (method: string) =>
+        (...args: unknown[]) => {
+          state.calls.push({ method: `${table}.${method}`, args });
+          if (method === "select") {
+            if (table === "drive_watch_reconcile_state") state.stateSelectArg = args[0] as string;
+            else state.selectArg = args[0] as string;
+          }
+          return builder;
+        };
+      for (const m of ["select", "order"]) builder[m] = chain(m);
+      builder.limit = (...args: unknown[]) => {
+        state.calls.push({ method: `${table}.limit`, args });
+        if (table === "drive_watch_reconcile_state") {
+          if (state.stateThrows) return Promise.reject(new Error("state boom"));
+          return Promise.resolve({ data: state.stateRows, error: state.stateError });
+        }
+        return Promise.resolve({ data: state.rows, error: state.error });
       };
-    for (const m of ["select", "order"]) builder[m] = chain(m);
-    builder.limit = (...args: unknown[]) => {
-      state.calls.push({ method: "limit", args });
-      return Promise.resolve({ data: state.rows, error: state.error });
+      return builder;
     };
-    return { from: chain("from") };
+    return {
+      from: (table: string) => {
+        state.calls.push({ method: "from", args: [table] });
+        return makeBuilder(table);
+      },
+    };
   },
 }));
 
@@ -49,11 +70,25 @@ const baseRow = {
   stopped_at: null,
 };
 
+const baseStateRow = {
+  watched_folder_id: "1abc2def3ghi4jkl5mno6pqr7stu8vwx",
+  consecutive_failures: 3,
+  next_attempt_at: "2026-07-27T12:15:00Z",
+  last_attempt_at: "2026-07-27T12:00:00Z",
+  last_attempt_outcome: "failed",
+  last_error_class: "drive_api",
+  last_error_message: "channel create failed for admin@example.com",
+};
+
 beforeEach(() => {
   state.rows = [baseRow];
   state.error = null;
+  state.stateRows = [baseStateRow];
+  state.stateError = null;
+  state.stateThrows = false;
   state.calls = [];
   state.selectArg = "";
+  state.stateSelectArg = "";
   state.throwOnFrom = false;
 });
 
@@ -74,16 +109,18 @@ describe("queryWatchChannels", () => {
   it("orders created_at desc and applies bound", async () => {
     await queryWatchChannels({ limit: 7 });
     const names = state.calls.map((c) => c.method);
-    const orderCall = state.calls.find((c) => c.method === "order")!;
+    const orderCall = state.calls.find((c) => c.method === "drive_watch_channels.order")!;
     expect(orderCall.args).toEqual(["created_at", { ascending: false }]);
-    const limitCall = state.calls.find((c) => c.method === "limit")!;
+    const limitCall = state.calls.find((c) => c.method === "drive_watch_channels.limit")!;
     expect(limitCall.args).toEqual([7]);
-    expect(names.indexOf("order")).toBeLessThan(names.indexOf("limit"));
+    expect(names.indexOf("drive_watch_channels.order")).toBeLessThan(
+      names.indexOf("drive_watch_channels.limit"),
+    );
   });
   it("default limit 100", async () => {
     const r = await queryWatchChannels({});
     if (r.kind !== "ok") throw new Error("expected ok");
-    expect(state.calls.find((c) => c.method === "limit")!.args).toEqual([100]);
+    expect(state.calls.find((c) => c.method === "drive_watch_channels.limit")!.args).toEqual([100]);
   });
   it("returned error → infra_error; throw → infra_error", async () => {
     state.error = { message: "boom" };
@@ -108,5 +145,47 @@ describe("queryWatchChannels", () => {
     expect(row.activatedAt).toBe("2026-07-15T05:20:00Z");
     expect(row.supersededAt).toBe(null);
     expect(row.stoppedAt).toBe(null);
+  });
+
+  // Backoff spec §3.6 D10 / §6 class 13: the reconcile-state columns ride along.
+  it("returns the reconcile-state rows with sanitized last_error_message", async () => {
+    const r = await queryWatchChannels({});
+    if (r.kind !== "ok") throw new Error("expected ok");
+    const s = r.stateRows[0]!;
+    expect(s.watchedFolderId).toBe("1abc2def3ghi4jkl5mno6pqr7stu8vwx");
+    expect(s.consecutiveFailures).toBe(3);
+    expect(s.nextAttemptAt).toBe("2026-07-27T12:15:00Z");
+    expect(s.lastAttemptOutcome).toBe("failed");
+    expect(s.lastErrorClass).toBe("drive_api");
+    // sanitizeIdentityString treatment (lib/observe/query/failures.ts:61):
+    // the embedded email must not survive verbatim.
+    expect(s.lastErrorMessage ?? "").not.toContain("admin@example.com");
+  });
+  it("state SELECT never touches the channels secret columns", async () => {
+    await queryWatchChannels({});
+    expect(state.stateSelectArg).toContain("watched_folder_id");
+    expect(state.stateSelectArg).not.toContain("webhook_secret");
+  });
+  it("state read returned-error and thrown paths → typed infra_error attributed to the STATE table", async () => {
+    state.stateError = { message: "boom" };
+    const returned = await queryWatchChannels({});
+    expect(returned.kind).toBe("infra_error");
+    expect(returned.kind === "infra_error" ? returned.message : "").toBe(
+      "drive_watch_reconcile_state read failed",
+    );
+    state.stateError = null;
+    state.stateThrows = true;
+    const thrown = await queryWatchChannels({});
+    expect(thrown.kind).toBe("infra_error");
+    // whole-diff review: a thrown state read must never masquerade as a
+    // channels failure.
+    expect(thrown.kind === "infra_error" ? thrown.message : "").toBe(
+      "drive_watch_reconcile_state read threw",
+    );
+  });
+  it("state rows are read newest-updated first so the failing folder cannot fall past the cap", async () => {
+    await queryWatchChannels({});
+    const order = state.calls.find((c) => c.method === "drive_watch_reconcile_state.order")!;
+    expect(order.args).toEqual(["updated_at", { ascending: false }]);
   });
 });

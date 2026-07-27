@@ -2,7 +2,7 @@
  * tests/messages/popoverContextCopy.test.ts
  * (spec 2026-07-20-alert-popover-context-design §6)
  *
- * Frozen-literal oracle for the 45 authored popover `helpfulContext` strings.
+ * Frozen-literal oracle for the 46 authored popover `helpfulContext` strings.
  * The catalog IS the subject under test, so the expected strings are hardcoded
  * here (inverting the usual derive-never-hardcode rule) — same posture as
  * tests/messages/_metaShowScopedTemplates.test.ts PAIRED. Editing a catalog
@@ -27,7 +27,7 @@ const FROZEN: Record<string, string> = {
   WIZARD_SESSION_SUPERSEDED_RACE:
     "Two wizard tabs for the same sheet overlapped; the newer one won and the older tab's action was cancelled before it could touch state. Its leftovers are inert and auto-cleaned. Informational only.",
   WATCH_CHANNEL_ORPHANED:
-    "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
+    "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
   WEBHOOK_TOKEN_INVALID:
     "The bad token usually means a stale Drive subscription is still firing, occasionally a spoof attempt. The developer is notified and rotates it if needed; no admin action.",
   REEL_DRIFTED:
@@ -102,13 +102,15 @@ const FROZEN: Record<string, string> = {
     "From now on that row skips the picker and goes straight through Google sign-in. Routine success record; no action needed.",
   CALLBACK_CLAIM_THREW:
     "The callback never mints picker cookies, so nothing is left half-claimed. Picker bootstrap retries the claim automatically on the visitor's next show visit.",
+  PICKER_IDENTITY_CLAIMED_TAMPER:
+    "The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.",
 };
 
 describe("popover helpfulContext copy (frozen oracle)", () => {
-  it("the oracle is closed over exactly the 45 authored codes", () => {
+  it("the oracle is closed over exactly the 46 authored codes", () => {
     // F5: an omitted pair must not silently pass. Pin the count so dropping a
     // code from the oracle fails here rather than leaving its copy unchecked.
-    expect(Object.keys(FROZEN).length).toBe(45);
+    expect(Object.keys(FROZEN).length).toBe(46);
   });
 
   for (const [code, expected] of Object.entries(FROZEN)) {

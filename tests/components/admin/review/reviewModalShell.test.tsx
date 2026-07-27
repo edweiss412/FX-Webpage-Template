@@ -16,6 +16,7 @@
  * body must give `[data-review-modal-*]` the IDENTICAL body.
  */
 import "@testing-library/jest-dom/vitest";
+import { stripCommentsForFile, stripCssComments } from "../../../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRef, useRef } from "react";
@@ -441,7 +442,7 @@ describe("exit start-state (spec §3.2)", () => {
  *  Minimal walk — top-level rules plus one level of `@media` nesting, which is
  *  exactly globals.css's shape for these hooks. */
 function animationContexts(css: string, attr: string): string[] {
-  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const noComments = stripCssComments(css);
   const out: string[] = [];
   const blockRe = /@media\s*([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}|([^@{}]+)\{([^{}]*)\}/g;
   let m: RegExpExecArray | null;
@@ -532,9 +533,6 @@ const CONSUMERS = [
 
 /** Remove comments before scanning: a doc-comment mentioning `onClose()` must
  *  not fail the close-path guard. */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-}
 
 /** Brace-match a function body. `slice(indexOf(decl))` + `indexOf("\n}")` does
  *  NOT work here: these are indented nested functions, so the closing brace is
@@ -562,7 +560,7 @@ describe("structural guards (spec §7.6)", () => {
   // FUTURE call site — only a static scan can.
   it("no consumer invokes the shell's onClose prop directly", () => {
     for (const path of CONSUMERS) {
-      const src = stripComments(readFileSync(join(process.cwd(), path), "utf8"));
+      const src = stripCommentsForFile(readFileSync(join(process.cwd(), path), "utf8"), path);
       // INVOCATIONS only — `onClose={handleClose}` (PublishedReviewModal:239)
       // is legitimate prop wiring, not a close call.
       const direct = src.match(/\bonClose\s*\(\s*\)/g) ?? [];
@@ -583,7 +581,7 @@ describe("structural guards (spec §7.6)", () => {
   // still route correctly — a repo-wide substring check passes because another
   // affordance supplies the matching text. Each is anchored to its own site.
   it("each affordance is anchored to requestClose at its own call site", () => {
-    const src = stripComments(SHELL_SRC);
+    const src = stripCommentsForFile(SHELL_SRC, SHELL_PATH);
     const scrimAt = src.indexOf("-backdrop`");
     expect(src.slice(scrimAt, scrimAt + 400), "scrim onClick must be requestClose").toContain(
       "onClick={requestClose}",
@@ -603,13 +601,13 @@ describe("structural guards (spec §7.6)", () => {
   // Failure mode: a guard is dropped and the failure is invisible until a user
   // hits the compound case in production.
   it("every §3.1 guard is present inside requestClose itself", () => {
-    const body = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    const body = bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function requestClose");
     // step 0 (closeAffordancesDisabled) was DELETED by MODAL-SKELETON-CLOSE-1.
     expect(body).toContain("dismissingRef.current) return"); // step 1
     expect(body).toContain("dragRef.current"); // step 2
     expect(body).toContain("settleTimerRef"); // step 2 settle neutralization
     expect(body).toContain("prefers-reduced-motion"); // step 4
-    expect(stripComments(SHELL_SRC)).toMatch(
+    expect(stripCommentsForFile(SHELL_SRC, SHELL_PATH)).toMatch(
       /handleGrabPointerEnd[\s\S]{0,200}dismissingRef\.current\) return/,
     );
   });
@@ -624,7 +622,7 @@ describe("structural guards (spec §7.6)", () => {
   // beginDismiss is the single chokepoint both close paths share; its
   // idempotence guard is what makes onDismissStart one-shot by construction.
   it("beginDismiss early-returns when already dismissing", () => {
-    expect(bodyOf(stripComments(SHELL_SRC), "function beginDismiss")).toContain(
+    expect(bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function beginDismiss")).toContain(
       "if (dismissingRef.current) return;",
     );
   });
@@ -633,9 +631,9 @@ describe("structural guards (spec §7.6)", () => {
   // guard must live in clearPanelDragStyles itself — the chokepoint — not at
   // each call site.
   it("clearPanelDragStyles early-returns while dismissing", () => {
-    expect(bodyOf(stripComments(SHELL_SRC), "function clearPanelDragStyles")).toContain(
-      "if (dismissingRef.current) return;",
-    );
+    expect(
+      bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function clearPanelDragStyles"),
+    ).toContain("if (dismissingRef.current) return;");
   });
 
   // Failure mode: a new motion state is added with no normalization row, so
@@ -695,7 +693,7 @@ describe("desktop exit is the exact reverse of the entrance keyframe", () => {
     const keyframeTransform = from.match(/transform:\s*([^;]+);/)?.[1]?.trim();
     expect(keyframeTransform, "pop-in from-state transform").toBe("translateY(8px) scale(0.98)");
 
-    const exit = bodyOf(stripComments(SHELL_SRC), "function requestClose");
+    const exit = bodyOf(stripCommentsForFile(SHELL_SRC, SHELL_PATH), "function requestClose");
     expect(
       exit,
       `desktop exit must mirror the keyframe's from-state (${keyframeTransform})`,

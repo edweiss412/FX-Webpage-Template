@@ -19,6 +19,7 @@
     "STALE_ORPHAN_REPORT": "resolve",
     "TILE_SERVER_RENDER_FAILED": "resolve",
     "WIZARD_SESSION_SUPERSEDED_RACE": "resolve",
-    "ONBOARDING_SHEET_UNREADABLE": "resolve"
+    "ONBOARDING_SHEET_UNREADABLE": "resolve",
+    "PICKER_IDENTITY_CLAIMED_TAMPER": "resolve"
   }
 }

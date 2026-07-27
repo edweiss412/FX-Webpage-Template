@@ -26,6 +26,10 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 vi.mock("@/lib/log", () => ({ log: logMock }));
+const upsertAdminAlertMock = vi.hoisted(() => vi.fn(async (_input: unknown): Promise<void> => {}));
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: upsertAdminAlertMock,
+}));
 
 const KEY = "0".repeat(64);
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
@@ -67,6 +71,8 @@ beforeEach(() => {
     out_rejection_code: null,
   };
   cookieSet.mockReset();
+  upsertAdminAlertMock.mockReset();
+  upsertAdminAlertMock.mockResolvedValue(undefined);
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(cookies).mockResolvedValue({
     get: (name: string) =>
@@ -240,5 +246,57 @@ describe("selectIdentity FormData entry", () => {
       crewMemberId: CREW_ID,
     });
     expect(logged).not.toHaveProperty("shareToken");
+  });
+
+  test("tamper branch raises a global admin alert BEFORE the redirect", async () => {
+    // BL-PICKER-TAMPER-ADMIN-ALERT: the forensic warn now also surfaces as an
+    // operator-visible admin_alerts row. Placement constraints under test:
+    // BEFORE redirect() (which throws to unwind — an upsert after it never
+    // runs), showId null (no lookup on a rejected-tamper path), and the share
+    // token NEVER enters the context.
+    rpcRow = {
+      out_show_id: null,
+      out_picker_epoch: null,
+      out_observed_at_millis: null,
+      out_rejection_code: "PICKER_IDENTITY_CLAIMED",
+    };
+    await expect(
+      selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })),
+    ).rejects.toMatchObject({ digest: expect.stringContaining("/auth/sign-in") });
+
+    expect(upsertAdminAlertMock).toHaveBeenCalledTimes(1);
+    const arg = upsertAdminAlertMock.mock.calls[0]![0] as {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    };
+    expect(arg.code).toBe("PICKER_IDENTITY_CLAIMED_TAMPER");
+    expect(arg.showId).toBeNull();
+    expect(arg.context).toMatchObject({ slug: SLUG, crew_member_id: CREW_ID });
+    // The share token is a secret (rotateShareToken emits epoch_<n>, never the
+    // token) — it must not appear ANYWHERE in the context payload.
+    expect(JSON.stringify(arg.context)).not.toContain(TOKEN);
+  });
+
+  test("a failed alert upsert never replaces the security redirect", async () => {
+    // upsertAdminAlert THROWS on RPC error (lib/adminAlerts/upsertAdminAlert.ts).
+    // Unguarded, a failed upsert would surface a 500 instead of the redirect —
+    // strictly worse, since the tamperer learns they hit something. The catch
+    // logs PICKER_ALERT_FAILED and the redirect still unwinds.
+    rpcRow = {
+      out_show_id: null,
+      out_picker_epoch: null,
+      out_observed_at_millis: null,
+      out_rejection_code: "PICKER_IDENTITY_CLAIMED",
+    };
+    upsertAdminAlertMock.mockRejectedValueOnce(new Error("alert rpc down"));
+    await expect(
+      selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })),
+    ).rejects.toMatchObject({ digest: expect.stringContaining("/auth/sign-in") });
+
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ALERT_FAILED" }),
+    );
   });
 });

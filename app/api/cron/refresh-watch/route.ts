@@ -16,11 +16,18 @@ export async function GET(request: NextRequest): Promise<Response> {
       refreshOrphaned: refresh.orphaned,
       refreshFailures: refresh.failures.length,
       reconcile: infra
-        ? { outcome: reconcile.outcome, faults: reconcile.faults }
+        ? {
+            outcome: reconcile.outcome,
+            faults: reconcile.faults,
+            nextAttemptAt: reconcile.nextAttemptAt,
+            consecutiveFailures: reconcile.consecutiveFailures,
+          }
         : {
             outcome: reconcile.outcome,
             sweptPending: reconcile.sweptPending,
             escalated: reconcile.escalated,
+            nextAttemptAt: reconcile.nextAttemptAt,
+            consecutiveFailures: reconcile.consecutiveFailures,
           },
     };
     return {

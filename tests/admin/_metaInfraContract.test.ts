@@ -307,6 +307,12 @@ const infraRegistry = [
       "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }",
   },
   {
+    helper: "readWatchSurfaceState",
+    path: "lib/admin/watchSurfaceState.ts",
+    contract:
+      "drive_watch_reconcile_state maybeSingle; client construction + returned error + thrown query → typed { kind:'infra_error' }, null ONLY for zero rows; the two consumers (bell feed loader, Settings page) map infra_error to a hidden line at their render boundary DELIBERATELY (backoff spec §3.6)",
+  },
+  {
     helper: "fetchDriveConnectionHealth",
     path: "lib/admin/driveConnectionHealth.ts",
     contract:
@@ -393,6 +399,12 @@ const infraRegistry = [
     path: "lib/observe/query/changeLog.ts",
     contract:
       "show_change_log read (service-role, images EXCLUDED); one try/catch; returned {error} → infra_error('show_change_log read failed'); thrown → infra_error('show_change_log read threw'); .limit-bounded.",
+  },
+  {
+    helper: "queryWatchChannels",
+    path: "lib/observe/query/watch.ts",
+    contract:
+      "TWO service-role reads (drive_watch_channels + drive_watch_reconcile_state; webhook secret NEVER selected); each read's returned {error} → infra_error('<table> read failed') and thrown → infra_error('<table> read threw'), attributed to ITS OWN table; state rows ordered updated_at DESC so abandoned folders cannot push the failing one past the cap; last_error_message sanitized; .limit-bounded (backoff spec §3.6 D10).",
   },
 ];
 

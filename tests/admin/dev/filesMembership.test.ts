@@ -22,6 +22,7 @@
  * that case.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { join, relative, sep } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -72,16 +73,13 @@ function walk(dir: string): string[] {
 }
 
 /** Extracts the string literals of the `const FILES = [...]` array, comments stripped. */
-export function parseFilesArray(source: string): string[] {
+export function parseFilesArray(rawSource: string): string[] {
+  const source = stripCommentsForFile(rawSource, "with-admin-dev-flag.mjs");
   const start = source.indexOf("const FILES = [");
   if (start === -1) throw new Error("with-admin-dev-flag.mjs no longer declares `const FILES = [`");
   const end = source.indexOf("];", start);
   if (end === -1) throw new Error("`const FILES = [` is not closed by `];`");
-  const body = source
-    .slice(start + "const FILES = [".length, end)
-    .split("\n")
-    .map((line) => line.replace(/\/\/.*$/, ""))
-    .join("\n");
+  const body = source.slice(start + "const FILES = [".length, end);
   return [...body.matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!);
 }
 

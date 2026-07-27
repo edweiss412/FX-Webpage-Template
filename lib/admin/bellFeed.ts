@@ -25,6 +25,8 @@ import {
 import type { SerializedAlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { MessageParams } from "@/lib/messages/lookup";
 import { log } from "@/lib/log";
+import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
+import { readWatchSurfaceState, type WatchSurfaceState } from "@/lib/admin/watchSurfaceState";
 
 export type BellEntry = {
   alertId: string;
@@ -49,6 +51,12 @@ export type BellEntry = {
   /** Merged copy params (raw context scalars + identity-derived — spec §4.1/§4.2). */
   messageParams: MessageParams;
   isHealth: boolean;
+  /** Reconnect-ladder bookkeeping for the watch alert row (backoff spec §3.6).
+   *  OPTIONAL on the type so component fixtures stay minimal, but the loader
+   *  always SETS it: null on every non-watch entry and on any read fault — the
+   *  render-boundary mapping of the helper's typed infra_error lives HERE, so
+   *  a failed bookkeeping read can never break the feed. */
+  watchState?: WatchSurfaceState | null;
 };
 
 export type BellFeedResult =
@@ -285,6 +293,26 @@ export async function loadBellFeed(
     log.error("bell identity resolve degraded", { source: "admin.bellFeed", error: err });
   }
 
+  // Watch reconnect bookkeeping (backoff spec §3.6): one folder read + one
+  // state read per feed load, only when a watch alert row is present. The
+  // helper's typed infra_error (and any folder-read fault) maps to null HERE —
+  // the line simply does not render; the alert row still does.
+  let watchState: WatchSurfaceState | null = null;
+  const hasWatchEntry = shaped.entries.some(
+    (e) => e.code === "WATCH_CHANNEL_ORPHANED" && !e.isHealth,
+  );
+  if (hasWatchEntry) {
+    try {
+      const folder = await getActiveWatchedFolderId();
+      if ("folderId" in folder) {
+        const stateResult = await readWatchSurfaceState(folder.folderId);
+        watchState = stateResult !== null && "kind" in stateResult ? null : stateResult;
+      }
+    } catch {
+      watchState = null;
+    }
+  }
+
   const entries: BellEntry[] = shaped.entries.map((e) => {
     const identity = identities.get(e.alertId) ?? null;
     return {
@@ -296,6 +324,7 @@ export async function loadBellFeed(
         identity,
         "global",
       ),
+      watchState: e.code === "WATCH_CHANNEL_ORPHANED" && !e.isHealth ? watchState : null,
     };
   });
 

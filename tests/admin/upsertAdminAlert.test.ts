@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { stripCommentsForFile, stripSqlComments } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 
 const mockState = vi.hoisted(() => ({
@@ -74,7 +75,7 @@ describe("upsertAdminAlert", () => {
     // Strip `-- ...` line comments so the negative assertion below tests the SQL
     // BODY, not the explanatory header (which names `excluded.context` to document
     // why it is deliberately NOT used).
-    const sql = rawSql.replace(/--.*$/gm, "");
+    const sql = stripSqlComments(rawSql);
 
     // backward-compatible create-or-replace of the SAME function signature
     expect(sql).toMatch(
@@ -107,9 +108,7 @@ describe("upsertAdminAlert", () => {
     const files = ["lib/auth/validateGoogleSession.ts", "lib/sync/applyStaged.ts"];
 
     for (const file of files) {
-      const source = readFileSync(file, "utf8")
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/^[ \t]*\/\/.*$/gm, "");
+      const source = stripCommentsForFile(readFileSync(file, "utf8"), file);
       expect(
         source,
         `${file} must not bypass upsertAdminAlert(); raw Supabase upsert cannot express the admin_alerts partial-index recurrence contract`,

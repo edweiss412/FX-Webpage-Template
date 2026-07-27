@@ -18,7 +18,7 @@
  *     banner gracefully without HelpAffordance, no crash.
  *
  * Uses REPORT_PIPELINE_FAILED as the cataloged failed-retryable code (not
- * one of the 45 ADMIN_ALERTS_CODES, so alert-copy-full-sweep §5's
+ * one of the 46 ADMIN_ALERTS_CODES, so alert-copy-full-sweep §5's
  * helpfulContext:null rule doesn't apply to it): the report route's 502
  * matches its dougFacing/helpfulContext content 1:1. REPORT_LOOKUP_INCONCLUSIVE
  * (the prior fixture code) is now an admin alert code with helpfulContext:null.

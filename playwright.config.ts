@@ -75,7 +75,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(picker-flow|sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention)\.spec\.ts/,
+        /(picker-flow|sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|warning-panel-polish|dev-capture|published-show-attention|alert-action-links)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
@@ -391,8 +391,9 @@ export default defineConfig({
     // long comment above the webServer array).
     if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
     // Boot ONLY the :3000 baseline server for the crew-e2e CI job. That job runs
-    // crew-section-toggle.spec under mobile-safari AND picker-flow.spec under
-    // desktop-chromium; both projects point at :3000, so one server serves both.
+    // crew-section-toggle.spec under mobile-safari, plus picker-flow.spec and
+    // alert-action-links.spec under desktop-chromium; every project points at
+    // :3000, so one server serves all three.
     // Without this the :3001-:3004 servers
     // also cold-build (4 wasted builds contending on the with-admin-dev-flag
     // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.

@@ -2,7 +2,7 @@
  * tests/adminAlerts/alertIdentityMatrix.test.ts (spec §9.1, Task-4 brief Step
  * 1b — Codex P11)
  *
- * The exhaustive code x context table test: for each of the 42
+ * The exhaustive code x context table test: for each of the 46
  * `admin_alerts` codes, a fixture using the REAL raise site's context shape
  * (verified by grep against the producer at the cited file:line — never a
  * synthetic key a producer never emits) is projected through
@@ -171,7 +171,7 @@ function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[]
 }
 
 describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
-  it("covers exactly the 45 registered codes (numeric-sweep anchor)", () => {
+  it("covers exactly the 46 registered codes (numeric-sweep anchor)", () => {
     expect(FIXTURES.map((f) => f.code).sort()).toEqual([...ADMIN_ALERTS_CODES].sort());
   });
 

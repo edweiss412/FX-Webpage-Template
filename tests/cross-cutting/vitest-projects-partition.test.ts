@@ -143,7 +143,7 @@ describe("vitest projects split — partition is complete and correctly wired", 
   });
 
   it("resolved config partitions correctly under VITEST_EXCLUDE_ENV_BOUND=1 (CI mode)", async () => {
-    // CI runs with the env gate ON, where the three env-bound files leave the
+    // CI runs with the env gate ON, where the two env-bound files leave the
     // serial project. Assert the real arrays in that mode: those files belong to
     // NO default project, every other non-nightly file to exactly one.
     vi.resetModules();
@@ -175,7 +175,7 @@ describe("vitest projects split — partition is complete and correctly wired", 
   it("resolved config admits every discovered file exactly once (nightly files zero)", async () => {
     // Import with the env-bound flag explicitly CLEARED: CI sets
     // VITEST_EXCLUDE_ENV_BOUND=1, which would otherwise gate the top-level
-    // import and make this default-mode proof expect the three env-bound files
+    // import and make this default-mode proof expect the two env-bound files
     // in a project they deliberately leave.
     vi.resetModules();
     vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "");
@@ -228,7 +228,7 @@ describe("vitest projects split — partition is complete and correctly wired", 
       "tests/sync/dev-routing.test.ts", // the fixture-corpus WRITER
       "tests/admin/test-auth-gate.test.ts", // env-bound (x-audits-targeted)
       "tests/cross-cutting/email-canonicalization.test.ts", // env-bound (x5-targeted)
-      "tests/cross-cutting/pg-cron-coverage.test.ts", // env-bound
+      "tests/cross-cutting/pg-cron-coverage.test.ts", // live-DB; serial, and CI-RUN since 2026-07-26
       "tests/onboarding", // whole dir
       "tests/api",
       "tests/notify",

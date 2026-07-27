@@ -17,6 +17,7 @@
  * members. An injected set can: see the disjoint-sets test below.
  */
 import { readFileSync, readdirSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deriveAttentionItems, ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
@@ -167,12 +168,7 @@ describe("the seam is test-only", () => {
     // was removed.
     const stripped = new Map<string, string>();
     for (const f of files) {
-      stripped.set(
-        f,
-        readFileSync(f, "utf8")
-          .replace(/\/\*[\s\S]*?\*\//g, "")
-          .replace(/\/\/[^\n]*/g, ""),
-      );
+      stripped.set(f, stripCommentsForFile(readFileSync(f, "utf8"), f));
     }
     const callers = files.filter(
       (f) => f !== definition && stripped.get(f)!.includes("deriveAttentionItems("),

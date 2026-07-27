@@ -769,7 +769,7 @@
   <div class="wrap">
     <span class="eyebrow">The full catalog</span>
     <h2>Every alert code, and the words a person reads</h2>
-    <p class="lead">All 45 admin-alert codes: what the operator sees, what crew see (when anything), where it renders, and the popover detail behind each. Search or filter to find one.</p>
+    <p class="lead">All 46 admin-alert codes: what the operator sees, what crew see (when anything), where it renders, and the popover detail behind each. Search or filter to find one.</p>
 
     <div class="cat-controls">
       <input type="search" class="cat-search" id="catSearch" placeholder="Search codes or copy&hellip;" aria-label="Search the alert catalog">
@@ -778,7 +778,7 @@
         <button type="button" data-aud="doug" aria-pressed="false">Doug</button>
         <button type="button" data-aud="health" aria-pressed="false">Health</button>
       </div>
-      <span class="cat-count" id="catCount">45 codes</span>
+      <span class="cat-count" id="catCount">46 codes</span>
     </div>
 
     <div class="cat-wrap">
@@ -864,6 +864,18 @@
             <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>A browser cleaned up a picker cookie whose epoch or crew member no longer matches the show, typically after a reset or roster change. Compare-and-delete touched only that stale entry. No action.</p></details>
           </td>
         </tr>
+        <tr class="crow" data-aud="health" data-res="manual" data-text="picker_identity_claimed_tamper a hand-built crew page request was blocked modal: overview (top) · health panel a request tried to open a crew page as an already-claimed crew member, which the normal picker never offers. it was blocked and sent to sign-in. nothing is exposed; text eric if this repeats.  the crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. the attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.">
+          <td class="cc">
+            <code>PICKER_IDENTITY_CLAIMED_TAMPER</code>
+            <div class="cbadges"><span class="cb health">Health / ops</span><span class="cb manual">needs confirm</span></div>
+            <div class="ctitle">A hand-built crew page request was blocked</div>
+          </td>
+          <td class="cw">Modal: Overview (top) · Health panel</td>
+          <td class="cx">
+            <p class="cx-line"><span class="cx-tag">Admin</span> A request tried to open a crew page as an already-claimed crew member, which the normal picker never offers. It was blocked and sent to sign-in. Nothing is exposed; text Eric if this repeats.</p>
+            <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.</p></details>
+          </td>
+        </tr>
         <tr class="crow" data-aud="doug" data-res="manual" data-text="picker_epoch_reset picker selections reset modal: overview (top) picker selections for &lt;show-name&gt; were reset. crew will be asked to pick themselves again on their next visit.  the share link itself didn't change, so crew just pick their name again on the next visit, and any open tabs re-prompt on refresh. nothing to fix; this is a record of the reset.">
           <td class="cc">
             <code>PICKER_EPOCH_RESET</code>
@@ -912,7 +924,7 @@
             <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>The prior attempt raced an Apply, so recovery backs off for this snapshot to bound retry storms while the show keeps changing. It resumes on its own after the cooldown.</p></details>
           </td>
         </tr>
-        <tr class="crow" data-aud="doug" data-res="auto" data-text="watch_channel_orphaned live updates need attention app-wide (never in show modal) the instant-updates connection to google drive needs to reconnect. shows still sync automatically every few minutes, so nothing is lost.  at worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. it reconnects on its own each hour, or use retry now. only worth attention if it keeps failing.">
+        <tr class="crow" data-aud="doug" data-res="auto" data-text="watch_channel_orphaned live updates need attention app-wide (never in show modal) the instant-updates connection to google drive needs to reconnect. shows still sync automatically every few minutes, so nothing is lost.  at worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. it keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use retry now. only worth attention if it keeps failing.">
           <td class="cc">
             <code>WATCH_CHANNEL_ORPHANED</code>
             <div class="cbadges"><span class="cb doug">Doug</span><span class="cb auto">self-clears</span></div>
@@ -921,7 +933,7 @@
           <td class="cw">App-wide (never in show modal)</td>
           <td class="cx">
             <p class="cx-line"><span class="cx-tag">Admin</span> The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.</p>
-            <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.</p></details>
+            <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.</p></details>
           </td>
         </tr>
         <tr class="crow" data-aud="health" data-res="auto" data-text="webhook_token_invalid drive webhook failed verification modal: overview (top) · health panel a push notification from google drive failed verification: possible spoofing or misconfiguration. the developer has been notified.  the bad token usually means a stale drive subscription is still firing, occasionally a spoof attempt. the developer is notified and rotates it if needed; no admin action.">

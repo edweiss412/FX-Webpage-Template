@@ -361,12 +361,12 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     crewFacing: null,
-    followUp: "Auto-retry hourly; admin Retry now; Eric if escalated",
+    followUp: "Auto-retry with backoff; admin Retry now; Eric if escalated",
     helpfulContext:
-      "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It reconnects on its own each hour, or use Retry now. Only worth attention if it keeps failing.",
+      "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
     title: "Live updates need attention",
     longExplanation:
-      "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost; at worst, edits take a few minutes longer to appear instead of showing up instantly. The system retries the connection automatically every hour, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
+      "This appears when the connection that makes sheet edits show up instantly can't be set up or renewed. Shows keep syncing on the normal schedule regardless, so nothing is lost; at worst, edits take a few minutes longer to appear instead of showing up instantly. The system keeps retrying the connection on its own, waiting longer between attempts the longer it fails, and a Retry now action is available to try immediately. If it keeps failing, it gets flagged for support.",
     helpHref: "/help/errors#WATCH_CHANNEL_ORPHANED",
   },
   WEBHOOK_TOKEN_INVALID: {
@@ -2113,6 +2113,19 @@ export const MESSAGE_CATALOG = {
       "This appears when setup tries to stage a parse for a sheet that the live folder sync is already processing. To avoid clobbering the live row, the wizard's stage is skipped. Resolve the live row from the dashboard: either Apply or Discard it, then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
   },
+  ONBOARDING_SCAN_FAILED: {
+    code: "ONBOARDING_SCAN_FAILED",
+    dougFacing:
+      "The folder scan hit a problem partway through and couldn't finish. Run the scan again from this step; if it keeps failing, text Eric.",
+    crewFacing: null,
+    followUp: "Doug → run the scan again; Eric → check the scan log by requestId if it recurs",
+    helpfulContext:
+      "Usually a temporary problem reading the folder from Google Drive. Anything the failed run already staged is re-checked and replaced when you run the scan again, and nothing reaches any crew page until setup completes.",
+    title: "The folder scan stopped partway",
+    longExplanation:
+      "This appears when the setup scan of your Drive folder stops on an unexpected error before finishing, most often a temporary Google Drive problem while listing the folder or reading a sheet. Anything the failed run already staged is re-checked and replaced by the next run, and nothing reaches any crew page until setup completes. Run the scan again from the same step; if it fails repeatedly, text Eric so he can check the scan log for this run.",
+    helpHref: "/help/errors#ONBOARDING_SCAN_FAILED",
+  },
   ONBOARDING_SHEET_UNREADABLE: {
     code: "ONBOARDING_SHEET_UNREADABLE",
     resolution: "manual",
@@ -3258,6 +3271,24 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "This appears when a browser submits cleanup for a picker cookie entry whose epoch or crew member no longer matches the show's current access state, typically after an admin reset or a roster change. The compare-and-delete cleanup path removes only that one stale entry and leaves any newer, still-valid selections untouched. No action is needed.",
     helpHref: "/help/errors#PICKER_SELECTION_RACE",
+  },
+  PICKER_IDENTITY_CLAIMED_TAMPER: {
+    code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    resolution: "manual",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A malformed crew-page request was blocked automatically. Nothing needs your attention.",
+    dougFacing:
+      "A request tried to open a crew page as an already-claimed crew member, which the normal picker never offers. It was blocked and sent to sign-in. Nothing is exposed; text Eric if this repeats.",
+    crewFacing: null,
+    followUp: "Informational; Eric → check the picker tamper log if it repeats",
+    helpfulContext:
+      "The crew picker only offers open spots, so a request naming a claimed one cannot come from the normal page. The attempt was blocked before anything loaded and the visitor landed on sign-in; crew pages and data were not exposed.",
+    title: "A hand-built crew page request was blocked",
+    longExplanation:
+      "This appears when a request asks to open a crew page as a crew member whose spot is already claimed. The normal picker never offers a claimed spot, so a request naming one cannot come from the page itself; it is treated as tampering, blocked before anything loads, and redirected to sign-in. Crew pages and data are not exposed. Repeated attempts are worth mentioning to Eric, who can check the picker tamper log for the details each attempt records.",
+    helpHref: "/help/errors#PICKER_IDENTITY_CLAIMED_TAMPER",
   },
   PICKER_EPOCH_STALE_BANNER: {
     code: "PICKER_EPOCH_STALE_BANNER",

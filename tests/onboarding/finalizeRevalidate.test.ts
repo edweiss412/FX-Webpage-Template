@@ -463,6 +463,13 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     if (n.startsWith("update public.app_settings")) {
       return { rows: [{ watched_folder_id: "folder-1" } as T], rowCount: 1 };
     }
+    if (n.startsWith("update public.drive_watch_channels")) {
+      // AC-6.18 supersession/orphaning inside the promotion transaction
+      // (spec §3.2.4). No channel rows are tracked here, so these are no-ops;
+      // the behaviour is proved against a real database in
+      // tests/db/watchLifecycle.db.test.ts.
+      return { rows: [], rowCount: 0 };
+    }
     if (n.startsWith("update public.wizard_finalize_checkpoints")) {
       return { rows: [{ status: "final_cas_done", batches_completed: 1 } as T], rowCount: 1 };
     }

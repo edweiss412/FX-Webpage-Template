@@ -197,7 +197,7 @@ describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.
   // Full-sweep copy plan (Task 6): the ROLE_FLAGS_NOTICE title-only exemption
   // is gone. `predicate()` (lib/messages/catalogDocsValidator.ts) now
   // classifies every admin_alerts code as a predicate entry regardless of
-  // severity (see its doc comment), and all 45 ADMIN_ALERTS_CODES —
+  // severity (see its doc comment), and all 46 ADMIN_ALERTS_CODES —
   // including ROLE_FLAGS_NOTICE and SHOW_FIRST_PUBLISHED, both
   // severity:"info" — carry non-null title/longExplanation/helpHref, so no
   // per-code carve-out is needed here anymore.

@@ -38,20 +38,26 @@ const PATH_GATED_BY_EXCLUSION =
   "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change touches only prose no script reads — NOT docs/, which prebuild reads; broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
 const UNSEEN =
   "not named in any workflow run command (project-only --project runs are invisible to the scanner, or no workflow runs it); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+const LOCAL_ONLY_GALLERY_CAPTURE =
+  "local review artifact by design - the gallery capture sweep runs only via pnpm screenshot:gallery; no CI job, no committed baselines (docs/superpowers/specs/2026-07-26-gallery-screenshot-capture-design.md section 1.1)";
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
+  "tests/e2e/screenshots-gallery-capture.spec.ts": LOCAL_ONLY_GALLERY_CAPTURE,
   "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
-  "tests/e2e/admin-lifecycle-transitions.spec.ts": UNSEEN,
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/admin-lifecycle-transitions.spec.ts":
+    "NOT wired 2026-07-26 by MEASUREMENT, not neglect: spec §6.1 sets acceptance at five consecutive green runs and pre-ratifies staying dark otherwise (an admitted flake is worse than a known gap). Best measured 4/5 locally, plus one real-CI failure on the Published-toggle round-trip (Expected false, Received true after 30s). Its two DETERMINISTIC breaks ARE fixed in that PR — a retired-testid assertion and an unreachable compound case — and the pre-hydration swallow is repaired, so what remains is one flaky case rather than a spec that failed every run. BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE",
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
-  "tests/e2e/attention-modal-gallery.spec.ts": UNSEEN,
+  "tests/e2e/attention-modal-gallery.spec.ts":
+    "runs in dev-gate-e2e.yml, which is workflow_dispatch + DAILY SCHEDULE (2026-07-26). A schedule is not PR-blocking-capable per the scanner contract, so this row stays — but the spec is no longer unrun: a break is now bounded to 24h instead of until someone remembers to dispatch. Three serialized cold builds make a per-PR trigger too heavy; ratified B1-D4. BL-DEV-GATE-GALLERY-SPEC-ROT",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
@@ -145,6 +151,26 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     expect(stale, "allowlist rows for deleted specs").toEqual([]);
     const shadowing = Object.keys(LOCAL_ONLY_ALLOWLIST).filter((s) => covered.has(s));
     expect(shadowing, "allowlisted specs that ARE covered - remove the row").toEqual([]);
+  });
+
+  it("the agenda layout specs are COVERED on every PR, with no allowlist row", () => {
+    // This assertion got STRONGER at merge. It used to demand the spec appear in `rejected`
+    // with reason "pull_request.paths/paths-ignore filter", because the only thing running it
+    // was a path-gated workflow -- honest, but weaker than PR-blocking. origin/main then
+    // retired seven per-feature workflows for one unfiltered standalone-e2e.yml, so both
+    // specs are now covered outright and their allowlist rows had to GO: the shadowing check
+    // fails on an allowlisted spec that is covered.
+    //
+    // Asserted per spec rather than left to the generic dark/shadowing tests so a failure
+    // names which one regressed, and so re-adding a row is caught by an explicit expectation.
+    for (const spec of [
+      "tests/e2e/agendaScheduleLayout.spec.ts",
+      "tests/e2e/agendaBreakdown.layout.spec.ts",
+    ]) {
+      expect(specs, `${spec} must exist on disk`).toContain(spec);
+      expect(covered.has(spec), `${spec} must be covered by an unfiltered workflow`).toBe(true);
+      expect(spec in LOCAL_ONLY_ALLOWLIST, `${spec} must carry NO allowlist row`).toBe(false);
+    }
   });
 
   it("the lifecycle layout spec is covered by lifecycle-layout-e2e.yml (not allowlisted)", () => {

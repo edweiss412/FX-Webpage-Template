@@ -26,6 +26,11 @@ vi.mock("@/lib/onboarding/serverActions", () => ({
 vi.mock("@/lib/time/now", () => ({
   nowDate: async () => new Date("2026-06-01T12:00:00.000Z"),
 }));
+// Backoff spec §3.6: the page's separate service-role state read must never
+// fire in the DB-free project; null keeps the panel's sentence unrendered.
+vi.mock("@/lib/admin/watchSurfaceState", () => ({
+  readWatchSurfaceState: vi.fn(async () => null),
+}));
 vi.mock("@/lib/admin/driveConnectionHealth", () => ({
   fetchDriveConnectionHealth: async () => ({
     health: "positive" as const,

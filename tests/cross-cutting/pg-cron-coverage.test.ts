@@ -1,10 +1,22 @@
 /**
- * LOCAL-ONLY: this test requires a live Supabase project with pg_cron + pg_net
- * + supabase_vault extensions installed AND the M12.1 T3 migration applied.
- * NOT wired into CI (would require a Supabase test instance — out of M12.1
- * scope, deferred to a future sub-amendment if needed).
+ * Requires a live Postgres with pg_cron + pg_net + supabase_vault installed
+ * AND the M12.1 T3 migration applied.
  *
- * Run manually before declaring M12 Phase 0.F close-out:
+ * WIRED INTO CI as of 2026-07-26 (PR3 of the CI-dark coverage cluster). The
+ * old header said "NOT wired into CI (would require a Supabase test
+ * instance)", which rested on a false premise: `unit-suite-db` already boots a
+ * local Supabase via scripts/ci/supabase-local-bootstrap.sh, which holds the
+ * pg_cron migrations aside only for the INITIAL boot and then applies them
+ * with `supabase migration up --include-all`. So CI has had a Postgres whose
+ * cron.job rows were produced by PostgreSQL parsing this branch's SQL all
+ * along — the parity check BL-CRON-REGISTRY-MIGRATION-PARITY asked for, with
+ * no new infrastructure.
+ *
+ * Under CI an unreachable psql now THROWS rather than skipping: measured
+ * against a closed port, the old behaviour reported exit 0 / "2 passed | 6
+ * skipped", asserting nothing. Locally the skip behaviour is unchanged.
+ *
+ * Run it directly with:
  *
  *   pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
  *
@@ -12,14 +24,16 @@
  * via `pnpm test:audit:x6-pg-cron-pivot` in .github/workflows/x-audits.yml.
  * not-vercel-cron-class: sibling-test-file name reference (M12.1 T4 doc-guard escape).
  *
- * Modes (PG_CRON_COVERAGE_TARGET env var):
- *   - "local" (default): runs against whatever TEST_DATABASE_URL points at,
- *     including local Supabase (postgresql://postgres:postgres@127.0.0.1:54322/postgres).
- *     Used for T2.1/T2.2/T3 same-target red/green TDD cycles (R11 F29).
- *   - "validation": Task 0.A.4.5 step 5a operator invocation against the
- *     validation Supabase project. Requires TEST_DATABASE_URL pointing at the
- *     validation project AND VALIDATION_SUPABASE_PROJECT_REF set AND
- *     TEST_DATABASE_URL containing the project-ref as a substring (R17 F38).
+ * Modes (PG_CRON_COVERAGE_TARGET env var, resolved by resolvePgCronMode — spec
+ * 2026-07-26-driveid-guard-cluster-design §3.1):
+ *   - "local" (default): runs against the loopback-guarded LOCAL_TEST_DATABASE_URL override or
+ *     the loopback constant. TEST_DATABASE_URL is IGNORED here — an ambient remote DSN can
+ *     never be reached from local mode. Used for same-target red/green TDD cycles (R11 F29).
+ *   - "validation": operator/CI invocation against the validation Supabase project. Requires
+ *     TEST_DATABASE_URL + VALIDATION_SUPABASE_PROJECT_REF; the GUARANTEE is the connected
+ *     cluster's system_identifier, asserted at module scope and re-proven by a DO guard on
+ *     every query's own connection.
+ *   - anything else: refused loudly. Unknown targets never downgrade.
  *
  * Incremental ownership (R10 F25):
  *   T2.1 — adds Layer 0a (pg_net installed)
@@ -29,11 +43,21 @@
  *          auth-header-shape + non-fxav snapshot + orphan-absent
  */
 
-import { describe, expect, test, beforeAll } from "vitest";
-import { execFileSync } from "node:child_process";
+import { describe, expect, test, beforeAll, afterAll } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { makeLiveCaseCounter } from "./_liveCaseCounter";
 import { cronPeriodMs } from "../helpers/cronPeriod";
+import { assertLocalDbUrlIfSet } from "@/tests/db/_localDbUrl";
+import {
+  assertValidationIdentity,
+  buildPgCronUnreachableMessage,
+  execPsqlRedacted,
+  redactDsn,
+  resolvePgCronMode,
+  withValidationIdentityGuard,
+} from "@/tests/db/_validationTargetIdentity";
 
 // Canonical job table — read from the sibling JSON in the M12.1 plan dir so the
 // test, spec §2.3, and T3 migration share a single source of truth. Adding a
@@ -54,6 +78,7 @@ const CANONICAL_JOBS = (
 const SCHEDULE_MIGRATION_PATHS = [
   "supabase/migrations/20260527000003_schedule_cron_jobs.sql",
   "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql",
+  "supabase/migrations/20260727000001_reschedule_refresh_watch.sql",
 ];
 
 const REQUIRED_NOTIFY_JOBS = [
@@ -81,56 +106,153 @@ const REQUIRED_NOTIFY_JOBS = [
 // pg-cron-jobs.json (which models only the route jobs) and lives here.
 const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = ["app_events_prune"];
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const coverageTarget = process.env.PG_CRON_COVERAGE_TARGET ?? "local";
+// ── Target binding (spec 2026-07-26-driveid-guard-cluster-design §3.1) ──────
+// Mode comes from the TARGET alone — never from the DSN. Local mode reads only the
+// loopback-guarded LOCAL_TEST_DATABASE_URL override (or the loopback constant) and IGNORES
+// TEST_DATABASE_URL, so an ambient remote DSN can never be reached unguarded. Misspelled
+// targets throw. These are the ONLY reads of the three env vars in this module (the
+// attachment tripwire in tests/db/driveIdCoverage.test.ts pins that).
+const resolved = resolvePgCronMode({
+  target: process.env.PG_CRON_COVERAGE_TARGET,
+  testDatabaseUrl: process.env.TEST_DATABASE_URL,
+  localTestDatabaseUrl: assertLocalDbUrlIfSet(process.env.LOCAL_TEST_DATABASE_URL),
+});
+const databaseUrl = resolved.dbUrl;
+const coverageTarget = resolved.mode;
 
-function psql(query: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt", "-c", query], {
-    encoding: "utf8",
-  }).trim();
+// The connected cluster must BE validation before anything else touches it: a mismatch fails
+// the whole file at collection with the discriminable two-identifier message.
+if (coverageTarget === "validation") {
+  assertValidationIdentity(databaseUrl);
 }
 
-const livePsqlReachable = ((): boolean => {
+/**
+ * Live queries actually issued. Names and counts of CASES prove registration,
+ * not behaviour: an adversarial round emptied every live case body to `() => {}`
+ * and the suite still reported six named live cases passing, having issued zero
+ * queries and made zero assertions. Only the query itself distinguishes a case
+ * that touched the database from one that did not.
+ */
+let queryCount = 0;
+
+function psql(query: string): string {
+  queryCount += 1;
+  // Validation mode: every query proves its OWN connection via the DO guard (spec §3.1); the
+  // redacting runner keeps the DSN out of any thrown error either way.
+  const sql = coverageTarget === "validation" ? withValidationIdentityGuard(query) : query;
+  return execPsqlRedacted(databaseUrl, ["-qAt"], sql).trim();
+}
+
+/**
+ * Tri-state reachability (spec §3.1, R2-3): in validation mode the probe carries the identity
+ * guard, and a guard abort is classified `identity_mismatch` — never relabeled as the generic
+ * "psql unreachable", which would send an operator debugging connectivity instead of targeting.
+ */
+type Reachability = "reachable" | "identity_mismatch" | "unreachable";
+const livePsqlReachable: Reachability = ((): Reachability => {
   try {
-    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 3000,
-    });
-    return true;
-  } catch {
-    return false;
+    const probeSql =
+      coverageTarget === "validation" ? withValidationIdentityGuard("select 1") : "select 1";
+    execPsqlRedacted(databaseUrl, ["-qAt"], probeSql);
+    return "reachable";
+  } catch (e) {
+    return /validation identity guard/.test(String((e as Error).message))
+      ? "identity_mismatch"
+      : "unreachable";
   }
 })();
 
-const liveDbTest = coverageTarget === "validation" || livePsqlReachable ? test : test.skip;
+/**
+ * CI must not pass vacuously. Measured against a closed port, this suite
+ * reported exit 0 with "2 passed | 6 skipped" — success, having asserted
+ * nothing about any live database. On a developer machine that is the right
+ * behaviour (no local DB running); in CI `unit-suite-db` boots a Postgres and
+ * applies the pg_cron migrations, so an unreachable psql means the JOB is
+ * broken, not that the developer is offline.
+ */
+const isCi = Boolean(process.env.CI);
+
+const liveDbTest =
+  coverageTarget === "validation" || livePsqlReachable === "reachable" ? test : test.skip;
+
+/**
+ * Live cases that actually EXECUTED, so CI can refuse an all-static run. The
+ * second vacuity shape: psql reachable so nothing throws, but every live case
+ * filtered out, leaving only static assertions to report green.
+ *
+ * The wrapper lives in its own module so its delegation is behaviourally
+ * tested — inline, an adversarial round showed that deleting its `fn()` call
+ * left every guard green while each case ran nothing.
+ */
+const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () => queryCount);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
-    const url = process.env.TEST_DATABASE_URL ?? "";
+    // The GUARANTEE is the module-scope identity assert + per-query DO guard; these remain as
+    // cheap pre-flight misconfiguration messages (spec §3.1).
     const projectRef = process.env.VALIDATION_SUPABASE_PROJECT_REF ?? "";
-    if (!url || /localhost|127\.0\.0\.1|:54322/.test(url)) {
-      throw new Error(
-        "pg-cron-coverage: PG_CRON_COVERAGE_TARGET=validation but TEST_DATABASE_URL looks local — refusing to run.",
-      );
-    }
     if (!projectRef) {
       throw new Error(
         "pg-cron-coverage: PG_CRON_COVERAGE_TARGET=validation requires VALIDATION_SUPABASE_PROJECT_REF — refusing to run.",
       );
     }
-    if (!url.includes(projectRef)) {
+    if (!databaseUrl.includes(projectRef)) {
       throw new Error(
         "pg-cron-coverage: TEST_DATABASE_URL does not contain VALIDATION_SUPABASE_PROJECT_REF — refusing to run.",
       );
     }
   }
-  if (!livePsqlReachable && coverageTarget !== "validation") {
+  if (livePsqlReachable === "identity_mismatch") {
+    // Never relabel a targeting failure as connectivity (spec §3.1, R2-3).
+    throw new Error(
+      "pg-cron-coverage: the reachability probe connected, but the identity guard aborted — " +
+        "the configured DSN reaches a cluster that is NOT validation. Fix the target before " +
+        "trusting any assertion this suite could make.",
+    );
+  }
+  if (livePsqlReachable === "unreachable" && isCi) {
+    // Loud in CI, where a database is guaranteed to be present. Message built by the identity
+    // module so the DSN is structurally redacted (spec §3.1, R3-1).
+    throw new Error(buildPgCronUnreachableMessage(databaseUrl));
+  }
+  if (livePsqlReachable === "unreachable" && coverageTarget !== "validation") {
     console.warn(
-      "[pg-cron-coverage] Skipping live-DB assertions — psql unreachable at " +
-        databaseUrl +
-        ". Static migration/canonical-job assertions still run.",
+      redactDsn(
+        "[pg-cron-coverage] Skipping live-DB assertions — psql unreachable at " +
+          databaseUrl +
+          ". Static migration/canonical-job assertions still run.",
+        databaseUrl,
+      ),
+    );
+  }
+});
+
+afterAll(() => {
+  // CI un-excluded this suite precisely to get live assertions; a run that
+  // asserted only static facts would restore the exact darkness PR3 removed.
+  if (isCi && liveCaseCount() === 0) {
+    throw new Error(
+      "pg-cron-coverage: CI is set but ZERO live-DB cases executed — the suite " +
+        "would be reporting success on static assertions alone.",
+    );
+  }
+  // Cases can execute and still touch nothing. Require at least one live query
+  // per live case that ran: emptying the bodies keeps the case count and the
+  // case NAMES intact, and only this notices.
+  //
+  // HONEST CEILING, stated so this is not read as more than it is. The count is
+  // AGGREGATE, so it does not attribute a query to its case: six queries in one
+  // case with the other five empty satisfies it, as does replacing every body
+  // with `psql("SELECT 1")`. It is a floor against wholly-inert cases, NOT a
+  // proof that the assertions are meaningful. Proving that is equivalent to
+  // reviewing the assertions, which is a reviewer's job and not a meta-guard's
+  // — four adversarial rounds each defeated the next proxy (source patterns,
+  // then case names, then this count). Recorded as
+  // BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION.
+  if (isCi && queryCount < liveCaseCount()) {
+    throw new Error(
+      `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
+        "database queries were issued — cases are executing without touching the database.",
     );
   }
 });
@@ -186,78 +308,78 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     }
 
     const timeoutOccurrences = scheduledSql.match(/timeout_milliseconds\s*:=\s*300000/g) ?? [];
-    expect(timeoutOccurrences).toHaveLength(CANONICAL_JOBS.length);
+    // +1: 20260727000001 re-declares refresh-watch's command body when it moves
+    // the job to the 15-minute schedule, so its timeout literal appears twice
+    // across the registered migrations (backoff spec §3.1).
+    expect(timeoutOccurrences).toHaveLength(CANONICAL_JOBS.length + 1);
   });
 
   // Layer 0a — pg_net extension installed (T2.1)
-  liveDbTest("pg_net extension is installed", () => {
+  liveCase("pg_net extension is installed", () => {
     const installed = psql("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_net')");
     expect(installed).toBe("t");
   });
 
   // Layer 0b — fxav_cron_secret entry exists in vault.secrets (T2.2)
-  liveDbTest("vault.secrets has fxav_cron_secret entry", () => {
+  liveCase("vault.secrets has fxav_cron_secret entry", () => {
     const present = psql(
       "SELECT EXISTS(SELECT 1 FROM vault.secrets WHERE name = 'fxav_cron_secret')",
     );
     expect(present).toBe("t");
   });
 
-  liveDbTest(
-    "SAMPLING_PERIOD_MS and T_EXEC_BUDGET_MS match the LIVE refresh-watch job",
-    async () => {
-      // Spec: docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md §2.1.
-      //
-      // Both constants are derived from the renewal job's cadence and declared
-      // timeout, and both are used to compute a renewal lead and a short-grant
-      // heuristic. If the job changes and the constants do not, nothing breaks
-      // loudly — the arithmetic just becomes wrong.
-      //
-      // Asserted against `cron.job`, i.e. the schedule PostgreSQL actually
-      // resolved and runs, NOT against the migration text.
-      //
-      // SCOPE (whole-diff R18): PostgreSQL resolves the OUTER cron.schedule call
-      // only. `command` is stored verbatim, comments included, so everything
-      // below about the command is still text matching — a job whose http_get is
-      // commented out would satisfy it while performing no request. This checks
-      // that the DECLARED timeout matches the constant; proving the job actually
-      // fires is a smoke test's job, and only the sync path has one today (see
-      // the active-gate note below, and BL-PG-CRON-COVERAGE-UNRUN). Whole-diff rounds R8-R16 all landed
-      // on one species: a hand-rolled scanner reading migration SQL and silently
-      // getting the wrong value (comments, dollar quotes, case, quoting, name
-      // resolution, stored function bodies…). The database has already done that
-      // parsing correctly, and this suite already reads it.
-      const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
-      const raw = psql(
-        String.raw`SELECT coalesce(json_agg(json_build_object('schedule', schedule, 'command', command)), '[]'::json) FROM cron.job WHERE jobname = 'fxav_cron_refresh_watch'`,
-      );
-      const rows = JSON.parse(raw) as Array<{ schedule: string; command: string }>;
-      expect(rows, "fxav_cron_refresh_watch is not scheduled").toHaveLength(1);
-      const job = rows[0]!;
+  liveCase("SAMPLING_PERIOD_MS and T_EXEC_BUDGET_MS match the LIVE refresh-watch job", async () => {
+    // Spec: docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md §2.1.
+    //
+    // Both constants are derived from the renewal job's cadence and declared
+    // timeout, and both are used to compute a renewal lead and a short-grant
+    // heuristic. If the job changes and the constants do not, nothing breaks
+    // loudly — the arithmetic just becomes wrong.
+    //
+    // Asserted against `cron.job`, i.e. the schedule PostgreSQL actually
+    // resolved and runs, NOT against the migration text.
+    //
+    // SCOPE (whole-diff R18): PostgreSQL resolves the OUTER cron.schedule call
+    // only. `command` is stored verbatim, comments included, so everything
+    // below about the command is still text matching — a job whose http_get is
+    // commented out would satisfy it while performing no request. This checks
+    // that the DECLARED timeout matches the constant; proving the job actually
+    // fires is a smoke test's job, and only the sync path has one today (see
+    // the active-gate note below, and BL-PG-CRON-COVERAGE-UNRUN). Whole-diff rounds R8-R16 all landed
+    // on one species: a hand-rolled scanner reading migration SQL and silently
+    // getting the wrong value (comments, dollar quotes, case, quoting, name
+    // resolution, stored function bodies…). The database has already done that
+    // parsing correctly, and this suite already reads it.
+    const { SAMPLING_PERIOD_MS, T_EXEC_BUDGET_MS } = await import("@/lib/drive/watchErrors");
+    const raw = psql(
+      String.raw`SELECT coalesce(json_agg(json_build_object('schedule', schedule, 'command', command)), '[]'::json) FROM cron.job WHERE jobname = 'fxav_cron_refresh_watch'`,
+    );
+    const rows = JSON.parse(raw) as Array<{ schedule: string; command: string }>;
+    expect(rows, "fxav_cron_refresh_watch is not scheduled").toHaveLength(1);
+    const job = rows[0]!;
 
-      expect(cronPeriodMs(job.schedule)).toBe(SAMPLING_PERIOD_MS);
+    expect(cronPeriodMs(job.schedule)).toBe(SAMPLING_PERIOD_MS);
 
-      // Prove the row really is refresh-watch's before trusting its timeout.
-      expect(job.command).toContain("/api/cron/refresh-watch");
-      // Scope to the net.http_get( call before matching, so a
-      // `timeout_milliseconds` mentioned elsewhere in the stored command cannot
-      // stand in for the real argument (whole-diff R17). This narrows WHERE the
-      // match may come from; it does not establish that the call executes —
-      // `indexOf` cannot tell a live call from a commented-out one (R19).
-      const callIdx = job.command.indexOf("net.http_get(");
-      expect(callIdx, "refresh-watch command mentions no net.http_get( call").toBeGreaterThan(-1);
-      const call = job.command.slice(callIdx);
-      const timeouts = [...call.matchAll(/timeout_milliseconds\s*:?=\s*([0-9_]+)/g)];
-      // Exactly one, so a second occurrence (a URL, a debug string) cannot make
-      // the first silently win — the R16 finding against the text-scraping version.
-      expect(timeouts, "expected exactly one timeout_milliseconds in the job command").toHaveLength(
-        1,
-      );
-      expect(T_EXEC_BUDGET_MS).toBe(Number(timeouts[0]![1]!.replace(/_/g, "")));
-    },
-  );
+    // Prove the row really is refresh-watch's before trusting its timeout.
+    expect(job.command).toContain("/api/cron/refresh-watch");
+    // Scope to the net.http_get( call before matching, so a
+    // `timeout_milliseconds` mentioned elsewhere in the stored command cannot
+    // stand in for the real argument (whole-diff R17). This narrows WHERE the
+    // match may come from; it does not establish that the call executes —
+    // `indexOf` cannot tell a live call from a commented-out one (R19).
+    const callIdx = job.command.indexOf("net.http_get(");
+    expect(callIdx, "refresh-watch command mentions no net.http_get( call").toBeGreaterThan(-1);
+    const call = job.command.slice(callIdx);
+    const timeouts = [...call.matchAll(/timeout_milliseconds\s*:?=\s*([0-9_]+)/g)];
+    // Exactly one, so a second occurrence (a URL, a debug string) cannot make
+    // the first silently win — the R16 finding against the text-scraping version.
+    expect(timeouts, "expected exactly one timeout_milliseconds in the job command").toHaveLength(
+      1,
+    );
+    expect(T_EXEC_BUDGET_MS).toBe(Number(timeouts[0]![1]!.replace(/_/g, "")));
+  });
 
-  liveDbTest("cron.job has fxav_cron_* rows matching the canonical pg-cron-jobs.json", () => {
+  liveCase("cron.job has fxav_cron_* rows matching the canonical pg-cron-jobs.json", () => {
     // R4 F10: escape '\' so underscore is literal (not single-char wildcard).
     // JSON aggregation: command column contains literal newlines that would
     // break naive split('\n') parsing.
@@ -331,19 +453,16 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
   // R25 F49 amended: snapshot-equality on the non-fxav cron set (excluding the
   // orphan T3 cleans up). Proves T3's cron.unschedule LIKE clause didn't reach
   // outside fxav_cron_* scope.
-  liveDbTest(
-    "non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)",
-    () => {
-      const raw = psql(
-        String.raw`SELECT coalesce(array_to_string(array_agg(jobname ORDER BY jobname), E'\n'), '') FROM cron.job WHERE jobname NOT LIKE 'fxav\_cron\_%' ESCAPE '\' AND jobname != 'cleanup-bootstrap-nonces'`,
-      );
-      const actual = raw.length === 0 ? [] : raw.split("\n");
-      expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
-    },
-  );
+  liveCase("non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)", () => {
+    const raw = psql(
+      String.raw`SELECT coalesce(array_to_string(array_agg(jobname ORDER BY jobname), E'\n'), '') FROM cron.job WHERE jobname NOT LIKE 'fxav\_cron\_%' ESCAPE '\' AND jobname != 'cleanup-bootstrap-nonces'`,
+    );
+    const actual = raw.length === 0 ? [] : raw.split("\n");
+    expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
+  });
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
-  liveDbTest("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
+  liveCase("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
     const count = psql("SELECT count(*) FROM cron.job WHERE jobname = 'cleanup-bootstrap-nonces'");
     expect(count).toBe("0");
   });

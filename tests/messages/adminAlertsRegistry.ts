@@ -4,7 +4,7 @@
 //
 // Extracted from tests/messages/_metaAdminAlertCatalog.test.ts so BOTH that
 // meta-test AND tests/messages/_metaAlertAudienceContract.test.ts import the
-// SAME 45-code list — the audience contract enforces the FULL registered set,
+// SAME 46-code list — the audience contract enforces the FULL registered set,
 // not a private copy (plan-R3 finding 2).
 export const ADMIN_ALERTS_CODES = [
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
@@ -14,6 +14,7 @@ export const ADMIN_ALERTS_CODES = [
   "CALLBACK_CLAIM_THREW", //          app/auth/callback/route.ts
   "PICKER_SELECTION_RACE", //         lib/auth/picker/cleanupStaleEntry.ts
   "PICKER_EPOCH_RESET", //            lib/auth/picker/resetPickerEpoch.ts
+  "PICKER_IDENTITY_CLAIMED_TAMPER", // lib/auth/picker/selectIdentity.ts
   "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
   "ASSET_RECOVERY_REVISION_DRIFT", //  M7 asset recovery stale-preview cooldown
   "ASSET_RECOVERY_DRIFT_COOLDOWN", //  M7 asset recovery cooldown skip

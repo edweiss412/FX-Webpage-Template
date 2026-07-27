@@ -36,6 +36,7 @@ export type AdminAlertCode =
   | "CALLBACK_CLAIM_THREW"
   | "PICKER_SELECTION_RACE"
   | "PICKER_EPOCH_RESET"
+  | "PICKER_IDENTITY_CLAIMED_TAMPER"
   | "WIZARD_SESSION_SUPERSEDED_RACE";
 
 export type UpsertAdminAlertInput = {

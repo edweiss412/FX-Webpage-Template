@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -7,15 +8,12 @@ const ROOT = join(__dirname, "..", "..", "..", "..");
 // Strip `//` line and `/* … */` block comments before scanning: the audit tests
 // CODE, not prose. A source comment mentioning the word "transition" (e.g.
 // "no transition class here") must NOT trip the class scan.
-function stripComments(s: string): string {
-  return s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-}
 
 const tileRaw = readFileSync(join(ROOT, "components/admin/wizard/VenueMapTile.tsx"), "utf8");
-const tile = stripComments(tileRaw);
-const sections = readFileSync(
-  join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
-  "utf8",
+const tile = stripCommentsForFile(tileRaw, "components/admin/wizard/VenueMapTile.tsx");
+const sections = stripCommentsForFile(
+  readFileSync(join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"), "utf8"),
+  "components/admin/wizard/step3ReviewSections.tsx",
 );
 
 // Slice out ONLY the VenueBreakdown function body so the assertions cannot be
@@ -28,7 +26,7 @@ function venueBreakdownSource(): string {
   // accept the optional `export ` prefix or the slice overruns into transport.
   const rest = sections.slice(start + "function VenueBreakdown".length);
   const nextFn = rest.search(/\n(?:export )?function \w/);
-  return stripComments(rest.slice(0, nextFn === -1 ? undefined : nextFn));
+  return rest.slice(0, nextFn === -1 ? undefined : nextFn);
 }
 
 describe("venue card transition inventory (spec §8 — all instant)", () => {

@@ -688,11 +688,16 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
   });
 
-  test("mid-run throw becomes a terminal {ok:false, code:null} on a 200 stream", async () => {
+  test("mid-run throw becomes a terminal {ok:false, code:ONBOARDING_SCAN_FAILED} on a 200 stream", async () => {
     // audit idx85/#115: the stream catch used to log ONLY { source, requestId },
     // dropping the caught error — so a scan failure was undiagnosable from logs
     // (diverging from finalize/route.ts which logs { source, error }). Failure mode
     // this pins: revert the binding and the error no longer reaches log.error meta.
+    //
+    // BL-SCAN-SSE-BODY-NULL-CODE: the terminal body used to carry `code: null`,
+    // pushing the client onto its generic fallback copy. The catch now emits the
+    // same cataloged §12.4 code the forensic log line carries, asserted against
+    // the EMITTED BODY (not the log call) so this cannot pass on the stamp alone.
     const errorSpy = vi.spyOn(log, "error").mockImplementation(async () => {});
     const boom = new Error("drive exploded");
     const db = new FakeScanDb();
@@ -706,9 +711,11 @@ describe("POST /api/admin/onboarding/scan", () => {
       routeDeps,
     );
     expect(response.status).toBe(200);
-    expect(terminal(await readNdjson(response))).toEqual({ ok: false, code: null });
-    // The emitted client body stays identical (behavior unchanged); only the log
-    // meta gains the bound error — asserted against the SAME thrown instance.
+    expect(terminal(await readNdjson(response))).toEqual({
+      ok: false,
+      code: "ONBOARDING_SCAN_FAILED",
+    });
+    // The log meta keeps the bound error — asserted against the SAME thrown instance.
     expect(errorSpy).toHaveBeenCalledWith(
       "onboarding scan failed",
       expect.objectContaining({ source: "admin/onboarding/scan", error: boom }),

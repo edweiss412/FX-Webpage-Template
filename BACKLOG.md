@@ -8,76 +8,15 @@ Last reconciled: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated o
 
 ---
 
-## Drive-ID coverage guard — deliberately-undone parts (2026-07-25)
-
-Filed per the owner's scope decision during `fix/secondary-drive-id-nonblank`. The guard shipped in
-its minimal form — one live census query, a pure auditor, an empty exemption list, running in
-`unit-suite-db` (a worker of the required `unit-suite` aggregator). Four mechanisms were deliberately
-NOT built, each after adversarial review showed the attempted version was defeatable. Spec §10 and
-§11: `docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md`.
-
-**Read the provenance before picking any of these up.** Seven spec rounds and three plan rounds
-(55 findings) are the analysis behind them; the reason each is open is that the obvious fix was tried
-and shown not to work, not that nobody thought about it.
-
-### BL-DRIVEID-CENSUS-QUERY-SELF-CHECK — detect a census-query regression that silently narrows the audited set
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
-
-If `lib/driveIdCoverage/introspect.ts`'s census query stops returning a column — a narrowed name
-predicate, a changed schema list, an added filter — that column is absent from both the census and the
-audit, and the suite is green. Four mechanisms were tried and each defeated: a required-tuple set and a
-`>= 23` count floor (both pass at exactly today's size once the census legitimately grows), a committed
-census artifact with a shape contract (a truncated artifact satisfied it), and a broad-predicate
-`broadCount` cross-check (vacuous — every `drive_file_id` match also matches `drive`, so narrowing the
-primary predicate left both assertions true).
-
-**Fix (when prioritized):** a genuinely independent source of truth — derive the column set a second
-way (`pg_attribute` rather than `information_schema`) and require the two to agree — or a mutation test
-that narrows the query and asserts the suite goes red. Today's control is code review of ~15 lines.
-
-### BL-VALIDATION-PARITY-DEFINITION-MATCH — validation parity still matches on bare constraint NAMES
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
-
-`tests/db/validation-schema-parity.test.ts:256-284` asserts validation contains each expected
-`conname`. Constraint names are unique per TABLE, not per schema (measured), so a same-named constraint
-on a different public table satisfies it — as does one with the right name and a weakened definition
-such as `CHECK (true)`. The 2026-07-25 change extended that test's parse and count but deliberately did
-not re-architect it.
-
-**Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
-against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
-
-### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` cannot prove which database it connected to
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
-
-A libpq URI's authority is not its effective target: `?host=` / `hostaddr=` query parameters and
-duplicate keyword-form fields override it. A `TEST_DATABASE_URL` displaying the validation project's
-pooler authority can therefore connect to a loopback or any other database and pass every
-authority-based check. Affects the whole job, predates the 2026-07-25 change.
-
-**Fix (when prioritized):** interrogate the CONNECTED server for an identity fact rather than parsing
-the DSN string. Note an authority-parsing check (`postgres.<ref>` username + `*.pooler.supabase.com`
-host) was drafted and rejected during review as theatre against precisely this bypass —
-`scripts/lib/validation-target.ts`'s helpers do not fit either, since they validate an HTTPS Supabase
-API URL, not a Postgres DSN.
-
-### BL-DRIVEID-BEHAVIORAL-COVERAGE — 16 of 23 constrained Drive-ID columns have no execution probe
-
-**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
-
-`tests/db/driveFileIdNonblank.db.test.ts` behaviorally probes 7 of the 23 constrained columns
-(3 pre-existing + the 4 added 2026-07-25); the rest are covered by declaration only — the live guard
-proves a canonical CHECK is DECLARED, not that it BEHAVES. Mechanical, bounded, unglamorous: each
-addition needs an insert shape satisfying that table's NOT NULL siblings and composite keys.
-
----
-
 ## Admin lifecycle e2e (2026-07-24, share-link-chrome-backlog review r4)
 
-### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED
+### BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
+
+**Resolved.** The assertion on `admin-share-link-inactive` is deleted. Verified before deleting: neither the testid nor its copy exists under `components/`, `app/`, or `lib/`, and `git log -S` attributes the removal to `d7fa48b9a feat(admin): replace the Overview share cluster with the status-band hub (T4)` — a ratified redesign, not a rename.
+
+The proposed fix below (**"replace the assertion with whatever now carries the crew-link-off copy"**) was investigated and **rejected on evidence**: nothing carries it. The nearest surviving string is a rotation confirmation in a different control, and `admin-current-share-link-unavailable` is an _error_ state gated on `published`. Everything below this line is the ORIGINAL entry, kept as provenance — its "It does not run" and "Fix:" paragraphs describe the pre-2026-07-26 state, not the current one.
+
+**Note on the host spec:** `admin-lifecycle-transitions.spec.ts` is still NOT wired into a workflow — see `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. This particular assertion can no longer rot further (it is gone), but the file remains CI-dark.
 
 `tests/e2e/admin-lifecycle-transitions.spec.ts:305` asserts `admin-share-link-inactive` contains "The crew link is inactive while this show is unpublished." That testid was RETIRED by the share-hub consolidation (`docs/superpowers/specs/2026-07-20-share-hub-design.md:106` lists it under Removed); no production module emits it, and current unit tests assert its absence. The spec would fail if it ran.
 
@@ -251,7 +190,8 @@ discovered dark, which is the event this would have prevented.
 `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
 `VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
 file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
-while passing locally.
+while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
+mechanism this entry is about remains).
 
 Three formulations failed:
 
@@ -269,6 +209,56 @@ Current state of the other two entries, both invisible to any check built so far
 job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
 `tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
 dark-exclusion incident.
+
+### BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE — the Published-toggle round-trip case is not yet five-greens stable
+
+**Status:** OPEN · **Severity:** MEDIUM (blocks wiring an otherwise-repaired spec) · **Class:** e2e flake · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
+
+**Do not re-derive this analysis.** Measurements below.
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts` was matched by the `mobile-safari` project and named by no workflow. PR4 repaired both of its DETERMINISTIC breaks and stopped short of wiring it, per spec §6.1's pre-ratified fallback: acceptance is five consecutive green runs, and "if it cannot reach that, it stays dark with a recorded reason. An admitted flake is worse than a known gap."
+
+**Fixed and shipped:**
+
+- The assertion on `admin-share-link-inactive` (retired by `d7fa48b9a`) is deleted — it failed every run, so no flake work could ever have reached five greens.
+- The compound "Archive armed while another action refreshes" case is retired: the ShareHub backdrop makes its premise unreachable (see `BL-ARCHIVE-ARMED-CONCURRENT-REFRESH`).
+- The pre-hydration click-swallow is fixed properly — `waitForHydration` drives the ShareHub kebab (client-only, writes nothing, safe to retry), then the mutation is dispatched exactly once. An earlier attempt retried the mutation itself and was measurably wrong: a slow unpublish let the retry click the refreshed OFF toggle and dispatch a REPUBLISH.
+
+**What remains:** the "Published toggle round-trip" case. Best measured **4/5 locally**; the single failure was `Expected "true" / Received "false"` on the ON flip, which is why that assertion now carries the same 30s budget as the OFF flip. A subsequent real-CI run then failed the OFF flip with `Expected "false" / Received "true"` after 30s.
+
+**Local runs cannot currently settle it:** this box carried load average **16–21** with a sibling worktree mutating the SAME local Supabase, so failing cases move between runs for reasons unrelated to the spec (`element(s) not found` for the review modal is the shared-fixture signature). A clean measurement needs either an idle box or a CI loop.
+
+**If picked up:** re-run the CI job five times (`gh run rerun`) rather than trusting local runs, and if the round-trip case is still not stable, investigate whether the unpublish server action plus `router.refresh()` can exceed 30s under CI load — the toggle stays `aria-busy` and `disabled` throughout, so the state simply has not landed.
+
+### BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — no case covers an armed Archive during a refresh from another source
+
+**Status:** OPEN · **Severity:** LOW · **Class:** test coverage gap · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts` had a "compound: Archive armed while another action refreshes → no torn state" case. It was removed because its premise became **structurally unreachable**, not because the invariant stopped mattering.
+
+**Measured:** the run fails with `share-hub-backdrop ... subtree intercepts pointer events`. The armed Archive control lives inside the ShareHub popover (`components/admin/showpage/ShareHub.tsx:929`), and while that popover is open it renders a `fixed inset-0 z-20` backdrop (`components/admin/showpage/ShareHub.tsx:631-642`) covering every control outside it — including the StatusStrip published-toggle the case dispatched. Closing the popover to reach the toggle unmounts the armed control. Mutually exclusive by design, introduced by `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9 composition rules (T3)`.
+
+**The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
+
+**If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
+
+### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+
+**Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; measurements below.
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` refuses a CI run where fewer live queries were issued than live cases ran. That closes the MEASURED defect — the suite previously reported exit 0 with "2 passed | 6 skipped", asserting nothing — and it catches an emptied case body (verified: emptying one body while keeping its name yields "6 live cases ran but only 5 database queries were issued").
+
+**Per-case attribution SHIPPED in the same round.** The counter is snapshotted around each case, and a case issuing no query throws by name. Verified against R4's exact reproduction — six queries in one case with the next one empty now reds, naming the empty case — so the first of its two reproductions is closed.
+
+**The gap that remains:** replacing every body with `psql("SELECT 1")` satisfies attribution while asserting nothing about pg_cron.
+
+**Why THAT is not patched:** each round defeated the next proxy — source patterns (rewrite the predicate), case names (keep names, empty bodies), aggregate queries (front-load one case). Proving assertions are _meaningful_ is equivalent to reviewing them, which is a reviewer's job, not a meta-guard's. A fifth proxy would be the same shape.
+
+**Also open (same round):** the executable vacuity guard does not protect the query-count mechanism itself — deleting `queryCount` and its `afterAll` branch leaves all three probe cases green. Exactly demonstrated by commit `1c1ae148e`, which had the executable guard without query counting and was green.
+
+**If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
 
 ### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets
 
@@ -368,23 +358,17 @@ next mutation-file-touching PR or the next post-merge nightly triage.
 
 ---
 
-## BL-WATCH-RECONCILE-BACKOFF — backoff state for watch channels (BLOCKED on four shipped defects)
-
-**Status:** OPEN, **blocked** · **Severity:** low · **Surfaced:** watch-channel-health brainstorming (2026-07-01) · **Re-scoped:** 2026-07-25 after five cross-model adversarial rounds
-
-Approach B from `docs/superpowers/specs/observability/2026-07-01-watch-channel-health-design.md` §2/D1: a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) plus exponential backoff and a faster reconcile cadence.
-
-**The lease half already shipped separately** as `docs/superpowers/specs/observability/2026-07-25-watch-lease-slack-design.md` — that was the measured defect (every channel taking Google's 1-hour default and being renewed at the instant it expired, ~1 second of slack). It is not part of this entry any more.
-
-**Why this half is blocked.** Five adversarial rounds (~55 findings, every checkable claim verified against the live tree) established that backoff cannot be built correctly on the current watch subsystem. The full design work, including round-by-round disposition tables of what was tried and why each attempt failed, is retained at `docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md` (status DEFERRED). Start there rather than re-deriving.
-
-The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, is the dominant retry path, and it is ungated. A ladder attached to reconcile therefore cannot deliver backoff at all. Fix all four entries below first — including `BL-WATCH-DRIVE-CALL-TIMEOUT`, which is a prerequisite for any timing claim a backoff ladder would make. (This read "the three" while enumerating four; whole-diff R10.)
-
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
 
-`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It is excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there says it "runs against the validation project (like validation-schema-parity)". **Nothing runs it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
+**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
+
+**What stays open:** the per-job smoke-test residue (spec §9). The target-binding ceiling this entry used to inherit closed 2026-07-27: the connected cluster's `system_identifier` is now pinned and re-proven by a DO guard on every query's own connection (`feat/driveid-guard-cluster`, `docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md` §3.1) — a DSN substring check proves nothing, and no longer has to.
+
+**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
 
 So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
 
@@ -392,50 +376,49 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 **Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
 
-## BL-CRON-REGISTRY-MIGRATION-PARITY — no CI-running check ties a new migration to the cron registry
-
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
-
-`pg-cron-jobs.json` is the canonical machine-readable cron contract, and constants are pinned against it. Nothing that runs in CI checks that the MIGRATIONS agree with it:
-
-- `pg-cron-coverage.test.ts` has a static migration check, but it reads two hard-coded historical paths and asserts `scheduledSql.toContain(job.schedule)` over their concatenated text — `fxav_cron_notify_digest` and `fxav_cron_refresh_watch` share `0 * * * *`, so one can change while the assertion still finds the string. It also does not run at all (`BL-PG-CRON-COVERAGE-UNRUN`).
-- Its live check reads the DEPLOYED validation row, so a migration sitting unapplied on a branch is invisible until after deploy.
-
-A hand-rolled SQL scanner was tried for exactly this and abandoned after nine review rounds of lexical corners (comments, dollar quoting, identifier case and quoting, name resolution, `search_path`, stored function bodies) — see the header of `tests/cron/samplingPeriodParity.test.ts`. **Do not reinstate regex-based SQL parsing.**
-
-**Fix direction:** apply migrations to a throwaway Postgres in CI and read `cron.job` from it, so PostgreSQL does the parsing on the BRANCH's SQL. The `supabase-local-bootstrap` path already boots a local instance; the pg_cron migrations are GUC-guarded and held aside there, so this needs a variant that enables them.
-
 ## BL-WATCH-DRIVE-CALL-TIMEOUT — `files.watch` has no timeout, so one stalled call can hold the renewal loop
 
-**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-25, whole-diff review round 6
+**Status:** NARROWED 2026-07-26 by the watch-renewal-lifecycle PR — NOT closed. `files.watch` and `channels.stop` now carry `{ timeout: 15s, retry: false }` and the renewal loop has a run budget, but the `GoogleAuth` credential fetch preceding each request is still unbounded, so a stalled credential call can hold the loop exactly as this entry describes. The remaining half is `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`. See `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.
 
 `getDriveClient()` sets no global timeout and `files.watch` is called with no per-call options, so a stalled Drive request blocks the sequential renewal loop in `refreshWatchSubscriptions` for as long as the platform allows. The master spec claimed "time-boxed (default 15s)" for years; nothing implemented it, and that wording is now corrected rather than left as a false promise.
 
 This is why `2026-07-25-watch-lease-slack-design.md` claims **no** renewal-timing guarantee: every such claim would be parameterised by an execution budget nothing enforces. Adding a real per-call timeout (and a per-row deadline in the loop) is the prerequisite for making any timing guarantee defensible — including the deferred backoff work.
 
-## BL-WATCH-EXPIRED-ACTIVE-ROW — a failed renewal leaves the old channel active forever, retried on every tick
+## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
-**Status:** OPEN · **Severity:** medium (unbounded futile Drive calls; blocks `BL-WATCH-RECONCILE-BACKOFF`) · **Surfaced:** 2026-07-25, adversarial round 5
+**Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5
 
-When a renewal fails, `markWatchOrphanedWithTx` marks only the **newly inserted pending** channel orphaned. The old channel keeps `status='active'` past its `expires_at`, and the renewal query (`listRenewalDue`, which selects `status='active'` rows whose remaining life is inside the renewal lead) keeps returning it **forever**; GC only collects `superseded`/`orphaned`, so nothing ever cleans it up. Line numbers are deliberately omitted: this entry outlives any particular revision, and the method was renamed from `listExpiringActive` by the lease-slack PR.
+`promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
 
-Result: refresh re-attempts that folder on every cron tick indefinitely — currently 24 futile `files.watch` calls/day per stuck folder, and 96/day at any 15-minute cadence. **Repro:** force a renewal failure, then observe `drive_watch_channels` retaining an `active` row with `expires_at` in the past while `DRIVE_WATCH_RENEWAL_FAILED` repeats hourly. **Fix direction:** on renewal failure, transition the old row out of `active` (orphaned or a new `expired` state) so it leaves the renewal query and enters GC — being careful that the partial unique index `drive_watch_channels_one_active_per_folder_idx` and the supersession-in-activation path still hold.
+Three review rounds tried to close this with an `app_settings` predicate inside `activatePending`; each attempt failed for a different reason, the last being that an ordinary subquery cannot see an uncommitted promotion. **A correct fix requires serialization** between the promotion transaction and concurrent subscribers — an advisory lock on the settings row, or `select … for update` — which collides with the ratified "no advisory locks on any watch surface" constraint (that constraint exists because a second holder on this hashkey is the M5-R20 nested-holder class). So this is a lock-topology change and needs its own design.
 
-## BL-WATCH-ALERT-RAISE-NOT-ATOMIC — the alert raise is not in the transaction it appears to be in
+**Bounded, not open-ended:** refresh renews only the configured folder and renews nothing when the folder read fails, so a stale row is never renewed under any branch. It dies at its own `expires_at` within `WATCH_TTL_MS`, is reaped to `expired`, and is GC'd. Worst case is up to 24h of webhook deliveries for a folder nobody watches — the same class that was PERMANENT before that work landed.
 
-**Status:** OPEN · **Severity:** low-medium (a window where channel state and alert state disagree; blocks alert-derived health inference) · **Surfaced:** 2026-07-25, adversarial round 4
+**Amends AC-6.18**, which is otherwise absolute. Design context: `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.2.4.
 
-`PostgresWatchTx.upsertAdminAlert` looks like a transaction-port method but calls the standalone service-role helper (`lib/drive/watch.ts:189-194`), which constructs its own Supabase client and issues an RPC over a **different connection** (`lib/adminAlerts/upsertAdminAlert.ts:47-52`) — outside the surrounding `sql.begin` (`lib/drive/watch.ts:315-318`). The alert can commit while the channel mutation rolls back, or vice versa.
+## BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED — the GoogleAuth token request has no timeout
 
-Nothing shipped depends on that atomicity today, which is why this is not urgent — but any design that infers "is the watch healthy" from alert state versus channel state has a window, which is what round 4 discovered. **Fix direction:** route the alert upsert through the same `sql` transaction (the RPC can be called via the pg connection), or document the non-atomicity at the call site so future designs do not assume it.
+**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec round 1
 
-## BL-WATCH-ALERT-FOLDER-SCOPE — the global watch alert cannot describe which folder failed
+`files.watch` and `channels.stop` now carry a per-call `{timeout, retry: false}`, which gaxios enforces by aborting the request. That bounds the API call and NOT the credential fetch that precedes it: `getDriveClient()` hands `google.drive` a `GoogleAuth` instance which performs its own token request, on its own transport, before the API request is issued, where no `MethodOptions` applies. A hung token endpoint therefore still stalls the caller.
 
-**Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-25, adversarial rounds 3-4
+An outer race was designed and withdrawn — it could not cancel the fetch either, and its rejection let an activation commit after the caller had recorded the row as failed. No supported per-call knob was found for the token path. Any fix likely means configuring the auth client's transport, which affects every Drive caller and so wants its own review.
 
-`WATCH_CHANNEL_ORPHANED` is global — one unresolved row for the whole system (`show_id IS NULL`, `admin_alerts_one_unresolved_idx`, `supabase/migrations/20260501001000_internal_and_admin.sql:279-280`) — and carries no folder identity. Meanwhile `refreshWatchSubscriptions` renews **every** active channel without consulting `app_settings` (`lib/drive/watch.ts:196-210`), and folder promotion supersedes nothing (`app/api/admin/onboarding/finalize-cas/route.ts:779-804`). So after a folder switch, an old folder's renewal failure raises an alert that describes the _current_ folder, and escalation reports the current folder's name for a failure that happened elsewhere.
+**Scope note:** this is the residual named in `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.1a, filed rather than left implicit because the withdrawn design's error was claiming to have closed it.
 
-**Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
+## BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES — eight Drive calls under app/api/ carry no timeout
+
+**Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-26, watch-renewal-lifecycle plan review
+
+A sweep of every Drive/Sheets API call — `grep -rnE '\.(files|channels|revisions|spreadsheets)\.[a-zA-Z]+\(' lib/ app/ --include='*.ts'`, judged by each call's SECOND argument — found everything under `lib/` already bounded by `{timeout, retry: false}` or a stall guard. Eight calls under `app/api/` are not:
+
+- `app/api/admin/onboarding/scan/route.ts:109`
+- `app/api/asset/agenda/[show]/[id]/route.ts:320`, `:481`, `:524`
+- `app/api/asset/reel/[show]/route.ts:397`, `:527`, `:568`, `:661`
+
+Each can stall its request indefinitely, the same class `BL-WATCH-DRIVE-CALL-TIMEOUT` closed for the watch surface. Out of scope there because they are route-level asset paths with their own budgets and no backlog entry claimed them.
+
+**Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
@@ -541,6 +524,8 @@ The 2026-07-03 and 2026-07-25 sweeps (`BL-COPY-CRON-SWEEP`, `-2`) both removed j
 
 ## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted
 
+> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
+
 **Status:** OPEN · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25)
 
 `tests/e2e/attention-modal-gallery.spec.ts` runs only under the `dev-build` Playwright project (`playwright.config.ts:92`), and `dev-build` runs only in `dev-gate-e2e.yml`, which is `workflow_dispatch`-only. No PR ever triggers it. Its last green run was **2026-07-02**; the only other run since was a failure on 2026-06-22. Dispatching it during this branch's close-out failed two assertions:
@@ -574,30 +559,212 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
 
-**Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`, PR4 `BL-SCAN-SSE-BODY-NULL-CODE`, PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`, PR6 `BL-ALERT-ACTION-LINKS-E2E`. `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk and `BL-STEP3-IMPECCABLE-LIVE-RENDER` stays unscheduled — both deliberately, not by omission.
+**Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk and `BL-STEP3-IMPECCABLE-LIVE-RENDER` stays unscheduled — both deliberately, not by omission.
 
-### BL-SCAN-SSE-BODY-NULL-CODE — onboarding scan SSE result body emits a user-facing `code:null`
+### BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY — the admin layout harness hand-writes the wrapper it measures inside
 
-**Status:** OPEN — queued as PR4 of the 2026-07-24 residual sweep · **Severity:** low · **Class:** USER-FACING SURFACE
+**Status:** OPEN — filed from PR #610 whole-diff review R2 (MEDIUM) · **Severity:** low · **Class:** TEST FIDELITY
 
-`app/api/admin/onboarding/scan/route.ts:353` (verified 2026-07-24) emits `{ type: "result", body: { ok: false, code: null } }` to the client on catch (adjacent to the now-forensic-coded `ONBOARDING_SCAN_FAILED` log). The `code:null` is a distinct client-facing surface — arguably warrants a real §12.4 code so the client can catalog-look-up, but that is an expensive 3-way §12.4 change out of scope for the forensic batch. **Fix (when prioritized):** assign a cataloged code + regen `gen:spec-codes` + add the `catalog.ts` row.
+`tests/e2e/agendaBreakdown.layout.spec.ts` now renders the real `AgendaScheduleBlock` (PR #610 replaced
+that transcription), but still hand-writes the surrounding `article` / `section` / `ul` / `li.min-w-0`
+chrome. That `min-w-0` is load-bearing for the long-token overflow assertion, so the harness can stay
+green while the ACTUAL admin wrapper overflows. Production Step 3 renders `AgendaBreakdown`
+(`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
+does not reproduce.
 
-### BL-PICKER-TAMPER-ADMIN-ALERT — selectIdentity tamper breadcrumb could also raise an `admin_alerts` upsert
+**Why PR #610 did not close it — cost premise CORRECTED by review R3.** The first version of this
+entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
+error is worth naming: the hook count came from `grep -c` over the whole 4000-line
+`step3ReviewSections.tsx` and was attributed to the component. Measured properly,
+`AgendaBreakdown` is **225 lines with 4 hook call sites in its own body** — `useContext` x1,
+`useEffect` x2, `useLayoutEffect` x1. Method, so the number is checkable rather than asserted:
+brace-match the function body from `export function AgendaBreakdown(` and count `use[A-Z]\w*(`.
+Review R4 reported nine (adding three `useState` and two `useRef`); those do not appear anywhere
+between this function and the next export, `PublishedAgendaList`. Child components it renders have
+their own hooks — the relevant number for harness cost is the ones this component owns.
 
-**Status:** OPEN — queued as PR5 of the 2026-07-24 residual sweep · **Severity:** low · **Class:** ALERTING GAP
+The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
+modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
+pass-through for anything it does not intercept). The one thing standing between that harness and real
+coverage is a single line: `tests/e2e/_step3ReviewModalHarness.tsx:158` hands the modal
+`agendaBaseline: []`.
 
-`lib/auth/picker/selectIdentity.ts:64` (verified 2026-07-24) logs a `PICKER_IDENTITY_CLAIMED_TAMPER` forensic warn on a hand-crafted claimed-row bypass, but does not raise an `admin_alerts` upsert. The forensic batch is code-stamping only; whether this security/tamper breadcrumb should also surface as an operator-visible admin alert is a separate alerting decision.
+**Still deferred, on the corrected grounds:** closing it needs a non-empty `AdminAgendaItem[]` fixture
+(`lib/agenda/agendaAdminPreview.ts:34`), an extract-route intercept, and its own bundle entry + spec —
+because `buildSectionData` is shared, so changing the default fixture in place would perturb every
+existing step3-review-modal spec. Additive work, not a new harness. Sized in hours, not the days the
+original entry implied.
 
-**Fix:** design the alert severity/dedupe, then upsert via `upsertAdminAlert` (`lib/adminAlerts/upsertAdminAlert.ts:47`). Two placement constraints, both verified 2026-07-24 — the original one-line fix note ("add the `admin_alerts.upsert` under the per-show lock") is **wrong on both counts** and should not be followed:
+**Start here:** add an optional `agendaBaseline` override to `buildSectionData`
+(`tests/e2e/_step3ReviewModalHarness.tsx:128`) defaulting to `[]`, so existing callers are untouched.
 
-1. **Not under the lock.** The per-show advisory lock for this path is held INSIDE the RPC — `pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id))` at `supabase/migrations/20260523000007_select_identity_atomic.sql:37`, called as `.rpc("select_identity_atomic", …)` from `selectIdentity.ts:101`. Per invariant 2's single-holder rule the JS side must NOT acquire it again, and per invariant 10 the emit is post-commit anyway. Upserting after `selectIdentityCore` returns is already correctly outside the lock tx; nothing new is needed to achieve that.
-2. **Before the `redirect()`.** The tamper branch calls `redirect(...)` immediately after the warn (`selectIdentity.ts:66-68`), and Next's `redirect()` throws to unwind — an upsert placed after it never executes. `admin_alerts` is also not one of invariant 2's lock-guarded tables, so this is purely an ordering constraint, not a locking one.
+**Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
+on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
+was written, which assumed the retired path filter.
 
-New `admin_alert` code → the ~9-surface lockstep fan-out applies (catalog row, identity map, action registry if it gets a link, bell/attention producers, meta-tests).
+**Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
+containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
+
+### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+
+**Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
+
+`origin/main` deleted `.github/workflows/modal-header-layout-e2e.yml` when it retired seven per-feature
+e2e workflows. Backticked references to that path are citations to `spec:lint`, so every doc still
+naming it now hard-fails `CITATION_FILE_MISSING`. Note the linter keys on the `.yml` extension, not on
+the directory separator — shortening to a bare filename does NOT clear it; the backticks have to go.
+
+PR #610 swept its own three docs (5 + 3 hard findings → 0 each) by rendering the name as prose. Seven
+others were left alone deliberately, to avoid pulling unrelated specs into an in-review diff:
+
+- `docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md`
+- `docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+- `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md`
+- `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`
+- `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md`
+- `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md`
+- `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+
+**Not urgent:** `spec:lint` is not wired into any workflow (verified — no `.github/workflows/**` match),
+so nothing is merge-blocked. It fails only for whoever runs it by hand on one of those files.
+
+**Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
+retiring spec itself, where the old name is legitimate history.
+
+### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
+
+**Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** very low · **Class:** FEATURE REACH
+
+`isAmbiguousLabel` (`lib/crew/agendaViewerDays.ts`) fires on SPECIFIC day-shaped signals — a second
+date, a second weekday, a `Day N` count, a plural span, a spoken ordinal — judged by both count and
+position. It does not require the rest of the label to be recognised, so free prose passes. Verified
+still true at PR #610 close-out, after the rule was rewritten three times:
+
+    "Tuesday, May 5, 2026 and the following day"   folds as a plain May 5 row
+    "Tuesday, May 5, 2026 plus the next day"       folds
+    "Tuesday, May 5, 2026 (two-day block)"         folds
+
+A viewer assigned May 6 loses that row if a separate May 6 row exists.
+
+**Why not closed.** A true whitelist — accepting only a remainder the code can parse — would reject
+every heading carrying a venue, track, or session name, which is most real headings. Review R6
+measured the over-fire side of that trade directly: month PREFIXES matched Marriott, Marketing,
+Junior, Novel, Decision, Augusta and Octagon, which would have disabled folding for whole
+extractions. The rule is deliberately positioned as the strictest thing that does not break ordinary
+labels.
+
+**Closed already, mechanically** — eleven distinct forms across rounds R2-R10, listed so nobody
+re-reports one as new: a second full date; a second weekday name; an ordinal ("the 6th"); a
+month-day without a year ("/ May 6"); the same month-day in two years, in ANY pairing of shapes;
+slash, ISO and day-first dates; two ordinal-position phrases ("Day 1 / Day 2"); a plural day span
+("Days 1-2"); the `Sat` abbreviation; and every one of those in LEADING position as well as
+trailing. What remains is prose that names a day without any of those tokens.
+
+**Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
+6-PDF corpus first; today every label there is a clean single date.
+
+### BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+
+**Status:** OPEN — disclosed during PR #610 · **Severity:** low · **Class:** TEST COVERAGE
+
+Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
+self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
+fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
+`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`node:http` server rather than the app.
+
+**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
+`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
+member, loading a real share link, sees their day expanded — the composition of
+`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
+fold is only ever verified in pieces.
+
+**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
+extraction with parseable day labels, plus a date-restricted crew member and a share link.
+`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
+fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
+one PR.
+
+**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
+viewer's row is `open` and marked while another day is folded. Related:
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
+`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+
+### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
+
+`visibleAgendaDaysForViewer` requires ONE link to locate EVERY date the viewer is assigned before it
+will fold anything (`located.size === R.size`, with `R` the show-wide viewer date set). When a show
+publishes several agenda PDFs partitioned by date — link A covering May 5+7, link B covering May 6+8,
+viewer assigned May 5+6 — each link locates one of two and both fail open. Folding is therefore
+systematically disabled for that shape even though each link's own rows are completely identifiable.
+
+**Deliberately not changed in #610.** Completeness is show-wide precisely because loosening it is what
+produced six separate fold-the-viewer's-day defects across five review rounds. Narrowing it to "this
+link's own rows are identifiable AND it located at least one viewer date" is probably the right rule,
+but it re-opens that class and belongs in a change that can carry its own adversarial pass. The
+current behaviour is SAFE — it fails open — so the cost is a missing improvement, not a wrong page.
+
+**Fix (when prioritized):** per-link completeness, with the invariant search in
+`tests/agenda/agendaViewerDaysInvariant.test.ts` extended to multi-link fixtures first, so the
+loosening is measured against the property before it ships.
+
+### BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
+
+**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** very low · **Class:** TEST COVERAGE
+
+`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
+accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
+matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
+is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
+claim per engine.
+
+**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
+ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
+hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
+
+**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
+second time and would surface unrelated engine differences mid-review.
+
+**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
+`--project` matrix leg in `standalone-e2e.yml`.
+
+### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
+
+**Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS
+
+`lib/crew/agendaViewerDays.ts` fails open when labels do not parse, rather than mirroring
+`agendaSessionsForToday`'s four-condition positional fallback. Deliberate: the trigger (`!someDateParsed`)
+does not occur in the 6-PDF corpus, and folding on positional index means folding in the state of least
+knowledge. Full reasoning ratified at
+`docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 under "RATIFIED AMENDMENT".
+
+**Revisit if** the corpus gains documents with purely positional day labels ("Day 1" / "Day 2") AND a
+viewer reports seeing the whole show expanded when they expected their day marked.
 
 ### BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
 
-**Status:** OPEN — product posture decided 2026-07-24; queued as PR3 of the residual sweep · **Severity:** low · **Class:** VISIBILITY SCOPE
+**Status:** ✅ SHIPPED in PR #610 (2026-07-26) · **Severity:** low · **Class:** VISIBILITY SCOPE
+
+> **Retained for the decision record; the prescriptions below are HISTORY, not open work.** Two
+> statements in this entry are now contradicted by shipped code and are corrected here rather than
+> edited away, because the reasoning is what makes the entry worth keeping:
+>
+> 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
+>    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because the current
+>    extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole
+>    constructor; stored rows from older writers may carry strings — see the spec's §2.5
+>    narrowed scope), so dates cannot identify a row.
+> 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
+>    implement the positional fallback. Ratified at
+>    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),
+>    tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Short version: its trigger never fires on the
+>    measured corpus, and folding on positional index means folding in the state of least knowledge —
+>    the shape behind all four viewer-day-folding bugs review found.
+>
+> Everything else — the middle posture, the "Your day" marker, native `<details>` keeping the block a
+> Server Component, and mandatory fail-open — shipped as written.
 
 The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:143-163`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:168-179`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5).
 
@@ -611,18 +778,6 @@ The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.ts
 - Rejected: trimming the list to worked days only (loses on-page visibility of load-in/strike days that a strike-only crew member legitimately uses), and keeping whole-show unchanged (leaves the scan cost that prompted the item).
 
 **Fix:** thread the effective visible-day set into `AgendaScheduleBlock`. Note that **no reusable day-set matcher exists** — `agendaSessionsForToday` maps to ONE `todayIso` and returns sessions, not days — so PR3 writes a day-set variant beside it, reusing `parseIsoFromDayLabel` and the same positional-fallback rule rather than duplicating either. Needs the invariant-8 impeccable dual-gate, a Dimensional-Invariants pass, and a real-browser layout assertion (the fold changes the block's height contract). Mockup of the three postures considered, at phone width in both themes: `docs/superpowers/specs/2026-07-24-agenda-visibility-mock/agenda-visibility-options.html`.
-
-### BL-ALERT-ACTION-LINKS-E2E — real-browser e2e pass over every alert action link
-
-**Status:** OPEN — queued as PR6 of the 2026-07-24 residual sweep; scope recounted · **Severity:** low · **Class:** TEST COVERAGE
-
-**Scope correction (2026-07-24): the registry is now 20 codes, not 9.** `ALERT_ACTIONS` (`lib/adminAlerts/alertActions.ts:113`) registers `SHOW_FIRST_PUBLISHED`, `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`, `LIVE_ROW_CONFLICT`, `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`, `RESYNC_SHRINK_HELD`, `ONBOARDING_SHEET_UNREADABLE`, `SHEET_UNAVAILABLE`, `OPENING_REEL_NOT_VIDEO`, `OPENING_REEL_PERMISSION_DENIED`, `REEL_DRIFTED`, `EMBEDDED_ASSET_DRIFTED`, `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`, `PARSE_ERROR_LAST_GOOD`, `RESYNC_QUALITY_REGRESSED`, `SHOW_UNPUBLISHED`. The 11 codes added since PR #287 have never been enumerated in this item, so anyone sizing it off the original text would under-seed by more than half. Re-count from the registry at implementation time rather than trusting either list — and prefer deriving the seed set from `ALERT_ACTIONS` keys programmatically so the spec cannot go stale again. If PR5 (`BL-PICKER-TAMPER-ADMIN-ALERT`) lands an action link, that is a 21st.
-
-PR #287 shipped the per-code action-link registry with unit + jsdom-render + structural-meta coverage, but no real-browser e2e: nobody has clicked the links in a live app. Coverage gap: fragment-scroll behavior of the `#share-access` internal links on the live render, real seeded alert rows carrying each code's context shape (incl. absent-field variants rendering NO link), and external hrefs (`docs.google.com` / `drive.google.com` / `github.com`) asserted verbatim without navigating off-app.
-
-**Two surface claims in the original text are stale (corrected 2026-07-24).** There is no longer a "banner global-vs-per-show split": global notifications live in the bell (`BellPanel.tsx`, fed by `lib/admin/bellFeed.ts`) and `review/AttentionBanner.tsx` is show-scoped, so the split to assert is bell-vs-banner, not one banner behaving two ways. And `/admin/show/[slug]` is no longer a render surface — it is a legacy 307 redirect into the dashboard modal at `/admin?show=<slug>`, kept only so emailed path-shaped deep links survive the auth `next` pipeline: `requireAdmin()` runs at `app/admin/show/[slug]/page.tsx:28`, then the route redirects to `/admin?<searchParams>` at `:37` (the header comment at `:1-14` explains why). A spec that navigates there and waits for alert cards will be measuring the redirect target, so target `/admin` and `/admin?show=<slug>` deliberately.
-
-**Fix (when prioritized):** a Playwright spec (harness precedent: `tests/e2e/`) that seeds one alert row per registered code — enumerated from `Object.keys(ALERT_ACTIONS)`, not from a hand-copied list (see the scope correction above) — plus per-code negative rows (context field absent → no anchor), covers **four** renderers across **three** routes — `/admin` (bell panel, fed by `bellFeed.ts:133`), `/admin?show=<slug>` (attention banner AND the attention menu, both fed by `attentionItems.ts:307`), and `/admin/dev/telemetry` (health panel; `HealthAlertsPanel` mounts ONLY at `app/admin/dev/telemetry/page.tsx:76`, so no dashboard route can exercise it) — clicks each internal link asserting the landed section, and asserts external anchors' exact href/target/rel without following them. Pair with a one-time validation-deployment smoke click-through.
 
 ### BL-HEALTH-RESOLVE-DB-LOCKDOWN — DB-enforce developer-only health-alert resolution
 
@@ -873,19 +1028,9 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 `components/admin/PublishedToggle.tsx:59` anchors an error banner `absolute inset-x-0 top-full` inside the clipping panel. Unlike the share hub it carries NO cap and NO internal scroller, so it cannot strand content in a hidden scroll tail — the failure mode the registry exists for — but a long enough error could still be visually cut at the clip edge. Error-only and momentary (`components/admin/PublishedToggle.tsx:55`), hence out of scope for the placement migration.
 
-## BL-STRIPCOMMENTS-DUPLICATED-AND-FAIL-OPEN — 17 hand-rolled comment strippers, each blind the same way
-
-**Status:** OPEN (2026-07-26, destruct-thumb-order whole-diff R19) · **Severity:** MEDIUM · **Class:** structural-guard fail-open
-
-Structural guards across the suite strip comments before scanning source, and **17 files define their own `stripComments`** (`rg -l "function stripComments|const stripComments" tests/`). The common form is `src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1")`, which lets **any** `/*` open a block span — including one inside a string or a path.
-
-**Measured impact:** the JSDoc line `* Wraps every route under /admin/*` in `app/admin/layout.tsx` opens a span that runs to the next `*/` far below. All **six** live `className` sites in that file disappear from the scan, so any guard using that helper silently reports nothing for it. Verified: a dead `text-subtle` class planted at `app/admin/layout.tsx:191` was invisible to a scanner using the old helper and is caught by the fixed one.
-
-**Fixed in `tests/styles/_classScanUtils.ts` only** (this PR), because that copy gained a new consumer. It is now line-based and refuses to open a multi-line block unless the opener starts its line or follows a JSX `{`. A self-test pins both directions in `tests/styles/_metaDoublePrefixColorToken.test.ts`. **The other 16 copies are untouched** — fixing them means re-running each guard against what it was previously blind to, and each may surface real pre-existing violations that need their own triage. Doing that inside an unrelated PR would bury them.
-
-**Fix shape:** promote the corrected implementation to one shared module, migrate the 16 callers one at a time, and triage whatever each newly sees. Expect real findings: fixing the shared copy here immediately surfaced two apparent violations (both turned out to be artifacts of an incomplete first fix, which is itself a warning that this needs care, not a bulk sed). **Trigger:** any new structural guard that scans source, or any guard suspected of under-reporting.
-
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
+
+> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
 

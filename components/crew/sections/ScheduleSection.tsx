@@ -51,6 +51,7 @@ import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { WrappedSection } from "@/components/crew/WrappedSection";
+import { visibleAgendaDaysForViewer } from "@/lib/crew/agendaViewerDays";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import {
@@ -144,6 +145,48 @@ export function ScheduleSection({
   // than one agenda PDF (so two "View agenda" buttons + two schedules are
   // distinguishable — impeccable MEDIUM). A single agenda needs no badge.
   const agendaPdfCount = agendaLinks.filter((link) => Boolean(link.fileId)).length;
+  // Hoisted above `agendaArea` so the agenda can mark the viewer's own days (spec §2).
+  // FUNCTION-scoped, not block-scoped in the `try`: the WrappedSection callback below reads
+  // these same values for the day cards.
+  //
+  // CONTAINED, because all three of `aggregateDays`, `visibleShowDays` and the `visibleDays`
+  // filter read `dates.showDays` unvalidated -- `getShowForViewer` CASTS the jsonb rather than
+  // validating it, so a non-array or a non-string element faults at runtime even though none of
+  // these functions contains a `throw`.
+  //
+  // The catch does NOT swallow: it fails the AGENDA open (whole agenda expands, nothing folds)
+  // and rethrows inside the callback so the day-card path keeps WrappedSection's ledger record
+  // and tile fallback. Fail-open is right for the fold and wrong for hiding an infra fault.
+  let allDays: AggregateDay[] = [];
+  let visibleDays: AggregateDay[] = [];
+  let dayDerivationError: unknown = null;
+  // `unknown_asterisk` returns a placeholder and renders no agenda at all, so this work would
+  // be discarded.
+  if (dateRestriction.kind !== "unknown_asterisk") {
+    try {
+      allDays = aggregateDays(data.show.dates);
+      // visibleShowDays is the SINGLE SOURCE for the SHOW-DAY ∩ restriction set; the full
+      // schedule list also shows travel/set/strike, so for explicit we intersect the FULL
+      // aggregate against (restriction.days) — but the show-day SUBSET of that intersection
+      // MUST equal visibleShowDays(...) (drift guard).
+      const allowedShowDays = new Set(visibleShowDays(data.show.dates, dateRestriction));
+      visibleDays =
+        dateRestriction.kind === "explicit"
+          ? allDays.filter(
+              (d) => allowedShowDays.has(d.date) || dateRestriction.days.includes(d.date),
+            )
+          : allDays; // kind === 'none'
+    } catch (err) {
+      dayDerivationError = err;
+      allDays = [];
+      visibleDays = [];
+    }
+  }
+  /** The viewer's own days, as ISO dates — spec §3's `R`, already intersected. */
+  const viewerDates = visibleDays.map((d) => d.date);
+  /** Raw restriction days; `restriction \ viewerDates` is the disagreement guard's input. */
+  const restrictionDays = dateRestriction.kind === "explicit" ? dateRestriction.days : [];
+
   const agendaArea = hasAgenda ? (
     <section
       data-testid="agenda-area"
@@ -160,6 +203,13 @@ export function ScheduleSection({
             key={link.fileId}
             extraction={link.extracted}
             label={agendaPdfCount > 1 ? agendaDisplayLabel(link.label) : null}
+            // Once PER LINK, never shared: one PDF can parse while another cannot, and
+            // reusing a result would fold the second link's viewer row (spec §3).
+            viewerDays={
+              dateRestriction.kind === "explicit"
+                ? visibleAgendaDaysForViewer(link.extracted, viewerDates, restrictionDays)
+                : { kind: "all" }
+            }
           />
         ) : null,
       )}
@@ -191,20 +241,10 @@ export function ScheduleSection({
         showId={showId}
         sheetName={data.show.title}
         render={() => {
-          // Intersect the restriction against the FULL aggregate (travel / set /
-          // showDays / travelOut — not just showDays).
-          const allDays = aggregateDays(data.show.dates);
-          // visibleShowDays is the SINGLE SOURCE for the SHOW-DAY ∩ restriction set;
-          // the full schedule list also shows travel/set/strike, so for explicit we
-          // intersect the FULL aggregate against (restriction.days) — but the show-day
-          // SUBSET of that intersection MUST equal visibleShowDays(...) (drift guard).
-          const allowedShowDays = new Set(visibleShowDays(data.show.dates, dateRestriction));
-          const visibleDays: AggregateDay[] =
-            dateRestriction.kind === "explicit"
-              ? allDays.filter(
-                  (d) => allowedShowDays.has(d.date) || dateRestriction.days.includes(d.date),
-                )
-              : allDays; // kind === 'none'
+          // The derivation is hoisted (above) so the agenda can use it. If it faulted, rethrow
+          // HERE so this boundary still records the ledger entry and renders the tile fallback,
+          // exactly as it did when the derivation lived inside this callback.
+          if (dayDerivationError !== null) throw dayDerivationError;
 
           const todayIso = todayIsoInShowTimezone(data.show, today);
 

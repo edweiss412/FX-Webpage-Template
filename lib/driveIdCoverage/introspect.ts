@@ -4,10 +4,12 @@
  * The live half of the Drive-ID coverage guard: the census query
  * (spec docs/superpowers/specs/data-quality/2026-07-25-secondary-drive-id-nonblank.md §4.1).
  *
- * Deliberately tiny and deliberately boring. Spec §10 item 2 states plainly that a regression in
- * THIS query is not self-detecting — four different anti-vacuity mechanisms were tried across
- * adversarial rounds and each was defeated — so the control on it is review of these ~15 lines.
- * Keep it that way: no cleverness, no dynamic predicate construction, no options.
+ * Deliberately tiny and deliberately boring. A narrowing of the PRIMARY census query is caught
+ * mechanically by the dual-source cross-check (CENSUS_COLUMNS_PG_CATALOG_SQL below; spec
+ * 2026-07-26-driveid-guard-cluster-design §3.3): the two independently-written queries must
+ * return set-equal tuples, so a single-site edit goes red. Review remains the control only for
+ * the residual defeat — an IDENTICAL narrowing of both literal sites in one diff (§8 item 1).
+ * Keep both queries free of cleverness: no dynamic predicate construction, no options.
  */
 import type { DriveIdColumn, DriveIdConstraint } from "./audit";
 
@@ -25,6 +27,9 @@ export const CENSUS_COLUMN_PREDICATE = "drive_file_id";
 /**
  * Columns whose name matches the Drive-ID pattern, on BASE TABLEs in the repo-owned schemas.
  *
+ * Cross-checked set-equal against CENSUS_COLUMNS_PG_CATALOG_SQL below. DO NOT share constants
+ * between the two queries (see that query's comment); a scope change edits BOTH, in one diff.
+ *
  * `table_type = 'BASE TABLE'` excludes views (which appear in information_schema.columns but cannot
  * carry a table CHECK, so admitting them would manufacture permanently-uncoverable rows) and foreign
  * tables (which Postgres permits a CHECK on but does not enforce — spec §10 item 6).
@@ -38,6 +43,30 @@ select c.table_schema, c.table_name, c.column_name, c.is_nullable
    and t.table_type = 'BASE TABLE'
    and c.column_name ~ $2
  order by c.table_schema, c.table_name, c.column_name
+`;
+
+/**
+ * The INDEPENDENT second census (spec §3.3). Fully literal — its own schema list, its own
+ * predicate, ZERO bind parameters, a different catalog path (pg_attribute/pg_class/pg_namespace
+ * vs information_schema). DO NOT deduplicate any of this with CENSUS_SCHEMAS /
+ * CENSUS_COLUMN_PREDICATE / CENSUS_COLUMNS_SQL: the independence IS the mechanism — sharing a
+ * constant would let one edit narrow both sources at once, silently. Narrowing the guard's
+ * scope legitimately requires editing BOTH queries in one diff, and saying so.
+ *
+ * `relkind in ('r','p')` mirrors information_schema's BASE TABLE semantics (plain +
+ * partitioned), excluding views and foreign tables exactly as the primary census does.
+ */
+export const CENSUS_COLUMNS_PG_CATALOG_SQL = `
+select n.nspname as table_schema, c.relname as table_name, a.attname as column_name
+  from pg_attribute a
+  join pg_class c on c.oid = a.attrelid
+  join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname in ('public', 'dev')
+   and c.relkind in ('r', 'p')
+   and a.attnum > 0
+   and not a.attisdropped
+   and a.attname ~ 'drive_file_id'
+ order by 1, 2, 3
 `;
 
 /**
