@@ -49,7 +49,7 @@ not re-architect it.
 **Fix (when prioritized):** compare `(schema, table, column)` tuples plus `pg_get_constraintdef`
 against the canonical templates in `lib/driveIdCoverage/audit.ts`, exactly as the local guard does.
 
-### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` cannot prove which database it connected to
+### BL-VALIDATION-TARGET-BINDING — `validation-schema-parity` and `pg-cron-validation-parity` cannot prove which database they connected to
 
 **Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS · **Pre-existing**
 
@@ -267,7 +267,8 @@ discovered dark, which is the event this would have prevented.
 `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
 `VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
 file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
-while passing locally.
+while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
+mechanism this entry is about remains).
 
 Three formulations failed:
 
@@ -285,6 +286,24 @@ Current state of the other two entries, both invisible to any check built so far
 job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
 `tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
 dark-exclusion incident.
+
+### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+
+**Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; measurements below.
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` refuses a CI run where fewer live queries were issued than live cases ran. That closes the MEASURED defect — the suite previously reported exit 0 with "2 passed | 6 skipped", asserting nothing — and it catches an emptied case body (verified: emptying one body while keeping its name yields "6 live cases ran but only 5 database queries were issued").
+
+**Per-case attribution SHIPPED in the same round.** The counter is snapshotted around each case, and a case issuing no query throws by name. Verified against R4's exact reproduction — six queries in one case with the next one empty now reds, naming the empty case — so the first of its two reproductions is closed.
+
+**The gap that remains:** replacing every body with `psql("SELECT 1")` satisfies attribution while asserting nothing about pg_cron.
+
+**Why THAT is not patched:** each round defeated the next proxy — source patterns (rewrite the predicate), case names (keep names, empty bodies), aggregate queries (front-load one case). Proving assertions are _meaningful_ is equivalent to reviewing them, which is a reviewer's job, not a meta-guard's. A fifth proxy would be the same shape.
+
+**Also open (same round):** the executable vacuity guard does not protect the query-count mechanism itself — deleting `queryCount` and its `afterAll` branch leaves all three probe cases green. Exactly demonstrated by commit `1c1ae148e`, which had the executable guard without query counting and was green.
+
+**If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
 
 ### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets
 
@@ -398,28 +417,21 @@ The decisive blocker is `BL-WATCH-EXPIRED-ACTIVE-ROW`: refresh, not reconcile, i
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
+**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
 
-`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It is excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there says it "runs against the validation project (like validation-schema-parity)". **Nothing runs it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
+**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
+
+**What stays open:** the per-job smoke-test residue (spec §9), and the target-binding ceiling below — this job inherits `BL-VALIDATION-TARGET-BINDING`, since a DSN substring check cannot prove which database `psql` connected to (libpq `host`/`hostaddr` can override the displayed authority).
+
+**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
 
 So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
 
 **Fix:** give it a job in `x-audits.yml` with `PG_CRON_COVERAGE_TARGET=validation` and `TEST_DATABASE_URL` pointing at the validation project, alongside `validation-schema-parity` which already has that shape. Then correct the stale comment in `unit-suite.yml`.
 
 **Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
-
-## BL-CRON-REGISTRY-MIGRATION-PARITY — no CI-running check ties a new migration to the cron registry
-
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
-
-`pg-cron-jobs.json` is the canonical machine-readable cron contract, and constants are pinned against it. Nothing that runs in CI checks that the MIGRATIONS agree with it:
-
-- `pg-cron-coverage.test.ts` has a static migration check, but it reads two hard-coded historical paths and asserts `scheduledSql.toContain(job.schedule)` over their concatenated text — `fxav_cron_notify_digest` and `fxav_cron_refresh_watch` share `0 * * * *`, so one can change while the assertion still finds the string. It also does not run at all (`BL-PG-CRON-COVERAGE-UNRUN`).
-- Its live check reads the DEPLOYED validation row, so a migration sitting unapplied on a branch is invisible until after deploy.
-
-A hand-rolled SQL scanner was tried for exactly this and abandoned after nine review rounds of lexical corners (comments, dollar quoting, identifier case and quoting, name resolution, `search_path`, stored function bodies) — see the header of `tests/cron/samplingPeriodParity.test.ts`. **Do not reinstate regex-based SQL parsing.**
-
-**Fix direction:** apply migrations to a throwaway Postgres in CI and read `cron.job` from it, so PostgreSQL does the parsing on the BRANCH's SQL. The `supabase-local-bootstrap` path already boots a local instance; the pg_cron migrations are GUC-guarded and held aside there, so this needs a variant that enables them.
 
 ## BL-WATCH-DRIVE-CALL-TIMEOUT — `files.watch` has no timeout, so one stalled call can hold the renewal loop
 
