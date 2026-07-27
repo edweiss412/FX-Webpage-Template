@@ -59,6 +59,8 @@ The sub-block is always linkless and never flagged (its chrome provider sets no 
 
 ## BL-HEADER-LINK-AFFORDANCE-CLASS — the corner sheet link paints as non-interactive, in three spellings, across three call sites
 
+**CLOSED 2026-07-26** by `feat/sheet-icon-link-affordance-class` (spec `docs/superpowers/specs/2026-07-26-sheet-icon-link-affordance-class.md`, handoff `docs/superpowers/plans/2026-07-26-sheet-icon-link-affordance-class-handoff.md`): items 1/3/4/5/6 closed via the shared components/admin/SheetIconLink.tsx (item 2 was closed earlier by PR #592). The class sweep found a FOURTH member the entry missed (Step3ReviewModal.tsx — byte-identical to PublishedReviewModal's), and the item-5 inset prescription below was superseded (the filed `-inset-x-2.5` yields a 40px-wide target; shipped 10/14px asymmetric keeps 44×44). The count-pinned phrase-containment guard (`tests/components/admin/sheetIconLinkContainment.test.ts`) closes the drift class. Residual sibling class (`text-text-subtle` on four OTHER icon-only action targets) filed as DEFERRED.md SHEETLINK-SUBTLE-ACTION-CLASS-1. Historical entry below kept verbatim.
+
 **Filed:** 2026-07-26 (post-merge independent design review of PR #605 — see that batch's close-out §12 for why the review landed late). **Class:** UI affordance + a11y. **Effort:** S per item, M if taken as the class sweep it should be. **Gate:** invariant-8 impeccable dual-run, since every item is a UI surface.
 
 Six findings, all verified live against `839eed829`. Items 1 and 4 are **class-wide** — the same shape exists on sibling sheet links that this batch never touched — so fixing only the section header would leave the class open and the inconsistency worse.
