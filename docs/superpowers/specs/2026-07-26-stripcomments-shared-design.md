@@ -151,7 +151,7 @@ A hit in a file other than `tests/_shared/stripComments.ts` must appear in one o
 - **`STANDING_ALLOWLIST`** — permanent rows, each `{file, marker, reason}`: D1 (YAML grammar), E5–E10, E12, plus any future triage-deferred row with a BACKLOG ref. Never expected to empty.
 - **`PENDING_MIGRATIONS`** — the migration-window scaffold: one `{file, site}` entry per detector hit in every not-yet-migrated §2 row, auto-derived at meta-test creation from the sweep. A migration commit deletes **all of its file's entries** (multi-site rows clear atomically — R2 F5), turning the meta-test red until the file's idioms are gone. The final commit deletes the empty constant and its plumbing.
 
-**Honest bound (R2 F2):** static shape detection cannot prove the absence of every conceivable comment-handling implementation — a novel scanner built without regex literals, marker string literals, marker `startsWith`, or a family name would evade all five families. The meta-test's contract is therefore: fails-by-default for the five enumerated idiom families (which cover all 54 discovered rows), making evasion require active novelty rather than a rename. Residual risk accepted; on any future discovery of a sixth family, extend the detector set in the same commit (structural-defense calibration rule).
+**Honest bound (R2 F2):** static shape detection cannot prove the absence of every conceivable comment-handling implementation — a novel scanner built without regex literals, marker string literals, marker `startsWith`, or a family name would evade all five families. The meta-test's contract is therefore: fails-by-default for the five enumerated idiom families (which cover all 53 walked rows; E11 is outside the walk, §2), making evasion require active novelty rather than a rename. Residual risk accepted; on any future discovery of a sixth family, extend the detector set in the same commit (structural-defense calibration rule).
 
 Anti-tautology proofs (negative tests): plant in a temp walked file (a) a naive regex `stripComments`, (b) a RENAMED char-loop copy (`removeNoise` with `two === "//"` — R2 F2's exact evasion), (c) a bare inline `.replace(/\/\*[^]*?\*\//g, "")` chain (alternate spelling), (d) a `filter((l) => !l.trim().startsWith("//"))` line filter, (e) a `.replace(/--.*$/gm, "")` SQL line-comment idiom — assert all five flagged.
 
@@ -180,7 +180,7 @@ Expected-findings caution (BACKLOG.md:914): the prior fix surfaced two apparent 
   MDX: `[CDN](https://cdn/x)` survives; JSX block comment strips.
   SQL: `--` strips; `--` inside `'a -- b'` survives; `''` escaping; `/*` inside a single-quoted string survives; **comment inside an untagged `$$` body strips; comment inside a tagged `$function$` body strips; single-quoted string inside a dollar span still protected** (R2 F6 contract cases); the documented data-in-dollar-span limitation pinned as an explicit expectation with a comment citing §1.1.
   CSS: block comment strips; `content: "/*"` survives.
-- **Meta-test negative proofs** — the four §4 plants.
+- **Meta-test negative proofs** — the five §4 plants (a–e).
 - **Per-row green** — guard + listed consumers (§5.3c).
 - **Full suite green** before whole-diff review.
 
