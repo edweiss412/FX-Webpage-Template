@@ -178,14 +178,21 @@ const PW_TEST_FILE = /\.(?:spec|test)\.(?:c|m)?[jt]sx?$/;
 const VITEST_CLAIMED = /\.test\.tsx?$/;
 
 const WALK_SKIP = new Set([".git", "node_modules", "test-results", ".next", "playwright-report"]);
+// The DETECTOR universe must align with Playwright's own collector, which
+// hard-skips only node_modules and does not honor .gitignore — a test-shaped
+// file under tests/e2e/test-results/ (or any artifact dir) is
+// Playwright-visible and must not be excluded from the universe, or it could
+// go dark undetected. Artifact noise that ever surfaces here reds the
+// detector and gets a deliberate disposition, not a silent skip.
+const DETECTOR_SKIP = new Set([".git", "node_modules"]);
 
 /** Recursive readdirSync walk (the _metaMutationSurfaceObservability pattern). */
-function walkFiles(dir: string): string[] {
+function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (WALK_SKIP.has(entry.name)) continue;
+    if (skip.has(entry.name)) continue;
     const p = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkFiles(p));
+    if (entry.isDirectory()) out.push(...walkFiles(p, skip));
     else out.push(p);
   }
   return out;
@@ -280,7 +287,35 @@ export function censusInvocations(
           problems.push(`"playwright test" outside command position: ${trimmed}`);
           continue;
         }
+        // A config-flag TOKEN is not always a config OPTION: after a bare
+        // `--` terminator commander treats it as positional, a preceding bare
+        // option (`--grep --config x`) may consume it as its value, and a
+        // preceding redirection (`> --config x`) makes it a filename the
+        // shell eats. Each of these silently loads the DEFAULT config while a
+        // token-level scan records the named one — so all three are loud.
+        if (/(?:^|\s)--(?:\s|$)/.test(trimmed) && configFlags(trimmed).length > 0) {
+          problems.push(`config flag after a bare -- option terminator: ${trimmed}`);
+          continue;
+        }
         const flags = configFlags(segment);
+        let neutralized = false;
+        for (const m of flags) {
+          const before = segment.slice(0, m.index ?? 0).trimEnd();
+          const prevToken = before.slice(before.lastIndexOf(" ") + 1);
+          if (/^--?[^=\s]+$/.test(prevToken) && !/^(?:--config|-c)/.test(prevToken)) {
+            problems.push(
+              `config flag may be consumed as the value of preceding bare option "${prevToken}": ${trimmed}`,
+            );
+            neutralized = true;
+          } else if (/[<>]$/.test(prevToken)) {
+            problems.push(`config flag is a redirection target, not an option: ${trimmed}`);
+            neutralized = true;
+          }
+        }
+        if (neutralized) {
+          consumed += flags.length;
+          continue;
+        }
         consumed += flags.length;
         invoked.add(flags.at(-1)?.[1] ?? "playwright.config.ts");
       }
@@ -297,11 +332,26 @@ export function censusInvocations(
   return { invoked, problems };
 }
 
+// Hermetic probe environment: the probe's env must be a SUBSET of what every
+// real invocation carries, or a config conditioned on probe-only state
+// (Vitest worker vars, the unit-suite's GITHUB_* values, ambient dev-shell
+// exports) could expose a spec to the detector's --list while the real
+// invocation excludes it. Inheriting process.env hands the probe exactly that
+// probe-only state, so it is rebuilt from a minimal allowlist instead; the
+// visual-config load marker is the single deliberate addition. (A config
+// branching on a variable only the real runner sets remains the ratified
+// BL-CI-ENV-DEPENDENT-CONFIG-NARROWING acceptance, mitigated by the run-report
+// comparator — this allowlist closes the OPPOSITE direction.)
+const PROBE_ENV_ALLOWLIST = ["PATH", "HOME", "SHELL", "TMPDIR", "USER", "LOGNAME", "LANG"];
+
 function probeEnv(config: string): NodeJS.ProcessEnv {
-  const { SECTION_HEADER_VISUAL_CONTAINER: _ambient, ...stripped } = process.env;
-  return config === "tests/e2e/visual.config.ts"
-    ? { ...stripped, SECTION_HEADER_VISUAL_CONTAINER: "1" }
-    : stripped;
+  const env = {} as NodeJS.ProcessEnv;
+  for (const k of PROBE_ENV_ALLOWLIST) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  if (config === "tests/e2e/visual.config.ts") env.SECTION_HEADER_VISUAL_CONTAINER = "1";
+  return env;
 }
 
 function resolvedFiles(config: string): Set<string> {
@@ -349,7 +399,7 @@ describe("spec registration detector (spec §3.1)", () => {
   }, 300_000);
 
   it("every test-shaped file under tests/e2e is resolved by some config or dark-allowlisted", () => {
-    const disk = walkFiles(join(ROOT, "tests", "e2e"))
+    const disk = walkFiles(join(ROOT, "tests", "e2e"), DETECTOR_SKIP)
       .map((p) => relative(ROOT, p).split(sep).join("/"))
       .filter((p) => PW_TEST_FILE.test(p) && !VITEST_CLAIMED.test(p));
     const dark = disk.filter((p) => !union.has(p) && !(p in DARK_SPEC_ALLOWLIST));
@@ -456,6 +506,27 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(reg.problems).toEqual([]);
     expect([...reg.invoked]).toEqual(["x.ts"]);
     expect(censusInvocations(["echo hi"], [], { [dockerLine]: ["x.ts"] }).problems).not.toEqual([]);
+    // R5 families: a config-flag TOKEN neutralized by shell/commander context
+    // (after a bare `--` terminator, consumed as a preceding bare option's
+    // value, or a redirection target) loads the DEFAULT config at runtime —
+    // each is loud AND never records the named config.
+    for (const form of [
+      "playwright test -- --config ghost.ts",
+      "playwright test --grep --config ghost.ts",
+      "playwright test > --config ghost.ts",
+    ]) {
+      expect(c(form).problems, form).not.toEqual([]);
+      expect([...c(form).invoked], form).not.toContain("ghost.ts");
+    }
+    // Value-carrying predecessors (=-attached or already-consumed) do NOT
+    // neutralize — the flag still classifies.
+    expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
+    expect([...c("playwright test --project=x --config real.ts").invoked]).toEqual(["real.ts"]);
+    expect(c("playwright test --retries 0 --config real.ts").problems).toEqual([]);
+    expect([...c("playwright test --retries 0 --config real.ts").invoked]).toEqual(["real.ts"]);
+    // A bare -- with only positional args after it stays classifiable.
+    expect(c("playwright test -- tests/a.spec.ts").problems).toEqual([]);
+    expect([...c("playwright test -- tests/a.spec.ts").invoked]).toEqual(["playwright.config.ts"]);
     // Plain redirects with no config flag stay classifiable (default config).
     expect(c("playwright test > out.log 2>&1").problems).toEqual([]);
     expect([...c("playwright test > out.log 2>&1").invoked]).toEqual(["playwright.config.ts"]);
