@@ -6,6 +6,7 @@
  * `.upsert()` instead of the canonical `upsert_admin_alert` RPC.
  */
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { describe, expect, test } from "vitest";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
@@ -30,15 +31,12 @@ const RAW_ADMIN_ALERT_SUPABASE_ALLOWLIST: ReadonlyArray<{
   },
 ];
 
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
-}
 
 function rawAdminAlertSupabaseWriteSites(): string[] {
   const allowlisted = new Set(RAW_ADMIN_ALERT_SUPABASE_ALLOWLIST.map((entry) => entry.path));
   const findings: string[] = [];
   for (const file of walkSourceFiles(["scripts", "lib", "app"])) {
-    const source = stripComments(readFileSync(file, "utf8"));
+    const source = stripCommentsForFile(readFileSync(file, "utf8"), file);
     const rawWriteRe =
       /\.from\(\s*["']admin_alerts["']\s*\)[\s\S]{0,400}?\.(?:insert|upsert)\s*\(/g;
     for (const match of source.matchAll(rawWriteRe)) {
