@@ -556,3 +556,97 @@ describe("scanSource: diagnostics carry a source label", () => {
     expect(probe?.sourceLabel).toContain("flexGrow: grow");
   });
 });
+
+/* ------------------------------------------------------------------------- *
+ * Task 3: exemptions (spec §4.4 — template-verbatim claiming) + MDX (§5).
+ * ------------------------------------------------------------------------- */
+
+describe("scanSource: exemption comments (spec §4.4)", () => {
+  it("exemption with reason exempts the first following candidate", () => {
+    const src = wrap(`{/* childless-growable-ok: probe reason */}\n<span className="flex-1" />`);
+    const { violations, exemptions } = scanSource(src, "probe.tsx");
+    expect(violations).toHaveLength(1); // sentinel only
+    expect(violations[0]?.tag).toBe("i");
+    expect(exemptions.filter((e) => !e.used)).toHaveLength(0);
+  });
+  it("line-comment form works too", () => {
+    const src = wrap(`<span\n  // childless-growable-ok: probe reason\n  className="flex-1"\n/>`);
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.tag).toBe("i");
+  });
+  it("reasonless exemption is not an exemption", () => {
+    const src = wrap(`{/* childless-growable-ok: */}\n<span className="flex-1" />`);
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
+  });
+  it("jsdoc decoration is stripped before reading the reason", () => {
+    const src = wrap(`{/**\n * childless-growable-ok: probe reason\n */}\n<span className="flex-1" />`);
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(0);
+  });
+  it("jsdoc trailing decoration alone is NOT a reason", () => {
+    const src = wrap(`{/**\n * childless-growable-ok:\n *\n */}\n<span className="flex-1" />`);
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
+  });
+  it("binds to the FIRST following candidate only", () => {
+    const src = wrap(
+      `{/* childless-growable-ok: probe reason */}\n<span className="flex-1" />\n<b className="flex-1" />`,
+    );
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(0);
+    expect(violations.filter((v) => v.tag === "b")).toHaveLength(1);
+  });
+  it("a compliant first candidate claims the exemption silently (template semantics)", () => {
+    const src = wrap(
+      `{/* childless-growable-ok: probe reason */}\n<span className="flex-1 h-px bg-border" />`,
+    );
+    const { violations, exemptions } = scanSource(src, "probe.tsx");
+    expect(violations).toHaveLength(1); // sentinel only — no unused-exemption complaint
+    expect(exemptions.filter((e) => !e.used)).toHaveLength(0);
+  });
+  it("marker text inside a string literal is not an exemption", () => {
+    const src = wrap(
+      `<b title={"childless-growable-ok: not a comment"} className="flex-1" />`,
+    );
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "b")).toHaveLength(1);
+  });
+  it("an exemption with NO following candidate is reported unused", () => {
+    const src = `export function P() {\n  return (<div>${SENTINEL}</div>);\n}\n// childless-growable-ok: dangling reason\n`;
+    const { exemptions } = scanSource(src, "probe.tsx");
+    expect(exemptions.filter((e) => !e.used)).toHaveLength(1);
+  });
+  it("a distant comment two-plus lines above does not bind", () => {
+    const src = wrap(
+      `{/* childless-growable-ok: too far away */}\n<b>keep</b>\n<span className="flex-1" />`,
+    );
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
+  });
+});
+
+describe("scanSource: MDX (spec §5)", () => {
+  it("compiled-MDX childless growable violates with approximate diagnostics", () => {
+    const { violations } = scanSource(`# Title\n\n<span className="flex-1" />\n`, "probe.mdx");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.reason).toBe("unpainted-childless-dom");
+    expect(violations[0]?.approximate).toBe(true);
+    expect(violations[0]?.file).toBe("probe.mdx");
+  });
+  it("compiled-MDX painted growable is accepted", () => {
+    const { violations } = scanSource(
+      `# Title\n\n<span className="flex-1 h-px bg-border" />\n<span className="flex-1" />\n`,
+      "probe.mdx",
+    );
+    expect(violations).toHaveLength(1); // only the unpainted sibling — non-vacuous
+  });
+  it("MDX exemption comments are NOT honored (TSX-only contract)", () => {
+    const { violations } = scanSource(
+      `# Title\n\n{/* childless-growable-ok: hoisted away */}\n<span className="flex-1" />\n`,
+      "probe.mdx",
+    );
+    expect(violations).toHaveLength(1);
+  });
+});

@@ -377,16 +377,23 @@ function isPainted(normalizedTokens: readonly string[], paintTokens: ReadonlySet
   return false;
 }
 
-/** Scan one TSX source (MDX handling arrives with the compile path). */
+/**
+ * Scan one source. `.mdx` files are compiled to JSX first (§5): their
+ * diagnostics are positionally APPROXIMATE and exemption comments are NOT
+ * honored — compileSync hoists comments away from their elements (§4.4).
+ */
 export function scanSource(
   source: string,
   fileName: string,
   opts?: ScanOptions,
-): { violations: Violation[]; exemptions: never[] } {
+): { violations: Violation[]; exemptions: Exemption[] } {
   const registry = opts?.registry ?? APPROVED_GROWABLE_COMPONENTS;
   const paintTokens = opts?.paintTokens ?? PAINT_TOKENS;
-  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const isMdx = fileName.endsWith(".mdx");
+  const scanText = isMdx ? String(compileSync(source, { jsx: true })) : source;
+  const sf = ts.createSourceFile(fileName, scanText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const violations: Violation[] = [];
+  const exemptionRanges = isMdx ? [] : collectExemptions(scanText, sf);
 
   const visit = (node: ts.Node): void => {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
@@ -410,21 +417,36 @@ export function scanSource(
       if ((growableTokens.length > 0 || styleGrow.growable) && isChildless(node)) {
         const isComponent = /^[A-Z]/.test(tag) || tag.includes(".");
         const sourceLabel = growableTokens[0] ?? styleGrow.label ?? "(unknown growable source)";
-        const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-        if (isComponent) {
-          if (!registry.has(tag)) {
-            violations.push({ file: fileName, line, tag, reason: "unregistered-component", sourceLabel });
+        const start = node.getStart(sf);
+        const line = sf.getLineAndCharacterOfPosition(start).line + 1;
+        // Every childless growable CANDIDATE claims its exemption BEFORE its
+        // compliance is decided — template semantics (§4.4): a compliant
+        // candidate consumes the comment silently.
+        const exempted = claimExemption(exemptionRanges, start, node.getEnd(), line);
+        const push = (reason: ViolationReason) => {
+          if (!exempted) {
+            violations.push({
+              file: fileName,
+              line,
+              tag,
+              reason,
+              sourceLabel,
+              ...(isMdx ? { approximate: true } : {}),
+            });
           }
+        };
+        if (isComponent) {
+          if (!registry.has(tag)) push("unregistered-component");
         } else {
           const normalized = harvest.tokens.map(normalizeToken);
           const painted =
             isPainted(normalized, paintTokens) && harvest.tokens.some(extentFromToken);
           if (!painted) {
-            const reason: ViolationReason =
+            push(
               growableTokens.length === 0 && styleGrow.opaque
                 ? "opaque-style-grow"
-                : "unpainted-childless-dom";
-            violations.push({ file: fileName, line, tag, reason, sourceLabel });
+                : "unpainted-childless-dom",
+            );
           }
         }
       }
@@ -432,5 +454,113 @@ export function scanSource(
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  return { violations, exemptions: [] };
+  return {
+    violations,
+    exemptions: exemptionRanges.map((e) => ({ line: e.endLine, used: e.used })),
+  };
+}
+
+/* ------------------------------------------------------------------------- *
+ * Exemptions (spec §4.4) + MDX (spec §5).
+ * ------------------------------------------------------------------------- */
+import { compileSync } from "@mdx-js/mdx";
+
+import { LINE_TERMINATORS } from "./_newTabScan";
+
+export const EXEMPTION_MARKER = "childless-growable-ok:";
+
+export interface Exemption {
+  line: number;
+  used: boolean;
+}
+
+interface ExemptionRange {
+  end: number;
+  startLine: number;
+  endLine: number;
+  used: boolean;
+}
+
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+const LINE_COMMENT = new RegExp("//[^" + LINE_TERMINATORS.source.slice(1, -1) + "]*", "g");
+
+/** Spans whose contents are string-ish — a marker inside one is data, not an
+ *  exemption (§6.4 probe). */
+function stringishSpans(sf: ts.SourceFile): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isJsxText(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    ) {
+      spans.push([node.getStart(sf), node.getEnd()]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return spans;
+}
+
+/**
+ * Collect reasoned exemption comments (template mechanics, _newTabScan.ts:49
+ * and ~:2835): trailing block delimiter stripped, then per-line jsdoc
+ * decoration; a reason must remain after the marker.
+ */
+function collectExemptions(source: string, sf: ts.SourceFile): ExemptionRange[] {
+  const strings = stringishSpans(sf);
+  const inString = (pos: number) => strings.some(([a, b]) => pos >= a && pos < b);
+  const out: ExemptionRange[] = [];
+  for (const re of [BLOCK_COMMENT, LINE_COMMENT]) {
+    re.lastIndex = 0;
+    for (const match of source.matchAll(re)) {
+      const start = match.index ?? 0;
+      if (inString(start)) continue;
+      const text = match[0]
+        .replace(/\*+\/$/, "")
+        .split(new RegExp(LINE_TERMINATORS.source))
+        .map((l) => l.replace(/^\s*\*+\s?/, ""))
+        .join("\n");
+      const at = text.indexOf(EXEMPTION_MARKER);
+      if (at < 0) continue;
+      if (text.slice(at + EXEMPTION_MARKER.length).trim().length === 0) continue;
+      const end = start + match[0].length;
+      out.push({
+        end,
+        startLine: sf.getLineAndCharacterOfPosition(start).line + 1,
+        endLine: sf.getLineAndCharacterOfPosition(end).line + 1,
+        used: false,
+      });
+    }
+  }
+  return out.sort((a, b) => a.end - b.end);
+}
+
+/**
+ * Claim the first adjacent exemption for a candidate. Template semantics
+ * (_newTabScan.ts:2854–2910): the candidate claims BEFORE its compliance is
+ * decided, so a compliant candidate consumes its exemption silently.
+ * Adjacency: the comment sits inside the element's span (in-tag form), or
+ * ends on the candidate's start line / the line directly above.
+ */
+function claimExemption(
+  exemptions: ExemptionRange[],
+  candStart: number,
+  candEnd: number,
+  candStartLine: number,
+): boolean {
+  for (const ex of exemptions) {
+    if (ex.used) continue;
+    if (ex.end > candEnd) continue;
+    const inTag = ex.startLine >= candStartLine && ex.end <= candEnd;
+    const adjacent = candStartLine - ex.endLine <= 1 && ex.endLine <= candStartLine;
+    if (inTag || adjacent) {
+      ex.used = true;
+      return true;
+    }
+  }
+  return false;
 }
