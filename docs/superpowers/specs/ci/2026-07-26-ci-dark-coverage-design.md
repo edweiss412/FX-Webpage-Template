@@ -421,6 +421,33 @@ Per the `AGENTS.md` ladder — `no_verdict` is an infrastructure fault and bound
 
 **What this does not substitute for:** an independent model attacking the descoped design fresh. The plan for PR1 gets its own cross-model round, and if the box is quieter it will exercise much of the same surface.
 
+## §10b Honest ceiling: environment-dependent narrowing
+
+Recorded because four adversarial rounds converged here, and a future reader
+should not mistake silence for coverage.
+
+The guards prove that **under the environment they can construct**, the config
+resolves to exactly the 30 spec files whose allowlist rows this PR deletes.
+Membership is Playwright's own `--list` output, so every narrowing knob —
+`projects[].testMatch`, `testIgnore`, `testDir`, an empty `projects: []`,
+`grep`/`grepInvert` — is resolved by Playwright rather than modelled, and a
+separate assertion requires that resolved set to equal what the top-level
+`testMatch` declares.
+
+What remains unprovable locally: a config that narrows on a variable only
+GitHub sets. The probe pins `CI` and `GITHUB_ACTIONS` and asserts the matcher
+is identical with and without them, but a branch on `GITHUB_EVENT_NAME`, on
+any other runner default, or on workflow/job/step `env` would be invisible to
+any local probe **by construction** — the CI environment is not reproducible
+here. Enumerating variables is the same losing game rounds 1–3 lost.
+
+Filed as BL-CI-ENV-DEPENDENT-CONFIG-NARROWING with that measurement. The
+mitigation that actually holds is procedural and already in place: the job is
+unfiltered and runs the whole config on every PR, so a config that narrowed
+under Actions would show a reduced test count in the run log.
+
+---
+
 ## §11 Risks
 
 | Risk | Mitigation |

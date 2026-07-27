@@ -30,7 +30,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { branchesOf, probeConfig } from "./_standaloneConfigProbe";
+import { branchesOf, listedSpecFiles, probeConfig } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
 
@@ -75,4 +75,13 @@ describe("standalone config testMatch has no stale branches", () => {
     const stale = branches.filter((b) => !existsSync(join(ROOT, "tests/e2e", `${b}.spec.ts`)));
     expect(stale, "testMatch names specs that do not exist — delete the branch").toEqual([]);
   }, 120_000);
+  it("what Playwright RESOLVES equals what testMatch declares", () => {
+    // Closes the narrowing class an adversarial round demonstrated: a
+    // project-level testMatch, testIgnore, testDir, `projects: []`, or
+    // grep/grepInvert can run a subset while the top-level matcher still
+    // declares everything. If the two ever disagree, the declared list is a
+    // claim the config does not honour, and coverage derived from it is false.
+    const declared = branchesOf(probeConfig([])).map((b) => `${b}.spec.ts`);
+    expect(new Set(listedSpecFiles())).toEqual(new Set(declared));
+  }, 300_000);
 });

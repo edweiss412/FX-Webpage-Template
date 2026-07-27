@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanWorkflowCoverage } from "./_workflowCoverageScan";
-import { branchesOf, probeConfig } from "./_standaloneConfigProbe";
+import { listedSpecFiles } from "./_standaloneConfigProbe";
 
 const ROOT = process.cwd();
 
@@ -122,7 +122,12 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // Whole-config membership, resolved from the LIVE config rather than listed
   // here: a hand-maintained copy would drift the moment a spec is registered,
   // and drift in a coverage guard reads as coverage.
-  const standaloneMembers = branchesOf(probeConfig([])).map((b) => `tests/e2e/${b}.spec.ts`);
+  // Membership is what Playwright ACTUALLY resolves, not what the top-level
+  // testMatch declares: project-level matchers, testIgnore, testDir, an empty
+  // projects list, and grep/grepInvert all narrow what runs while leaving that
+  // matcher intact. Deleting an allowlist row for a spec that does not really
+  // run is the exact harm this guard exists to prevent.
+  const standaloneMembers = listedSpecFiles().map((f) => `tests/e2e/${f}`);
 
   const { covered } = scanWorkflowCoverage({
     workflows,

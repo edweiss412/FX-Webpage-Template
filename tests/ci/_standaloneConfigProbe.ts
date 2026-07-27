@@ -150,3 +150,47 @@ export function branchesOf(probe: ConfigProbe): string[] {
     return raw.replace(/\\\./g, ".");
   });
 }
+
+/**
+ * The spec files Playwright will ACTUALLY run, via `--list`.
+ *
+ * Ground truth, and the answer to a whole class of narrowing that reading
+ * `testMatch` cannot see: `projects[].testMatch`, top-level or per-project
+ * `testIgnore`, `testDir`, an empty `projects: []`, and `grep`/`grepInvert`
+ * all change what runs while leaving the top-level matcher untouched. An
+ * adversarial round demonstrated a config whose top-level `testMatch` claimed
+ * two branches while a project-level matcher ran one. Rather than model each
+ * knob — the losing game of the previous rounds — this asks Playwright to
+ * resolve the config and reports what came back.
+ *
+ * Used for MEMBERSHIP (which specs the whole-config job covers). The declared
+ * branch list is still read separately, because a branch matching no file is
+ * invisible to `--list` by construction: that is exactly what makes it stale.
+ */
+export function listedSpecFiles(): string[] {
+  const out = execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "playwright",
+      "test",
+      "--config",
+      "tests/e2e/standalone.config.ts",
+      "--list",
+      "--reporter=json",
+    ],
+    { cwd: ROOT, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+  );
+  const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
+  const files = new Set<string>();
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as { file?: string; suites?: unknown[] };
+      if (s.file) files.add(s.file);
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  if (files.size === 0) throw new Error("listedSpecFiles: Playwright listed no files");
+  return [...files].sort();
+}
