@@ -13,7 +13,7 @@
  *   registration detector.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -30,7 +30,6 @@ const ROOT = process.cwd();
 // test-results/) dies ENOENT, which is exactly how the first real Actions run
 // of the comparison step failed.
 const JSON_OUTPUT = "../../test-results/standalone-report.json";
-const CONFIG_DIR = join(ROOT, "tests/e2e");
 
 describe("standalone config reporters (spec §4.1 structural pinning)", () => {
   it("evaluated reporter contains BOTH the list entry and the json entry with the exact outputFile", () => {
@@ -44,14 +43,32 @@ describe("standalone config reporters (spec §4.1 structural pinning)", () => {
       | undefined;
     expect(jsonEntry).toBeDefined();
     expect(jsonEntry?.[1]?.outputFile).toBe(JSON_OUTPUT);
-    // The contract behind the literal: configDir-resolved reporter output must
-    // be the exact file the comparator's zero-args branch reads. Pinning only
-    // the literal would let both sides drift together into a path CI never
-    // writes; pinning the RESOLUTION catches any reporter/comparator split.
-    expect(resolve(CONFIG_DIR, jsonEntry![1]!.outputFile!)).toBe(
-      resolve(ROOT, "test-results", "standalone-report.json"),
-    );
   });
+
+  it("reporter output path pinned by OBSERVATION: a real --list run writes the comparator's exact read path", () => {
+    // A Node-side `resolve(CONFIG_DIR, outputFile)` assertion only MODELS
+    // playwright's configDir-relative resolution: with the dependency on a
+    // caret range, a playwright update changing resolution semantics would
+    // leave a modelled pin green while re-splitting the reporter/comparator
+    // path pair. Observe instead: run the config's OWN reporters (no
+    // --reporter override) under --list — the json reporter writes its
+    // outputFile even when nothing executes — and require the file to land at
+    // the exact path the comparator's zero-args branch reads. Ambient
+    // PLAYWRIGHT_* is stripped so a dev-shell export cannot redirect the
+    // write; CI carries none by the sweep in the workflow describe below.
+    const target = resolve(ROOT, "test-results", "standalone-report.json");
+    rmSync(target, { force: true });
+    const env = { ...process.env };
+    for (const k of Object.keys(env)) if (k.startsWith("PLAYWRIGHT_")) delete env[k];
+    execFileSync(
+      "pnpm",
+      ["exec", "playwright", "test", "--config", "tests/e2e/standalone.config.ts", "--list"],
+      { cwd: ROOT, stdio: "pipe", timeout: 180_000, env },
+    );
+    expect(existsSync(target), `json reporter did not write ${target}`).toBe(true);
+    const written = JSON.parse(readFileSync(target, "utf8"));
+    expect(written.config?.rootDir).toBeDefined();
+  }, 180_000);
 
   it("committed baseline matches the local --list resolution (forces regen on membership change)", () => {
     execFileSync("node", [join(ROOT, "scripts/check-standalone-baseline.mjs"), "--list-check"], {
@@ -120,6 +137,17 @@ describe("standalone-e2e.yml comparison step (spec §4.1 structural pinning)", (
     for (const s of steps) expect(s).not.toHaveProperty("env");
     const raw = readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8");
     expect(raw).not.toMatch(/PLAYWRIGHT_/);
+    // The workflow-file sweep cannot see a LOCAL COMPOSITE ACTION exporting
+    // PLAYWRIGHT_JSON_OUTPUT_FILE through GITHUB_ENV at runtime: `uses:
+    // ./.github/actions/setup` executes file content this workflow never
+    // textually contains. Sweep every file under .github/actions so any local
+    // action the workflow uses now or later stays PLAYWRIGHT_-free too.
+    for (const p of walkFiles(join(ROOT, ".github", "actions"))) {
+      expect(
+        readFileSync(p, "utf8"),
+        `${relative(ROOT, p)} must not touch PLAYWRIGHT_ (GITHUB_ENV route into the pinned steps)`,
+      ).not.toMatch(/PLAYWRIGHT_/);
+    }
   });
 });
 
@@ -264,16 +292,21 @@ describe("spec registration detector (spec §3.1)", () => {
     const invoked = new Set<string>();
     for (const raw of texts) {
       // Normalize shell line continuations so a multiline invocation reads as
-      // one line, then split each line on SHELL separators (&&, ||, ;, |) so a
-      // compound line contributes every invocation it carries, not just the
-      // first — `playwright test --config a && playwright test` is two
-      // invocations, the second of them the default config. Whitespace between
-      // the flag and its value is matched as a run (tabs, doubled spaces), not
-      // a single literal space.
+      // one line, then split each line on SHELL separators — [;&|]+ covers
+      // `;`, `|`, `&&`, `||`, AND a single `&` (background job), any of which
+      // starts a new invocation — so a compound line contributes every
+      // invocation it carries, not just the first. The config flag must parse
+      // in EVERY form playwright's commander accepts — `--config PATH`,
+      // `--config=PATH`, `-c PATH`, `-c=PATH`, and the attached short form
+      // `-cPATH` (verified against the installed playwright: -cPATH lists the
+      // full standalone suite) — because any unparsed form records the segment
+      // as the default config, a fail-open census row that set equality can
+      // never catch. `(?:^|\s)` anchors the flag to a token boundary so `-c`
+      // inside a word or another flag cannot match.
       for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
-        for (const segment of line.split(/&&|\|\||;|\|/)) {
+        for (const segment of line.split(/[;&|]+/)) {
           if (!/\bplaywright\s+test\b/.test(segment)) continue;
-          const m = segment.match(/(?:--config|-c)(?:=|\s+)(\S+)/);
+          const m = segment.match(/(?:^|\s)(?:--config(?:=|\s+)|-c(?:=|\s+)?)(\S+)/);
           invoked.add(m?.[1] ?? "playwright.config.ts");
         }
       }
