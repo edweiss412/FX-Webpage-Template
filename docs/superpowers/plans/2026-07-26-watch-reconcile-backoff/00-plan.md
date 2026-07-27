@@ -692,10 +692,12 @@ it("the retired count-threshold identifier appears nowhere (spec §2.1, class 9)
 - [ ] **Step 1: Failing test** — in the retry action suite (which already mocks `lib/drive/watch` per the actions-test pattern):
 
 ```ts
-it("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async () => {
-  // Real suite identifiers (tests/admin/retryWatchAction.test.ts:28-58):
-  // hoisted subscribeToWatchedFolderSpy module-mocks lib/drive/watch;
-  // the action takes a bare FormData; the suite's folder fixture is "folder-123".
+test("passes recordAttempt: true to the shared subscribe (spec §3.3a pin)", async () => {
+  // Real suite identifiers (tests/admin/retryWatchAction.test.ts:28-126). The
+  // beforeEach resets the folder spy, so EVERY test configures it explicitly -
+  // copy the active-outcome test's setup (plan review r8 finding):
+  getActiveWatchedFolderSpy.mockResolvedValue({ folderId: "folder-123" });
+  subscribeToWatchedFolderSpy.mockResolvedValue({ outcome: "active", channelId: "chan-1", attempt: null });
   await retryWatchSubscriptionFormAction(new FormData());
   expect(subscribeToWatchedFolderSpy).toHaveBeenCalledWith(
     "folder-123",
