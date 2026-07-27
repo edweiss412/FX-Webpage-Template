@@ -289,26 +289,31 @@ export function DriveConnectionPanel({
             </form>
           </div>
         </div>
-        {/* Next-attempt sentence (backoff spec §3.6): same visibility condition
-            as the Retry control, and only while the ladder is in play. A
-            column-flow SIBLING of the re-run-setup row - inside it, the desktop
-            justify-between would shove the buttons to center and hang this at
-            the right edge (impeccable critique P1). Server-rendered; no timer. */}
+        {/* Next-attempt sentence (backoff spec §3.6, amended per impeccable
+            audit): same visibility condition as the Retry control, and only
+            while the ladder is in play. A column-flow SIBLING of the
+            re-run-setup row - inside it, the desktop justify-between would
+            shove the buttons to center (critique P1). This is a SERVER
+            component, so an absolute local-time render would show the SERVER's
+            timezone forever (audit P1) - the wait renders RELATIVE to the
+            page's injected `now` instead, which is timezone-free and
+            deterministic. */}
         {showRetry && watchState?.lastAttemptOutcome === "failed" ? (
           <p
             data-testid="drive-connection-next-attempt"
             className="min-w-0 wrap-break-word text-sm text-text-subtle"
           >
-            {watchState.nextAttemptAt && isFutureIso(watchState.nextAttemptAt) ? (
-              <>
-                Trying again at{" "}
-                <time dateTime={watchState.nextAttemptAt} suppressHydrationWarning>
-                  {formatNextAttempt(watchState.nextAttemptAt)}
-                </time>
-              </>
-            ) : (
-              <>Trying again shortly</>
-            )}
+            {(() => {
+              const wait = formatWaitUntil(watchState.nextAttemptAt, now);
+              return wait ? (
+                <>
+                  Trying again in{" "}
+                  <time dateTime={watchState.nextAttemptAt ?? undefined}>{wait}</time>
+                </>
+              ) : (
+                <>Trying again shortly</>
+              );
+            })()}
             {reconnectCountClause(watchState.consecutiveFailures)}
           </p>
         ) : null}
@@ -317,25 +322,21 @@ export function DriveConnectionPanel({
   );
 }
 
-/** Same shape as formatStagedAt (components/admin/StagedReviewCard.tsx:104-113):
- *  module-local per spec §3.6, NaN guard renders the raw ISO string. Duplicated
- *  from the bell line deliberately - the spec keeps per-surface local formatters
- *  rather than minting a shared helper (plan review r2 finding 11). */
-function formatNextAttempt(iso: string): string {
+/** Future-wait phrasing off the page's injected clock (impeccable audit P1:
+ *  this is a server component, so locale/timezone formatting would render the
+ *  SERVER's zone; a relative wait has no zone at all). Returns null for a
+ *  past, missing, or unparseable next-attempt - those all read "shortly".
+ *  Ladder cap is 2h, so hours phrasing tops out small. */
+function formatWaitUntil(iso: string | null, now: Date): string | null {
+  if (!iso) return null;
   const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return iso;
-  return new Date(ms).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function isFutureIso(iso: string): boolean {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return true;
-  return ms > Date.now();
+  if (!Number.isFinite(ms)) return null;
+  const deltaMin = Math.ceil((ms - now.getTime()) / 60_000);
+  if (deltaMin < 1) return null;
+  if (deltaMin < 60) return `${deltaMin} min`;
+  const hours = Math.floor(deltaMin / 60);
+  const rem = deltaMin % 60;
+  return rem === 0 ? `${hours} hr` : `${hours} hr ${rem} min`;
 }
 
 function reconnectCountClause(count: number) {

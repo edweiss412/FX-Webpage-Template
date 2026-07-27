@@ -26,17 +26,10 @@ afterEach(() => {
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 const TWO_HR_AGO = new Date("2026-06-01T10:00:00.000Z").toISOString();
-// Far future so the viewer-clock (real Date.now) future/past branch is
-// deterministic for years; the formatter output is still derived, not hardcoded.
-const FUTURE_ISO = "2030-01-01T16:45:00.000Z";
-
-const SPEC_FORMAT_OPTIONS = {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-} as const;
-const formatted = (iso: string) => new Date(iso).toLocaleString(undefined, SPEC_FORMAT_OPTIONS);
+// 15 minutes after the injected NOW: the sentence renders a RELATIVE wait off
+// the page clock (server component - an absolute local time would render the
+// SERVER's timezone; impeccable audit P1). Fully deterministic.
+const FUTURE_ISO = "2026-06-01T12:15:00.000Z";
 
 type WarnHealth = Extract<DriveConnectionHealth, { health: "warn" }>;
 
@@ -73,10 +66,9 @@ describe("Settings next-attempt sentence (spec §3.6, class 12)", () => {
     (reason) => {
       render(<DriveConnectionPanel health={warnHealth(reason)} now={NOW} watchState={state()} />);
       expect(line()).not.toBeNull();
-      expect(line()!.textContent).toBe(
-        `Trying again at ${formatted(FUTURE_ISO)} · 2 reconnect attempts so far`,
-      );
+      expect(line()!.textContent).toBe("Trying again in 15 min · 2 reconnect attempts so far");
       expect(line()!.querySelector("span.tabular-nums")?.textContent).toBe("2");
+      expect(line()!.querySelector("time")?.getAttribute("datetime")).toBe(FUTURE_ISO);
     },
   );
 
@@ -113,7 +105,7 @@ describe("Settings next-attempt sentence (spec §3.6, class 12)", () => {
         watchState={state({ consecutiveFailures: 0 })}
       />,
     );
-    expect(line()!.textContent).toBe(`Trying again at ${formatted(FUTURE_ISO)}`);
+    expect(line()!.textContent).toBe("Trying again in 15 min");
   });
 
   it("absent when the last attempt succeeded, when watchState is null, and when the prop is omitted", () => {

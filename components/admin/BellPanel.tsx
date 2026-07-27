@@ -399,12 +399,19 @@ export function BellActionRow({
           className="mt-1 w-full wrap-break-word text-sm text-text-subtle"
         >
           {entry.watchState.nextAttemptAt && isFutureIso(entry.watchState.nextAttemptAt) ? (
-            <>
-              Trying again at{" "}
-              <time dateTime={entry.watchState.nextAttemptAt} suppressHydrationWarning>
-                {formatNextAttempt(entry.watchState.nextAttemptAt)}
-              </time>
-            </>
+            Number.isFinite(Date.parse(entry.watchState.nextAttemptAt)) ? (
+              <>
+                Trying again at{" "}
+                <time dateTime={entry.watchState.nextAttemptAt} suppressHydrationWarning>
+                  {formatNextAttempt(entry.watchState.nextAttemptAt)}
+                </time>
+              </>
+            ) : (
+              // Unparseable timestamp: keep the raw string visible for
+              // diagnosis, but never mint an invalid dateTime attribute
+              // (impeccable audit P3).
+              <>Trying again at {entry.watchState.nextAttemptAt}</>
+            )
           ) : (
             <>Trying again shortly</>
           )}
