@@ -188,6 +188,13 @@ const BACKLOG_GRADUATED = [
     id: "BL-PHANTOM-GAP-PROBE-ARCHIVED-BUCKET",
     provenance: "feat/section-header-rebuild-phantom-spacers",
   },
+  // fix/lifecycle-transitions-roundtrip-flake (2026-07-27). The round-trip
+  // flake reached five consecutive CI greens; the spec is wired and its
+  // allowlist row deleted.
+  {
+    id: "BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE",
+    provenance: "fix/lifecycle-transitions-roundtrip-flake",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
