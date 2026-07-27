@@ -91,12 +91,25 @@ async function waitForHydration(modal: import("@playwright/test").Locator) {
   // Measured in run 30237953882 (repeat3): the Escape landed after the
   // self-close, the shell navigated to /admin (final trace frameUrl has no
   // `?show=`), and the ON-flip click then starved against an unmounted modal
-  // for the rest of the test budget. The kebab is a toggle, so clicking it
-  // only while the popover is still open converges to closed and touches
-  // client-local state only — nothing here can reach the shell's close nav.
+  // for the rest of the test budget.
+  //
+  // The close is the backdrop's onClick via dispatchEvent, not a real
+  // pointer, for two measured reasons. (1) NOT the kebab: while the popover
+  // is open ShareHub renders a fixed inset-0 z-20 backdrop button that
+  // swallows trigger clicks (ShareHub.tsx §6 close semantics), so a kebab
+  // click fails actionability forever — run 30293943396 failed 10/10 exactly
+  // there. (2) NOT a positioned real click on the backdrop: the portal'd
+  // popover body (z-40) can cover any fixed point of the 390px viewport
+  // depending on placement side, re-creating the same interception. The
+  // hydration PROOF is the popover having opened above; this close only
+  // needs ShareHub's client-local `setOpen(false)`, which is what the
+  // backdrop's onClick does — no nav, nothing here can reach the shell's
+  // document-level Escape close. The self-close race (lifecycle effect)
+  // stays benign: each retry skips the dispatch once the backdrop is gone.
+  const backdrop = modal.getByTestId("share-hub-backdrop");
   await expect(async () => {
-    if ((await popover.count()) > 0) {
-      await kebab.click();
+    if ((await backdrop.count()) > 0) {
+      await backdrop.dispatchEvent("click", undefined, { timeout: 1_500 });
     }
     await expect(popover).toHaveCount(0, { timeout: 1_500 });
   }).toPass({ timeout: 15_000 });
