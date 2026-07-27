@@ -37,6 +37,7 @@ import { test, expect } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
