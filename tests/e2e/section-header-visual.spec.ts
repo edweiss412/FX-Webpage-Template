@@ -39,7 +39,12 @@ const HARNESS_ENV = {
   JWT_SIGNING_SECRET: "fxav-section-header-harness-jwt-secret-32-min",
 };
 
-const WIDTHS = [320, 375, 430, 640, 1280] as const;
+/** Derived from ROW_WIDTHS, not duplicated (whole-diff R1 f2): a sixth matrix
+ *  width automatically enters the capture grid, where its missing baseline
+ *  fails the gate by default instead of being silently uncaptured. */
+const WIDTHS = Object.keys(ROW_WIDTHS)
+  .map(Number)
+  .sort((a, b) => a - b);
 const THEMES = ["light", "dark"] as const;
 const STATE_CELL = "G1-clean";
 const LINK_SEL = `[data-cell="${STATE_CELL}"] a[href]`;
@@ -183,6 +188,20 @@ for (const width of WIDTHS) {
       await openPage(page, `composite-${width}.html`, width, theme);
       const cells = await page.locator("[data-cell]").count();
       expect(cells, "composite page renders all 15 cells").toBe(cellCount);
+      // Cell-identity oracle (whole-diff R1 f5, spec §3.2): each cell renders
+      // DISTINCT content — 15 differently-keyed copies of one fixture would
+      // pass the count alone and the metadata would become the oracle.
+      const cellTexts = await page
+        .locator("[data-cell]")
+        .evaluateAll((els) => els.map((el) => (el.textContent ?? "").trim()));
+      expect(
+        new Set(cellTexts).size,
+        "all 15 cells render distinct content (not one fixture 15 times)",
+      ).toBe(cellCount);
+      expect(
+        cellTexts.every((t) => t.length > 0),
+        "no cell renders empty",
+      ).toBe(true);
       await expect(page).toHaveScreenshot(`idle-${width}-${theme}.png`, { fullPage: true });
     });
   }

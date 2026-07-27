@@ -1,40 +1,48 @@
 /**
  * tests/cross-cutting/playwright-version-pin.test.ts
  *
- * Registry pin for EVERY workflow that runs the mcr.microsoft.com/playwright
- * Docker image (the AGENTS.md byte-comparison rule: pin BOTH the image AND the
- * host architecture, and tie the tag to the dependency version).
+ * Discovery pin for EVERY workflow that references the
+ * mcr.microsoft.com/playwright Docker image (the AGENTS.md byte-comparison
+ * rule: pin BOTH the image AND the host architecture, and tie the tag to the
+ * dependency version).
  *
- * Rewritten 2026-07-26 (header-probe-residual-closure plan, review R1 f6) from
- * a single-workflow major.minor check against the package.json caret literal:
- * that shape left three escapes — a new pinned-image workflow could be omitted
- * entirely, a patch-version skew could pass, and a lockfile update inside the
- * caret range could change the EXECUTED Playwright without changing the parsed
- * literal. The registry + installed-manifest comparison closes all three: a
- * workflow added to the registry before it exists fails (fail-by-default), and
- * the compared version is the one `node_modules` actually resolves.
+ * Rewritten 2026-07-26 (header-probe-residual-closure, plan review R1 f6 +
+ * whole-diff R1 f3/f4) from a single-workflow major.minor check against the
+ * package.json caret literal. The current shape closes every escape that
+ * version had:
+ *  - DISCOVERY, not a hand-registry: every workflow file mentioning the image
+ *    is checked, so a fifth pinned-image workflow cannot be forgotten. The
+ *    known set is asserted too, so a silent rename/removal is also loud.
+ *  - The compared version is the INSTALLED @playwright/test manifest — the
+ *    version that actually executes — not the caret range in package.json.
+ *  - The amd64 pin is asserted on each `docker run` CONTINUATION BLOCK that
+ *    references the image, so a compliant-looking tag in commit-message prose
+ *    cannot stand in for a real invocation's platform pin.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
+const WORKFLOWS_DIR = join(ROOT, ".github", "workflows");
 
-/** Every workflow that runs the pinned Playwright image. A workflow using the
- *  image but absent here escapes the pin — add it when adding the workflow. */
-const PINNED_IMAGE_WORKFLOWS = [
+const IMAGE_MARKER = "mcr.microsoft.com/playwright";
+const IMAGE_RE = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-jammy/g;
+/** One shell invocation as YAML sees it: `docker run` plus its
+ *  backslash-continuation lines. Prose (e.g. a `git commit -m` message naming
+ *  the image) is never part of such a block, so pairing image and platform
+ *  WITHIN a block cannot be satisfied by a later unrelated string. */
+const DOCKER_BLOCK_RE = /docker run(?:[^\n]*\\\n)*[^\n]*/g;
+
+/** Workflows known to run the image today — asserted present so a rename or
+ *  removal is a loud diff here, not a silently shrunk discovery set. */
+const KNOWN_PINNED_IMAGE_WORKFLOWS = [
   "screenshots-drift.yml",
   "screenshots-regen.yml",
   "section-header-visual.yml",
   "section-header-visual-regen.yml",
 ] as const;
-
-const IMAGE_RE = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-jammy/g;
-/** A `docker run` invocation up to its image reference: the span that must
- *  carry the amd64 platform pin. */
-const DOCKER_RUN_SPAN_RE =
-  /docker run[\s\S]*?mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-jammy/g;
 
 const localRequire = createRequire(import.meta.url);
 
@@ -46,40 +54,52 @@ function installedPlaywrightVersion(): string {
   return manifest.version;
 }
 
-describe("pinned Playwright image workflows match the installed @playwright/test exactly", () => {
+function discoverPinnedImageWorkflows(): Array<{ file: string; yaml: string }> {
+  return readdirSync(WORKFLOWS_DIR)
+    .filter((f) => /\.ya?ml$/.test(f))
+    .map((file) => ({ file, yaml: readFileSync(join(WORKFLOWS_DIR, file), "utf8") }))
+    .filter(({ yaml }) => yaml.includes(IMAGE_MARKER));
+}
+
+describe("every workflow referencing the pinned Playwright image matches the installed @playwright/test exactly", () => {
   const installed = installedPlaywrightVersion();
+  const discovered = discoverPinnedImageWorkflows();
 
-  const readWorkflow = (workflow: string) =>
-    readFileSync(join(ROOT, ".github", "workflows", workflow), "utf8");
+  it("discovers the known pinned-image workflows (rename/removal is loud)", () => {
+    const names = discovered.map((d) => d.file);
+    for (const known of KNOWN_PINNED_IMAGE_WORKFLOWS) {
+      expect(names, `expected ${known} among pinned-image workflows`).toContain(known);
+    }
+  });
 
-  for (const workflow of PINNED_IMAGE_WORKFLOWS) {
-    describe(workflow, () => {
-      it("references the pinned image with the installed version, everywhere it runs docker", () => {
-        const yaml = readWorkflow(workflow);
+  for (const { file, yaml } of discoverPinnedImageWorkflows()) {
+    describe(file, () => {
+      it("every image reference (including prose) carries the installed version", () => {
         const tags = [...yaml.matchAll(IMAGE_RE)].map((m) => m[1]);
         expect(
           tags.length,
-          `${workflow} must run mcr.microsoft.com/playwright:vN.M.K-jammy at least once`,
+          `${file} mentions ${IMAGE_MARKER} but no vN.M.K-jammy tag parsed`,
         ).toBeGreaterThan(0);
         for (const tag of tags) {
           expect(
             tag,
-            `${workflow} image tag v${tag}-jammy must match installed @playwright/test ${installed} exactly`,
+            `${file}: image tag v${tag}-jammy must match installed @playwright/test ${installed} exactly`,
           ).toBe(installed);
         }
       });
 
-      it("pins every docker run of the image to linux/amd64", () => {
-        const yaml = readWorkflow(workflow);
-        const spans = [...yaml.matchAll(DOCKER_RUN_SPAN_RE)].map((m) => m[0]);
+      it("runs the image at least once, and every such docker run block pins linux/amd64", () => {
+        const blocks = [...yaml.matchAll(DOCKER_BLOCK_RE)]
+          .map((m) => m[0])
+          .filter((b) => b.includes(IMAGE_MARKER));
         expect(
-          spans.length,
-          `${workflow} must invoke the pinned image via docker run`,
+          blocks.length,
+          `${file} references the image but has no docker run block invoking it`,
         ).toBeGreaterThan(0);
-        for (const span of spans) {
+        for (const block of blocks) {
           expect(
-            span,
-            `${workflow}: a docker run of the pinned image is missing --platform linux/amd64`,
+            block,
+            `${file}: a docker run of the pinned image is missing --platform linux/amd64`,
           ).toContain("--platform linux/amd64");
         }
       });
