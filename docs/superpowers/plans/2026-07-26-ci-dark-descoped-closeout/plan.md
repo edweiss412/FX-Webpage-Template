@@ -25,7 +25,7 @@
 ## Meta-test inventory (declared per docs/agents/writing-plans.md)
 
 **Creates:** tests/ci/\_metaSpecRegistration.test.ts (A4), tests/scripts/checkStandaloneBaseline.test.ts (A1), tests/ci/\_metaEnvBoundExclusionCoverage.test.ts (B2), tests/scripts/runExcludedTest.test.ts (B1), tests/e2e/helpers/useServerDirectivePlugin.test.ts (C1), tests/e2e/directive-form-action.spec.ts (C4).
-**Extends:** `tests/ci/_metaE2eWorkflowCoverage.test.ts` (row edits A4/C4), `tests/e2e/_metaLiveEntryToolchain.test.ts` (C2/C3), `tests/ci/_standaloneConfigProbe.ts` (reporter observation, A2), `tests/e2e/helpers/liveEntryToolchain.bundle.test.ts` (C2).
+**Extends:** `tests/ci/_metaE2eWorkflowCoverage.test.ts` (row edits A4/C4), `tests/e2e/_metaLiveEntryToolchain.test.ts` (C1 exemption row, C2/C3), `tests/ci/_standaloneConfigProbe.ts` (reporter observation, A2), `tests/e2e/helpers/liveEntryToolchain.bundle.test.ts` (C2).
 **Registry rows:** invariant-9/10 registries do not apply — no Supabase call sites, no mutation surfaces (diff is tests, scripts, workflow steps, config fields).
 **Advisory locks:** not touched.
 
@@ -53,7 +53,7 @@ tests/e2e/helpers/__fixtures__/directive/*    PR-C  fixture modules (a)-(h)
 tests/e2e/_step3ReviewModalBundle.mjs         PR-C  regex useServerElision deleted; consumes shared plugin
 tests/e2e/directive-form-action.spec.ts       PR-C  guard case (f): form action={stub} submit throws, real browser
 tests/e2e/_directiveFormActionLiveEntry.tsx   PR-C  micro live entry for the form-action harness
-tests/e2e/_metaLiveEntryToolchain.test.ts     PR-C  re-pointed; exemption text rewritten
+tests/e2e/_metaLiveEntryToolchain.test.ts     PR-C  C1: contract-test exemption row; C2/C3: re-pointed + exemption text rewritten
 tests/e2e/packlist-rescan-recovery.spec.ts    PR-C  node:crypto alias
 BACKLOG.md + parent spec                      per-PR close-out edits
 ```
