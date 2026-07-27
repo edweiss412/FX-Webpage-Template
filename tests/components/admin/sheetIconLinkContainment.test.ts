@@ -20,11 +20,14 @@
  *
  * Filesystem-walked, never a named file list, so a new file cannot dodge the
  * walk. Since r10 the walked set is the FULL REPOSITORY: every file with a
- * source extension anywhere in the tree, skipping only dot-directories,
- * non-compile artifact dirs (node_modules, coverage, test-results,
- * playwright-report) and the tsconfig-`exclude`d fixture trees (which
- * deliberately contain planted violations; the shipped-tree no-tests-import
- * rule below closes their import channel). r10 found that the r9 surface —
+ * source extension anywhere in the tree, skipping only an ENUMERATED set of
+ * never-compiled artifact dirs (node_modules, coverage, test-results,
+ * playwright-report, .git, .next — r11: dot-directories are otherwise WALKED,
+ * because a committed `.runtime/alias.tsx` explicitly imported by app code is
+ * part of the module graph while a blanket dot-skip never scans it) and the
+ * tsconfig-`exclude`d fixture trees (which deliberately contain planted
+ * violations; the tests/-import rule below closes their import channel — every
+ * excluded tree lives under tests/). r10 found that the r9 surface —
  * tsconfig `fileNames` ∪ a js/jsx/mdx walk of the UI trees — still omitted
  * every non-TS extension outside components/ and app/ (tsconfig's include
  * globs name only ts/tsx/mts despite allowJs), so `lib/sheetLinkAlias.mjs`
@@ -48,7 +51,9 @@ const EXPECTED: Record<string, number> = {
   // assertion legitimately bumps its row here).
   "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 2,
   "tests/components/admin/sheetIconLink.test.tsx": 4,
-  "tests/components/admin/sheetIconLinkContainment.test.ts": 2,
+  // 3 since r11: two label-context mentions plus the verbatim-phrase negative
+  // plant for hiddenPhraseCount.
+  "tests/components/admin/sheetIconLinkContainment.test.ts": 3,
   "tests/components/admin/showpage/publishedReviewModal.test.tsx": 3,
   "tests/components/admin/wizard/Step3ReviewModal.test.tsx": 6,
 };
@@ -58,9 +63,20 @@ const EXPECTED: Record<string, number> = {
 // live root mdx-components.tsx joined in r8; r10 walks them repo-wide.
 const SOURCE_EXTS = [".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".mts", ".cts", ".mdx"];
 
-// Build/report artifact trees — never compile inputs. Dot-directories are
-// skipped wholesale (VCS, editor, CI metadata, .next* build output).
-const ARTIFACT_DIRS = new Set(["node_modules", "coverage", "test-results", "playwright-report"]);
+// Build/report artifact trees — never compile inputs. Enumerated, never
+// pattern-matched (r11): the r10 walk skipped every dot-directory wholesale,
+// so a committed dot-dir source file (`.runtime/sheetAlias.tsx`) explicitly
+// imported by app code was in the module graph but never scanned. Only these
+// known VCS/build outputs are skipped; every other directory, dotted or not,
+// is walked. The `.next-*` dist dirs ride the live tsconfig `exclude` list.
+const ARTIFACT_DIRS = new Set([
+  "node_modules",
+  "coverage",
+  "test-results",
+  "playwright-report",
+  ".git",
+  ".next",
+]);
 
 /** tsconfig's `exclude` — read live so fixture-tree edits stay tracked. */
 function tsconfigExcludes(root: string): string[] {
@@ -85,7 +101,7 @@ function walkedFiles(root: string): string[] {
       const rel = full.slice(root.length + 1);
       if (excludes.some((e) => rel === e || rel.startsWith(`${e}/`))) continue;
       if (statSync(full).isDirectory()) {
-        if (entry.startsWith(".") || ARTIFACT_DIRS.has(entry)) continue;
+        if (ARTIFACT_DIRS.has(entry)) continue;
         walk(full);
       } else if (SOURCE_EXTS.some((ext) => entry.endsWith(ext))) {
         out.push(full);
@@ -131,11 +147,16 @@ function walkedFiles(root: string): string[] {
  * `<X className=…>` cannot come into existence without the alias-creating
  * file failing first. Identifier and string escapes (`SheetIconLink`)
  * normalize in the AST's `.text`, so parsing catches them — the r10 hole was
- * the raw-text PREFILTER skipping the parse; it now also parses any file
- * containing a `\u`/`\x` escape spelling (contiguous fragments only, per the
- * prefilter-soundness rule). Runtime indirection (`React.createElement`,
- * computed specifiers) is out of a static guard's reach by construction and
- * explicitly out of scope.
+ * the raw-text PREFILTER skipping the parse; since r11 the parse gate is ANY
+ * backslash at all, because every spelling that can hide the name from a raw
+ * scan (`\u`/`\x` escapes, identity escapes like `"Sheet\IconLink"`, line
+ * continuations) needs one, and enumerating escape FORMS was shown incomplete
+ * twice — the single character closes the class. Runtime indirection
+ * (`React.createElement`, computed specifiers) is out of a static guard's
+ * reach by construction and explicitly out of scope; the resolver-alias pin
+ * below holds the STATIC resolution surface (tsconfig `paths`, package.json
+ * `imports`, next.config aliasing) to its known alias-free state so a config
+ * file cannot mint a specifier this checker does not recognize.
  *
  * className contract at the JSX tag: no spread attribute; `className`, when
  * present, is a plain string literal; every token matches the closed
@@ -153,13 +174,16 @@ function walkedFiles(root: string): string[] {
  * in full there, so a test file cannot mint an alias for a shipped consumer
  * to launder through; only the at-tag attribute checks are relaxed.
  *
- * Shipped-tree import boundary (r10): the carve's premise is that tests/ code
- * cannot ship — so shipped runtime trees (app/, components/, lib/, and
- * root-level compiled files) must not import ANY module under tests/, or a
- * carved off-contract wrapper could reach a user via a consumer that mentions
- * neither the identifier nor the component path. scripts/ and other tooling
- * trees are exempt (they import e2e helpers legitimately and never bundle
- * into the app).
+ * tests/-import boundary (r10; widened r11): the carve's premise is that
+ * tests/ code cannot ship — so importing ANY module under tests/ is denied
+ * EVERYWHERE except tests/ itself and scripts/ (tooling that legitimately
+ * imports e2e helpers and never bundles into the app). r10 bound only the
+ * shipped trees (app/, components/, lib/, root-level files), which left an
+ * unclassified tree — a root-level fixtures/ bridge, a docs/ example — free
+ * to re-export a carved tests/ wrapper for a shipped consumer that then
+ * imports the bridge without ever mentioning tests/. Every laundering chain's
+ * FIRST hop is a file whose specifier literally contains `tests/`; denying
+ * that hop everywhere closes the chain wherever it parks.
  */
 const POSITIONAL =
   /^(?:sm:|md:|lg:)?(?:m[lrtb]-(?:0(?:\.5)?|1(?:\.5)?|2(?:\.5)?|3)|order-(?:\d|first|last|none))$/;
@@ -179,23 +203,23 @@ function resolveSpecifier(spec: string, fromRel: string): string | null {
   return null;
 }
 
-/** Shipped runtime surface: app/, components/, lib/, root-level compiled files. */
-function isShippedTree(fileName: string): boolean {
-  return !fileName.includes("/") || /^(?:app|components|lib)\//.test(fileName);
-}
+/** The only trees allowed to import from tests/ — see the header (r11). */
+const TESTS_IMPORT_EXEMPT = /^(?:tests|scripts)\//;
 
 function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
   const out: string[] = [];
   if (fileName.endsWith(".mdx") || fileName.endsWith(".md")) {
     if (src.includes(NAME)) out.push(`${NAME} referenced in MDX — no sanctioned MDX use exists`);
-    else if (/\\[ux]/.test(src))
-      out.push("escape spelling in MDX — cannot be cleared by raw scan; no sanctioned MDX use");
+    else if (src.includes("\\"))
+      out.push(
+        "backslash in MDX — escape spellings cannot be cleared by raw scan; no sanctioned MDX use",
+      );
     return out;
   }
   // tests/ carve — attribute contract only, ROOT-ANCHORED (r10); see header.
   // Alias rules below (identifier + module path) are NOT relaxed.
   const attributeContractRelaxed = /^tests\//.test(fileName);
-  const shippedTree = isShippedTree(fileName);
+  const testsImportBanned = !TESTS_IMPORT_EXEMPT.test(fileName);
   const kind = /\.(ts|mts|cts)$/.test(fileName) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
   const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true, kind);
   const snip = (node: ts.Node) => src.slice(node.getStart(sf), node.getStart(sf) + 100);
@@ -264,12 +288,13 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
         if (!sanctioned)
           out.push(`unsanctioned import/export of the ${NAME} module: ${snip(node)}`);
       }
-      // Shipped-tree import boundary (r10): shipped runtime code may not
-      // import from tests/ at all — the carve's soundness depends on it.
-      if (shippedTree) {
+      // tests/-import boundary (r10; widened r11 to every non-exempt tree —
+      // the carve's soundness depends on tests/ code having no import path
+      // into the shipped graph, direct or bridged).
+      if (testsImportBanned) {
         const resolved = resolveSpecifier(spec.text, fileName);
         if (resolved !== null && (resolved === "tests" || resolved.startsWith("tests/"))) {
-          out.push(`shipped file imports from tests/ (carve laundering channel): ${snip(node)}`);
+          out.push(`non-exempt file imports from tests/ (carve laundering channel): ${snip(node)}`);
         }
       }
     }
@@ -306,26 +331,72 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
 /**
  * Parse gate for the live scan. Raw-text prefilters must use only CONTIGUOUS
  * match fragments: `SheetIconLink` (identifier or module path — creating a
- * static alias requires one of them), `\u`/`\x` (the only spellings that can
- * hide the name from a raw scan; escapes normalize during parse), and, for
- * shipped trees, `tests/` (every specifier that can resolve into tests/
- * contains it literally — tsconfig's only alias is `@/*` → `./*`).
+ * static alias requires one of them), a lone backslash (r11 — EVERY spelling
+ * that can hide the name from a raw scan needs one: `\u`/`\x`, identity
+ * escapes, line continuations; r10's `\u`/`\x` form list was shown incomplete,
+ * so the gate is the single character the whole class shares), and, outside
+ * the tests/-import-exempt trees, `tests/` (every specifier that can resolve
+ * into tests/ contains it literally — the resolver-alias pin holds `@/*` as
+ * the only alias).
  */
 function needsParse(src: string, rel: string): boolean {
-  if (src.includes(NAME) || /\\[ux]/.test(src)) return true;
-  return isShippedTree(rel) && src.includes("tests/");
+  if (src.includes(NAME) || src.includes("\\")) return true;
+  return !TESTS_IMPORT_EXEMPT.test(rel) && src.includes("tests/");
+}
+
+/**
+ * Escape-hidden PHRASE occurrences (r11 class-sweep of the needsParse fix:
+ * the raw `split(PHRASE)` count has the same blindness the NAME prefilter
+ * had). For a parseable file containing a backslash, compare each string-like
+ * literal's COOKED text against its RAW source slice: any literal whose
+ * cooked text contains the phrase while its raw spelling does not is hiding
+ * it behind escapes — no sanctioned use is escape-spelled, so each is a
+ * violation, not a count adjustment. Substitution-split templates
+ * (`Open the source ${x}`) are runtime construction, out of a static guard's
+ * reach like computed specifiers. MDX needs no twin: the live scan already
+ * flags ANY backslash in MDX.
+ */
+function hiddenPhraseCount(src: string, rel: string): number {
+  if (!src.includes("\\")) return 0;
+  const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
+  const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
+  let hidden = 0;
+  const countIn = (s: string): number => s.split(PHRASE).length - 1;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    ) {
+      const raw = src.slice(node.getStart(sf), node.getEnd());
+      const cooked = countIn(node.text);
+      if (cooked > countIn(raw)) hidden += cooked - countIn(raw);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return hidden;
 }
 
 describe("sheet-link phrase containment (spec §7.10)", () => {
   it("per-file occurrence counts equal the pinned set exactly", () => {
     const root = join(__dirname, "..", "..", "..");
     const found: Record<string, number> = {};
+    const hidden: string[] = [];
     const files = walkedFiles(root);
     for (const file of files) {
       const rel = file.slice(root.length + 1);
-      const count = readFileSync(file, "utf8").split(PHRASE).length - 1;
+      const src = readFileSync(file, "utf8");
+      const count = src.split(PHRASE).length - 1;
       if (count > 0) found[rel] = count;
+      // r11: an escape-spelled phrase in a literal is invisible to the raw
+      // count — flagged outright, since no sanctioned use is escape-spelled.
+      if (!rel.endsWith(".mdx") && hiddenPhraseCount(src, rel) > 0)
+        hidden.push(`${rel}: escape-hidden phrase occurrence(s)`);
     }
+    expect(hidden).toEqual([]);
     expect(found).toEqual(EXPECTED);
   });
 
@@ -484,6 +555,43 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     ).toHaveLength(0);
     // MDX escape spellings cannot be cleared by a raw scan — flagged:
     expect(classNameViolations("hidden \\u0049 escape", "page.mdx")).toHaveLength(1);
+    // r11 — identity escapes and line continuations also cook to the name
+    // with no parse diagnostics; the any-backslash prefilter guarantees the
+    // parse, and the cooked `.text` falls to the existing rules:
+    expect(
+      classNameViolations(
+        'import { "Sheet\\IconLink" as X } from "@/components/admin/Sheet\\IconLink";',
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      classNameViolations('import { X } from "@/components/admin/SheetIcon\\\nLink";'),
+    ).toHaveLength(1);
+    // r11 — the prefilter itself fires on every hiding form (the r10 hole was
+    // a sound checker behind an unsound gate):
+    expect(needsParse('const s = "Sheet\\IconLink";', "lib/x.ts")).toBe(true);
+    expect(needsParse('const s = "SheetIcon\\\nLink";', "lib/x.ts")).toBe(true);
+    expect(needsParse('import { h } from "@/tests/helpers/x";', "fixtures/bridge.tsx")).toBe(true);
+    // r11 — the tests/-import ban binds outside app/, components/, lib/ and
+    // the root too: an unclassified tree cannot bridge a carved tests/
+    // wrapper into the shipped graph.
+    expect(
+      classNameViolations(
+        'export * from "../tests/helpers/OffContract";',
+        "fixtures/sheetBridge.tsx",
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('import { W } from "@/tests/helpers/W";', "docs/examples/demo.ts"),
+    ).toHaveLength(1);
+    // r11 — the phrase count has the same escape blindness the NAME prefilter
+    // had; hiddenPhraseCount sees through cooked literals:
+    expect(hiddenPhraseCount('const a = "Open the source \\u0073heet";', "lib/x.ts")).toBe(1);
+    expect(hiddenPhraseCount('const a = "Open the \\\nsource sheet";', "lib/x.ts")).toBe(1);
+    expect(hiddenPhraseCount("const a = `Open the source \\u0073heet`;", "lib/x.ts")).toBe(1);
+    // …verbatim spellings are the raw count's job, not hidden:
+    expect(
+      hiddenPhraseCount('const a = "Open the source sheet"; const b = "\\n";', "lib/x.ts"),
+    ).toBe(0);
   });
 
   it("walked surface covers every source extension in every root, not just the compile globs (r10)", () => {
@@ -507,6 +615,38 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect([...rels].some((r) => r.includes("node_modules/"))).toBe(false);
     expect([...rels].some((r) => r.startsWith("tests/cross-cutting/fixtures/auth-x3"))).toBe(false);
     expect([...rels].some((r) => r.startsWith(".next"))).toBe(false);
+  });
+
+  it("resolver alias surface is pinned closed: @/* is the only path alias (r11)", () => {
+    // Whole-diff r11: a tsconfig `paths` entry such as `"#sheet":
+    // ["./components/admin/SheetIconLink.tsx"]` is a static alias the module
+    // rule cannot see — the specifier neither ends with the component name
+    // nor resolves through the two shapes resolveSpecifier knows, and the
+    // quoted-export-name import it enables produces no Identifier node.
+    // Rather than teach the checker every resolver, pin every resolver-level
+    // alias mechanism the shipped bundle honours to its current alias-free
+    // state; introducing one fails HERE and forces this guard to learn it
+    // before it can exist. (vitest aliases affect only test-run resolution:
+    // nothing they alias can ship, because shipped code cannot import tests/
+    // and the walk parses every tree that could re-export for it.)
+    const root = join(__dirname, "..", "..", "..");
+    const raw = ts.readConfigFile(join(root, "tsconfig.json"), ts.sys.readFile);
+    expect(raw.error).toBeUndefined();
+    const paths = (raw.config as { compilerOptions?: { paths?: Record<string, string[]> } })
+      .compilerOptions?.paths;
+    expect(paths).toEqual({ "@/*": ["./*"] });
+    // Node subpath imports (`#…` specifiers) resolve through package.json —
+    // the same laundry with a different config file.
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(pkg.imports).toBeUndefined();
+    // Next-level aliasing (turbopack `resolveAlias`, webpack
+    // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
+    // is code, so the pin is the absence of both API spellings.
+    const nextConfig = readFileSync(join(root, "next.config.ts"), "utf8");
+    expect(nextConfig).not.toMatch(/resolveAlias|resolve\.alias/);
   });
 
   it("every live SheetIconLink call site keeps className positional-only string literals", () => {
