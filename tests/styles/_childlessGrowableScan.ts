@@ -137,3 +137,300 @@ export function extentFromToken(raw: string): boolean {
   }
   return false;
 }
+
+/* ------------------------------------------------------------------------- *
+ * scanSource: candidate discovery and classification (spec §3, §4, §5).
+ * ------------------------------------------------------------------------- */
+import ts from "typescript";
+
+/**
+ * Childless growable COMPONENT tags must be registered here (spec §4.3) —
+ * a call-site className is a prop, not a guarantee of what renders, so
+ * component tags never take the painted path. Rows carry reason + citation.
+ */
+export const APPROVED_GROWABLE_COMPONENTS: ReadonlySet<string> = new Set([
+  // Renders a painted <div> (animate-pulse bg-surface-sunken), components/layout/Skeleton.tsx:15.
+  "Skeleton",
+  // Renders an <input> (painted, interactive), components/admin/telemetry/EventFilters.tsx:20.
+  "FilterTextInput",
+]);
+
+/** Family negators (§4.2a) — families with no PAINT_TOKENS member have none. */
+const FAMILY_NEGATORS: Readonly<Record<string, readonly string[]>> = {
+  bg: ["bg-transparent", "bg-none"],
+  border: ["border-0", "border-none", "border-transparent"],
+};
+
+/** Global paint neutralizers (§4.2a): keep occupancy, paint nothing. */
+const GLOBAL_NEUTRALIZERS = new Set(["opacity-0", "invisible"]);
+
+export type ViolationReason =
+  | "unregistered-component"
+  | "opaque-style-grow"
+  | "unpainted-childless-dom";
+
+export interface Violation {
+  file: string;
+  line: number;
+  tag: string;
+  reason: ViolationReason;
+  /** The growable class token, or the style property source text (§6.1). */
+  sourceLabel: string;
+  /** MDX diagnostics are positionally approximate (§5). */
+  approximate?: boolean;
+}
+
+export interface ScanOptions {
+  /** Probe substitute for APPROVED_GROWABLE_COMPONENTS (§5). */
+  registry?: ReadonlySet<string>;
+  /** Probe substitute for PAINT_TOKENS (§5). */
+  paintTokens?: ReadonlySet<string>;
+}
+
+interface Harvest {
+  tokens: string[];
+  opaque: boolean;
+}
+
+/** Static className harvesting (§3): recursive at every level, fragment-wise. */
+function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
+  if (!expr) return;
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+    out.tokens.push(...expr.text.split(/\s+/).filter(Boolean));
+    return;
+  }
+  if (ts.isTemplateExpression(expr)) {
+    out.tokens.push(...expr.head.text.split(/\s+/).filter(Boolean));
+    for (const span of expr.templateSpans) {
+      harvestClassName(span.expression, out);
+      out.tokens.push(...span.literal.text.split(/\s+/).filter(Boolean));
+    }
+    out.opaque = true;
+    return;
+  }
+  if (ts.isCallExpression(expr)) {
+    // Harvest the RECEIVER of a property-access call too: the census-v1
+    // miss was ["…", …].join(" ") arriving as arguments-only harvesting.
+    if (ts.isPropertyAccessExpression(expr.expression)) {
+      harvestClassName(expr.expression.expression, out);
+    }
+    for (const a of expr.arguments) harvestClassName(a, out);
+    out.opaque = true;
+    return;
+  }
+  if (ts.isArrayLiteralExpression(expr)) {
+    for (const el of expr.elements) harvestClassName(el, out);
+    return;
+  }
+  if (ts.isConditionalExpression(expr)) {
+    harvestClassName(expr.whenTrue, out);
+    harvestClassName(expr.whenFalse, out);
+    out.opaque = true;
+    return;
+  }
+  if (ts.isBinaryExpression(expr)) {
+    harvestClassName(expr.left, out);
+    harvestClassName(expr.right, out);
+    out.opaque = true;
+    return;
+  }
+  if (ts.isParenthesizedExpression(expr)) {
+    harvestClassName(expr.expression, out);
+    return;
+  }
+  if (ts.isObjectLiteralExpression(expr)) {
+    // clsx object form: keys are class strings; truthiness deliberately
+    // ignored (§7 row 5 — union model).
+    for (const p of expr.properties) {
+      if (
+        ts.isPropertyAssignment(p) &&
+        (ts.isStringLiteral(p.name) || ts.isIdentifier(p.name))
+      ) {
+        out.tokens.push(...String(p.name.text).split(/\s+/).filter(Boolean));
+      }
+    }
+    out.opaque = true;
+    return;
+  }
+  out.opaque = true; // identifier, member access, anything else — invisible fragment
+}
+
+interface StyleGrow {
+  growable: boolean;
+  /** Growth came from an unresolvable value/spread/computed key (§3.1). */
+  opaque: boolean;
+  label: string | null;
+}
+
+const NO_STYLE_GROW: StyleGrow = { growable: false, opaque: false, label: null };
+
+function mergeStyle(a: StyleGrow, b: StyleGrow): StyleGrow {
+  return {
+    growable: a.growable || b.growable,
+    opaque: a.opaque || b.opaque,
+    label: a.label ?? b.label,
+  };
+}
+
+/** Style resolution (§3.1) — TOTAL over TSX expression kinds via the default clause. */
+function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): StyleGrow {
+  if (!expr) return NO_STYLE_GROW;
+  // Type-only wrappers are transparent (§3.1). Angle-bracket assertions are
+  // not valid TSX, so they impose no obligation here.
+  if (
+    ts.isParenthesizedExpression(expr) ||
+    ts.isAsExpression(expr) ||
+    ts.isSatisfiesExpression(expr) ||
+    ts.isNonNullExpression(expr)
+  ) {
+    return resolveStyleGrow(expr.expression, sf);
+  }
+  if (ts.isConditionalExpression(expr)) {
+    return mergeStyle(resolveStyleGrow(expr.whenTrue, sf), resolveStyleGrow(expr.whenFalse, sf));
+  }
+  if (ts.isBinaryExpression(expr)) {
+    const op = expr.operatorToken.kind;
+    if (
+      op === ts.SyntaxKind.AmpersandAmpersandToken ||
+      op === ts.SyntaxKind.BarBarToken ||
+      op === ts.SyntaxKind.QuestionQuestionToken
+    ) {
+      return mergeStyle(resolveStyleGrow(expr.left, sf), resolveStyleGrow(expr.right, sf));
+    }
+    return NO_STYLE_GROW;
+  }
+  if (expr.kind === ts.SyntaxKind.NullKeyword) return NO_STYLE_GROW;
+  if (ts.isIdentifier(expr) && expr.text === "undefined") return NO_STYLE_GROW;
+  if (ts.isObjectLiteralExpression(expr)) {
+    let acc = NO_STYLE_GROW;
+    for (const p of expr.properties) {
+      if (ts.isSpreadAssignment(p)) {
+        acc = mergeStyle(acc, { growable: true, opaque: true, label: p.getText(sf) });
+        continue;
+      }
+      if (!ts.isPropertyAssignment(p)) continue;
+      if (ts.isComputedPropertyName(p.name)) {
+        acc = mergeStyle(acc, { growable: true, opaque: true, label: p.getText(sf) });
+        continue;
+      }
+      const nm = ts.isIdentifier(p.name) || ts.isStringLiteral(p.name) ? p.name.text : null;
+      if (nm !== "flex" && nm !== "flexGrow") continue;
+      const init = p.initializer;
+      const label = p.getText(sf);
+      if (ts.isNumericLiteral(init)) {
+        if (Number(init.text) > 0) acc = mergeStyle(acc, { growable: true, opaque: false, label });
+        continue;
+      }
+      if (
+        ts.isPrefixUnaryExpression(init) &&
+        init.operator === ts.SyntaxKind.MinusToken &&
+        ts.isNumericLiteral(init.operand)
+      ) {
+        continue; // negative: invalid CSS, grow stays initial 0 (§3.1)
+      }
+      if (ts.isStringLiteral(init)) {
+        // String value: CSS flex shorthand semantics — first segment decides,
+        // unitful first segment is a basis with implicit grow 1 (§3.1).
+        const first = init.text.trim().split(/\s+/)[0] ?? "";
+        const grows = BARE_NUMBER.test(first) ? parseFloat(first) > 0 : init.text.trim() !== "";
+        if (grows) acc = mergeStyle(acc, { growable: true, opaque: false, label });
+        continue;
+      }
+      acc = mergeStyle(acc, { growable: true, opaque: true, label }); // fail closed
+    }
+    return acc;
+  }
+  return NO_STYLE_GROW; // identifier, call, member, everything else: invisible (§7 row 1)
+}
+
+/** Statically childless (§3.2). `trim()` drops every JS line terminator. */
+function isChildless(node: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
+  if (ts.isJsxSelfClosingElement(node)) return true;
+  for (const child of node.children) {
+    if (ts.isJsxText(child)) {
+      if (child.text.trim() !== "") return false;
+      continue;
+    }
+    if (ts.isJsxExpression(child)) {
+      const e = child.expression;
+      if (!e) continue; // {/* comment */}
+      if (e.kind === ts.SyntaxKind.NullKeyword) continue;
+      if (ts.isIdentifier(e) && e.text === "undefined") continue;
+      return false; // any other expression: possibly-childed (§4.1)
+    }
+    return false; // element / fragment child
+  }
+  return true;
+}
+
+/** Painted decision over the harvested union (§4.2a): member survives its
+ *  family negators, and no global neutralizer is present. */
+function isPainted(normalizedTokens: readonly string[], paintTokens: ReadonlySet<string>): boolean {
+  for (const t of normalizedTokens) if (GLOBAL_NEUTRALIZERS.has(t)) return false;
+  const present = new Set(normalizedTokens);
+  for (const t of normalizedTokens) {
+    if (!paintTokens.has(t)) continue;
+    const family = t.split("-")[0] ?? t;
+    const negators = FAMILY_NEGATORS[family] ?? [];
+    if (!negators.some((n) => present.has(n))) return true;
+  }
+  return false;
+}
+
+/** Scan one TSX source (MDX handling arrives with the compile path). */
+export function scanSource(
+  source: string,
+  fileName: string,
+  opts?: ScanOptions,
+): { violations: Violation[]; exemptions: never[] } {
+  const registry = opts?.registry ?? APPROVED_GROWABLE_COMPONENTS;
+  const paintTokens = opts?.paintTokens ?? PAINT_TOKENS;
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const violations: Violation[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const tag = opening.tagName.getText(sf);
+      const harvest: Harvest = { tokens: [], opaque: false };
+      let styleGrow: StyleGrow = NO_STYLE_GROW;
+      for (const attr of opening.attributes.properties) {
+        if (ts.isJsxSpreadAttribute(attr)) continue; // §7 row 1: spread never creates a candidate
+        const name = attr.name.getText(sf);
+        if (name === "className" && attr.initializer) {
+          const init = ts.isJsxExpression(attr.initializer)
+            ? attr.initializer.expression
+            : attr.initializer;
+          harvestClassName(init as ts.Expression | undefined, harvest);
+        } else if (name === "style" && attr.initializer && ts.isJsxExpression(attr.initializer)) {
+          styleGrow = resolveStyleGrow(attr.initializer.expression, sf);
+        }
+      }
+      const growableTokens = harvest.tokens.filter(growableFromToken);
+      if ((growableTokens.length > 0 || styleGrow.growable) && isChildless(node)) {
+        const isComponent = /^[A-Z]/.test(tag) || tag.includes(".");
+        const sourceLabel = growableTokens[0] ?? styleGrow.label ?? "(unknown growable source)";
+        const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+        if (isComponent) {
+          if (!registry.has(tag)) {
+            violations.push({ file: fileName, line, tag, reason: "unregistered-component", sourceLabel });
+          }
+        } else {
+          const normalized = harvest.tokens.map(normalizeToken);
+          const painted =
+            isPainted(normalized, paintTokens) && harvest.tokens.some(extentFromToken);
+          if (!painted) {
+            const reason: ViolationReason =
+              growableTokens.length === 0 && styleGrow.opaque
+                ? "opaque-style-grow"
+                : "unpainted-childless-dom";
+            violations.push({ file: fileName, line, tag, reason, sourceLabel });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return { violations, exemptions: [] };
+}
