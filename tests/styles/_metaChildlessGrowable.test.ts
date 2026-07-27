@@ -55,6 +55,10 @@ const NOT_GROWABLE = [
   "flex-[-1]",
   "[flex-grow:-1]",
   "[flex:-1]",
+  "grow-[-.5]",
+  "flex-[-.5]",
+  "[flex-grow:-.5]",
+  "[flex:-.5]",
   "flex",
   "flex-row",
   "flex-row-reverse",
@@ -71,7 +75,7 @@ const NOT_GROWABLE = [
 ] as const;
 
 /** Spec §6.4 growable-fail-closed / shorthand-semantics line. */
-const GROWABLE_FAIL_CLOSED = ["[flex-grow:junk]", "flex-0/1"] as const;
+const GROWABLE_FAIL_CLOSED = ["[flex-grow:junk]", "flex-0/1", "flex-junk", "grow-junk"] as const;
 
 /** Spec §6.4 variant/important interaction line — all growable. */
 const VARIANT_GROWABLE = [
@@ -120,8 +124,8 @@ const NOT_EXTENT = [
 describe("token predicates (spec §3.1, §4.2)", () => {
   it("pins the table sizes so a dropped probe row fails", () => {
     expect(GROWABLE).toHaveLength(19);
-    expect(NOT_GROWABLE).toHaveLength(26);
-    expect(GROWABLE_FAIL_CLOSED).toHaveLength(2);
+    expect(NOT_GROWABLE).toHaveLength(30);
+    expect(GROWABLE_FAIL_CLOSED).toHaveLength(4);
     expect(VARIANT_GROWABLE).toHaveLength(7);
     expect(EXTENT).toHaveLength(15);
     expect(NOT_EXTENT).toHaveLength(10);
@@ -190,14 +194,27 @@ function wrap(jsx: string): string {
   return `export function Probe({ cond, a, b, k, grow, dynamic, children, maybe, maybeStyle, growStyle, spacerStyle, spacerProps, styles, cn, pick, getStyle, getClasses, x, y, label, items }: any) {\n  return (<div>\n${jsx}\n${SENTINEL}\n</div>);\n}\n`;
 }
 
-/** Accept probe: the probe element is fine; only SENTINEL violates. */
+/** The probe's first line inside wrap(): line 1 = function head, line 2 =
+ *  return, line 3 = probe. The sentinel follows the (possibly multi-line)
+ *  probe. Exact-line assertions keep a return-line-1-universally scanner from
+ *  passing (whole-diff R1 finding 8). */
+const PROBE_LINE = 3;
+function sentinelLine(jsx: string): number {
+  return PROBE_LINE + jsx.split("\n").length;
+}
+
+/** Accept probe: the probe element is fine; only SENTINEL violates, at its
+ *  exact computed location. */
 function expectAccepted(jsx: string) {
   const { violations } = scanSource(wrap(jsx), "probe.tsx");
   expect(violations).toHaveLength(1);
   expect(violations[0]?.tag).toBe("i");
+  expect(violations[0]?.file).toBe("probe.tsx");
+  expect(violations[0]?.line).toBe(sentinelLine(jsx));
 }
 
-/** Reject probe: probe violates with the given reason (sentinel also fires). */
+/** Reject probe: probe violates with the given reason at its exact location
+ *  (sentinel also fires). */
 function expectViolation(
   jsx: string,
   reason: "unregistered-component" | "opaque-style-grow" | "unpainted-childless-dom",
@@ -208,7 +225,9 @@ function expectViolation(
   expect(probe).toHaveLength(1);
   expect(probe[0]?.reason).toBe(reason);
   expect(probe[0]?.tag).toBe(tag);
-  expect(probe[0]?.line).toBeGreaterThan(0);
+  expect(probe[0]?.file).toBe("probe.tsx");
+  expect(probe[0]?.line).toBe(PROBE_LINE);
+  expect(violations.filter((v) => v.tag === "i")).toHaveLength(1);
 }
 
 describe("scanSource: childless / childed forms (spec §3.2)", () => {
@@ -224,7 +243,11 @@ describe("scanSource: childless / childed forms (spec §3.2)", () => {
   it("whitespace-only text with CR fails", () => {
     const src = `export function P() { return (<div><span className="flex-1">\r</span>${SENTINEL}</div>); }`;
     const { violations } = scanSource(src, "probe.tsx");
-    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
+    const probe = violations.filter((v) => v.tag === "span");
+    expect(probe).toHaveLength(1);
+    expect(probe[0]?.reason).toBe("unpainted-childless-dom");
+    expect(probe[0]?.file).toBe("probe.tsx");
+    expect(probe[0]?.line).toBe(1);
   });
   it("whitespace-only text with U+2028 fails", () => {
     expectViolation(`<span className="flex-1"> </span>`, "unpainted-childless-dom", "span");
@@ -430,7 +453,7 @@ describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
   it("paint WITHOUT extent fails (auto-height paints nothing)", () => {
     expectViolation(`<span className="flex-1 bg-border" />`, "unpainted-childless-dom", "span");
   });
-  it.each(["h-0", "h-auto", "h-[0px]"])("non-extent %s does not rescue", (t) => {
+  it.each([...NOT_EXTENT])("non-extent %s does not rescue (scan level)", (t) => {
     expectViolation(
       `<span className="flex-1 bg-border ${t}" />`,
       "unpainted-childless-dom",
@@ -444,8 +467,8 @@ describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
   it("opts.paintTokens substitutes the paint set for probes", () => {
     const src = wrap(`<span className="flex-1 h-px bg-probe" />`);
     const { violations } = scanSource(src, "probe.tsx", { paintTokens: new Set(["bg-probe"]) });
-    const spans = violations.filter((v) => v.tag === "span");
-    expect(spans).toHaveLength(0);
+    expect(violations).toHaveLength(1); // sentinel only — proves the scan ran
+    expect(violations[0]?.tag).toBe("i");
   });
 });
 
@@ -574,7 +597,8 @@ describe("scanSource: components + reason precedence (spec §3, §4.3)", () => {
   it("dotted name registered via opts.registry accepted", () => {
     const src = wrap(`<UI.Spacer className="flex-1" />`);
     const { violations } = scanSource(src, "probe.tsx", { registry: new Set(["UI.Spacer"]) });
-    expect(violations.filter((v) => v.tag === "UI.Spacer")).toHaveLength(0);
+    expect(violations).toHaveLength(1); // sentinel only — proves the scan ran
+    expect(violations[0]?.tag).toBe("i");
   });
   it("registered tag with children is not a childless candidate", () => {
     expectAccepted(`<Skeleton className="flex-1"><b>x</b></Skeleton>`);
@@ -635,11 +659,19 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
     expect(violations[0]?.tag).toBe("i");
     expect(exemptions.filter((e) => !e.used)).toHaveLength(0);
   });
-  it("line-comment form works too", () => {
-    const src = wrap(`<span\n  // childless-growable-ok: probe reason\n  className="flex-1"\n/>`);
+  it("same-line preceding comment binds (template ownership)", () => {
+    const src = wrap(`{/* childless-growable-ok: probe reason */} <span className="flex-1" />`);
     const { violations } = scanSource(src, "probe.tsx");
     expect(violations).toHaveLength(1);
     expect(violations[0]?.tag).toBe("i");
+  });
+  it("a comment INSIDE the candidate never binds — no self-laundering", () => {
+    const inTag = wrap(`<span\n  // childless-growable-ok: in-tag\n  className="flex-1"\n/>`);
+    const inTagScan = scanSource(inTag, "probe.tsx");
+    expect(inTagScan.violations.filter((v) => v.tag === "span")).toHaveLength(1);
+    const asChild = wrap(`<span className="flex-1">{/* childless-growable-ok: child */}</span>`);
+    const childScan = scanSource(asChild, "probe.tsx");
+    expect(childScan.violations.filter((v) => v.tag === "span")).toHaveLength(1);
   });
   it("reasonless exemption is not an exemption", () => {
     const src = wrap(`{/* childless-growable-ok: */}\n<span className="flex-1" />`);
@@ -651,7 +683,8 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
       `{/**\n * childless-growable-ok: probe reason\n */}\n<span className="flex-1" />`,
     );
     const { violations } = scanSource(src, "probe.tsx");
-    expect(violations.filter((v) => v.tag === "span")).toHaveLength(0);
+    expect(violations).toHaveLength(1); // sentinel only — proves the scan ran
+    expect(violations[0]?.tag).toBe("i");
   });
   it("jsdoc trailing decoration alone is NOT a reason", () => {
     const src = wrap(`{/**\n * childless-growable-ok:\n *\n */}\n<span className="flex-1" />`);
@@ -683,6 +716,16 @@ describe("scanSource: exemption comments (spec §4.4)", () => {
     const src = `export function P() {\n  return (<div>${SENTINEL}</div>);\n}\n// childless-growable-ok: dangling reason\n`;
     const { exemptions } = scanSource(src, "probe.tsx");
     expect(exemptions.filter((e) => !e.used)).toHaveLength(1);
+  });
+  it("a marker inside a REGEX LITERAL is not an exemption (R1 finding 1)", () => {
+    const src = wrap(`<b data-x={/childless-growable-ok: not a comment/} className="flex-1" />`);
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "b")).toHaveLength(1);
+  });
+  it("a marker inside a SHEBANG is not an exemption (R1 finding 1)", () => {
+    const src = `#!/usr/bin/env node childless-growable-ok: nope\nexport function P() {\n  return (<div><span className="flex-1" />${SENTINEL}</div>);\n}\n`;
+    const { violations } = scanSource(src, "probe.tsx");
+    expect(violations.filter((v) => v.tag === "span")).toHaveLength(1);
   });
   it("a distant comment two-plus lines above does not bind", () => {
     const src = wrap(
@@ -725,6 +768,7 @@ import { join } from "node:path";
 import {
   APPROVED_GROWABLE_COMPONENTS,
   PAINT_TOKENS as LIVE_PAINT_TOKENS,
+  renderViolation,
   scanLiveTree,
   walkLiveTree,
 } from "./_childlessGrowableScan";
@@ -735,13 +779,7 @@ describe("live-tree gate (spec §6.1)", () => {
   const live = scanLiveTree();
 
   it("zero violations across components/ and app/", () => {
-    const rendered = live.violations.map(
-      (v) =>
-        `${v.file}:${v.line} <${v.tag}> ${v.reason} (${v.sourceLabel}) — escapes: add real children; ` +
-        `DOM: add a PAINT_TOKENS member AND a proven extent token (extend the set in review if needed); ` +
-        `component: add an APPROVED_GROWABLE_COMPONENTS row with a reason; or childless-growable-ok: <reason>`,
-    );
-    expect(rendered).toEqual([]);
+    expect(live.violations.map(renderViolation)).toEqual([]);
   });
 
   it("zero unused exemptions in the live tree", () => {
@@ -754,13 +792,38 @@ describe("live-tree gate (spec §6.1)", () => {
 });
 
 describe("walker coverage — automated red-state proof (plan Task 4b)", () => {
-  it("finds the planted violation in every root and extension", () => {
+  it("finds the planted violation in every root and extension, with the full diagnostic contract", () => {
     const { violations } = scanLiveTree({ root: FIXTURE_ROOT });
-    const files = violations.map((v) => v.file).sort();
-    expect(files.some((f) => f.includes("components/violation.tsx"))).toBe(true);
-    expect(files.some((f) => f.includes("app/violation.tsx"))).toBe(true);
-    expect(files.some((f) => f.endsWith("violation.mdx"))).toBe(true);
-    expect(violations).toHaveLength(3);
+    expect(violations).toHaveLength(4);
+    const byFile = (needle: string) => {
+      const hit = violations.find((v) => v.file.includes(needle));
+      if (!hit) throw new Error(`no fixture violation for ${needle}`);
+      return hit;
+    };
+    const classViolation = byFile("components/violation.tsx");
+    expect(classViolation.tag).toBe("span");
+    expect(classViolation.reason).toBe("unpainted-childless-dom");
+    expect(classViolation.sourceLabel).toBe("flex-1");
+    expect(classViolation.line).toBe(2);
+    expect(classViolation.approximate).toBeUndefined();
+    const appViolation = byFile("app/violation.tsx");
+    expect(appViolation.reason).toBe("unpainted-childless-dom");
+    expect(appViolation.line).toBe(2);
+    const styleViolation = byFile("styleViolation.tsx");
+    expect(styleViolation.reason).toBe("opaque-style-grow");
+    expect(styleViolation.sourceLabel).toBe("flexGrow: grow");
+    expect(styleViolation.line).toBe(2);
+    expect(renderViolation(styleViolation)).toContain("(flexGrow: grow)");
+    const mdxViolation = byFile("violation.mdx");
+    expect(mdxViolation.reason).toBe("unpainted-childless-dom");
+    expect(mdxViolation.approximate).toBe(true);
+    expect(renderViolation(mdxViolation)).toContain("position approximate — compiled MDX");
+    expect(renderViolation(classViolation)).toContain("add real children");
+    expect(renderViolation(classViolation)).toContain(
+      "PAINT_TOKENS member AND a proven extent token",
+    );
+    expect(renderViolation(classViolation)).toContain("APPROVED_GROWABLE_COMPONENTS row");
+    expect(renderViolation(classViolation)).toContain("childless-growable-ok: <reason>");
   });
 
   it("fixture unused exemption is reported (gate-branch proof, Task 4c)", () => {
@@ -790,5 +853,68 @@ describe("registry and paint-set hygiene — OCCURRENCE liveness (spec §6.3)", 
     for (const token of LIVE_PAINT_TOKENS) {
       expect(live.paintedCandidateTokens).toContain(token);
     }
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Whole-diff R1 repairs: harvesting/style/discriminant branch probes.
+ * ------------------------------------------------------------------------- */
+
+describe("harvesting: statically visible member kinds (R1 finding 3)", () => {
+  it("array spread element is harvested", () => {
+    expectViolation(
+      `<span className={[...["flex-1"]].join(" ")} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("object SHORTHAND key is harvested (cn({grow}))", () => {
+    expectViolation(`<span className={cn({ grow })} />`, "unpainted-childless-dom", "span");
+  });
+  it("object METHOD key is harvested", () => {
+    expectViolation(
+      `<span className={cn({ "flex-1"() { return true; } })} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("inline object spread recurses", () => {
+    expectViolation(
+      `<span className={cn({ ...{ "flex-1": true } })} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+});
+
+describe("style: statically named member kinds + unparseable strings (R1 findings 4, 6)", () => {
+  it("style shorthand {flexGrow} is fail-closed opaque growth", () => {
+    expectViolation(`<span style={{ flexGrow }} />`, "opaque-style-grow", "span");
+  });
+  it("style METHOD named flexGrow is fail-closed opaque growth", () => {
+    expectViolation(`<span style={{ flexGrow() { return 1; } }} />`, "opaque-style-grow", "span");
+  });
+  it('style={{ flex: "" }} is unparseable — opaque growth', () => {
+    expectViolation(`<span style={{ flex: "" }} />`, "opaque-style-grow", "span");
+  });
+  it('style={{ flex: "junk" }} is unparseable — opaque growth', () => {
+    expectViolation(`<span style={{ flex: "junk" }} />`, "opaque-style-grow", "span");
+  });
+  it("resolved + opaque style sources report unpainted-childless-dom, not opaque-style-grow", () => {
+    expectViolation(
+      `<span style={{ flexGrow: 1, ...growStyle }} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it("conditional resolved-plus-opaque branches likewise", () => {
+    expectViolation(
+      `<span style={cond ? { flexGrow: 1 } : { flexGrow: grow }} />`,
+      "unpainted-childless-dom",
+      "span",
+    );
+  });
+  it('negative string values are not growable (style={{ flexGrow: "-.5" }})', () => {
+    expectAccepted(`<span style={{ flexGrow: "-.5" }} />`);
   });
 });

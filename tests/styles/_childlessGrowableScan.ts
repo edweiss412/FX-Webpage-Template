@@ -35,7 +35,7 @@ const FLEX_LAYOUT_TOKENS = new Set([
 
 /** Bare unitless number (optionally signed): the ONLY form that can prove a
  *  zero grow factor (§3.1) — anything unitful is a flex-basis shorthand. */
-const BARE_NUMBER = /^-?\d+(\.\d+)?$/;
+const BARE_NUMBER = /^[+-]?(\d+(\.\d+)?|\.\d+)$/;
 
 /**
  * Strip variant prefixes: everything up to the last colon at zero
@@ -114,7 +114,9 @@ export function growableFromToken(raw: string): boolean {
   if (family === "flex" && /^\d+(\.\d+)?\/\d+(\.\d+)?$/.test(v)) return true;
 
   if (BARE_NUMBER.test(v)) return parseFloat(v) > 0;
-  return false; // named non-numeric suffix outside the family grammar
+  // Unknown named suffix in the flex/grow family: "everything else in the
+  // family" is growable (§3.1) — prove zero, else fail closed.
+  return true;
 }
 
 const EXTENT_PREFIX = /^(min-h|min-w|size|py|px|h|w)-(.+)$/;
@@ -222,6 +224,10 @@ function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
     for (const el of expr.elements) harvestClassName(el, out);
     return;
   }
+  if (ts.isSpreadElement(expr)) {
+    harvestClassName(expr.expression, out);
+    return;
+  }
   if (ts.isConditionalExpression(expr)) {
     harvestClassName(expr.whenTrue, out);
     harvestClassName(expr.whenFalse, out);
@@ -240,10 +246,17 @@ function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
   }
   if (ts.isObjectLiteralExpression(expr)) {
     // clsx object form: keys are class strings; truthiness deliberately
-    // ignored (§7 row 5 — union model).
+    // ignored (§7 row 5 — union model). EVERY statically named member kind
+    // contributes its key — shorthand ({grow}), methods, and accessors are
+    // names too, and an inline spread recurses (whole-diff R1 finding 3).
     for (const p of expr.properties) {
-      if (ts.isPropertyAssignment(p) && (ts.isStringLiteral(p.name) || ts.isIdentifier(p.name))) {
-        out.tokens.push(...String(p.name.text).split(/\s+/).filter(Boolean));
+      if (ts.isSpreadAssignment(p)) {
+        harvestClassName(p.expression, out);
+        continue;
+      }
+      const name = p.name;
+      if (name && (ts.isStringLiteral(name) || ts.isIdentifier(name))) {
+        out.tokens.push(...String(name.text).split(/\s+/).filter(Boolean));
       }
     }
     out.opaque = true;
@@ -253,21 +266,29 @@ function harvestClassName(expr: ts.Expression | undefined, out: Harvest): void {
 }
 
 interface StyleGrow {
-  growable: boolean;
-  /** Growth came from an unresolvable value/spread/computed key (§3.1). */
+  /** Growth proven by a statically resolved value (§3.1). */
+  resolved: boolean;
+  /** Growth assumed fail-closed from an unresolvable value / spread /
+   *  computed key / shorthand / method form (§3.1). Tracked separately from
+   *  `resolved` so `opaque-style-grow` means SOLELY-opaque growth (whole-diff
+   *  R1 finding 6): resolved growth alongside an opaque source reports
+   *  `unpainted-childless-dom`. */
   opaque: boolean;
   label: string | null;
 }
 
-const NO_STYLE_GROW: StyleGrow = { growable: false, opaque: false, label: null };
+const NO_STYLE_GROW: StyleGrow = { resolved: false, opaque: false, label: null };
 
 function mergeStyle(a: StyleGrow, b: StyleGrow): StyleGrow {
   return {
-    growable: a.growable || b.growable,
+    resolved: a.resolved || b.resolved,
     opaque: a.opaque || b.opaque,
     label: a.label ?? b.label,
   };
 }
+
+/** Unsigned number + unit: a one-value flex BASIS, implicit grow 1 (§3.1). */
+const UNITFUL_NUMBER = /^(\d+(\.\d+)?|\.\d+)[a-z%]+$/i;
 
 /** Style resolution (§3.1) — TOTAL over TSX expression kinds via the default clause. */
 function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): StyleGrow {
@@ -300,22 +321,31 @@ function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): S
   if (ts.isIdentifier(expr) && expr.text === "undefined") return NO_STYLE_GROW;
   if (ts.isObjectLiteralExpression(expr)) {
     let acc = NO_STYLE_GROW;
+    const opaqueAt = (label: string) => ({ resolved: false, opaque: true, label });
     for (const p of expr.properties) {
       if (ts.isSpreadAssignment(p)) {
-        acc = mergeStyle(acc, { growable: true, opaque: true, label: p.getText(sf) });
+        acc = mergeStyle(acc, opaqueAt(p.getText(sf)));
         continue;
       }
-      if (!ts.isPropertyAssignment(p)) continue;
-      if (ts.isComputedPropertyName(p.name)) {
-        acc = mergeStyle(acc, { growable: true, opaque: true, label: p.getText(sf) });
+      // Object-member handling is TOTAL over statically named forms
+      // (whole-diff R1 finding 4): shorthand ({flexGrow}), methods, and
+      // accessors named flex/flexGrow are fail-closed opaque growth; a
+      // computed key is opaque regardless of name.
+      if (ts.isPropertyAssignment(p) && ts.isComputedPropertyName(p.name)) {
+        acc = mergeStyle(acc, opaqueAt(p.getText(sf)));
         continue;
       }
-      const nm = ts.isIdentifier(p.name) || ts.isStringLiteral(p.name) ? p.name.text : null;
+      const nm =
+        p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : null;
       if (nm !== "flex" && nm !== "flexGrow") continue;
-      const init = p.initializer;
       const label = p.getText(sf);
+      if (!ts.isPropertyAssignment(p)) {
+        acc = mergeStyle(acc, opaqueAt(label)); // shorthand / method / accessor
+        continue;
+      }
+      const init = p.initializer;
       if (ts.isNumericLiteral(init)) {
-        if (Number(init.text) > 0) acc = mergeStyle(acc, { growable: true, opaque: false, label });
+        if (Number(init.text) > 0) acc = mergeStyle(acc, { resolved: true, opaque: false, label });
         continue;
       }
       if (
@@ -326,14 +356,22 @@ function resolveStyleGrow(expr: ts.Expression | undefined, sf: ts.SourceFile): S
         continue; // negative: invalid CSS, grow stays initial 0 (§3.1)
       }
       if (ts.isStringLiteral(init)) {
-        // String value: CSS flex shorthand semantics — first segment decides,
-        // unitful first segment is a basis with implicit grow 1 (§3.1).
+        // String value, CSS flex shorthand semantics (§3.1): a bare-number
+        // first segment decides; an unsigned unitful number is a one-value
+        // basis (implicit grow 1, resolved); EVERYTHING else — empty, junk,
+        // calc()/var() text — is unparseable and therefore opaque growth.
         const first = init.text.trim().split(/\s+/)[0] ?? "";
-        const grows = BARE_NUMBER.test(first) ? parseFloat(first) > 0 : init.text.trim() !== "";
-        if (grows) acc = mergeStyle(acc, { growable: true, opaque: false, label });
+        if (BARE_NUMBER.test(first)) {
+          if (parseFloat(first) > 0)
+            acc = mergeStyle(acc, { resolved: true, opaque: false, label });
+        } else if (UNITFUL_NUMBER.test(first)) {
+          acc = mergeStyle(acc, { resolved: true, opaque: false, label });
+        } else {
+          acc = mergeStyle(acc, opaqueAt(label));
+        }
         continue;
       }
-      acc = mergeStyle(acc, { growable: true, opaque: true, label }); // fail closed
+      acc = mergeStyle(acc, opaqueAt(label)); // fail closed
     }
     return acc;
   }
@@ -425,7 +463,8 @@ export function scanSource(
         }
       }
       const growableTokens = harvest.tokens.filter(growableFromToken);
-      if ((growableTokens.length > 0 || styleGrow.growable) && isChildless(node)) {
+      const styleGrowable = styleGrow.resolved || styleGrow.opaque;
+      if ((growableTokens.length > 0 || styleGrowable) && isChildless(node)) {
         const isComponent = /^[A-Z]/.test(tag) || tag.includes(".");
         const sourceLabel = growableTokens[0] ?? styleGrow.label ?? "(unknown growable source)";
         const start = node.getStart(sf);
@@ -433,7 +472,7 @@ export function scanSource(
         // Every childless growable CANDIDATE claims its exemption BEFORE its
         // compliance is decided — template semantics (§4.4): a compliant
         // candidate consumes the comment silently.
-        const exempted = claimExemption(exemptionRanges, start, node.getEnd(), line);
+        const exempted = claimExemption(exemptionRanges, start, line);
         const push = (reason: ViolationReason) => {
           if (!exempted) {
             violations.push({
@@ -456,7 +495,7 @@ export function scanSource(
           if (painted) meta.paintedCandidateTokens.push(...normalized);
           if (!painted) {
             push(
-              growableTokens.length === 0 && styleGrow.opaque
+              growableTokens.length === 0 && !styleGrow.resolved && styleGrow.opaque
                 ? "opaque-style-grow"
                 : "unpainted-childless-dom",
             );
@@ -500,12 +539,18 @@ const LINE_COMMENT = new RegExp("//[^" + LINE_TERMINATORS.source.slice(1, -1) + 
 
 /** Spans whose contents are string-ish — a marker inside one is data, not an
  *  exemption (§6.4 probe). */
-function stringishSpans(sf: ts.SourceFile): Array<[number, number]> {
+function stringishSpans(sf: ts.SourceFile, source: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
+  // A shebang line is not a comment surface (whole-diff R1 finding 1).
+  if (source.startsWith("#!")) {
+    const nl = source.search(new RegExp(LINE_TERMINATORS.source));
+    spans.push([0, nl === -1 ? source.length : nl]);
+  }
   const visit = (node: ts.Node): void => {
     if (
       ts.isStringLiteral(node) ||
       ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isRegularExpressionLiteral(node) ||
       ts.isJsxText(node) ||
       ts.isTemplateHead(node) ||
       ts.isTemplateMiddle(node) ||
@@ -525,7 +570,7 @@ function stringishSpans(sf: ts.SourceFile): Array<[number, number]> {
  * decoration; a reason must remain after the marker.
  */
 function collectExemptions(source: string, sf: ts.SourceFile): ExemptionRange[] {
-  const strings = stringishSpans(sf);
+  const strings = stringishSpans(sf, source);
   const inString = (pos: number) => strings.some(([a, b]) => pos >= a && pos < b);
   const out: ExemptionRange[] = [];
   for (const re of [BLOCK_COMMENT, LINE_COMMENT]) {
@@ -555,23 +600,22 @@ function collectExemptions(source: string, sf: ts.SourceFile): ExemptionRange[] 
 
 /**
  * Claim the first adjacent exemption for a candidate. Template semantics
- * (_newTabScan.ts:2854–2910): the candidate claims BEFORE its compliance is
- * decided, so a compliant candidate consumes its exemption silently.
- * Adjacency: the comment sits inside the element's span (in-tag form), or
- * ends on the candidate's start line / the line directly above.
+ * (_newTabScan.ts:2854–2910): ownership goes to the first candidate whose
+ * START follows the comment's end — a comment INSIDE the candidate (in-tag or
+ * as a child) never binds, so an element cannot launder itself (whole-diff R1
+ * finding 2). The candidate claims BEFORE its compliance is decided, so a
+ * compliant candidate consumes its exemption silently. Adjacency: the comment
+ * ends on the candidate's start line or the line directly above.
  */
 function claimExemption(
   exemptions: ExemptionRange[],
   candStart: number,
-  candEnd: number,
   candStartLine: number,
 ): boolean {
   for (const ex of exemptions) {
     if (ex.used) continue;
-    if (ex.end > candEnd) continue;
-    const inTag = ex.startLine >= candStartLine && ex.end <= candEnd;
-    const adjacent = candStartLine - ex.endLine <= 1 && ex.endLine <= candStartLine;
-    if (inTag || adjacent) {
+    if (ex.end > candStart) continue;
+    if (candStartLine - ex.endLine <= 1 && ex.endLine <= candStartLine) {
       ex.used = true;
       return true;
     }
@@ -642,4 +686,21 @@ export function scanLiveTree(opts?: LiveScanOptions): LiveScanResult {
     result.paintedCandidateTokens.push(...meta.paintedCandidateTokens);
   }
   return result;
+}
+
+/**
+ * The §6.1 diagnostic, one line per violation: location (labelled approximate
+ * for compiled MDX), tag, reason, source label, and every compliant escape.
+ * Both the live gate and the fixture proofs render through this function so
+ * the contract cannot drift between them.
+ */
+export function renderViolation(v: Violation): string {
+  const pos = v.approximate
+    ? `${v.file}:~${v.line} (position approximate — compiled MDX)`
+    : `${v.file}:${v.line}`;
+  return (
+    `${pos} <${v.tag}> ${v.reason} (${v.sourceLabel}) — escapes: add real children; ` +
+    `DOM: add a PAINT_TOKENS member AND a proven extent token (extend the set in review if needed); ` +
+    `component: add an APPROVED_GROWABLE_COMPONENTS row with a reason; or childless-growable-ok: <reason>`
+  );
 }
