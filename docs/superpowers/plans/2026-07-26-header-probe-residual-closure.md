@@ -14,7 +14,7 @@
 
 - TDD (AGENTS invariant 1): each task's assertions run RED before the mechanism lands; RED/GREEN recorded in commit messages.
 - Conventional commits, one task per commit (invariant 6); `--no-verify`.
-- No UI files touched ⇒ impeccable dual-gate (invariant 8) does not attach. No mutation surfaces ⇒ invariant 10 untouched. (`tests/e2e/_sectionHeaderCellHarness.tsx` is a test harness, not a `components/` surface; the Task 4 mutation commit touches only it and is reverted.)
+- No UI files touched ⇒ impeccable dual-gate (invariant 8) does not attach. No mutation surfaces ⇒ invariant 10 untouched. (`tests/e2e/_sectionHeaderCellHarness.tsx` is a test harness, not a `components/` surface; the Task 3 mutation commit touches only it and is reverted.)
 - Byte rule (AGENTS "Byte-comparison CI gates"): every committed baseline byte originates from the pinned image on the native-amd64 runner — initial bytes via the gate's failure artifact, later bytes via the regen workflow. No sanctioned local capture (spec §1.1).
 
 ## Meta-test inventory (project writing-plans rule)
@@ -42,31 +42,32 @@
 
 - [ ] **Step 1 (RED):** write the set-equality test above; `pnpm vitest run tests/cross-cutting/section-header-width-anchors.test.ts` fails (REAL_ROUTE_WIDTHS has 3 of 5 keys).
 - [ ] **Step 2 (GREEN):** extend `REAL_ROUTE_WIDTHS` to `[320, 375, 430, 640, 1280] as const`; update its doc comment ("the subset … already loads" → all five keys, anchored 2026-07-26 closing finding 1). Vitest test green.
-- [ ] **Step 3 (behavioral proof):** `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"` — 10 cases (5 widths × 2 loops), all green locally (settle dashboard state first if needed). If 320/430 report different real widths: that IS the finding — measured `ROW_WIDTHS` update per spec §2 Risk, recorded in the PR body.
+- [ ] **Step 3 (behavioral proof):** `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"` — 10 cases (5 widths × 2 loops), all green locally. The hosting describe never settles the dashboard itself (`tests/e2e/admin-layout-dimensions.spec.ts:527` resolves only the slug), so FIRST apply the settle SQL once against the local DB (the exact update `settleDashboardAdminState` performs, `tests/e2e/helpers/dashboardState.ts:36`): `psql "$TEST_DATABASE_URL" -c "UPDATE app_settings SET watched_folder_id='seed-fixture-folder', watched_folder_name='Seed fixture folder', watched_folder_set_by_email='seed-mode@fxav.local', watched_folder_set_at='2026-01-01T12:00:00.000Z', pending_folder_id=NULL, pending_folder_name=NULL, pending_folder_set_by_email=NULL, pending_folder_set_at=NULL, pending_wizard_session_id=NULL, pending_wizard_session_at=NULL WHERE id='default';"` (local seed DB — no restore needed). If 320/430 report different real widths: that IS the finding — measured `ROW_WIDTHS` update per spec §2 Risk, recorded in the PR body.
 - [ ] **Step 4:** commit `test(admin): anchor the section-header width chain at 320 and 430` (RED/GREEN counts in body).
 
-### Task 2: Part B — visual config + spec
+### Task 2: Part B — config, spec, workflows, and version-pin registry (ONE commit — a spec-only commit would leave `tests/ci/_metaE2eWorkflowCoverage.test.ts` red as a new dark spec, plan-review R1 finding 1)
 
 <!-- spec-lint: ignore — files created by this plan's tasks -->
-**Files:** Create `tests/e2e/visual.config.ts`, `tests/e2e/section-header-visual.spec.ts`.
+**Files:** Create `tests/e2e/visual.config.ts`, `tests/e2e/section-header-visual.spec.ts`, `.github/workflows/section-header-visual.yml`, `.github/workflows/section-header-visual-regen.yml`; rewrite `tests/cross-cutting/playwright-version-pin.test.ts`.
 
 - [ ] **Step 1: config.** `standalone.config.ts` shape (testDir ".", workers 1, reporter list, one chromium project); guard at top: `if (process.env.SECTION_HEADER_VISUAL_CONTAINER !== "1") throw` with a message pointing at the two workflows (refuses ACCIDENTAL bare-host runs — spec §1.1); `testMatch: /section-header-visual\.spec\.ts/`; `expect: { toHaveScreenshot: { maxDiffPixels: 0, threshold: 0 } }`; `snapshotPathTemplate: "{testFileDir}/{testFileName}-snapshots/{arg}{ext}"` (platform suffix dropped — constant by construction; a suffixed name would let a stray host run mint a parallel baseline set instead of failing).
 - [ ] **Step 2: spec.** `beforeAll` = the layout spec's mechanism (tsx subprocess + `compileEntryCss` + static server) + DOM contract: 15 cells, distinct headings, `[data-cell="G1-clean"] a[href]` present, and ZERO SMIL elements (`animate, animateTransform, animateMotion, set` count = 0 — spec §3.1 finding-3 closure). Composite page per width (15 width-wrapped cell markups, each preceded by a text label). Tests per spec §3.3: 10 idle full-page captures (5 widths × 2 themes via `data-theme` attribute) named `idle-${width}-${theme}.png`; 40 state element-captures of the G1-clean container (hover / keyboard-driven focus / held `mouse.down` active / keyboard-focus+hover), each preceded by the pseudo-state oracle `link.evaluate(el => el.matches(sel))` with the §3.3 selector per state (focus-visible-based for the two focus states), named `${state}-${width}-${theme}.png`.
-- [ ] **Step 3:** `pnpm typecheck` green; host-refusal proof: run the config without the env var, record the throw. (The genuine missing-snapshot RED is CI's first gate run — Task 3.)
-- [ ] **Step 4:** commit `test(admin): add the section-header visual-baseline spec and container-gated config`.
+<!-- spec-lint: ignore — pseudo-class selector literals in matches() calls, not file citations -->
+- [ ] **Step 2a: state isolation (spec §3.3 amendment):** every state capture starts from a fresh `page.goto`; exclusive oracles — hover `el.matches(':hover:not(:focus-visible)')`, focus `el.matches(':focus-visible:not(:hover)')`, active `el.matches(':active')` plus a negated focus-visible check (a real press inherently hovers; the baseline deliberately records pressed-while-hovered), compound `el.matches(':hover:focus-visible')`.
+- [ ] **Step 3 (meta-test RED):** rewrite `tests/cross-cutting/playwright-version-pin.test.ts` as the registry from the inventory; RED while the two registered workflows are missing.
+- [ ] **Step 4: workflows.** Gate workflow per spec §3.5 (unfiltered `pull_request` + `workflow_dispatch`; checkout → setup → the §3.5 docker run verbatim → `if: failure()` upload of `test-results/` named `section-header-visual-actuals`). Regen workflow per spec §3.5 (dispatch-only, `contents: write`, `--update-snapshots` run, no-update re-comparison run, bot commit + push; post-merge tool).
+- [ ] **Step 5 (GREEN):** `pnpm typecheck`; host-refusal proof (config without the env var throws — record it); `pnpm vitest run tests/cross-cutting/playwright-version-pin.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` — registry green, new spec `covered`, no allowlist row.
+- [ ] **Step 6:** ONE commit `test(admin): section-header visual-baseline gate — spec, config, workflows, version-pin registry` (RED/GREEN counts in body).
 
-### Task 3: Part B — workflows + meta-tests, then baselines from the red run's artifact
+### Task 3: Part B — PR, red-run artifact baselines, sensitivity proof
 
-<!-- spec-lint: ignore — files created by this plan's tasks -->
-**Files:** Create `.github/workflows/section-header-visual.yml`, `.github/workflows/section-header-visual-regen.yml`; rewrite `tests/cross-cutting/playwright-version-pin.test.ts`.
+<!-- spec-lint: ignore — snapshots dir created by this task; harness mutation is temporary and reverted -->
+**Files:** Create `tests/e2e/section-header-visual.spec.ts-snapshots/*.png` (50 files, Step 2); temporarily modify then revert `tests/e2e/_sectionHeaderCellHarness.tsx` (Steps 3–4).
 
-- [ ] **Step 1 (meta-test RED):** rewrite the version-pin test as the registry described in the inventory; run it — RED (two registered workflows missing).
-- [ ] **Step 2: gate workflow.** Per spec §3.5: unfiltered `pull_request` + `workflow_dispatch`; checkout → `./.github/actions/setup` → the docker run from spec §3.5 verbatim (no `--network host`; spec path named; `-e SECTION_HEADER_VISUAL_CONTAINER=1`) → `if: failure()` upload of `test-results/` named `section-header-visual-actuals`.
-- [ ] **Step 3: regen workflow.** Per spec §3.5: `workflow_dispatch`, `permissions: contents: write`, checkout `ref: ${{ github.ref_name }}`, setup, docker run with `--update-snapshots`, second docker run WITHOUT the flag (same-runner determinism proof), bot-commit the snapshots dir if changed, push to the dispatched branch. Post-merge tool only (GitHub resolves dispatch against the default branch).
-- [ ] **Step 4 (meta-tests GREEN):** `pnpm vitest run tests/cross-cutting/playwright-version-pin.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` — registry green; new spec `covered`, no allowlist row.
-- [ ] **Step 5:** commit `infra: containerized section-header visual-baseline gate + post-merge regen workflow`; push; open the PR. First `section-header-visual` run FAILS on missing snapshots — **the recorded Part B RED and the producer** (spec §3.6).
-- [ ] **Step 6 (baselines):** download `section-header-visual-actuals`, place the 50 `-actual` PNGs as `tests/e2e/section-header-visual.spec.ts-snapshots/*.png` (names stripped of `-actual`), INSPECT them (15 cells visible per composite, link + state styling visible in state captures — a blank capture committed as baseline gates on nothing), commit `test(admin): commit section-header visual baselines (pinned-runner actuals)`, push. Gate run on this SHA must be GREEN — runner-to-runner determinism proven.
-- [ ] **Step 7 (sensitivity proof):** push a temporary commit adding a 1px visual mutation to the G1 fixture wrapper in `tests/e2e/_sectionHeaderCellHarness.tsx` (harness-side, no product surface); gate must FAIL; revert commit; gate green again. All four run URLs (red, green, mutation-fail, revert-green) recorded in the PR body.
+- [ ] **Step 1:** push; open the PR. First `section-header-visual` run FAILS on missing snapshots — **the recorded Part B RED and the producer** (spec §3.6).
+- [ ] **Step 2 (baselines):** download `section-header-visual-actuals`, place the 50 `-actual` PNGs as `tests/e2e/section-header-visual.spec.ts-snapshots/*.png` (names stripped of `-actual`), INSPECT them (15 cells visible per composite, link + state styling visible in state captures — a blank capture committed as baseline gates on nothing), commit `test(admin): commit section-header visual baselines (pinned-runner actuals)`, push. Gate run on this SHA must be GREEN — runner-to-runner determinism proven.
+- [ ] **Step 3 (sensitivity proof):** push `test(admin): TEMP visual mutation — gate sensitivity probe, revert follows` adding a 1px visual mutation to the G1 fixture wrapper in `tests/e2e/_sectionHeaderCellHarness.tsx` (harness-side, no product surface); gate must FAIL.
+- [ ] **Step 4:** push `revert: TEMP visual mutation (gate sensitivity proven)` restoring the harness byte-identically; gate green again. All four run URLs (red, green, mutation-fail, revert-green) recorded in the PR body.
 
 ### Task 4: Close-out
 
