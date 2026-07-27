@@ -15,7 +15,7 @@ export type RowTone = "critical" | "notice" | "info";
 
 /**
  * Severity tone for a row (spec §1.6). Health rows are critical ONLY when
- * degraded-weight; notice-weight health codes (9 of them) are amber, matching
+ * degraded-weight; notice-weight health codes (10 of them) are amber, matching
  * the health rollup — fixes BL-BELLPANEL-ROWTONE-NOTICE-WEIGHT.
  */
 export function rowTone(entry: BellEntry): RowTone {

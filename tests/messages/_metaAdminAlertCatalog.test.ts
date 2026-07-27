@@ -278,7 +278,8 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
  * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
  * + 2 BRANCH_PROTECTION (bell-notification-center §9.3)
- * = 26 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
+ * = 26 "auto"; 18 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED plus
+ * PICKER_IDENTITY_CLAIMED_TAMPER from PR #623, which the
  * registry splits into its own "state-manual-justified" class — Flow-1 ONBOARDING_SHEET_UNREADABLE
  * is now the "hybrid" class per spec 2026-07-16, no longer event-manual);
  * 2 "hybrid" (ONBOARDING_SHEET_UNREADABLE and TILE_SERVER_RENDER_FAILED — each
@@ -286,7 +287,7 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * 0 "state-manual-justified" (TILE_SERVER_RENDER_FAILED was the only one and became
  * hybrid in spec 2026-07-24); 0 "deferred" (BRANCH_PROTECTION_* promoted by
  * bell-notification-center §9.3).
- * 26 + 17 + 2 + 0 + 0 = 45, matching ADMIN_ALERTS_CODES.length.
+ * 26 + 18 + 2 + 0 + 0 = 46, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -474,7 +475,7 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
     ],
   },
 
-  // --- event-manual (17): one-shot EVENT notices, manual by design ---
+  // --- event-manual (18): one-shot EVENT notices, manual by design ---
   AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
   LIVE_ROW_CONFLICT: { class: "event-manual" },
   // Hybrid lifecycle (spec 2026-07-16): self-clears via the clean-scan + cron

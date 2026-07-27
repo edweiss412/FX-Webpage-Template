@@ -438,10 +438,11 @@ describe("partitionScenarios", () => {
     expect(global.map((e) => e.id).sort()).toEqual(EXPECTED_GLOBAL_IDS);
   });
 
-  test("the five health-audience global codes keep their CUT label (ordering contract)", () => {
+  test("the six health-audience global codes keep their CUT label (ordering contract)", () => {
     // The global arm runs AFTER cut on purpose. Evaluating it first would
-    // relabel these five and churn EXPECTED_CUT_IDS for no benefit.
+    // relabel these six and churn EXPECTED_CUT_IDS for no benefit.
     for (const id of [
+      "alert-picker-identity-claimed-tamper",
       "alert-webhook-token-invalid",
       "alert-callback-claim-threw",
       "alert-github-bot-login-missing",
