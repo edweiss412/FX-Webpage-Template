@@ -229,6 +229,40 @@ class FakeWatchTx {
     );
   }
 
+  // --- backoff spec §3.3a state-write surface (write-iff-attempt) ---
+  attemptRecords: Array<{
+    kind: "failure" | "success";
+    folderId: string;
+    errorClass?: string;
+    errorMessage?: string;
+  }> = [];
+  failRecordAttempt: "failure" | "success" | null = null;
+  gateRow: { consecutiveFailures: number; nextAttemptAt: string; waiting: boolean } | null = null;
+  failGateRead = false;
+
+  async recordAttemptFailure(folderId: string, errorClass: string, errorMessage: string) {
+    this.operations.push(`recordAttemptFailure:${folderId}`);
+    if (this.failRecordAttempt === "failure") throw new Error("state write down");
+    this.attemptRecords.push({ kind: "failure", folderId, errorClass, errorMessage });
+    return {
+      consecutiveFailures: this.attemptRecords.filter((r) => r.kind === "failure").length,
+      nextAttemptAt: new Date(this.now.getTime() + 900_000).toISOString(),
+    };
+  }
+
+  async recordAttemptSuccess(folderId: string) {
+    this.operations.push(`recordAttemptSuccess:${folderId}`);
+    if (this.failRecordAttempt === "success") throw new Error("state write down");
+    this.attemptRecords.push({ kind: "success", folderId });
+    return { consecutiveFailures: 0, nextAttemptAt: this.now.toISOString() };
+  }
+
+  async readReconcileGate(folderId: string) {
+    this.operations.push(`readReconcileGate:${folderId}`);
+    if (this.failGateRead) throw new Error("gate read down");
+    return this.gateRow;
+  }
+
   async resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string) {
     this.operations.push("resolveStaleWebhookTokenInvalid");
     const now = Date.parse(nowIso);
@@ -318,7 +352,7 @@ function reconcileDeps(tx: FakeWatchTx, over: Record<string, unknown> = {}) {
     getActiveWatchedFolder: vi.fn().mockResolvedValue({ folderId: "folder-1", folderName: "F" }),
     resolveAdminAlert: vi.fn().mockResolvedValue(undefined),
     maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [] }),
-    subscribeToWatchedFolder: vi.fn().mockResolvedValue({ outcome: "active", channelId: "c" }),
+    subscribeToWatchedFolder: vi.fn().mockResolvedValue({ outcome: "active", channelId: "c", attempt: null }),
     ...over,
   };
 }
@@ -381,7 +415,7 @@ describe("Drive watch lifecycle", () => {
       })),
     });
 
-    expect(result).toEqual({ outcome: "active", channelId: "new-channel" });
+    expect(result).toEqual({ outcome: "active", channelId: "new-channel", attempt: null });
     expect(tx.rows).toEqual([
       expect.objectContaining({ id: "old-channel", status: "superseded" }),
       expect.objectContaining({
@@ -419,7 +453,7 @@ describe("Drive watch lifecycle", () => {
     expect(alert.context.error_class).toBe("drive_api");
     expect(String(alert.context.error_message)).not.toContain(capturedSecret);
     expect(String(alert.context.error_message)).not.toContain("ya29.zzz");
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "orphaned",
       channelId: expect.any(String),
       reason: "watch_create_failed",
@@ -492,7 +526,7 @@ describe("Drive watch lifecycle", () => {
       }),
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "orphaned",
       channelId: "new-channel",
       reason: "watch_create_failed",
@@ -539,7 +573,7 @@ describe("Drive watch lifecycle", () => {
       })),
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "orphaned",
       channelId: "google-channel",
       reason: "activate_failed_after_watch_created",
@@ -582,6 +616,7 @@ describe("Drive watch lifecycle", () => {
     const subscribeToWatchedFolder = vi.fn(async () => ({
       outcome: "active" as const,
       channelId: "new-channel",
+      attempt: null,
     }));
 
     const result = await refreshWatchSubscriptions({
@@ -645,7 +680,7 @@ describe("Drive watch lifecycle", () => {
       expiresAt: new Date(tx.now.getTime() + 2 * 60 * 60 * 1000).toISOString(),
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x", attempt: null }));
 
     const result = await refreshWatchSubscriptions({
       tx,
@@ -685,6 +720,7 @@ describe("Drive watch lifecycle", () => {
         subscribeToWatchedFolder: vi.fn(async () => ({
           outcome: "active" as const,
           channelId: "y",
+          attempt: null,
         })),
         getActiveWatchedFolder: folderOf(tx) as never,
       }),
@@ -709,7 +745,7 @@ describe("Drive watch lifecycle", () => {
       expiresAt: new Date(tx.now.getTime() + 14 * 60 * 60 * 1000).toISOString(),
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "x", attempt: null }));
 
     const result = await refreshWatchSubscriptions({
       tx,
@@ -770,7 +806,7 @@ describe("Drive watch lifecycle", () => {
     const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
     seedActiveExpiring(tx, ["folder-x"]);
     const subscribe = vi.fn(async () => {
-      if (kind === "active") return { outcome: "active", channelId: "a" } as const;
+      if (kind === "active") return { outcome: "active", channelId: "a", attempt: null } as const;
       if (kind === "infra")
         throw new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down"));
       return { outcome: "orphaned", channelId: "c", reason: kind } as const;
@@ -846,7 +882,7 @@ describe("Drive watch lifecycle", () => {
     const subscribeToWatchedFolder = vi.fn(async () => {
       events.push("drive:subscribe");
       expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
-      return { outcome: "active" as const, channelId: "new-channel" };
+      return { outcome: "active" as const, channelId: "new-channel", attempt: null };
     });
 
     const result = await refreshWatchSubscriptions({
@@ -1488,6 +1524,9 @@ describe("Drive watch telemetry", () => {
       outcome: "orphaned" as const,
       channelId: "orphan-channel",
       reason: "watch_create_failed" as const,
+      errorClass: "drive_api" as const,
+      errorMessage: "fixture",
+      attempt: null,
     }));
 
     const result = await refreshWatchSubscriptions({
@@ -1520,6 +1559,7 @@ describe("Drive watch telemetry", () => {
     const subscribeToWatchedFolder = vi.fn(async () => ({
       outcome: "active" as const,
       channelId: "renewed-channel",
+      attempt: null,
     }));
 
     await refreshWatchSubscriptions({
@@ -1546,7 +1586,7 @@ describe("Drive watch telemetry", () => {
     });
 
     // Initial create/activate orphans raise WATCH_CHANNEL_ORPHANED, not a renewal code.
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "orphaned",
       channelId: "new-channel",
       reason: "watch_create_failed",
@@ -1629,7 +1669,7 @@ describe("Drive watch telemetry", () => {
       })),
     });
 
-    expect(result).toEqual({ outcome: "active", channelId: "new-channel" });
+    expect(result).toEqual({ outcome: "active", channelId: "new-channel", attempt: null });
     const activated = records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED");
     expect(activated).toHaveLength(1);
     expect(activated[0]!.level).toBe("info");
@@ -1731,6 +1771,7 @@ describe("watch renewal lifecycle — reap and GC (spec §3.1)", () => {
     const subscribe = vi.fn(async (folderId: string) => ({
       outcome: "active" as const,
       channelId: `c-${folderId}`,
+      attempt: null,
     }));
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
     await refreshWatchSubscriptions({
@@ -1855,7 +1896,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "folder-configured");
     dueRow(tx, "folder-stale");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
 
     await runRefresh(tx, { folderId: "folder-configured", folderName: null }, subscribe);
 
@@ -1869,7 +1910,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
     dueRow(tx, "f2");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
     const getFolder = vi.fn(async () => ({ folderId: "f1", folderName: null }));
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
     await refreshWatchSubscriptions({
@@ -1886,7 +1927,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("no_folder_configured renews nothing, with a DUE row present", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1"); // precondition: without it the assertion holds vacuously
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
 
     const result = await runRefresh(tx, { kind: "no_folder_configured" }, subscribe);
 
@@ -1897,7 +1938,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("folder-read infra_error with due rows: renews NOTHING and records the '*' failure", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
 
     const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
 
@@ -1907,7 +1948,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
 
   test("folder-read failure with ZERO due rows records NO failure, but still emits", async () => {
     const tx = new FakeWatchTx(); // no due rows seeded
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
 
     const result = await runRefresh(tx, { kind: "infra_error", operation: "x" }, subscribe);
 
@@ -1923,7 +1964,7 @@ describe("watch renewal — configured-folder filter (spec §3.2.2)", () => {
   test("a thrown folder read behaves like infra_error and never rejects", async () => {
     const tx = new FakeWatchTx();
     dueRow(tx, "f1");
-    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c" }));
+    const subscribe = vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null }));
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
     const result = await refreshWatchSubscriptions({
@@ -2105,7 +2146,7 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
       getActiveWatchedFolder: async () => ({ folderId: "f-dead", folderName: null }),
     });
 
@@ -2129,7 +2170,7 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
       getActiveWatchedFolder: async () => ({ folderId: "configured", folderName: null }),
     });
 
@@ -2151,7 +2192,7 @@ describe("forensic emits carry their codes and payloads (whole-diff R3 finding 6
     await refreshWatchSubscriptions({
       tx: tx as never,
       now: () => tx.now,
-      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c" })),
+      subscribeToWatchedFolder: vi.fn(async () => ({ outcome: "active" as const, channelId: "c", attempt: null })),
       getActiveWatchedFolder: (async () => {
         throw new Error("settings read failed: Bearer sk-abc123 while fetching KEEPME");
       }) as never,
@@ -2262,7 +2303,7 @@ describe("GC loop controls are behaviourally pinned (whole-diff R4)", () => {
       getActiveWatchedFolder: async () => ({ folderId: "cfg", folderName: null }),
       subscribeToWatchedFolder: vi.fn(async () => {
         clock += REFRESH_RUN_BUDGET_MS;
-        return { outcome: "active" as const, channelId: "c" };
+        return { outcome: "active" as const, channelId: "c", attempt: null };
       }),
     });
 
@@ -2482,5 +2523,191 @@ describe("the stop-failure retry keys on the resource id, not the status (R8 fin
 
     expect(result.stopped).toEqual([]);
     expect(tx.rows[0]!.status).toBe("orphaned");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Write-iff-attempt inside subscribeToWatchedFolder (backoff spec §3.3a; §6
+// classes 16b/16c). The attempt boundary is the watchFolder invocation: the
+// pre-boundary insertPending fault records nothing; every arm at or past the
+// boundary records exactly one attempt when (and only when) the caller opted
+// in via recordAttempt: true.
+// ---------------------------------------------------------------------------
+describe("subscribeToWatchedFolder write-iff-attempt (spec §3.3a, 16b/16c)", () => {
+  // Echo the requested channelId, as Drive does — a fixed id would miss the
+  // pending row and route activation into the orphaned arm.
+  const okWatchFolder = () =>
+    vi.fn(async (args: { channelId: string }) => ({
+      id: args.channelId,
+      resourceId: "res-1",
+      expiration: String(Date.parse("2026-05-10T12:00:00.000Z")),
+    }));
+  const rejectingWatch = vi.fn(async () => {
+    throw new Error("drive boom");
+  });
+
+  function warnRecords() {
+    return logRecords.filter((r) => r.code === "DRIVE_WATCH_STATE_WRITE_FAILED");
+  }
+
+  test("records (A) BEFORE markOrphaned when watchFolder rejects, error fields + attempt on the result", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    const res = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      recordAttempt: true,
+      watchFolder: rejectingWatch,
+    });
+    expect(res.outcome).toBe("orphaned");
+    if (res.outcome !== "orphaned") throw new Error("unreachable");
+    expect(res.errorClass).toBe("drive_api");
+    expect(res.errorMessage).toContain("drive boom");
+    expect(res.attempt).toEqual({
+      consecutiveFailures: 1,
+      nextAttemptAt: new Date(tx.now.getTime() + 900_000).toISOString(),
+    });
+    const recordIdx = tx.operations.findIndex((o) => o.startsWith("recordAttemptFailure"));
+    const orphanIdx = tx.operations.findIndex((o) => o.startsWith("markOrphaned"));
+    expect(recordIdx).toBeGreaterThanOrEqual(0);
+    expect(orphanIdx).toBeGreaterThanOrEqual(0);
+    expect(recordIdx).toBeLessThan(orphanIdx);
+  });
+
+  test("records (B) on the success path", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    const res = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      recordAttempt: true,
+      watchFolder: okWatchFolder(),
+    });
+    expect(res.outcome).toBe("active");
+    if (res.outcome !== "active") throw new Error("unreachable");
+    expect(res.attempt).toEqual({
+      consecutiveFailures: 0,
+      nextAttemptAt: tx.now.toISOString(),
+    });
+    expect(tx.attemptRecords).toEqual([
+      { kind: "success", folderId: "folder-1" },
+    ]);
+  });
+
+  test("pre-boundary insertPending throw records NOTHING", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.insertPending = async () => {
+      throw new Error("db down");
+    };
+    await expect(
+      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+    ).rejects.toThrow();
+    expect(tx.attemptRecords).toEqual([]);
+  });
+
+  test("default recordAttempt=false writes nothing on ANY arm (16b refresh/onboarding contract)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    // failure arm
+    const tx1 = new FakeWatchTx();
+    await subscribeToWatchedFolder("folder-1", { tx: tx1, watchFolder: rejectingWatch });
+    expect(tx1.attemptRecords).toEqual([]);
+    // success arm
+    const tx2 = new FakeWatchTx();
+    await subscribeToWatchedFolder("folder-1", { tx: tx2, watchFolder: okWatchFolder() });
+    expect(tx2.attemptRecords).toEqual([]);
+    // activation-failure arm
+    const tx3 = new FakeWatchTx();
+    tx3.activatePending = async () => {
+      throw new Error("activate down");
+    };
+    await subscribeToWatchedFolder("folder-1", { tx: tx3, watchFolder: okWatchFolder() });
+    expect(tx3.attemptRecords).toEqual([]);
+  });
+
+  test("activation-throw arm records exactly one (A) with recordAttempt: true (16b)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.activatePending = async () => {
+      throw new Error("activate down");
+    };
+    const res = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      recordAttempt: true,
+      watchFolder: okWatchFolder(),
+    });
+    expect(res.outcome).toBe("orphaned");
+    expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(1);
+  });
+
+  test("failed (A) emits DRIVE_WATCH_STATE_WRITE_FAILED, attempt null, alert path unaffected (16b)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.failRecordAttempt = "failure";
+    const res = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      recordAttempt: true,
+      watchFolder: rejectingWatch,
+    });
+    expect(res.outcome).toBe("orphaned");
+    if (res.outcome !== "orphaned") throw new Error("unreachable");
+    expect(res.attempt).toBeNull();
+    expect(warnRecords()).toHaveLength(1);
+    expect(warnRecords()[0]!.context.statement).toBe("record_attempt_failure");
+    expect(tx.operations.some((o) => o.startsWith("markOrphaned"))).toBe(true);
+  });
+
+  test("failed (B) on the success path emits the warn and returns attempt null (16b)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.failRecordAttempt = "success";
+    const res = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      recordAttempt: true,
+      watchFolder: okWatchFolder(),
+    });
+    expect(res.outcome).toBe("active");
+    if (res.outcome !== "active") throw new Error("unreachable");
+    expect(res.attempt).toBeNull();
+    expect(warnRecords()).toHaveLength(1);
+    expect(warnRecords()[0]!.context.statement).toBe("record_attempt_success");
+  });
+
+  test("finalization throw AFTER Drive failure leaves (A) recorded (16c, markOrphaned fault point)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.markOrphaned = async () => {
+      throw new Error("orphan write down");
+    };
+    await expect(
+      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+    ).rejects.toThrow();
+    expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(1);
+  });
+
+  test("alert-upsert throw AFTER Drive failure leaves (A) recorded (16c, second fault point)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.upsertAdminAlert = async () => {
+      throw new Error("alert write down");
+    };
+    await expect(
+      subscribeToWatchedFolder("folder-1", { tx, recordAttempt: true, watchFolder: rejectingWatch }),
+    ).rejects.toThrow();
+    expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(1);
+  });
+
+  test("persistent finalization fault across three cycles still records three attempts (16c)", async () => {
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const tx = new FakeWatchTx();
+    tx.markOrphaned = async () => {
+      throw new Error("persistent");
+    };
+    for (let i = 0; i < 3; i++) {
+      await subscribeToWatchedFolder("folder-1", {
+        tx,
+        recordAttempt: true,
+        watchFolder: rejectingWatch,
+      }).catch(() => {});
+    }
+    expect(tx.attemptRecords.filter((r) => r.kind === "failure")).toHaveLength(3);
   });
 });

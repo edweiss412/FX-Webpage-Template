@@ -118,7 +118,7 @@ describe("files.watch expiration request (§3.1)", () => {
       now: () => NOW_MS,
     });
 
-    expect(result).toEqual({ outcome: "active", channelId: "channel-1" });
+    expect(result).toMatchObject({ outcome: "active", channelId: "channel-1" });
     expect(driveMock.watchArgs).toHaveLength(1);
     const body = driveMock.watchArgs[0]!.requestBody!;
 
@@ -313,7 +313,7 @@ describe("post-activation observability cannot change the outcome (§3.3)", () =
       },
     });
 
-    expect(result).toEqual({ outcome: "active", channelId: "channel-1" });
+    expect(result).toMatchObject({ outcome: "active", channelId: "channel-1" });
     expect(orphanAlerts).toBe(0);
   });
 
@@ -339,7 +339,7 @@ describe("post-activation observability cannot change the outcome (§3.3)", () =
       },
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "orphaned",
       channelId: "channel-1",
       reason: "watch_create_failed",
@@ -370,7 +370,7 @@ describe("post-activation observability cannot change the outcome (§3.3)", () =
       now: () => NOW_MS,
     });
 
-    expect(result).toEqual({ outcome: "active", channelId: "channel-1" });
+    expect(result).toMatchObject({ outcome: "active", channelId: "channel-1" });
     expect(orphanAlerts).toBe(0);
     // The anomaly was genuinely reached — otherwise this test proves nothing.
     expect(logRecords.filter((r) => r.code === "DRIVE_WATCH_GRANT_TOO_SHORT")).toHaveLength(1);

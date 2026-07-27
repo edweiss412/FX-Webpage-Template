@@ -59,7 +59,7 @@ async function foldersProductionWouldRenew(configuredFolderId: string): Promise<
     now: () => NOW,
     subscribeToWatchedFolder: async (folderId: string) => {
       attempted.push(folderId);
-      return { outcome: "active" as const, channelId: `renewed-${folderId}` };
+      return { outcome: "active" as const, channelId: `renewed-${folderId}`, attempt: null };
     },
     // §3.2 renews only the configured folder, so the harness must say which one
     // it is — otherwise this would perform the real service-role settings read
@@ -77,7 +77,7 @@ async function statusAfterRefresh(id: string, folderId: string): Promise<string>
     now: () => NOW,
     subscribeToWatchedFolder: async (attemptedFolder: string) => {
       attempted.push(attemptedFolder);
-      return { outcome: "active" as const, channelId: "x" };
+      return { outcome: "active" as const, channelId: "x", attempt: null };
     },
     getActiveWatchedFolder: async () => ({ folderId, folderName: null }),
   });
