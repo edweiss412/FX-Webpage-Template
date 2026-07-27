@@ -138,15 +138,20 @@ describe("AgendaScheduleBlock — the fold", () => {
     );
   });
 
-  test("the four test ids from spec §5.1 all exist, indexed per row", () => {
+  test("the row and summary test ids exist per row; the count is folded-rows-only", () => {
     const { container } = renderFold(["Day A", "Day B"], subset(0));
     for (const i of [0, 1]) {
-      for (const id of ["agenda-day", "agenda-day-summary", "agenda-day-count"]) {
+      for (const id of ["agenda-day", "agenda-day-summary"]) {
         expect(
           container.querySelector(`[data-testid="${id}-${i}"]`),
           `${id}-${i} must exist`,
         ).not.toBeNull();
       }
     }
+    // Row 0 is the viewer's and therefore open: its sessions are listed below, so a count
+    // there would restate what is already visible. Row 1 is folded and the count is the only
+    // signal of what the fold hides.
+    expect(container.querySelector('[data-testid="agenda-day-count-0"]')).toBeNull();
+    expect(container.querySelector('[data-testid="agenda-day-count-1"]')).not.toBeNull();
   });
 });
