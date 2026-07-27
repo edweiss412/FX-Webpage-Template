@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -46,10 +47,6 @@ const SUBTREES = [
 ];
 const EXEMPTION = "jsonb-text-exempt";
 
-function isCommentLine(line: string): boolean {
-  const t = line.trim();
-  return t.startsWith("*") || t.startsWith("//") || t.startsWith("/*");
-}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -74,9 +71,13 @@ describe("jsonb write-boundary representation (structural defense)", () => {
   test("no `JSON.stringify(` feeds a postgres.js jsonb param in any DB-layer root", () => {
     const offenders: string[] = [];
     for (const file of files) {
-      const lines = readFileSync(file, "utf8").split("\n");
+      const raw = readFileSync(file, "utf8");
+      const rawLines = raw.split("\n");
+      // Code check runs on comment-STRIPPED lines (line-aligned via blanking); the
+      // EXEMPTION marker is itself a comment, so it is read from the RAW line.
+      const lines = stripCommentsForFile(raw, file).split("\n");
       lines.forEach((line, i) => {
-        if (line.includes("JSON.stringify(") && !line.includes(EXEMPTION) && !isCommentLine(line)) {
+        if (line.includes("JSON.stringify(") && !(rawLines[i] ?? "").includes(EXEMPTION)) {
           const rel = file.slice(ROOT.length + 1);
           offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
         }
