@@ -118,13 +118,42 @@ exports only async functions; a function's realistic consumptions are call (thro
   under `set -o pipefail` (`x-audits.yml:230`), so the exit code is not suppressed. The file IS
   covered in fact; it is the scanner's qualification rules that cannot see it.
 
-### §2.5 Toolchain integration point
+### §2.5 Toolchain integration points — there are TWO, and one already elides directives by regex
 
 `bundleLiveEntry` invokes the esbuild CLI via `execFileSync` with `--alias:` flags
-(`tests/e2e/helpers/liveEntryToolchain.ts:81`). The CLI cannot host plugins; the directive rule
-needs `onLoad`, so PR-C moves the helper to esbuild's JS API (same package, same pinned
-devDependency version — no new binary names; `tests/e2e/_metaLiveEntryToolchain.test.ts`
-restricts binary-naming to this helper, which is unchanged by an API-instead-of-CLI call).
+(`tests/e2e/helpers/liveEntryToolchain.ts:81`). The CLI cannot host plugins, and esbuild's
+synchronous JS API rejects plugins outright (adversarial R1 F4; the installed esbuild's
+main.js throws on `plugins` in sync calls), so §5.3 keeps the
+helper's synchronous void contract and moves the plugin build into a child `node` script —
+the same process boundary the CLI call already crosses.
+
+The second integration point, found by adversarial R1 F3: `tests/e2e/_step3ReviewModalBundle.mjs`
+already ships a `useServerElision` esbuild plugin that replicates Next's directive elision —
+with a regex comment-stripper prologue scan (`_step3ReviewModalBundle.mjs:51`) and regex export
+discovery (`_step3ReviewModalBundle.mjs:66`-ish), exempted by name in
+`tests/e2e/_metaLiveEntryToolchain.test.ts:37`. It is invoked from
+`tests/e2e/step3-review-modal.interactions.spec.ts`, a resolved standalone-config member. A
+repo sweep for other ad-hoc bundlers (`rg -l esbuild tests/e2e -g '*.mjs'`) returns only this
+file. §5.3a consolidates it onto the shared parser-based plugin; closing
+`BL-HARNESS-RESOLVER-POLICY` while this regex resolver survived would have been false.
+
+### §2.6 Session spike measurements (2026-07-26, this worktree)
+
+- **Directive-resolver prototype over the packlist entry:** esbuild JS API + a
+  TypeScript-parse directive plugin bundles `tests/e2e/_packListRescanLiveEntry.tsx`
+  successfully: 1908 metafile inputs, **zero** under `node_modules/googleapis`,
+  `node_modules/postgres`, or `node_modules/google-auth-library`. SIX modules stubbed — the
+  five §2.2 names plus `lib/auth/picker/resetCrewMemberSelection.ts`, which no static pass had
+  found (the plugin finds directives by construction, not by list). All six export ONLY
+  `export async function` declarations (no other shape in live code today). One explicit alias
+  was required: `node:crypto` mapped to the existing `tests/e2e/_nodeCryptoStub.ts`, the exact
+  precedent `tests/e2e/compact-alert-card-layout.spec.ts:67` already uses. The surviving
+  `lib/sync` value imports (`lib/sync/roleMappingOverlay.ts`, `lib/sync/pullSheetOverride.ts`)
+  bring no server package into the graph.
+- **`test-auth-gate` without a server:** `pnpm vitest run tests/admin/test-auth-gate.test.ts
+  --project serial`, three consecutive runs: 24 passed / 3 skipped, 1.56 s / 0.70 s / 0.73 s.
+  The Layer-2 probe fails fast (2 s abort ceiling, instant connection-refused on loopback) and
+  the file is green-with-skips, stable. §6.2's primary disposition rests on this measurement.
 
 ---
 
@@ -134,8 +163,14 @@ restricts binary-naming to this helper, which is unchanged by an API-instead-of-
 
 A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
 
-1. Enumerates `tests/e2e/**/*.spec.ts` on disk (filesystem walk, so a NEW spec fails by
-   default — same posture as the mutation-surface meta-test).
+1. Enumerates test-shaped files on disk: `tests/e2e/**/*.{spec,test}.{ts,tsx,js,mjs,mts}`
+   (filesystem walk, so a NEW spec fails by default — same posture as the mutation-surface
+   meta-test). Widened beyond `*.spec.ts` per adversarial R1 F8. **Deliberate universe
+   boundary:** config-declared SETUP files (`screenshots-help-setup.ts`,
+   `help-docs-setup.ts` — `testMatch` targets at `playwright.config.ts:136` and
+   `playwright.config.ts:169`) are infrastructure, not tests; an unregistered setup file is
+   dead code, not dark coverage, and stays out of the universe. The union side (step 2) is
+   total regardless of extension or directory because Playwright itself resolves it.
 2. Resolves membership of each of the three configs with
    `playwright test --config <cfg> --list --reporter=json` in a child process, unioning file
    paths normalized against each report's `rootDir`.
@@ -148,11 +183,23 @@ A new meta-test tests/ci/\_metaSpecRegistration.test.ts (created by PR-A):
    `tests/ci/_metaE2eWorkflowCoverage.test.ts:139` through
    `tests/ci/_metaE2eWorkflowCoverage.test.ts:146`.
 
-**Config-set tripwire.** The three config paths are a hardcoded list, guarded: the test also
-globs `playwright*.config.ts` at repo root plus `tests/e2e/*.config.ts` and asserts the glob set
-equals the hardcoded set — a fourth config file appearing anywhere reds the guard until it is
-added to the union. (This is the allowlist-shapes posture: enumerate what exists, fail on
-novelty, never silently widen.)
+**Config-set tripwire (rewritten per adversarial R1 F9 — observation, not a narrow glob).**
+The three config paths are a hardcoded list, guarded two ways, and the prose claim is now
+exactly the mechanism:
+
+- **Invocation census:** extract every `--config`/`-c` argument of every `playwright test`
+  invocation across `package.json` scripts and every `run:` block under `.github/workflows/`,
+  plus the bare-invocation default (`playwright.config.ts`). Assert the extracted set equals
+  the hardcoded trio. A Playwright config is only ever exercised through an invocation naming
+  it (or the default), so a config invoked anywhere the repo's automation can invoke it is
+  caught regardless of its filename or location.
+- **Filename belt:** a repo-wide glob `**/playwright*.config.*` (node_modules excluded) must
+  also equal the trio's conventional-named members — catches a conventionally-named config
+  committed but not yet wired anywhere.
+
+What this deliberately does not claim: a config with an unconventional name that is invoked by
+NOTHING in the repo is invisible — and also runs nowhere, which is the dead-code case, not the
+dark-test case.
 
 **Why this detector is sound where both previous attempts were not.** The two failed detectors
 tried to recognize a self-contained spec by its CONTENT ("calls the toolchain helper",
@@ -185,16 +232,31 @@ membership against a committed baseline. Enumeration of narrowing variables is w
 times and is not attempted.
 
 - **Committed baseline:** tests/e2e/standalone-baseline.json (new file) — the sorted spec-file
-  list (not a bare count: a list pinpoints WHICH spec vanished, and the count is derivable).
+  list AND the total test count, `{ files: [...], totalTests: N }`. The file list pinpoints
+  WHICH spec vanished; the test count catches narrowing that keeps every file while dropping
+  tests — an environment-conditioned `grep` that leaves one test per file, or
+  environment-conditioned test generation, passes a file-only comparison (adversarial R1 F1).
+  Both fields compared on BOTH sides below.
 - **Local side:** a case in tests/ci/\_metaSpecRegistration.test.ts (or its own meta-test —
   plan decides file placement) asserts baseline == local `--list` resolution of the standalone
   config. Adding a spec without regenerating the baseline reds this locally and in `unit-suite`.
 - **CI side:** a new step in `.github/workflows/standalone-e2e.yml`, BEFORE the run step, runs
   the `--list` comparison under the real Actions environment via a small new script
   (scripts/check-standalone-baseline.mjs) so the workflow diff is one `run:` line.
-- **Transitivity:** local test proves `baseline == local resolution`; the CI step proves
-  `baseline == CI resolution`; together `local == CI` — exactly the claim §10b of the parent
-  spec records as unprovable from a developer machine alone.
+- **CI-side structural pinning (adversarial R1 F2 — the two comparisons must share an
+  execution context, structurally, not by convention).** The same meta-test parses
+  `standalone-e2e.yml` and asserts, on the parsed YAML: (a) the baseline step exists with
+  `run:` exactly `node scripts/check-standalone-baseline.mjs`; (b) it is IMMEDIATELY adjacent
+  to (directly precedes) the whole-config run step — no intervening step can mutate the tree
+  or `$GITHUB_ENV` between comparison and run; (c) NEITHER step carries step-level `if:`,
+  `env:`, `continue-on-error`, or `shell:` — so both inherit the identical job-level context;
+  (d) the workflow keeps a bare `pull_request` trigger with no `paths:`/`paths-ignore:`, and
+  the job has no `needs:`, no `strategy.matrix`, and no `defaults.run.shell` override at any
+  level. Deleting or decorating the baseline step reds `unit-suite`, which is merge-blocking.
+- **Transitivity:** local test proves `baseline == local resolution`; the pinned CI step proves
+  `baseline == CI resolution` in the same context the run executes in; together `local == CI` —
+  exactly the claim §10b of the parent spec records as unprovable from a developer machine
+  alone.
 
 ### §4.2 Scanner and workflow contract
 
@@ -222,26 +284,40 @@ harness bundle MORE faithful to the production client bundle than bundling the r
 be.
 
 Detection: TypeScript compiler API (`ts.createSourceFile`), directive = a leading
-`ExpressionStatement` string literal `"use server"` in the module's directive prologue. No
-regex over source — the regex-comment-stripping class
-(`feedback_regex_comment_stripping_does_not_survive_tsx`) stays dead. A cheap substring
-pre-filter (`source.includes('"use server"')`) bounds the parse cost; the parse is the decider.
+`ExpressionStatement` string literal `use server` in the module's directive prologue —
+matched on the literal's cooked TEXT, so `"use server"` and `'use server'` are the same
+directive (adversarial R1 F5: a single-quoted directive is semantically identical, and the
+regex resolver being replaced already accepts both quote styles). No regex over source — the
+regex-comment-stripping class (`feedback_regex_comment_stripping_does_not_survive_tsx`) stays
+dead. A cheap substring pre-filter bounds the parse cost and MUST check both quote spellings
+(`'"use server"'` or `"'use server'"`); the parse is the decider either way, and guard case
+(e) in §5.5 pins the single-quote form.
 
 ### §5.2 The stub
 
-Per stubbed module, generated at bundle time from the module's OWN parsed exports:
+Per stubbed module, generated at bundle time from the module's OWN parsed exports.
+**Supported export grammar (adversarial R1 F6 — enumerated, everything else fail-closed):**
 
-- For each exported async function name `f`: `export const f = async () => { throw new Error("[harness] server action 'f' invoked in a browser harness bundle; this boundary is an RPC in production") }`.
+- `export async function f(...)` — stub as a named throwing async function.
+- `export default async function` (named or anonymous) — stub as a throwing async default
+  export.
+- `export const f = <async arrow or async function expression>` — stub as a named throwing
+  async function. (Next's own server-boundary rule accepts exported variables whose values
+  are async functions; the syntactic async marker on the initializer is the decider here.)
 - Type-only exports need nothing (erased).
-- Any OTHER export shape found (const, sync function, class) is a hard bundle-time ERROR, not a
-  silent pass — that module violates the Server Action export contract, and the harness refuses
-  to guess.
+- **Every other shape is a hard bundle-time ERROR**, not a silent pass: `export * from`,
+  `export { f } from` re-export forwarding, local aliased `export { f as g }`, consts with
+  non-async initializers, classes, sync functions. A syntax-only parse cannot classify these
+  soundly, so the harness refuses to guess and names the module and the shape. Measured basis:
+  all SIX live directive modules today export only `export async function` declarations
+  (§2.6), so the error branch has zero live instances and exists to stay fail-closed as the
+  app grows.
 
 Soundness inventory against the three recorded holes:
 
 | Recorded hole | Status under §5.1–§5.2 |
 | --- | --- |
-| Proxy consumable without a call | No proxy exists. Named exports are real async functions; non-call consumption of a function value (truthiness, identity, `.bind`) does not alter behavior until called, and a call throws. The export-shape ERROR closes the non-function residue. |
+| Proxy consumable without a call | No proxy exists. Named exports are real async functions; non-call consumption of a function value (truthiness, identity, `.bind`) does not alter behavior until called, and a call throws. The export-shape ERROR closes the non-function residue. **Scope of this claim (adversarial R1 F7):** it holds for CLIENT-RENDERED harnesses — every live-entry harness mounts via `createRoot`, none server-renders. Production server references carry registration metadata (React's server-reference registry, `$$FORM_ACTION` inspection in react-dom's SSR path) that a plain throwing async function does not; reflection on that metadata, or SSR progressive-enhancement serialization, behaves differently and is OUTSIDE the guarantee. In a client render the realistic consumptions are call (throws — including `<form action={stub}>` submit, which React treats as a client action and invokes) and reference-pass (inert). Guard case (f) measures the form-action path rather than asserting it. |
 | Strict stub breaks esbuild named-export resolution | Stub carries real named exports parsed from the module source; esbuild resolves them like any module. |
 | Path-rule overmatch (both named instances) | §2.3: neither module carries the directive; neither is stubbed. Zero overmatch surface by construction — the app author, not the harness, declares the boundary. |
 
@@ -253,10 +329,27 @@ hide an app-code defect behind a stub.
 
 ### §5.3 Helper change
 
-`bundleLiveEntry` moves from the esbuild CLI to the esbuild JS API (§2.5) so the plugin can run.
-Call-site contract unchanged: `aliases` (explicit, per call site) still win — the plugin skips
-any specifier an alias already covers. `tests/e2e/_metaLiveEntryToolchain.test.ts`'s assertions
-are re-pointed at the API invocation; its binary-naming ban is unchanged.
+`bundleLiveEntry` keeps its synchronous `void` signature and its call sites keep not awaiting
+it (adversarial R1 F4: esbuild's synchronous JS API rejects plugins, so "move to the JS API in
+place" was unimplementable as written). Instead the helper's `execFileSync` target changes
+from the esbuild CLI to a small child `node` script (placed under `tests/e2e/helpers/`) that
+calls the ASYNC `esbuild.build` with the directive plugin and the passed aliases, then exits.
+Same process boundary as today, same blocking semantics, zero call-site churn. Precedent for
+the child-script shape: `tests/e2e/_step3ReviewModalBundle.mjs` is already exactly this.
+`aliases` (explicit, per call site) still win — the plugin skips any specifier an alias
+already covers. `tests/e2e/_metaLiveEntryToolchain.test.ts`'s assertions are re-pointed at the
+child script; its binary-naming ban is unchanged.
+
+### §5.3a Consolidate the second resolver (adversarial R1 F3)
+
+The directive-detection and stub-generation logic lives in ONE shared module (under
+`tests/e2e/helpers/`), used by both the `bundleLiveEntry` child script and
+`tests/e2e/_step3ReviewModalBundle.mjs`. The step3 bundler's regex `useServerElision` plugin
+(`_step3ReviewModalBundle.mjs:51` comment-stripper, regex export scan) is DELETED in favor of
+the shared parser-based plugin; its `emptyNodeBuiltins` handling stays as-is. The exemption
+rationale row for it in `tests/e2e/_metaLiveEntryToolchain.test.ts:37` is rewritten to reflect
+that it now consumes the shared plugin. Closing `BL-HARNESS-RESOLVER-POLICY` requires the
+regex resolver class to actually END, not to survive in an exempted file.
 
 ### §5.4 The packlist restore
 
@@ -287,10 +380,14 @@ subsequent task conditions on that measurement.
 
 A meta-test pins the resolver contract: (a) a fixture module with a `"use server"` directive
 bundles to a throwing stub whose export names equal the fixture's; (b) a fixture with the
-directive and a non-function export makes the bundle FAIL; (c) a directive-free fixture bundles
+directive and a non-function export makes the bundle FAIL, and so does each unsupported §5.2
+shape (re-export forwarding, aliased export, sync const); (c) a directive-free fixture bundles
 its real body byte-for-byte (no stub); (d) a directive in a nested string/comment does NOT
-trigger (parse, not grep). Mutation check per the guard-design ledger: break the plugin (make it
-skip stubbing) and confirm (a) reds.
+trigger (parse, not grep); (e) a SINGLE-QUOTED `'use server'` directive triggers identically
+to the double-quoted form; (f) a client-rendered fixture passing a stubbed action to
+`<form action={stub}>` and submitting produces the loud harness throw (the §5.2 form-action
+consumption path, measured rather than asserted). Mutation check per the guard-design ledger:
+break the plugin (make it skip stubbing) and confirm (a) reds.
 
 ---
 
@@ -300,16 +397,38 @@ skip stubbing) and confirm (a) reds.
 
 What failed three times was PREDICTING execution by reading shell. What is decidable: (i)
 resolved-config membership under the exact env CI sets (measured in the parent: env unset → 8
-tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → "No test files found", exit 1), and (ii) vitest's own
-exit-1-on-empty-resolution semantics, which make a PASSING dedicated `vitest run <file>` step an
-in-environment existence proof no shell reading can fake — `false && vitest run <f>` skips the
-step's purpose but then the registry check (below) fails the build ANYWAY, because the registry
-is verified against the workflow's parsed step list, not its shell semantics: the row must name
-a workflow, a job, and a step whose `run:` is EXACTLY `pnpm vitest run <file>` (string equality
-after trim, the same exact-literal posture as `WHOLE_CONFIG_RE`), with no `if:` on the step, no
-`continue-on-error`, and no pipe — all four properties checked structurally on the parsed YAML.
-Exact string equality is what kills the `false &&` prefix, the `|| true` suffix, and every other
-composition: any decoration makes it not the literal.
+tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → "No test files found", exit 1), and (ii) an
+in-environment execution proof carried by the step itself. Vitest's bare exit code proves
+COLLECTION, not execution — `passWithNoTests`, or a collected file whose tests ALL skip, exits
+0 (adversarial R1 F11; both remaining entries contain conditional skips:
+`tests/admin/test-auth-gate.test.ts:535` and the `livePsqlReachable` guards at
+`tests/cross-cutting/email-canonicalization.test.ts:313` and two sibling rows). So the
+registry step's literal is `pnpm run-excluded <file>` — a package.json alias for a small
+script (scripts/run-excluded-test.mjs, created by PR-B) that runs vitest on the file with a
+JSON reporter written to a temp file (no shell pipes), then asserts **at least one test
+EXECUTED AND PASSED and zero failed**, exiting non-zero otherwise. `false && pnpm run-excluded
+<f>` still cannot fake it, because the registry is verified against the workflow's parsed step
+list, not its shell semantics: the row must name a workflow, a job, and a step whose `run:` is
+EXACTLY `pnpm run-excluded <file>` (string equality after trim, the same exact-literal posture
+as `WHOLE_CONFIG_RE`), with no `if:` on the step, no `continue-on-error`, and no pipe — all
+checked structurally on the parsed YAML. Any decoration makes it not the literal.
+
+**Job-and-workflow qualification (adversarial R1 F10 — command text alone proves nothing about
+whether the job runs).** The registry verifier additionally requires, on the parsed workflow:
+a `pull_request` trigger with no `paths:`/`paths-ignore:`; no job-level `if:` other than the
+exact schedule-exclusion literal `github.event_name != 'schedule'`; no `needs:` on the job; no
+`strategy.matrix` conditioning; and no `defaults.run.shell` override at workflow or job level.
+These are the same execution-override classes the existing scanner already disqualifies
+(`tests/ci/_workflowCoverageScan.ts:197` region); the verifier reuses that machinery rather
+than re-deriving it.
+
+**Honest ceiling, stated:** a green `pnpm run-excluded <file>` step proves the file resolved,
+executed, and passed at least one test under that job's environment. It does not prove every
+suite inside ran (env-conditional skips remain visible only in the JSON report). The plan adds
+a per-file skip audit as a one-time task: enumerate each `skipIf` in the two files and confirm
+the registry job's environment satisfies it or the skip is acceptable — for
+`email-canonicalization`, whether the `x5` job's `TEST_DATABASE_URL` makes `livePsqlReachable`
+true is resolved at plan time, not assumed.
 
 New meta-test tests/ci/\_metaEnvBoundExclusionCoverage.test.ts (created by PR-B):
 
@@ -324,21 +443,26 @@ New meta-test tests/ci/\_metaEnvBoundExclusionCoverage.test.ts (created by PR-B)
 ### §6.2 Dispositions for the two entries
 
 - `tests/admin/test-auth-gate.test.ts` — **primary: delete its exclusion row entirely.** Layer 2
-  already self-skips without a server (`test-auth-gate.test.ts:535`), so the file can run in
-  `unit-suite` with Layer 1 asserting and Layer 2 skipping — IF the `isReachable` probe is
-  fast and non-flaky under CI (implementation-time measurement: run the file 5× with
-  `VITEST_EXCLUDE_ENV_BOUND` unset in a network-denied env). Fallback: split Layer 1 into
-  a new tests/admin/test-auth-gate.deterministic.test.ts (runs everywhere), keep the HTTP layer
-  excluded with a registry row pointing at the e2e path that exercises the endpoint. Either
-  branch ends with zero dark entries.
+  already self-skips without a server (`test-auth-gate.test.ts:535`), so the file runs in
+  `unit-suite` with Layer 1 asserting and Layer 2 skipping. Measured this session (§2.6):
+  three consecutive server-less runs, 24 passed / 3 skipped, worst 1.56 s, no flake — the
+  probe fails fast on loopback connection-refused under a 2 s abort ceiling. The exclusion row
+  and its registry question both disappear; the file is an ordinary unit-suite member.
+  Fallback (only if CI shows flake the local measurement did not): split the file and PORT the
+  HTTP layer's assertions to a Playwright e2e spec where a server exists, DELETING the vitest
+  HTTP layer — the exclusion array loses the entry either way, the registry stays total, and
+  nothing is dark. (The R1 draft's fallback — an excluded vitest file "covered" by an e2e spec
+  that never executes it — was incoherent, adversarial R1 F12, and is withdrawn.)
 - `tests/cross-cutting/email-canonicalization.test.ts` — a dedicated verbatim step
-  `pnpm vitest run tests/cross-cutting/email-canonicalization.test.ts` added to the
+  `pnpm run-excluded tests/cross-cutting/email-canonicalization.test.ts` added to the
   `x5-email-canonicalization` job (`.github/workflows/x-audits.yml:204`), replacing its
   membership in the aliased-and-piped audit step for coverage purposes (the audit alias keeps
   running it too — harmless double execution, ~seconds). Registry row points at the new step.
   The job's `if: github.event_name != 'schedule'` (`x-audits.yml:205`) is a JOB-level guard; the
   registry's verifier accepts a job-level `if` only when it is exactly this schedule-exclusion
   literal (runs on every PR — the property the guard exists to protect), and rejects any other.
+  The §6.1 skip audit for this file (does `livePsqlReachable` hold in the `x5` job?) is a
+  named plan task.
 
 ### §6.3 Sequencing
 
@@ -352,28 +476,34 @@ no shared surface between PR-C and #613.
 
 | File | Change | PR |
 | --- | --- | --- |
-| tests/ci/\_metaSpecRegistration.test.ts | created — disk specs ⊆ three-config union ∪ dark-allowlist; config-set tripwire; shadow/stale row checks; standalone baseline == local resolution | PR-A |
-| tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed membership list; `--write` regen; CI-side comparison step in `standalone-e2e.yml` | PR-A |
-| tests/ci/\_metaEnvBoundExclusionCoverage.test.ts | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal step verification; dark rows are red | PR-B |
-| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(d) | PR-C |
-| `tests/e2e/_metaLiveEntryToolchain.test.ts` | edited — assertions follow the CLI→JS-API move; binary ban unchanged | PR-C |
+| tests/ci/\_metaSpecRegistration.test.ts | created — test-shaped disk files ⊆ three-config union ∪ dark-allowlist; invocation-census + filename-belt config tripwire; shadow/stale row checks; standalone baseline (files + totalTests) == local resolution; `standalone-e2e.yml` baseline-step structural pinning (§4.1) | PR-A |
+| tests/e2e/standalone-baseline.json + scripts/check-standalone-baseline.mjs | created — committed `{files, totalTests}`; `--write` regen; pinned CI-side comparison step in `standalone-e2e.yml` | PR-A |
+| tests/ci/\_metaEnvBoundExclusionCoverage.test.ts + scripts/run-excluded-test.mjs | created — registry totality over `ENV_BOUND_EXCLUDES`; exact-literal `pnpm run-excluded` step verification; workflow/job qualification via the scanner's disqualification classes; dark rows are red | PR-B |
+| resolver contract meta-test (file placement per plan, under `tests/e2e/`) | created — §5.5 (a)–(f) | PR-C |
+| shared directive-plugin module (under `tests/e2e/helpers/`) | created — consumed by the bundleLiveEntry child script AND `tests/e2e/_step3ReviewModalBundle.mjs`, whose regex `useServerElision` is deleted (§5.3a) | PR-C |
+| `tests/e2e/_metaLiveEntryToolchain.test.ts` | edited — assertions follow the CLI→child-script move; `_step3ReviewModalBundle.mjs` exemption rationale rewritten; binary ban unchanged | PR-C |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | edited — packlist row deleted (PR-C); `report-modal` row premise restored or replaced per §3.2 (PR-A) | PR-A, PR-C |
 
 ## §8 Acceptance criteria
 
 1. A new `tests/e2e/**/*.spec.ts` file registered in no config reds `unit-suite` locally and in
    CI, naming the file and the three configs it is absent from. (Mutation-verified: temp file.)
-2. A standalone-config narrowing that only manifests under Actions env reds the
-   `standalone-e2e` job's baseline step; the same edit with the baseline regenerated reds the
-   local baseline test until the list matches. (Mutation-verified in CI via a
-   `workflow_dispatch` run on a scratch branch carrying a `GITHUB_EVENT_NAME`-conditioned
-   narrowing — the exact mutation the backlog entry names as invisible today.)
+2. A standalone-config narrowing that only manifests under Actions env — whether it drops
+   FILES or drops TESTS while keeping every file — reds the `standalone-e2e` job's baseline
+   step; the same edit with the baseline regenerated reds the local baseline test until both
+   the file list and the total test count match. Deleting or decorating the baseline step reds
+   the structural pin in `unit-suite`. (Mutation-verified in CI via a `workflow_dispatch` run
+   on a scratch branch carrying a `GITHUB_EVENT_NAME`-conditioned `grep` narrowing — the exact
+   mutation class the backlog entry names as invisible today, in its file-preserving form.)
 3. Every `ENV_BOUND_EXCLUDES` entry has a verified execution home; the array reaching a state
    where an entry runs nowhere is a red `unit-suite`, not a silent fact. `test-auth-gate`
    Layer 1 executes in CI again (either disposition).
 4. `packlist-rescan-recovery.spec.ts` runs in the standalone CI job, green, with a metafile
-   clean of `googleapis`/`postgres` inputs; `BL-HARNESS-PACKLIST-SERVER-GRAPH` and
-   `BL-HARNESS-RESOLVER-POLICY` close in BACKLOG.md with the resolver's contract cited.
+   clean of `googleapis`/`postgres` inputs (prototype already measures 0, §2.6);
+   `BL-HARNESS-PACKLIST-SERVER-GRAPH` and `BL-HARNESS-RESOLVER-POLICY` close in BACKLOG.md
+   with the resolver's contract cited — and no regex-based directive detection remains
+   anywhere under `tests/e2e/` (the §5.3a consolidation is part of the close, not a
+   follow-up).
 5. All four BACKLOG entries (plus the env-narrowing entry) move to resolved with pointers to
    the shipped guards; the parent spec's §10b ceiling paragraph gains a supersession note.
 6. Real CI green on each PR (local green is necessary, not sufficient — CI-bound surface rule),
