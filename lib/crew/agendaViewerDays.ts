@@ -112,11 +112,33 @@ function isAmbiguousLabel(dayLabel: string): boolean {
     const mo = MONTHS[m[2]!.toLowerCase().replace(/\.$/, "")];
     if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m, norm4(m[3]));
   }
-  for (const m of collapsed.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g)) {
-    add(`${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`, m, norm4(m[3])); // "05/06/2026"
+  // Numeric dates as a FAMILY: both orders (year-first, month-first) times all three separators
+  // (slash, dash, dot), with 1-or-2-digit fields. The previous version knew exactly two members
+  // -- month-first slash and strict two-digit ISO -- so "2026/05/06", "05-06-2026", "05.06.2026"
+  // and "2026-5-6" each read as ZERO dates and a combined row folded for the viewer whose day it
+  // names (review R12, and the same shape as R8's slash/ISO findings -- swept as a class this
+  // time). The backreference requires ONE separator per date, so a mixed "5/6-2026" stays unread
+  // and lands in the caller's null guard. Day-vs-month order inside the month-first form is not
+  // resolved (a European "06.05.2026" keys as 06-05): for THIS question a different key in either
+  // reading means a second day, and the mismatch only ever fires toward fail-open.
+  for (const m of collapsed.matchAll(/\b(\d{4})([/.-])(\d{1,2})\2(\d{1,2})\b/g)) {
+    add(`${m[3]!.padStart(2, "0")}-${m[4]!.padStart(2, "0")}`, m, m[1]); // "2026/05/06", "2026-5-6"
   }
-  for (const m of collapsed.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
-    add(`${m[2]}-${m[3]}`, m, m[1]); // ISO "2026-05-06"
+  for (const m of collapsed.matchAll(/\b(\d{1,2})([/.-])(\d{1,2})\2(\d{2,4})\b/g)) {
+    add(`${m[1]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`, m, norm4(m[4])); // "05-06-2026"
+  }
+  // Day-first with NO year -- "/ 6 May" (review R12). The year requirement above exists because
+  // a bare "<number> <month>" reads phantom dates out of "Day 1 May 5, 2026" and its corpus
+  // siblings. What actually separates those from a real trailing "6 May" is what FOLLOWS the
+  // month name: a digit there means the month starts its own month-led date, so the leading
+  // number belongs to something else ("Day 1", "Room 12", a glyph-split "2 6"). The same
+  // lookahead cedes "6 May 2026" and "6 May '27" to the with-year scan above, which records
+  // their year; this form has none to record.
+  for (const m of collapsed.matchAll(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b\.?(?!\s*,?\s*'?\d)/g,
+  )) {
+    const mo = MONTHS[m[2]!.toLowerCase()];
+    if (mo) add(`${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`, m);
   }
   if (days.size === 0) return false; // unparseable -- the caller's null guard owns this
   if (days.size > 1) return true;

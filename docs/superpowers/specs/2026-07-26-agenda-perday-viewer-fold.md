@@ -12,7 +12,7 @@
 > | Contested point | AS SHIPPED |
 > | --- | --- |
 > | Matcher input | Takes **raw JSONB** and normalizes internally via `normalizeAgendaExtraction`, mirroring `agendaSessionsForToday`. Body text requiring an already-normalized extraction is superseded. |
-> | Matcher output | **Row indices** — `{kind:"all"} \| {kind:"subset"; rows: ReadonlySet<number>}`. Never dates: `AgendaDay.date` is always null in production (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor). |
+> | Matcher output | **Row indices** — `{kind:"all"} \| {kind:"subset"; rows: ReadonlySet<number>}`. Never dates: the current extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor), and stored rows from older writers may carry strings the normalizer preserves — §2.5 fact 1's narrowed scope. Either way dates cannot identify a row. |
 > | Positional fallback | **Not implemented, deliberately.** Ratified in §3; tracked as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK`. Every other passage requiring it is superseded. |
 > | Throw contract of the hoist | The `try` wraps the **aggregate-day derivation** (`aggregateDays` + `visibleShowDays`); the error is captured and **rethrown inside the render callback**, so `WrappedSection` still records its ledger entry and renders the tile fallback. `visibleShowDays` itself has zero `throw` sites and is total for any array input — it is not the reason the `try` exists. The **matcher does not run inside that `try` at all**: `visibleAgendaDaysForViewer` is called later, per link, inside the `agendaLinks.map` callback. An earlier revision of this row credited the containment to matcher normalization; review R5 (MEDIUM) was right that this is structurally wrong, and it is corrected here rather than in the body. |
 > | Unrestricted viewer (`dateRestriction.kind === "none"`) | `{kind:"all"}` — every day expanded, **no marker**. The two readings in the body ("every day is theirs" / "no day is theirs") reach the same place: nothing distinguishes one day, so THE MARKER RULE suppresses the marker. "Every day is theirs" is the accurate one. |
@@ -280,7 +280,7 @@ project rule for a design-correctness vector that survives repeated rounds is to
 probe instead, so these are **measured** facts, each with the command or citation that produced it. They
 reshape the contract in §3, and any later revision that contradicts one of them is wrong.
 
-**1. `AgendaDay.date` is ALWAYS `null` in production.** `lib/agenda/extractAgendaSchedule.ts:653` is the
+**1. `AgendaDay.date` is ALWAYS `null` from the current extractor.** `lib/agenda/extractAgendaSchedule.ts:653` is the
 only place an `AgendaDay` is constructed, and it hardcodes `date: null`:
 
 ```
@@ -288,7 +288,7 @@ days.push({ dayLabel: label ?? "", date: null, sessions: [session] });
 ```
 
 `normalizeAgendaExtraction` only validates and passes the field through
-(`lib/agenda/normalizeAgendaExtraction.ts:39` and `lib/agenda/normalizeAgendaExtraction.ts:47`), so nothing ever fills it.
+(`lib/agenda/normalizeAgendaExtraction.ts:39` and `lib/agenda/normalizeAgendaExtraction.ts:47`), so the extractor never fills it — but the normalizer preserves whatever a STORED row already carries, which is the narrowed scope below.
 
 **Scope of that claim, narrowed after review R4 (HIGH).** It is true of the CURRENT EXTRACTOR's output,
 not as a render-boundary invariant. `normalizeAgendaExtraction` validates opaque JSONB and preserves any

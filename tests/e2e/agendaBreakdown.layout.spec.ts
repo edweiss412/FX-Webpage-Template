@@ -12,10 +12,12 @@
  *   1. Compiles the REAL token CSS from app/globals.css via the Tailwind CLI
  *      (so `min-w-0`, `grid-cols-[auto_minmax(0,1fr)]`, `wrap-break-word`,
  *      `p-tile-pad`, etc. resolve exactly as the build emits them).
- *   2. Writes a static harness.html with the EXACT class structure transcribed
- *      from components/admin/wizard/Step3SheetCard.tsx (AgendaItemRow ready-state)
- *      + components/crew/AgendaScheduleBlock.tsx, inside a fixed-width card-column
- *      container, including a worst-case 90-char UNBREAKABLE session title.
+ *   2. Writes a static harness.html whose inner block is the REAL
+ *      AgendaScheduleBlock markup rendered out of process (admin shape); only the
+ *      surrounding Step3SheetCard chrome (AgendaItemRow ready-state) is
+ *      hand-transcribed from components/admin/wizard/Step3SheetCard.tsx. Sits in a
+ *      fixed-width card-column container with a worst-case 90-char UNBREAKABLE
+ *      session title.
  *   3. Serves it over HTTP (file:// is blocked in Chromium automation) and
  *      measures getBoundingClientRect() at 320 / 390 / 720px.
  *
@@ -51,8 +53,7 @@ const BODY_PAD = 16; // mirrors px-4 gutter used on the Step3Review list column
 // hyphens — hyphens are CSS soft-break opportunities). This is the adversarial
 
 /**
- * Transcribes the `ready`-state AgendaBreakdown + AgendaScheduleBlock structure
- * VERBATIM from the components:
+ * Hand-transcribes ONLY the `ready`-state Step3SheetCard CHROME around the block:
  *
  *   Step3SheetCard article.p-tile-pad
  *     └─ div.mt-6
@@ -60,15 +61,12 @@ const BODY_PAD = 16; // mirrors px-4 gutter used on the Step3Review list column
  *               ├─ h4 "Agenda"
  *               └─ ul.flex.flex-col.gap-3
  *                    └─ li[data-testid="agenda-item"].flex.min-w-0.flex-col.gap-1.5
- *                         └─ AgendaScheduleBlock:
- *                              div[data-testid="agenda-schedule"].flex.min-w-0.flex-col.gap-4
- *                                └─ div.flex.min-w-0.flex-col.gap-2  (one day)
- *                                     ├─ h3 day heading
- *                                     └─ ul.flex.flex-col.gap-2
- *                                          ├─ li[data-testid="agenda-session"]  (normal)
- *                                          │    grid.grid-cols-[auto_minmax(0,1fr)].items-baseline.gap-x-3
- *                                          └─ li[data-testid="agenda-session"]  (90-char token)
- *                                               same grid — text cell has min-w-0 + wrap-break-word
+ *                         └─ AgendaScheduleBlock: NOT transcribed — the REAL
+ *                            component's markup, rendered out of process in its
+ *                            admin shape (<details open> per day; see the render
+ *                            note below). The sessions inside it carry the
+ *                            grid.grid-cols-[auto_minmax(0,1fr)] cells whose
+ *                            min-w-0 + wrap-break-word the width assertions measure.
  */
 
 /**

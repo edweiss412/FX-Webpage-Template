@@ -17,10 +17,12 @@
  *   1. compiles the REAL token CSS from app/globals.css via the Tailwind CLI
  *      (so `min-w-0`, `grid-cols-[auto_minmax(0,1fr)]`, `wrap-break-word`,
  *      `flex-wrap`, etc. resolve exactly as the build emits them);
- *   2. writes a static harness.html with the EXACT class structure transcribed
- *      from components/crew/AgendaScheduleBlock.tsx + components/agenda/
- *      AgendaEmbed.tsx, inside a fixed-width Schedule column, including a
- *      worst-case 90-char UNBREAKABLE-token session title;
+ *   2. writes a static harness.html whose schedule block is the REAL
+ *      AgendaScheduleBlock markup rendered out of process (see
+ *      agendaScheduleHtml() below); only the AgendaEmbed affordance row is
+ *      hand-transcribed from components/agenda/AgendaEmbed.tsx. Sits inside a
+ *      fixed-width Schedule column with a worst-case 90-char
+ *      UNBREAKABLE-token session title;
  *   3. serves it over HTTP (file:// is blocked in Chromium automation) and
  *      measures getBoundingClientRect() at 320 / 390 / 720px.
  *
@@ -49,8 +51,8 @@ const TOL = 0.5;
 const VIEWPORTS = [320, 390, 720] as const;
 const BODY_PAD = 16; // mirrors the crew page's `px-4` content gutter
 
-// Affordance row + schedule block, transcribed VERBATIM from the components so
-// the measured geometry exercises the real Tailwind classes (not a paraphrase).
+// Affordance row hand-transcribed from AgendaEmbed.tsx; the schedule block is
+// the REAL component's markup, rendered out of process (agendaScheduleHtml()).
 function agendaHtml(): string {
   return `
 <div data-testid="agenda-col" class="flex min-w-0 flex-col gap-3">

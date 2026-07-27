@@ -260,6 +260,24 @@ describe("visibleAgendaDaysForViewer — completeness and fail-open", () => {
       ["Sat / Tuesday, May 5, 2026", "leading Sat"],
       ["Tuesday, May 5, 2026 / Sat", "trailing Sat"],
       ["May 5, 2026 / 6 May 2026", "a day-first second date"],
+      // R12 HIGH: the numeric-date FAMILY, not two hand-picked members of it. The scan knew
+      // month-first-slash and strict two-digit ISO; every other separator/order pairing read as
+      // zero dates, so a combined row folded for the viewer whose day it names. Swept as a
+      // class: both orders (year-first, month-first) x all three separators, plus the loose-ISO
+      // and day-first-no-year stragglers, rather than only the four shapes the review listed.
+      ["May 5, 2026 / 2026/05/06", "a year-first slash second date"],
+      ["May 5, 2026 / 05-06-2026", "a dashed numeric second date"],
+      ["May 5, 2026 / 05.06.2026", "a dotted numeric second date"],
+      ["May 5, 2026 / 2026.05.06", "a year-first dotted second date"],
+      ["May 5, 2026 / 2026-5-6", "an ISO second date with one-digit fields"],
+      // Day-first with NO year. The with-year scan deliberately requires one because a bare
+      // "<number> <month>" reads phantom dates out of "Day 1 May 5, 2026"; what actually
+      // separates a real "/ 6 May" is that nothing date-like FOLLOWS the month name, which the
+      // corpus phantom cases below hold in place.
+      ["May 5, 2026 / 6 May", "a day-first second date with no year"],
+      // The R9 year-mismatch rule must hold for the NEW family members too, or the family is
+      // only half-closed: same month-day, different year, in a shape the scan just learned.
+      ["May 5, 2026 / 05-05-2027", "same month-day, dashed second, different year"],
       ["May 5, 2026 / Wednesday", "a trailing weekday, the label's only one"],
       // LEADING second-day references. Found by sweeping the positional rule's blind side
       // before review reported it: examining only trailing text sees none of these.

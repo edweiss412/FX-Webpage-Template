@@ -868,8 +868,10 @@ New `admin_alert` code → the ~9-surface lockstep fan-out applies (catalog row,
 > edited away, because the reasoning is what makes the entry worth keeping:
 >
 > 1. **"No reusable day-set matcher exists"** — one does now: `lib/crew/agendaViewerDays.ts`
->    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because `AgendaDay.date` is
->    always null in production (`lib/agenda/extractAgendaSchedule.ts` is its sole constructor).
+>    (`visibleAgendaDaysForViewer`). It returns ROW INDICES, not dates, because the current
+>    extractor always writes `date: null` (`lib/agenda/extractAgendaSchedule.ts` is its sole
+>    constructor; stored rows from older writers may carry strings — see the spec's §2.5
+>    narrowed scope), so dates cannot identify a row.
 > 2. **"reusing … the same positional-fallback rule"** — the shipped matcher deliberately does NOT
 >    implement the positional fallback. Ratified at
 >    `docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 ("RATIFIED AMENDMENT"),

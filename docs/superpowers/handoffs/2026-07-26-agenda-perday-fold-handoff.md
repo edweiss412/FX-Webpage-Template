@@ -214,8 +214,9 @@ counting misses `"May 5, 2026 / Wednesday"` (one weekday, because the date carri
 position misses `"Wednesday / Tuesday, May 5, 2026"` (the second day leads). **A trailing `Day N`
 is deliberately NOT a signal**, reversing a round-8 call: `"Tuesday, May 5, 2026 — Day 1"`,
 `"Show Day 1"` and `"(Travel Day 2)"` name one day, and since ambiguity is checked with `.some()`,
-one such heading unfolded an entire link. An over-fire silently disables the feature; an
-under-fire only shows more than necessary.
+one such heading unfolded an entire link. An under-fire can fold and hide a worked day; an
+over-fire only shows more than necessary — though enough over-fires silently disable the
+feature, which is why the realistic-label corpus guards that side.
 
 ## Rounds 8-10
 

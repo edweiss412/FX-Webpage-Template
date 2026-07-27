@@ -96,6 +96,23 @@ function trueDates(label: string): string[] {
     const mo = M[m[1]!.toLowerCase().replace(/\.$/, "")];
     if (mo) out.push(`${m[3] ?? "2026"}-${String(mo).padStart(2, "0")}-${m[2]!.padStart(2, "0")}`);
   }
+  // Numeric forms and bare day-first, added when R12 showed the oracle was blind in exactly the
+  // place the implementation was: it read only month-led dates, so a "/ 05-06-2026" or "/ 6 May"
+  // second day was invisible to the search while being invisible to the code. The day-first scan
+  // requires that no digit follows the month name -- a following digit means the month starts
+  // its own month-led date and the leading number is furniture ("Day 1 May 5, 2026").
+  for (const m of collapsed.matchAll(/\b(\d{4})([/.-])(\d{1,2})\2(\d{1,2})\b/g)) {
+    out.push(`${m[1]}-${m[3]!.padStart(2, "0")}-${m[4]!.padStart(2, "0")}`);
+  }
+  for (const m of collapsed.matchAll(/\b(\d{1,2})([/.-])(\d{1,2})\2(\d{4})\b/g)) {
+    out.push(`${m[4]}-${m[1]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`);
+  }
+  for (const m of collapsed.matchAll(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\b(?!\s*,?\s*'?\d)/g,
+  )) {
+    const mo = M[m[2]!.toLowerCase()];
+    if (mo) out.push(`2026-${String(mo).padStart(2, "0")}-${m[1]!.padStart(2, "0")}`);
+  }
   return out;
 }
 
@@ -113,6 +130,8 @@ const VOCAB = [
   "May 5, 2026 / May 5, 2027", // R6 HIGH: same month-day, two years
   "Day 1 - Tuesday, May 5, 2026", // over-fire guard: one day despite the "1"
   "Tuesday, May 5, 2026 — Marriott", // over-fire guard: month PREFIX in a venue name
+  "May 5, 2026 / 05-06-2026", // R12 HIGH: a second date in a numeric shape the scan did not read
+  "May 5, 2026 / 6 May", // R12 HIGH: day-first with no year
   "Day 1",
   "continued", // R1 HIGH: unidentifiable row between identifiable ones
   "",
