@@ -233,13 +233,23 @@ class PostgresWatchTx implements WatchTx {
   }
 
   async markOrphaned(id: string, resourceId?: string | null) {
+    // Matches `pending` OR an already-`orphaned` row. The second arm is
+    // load-bearing, not defensive: promotion orphans the row BEFORE activation
+    // fails (finalize-cas promoteSettings), and the stale-pending sweep does the
+    // same — so a pending-only UPDATE matches zero rows and the `resourceId`
+    // that `files.watch` just returned is never persisted. GC then hands null to
+    // channels.stop, which exits early, and marks the row stopped: the Drive
+    // channel stays live to its lease with nothing pointing at it.
+    //
+    // `coalesce` so a re-orphan never CLEARS a resource id we already hold, and
+    // the whole statement stays idempotent.
     await this.rows(
       `
         update public.drive_watch_channels
            set status = 'orphaned',
                resource_id = coalesce($2, resource_id)
          where id = $1
-           and status = 'pending'
+           and status in ('pending', 'orphaned')
       `,
       [id, resourceId ?? null],
     );
@@ -352,7 +362,19 @@ class PostgresWatchTx implements WatchTx {
         select id, status, watched_folder_id, webhook_secret, resource_id, expires_at
           from public.drive_watch_channels
          where status in ('superseded', 'orphaned', 'expired')
-         order by created_at
+         -- Rows that need no Drive call, or that resolve either way, come
+         -- FIRST. A superseded row whose stop keeps failing is retried forever
+         -- by design and keeps its age, so ordering purely by created_at lets a
+         -- poisoned prefix be re-selected every pass and starve everything
+         -- behind it. With this ordering, expired (no call at all) and orphaned
+         -- (stopped either way) always drain; only superseded retries can
+         -- delay each other.
+         order by case status
+                    when 'expired' then 0
+                    when 'orphaned' then 1
+                    else 2
+                  end,
+                  created_at
          limit $1
       `,
       [limit],
@@ -957,17 +979,22 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     // would be served first on every subsequent pass, starving every expired
     // and orphaned row behind them (whole-diff finding 1).
     const gcStartedMs = Date.now();
+    let attempted = 0;
     for (const channel of candidates) {
       if (Date.now() - gcStartedMs >= GC_RUN_BUDGET_MS) {
         void log.warn("drive watch GC run budget exhausted", {
           source: "drive.watch",
           code: "DRIVE_WATCH_GC_BUDGET_EXHAUSTED",
           stoppedCount: stopped.length,
-          remainingCount: candidates.length - stopped.length,
+          // Rows never ATTEMPTED, not rows not stopped — a failed superseded
+          // stop was attempted and stays superseded, so subtracting `stopped`
+          // would overstate the backlog by every retry in the pass.
+          remainingCount: candidates.length - attempted,
           budgetMs: GC_RUN_BUDGET_MS,
         });
         break;
       }
+      attempted += 1;
       // `expired` means the lease ran out, so Google already stopped delivering
       // and there is nothing left to stop (spec §3.1.4). Reading the STATUS
       // rather than comparing `expires_at` keeps this population distinct from

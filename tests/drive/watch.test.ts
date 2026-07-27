@@ -638,6 +638,7 @@ describe("Drive watch lifecycle", () => {
           outcome: "active" as const,
           channelId: "y",
         })),
+        getActiveWatchedFolder: folderOf(tx) as never,
       }),
     ).resolves.toEqual({ refreshed: [], orphaned: [], failures: [] });
   });
@@ -1951,5 +1952,33 @@ describe("activation and GC failure branches (whole-diff findings 2 and 5)", () 
     // §3.1.2 routes invalid leases to `superseded` rather than `expired`.
     expect(result.stopped).toEqual([]);
     expect(tx.rows[0]!.status).toBe("superseded");
+  });
+});
+
+describe("refresh never reaches the ambient settings read (structural)", () => {
+  test("every refreshWatchSubscriptions call in this suite injects getActiveWatchedFolder", async () => {
+    // A call site without the injection performs the REAL service-role read.
+    // Locally that resolves; in CI it hangs to the 5s default and the failure
+    // reads as a flake rather than a missing dependency. One site slipped past
+    // a bulk edit because it was nested inside `await expect(...)`, so this is
+    // now enforced rather than grepped by hand.
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("tests/drive/watch.test.ts", "utf8");
+    const offenders: number[] = [];
+    for (const m of src.matchAll(/refreshWatchSubscriptions\(\s*\{/g)) {
+      let depth = 0;
+      let j = m.index! + m[0].length - 1;
+      for (; j < src.length; j += 1) {
+        if (src[j] === "{") depth += 1;
+        else if (src[j] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (!src.slice(m.index!, j).includes("getActiveWatchedFolder")) {
+        offenders.push(src.slice(0, m.index!).split("\n").length);
+      }
+    }
+    expect(offenders, `lines missing getActiveWatchedFolder: ${offenders.join(", ")}`).toEqual([]);
   });
 });

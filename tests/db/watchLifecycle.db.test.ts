@@ -252,3 +252,73 @@ describe("the alert raise is atomic with the channel mutation (spec §3.4)", () 
     expect((await unresolvedAlert())?.occurrence_count).toBe(2);
   });
 });
+
+describe("orphaning persists the Drive resourceId (whole-diff R2 finding 1)", () => {
+  afterEach(cleanup);
+
+  test("a row promotion already orphaned still records the resourceId", async () => {
+    // Reproduces promotion's ACTUAL state: the row is `orphaned` BEFORE the
+    // activation failure reaches markOrphaned. A pending-only UPDATE matches
+    // zero rows here, so the resourceId files.watch returned is never stored —
+    // and GC then hands null to channels.stop, exits early, and marks the row
+    // stopped while the Drive channel stays live.
+    const id = `${PREFIX}orphan-resource`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    await sql.begin(async (tx) => {
+      await createPostgresWatchTx(tx as never).markOrphaned(id, "google-resource-9");
+    });
+
+    const rows = await sql<{ status: string; resource_id: string | null }[]>`
+      select status, resource_id from public.drive_watch_channels where id = ${id}
+    `;
+    expect(rows[0]).toMatchObject({ status: "orphaned", resource_id: "google-resource-9" });
+  });
+
+  test("re-orphaning without a resourceId never CLEARS one already stored", async () => {
+    const id = `${PREFIX}orphan-keep`;
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret, resource_id)
+      values (${id}, 'orphaned', ${PREFIX + "f"}, 's', 'kept-resource')
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    await sql.begin(async (tx) => {
+      await createPostgresWatchTx(tx as never).markOrphaned(id);
+    });
+
+    const rows = await sql<{ resource_id: string | null }[]>`
+      select resource_id from public.drive_watch_channels where id = ${id}
+    `;
+    expect(rows[0]?.resource_id).toBe("kept-resource");
+  });
+});
+
+describe("GC ordering drains no-Drive-call work first (whole-diff R2 finding 2)", () => {
+  afterEach(cleanup);
+
+  test("expired and orphaned rows sort ahead of superseded, regardless of age", async () => {
+    // A poisoned `superseded` prefix used to be re-selected every pass, so
+    // everything behind it was never collected. The ordering must put rows that
+    // need no Drive call — or that resolve either way — first, even when the
+    // superseded rows are OLDER.
+    await sql`
+      insert into public.drive_watch_channels
+        (id, status, watched_folder_id, webhook_secret, resource_id, created_at, expires_at)
+      values
+        (${PREFIX + "old-sup"}, 'superseded', ${PREFIX + "a"}, 's', 'r', now() - interval '10 d', now()),
+        (${PREFIX + "new-exp"}, 'expired',    ${PREFIX + "b"}, 's', 'r', now() - interval '1 h',  now()),
+        (${PREFIX + "new-orp"}, 'orphaned',   ${PREFIX + "c"}, 's', 'r', now() - interval '1 h',  now())
+    `;
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    const ids = await sql.begin(async (tx) => {
+      const rows = await createPostgresWatchTx(tx as never).listGcCandidates();
+      return rows.filter((r) => r.id.startsWith(PREFIX)).map((r) => r.id);
+    });
+
+    expect(ids.indexOf(`${PREFIX}new-exp`)).toBeLessThan(ids.indexOf(`${PREFIX}old-sup`));
+    expect(ids.indexOf(`${PREFIX}new-orp`)).toBeLessThan(ids.indexOf(`${PREFIX}old-sup`));
+  });
+});

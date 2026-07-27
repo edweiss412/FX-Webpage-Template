@@ -78,3 +78,17 @@ describe("watch cron import graph", () => {
     expect(importsOf(leaf)).toEqual([]);
   });
 });
+
+describe("driveErrorStatus shape coverage", () => {
+  it("reads all three googleapis status shapes", async () => {
+    // Only the response.status branch had coverage, so the other two could be
+    // deleted and every watch test would still pass — leaving those real error
+    // shapes classified as null and therefore retried forever.
+    const { driveErrorStatus } = await import("@/lib/drive/errorStatus");
+    expect(driveErrorStatus({ response: { status: 404 } })).toBe(404);
+    expect(driveErrorStatus({ status: 404 })).toBe(404);
+    expect(driveErrorStatus({ code: 404 })).toBe(404);
+    expect(driveErrorStatus({ code: "TimeoutError" })).toBeNull();
+    expect(driveErrorStatus(null)).toBeNull();
+  });
+});
