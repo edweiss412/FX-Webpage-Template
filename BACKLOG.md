@@ -622,6 +622,32 @@ was written, which assumed the retired path filter.
 **Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
 containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
 
+### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+
+**Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
+
+`origin/main` deleted `.github/workflows/modal-header-layout-e2e.yml` when it retired seven per-feature
+e2e workflows. Backticked references to that path are citations to `spec:lint`, so every doc still
+naming it now hard-fails `CITATION_FILE_MISSING`. Note the linter keys on the `.yml` extension, not on
+the directory separator — shortening to a bare filename does NOT clear it; the backticks have to go.
+
+PR #610 swept its own three docs (5 + 3 hard findings → 0 each) by rendering the name as prose. Seven
+others were left alone deliberately, to avoid pulling unrelated specs into an in-review diff:
+
+- `docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md`
+- `docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+- `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md`
+- `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`
+- `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md`
+- `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md`
+- `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+
+**Not urgent:** `spec:lint` is not wired into any workflow (verified — no `.github/workflows/**` match),
+so nothing is merge-blocked. It fails only for whoever runs it by hand on one of those files.
+
+**Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
+retiring spec itself, where the old name is legitimate history.
+
 ### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
 
 **Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS

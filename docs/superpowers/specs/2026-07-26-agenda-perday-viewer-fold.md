@@ -738,7 +738,7 @@ at line 670: the failure "looks like a bad path, not a missing project". This sp
 
 
 > **SUPERSEDED AT IMPLEMENTATION (merge of `origin/main` c7c5625c2).** Everything in this section
-> about `.github/workflows/modal-header-layout-e2e.yml`, its `paths:` filter, and a `PATH_GATED`
+> about the retired modal-header-layout-e2e workflow, its `paths:` filter, and a `PATH_GATED`
 > registry row is obsolete: `origin/main` DELETED that workflow, retiring seven per-feature e2e
 > workflows for one unfiltered `.github/workflows/standalone-e2e.yml` that runs the WHOLE of
 > `tests/e2e/standalone.config.ts` on every PR. Both agenda specs were already named in that
@@ -747,10 +747,10 @@ at line 670: the failure "looks like a bad path, not a missing project". This sp
 > than what this section prescribes. Retained unedited as the reasoning of record.
 
 Revision 2 corrected the target to the standalone-config job
-(`.github/workflows/modal-header-layout-e2e.yml`, which runs `pnpm test:e2e:modal-header` →
+(the retired modal-header-layout-e2e workflow, which runs `pnpm test:e2e:modal-header` →
 `playwright test --config=tests/e2e/standalone.config.ts …` per `package.json:52`) and said to DELETE the
 allowlist row. The target is right; **deleting the row is wrong.** That workflow is path-gated —
-`on: pull_request:` with a `paths:` filter at `.github/workflows/modal-header-layout-e2e.yml:45-47` — and
+`on: pull_request:` with a `paths:` filter at the retired modal-header-layout-e2e workflow (was 45-47) — and
 the scanner categorically rejects path-filtered workflows from `covered`
 (`tests/ci/_workflowCoverageScan.ts:105` computes `hasPathsFilter`, `tests/ci/_workflowCoverageScan.ts:119` pushes the rejection reason
 "pull_request.paths/paths-ignore filter"). So running the spec there does NOT make it `covered`. Deleting

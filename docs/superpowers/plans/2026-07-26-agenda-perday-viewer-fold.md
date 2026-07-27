@@ -35,7 +35,7 @@ Every file, symbol, and line this plan names was verified against `origin/main` 
 | the CI registry row | `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` — `"tests/e2e/agendaScheduleLayout.spec.ts": UNSEEN,` inside `LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:35`) |
 
 > **SUPERSEDED AT IMPLEMENTATION (merge of `origin/main` c7c5625c2).** Everything in this section
-> about `.github/workflows/modal-header-layout-e2e.yml`, its `paths:` filter, and a `PATH_GATED`
+> about the retired modal-header-layout-e2e workflow, its `paths:` filter, and a `PATH_GATED`
 > registry row is obsolete: `origin/main` DELETED that workflow, retiring seven per-feature e2e
 > workflows for one unfiltered `.github/workflows/standalone-e2e.yml` that runs the WHOLE of
 > `tests/e2e/standalone.config.ts` on every PR. Both agenda specs were already named in that
@@ -44,7 +44,7 @@ Every file, symbol, and line this plan names was verified against `origin/main` 
 > than what this section prescribes. Retained unedited as the reasoning of record.
 
 | the spec is standalone-config only | matched at `tests/e2e/standalone.config.ts:36`; **no** match in `playwright.config.ts` |
-| the standalone job precedent | `.github/workflows/modal-header-layout-e2e.yml` runs `pnpm test:e2e:modal-header`; `package.json:52` expands to `playwright test --config=tests/e2e/standalone.config.ts …` |
+| the standalone job precedent | the retired modal-header-layout-e2e workflow runs `pnpm test:e2e:modal-header`; `package.json:52` expands to `playwright test --config=tests/e2e/standalone.config.ts …` |
 | `--duration-fast` is a real token; the Tailwind utility is not | `app/globals.css:223` defines `--duration-fast: 120ms`, `app/globals.css:419` zeroes it under `prefers-reduced-motion`; `grep -c transition-duration-fast app/globals.css` → `0` |
 
 ## Meta-test inventory (writing-plans rule)
@@ -116,7 +116,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 | `app/globals.css` | EDIT | chevron rotation consuming `var(--duration-fast)` |
 | `tests/e2e/agendaScheduleLayout.spec.ts` | EDIT | add the §5.1 dimensional assertions for the new summary rows |
 | `package.json` | EDIT | add the spec to a standalone-config `test:e2e:*` script |
-| `.github/workflows/modal-header-layout-e2e.yml` | EDIT | add the spec + its components to `paths:`; run it |
+| the retired modal-header-layout-e2e workflow | EDIT | add the spec + its components to `paths:`; run it |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | EDIT | change the row at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` from `UNSEEN` to `PATH_GATED` — do NOT delete it |
 
 ---
@@ -264,8 +264,8 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 
 - [ ] **Red state first, and it must prove the WORKFLOW RUNS THE SPEC, not merely that a string changed.** Two earlier versions were both inadequate. "The standalone command collects zero tests" is not an assertion at all (R4 CRITICAL): the existing alias collects four other specs and exits 0. "Assert the registry row reads `PATH_GATED`" goes green from editing the string alone (R5 HIGH), because the meta-test validates membership only and never the reason (`tests/ci/_metaE2eWorkflowCoverage.test.ts:155-165`). The assertion that WORKS comes from the scanner's own contract: `scanWorkflowCoverage` returns `rejected: Array<{ file; spec; reason }>` (`tests/ci/_workflowCoverageScan.ts:80-85`) and the meta-test currently destructures only `covered` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:153`). Assert that `rejected` contains this spec with reason `"pull_request.paths/paths-ignore filter"` (`tests/ci/_workflowCoverageScan.ts:119`). Unfakeable by the string edit: a spec named in NO workflow appears in neither `covered` nor `rejected`, so it fails today and can only pass once a workflow actually names it in a run command.
 - [ ] Add `tests/e2e/agendaScheduleLayout.spec.ts` to a standalone-config script in `package.json`. **Decide the naming explicitly** — `test:e2e:modal-header` running an agenda spec is a misnomer; rename it or add a sibling alias.
-- [ ] Add the spec plus `components/crew/AgendaScheduleBlock.tsx` and `components/crew/sections/ScheduleSection.tsx` to `.github/workflows/modal-header-layout-e2e.yml`'s `paths:` filter.
-- [ ] **CHANGE the registry row's value from `UNSEEN` to `PATH_GATED`** at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. **Do NOT delete it** — that workflow is path-gated (`.github/workflows/modal-header-layout-e2e.yml:45`) and the scanner rejects path-filtered workflows from `covered` (`tests/ci/_workflowCoverageScan.ts:105`), so a deleted row trips the DARK assertion. Precedent: `tests/ci/_metaE2eWorkflowCoverage.test.ts:39-40`.
+- [ ] Add the spec plus `components/crew/AgendaScheduleBlock.tsx` and `components/crew/sections/ScheduleSection.tsx` to the retired modal-header-layout-e2e workflow's `paths:` filter.
+- [ ] **CHANGE the registry row's value from `UNSEEN` to `PATH_GATED`** at `tests/ci/_metaE2eWorkflowCoverage.test.ts:49`. **Do NOT delete it** — that workflow is path-gated (the retired modal-header-layout-e2e workflow (was 45)) and the scanner rejects path-filtered workflows from `covered` (`tests/ci/_workflowCoverageScan.ts:105`), so a deleted row trips the DARK assertion. Precedent: `tests/ci/_metaE2eWorkflowCoverage.test.ts:39-40`.
 - [ ] **RUN the command and record a NON-ZERO collected count in the commit message.** A step that matched nothing passes vacuously.
 - [ ] Verify on a real Actions run via `gh workflow run`; local-green is not sufficient for CI-bound surfaces.
 - [ ] **State the guarantee honestly in the handoff:** runs when the filter matches, not on every PR. Do not write "verified in a real browser" unqualified.
