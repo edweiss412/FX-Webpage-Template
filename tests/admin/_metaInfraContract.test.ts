@@ -307,6 +307,12 @@ const infraRegistry = [
       "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }",
   },
   {
+    helper: "readWatchSurfaceState",
+    path: "lib/admin/watchSurfaceState.ts",
+    contract:
+      "drive_watch_reconcile_state maybeSingle; client construction + returned error + thrown query → typed { kind:'infra_error' }, null ONLY for zero rows; the two consumers (bell feed loader, Settings page) map infra_error to a hidden line at their render boundary DELIBERATELY (backoff spec §3.6)",
+  },
+  {
     helper: "fetchDriveConnectionHealth",
     path: "lib/admin/driveConnectionHealth.ts",
     contract:

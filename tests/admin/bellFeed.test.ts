@@ -115,6 +115,20 @@ const state = vi.hoisted(() => ({
   showsRow: null as { id: string; slug: string; title: string } | null,
 }));
 
+const watchSurfaceMock = vi.hoisted(() => ({
+  folderResult: { kind: "no_folder_configured" } as unknown,
+  stateResult: null as unknown,
+  readSpy: undefined as unknown as ReturnType<typeof vi.fn>,
+}));
+vi.mock("@/lib/appSettings/getWatchedFolderId", () => ({
+  getActiveWatchedFolderId: vi.fn(async () => watchSurfaceMock.folderResult),
+}));
+vi.mock("@/lib/admin/watchSurfaceState", () => {
+  const readSpy = vi.fn(async () => watchSurfaceMock.stateResult);
+  watchSurfaceMock.readSpy = readSpy;
+  return { readWatchSurfaceState: readSpy };
+});
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
     if (state.throwOnConstruct) throw new Error("META: construction threw");
@@ -639,5 +653,77 @@ describe("loadBellUnseenCount", () => {
     state.rpcError = { message: "boom" };
     const result = await loadBellUnseenCount("admin@fxav.test", false);
     expect(result).toEqual({ kind: "infra_error" });
+  });
+});
+
+// Backoff spec §3.6 / §6 class 18 (bell loader half): the watch entry carries
+// the surface state; every fault arm and every non-watch entry maps to null.
+describe("loadBellFeed watchState wiring (backoff spec §3.6)", () => {
+  const WATCH_ROW = () =>
+    activeRow({ id: "watch-alert", code: "WATCH_CHANNEL_ORPHANED", show_id: null });
+  const STATE = {
+    nextAttemptAt: "2026-07-27T12:15:00.000Z",
+    consecutiveFailures: 2,
+    lastAttemptOutcome: "failed" as const,
+  };
+
+  beforeEach(() => {
+    watchSurfaceMock.folderResult = { kind: "no_folder_configured" };
+    watchSurfaceMock.stateResult = null;
+    watchSurfaceMock.readSpy.mockClear();
+  });
+
+  test("watch entry carries the state row's exact values", async () => {
+    state.rpcRows = [metaRow(), WATCH_ROW()];
+    watchSurfaceMock.folderResult = { folderId: "folder-1" };
+    watchSurfaceMock.stateResult = STATE;
+
+    const result = await loadBellFeed("admin@x.com", false);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    const watch = result.entries.find((e) => e.code === "WATCH_CHANNEL_ORPHANED")!;
+    expect(watch.watchState).toEqual(STATE);
+    expect(watchSurfaceMock.readSpy).toHaveBeenCalledWith("folder-1");
+  });
+
+  test("helper infra_error → watchState null, feed intact (render-boundary mapping)", async () => {
+    state.rpcRows = [metaRow(), WATCH_ROW()];
+    watchSurfaceMock.folderResult = { folderId: "folder-1" };
+    watchSurfaceMock.stateResult = { kind: "infra_error" };
+
+    const result = await loadBellFeed("admin@x.com", false);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    expect(result.entries.find((e) => e.code === "WATCH_CHANNEL_ORPHANED")!.watchState).toBeNull();
+  });
+
+  test("folder read typed-infra → helper NOT called, watchState null, feed intact", async () => {
+    state.rpcRows = [metaRow(), WATCH_ROW()];
+    watchSurfaceMock.folderResult = {
+      kind: "infra_error",
+      operation: "readActiveWatchedFolderId",
+      source: "returned_error",
+      cause: new Error("down"),
+    };
+
+    const result = await loadBellFeed("admin@x.com", false);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    expect(result.entries.find((e) => e.code === "WATCH_CHANNEL_ORPHANED")!.watchState).toBeNull();
+    expect(watchSurfaceMock.readSpy).not.toHaveBeenCalled();
+  });
+
+  test("non-watch entries carry watchState null EXPLICITLY (not undefined)", async () => {
+    state.rpcRows = [metaRow(), activeRow({ id: "other", code: "SOME_CODE" })];
+
+    const result = await loadBellFeed("admin@x.com", false);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    expect(result.entries[0]!.watchState).toBeNull();
+    expect(watchSurfaceMock.readSpy).not.toHaveBeenCalled();
   });
 });
