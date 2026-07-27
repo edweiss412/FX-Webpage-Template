@@ -16,7 +16,9 @@ import { REAL_ROUTE_WIDTHS, ROW_WIDTHS } from "../e2e/_sectionHeaderWidths";
 
 describe("section-header width-chain anchors", () => {
   it("anchors every matrix width on the real route", () => {
-    const matrixWidths = Object.keys(ROW_WIDTHS).map(Number).sort((a, b) => a - b);
+    const matrixWidths = Object.keys(ROW_WIDTHS)
+      .map(Number)
+      .sort((a, b) => a - b);
     const anchored = [...REAL_ROUTE_WIDTHS].sort((a, b) => a - b);
     expect(anchored, "REAL_ROUTE_WIDTHS must equal the ROW_WIDTHS key set").toEqual(matrixWidths);
   });
