@@ -306,6 +306,33 @@ passes while that day folds. The domain must be the viewer's restriction days in
 - `parseIsoFromDayLabel` (`lib/crew/agendaDayForToday.ts:36`) parses a date-bearing heading into ISO. Collapses pdfjs glyph-split digits (`"2 4"` → `"24"`) FIRST, exact month-name match. No fallback of its own.
 - The positional fallback lives inside `agendaSessionsForToday` (`lib/crew/agendaDayForToday.ts:47`) and fires only under FOUR conditions, all at `lib/crew/agendaDayForToday.ts:64-71`: `matched === null`, `!someDateParsed` (NO label in that extraction parsed), `showDays.length > 0 && showDays.every((d) => d != null)`, AND `ext.days.length === showDays.length`. The null-element guard is easy to miss and a day-set variant must carry it — a `dates` row with a null date otherwise indexes into a hole.
 
+> **RATIFIED AMENDMENT (implementation, whole-diff review R2 MEDIUM): the positional fallback is
+> DELIBERATELY NOT IMPLEMENTED.** The reviewer correctly observed the shipped matcher has no
+> aggregate-list parameter and fails open wherever labels do not parse, so the four-condition
+> fallback described just below is absent, along with its planned tests. That is a change to this
+> spec, recorded here rather than left as a silent omission.
+>
+> Three reasons, in order of weight:
+>
+> 1. **Its trigger cannot occur in the known corpus.** The fallback fires only when NO label in the
+>    extraction parsed (`!someDateParsed`). The R3 spike measured the 6-PDF corpus: every label is
+>    date-bearing and every one parses (`tests/crew/agendaDayForToday.test.ts:19-30`). The branch
+>    would ship unexercised by any real input.
+> 2. **It folds on position rather than evidence, in the state of least knowledge.** Every other
+>    path folds because a date was matched. This one would fold because a count lined up, precisely
+>    when nothing about the document was understood. This rule has now folded a day the viewer works
+>    in FOUR distinct input shapes across review (partial location, duplicate dates, an
+>    unidentifiable row, a row naming two dates); each was a path that folded on weaker evidence than
+>    it appeared to. A fifth such path is not worth an unreachable feature gain.
+> 3. **Fail-open is the correct behaviour for that input anyway.** The cost is that a viewer whose
+>    agenda uses purely positional labels sees the whole show expanded — today's behaviour, and the
+>    outcome §1.1 names as acceptable. The cost of the alternative is folding the wrong day.
+>
+> The text below is retained as the accurate description of the EXISTING `agendaSessionsForToday`
+> fallback, which is unchanged and still in use for its own purpose. It is no longer a requirement
+> on the new matcher. Filed as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK` if the corpus ever gains
+> positional-label documents.
+
 **No reusable day-SET matcher exists** — that function maps one `todayIso` and returns sessions. PR3 writes a day-set variant beside it, reusing `parseIsoFromDayLabel` and the same positional rule. Two constraints:
 
 1. The positional fallback must index against the **full show day list**, never the viewer's subset — indexing a filtered list shifts every index and silently mismatches days.
@@ -708,6 +735,16 @@ Revision 1 named `crew-e2e.yml:141` as the target and called it a one-line appen
 The append would have collected **zero tests and passed green**. The root `BACKLOG.md` documents this trap
 at line 670: the failure "looks like a bad path, not a missing project". This spec is an instance of
 `BL-STANDALONE-CONFIG-CI-DARK` (root `BACKLOG.md`, line 666), not of the lifecycle umbrella.
+
+
+> **SUPERSEDED AT IMPLEMENTATION (merge of `origin/main` c7c5625c2).** Everything in this section
+> about `.github/workflows/modal-header-layout-e2e.yml`, its `paths:` filter, and a `PATH_GATED`
+> registry row is obsolete: `origin/main` DELETED that workflow, retiring seven per-feature e2e
+> workflows for one unfiltered `.github/workflows/standalone-e2e.yml` that runs the WHOLE of
+> `tests/e2e/standalone.config.ts` on every PR. Both agenda specs were already named in that
+> config's `testMatch`, so they are now covered unfiltered with NO allowlist row — the registry's
+> `shadowing` check FAILS on an allowlisted spec that is covered. The shipped outcome is stronger
+> than what this section prescribes. Retained unedited as the reasoning of record.
 
 Revision 2 corrected the target to the standalone-config job
 (`.github/workflows/modal-header-layout-e2e.yml`, which runs `pnpm test:e2e:modal-header` →

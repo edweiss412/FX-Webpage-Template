@@ -94,6 +94,51 @@ was editing and the specs the workflow already ran; it never asked which specs r
 "Where else is this component transcribed?" and "which of those files does CI execute?" are
 two different questions, and only the second one surfaces a dark spec.
 
+## Whole-diff review — round 2
+
+| # | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | HIGH | A row naming two dates parses to its FIRST date, so a combined row folds for a viewer assigned the second | **FIXED** `983d7a890` |
+| 2 | MEDIUM | The ratified positional fallback is absent from the matcher | **SPEC AMENDED** — deliberate, reasoned in §3 |
+| 3 | MEDIUM | The admin harness still hand-writes the wrapper whose `min-w-0` its assertion depends on | **FILED** `BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` |
+| 4 | LOW | Only one of the two repaired specs had darkness protection | **FIXED** by the main merge |
+
+**#1 is the fourth distinct input shape in which this rule folded a day the viewer works.**
+`parseIsoFromDayLabel` calls `.match()` without `/g`, so `"Tuesday, May 5, 2026 / Wednesday, May 6,
+2026"` reports itself as May 5 and folds for a May 6 viewer. Every row parses, so the guard added
+for round 1's HIGH could not see it. Because the *class* keeps recurring, the guard is on ambiguity
+itself rather than on this label spelling, and it is pinned in both directions — deleting it reds the
+ambiguity case, and counting regex hits instead of distinct dates reds an over-fire case built from a
+label that repeats one date.
+
+**#2 is a genuine spec deviation and is recorded as one.** The reviewer was right that the shipped
+matcher takes no aggregate list and so cannot do the four-condition fallback. Rather than add it, the
+spec is amended: its trigger (`!someDateParsed`) does not occur in the measured 6-PDF corpus, and it
+would fold on positional index — folding in the state of least knowledge — which is the shape that
+produced all four of the bugs above. Filed as `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK` against the
+corpus ever gaining positional-label documents.
+
+**#3 is real, pre-existing, and partially mitigated by the merge.** One premise of it has expired:
+the finding notes `step3ReviewSections.tsx` is absent from the workflow path filter, but after
+merging main there is no path filter — `standalone-e2e.yml` runs the whole config on every PR, so a
+change to that file now triggers this spec.
+
+**#4 was already closed by the merge**, which replaced the `rejected`/`PATH_GATED` assertion with one
+that covers both specs.
+
+## The merge that landed mid-review
+
+`origin/main` retired seven per-feature e2e workflows for one unfiltered `standalone-e2e.yml`,
+deleting the very workflow this branch had wired its specs into. The branch gave up its own wiring:
+both specs were already in `standalone.config.ts`, so they now run unfiltered on every PR rather than
+only when a paths filter matched, and their allowlist rows had to go — the registry's `shadowing`
+check fails on an allowlisted spec that is covered.
+
+Worth recording as a pattern, not an accident: this PR spent real effort building path-gated CI
+wiring for two specs, and the better answer was a change someone else was making at the same time to
+the general mechanism. The finding that motivated it (a dark spec had rotted) was correct; the fix
+was local where the problem was systemic.
+
 ## Known limits, disclosed rather than defended
 
 - **The layout spec is PATH-GATED, not PR-blocking.** It runs when its filter matches the spec, its renderer,

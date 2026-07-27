@@ -33,6 +33,16 @@ Every file, symbol, and line this plan names was verified against `origin/main` 
 | `WrappedSection`'s containment contract | `components/crew/WrappedSection.tsx:22` — "The throwable block is passed as a `render: () => ReactNode`" |
 | the intentional out-of-boundary throw | `ScheduleSection.tsx:99` — "throws MalformedProjectionError (INTENTIONALLY outside Wr…" |
 | the CI registry row | `tests/ci/_metaE2eWorkflowCoverage.test.ts:49` — `"tests/e2e/agendaScheduleLayout.spec.ts": UNSEEN,` inside `LOCAL_ONLY_ALLOWLIST` (`tests/ci/_metaE2eWorkflowCoverage.test.ts:35`) |
+
+> **SUPERSEDED AT IMPLEMENTATION (merge of `origin/main` c7c5625c2).** Everything in this section
+> about `.github/workflows/modal-header-layout-e2e.yml`, its `paths:` filter, and a `PATH_GATED`
+> registry row is obsolete: `origin/main` DELETED that workflow, retiring seven per-feature e2e
+> workflows for one unfiltered `.github/workflows/standalone-e2e.yml` that runs the WHOLE of
+> `tests/e2e/standalone.config.ts` on every PR. Both agenda specs were already named in that
+> config's `testMatch`, so they are now covered unfiltered with NO allowlist row — the registry's
+> `shadowing` check FAILS on an allowlisted spec that is covered. The shipped outcome is stronger
+> than what this section prescribes. Retained unedited as the reasoning of record.
+
 | the spec is standalone-config only | matched at `tests/e2e/standalone.config.ts:36`; **no** match in `playwright.config.ts` |
 | the standalone job precedent | `.github/workflows/modal-header-layout-e2e.yml` runs `pnpm test:e2e:modal-header`; `package.json:52` expands to `playwright test --config=tests/e2e/standalone.config.ts …` |
 | `--duration-fast` is a real token; the Tailwind utility is not | `app/globals.css:223` defines `--duration-fast: 120ms`, `app/globals.css:419` zeroes it under `prefers-reduced-motion`; `grep -c transition-duration-fast app/globals.css` → `0` |

@@ -81,6 +81,20 @@ const BODY_PAD = 16; // mirrors px-4 gutter used on the Step3Review list column
  * the original sweep missed. Shelling out is required because Playwright compiles loaded files
  * with its own JSX factory; see _renderAgendaScheduleHtml.ts.
  */
+/**
+ * KNOWN FIDELITY LIMIT of this harness, stated because a green run here is narrower than it looks.
+ *
+ * The inner block below is the REAL component. The surrounding article/section/ul/li chrome is
+ * still hand-written, and the `li.min-w-0` in it is load-bearing for the long-token overflow
+ * assertion -- so this file can stay green while the ACTUAL admin wrapper overflows. Production
+ * Step 3 renders `AgendaBreakdown` (step3ReviewSections.tsx:3300), which has a modal-chrome branch
+ * this harness does not reproduce.
+ *
+ * Not closed here because `AgendaBreakdown` is "use client" with ~30 hooks, needs a
+ * driveFileId/wizardSessionId, and does an extract POST plus polling; rendering it statically needs
+ * network and provider stubs, which is the unsound path. Filed as
+ * BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY.
+ */
 function agendaScheduleHtml(): string {
   return execFileSync(
     "pnpm",

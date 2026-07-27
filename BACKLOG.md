@@ -598,6 +598,43 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 `app/api/admin/onboarding/scan/route.ts:353` (verified 2026-07-24) emits `{ type: "result", body: { ok: false, code: null } }` to the client on catch (adjacent to the now-forensic-coded `ONBOARDING_SCAN_FAILED` log). The `code:null` is a distinct client-facing surface — arguably warrants a real §12.4 code so the client can catalog-look-up, but that is an expensive 3-way §12.4 change out of scope for the forensic batch. **Fix (when prioritized):** assign a cataloged code + regen `gen:spec-codes` + add the `catalog.ts` row.
 
+### BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY — the admin layout harness hand-writes the wrapper it measures inside
+
+**Status:** OPEN — filed from PR #610 whole-diff review R2 (MEDIUM) · **Severity:** low · **Class:** TEST FIDELITY
+
+`tests/e2e/agendaBreakdown.layout.spec.ts` now renders the real `AgendaScheduleBlock` (PR #610 replaced
+that transcription), but still hand-writes the surrounding `article` / `section` / `ul` / `li.min-w-0`
+chrome. That `min-w-0` is load-bearing for the long-token overflow assertion, so the harness can stay
+green while the ACTUAL admin wrapper overflows. Production Step 3 renders `AgendaBreakdown`
+(`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
+does not reproduce.
+
+**Why PR #610 did not close it.** `AgendaBreakdown` is `"use client"` with ~30 hook usages, requires
+`driveFileId` + `wizardSessionId`, and performs an extract POST plus polling. Rendering it in the
+static harness needs network and provider stubs — the unsound-stub path (a strict stub breaks
+esbuild's named-export resolution; a permissive one is consumable without a call, so render checks go
+blind). Closing this properly means a seeded live-render harness, which is its own change.
+
+**Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
+on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
+was written, which assumed the retired path filter.
+
+**Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
+containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
+
+### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
+
+**Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS
+
+`lib/crew/agendaViewerDays.ts` fails open when labels do not parse, rather than mirroring
+`agendaSessionsForToday`'s four-condition positional fallback. Deliberate: the trigger (`!someDateParsed`)
+does not occur in the 6-PDF corpus, and folding on positional index means folding in the state of least
+knowledge. Full reasoning ratified at
+`docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md` §3 under "RATIFIED AMENDMENT".
+
+**Revisit if** the corpus gains documents with purely positional day labels ("Day 1" / "Day 2") AND a
+viewer reports seeing the whole show expanded when they expected their day marked.
+
 ### BL-PICKER-TAMPER-ADMIN-ALERT — selectIdentity tamper breadcrumb could also raise an `admin_alerts` upsert
 
 **Status:** OPEN — queued as PR5 of the 2026-07-24 residual sweep · **Severity:** low · **Class:** ALERTING GAP
