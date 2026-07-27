@@ -291,16 +291,17 @@ the minimal implementation turns it green, within the step; commit per task)
 
 ### T3 — auditor-on-validation layer (spec §3.2)
 
-1. RED (live validation): new layer in `validation-schema-parity.test.ts` (gated on
+1. RED (tripwire first — plan-R5): extend the attachment tripwire with the **[T3]** rows
+   (`censusInPinnedTx(` positional target; `identityGuardSql()`/`preambleSql` exactly 1 each) —
+   red NOW, because the census layer does not exist yet in the consumer.
+2. RED (live validation): write the layer in `validation-schema-parity.test.ts` (gated on
    `TEST_DATABASE_URL`; `postgres` client; `censusInPinnedTx(client, { preambleSql:
-   [identityGuardSql()] })`). The test imports `EXPECTED_DEV_CENSUS` (compile-red) → declare it
-   EMPTY → run vs live validation → dev-slice set-equality fails with six unexpected tuples
-   (record the red). Manifest floor in the same test: derived expected set NON-EMPTY, then
-   membership via `censusTupleKey`; audit layer `auditDriveIdCoverage(...) → []`.
-2. GREEN: fill the six tuples (§Registry data) → validation run green.
-3. RED→GREEN: extend the attachment tripwire with the **[T3]** rows (`censusInPinnedTx(`
-   positional target; `identityGuardSql()`/`preambleSql` exactly 1 each) — red until this
-   task's census layer is wired as specified, green after (plan-R4 finding 1).
+   [identityGuardSql()] })`), importing `EXPECTED_DEV_CENSUS` (compile-red) → declare it EMPTY.
+   This turns step 1's tripwire green (tokens now present) and produces the recorded
+   behavior-red: dev-slice set-equality fails vs live validation with six unexpected tuples.
+   Manifest floor in the same test: derived expected set NON-EMPTY, then membership via
+   `censusTupleKey`; audit layer `auditDriveIdCoverage(...) → []`.
+3. GREEN: fill the six tuples (§Registry data) → validation run green.
 4. Commit `feat(db): definition-based Drive-ID audit against the validation project`.
 
 ### T4 — behavioral probe registry (spec §3.4)
