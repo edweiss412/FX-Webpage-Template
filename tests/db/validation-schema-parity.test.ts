@@ -370,3 +370,76 @@ describe("validation-schema-parity", () => {
     // (whole-diff finding 7).
   });
 });
+
+// ── Drive-ID audit parity (spec 2026-07-26-driveid-guard-cluster-design §3.2) ─
+// The definition-based layer: run the SAME auditor the local guard runs, against validation,
+// over a census taken in ONE pinned transaction whose first statement is the identity guard.
+// Tuple-keyed, definition-matched, column-substituted — a same-named constraint on another
+// table, or one weakened to CHECK (true), cannot satisfy it (the conname layer above stays as
+// the migration-anchored complement).
+describe("drive-id audit parity (definition-based, vs validation)", () => {
+  it("validation's Drive-ID columns all carry canonical CHECKs; census anchored both ways", async () => {
+    const raw = process.env.TEST_DATABASE_URL;
+    if (raw === undefined) return; // local dev: the local guard suite covers this machine
+    if (raw.trim() === "") {
+      throw new Error(
+        "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+          "registered with an empty value.",
+      );
+    }
+    const postgres = (await import("postgres")).default;
+    const { censusInPinnedTx, censusTupleKey, diffCensusSources, EXPECTED_DEV_CENSUS } =
+      await import("@/tests/db/_censusRunner");
+    const { identityGuardSql } = await import("@/tests/db/_validationTargetIdentity");
+    const { auditDriveIdCoverage, DRIVE_ID_COVERAGE_EXEMPTIONS } = await import(
+      "@/lib/driveIdCoverage/audit"
+    );
+    const client = postgres(raw, { max: 1, connect_timeout: 10, prepare: false });
+    try {
+      const { columns, constraints } = await censusInPinnedTx(client, {
+        preambleSql: [identityGuardSql()],
+      });
+
+      // Anti-vacuity 1 — manifest-derived public membership. The committed manifest is
+      // BASE-TABLE/public introspection with its own layer-1 freshness tripwires; every
+      // manifest column matching the census pattern must appear in validation's census.
+      const manifest: Record<string, string[]> = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+      const expectedPublic = Object.entries(manifest)
+        .filter(([table]) => !table.startsWith("_"))
+        .flatMap(([table, cols]) =>
+          cols
+            .filter((c) => /drive_file_id/.test(c))
+            .map((column) => ({ schema: "public", table, column })),
+        );
+      expect(
+        expectedPublic.length,
+        "a broken derivation regex would empty the expected set and pass vacuously",
+      ).toBeGreaterThan(0);
+      const censusKeys = new Set(columns.map((c) => censusTupleKey(c)));
+      const missingFromCensus = expectedPublic.filter((t) => !censusKeys.has(censusTupleKey(t)));
+      expect(
+        missingFromCensus,
+        "manifest-derived Drive-ID columns absent from the validation census",
+      ).toEqual([]);
+
+      // Anti-vacuity 2 — the dev slice set-equals the committed six-tuple expectation,
+      // both directions (dev is not in the manifest, so the first anchor cannot see it).
+      const devSlice = columns
+        .filter((c) => c.schema === "dev")
+        .map((c) => ({ schema: c.schema, table: c.table, column: c.column }));
+      expect(
+        diffCensusSources(devSlice, EXPECTED_DEV_CENSUS),
+        "validation's dev census does not match the committed expectation",
+      ).toEqual({ onlyA: [], onlyB: [] });
+
+      // The audit itself: zero findings = every census column canonically covered.
+      const findings = auditDriveIdCoverage(columns, constraints, DRIVE_ID_COVERAGE_EXEMPTIONS);
+      expect(
+        findings,
+        `validation Drive-ID coverage findings:\n${findings.map((f) => JSON.stringify(f)).join("\n")}`,
+      ).toEqual([]);
+    } finally {
+      await client.end();
+    }
+  });
+});

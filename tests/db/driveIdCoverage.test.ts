@@ -524,3 +524,18 @@ describe("diffCensusSources", () => {
     expect(diff.onlyB).toEqual([t("dev", "sync_log", "drive_file_id")]);
   });
 });
+
+describe("attachment tripwires — T3 rows (validation census layer)", () => {
+  const src = readFileSync(PARITY_PATH, "utf8");
+  const noImports = stripImports(src);
+
+  test("the validation audit layer runs the census through the guarded pinned tx", () => {
+    // Failure mode: the census layer detaching from the identity guard (running its own
+    // unguarded transaction) or from the shared runner entirely.
+    expect(countOf(noImports, "censusInPinnedTx(")).toBeGreaterThanOrEqual(1);
+    expect(countOf(noImports, "identityGuardSql()")).toBe(1);
+    expect(countOf(noImports, "preambleSql")).toBe(1);
+    const firstIdentity = noImports.indexOf("assertValidationIdentity(");
+    expect(firstIdentity).toBeLessThan(noImports.indexOf("censusInPinnedTx("));
+  });
+});

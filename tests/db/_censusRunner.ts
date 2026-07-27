@@ -106,3 +106,18 @@ export async function censusInPinnedTx(
     };
   });
 }
+
+/**
+ * The validation project's expected `dev`-slice census (spec §3.2, R1-3). Hand-maintained,
+ * set-equality both directions: a missing tuple is drift (a migration that never reached
+ * validation); a NEW tuple is red until this list is extended in a reviewed diff. Same
+ * committed-expectation class as PUBLIC_NONBLANK_TABLES and the CHECK layer's lockstep count.
+ */
+export const EXPECTED_DEV_CENSUS: CensusTuple[] = [
+  { schema: "dev", table: "pending_ingestions", column: "drive_file_id" },
+  { schema: "dev", table: "pending_syncs", column: "drive_file_id" },
+  { schema: "dev", table: "shows", column: "drive_file_id" },
+  { schema: "dev", table: "shows", column: "opening_reel_drive_file_id" },
+  { schema: "dev", table: "sync_audit", column: "drive_file_id" },
+  { schema: "dev", table: "sync_log", column: "drive_file_id" },
+];
