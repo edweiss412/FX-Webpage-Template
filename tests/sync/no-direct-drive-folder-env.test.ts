@@ -1,13 +1,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const ROOT = process.cwd();
 const ALLOWED_HELPER = "lib/appSettings/getWatchedFolderId.ts";
-
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-}
 
 function collectSourceFiles(relDir: string): string[] {
   const absDir = join(ROOT, relDir);
@@ -26,7 +23,7 @@ describe("drive folder configuration source of truth", () => {
     const offenders = [...collectSourceFiles("app"), ...collectSourceFiles("lib")]
       .filter((rel) => rel !== ALLOWED_HELPER)
       .flatMap((rel) => {
-        const src = stripComments(readFileSync(join(ROOT, rel), "utf8"));
+        const src = stripCommentsForFile(readFileSync(join(ROOT, rel), "utf8"), rel);
         const matches = [
           ...src.matchAll(
             /process\.env\.(?:GOOGLE_DRIVE_FOLDER_ID|DRIVE_FOLDER_ID)\b|process\.env\[['"](?:GOOGLE_DRIVE_FOLDER_ID|DRIVE_FOLDER_ID)['"]\]/g,

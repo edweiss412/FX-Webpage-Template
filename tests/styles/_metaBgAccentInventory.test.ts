@@ -17,7 +17,7 @@
 // fails as a stale row. Never reconcile by loosening the matcher.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { stripComments, tokensOf, walk } from "./_classScanUtils";
+import { stripCommentsForFile, tokensOf, walk } from "./_classScanUtils";
 
 type Disposition = "labeled" | "edge-treated" | "darkened-fill" | "redundant-glyph" | "decorative";
 type Row = { file: string; index: number; context: string; disposition: Disposition };
@@ -133,7 +133,7 @@ describe("META bg-accent per-occurrence disposition registry (spec §4.1b)", () 
     for (const root of ["components", "app"]) {
       for (const file of walk(root)) {
         let n = 0;
-        stripComments(readFileSync(file, "utf8"))
+        stripCommentsForFile(readFileSync(file, "utf8"), file)
           .split("\n")
           .forEach((line, i) => {
             for (const tok of tokensOf(line)) {

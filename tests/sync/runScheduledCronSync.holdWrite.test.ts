@@ -6,6 +6,7 @@
  * in the SAME txn, with the held email pinned. Plus the structural no-lock-taking-RPC guard.
  */
 import { readdirSync, readFileSync } from "node:fs";
+import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
 
 import postgres, { type Sql } from "postgres";
@@ -124,10 +125,7 @@ describe("Task 2.3 — wire mi11 hold write into the apply path", () => {
       if (file === PHASE3_GATE_RPC_MIGRATION) continue; // Phase-3-owned, pinned elsewhere
       if (file === PHASE4_UNDO_RPC_MIGRATION) continue; // Phase-4-owned, pinned elsewhere
       // Strip SQL line-comments so prose mentioning "create function" / the lock does not match.
-      const text = readFileSync(join(dir, file), "utf8")
-        .split("\n")
-        .map((line) => line.replace(/--.*$/, ""))
-        .join("\n");
+      const text = stripSqlComments(readFileSync(join(dir, file), "utf8"));
       // A real lock-taking RPC: a `create ... function` whose body takes pg_advisory_xact_lock.
       if (/create\s+(or\s+replace\s+)?function[\s\S]*pg_advisory_xact_lock/i.test(text)) {
         offenders.push(file);

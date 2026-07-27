@@ -16,7 +16,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { walk, stripComments, stripCommentsForFile, tokensOf } from "./_classScanUtils";
+import { walk, stripCommentsForFile, tokensOf } from "./_classScanUtils";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 // Utilities whose Tailwind namespace is backed by --color-*.
@@ -57,7 +57,7 @@ describe("META no double-prefix color utility (silent dead class)", () => {
       "{/* a JSX comment mentioning text-subtle must NOT be scanned */}",
       'const b = <div className="bg-surface" />;',
     ].join("\n");
-    const out = stripComments(sample);
+    const out = stripCommentsForFile(sample, "x.tsx");
     expect(out, "live code after the path was swallowed").toContain("text-text-strong");
     expect(out, "live code after a JSX comment was swallowed").toContain("bg-surface");
     expect(out, "a JSX comment body was scanned as code").not.toContain("text-subtle");
@@ -66,11 +66,11 @@ describe("META no double-prefix color utility (silent dead class)", () => {
      * "not preceded by :" rule read it as a line comment and truncated the rest of the
      * line — hiding exactly the dead class this guard exists to find. */
     expect(
-      stripComments('<a href="//cdn/x" className="text-subtle" />'),
+      stripCommentsForFile('<a href="//cdn/x" className="text-subtle" />', "x.tsx"),
       "a protocol-relative URL was mistaken for a line comment",
     ).toContain("text-subtle");
     expect(
-      stripComments('const a = 1; // href="//cdn/x" text-subtle'),
+      stripCommentsForFile('const a = 1; // href="//cdn/x" text-subtle', "x.ts"),
       "a real line comment was not removed",
     ).not.toContain("text-subtle");
 
@@ -79,7 +79,7 @@ describe("META no double-prefix color utility (silent dead class)", () => {
      * `https:` and hid every class after it. Both defenses are needed, so both are
      * pinned. */
     expect(
-      stripComments('[CDN](https://cdn/x) <span className="text-subtle" />'),
+      stripCommentsForFile('[CDN](https://cdn/x) <span className="text-subtle" />', "a/page.mdx"),
       "an unquoted URL was mistaken for a line comment",
     ).toContain("text-subtle");
     expect(
