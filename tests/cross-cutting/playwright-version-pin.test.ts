@@ -88,7 +88,7 @@ describe("every workflow referencing the pinned Playwright image matches the ins
         }
       });
 
-      it("runs the image at least once, and every such docker run block pins linux/amd64", () => {
+      it("runs the image at least once, and every such docker run block pins linux/amd64 and the exact tag", () => {
         const blocks = [...yaml.matchAll(DOCKER_BLOCK_RE)]
           .map((m) => m[0])
           .filter((b) => b.includes(IMAGE_MARKER));
@@ -101,6 +101,14 @@ describe("every workflow referencing the pinned Playwright image matches the ins
             block,
             `${file}: a docker run of the pinned image is missing --platform linux/amd64`,
           ).toContain("--platform linux/amd64");
+          // The EXACT installed tag inside the block itself (whole-diff R2):
+          // the global reference check above cannot stop one invocation
+          // drifting to :latest or a variable while a valid tag survives in
+          // prose elsewhere in the file.
+          expect(
+            block,
+            `${file}: a docker run block must name the exact pinned tag v${installed}-jammy`,
+          ).toContain(`${IMAGE_MARKER}:v${installed}-jammy`);
         }
       });
     });
