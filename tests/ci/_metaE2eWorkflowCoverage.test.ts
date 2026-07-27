@@ -57,6 +57,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
     "runs in dev-gate-e2e.yml, which is workflow_dispatch + DAILY SCHEDULE (2026-07-26). A schedule is not PR-blocking-capable per the scanner contract, so this row stays — but the spec is no longer unrun: a break is now bounded to 24h instead of until someone remembers to dispatch. Three serialized cold builds make a per-PR trigger too heavy; ratified B1-D4. BL-DEV-GATE-GALLERY-SPEC-ROT",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
+  "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,

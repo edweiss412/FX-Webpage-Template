@@ -127,6 +127,9 @@ const BACKLOG_GRADUATED = [
   // feat/picker-tamper-alert (2026-07-27, PR #623): PR5 of the same sweep — the tamper
   // breadcrumb now raises a global admin alert.
   { id: "BL-PICKER-TAMPER-ADMIN-ALERT", provenance: "feat/picker-tamper-alert" },
+  // test/alert-action-links-e2e (2026-07-27): PR6, the last of the sweep — live-app
+  // e2e over every registered alert action link.
+  { id: "BL-ALERT-ACTION-LINKS-E2E", provenance: "test/alert-action-links-e2e" },
   // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
