@@ -539,3 +539,123 @@ describe("attachment tripwires — T3 rows (validation census layer)", () => {
     expect(firstIdentity).toBeLessThan(noImports.indexOf("censusInPinnedTx("));
   });
 });
+
+// ─── T4: probe-registry hygiene auditor (spec §3.4) ─────────────────────────
+import { auditProbeRegistry, type ProbeRegistryRow } from "@/tests/db/_censusRunner";
+
+const CENSUS_COL = { schema: "public", table: "shows", column: "drive_file_id", nullable: false };
+const CENSUS_CON = {
+  schema: "public",
+  table: "shows",
+  name: "shows_drive_file_id_nonblank",
+  definition: canonicalBare("drive_file_id"),
+};
+const GOOD_ROW: ProbeRegistryRow = {
+  schema: "public",
+  table: "shows",
+  column: "drive_file_id",
+  nullable: false,
+  constraintName: "shows_drive_file_id_nonblank",
+  siblings: "slug",
+  siblingValues: "'s'",
+};
+
+function probeAudit(over: {
+  censusColumns?: (typeof CENSUS_COL)[];
+  censusConstraints?: (typeof CENSUS_CON)[];
+  probes?: ProbeRegistryRow[];
+  exemptions?: { schema: string; table: string; column: string; reason: string }[];
+}) {
+  return auditProbeRegistry({
+    censusColumns: over.censusColumns ?? [CENSUS_COL],
+    censusConstraints: over.censusConstraints ?? [CENSUS_CON],
+    probes: over.probes ?? [GOOD_ROW],
+    exemptions: over.exemptions ?? [],
+  });
+}
+
+describe("auditProbeRegistry — per-kind negative controls", () => {
+  test("a fully-consistent registry yields zero findings", () => {
+    expect(probeAudit({})).toEqual([]);
+  });
+
+  test("unprobed_tuple — a census column with no probe row and no exemption", () => {
+    expect(probeAudit({ probes: [] })).toEqual([
+      expect.objectContaining({ kind: "unprobed_tuple" }),
+    ]);
+  });
+
+  test("stale_probe — a registry row for a tuple the census does not return", () => {
+    const stale: ProbeRegistryRow = { ...GOOD_ROW, table: "gone_table" };
+    expect(probeAudit({ probes: [GOOD_ROW, stale] })).toEqual([
+      expect.objectContaining({ kind: "stale_probe" }),
+    ]);
+  });
+
+  test("constraint_mismatch — the claimed name is absent from the claimed table", () => {
+    const wrongName: ProbeRegistryRow = { ...GOOD_ROW, constraintName: "no_such_constraint" };
+    expect(probeAudit({ probes: [wrongName] })).toEqual([
+      expect.objectContaining({ kind: "constraint_mismatch" }),
+    ]);
+  });
+
+  test("constraint_mismatch — a right-named constraint with a NON-CANONICAL definition", () => {
+    // Failure mode: `…_nonblank` renamed onto CHECK (true) — declaration theater.
+    const weakened = { ...CENSUS_CON, definition: "CHECK (true)" };
+    expect(probeAudit({ censusConstraints: [weakened] })).toEqual([
+      expect.objectContaining({ kind: "constraint_mismatch" }),
+    ]);
+  });
+
+  test("nullable_mismatch — a row lying about nullability", () => {
+    const lying: ProbeRegistryRow = { ...GOOD_ROW, nullable: true };
+    // The claimed-nullable form is canonicalNullable; census says NOT NULL with bare form.
+    expect(probeAudit({ probes: [lying] })).toEqual([
+      expect.objectContaining({ kind: "nullable_mismatch" }),
+    ]);
+  });
+
+  test("empty_reason / duplicate_exemption / stale_exemption — exemption hygiene", () => {
+    const ex = (over: object) => ({
+      schema: "public",
+      table: "other",
+      column: "drive_file_id",
+      reason: "documented",
+      ...over,
+    });
+    expect(
+      probeAudit({ exemptions: [ex({ reason: "   " })] }).map((f) => f.kind),
+    ).toContain("empty_reason");
+    expect(
+      probeAudit({ exemptions: [ex({}), ex({})] }).map((f) => f.kind),
+    ).toContain("duplicate_exemption");
+    expect(probeAudit({ exemptions: [ex({})] }).map((f) => f.kind)).toContain("stale_exemption");
+  });
+
+  test("probe_exemption_overlap — a tuple in BOTH lists is red (R1-4)", () => {
+    const overlap = {
+      schema: "public",
+      table: "shows",
+      column: "drive_file_id",
+      reason: "documented",
+    };
+    expect(probeAudit({ exemptions: [overlap] }).map((f) => f.kind)).toContain(
+      "probe_exemption_overlap",
+    );
+  });
+});
+
+describe("attachment tripwires — probes suite CI posture", () => {
+  test("driveFileIdNonblank.db.test.ts adopts unreachableDbFailure at module scope", async () => {
+    // Failure mode: the completeness guard's suite silently skipping in CI — removing the
+    // fail-not-skip call leaves healthy runs green and outages invisible (spec §3.4).
+    // Comments are STRIPPED first (the shared safe helper): a commented-out call must not
+    // satisfy this scan — that is BL-STRIPCOMMENTS' fail-open class, measured live here.
+    const { stripCommentsForFile } = await import("@/tests/_shared/stripComments");
+    const path = "tests/db/driveFileIdNonblank.db.test.ts";
+    const src = stripCommentsForFile(readFileSync(path, "utf8"), path);
+    const noImports = stripImports(src);
+    expect(countOf(noImports, "unreachableDbFailure(")).toBe(1);
+    expect(noImports).toContain("if (ciFailure) throw ciFailure;");
+  });
+});

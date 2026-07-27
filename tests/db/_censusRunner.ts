@@ -121,3 +121,114 @@ export const EXPECTED_DEV_CENSUS: CensusTuple[] = [
   { schema: "dev", table: "sync_audit", column: "drive_file_id" },
   { schema: "dev", table: "sync_log", column: "drive_file_id" },
 ];
+
+// ─── Probe-registry hygiene (spec §3.4) ─────────────────────────────────────
+
+import { canonicalBare, canonicalNullable } from "@/lib/driveIdCoverage/audit";
+
+export type ProbeRegistryRow = {
+  schema: "public" | "dev";
+  table: string;
+  column: string;
+  nullable: boolean;
+  /** The canonical CHECK this probe exercises — verified live, and the rejection must cite it. */
+  constraintName: string;
+  /** Column-list fragment for the NOT NULL siblings (plus ported extras). */
+  siblings: string;
+  /** Values fragment for those siblings (SQL literals/functions). */
+  siblingValues: string;
+  /** Optional in-tx parent insert (FK targets); rolled back with everything else. */
+  setup?: string;
+};
+
+export type ProbeExemption = { schema: string; table: string; column: string; reason: string };
+
+export type ProbeRegistryFinding =
+  | { kind: "unprobed_tuple"; tuple: CensusTuple }
+  | { kind: "stale_probe"; tuple: CensusTuple }
+  | { kind: "constraint_mismatch"; tuple: CensusTuple; detail: string }
+  | { kind: "nullable_mismatch"; tuple: CensusTuple; claimed: boolean }
+  | { kind: "empty_reason"; exemption: ProbeExemption }
+  | { kind: "duplicate_exemption"; key: string }
+  | { kind: "stale_exemption"; exemption: ProbeExemption }
+  | { kind: "probe_exemption_overlap"; key: string };
+
+/**
+ * PURE hygiene auditor for the behavioral-probe registry: census ⊆ probes ∪ exemptions, no
+ * stale rows in either list, every row's constraint claim verified against the LIVE constraint
+ * set (name on the claimed table AND definition exactly the canonical rendering for the claimed
+ * column + nullability), and the two lists disjoint. Mirrors auditDriveIdCoverage's pure split
+ * so every branch is exercisable with synthetic input.
+ */
+export function auditProbeRegistry(input: {
+  censusColumns: readonly (CensusTuple & { nullable: boolean })[];
+  censusConstraints: readonly DriveIdConstraint[];
+  probes: readonly ProbeRegistryRow[];
+  exemptions: readonly ProbeExemption[];
+}): ProbeRegistryFinding[] {
+  const findings: ProbeRegistryFinding[] = [];
+  const censusByKey = new Map(input.censusColumns.map((c) => [censusTupleKey(c), c]));
+  const probeKeys = new Set(input.probes.map((p) => censusTupleKey(p)));
+
+  // exemption hygiene (auditDriveIdCoverage's rules + the overlap rule, R1-4)
+  const seen = new Set<string>();
+  const exemptKeys = new Set<string>();
+  for (const e of input.exemptions) {
+    const k = censusTupleKey(e);
+    if (e.reason.trim() === "") findings.push({ kind: "empty_reason", exemption: e });
+    if (seen.has(k)) {
+      findings.push({ kind: "duplicate_exemption", key: k });
+      continue;
+    }
+    seen.add(k);
+    exemptKeys.add(k);
+    if (probeKeys.has(k)) findings.push({ kind: "probe_exemption_overlap", key: k });
+    if (e.reason.trim() !== "" && !censusByKey.has(k)) {
+      findings.push({ kind: "stale_exemption", exemption: e });
+    }
+  }
+
+  for (const p of input.probes) {
+    const k = censusTupleKey(p);
+    const censusCol = censusByKey.get(k);
+    if (censusCol === undefined) {
+      findings.push({ kind: "stale_probe", tuple: { schema: p.schema, table: p.table, column: p.column } });
+      continue;
+    }
+    if (censusCol.nullable !== p.nullable) {
+      findings.push({
+        kind: "nullable_mismatch",
+        tuple: { schema: p.schema, table: p.table, column: p.column },
+        claimed: p.nullable,
+      });
+    }
+    const live = input.censusConstraints.find(
+      (c) => c.schema === p.schema && c.table === p.table && c.name === p.constraintName,
+    );
+    const expected = censusCol.nullable ? canonicalNullable(p.column) : canonicalBare(p.column);
+    if (live === undefined) {
+      findings.push({
+        kind: "constraint_mismatch",
+        tuple: { schema: p.schema, table: p.table, column: p.column },
+        detail: `no constraint named ${p.constraintName} on ${p.schema}.${p.table}`,
+      });
+    } else if (live.definition !== expected) {
+      findings.push({
+        kind: "constraint_mismatch",
+        tuple: { schema: p.schema, table: p.table, column: p.column },
+        detail: `${p.constraintName} renders as ${live.definition}, expected ${expected}`,
+      });
+    }
+  }
+
+  for (const c of input.censusColumns) {
+    const k = censusTupleKey(c);
+    if (!probeKeys.has(k) && !exemptKeys.has(k)) {
+      findings.push({
+        kind: "unprobed_tuple",
+        tuple: { schema: c.schema, table: c.table, column: c.column },
+      });
+    }
+  }
+  return findings;
+}
