@@ -83,6 +83,7 @@ export default defineConfig({
   testMatch:
     /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|agendaBreakdown\.layout|step3-review-modal\.layout|step3-review-modal\.interactions|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout)\.spec\.ts/,
   timeout: 120_000,
+  repeatEach: process.env.GITHUB_ACTIONS === "true" ? 2 : 1,
   fullyParallel: false,
   workers: 1,
   // The json reporter's report is what the CI post-run baseline comparison
