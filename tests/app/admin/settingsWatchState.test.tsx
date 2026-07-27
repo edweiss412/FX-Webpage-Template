@@ -51,7 +51,7 @@ vi.mock("@/lib/admin/embeddedAdminEmails", () => ({
 }));
 vi.mock("@/lib/appSettings/getSettingsPageFlags", () => ({
   getSettingsPageFlags: vi.fn(async () => ({
-    kind: "ok" as const,
+    kind: "value" as const,
     autoPublishCleanFirstSeen: false,
     alertOnSyncProblems: true,
     dailyReviewDigest: true,

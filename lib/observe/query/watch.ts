@@ -70,14 +70,14 @@ export async function queryWatchChannels(filters: WatchFilters): Promise<QueryWa
     // alphabetical order could push the currently-failing folder past the cap.
     let stateData: unknown;
     try {
-      const stateRes = await supabase
+      const { data: stateRows_, error: stateError } = await supabase
         .from("drive_watch_reconcile_state")
         .select(STATE_SELECT)
         .order("updated_at", { ascending: false })
         .limit(50);
-      if (stateRes.error)
+      if (stateError)
         return { kind: "infra_error", message: "drive_watch_reconcile_state read failed" };
-      stateData = stateRes.data;
+      stateData = stateRows_;
     } catch {
       return { kind: "infra_error", message: "drive_watch_reconcile_state read threw" };
     }
