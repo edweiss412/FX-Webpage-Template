@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -14,7 +15,7 @@ const routeSrcRaw = readFileSync(
   ),
   "utf8",
 );
-const routeSrc = routeSrcRaw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const routeSrc = stripCommentsForFile(routeSrcRaw, "app/api/admin/onboarding/finalize/route.ts");
 
 describe("finalize route performs no Drive XLSX export", () => {
   it("does not reference the Drive export / anchor-compute functions in code", () => {
