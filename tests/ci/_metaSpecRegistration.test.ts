@@ -250,16 +250,97 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * One collector for both shapes so the census universe cannot silently
  * exclude local actions the workflows `uses:` (R7 F4 — the PLAYWRIGHT_
  * raw-text sweep already treats .github/actions as execution surface).
+ * `guarded` marks a block whose step (or containing job) carries `if:` —
+ * conditionally executed regardless of shell content (R9 G1).
  */
-export function runBlocksOf(doc: unknown): string[] {
-  const out: string[] = [];
-  const jobs = (doc as { jobs?: Record<string, { steps?: Array<{ run?: unknown }> }> })?.jobs;
+export type RunBlock = { run: string; guarded: boolean };
+export function runBlocksOf(doc: unknown): RunBlock[] {
+  const out: RunBlock[] = [];
+  const jobs = (
+    doc as {
+      jobs?: Record<string, { if?: unknown; steps?: Array<{ run?: unknown; if?: unknown }> }>;
+    }
+  )?.jobs;
   for (const j of Object.values(jobs ?? {})) {
-    for (const s of j.steps ?? []) if (typeof s.run === "string") out.push(s.run);
+    for (const s of j.steps ?? []) {
+      if (typeof s.run === "string")
+        out.push({ run: s.run, guarded: s.if !== undefined || j.if !== undefined });
+    }
   }
-  const actionSteps = (doc as { runs?: { steps?: Array<{ run?: unknown }> } })?.runs?.steps;
-  for (const s of actionSteps ?? []) if (typeof s.run === "string") out.push(s.run);
+  const actionSteps = (doc as { runs?: { steps?: Array<{ run?: unknown; if?: unknown }> } })?.runs
+    ?.steps;
+  for (const s of actionSteps ?? []) {
+    if (typeof s.run === "string") out.push({ run: s.run, guarded: s.if !== undefined });
+  }
   return out;
+}
+
+/**
+ * Bash removes a backslash-newline PAIR without inserting a space (R6) —
+ * logical lines are the shell's parse unit, so the census AND the closure's
+ * registry seeding must join identically (R9 G3 pinned a physical/logical
+ * divergence between them).
+ */
+export function logicalLinesOf(text: string): Array<{ line: string; continued: boolean }> {
+  const out: Array<{ line: string; continued: boolean }> = [];
+  const rawLines = text.split(/\r?\n/);
+  for (let i = 0; i < rawLines.length; i++) {
+    let line = rawLines[i] ?? "";
+    let continued = false;
+    while (/\\$/.test(line) && i + 1 < rawLines.length) {
+      line = line.slice(0, -1) + (rawLines[++i] ?? "");
+      continued = true;
+    }
+    out.push({ line, continued });
+  }
+  return out;
+}
+
+/**
+ * Whitespace collapse OUTSIDE quotes only (R9 G4): inside single/double
+ * quotes every character is semantic — `-g "a  b"` and `-g "a b"` name
+ * DIFFERENT greps, so a registry key must never match across them.
+ * Backslash escapes the next character everywhere except inside single
+ * quotes (bash semantics).
+ */
+export function normalizeInvocation(s: string): string {
+  let out = "";
+  let ws = false;
+  let quote: string | null = null;
+  let escaped = false;
+  for (const ch of s.trim()) {
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (quote !== "'" && ch === "\\") {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      out += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      out += ch;
+      ws = false;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (!ws) {
+        out += " ";
+        ws = true;
+      }
+      continue;
+    }
+    out += ch;
+    ws = false;
+  }
+  return out.trimEnd();
 }
 
 const escRe = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -304,9 +385,10 @@ export function transitivePwScriptNames(
   scripts: Record<string, string>,
   complexRegistry: Record<string, readonly string[]> = {},
 ): string[] {
-  const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
   const registryInvokes = (body: string) =>
-    body.split(/\r?\n/).some((l) => (complexRegistry[normalize(l)]?.length ?? 0) > 0);
+    logicalLinesOf(body).some(
+      ({ line }) => (complexRegistry[normalizeInvocation(line)]?.length ?? 0) > 0,
+    );
   const names = Object.keys(scripts).filter(
     (n) => /\bplaywright\s+test\b/.test(scripts[n] ?? "") || registryInvokes(scripts[n] ?? ""),
   );
@@ -322,7 +404,7 @@ export function transitivePwScriptNames(
 }
 
 export function censusInvocations(
-  texts: string[],
+  texts: Array<string | { text: string; guarded?: boolean }>,
   pwScriptNames: string[],
   complexRegistry: Record<string, readonly string[]> = {},
 ): { invoked: Set<string>; problems: string[] } {
@@ -361,10 +443,28 @@ export function censusInvocations(
     }
     return null;
   };
-  const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
   const usedKeys = new Set<string>();
+  const routeRegistry = (line: string, why: string) => {
+    const key = normalizeInvocation(line);
+    const declared = complexRegistry[key];
+    if (declared === undefined) {
+      problems.push(
+        `complex shell construct (${why}) — declare it in the complex-invocation registry: ${key}`,
+      );
+    } else {
+      usedKeys.add(key);
+      for (const c of declared) invoked.add(c);
+    }
+  };
+  // Shell control flow makes EXECUTION of any line state-dependent in ways a
+  // line-classifier cannot model — a dead `playwright test --config x` would
+  // still record x (R9 G1).
+  const controlFlowRe =
+    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\(\)\s*\{|(?:^|\s|;)(?:exit|return)\b/;
   const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
-  for (const raw of texts) {
+  for (const item of texts) {
+    const raw = typeof item === "string" ? item : item.text;
+    const guarded = typeof item !== "string" && item.guarded === true;
     if (fuzzy.test(raw) && raw.includes("<<")) {
       problems.push(`heredoc in a text mentioning playwright: ${raw.slice(0, 120)}`);
       continue;
@@ -377,17 +477,15 @@ export function censusInvocations(
     // continuation is a complex construct, so it takes the registry path
     // below (registered docker/regen lines keep matching — their
     // pre-backslash spaces survive the join and normalize to the same key).
-    const logical: Array<{ line: string; continued: boolean }> = [];
-    const rawLines = raw.split(/\r?\n/);
-    for (let i = 0; i < rawLines.length; i++) {
-      let line = rawLines[i] ?? "";
-      let continued = false;
-      while (/\\$/.test(line) && i + 1 < rawLines.length) {
-        line = line.slice(0, -1) + (rawLines[++i] ?? "");
-        continued = true;
-      }
-      logical.push({ line, continued });
-    }
+    const logical = logicalLinesOf(raw);
+    // An if:-guarded step is conditionally executed regardless of shell
+    // content; in-text control flow conditions every playwright line in the
+    // SAME text (R9 G1). Either way: registry-or-loud, never auto-classified.
+    const contextWhy = guarded
+      ? "if:-guarded step"
+      : logical.some(({ line }) => controlFlowRe.test(line))
+        ? "shell control-flow context"
+        : null;
     for (const { line, continued } of logical) {
       if (/^\s*#/.test(line)) continue;
       const forwarded = fwd?.exec(line);
@@ -396,13 +494,25 @@ export function censusInvocations(
         continue;
       }
       if (!fuzzy.test(line) && !fuzzy.test(reduceBraces(line))) {
+        const flagCount = configFlags(line).length;
+        // R9 G2: a config flag whose target command/script is COMPOSED at
+        // runtime ($VAR/backtick expansion, or a quoted script token a
+        // literal compare misses) can invoke playwright while mentioning it
+        // nowhere. Registry-or-loud.
+        if (
+          flagCount > 0 &&
+          (/[$`]/.test(line) || (/['"]/.test(line) && /\b(?:pnpm|npm|yarn|bun)\b/.test(line)))
+        ) {
+          routeRegistry(line, "config flag with a runtime-composed target");
+          continue;
+        }
         // Runner GLOBAL options before the script name (`pnpm --silent
         // test:e2e --config x`) defeat the strict forwarding regex above
         // while still forwarding the flag into a playwright invocation (R6).
         if (
-          configFlags(line).length > 0 &&
+          flagCount > 0 &&
           /\b(?:pnpm|npm|yarn|bun)\b/.test(line) &&
-          line.split(/\s+/).some((t) => pwScriptNames.includes(t))
+          line.split(/\s+/).some((t) => pwScriptNames.includes(t.replace(/^['"]|['"]$/g, "")))
         ) {
           problems.push(
             `config flag on a runner line naming a playwright-wrapping script: ${line.trim()}`,
@@ -410,21 +520,13 @@ export function censusInvocations(
         }
         continue;
       }
-      const why = complexRe.test(line)
-        ? "quote/backslash/$/backtick"
-        : (suspicion(line) ?? (continued ? "backslash-newline continuation" : null));
+      const why =
+        (complexRe.test(line) ? "quote/backslash/$/backtick" : null) ??
+        suspicion(line) ??
+        (continued ? "backslash-newline continuation" : null) ??
+        contextWhy;
       if (why) {
-        const key = normalize(line);
-        const declared = complexRegistry[key];
-        if (declared === undefined) {
-          problems.push(
-            `complex shell construct (${why}) on a playwright-adjacent ` +
-              `line — declare it in the complex-invocation registry: ${key}`,
-          );
-        } else {
-          usedKeys.add(key);
-          for (const c of declared) invoked.add(c);
-        }
+        routeRegistry(line, why);
         continue;
       }
       if (!mentionsRe.test(line)) continue;
@@ -623,6 +725,11 @@ describe("spec registration detector (spec §3.1)", () => {
       ["playwright.config.ts"],
     'pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on':
       ["playwright.config.ts"],
+    // The plain branch of the same if/fi step (lifecycle-layout-e2e.yml):
+    // in-text control flow forces every playwright line in that run block
+    // through the registry (R9 G1).
+    "pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts":
+      ["playwright.config.ts"],
     'docker run --rm --platform linux/amd64 --network host -v "$PWD:/work" -w /work -e CI=true mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"':
       [],
     'git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)" -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner after the M12.2 B1 /admin chrome redesign (screenshots-regen workflow_dispatch job), so the bytes match the screenshots-drift gate capture environment."':
@@ -728,6 +835,37 @@ describe("spec registration detector (spec §3.1)", () => {
     loudAndDark("exit 0; playwright test --config ghost.ts");
     loudAndDark("[ -f cfg ] && playwright test --config ghost.ts");
     loudAndDark("playwright\u00A0test --config ghost.ts");
+    // R9 G1: CROSS-LINE control flow \u2014 an earlier exit, an if/fi block, or
+    // an uncalled function makes a later playwright line dead while a
+    // line-classifier still records its config.
+    loudAndDark("exit 0\nplaywright test --config ghost.ts");
+    loudAndDark("if false; then\n  playwright test --config ghost.ts\nfi");
+    loudAndDark("dead() {\n  playwright test --config ghost.ts\n}");
+    // R9 G1: a step guarded by `if:` is conditionally executed regardless of
+    // its shell content.
+    {
+      const g = censusInvocations(
+        [{ text: "playwright test --config ghost.ts", guarded: true }],
+        [],
+      );
+      expect(g.problems).not.toEqual([]);
+      expect(g.invoked.size).toBe(0);
+    }
+    // R9 G2: runtime-composed command/script targets \u2014 expansion or quoting
+    // hides the invocation from every literal scan while a config flag rides
+    // along.
+    loudAndDark("PW=playwright\n$PW test --config ghost.ts");
+    loudAndDark('pnpm "test:e2e" --config ghost.ts', ["test:e2e"]);
+    loudAndDark("S=test:e2e\npnpm $S --config ghost.ts", ["test:e2e"]);
+    // R9 G4: whitespace INSIDE quotes is semantic \u2014 a registry key must not
+    // match a source line whose quoted content differs by spacing.
+    {
+      const key = 'playwright test -g "a b" --config known.ts';
+      const src = 'playwright test -g "a  b" --config known.ts';
+      const r = censusInvocations([src], [], { [key]: ["known.ts"] });
+      expect(r.problems).not.toEqual([]);
+      expect([...r.invoked]).not.toContain("known.ts");
+    }
     // Unconditional && chains stay classifiable — the prior command failing
     // fails the step loudly; there is no silent-skip path.
     expect(c("corepack enable && playwright test --config real.ts").problems).toEqual([]);
@@ -753,12 +891,20 @@ describe("spec registration detector (spec §3.1)", () => {
     // textually contains (`uses: ./.github/actions/...`) — the PLAYWRIGHT_
     // raw-text sweep already treats actions as execution surface; the census
     // must see the same universe or the two guards disagree.
-    const wfDoc = parse("jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y\n");
+    const wfDoc = parse(
+      "jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y\n      - run: echo guarded-step\n        if: failure()\n",
+    );
     const actionDoc = parse(
       "name: setup\nruns:\n  using: composite\n  steps:\n    - run: echo action-step\n      shell: bash\n",
     );
-    expect(runBlocksOf(wfDoc)).toEqual(["echo wf-step"]);
-    expect(runBlocksOf(actionDoc)).toEqual(["echo action-step"]);
+    expect(runBlocksOf(wfDoc)).toEqual([
+      { run: "echo wf-step", guarded: false },
+      { run: "echo guarded-step", guarded: true },
+    ]);
+    expect(runBlocksOf(actionDoc)).toEqual([{ run: "echo action-step", guarded: false }]);
+    // Job-level if: guards every step in the job (R9 G1).
+    const guardedJob = parse("jobs:\n  j:\n    if: false\n    steps:\n      - run: echo x\n");
+    expect(runBlocksOf(guardedJob)).toEqual([{ run: "echo x", guarded: true }]);
   });
 
   it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {
@@ -806,24 +952,56 @@ describe("spec registration detector (spec §3.1)", () => {
     const r = censusInvocations(["pnpm wrap --config ghost.ts"], names);
     expect(r.problems).not.toEqual([]);
     expect(r.invoked.size).toBe(0);
+    // R9 G3: registry seeding must join LOGICAL lines exactly as the census
+    // does — a registered continuation body is a seed too.
+    const contNames = transitivePwScriptNames(
+      { reg: "playwright \\\ntest --config known.ts", wrap: "pnpm reg" },
+      { "playwright test --config known.ts": ["known.ts"] },
+    );
+    expect([...contNames].sort()).toEqual(["reg", "wrap"]);
   });
 
   it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const scripts = pkg.scripts as Record<string, string>;
-    const texts: string[] = Object.values(scripts);
+    const texts: Array<string | { text: string; guarded?: boolean }> = Object.values(scripts);
+    const usedActionDirs = new Set<string>();
     const wfDir = join(ROOT, ".github", "workflows");
     for (const wfPath of readdirSync(wfDir).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
     )) {
-      texts.push(...runBlocksOf(parse(readFileSync(join(wfDir, wfPath), "utf8"))));
+      const doc = parse(readFileSync(join(wfDir, wfPath), "utf8"));
+      texts.push(...runBlocksOf(doc).map((b) => ({ text: b.run, guarded: b.guarded })));
+      for (const j of Object.values(
+        ((doc.jobs ?? {}) as Record<string, { steps?: Array<{ uses?: unknown }> }>) ?? {},
+      )) {
+        for (const s of j.steps ?? []) {
+          if (typeof s.uses === "string" && s.uses.startsWith("./")) usedActionDirs.add(s.uses);
+        }
+      }
     }
     // Local composite actions execute run blocks no workflow file textually
-    // contains — same universe, same census (R7 F4).
+    // contains — same universe, same census (R7 F4). An action NO workflow
+    // references cannot legitimately register a playwright invocation — its
+    // contributions would be dead text posing as live surface (R9 G1).
     for (const p of walkFiles(join(ROOT, ".github", "actions")).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
     )) {
-      texts.push(...runBlocksOf(parse(readFileSync(p, "utf8"))));
+      const actionDir = `./${relative(ROOT, p)
+        .split(sep)
+        .join("/")
+        .replace(/\/[^/]+$/, "")}`;
+      const blocks = runBlocksOf(parse(readFileSync(p, "utf8")));
+      if (usedActionDirs.has(actionDir)) {
+        texts.push(...blocks.map((b) => ({ text: b.run, guarded: b.guarded })));
+      } else {
+        for (const b of blocks) {
+          expect(
+            /playwr/.test(b.run),
+            `unreferenced local action ${actionDir} invokes playwright — reference it or remove it`,
+          ).toBe(false);
+        }
+      }
     }
     // Transitive closure: a script whose body invokes another playwright-
     // wrapping script (via any runner form, including runner global options)
