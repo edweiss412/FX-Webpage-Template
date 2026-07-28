@@ -52,7 +52,7 @@ All probes ran `parseHotels` over a `| Hotel Stays | <cell> |` row (v1 path → 
 | B4 | two-guest rest (`Doug Larson—2035940 Adam Larson—2035939 Check In…`) | names `["Doug Larson","Adam Larson"]` | multi-guest rest works |
 | B5 | consultants shape, 2 groups shared hotel | row 1 names `["Eric Weiss"]`, inherited hotel | tier 3 must keep this silent |
 | B6 | B1 variant with `Hotel 71 Chicago, IL 60601` as the later hotel | reaches inheritance, 2 rows, clobbered | ZIP-arm tier-1 case; numeric brand must survive UNSPLIT (§3 D6) |
-| B7 | B1 variant with no conf# on the later guest (`… 200 Oak Ave Jane Doe Check In…`) | whole cell falls back to ONE reservation, dates nulled | the all-names guard (`lib/parser/blocks/hotels.ts:735`) fires BEFORE inheritance; the detector never runs on this shape |
+| B7 | B1 variant with no conf# on the later guest (`… 200 Oak Ave Jane Doe Check In…`) | whole cell falls back to ONE reservation, dates nulled | the all-names guard (`lib/parser/blocks/hotels.ts:735`) collapses the cell; detection still classifies its later segment first, so the surviving reservation carries a SUSPECTED stash (§3 ordering note, Codex R7) |
 | B8 | B1 variant with `---` divider before the later hotel | reaches inheritance, clobbered | leading-divider strip (D2) must precede prefix computation |
 
 Regex ground truth (padded reads, `" " + prefix`):
@@ -69,7 +69,9 @@ Regex ground truth (padded reads, `" " + prefix`):
 
 ## 3. The detector (normative)
 
-A pure function over one raw segment, run per later group inside `buildInlineReservations`. It never runs on group 0, never on single-group cells (`checkInCount < 2`, `lib/parser/blocks/hotels.ts:718`), and never on the discarded-fallback path (`lib/parser/blocks/hotels.ts:735-753` returns before it).
+A pure function over one raw segment, run per later group inside `buildInlineReservations`. It never runs on group 0 and never on single-group cells (`checkInCount < 2`, `lib/parser/blocks/hotels.ts:718`).
+
+**Ordering vs the all-names fallback (Codex R7 finding 1).** Detection is computed for every later segment BEFORE the all-names guard (`lib/parser/blocks/hotels.ts:735-753`) decides whether the cell collapses to a single reservation. When the guard DOES collapse the cell (a provisional build had `names: []` — e.g. a non-ASCII guest `José Núñez - 1002` defeats the ASCII matchers, parent spec §3.1 row-6 note), the per-group rows are discarded as today — **no auto-correct survives the fallback**, because the fallback exists precisely when guest↔date attribution failed and keeping a partial row would corrupt it — but the detection outcome is NOT lost: if ANY later segment classified tier 1 or tier 2 (including a D6 abort), append exactly ONE `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` stash to the surviving rebuilt reservation (`blockRef.index` = its final index, `blockRef.name` = its resolved hotel name, `rawSnippet` = the whole cell — the single reservation's raw, matching the existing single-path `rawCells`). The operator learns the cell may book another hotel even though the parser could not split it. Without this ordering, a postal-complete later hotel with a names-empty guest silently vanishes — probe-confirmed on the B1z-with-`José Núñez` shape (R7).
 
 **D1 — normalize.** `s` = the segment with `&#10;`/`\r` replaced by spaces, whitespace collapsed, trimmed — the same normalization `buildInlineHotel` applies (`lib/parser/blocks/hotels.ts:896`).
 
@@ -171,7 +173,7 @@ The parent file gains a one-line pointer under row 7 (`Amended by docs/superpowe
 | Code | Fires | Severity | `resolution` |
 | ---- | ----- | -------- | ------------ |
 | `HOTEL_INLINE_GROUP_OWN_HOTEL` | tier-1 kept row, once per row | `warn` | **absent** (S2) |
-| `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` | tier-2 row, or any row inheriting from a tier-1 group (§4), once per row | `warn` | **absent** (S2) |
+| `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` | tier-2 row; any row inheriting from a tier-1 group (§4); or ONCE on the surviving reservation of an all-names fallback whose later segments carried tier-1/2 evidence (§3 ordering note) | `warn` | **absent** (S2) |
 
 Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each reports a judgment call made while still producing a value. Neither joins `USE_RAW_CODES` (`lib/sync/useRawOverlay.ts:24`) nor `IN_SCOPE` (`components/admin/UseRawControl.tsx:55`); with `resolution` absent they are non-recoverable by the documented discriminator (`lib/parser/types.ts:86-95`). No file under `app/` or `components/` changes.
 
@@ -287,7 +289,9 @@ The user's requirement (2026-07-27) that non-app-resolvable warnings say so and 
 | No tier-1 group → byte parity | probe B5 cell AND a 2-group no-address cell below the word threshold | rows deep-equal today's output captured as literals; only warning deltas allowed are NONE |
 | Position-0 address in group 0 | cell whose FIRST group starts with an address | detector does not run on group 0; today's behavior byte-preserved |
 | Single-group cell | any `checkInCount < 2` cell | detector unreachable; byte parity |
-| Fallback path | probe B7 cell | still ONE reservation with nulled dates, no new codes (detector runs only after the all-names guard) |
+| Fallback with postal evidence, non-ASCII guest (R7) | B1z variant, later guest `José Núñez - 1002` | still ONE reservation, byte-equal to today's fallback rows/dates, PLUS exactly one `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` (envelope: surviving index, whole-cell rawSnippet). INTEGRATION test through `parseHotels`, not a detector unit test — kills the R7 silent-vanish |
+| Fallback with suffix-only evidence | probe B7 cell (`… 200 Oak Ave Jane Doe Check In …`, no conf) | ONE reservation as today + one SUSPECTED (its later segment carries D4 evidence without a postal terminator — tier-2 evidence) |
+| Fallback with NO address evidence | `Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 Jane Doe Check In: 3/3 Check Out: 3/4` | ONE reservation, ZERO new codes — the fallback-attribution negative (later segment `Jane Doe …` has no D4 match and 2 base words) |
 | Stash order | a tier-1 row that also carries guest + address stashes (a POSTAL-TERMINATED later hotel whose `hotelText` re-split stashes an address ambiguity; exact input chosen at plan time by probe) | per-row emit order: guest, own-hotel, address |
 | Emission order vs cardinality | > `MAX_HOTELS` (4, `lib/parser/blocks/hotels.ts:55`) inline groups with a tier-1 in a surviving slot | all surviving-row ambiguities before `HOTEL_CARDINALITY_EXCEEDED`; truncated rows emit nothing (parent R4) |
 
@@ -334,7 +338,7 @@ Both fixture families re-probed at plan time before implementation. Expected: **
 
 - Group-0 inline extraction quality (S5; parent spec §11).
 - Any use-raw / `UseRawControl` surface for the new codes (S2).
-- The no-conf later-group shape that falls back pre-detection (probe B7) — unreachable by design; its cells keep today's single-reservation fallback.
+- AUTO-CORRECTING any group on the all-names fallback path: the cell keeps today's single-reservation fallback rows byte-for-byte; the only delta is the attributed SUSPECTED warning (§3 ordering note).
 - AUTO-CORRECTING hotels listed AFTER their guests within a segment (`Jane Doe - 1002 Marriott Downtown 200 Oak Ave …`): guest-first ordering leaves no provable hotel span, so no tier-1 path exists for it. It is NOT silent — the post-guest address evidence arm (§3 D5, Codex R5 finding 2) stashes `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED`, whose copy carries the sheet-fix guidance. Only the auto-correct is out of scope.
 - Sequential-inheritance semantics for cells with NO tier-1 group (unchanged group-0 inheritance).
 - The SAME ZIP+4-as-delimiter collision inside `buildInlineHotel`'s existing no-Check-In delimiter scan (`lib/parser/blocks/hotels.ts:953-957`) and its guest-evidence probe — pre-existing on main, group-0 scope, untouched here (class-swept on Codex R3 finding 2; only the NEW D3 scan gets the exclusion, because changing the existing scan changes shipped group-0 parses, S5's boundary).
