@@ -241,8 +241,13 @@ function walkedFiles(root: string): string[] {
  * FIRST hop is a file whose specifier literally contains `tests/`; denying
  * that hop everywhere closes the chain wherever it parks.
  */
+// HORIZONTAL margins + order only (r17): the overlay's 44px VERTICAL floor is
+// exactly met, so any mt-*/mb-* — even mt-0.5 — shifts the overlay a pixel
+// outside a 44px row while every rect-size e2e stays green. The three shipped
+// call sites use only mr-0.5 / sm:ml-0.5 / sm:order-1; vertical positioning
+// belongs to the consuming row (spec §5.1), never the anchor.
 const POSITIONAL =
-  /^(?:sm:|md:|lg:)?(?:m[lrtb]-(?:0(?:\.5)?|1(?:\.5)?|2(?:\.5)?|3)|order-(?:\d|first|last|none))$/;
+  /^(?:sm:|md:|lg:)?(?:m[lr]-(?:0(?:\.5)?|1(?:\.5)?|2(?:\.5)?|3)|order-(?:\d|first|last|none))$/;
 
 const NAME = "SheetIconLink";
 const COMPONENT_FILE = `components/admin/${NAME}.tsx`;
@@ -312,6 +317,29 @@ function isRequireCallee(expr: ts.Expression): boolean {
   );
 }
 
+/**
+ * Context modules (r17): `require.context(dir, …, filter)` and
+ * `import.meta.webpackContext(dir, …)` are documented static webpack module
+ * syntaxes that select modules by directory + pattern, so no specifier ever
+ * spells the component path — the SELECTION MECHANISM is denied outright, in
+ * the live scan and the config graph alike. The `context` fragment in
+ * needsParse gates the live parse; computed callee keys stay in the ratified
+ * computed class.
+ */
+function isContextModuleCall(node: ts.Node): boolean {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = unwrapTransparent(node.expression);
+  if (ts.isPropertyAccessExpression(callee)) {
+    if (callee.name.text === "webpackContext") return true;
+    if (callee.name.text === "context") return isRequireCallee(callee.expression);
+  }
+  if (ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression)) {
+    if (callee.argumentExpression.text === "webpackContext") return true;
+    if (callee.argumentExpression.text === "context") return isRequireCallee(callee.expression);
+  }
+  return false;
+}
+
 function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
   const out: string[] = [];
   if (fileName.endsWith(".mdx") || fileName.endsWith(".md")) {
@@ -356,31 +384,60 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
   // identifier alone; r16 — the ARGUMENT is unwrapped through the same
   // runtime-transparent wrappers and may be a no-substitution template,
   // closing `require(("@/…"))` and `require(\`@/…\`)`).
-  const specifierOf = (node: ts.Node): ts.StringLiteralLike | null => {
+  // r17: PLURAL — AMD `require([deps], cb)` / `define(…, [deps], f)` are
+  // documented static webpack module syntaxes whose specifiers ride ARRAY
+  // elements, so every string-literal argument AND every string element of
+  // an array-literal argument is a specifier. A component-targeting element
+  // necessarily spells the module path (or tests/), so the r11 contiguous
+  // prefilter fragments still gate the parse soundly.
+  const specifiersOf = (node: ts.Node): ts.StringLiteralLike[] => {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier !== undefined &&
       ts.isStringLiteral(node.moduleSpecifier)
     )
-      return node.moduleSpecifier;
-    if (
-      ts.isCallExpression(node) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression)) &&
-      node.arguments[0] !== undefined
-    ) {
-      const arg = unwrapTransparent(node.arguments[0]);
-      if (ts.isStringLiteralLike(arg)) return arg;
-    }
+      return [node.moduleSpecifier];
     if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       const ref = unwrapTransparent(node.moduleReference.expression);
-      if (ts.isStringLiteralLike(ref)) return ref;
+      if (ts.isStringLiteralLike(ref)) return [ref];
+      return [];
     }
-    return null;
+    const isAmdDefineCallee = (expr: ts.Expression): boolean => {
+      const e = unwrapTransparent(expr);
+      return (
+        (ts.isIdentifier(e) && e.text === "define") ||
+        (ts.isPropertyAccessExpression(e) && e.name.text === "define")
+      );
+    };
+    if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        isRequireCallee(node.expression) ||
+        isAmdDefineCallee(node.expression))
+    ) {
+      const out: ts.StringLiteralLike[] = [];
+      for (const rawArg of node.arguments) {
+        const arg = unwrapTransparent(rawArg);
+        if (ts.isStringLiteralLike(arg)) out.push(arg);
+        else if (ts.isArrayLiteralExpression(arg)) {
+          for (const el of arg.elements) {
+            const item = unwrapTransparent(el);
+            if (ts.isStringLiteralLike(item)) out.push(item);
+          }
+        }
+      }
+      return out;
+    }
+    return [];
   };
 
   const visit = (node: ts.Node): void => {
-    const spec = specifierOf(node);
-    if (spec !== null) {
+    if (isContextModuleCall(node)) {
+      out.push(
+        `context-module call (pattern-based module selection defeats the specifier rules): ${snip(node)}`,
+      );
+    }
+    for (const spec of specifiersOf(node)) {
       // Module-path rule: the component module may ONLY be touched by the
       // sanctioned named import. Any other touch of that path fails.
       if (normalizeSpecifier(spec.text).endsWith(NAME)) {
@@ -464,6 +521,11 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
  */
 function needsParse(src: string, rel: string): boolean {
   if (src.includes(NAME) || src.includes("\\")) return true;
+  // r17: context modules (`require.context`, `import.meta.webpackContext`)
+  // select by directory + pattern, so no other fragment need appear — but
+  // every plain spelling contains the contiguous `context`, and escape
+  // spellings need a backslash, which already gates the parse.
+  if (src.includes("context")) return true;
   return !TESTS_IMPORT_EXEMPT.test(rel) && src.includes("tests/");
 }
 
@@ -666,6 +728,9 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
     const src = readFileSync(join(root, rel), "utf8");
     const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
+      if (isContextModuleCall(node)) {
+        offenders.push(`${rel}: context-module call in config graph — cannot be cleared`);
+      }
       let specNode: ts.Expression | null = null;
       let specifierBearing = false;
       if (
@@ -1009,6 +1074,29 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('export * from "@/components/admin/SheetIconLink#frag";'),
     ).toHaveLength(1);
+    // r17 — AMD require/define carry specifiers in ARRAY arguments:
+    expect(
+      classNameViolations('require(["@/components/admin/SheetIconLink"], (m) => m);'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('define(["exports", "@/components/admin/SheetIconLink"], (e, m) => m);'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('define("app", ["@/tests/helpers/x"], (h) => h);', "lib/consumer.ts"),
+    ).toHaveLength(1);
+    // r17 — context modules select by directory + pattern; the mechanism is
+    // denied outright, and the `context` fragment gates the parse:
+    expect(
+      classNameViolations('const ctx = require.context("./components/admin", false, /Link$/);'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const ctx = import.meta.webpackContext("./components", {});'),
+    ).toHaveLength(1);
+    expect(needsParse('const c = require.context("../", true, /Sheet$/);', "lib/x.ts")).toBe(true);
+    // r17 — vertical margins shift the exactly-met 44px overlay out of a
+    // 44px row; only horizontal margins + order are positional:
+    expect(classNameViolations('<SheetIconLink className="mt-0.5" />')).toHaveLength(1);
+    expect(classNameViolations('<SheetIconLink className="sm:mb-1" />')).toHaveLength(1);
     // r11 — the phrase count has the same escape blindness the NAME prefilter
     // had; hiddenPhraseCount sees through cooked literals:
     expect(hiddenPhraseCount('const a = "Open the source \\u0073heet";', "lib/x.ts")).toBe(1);
@@ -1090,6 +1178,18 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     }
     const workspaceYaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
     expect(workspaceYaml).not.toMatch(/^\s*packages\s*:/m);
+    // r17: package scope is PER-DIRECTORY — a tracked nested package.json
+    // (`components/package.json`) carries its own imports/exports/browser
+    // remaps that the root-manifest pins above never see, and resolvers honor
+    // the NEAREST manifest. The only tracked manifest IS the root one; a
+    // future legitimate nested package must teach this guard first.
+    const manifests = execFileSync("git", ["ls-files", "--", "*package.json"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n");
+    expect(manifests).toEqual(["package.json"]);
     // Next-level aliasing (turbopack `resolveAlias`, webpack
     // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
     // is code, so the pin is an AST scan for any cooked alias spelling or
