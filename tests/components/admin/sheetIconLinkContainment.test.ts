@@ -247,9 +247,16 @@ const POSITIONAL =
 const NAME = "SheetIconLink";
 const COMPONENT_FILE = `components/admin/${NAME}.tsx`;
 
-/** Strip a resolvable extension and trailing /index before suffix-matching. */
+/** Strip a resolvable extension and trailing /index before suffix-matching.
+ * r16: a webpack resource query/fragment (`?off-contract`, `#frag`) rides the
+ * specifier but not the resolved resource, so it is stripped FIRST — without
+ * this, `"@/components/admin/SheetIconLink?x"` resolved to the component
+ * while dodging the endsWith check. */
 function normalizeSpecifier(spec: string): string {
-  return spec.replace(/\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/, "").replace(/\/index$/, "");
+  return spec
+    .replace(/[?#][\s\S]*$/, "")
+    .replace(/\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/, "")
+    .replace(/\/index$/, "");
 }
 
 /** Root-relative resolution of a specifier, or null for bare packages. */
@@ -262,10 +269,12 @@ function resolveSpecifier(spec: string, fromRel: string): string | null {
 /** The only trees allowed to import from tests/ — see the header (r11). */
 const TESTS_IMPORT_EXEMPT = /^(?:tests|scripts)\//;
 
-/** Unwrap parentheses and type-only wrappers around a callee (r15 — they are
- * erased or transparent at runtime, so `(module.require as NodeRequire)(…)`
- * is the same call as `module.require(…)`). */
-function unwrapCallee(expr: ts.Expression): ts.Expression {
+/** Unwrap parentheses and type-only wrappers around an expression (r15 for
+ * callees — `(module.require as NodeRequire)(…)` is the same call as
+ * `module.require(…)`; r16 widened to specifier ARGUMENTS, where the same
+ * wrappers plus a no-substitution template hid the string from the
+ * isStringLiteral check: `require(("@/…"))`, `require(\`@/…\`)`). */
+function unwrapTransparent(expr: ts.Expression): ts.Expression {
   let e = expr;
   while (
     ts.isParenthesizedExpression(e) ||
@@ -293,7 +302,7 @@ function unwrapCallee(expr: ts.Expression): ts.Expression {
  * access outright).
  */
 function isRequireCallee(expr: ts.Expression): boolean {
-  const e = unwrapCallee(expr);
+  const e = unwrapTransparent(expr);
   if (ts.isIdentifier(e) && e.text === "require") return true;
   if (ts.isPropertyAccessExpression(e) && e.name.text === "require") return true;
   return (
@@ -344,8 +353,10 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
   // (r10 — import/export declarations alone left require()/import()/import=
   // as unscanned channels to both the component module and tests/; r15 —
   // the require CALLEE is matched by isRequireCallee, not the bare
-  // identifier alone).
-  const specifierOf = (node: ts.Node): ts.StringLiteral | null => {
+  // identifier alone; r16 — the ARGUMENT is unwrapped through the same
+  // runtime-transparent wrappers and may be a no-substitution template,
+  // closing `require(("@/…"))` and `require(\`@/…\`)`).
+  const specifierOf = (node: ts.Node): ts.StringLiteralLike | null => {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier !== undefined &&
@@ -355,17 +366,15 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
     if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression)) &&
-      node.arguments.length > 0 &&
-      node.arguments[0] !== undefined &&
-      ts.isStringLiteral(node.arguments[0])
-    )
-      return node.arguments[0];
-    if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      ts.isStringLiteral(node.moduleReference.expression)
-    )
-      return node.moduleReference.expression;
+      node.arguments[0] !== undefined
+    ) {
+      const arg = unwrapTransparent(node.arguments[0]);
+      if (ts.isStringLiteralLike(arg)) return arg;
+    }
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const ref = unwrapTransparent(node.moduleReference.expression);
+      if (ts.isStringLiteralLike(ref)) return ref;
+    }
     return null;
   };
 
@@ -459,6 +468,33 @@ function needsParse(src: string, rel: string): boolean {
 }
 
 /**
+ * AST-confirmed JSX render of the component (r16): raw `<SheetIconLink`
+ * prefilter at the call site, then a real tag-name check so a comment or
+ * string quoting the tag is not an adopter. Feeds the pinned adopter-set
+ * assertion — the component's consuming-context requirements (spec §5.1:
+ * 44px row floor, directional clearances, vertical centring) are geometry a
+ * static guard cannot verify, so the guard makes ADOPTION itself the
+ * reviewable event: a new direct adopter must add its row and ship its
+ * rect-intersection e2e + impeccable pass alongside.
+ */
+function rendersTag(src: string, rel: string): boolean {
+  const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
+  const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      ts.isIdentifier(node.tagName) &&
+      node.tagName.text === NAME
+    )
+      found = true;
+    if (!found) ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/**
  * Escape-hidden PHRASE occurrences (r11 class-sweep of the needsParse fix:
  * the raw `split(PHRASE)` count has the same blindness the NAME prefilter
  * had). For a parseable file containing a backslash, compare each string-like
@@ -509,6 +545,31 @@ function hiddenPhraseCount(src: string, rel: string): number {
  * Reflect/JSON tricks is runtime construction, ratified out of scope with
  * the other computed forms.
  */
+/**
+ * r16: the pin claimed resolver-level closure while denying only the two
+ * alias KEY spellings — webpack owns more remap surfaces (`resolve.fallback`
+ * maps failed resolutions onto arbitrary files, `resolve.plugins` installs
+ * arbitrary resolvers, `resolve.modules` adds first-party search roots,
+ * `extensionAlias` / `descriptionFiles` redirect resolution inputs, and
+ * `NormalModuleReplacementPlugin` rewrites requests outright), and the
+ * `webpack` hook key itself is the gate to every one of them. The real
+ * config has none of these tokens; introducing any fails here and forces
+ * this guard to learn it first. Loader/transform pipelines (turbopack
+ * `rules`) are build-time code construction, out of the static guard's scope
+ * with the other computed forms.
+ */
+const REMAP_SPELLINGS = new Set([
+  "alias",
+  "resolveAlias",
+  "webpack",
+  "fallback",
+  "plugins",
+  "modules",
+  "extensionAlias",
+  "descriptionFiles",
+  "NormalModuleReplacementPlugin",
+]);
+
 function nextConfigAliasOffenders(src: string): string[] {
   const out: string[] = [];
   const sf = ts.createSourceFile(
@@ -520,8 +581,8 @@ function nextConfigAliasOffenders(src: string): string[] {
   );
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) {
-      if (node.text === "resolveAlias" || node.text === "alias")
-        out.push(`alias spelling "${node.text}" (cooked) in next.config.ts`);
+      if (REMAP_SPELLINGS.has(node.text))
+        out.push(`resolver-remap spelling "${node.text}" (cooked) in next.config.ts`);
     }
     if (
       ts.isElementAccessExpression(node) &&
@@ -630,12 +691,16 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
         ts.forEachChild(node, visit);
         return;
       }
-      if (specNode === null || !ts.isStringLiteralLike(specNode)) {
+      // r16: unwrap the same runtime-transparent wrappers the live scan
+      // unwraps, so `import(("./x"))` resolves rather than misclassifying —
+      // and anything still non-literal stays the fail-closed offense.
+      const specLit = specNode === null ? null : unwrapTransparent(specNode);
+      if (specLit === null || !ts.isStringLiteralLike(specLit)) {
         offenders.push(`${rel}: dynamic module specifier in config graph — cannot be cleared`);
         ts.forEachChild(node, visit);
         return;
       }
-      const spec = specNode.text;
+      const spec = specLit.text;
       const base = resolveSpecifier(spec, rel);
       if (base === null) {
         const offense = bareSpecifierOffense(spec);
@@ -672,7 +737,9 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
 }
 
 describe("sheet-link phrase containment (spec §7.10)", () => {
-  it("per-file occurrence counts equal the pinned set exactly", () => {
+  // 30s timeouts on the two full-repo walk+read tests: 5.3s on CI shard
+  // runners against vitest's 5000ms default — the walk is IO-bound, not hung.
+  it("per-file occurrence counts equal the pinned set exactly", { timeout: 30_000 }, () => {
     const root = join(__dirname, "..", "..", "..");
     const found: Record<string, number> = {};
     const hidden: string[] = [];
@@ -920,6 +987,28 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/consumer.tsx",
       ),
     ).toHaveLength(1);
+    // r16 — the specifier ARGUMENT unwraps through the same transparent
+    // wrappers as the callee, and a no-substitution template is a static
+    // string too:
+    expect(
+      classNameViolations('const m = require(("@/components/admin/SheetIconLink"));'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations("const m = require(`@/components/admin/SheetIconLink`);"),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = import(("@/tests/helpers/x") as string);', "lib/consumer.ts"),
+    ).toHaveLength(1);
+    // r16 — webpack resource query/fragment rides the specifier, not the
+    // resolved resource; stripping happens before the suffix check:
+    expect(
+      classNameViolations(
+        'import { "SheetIconLink" as X } from "@/components/admin/SheetIconLink?off-contract";',
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      classNameViolations('export * from "@/components/admin/SheetIconLink#frag";'),
+    ).toHaveLength(1);
     // r11 — the phrase count has the same escape blindness the NAME prefilter
     // had; hiddenPhraseCount sees through cooked literals:
     expect(hiddenPhraseCount('const a = "Open the source \\u0073heet";', "lib/x.ts")).toBe(1);
@@ -1049,23 +1138,64 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(bareSpecifierOffense("file:///tmp/alias.mjs")).not.toBeNull();
     expect(bareSpecifierOffense("/abs/alias.mjs")).not.toBeNull();
     expect(bareSpecifierOffense("#internal/alias")).not.toBeNull();
+    // r16 — the denied remap surface is wider than the two alias keys: the
+    // webpack hook itself, failed-resolution fallback maps, resolver plugins,
+    // module search roots, extension/description-file redirects, and request
+    // rewriting:
+    expect(nextConfigAliasOffenders("const cfg = { webpack: (c) => c };").length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      nextConfigAliasOffenders('r.fallback = { "#sheet": "./components/x.tsx" };').length,
+    ).toBeGreaterThan(0);
+    expect(nextConfigAliasOffenders("r.extensionAlias = {};").length).toBeGreaterThan(0);
+    expect(
+      nextConfigAliasOffenders('new wp.NormalModuleReplacementPlugin(/x/, "y");').length,
+    ).toBeGreaterThan(0);
+    expect(nextConfigAliasOffenders('cfg.resolve.modules = ["aliases"];').length).toBeGreaterThan(
+      0,
+    );
   });
 
-  it("every live SheetIconLink call site keeps className positional-only string literals", () => {
-    const root = join(__dirname, "..", "..", "..");
-    const files = walkedFiles(root);
-    const violations = files.flatMap((file) => {
-      const rel = file.slice(root.length + 1);
-      // The component's own file defines and exports the identifier — it is
-      // the one place declaration references are the point, not an alias.
-      if (rel === COMPONENT_FILE) return [];
-      // Prefilter (see needsParse): a file that contains neither the bare
-      // name, an escape spelling, nor (shipped trees) a tests/ fragment can
-      // neither create a static alias nor launder through the carve.
-      const src = readFileSync(file, "utf8");
-      if (!needsParse(src, rel)) return [];
-      return classNameViolations(src, rel).map((v) => `${rel}: ${v}`);
-    });
-    expect(violations).toEqual([]);
-  });
+  it(
+    "every live SheetIconLink call site keeps className positional-only string literals",
+    { timeout: 30_000 },
+    () => {
+      const root = join(__dirname, "..", "..", "..");
+      const files = walkedFiles(root);
+      const adopters: string[] = [];
+      const violations = files.flatMap((file) => {
+        const rel = file.slice(root.length + 1);
+        // The component's own file defines and exports the identifier — it is
+        // the one place declaration references are the point, not an alias.
+        if (rel === COMPONENT_FILE) return [];
+        const src = readFileSync(file, "utf8");
+        // r16 adopter census (same read, no extra walk): shipped files that
+        // actually render the tag. tests/ renders ship nothing (the carve's
+        // premise); MDX renders are already outright violations above.
+        if (
+          !/^tests\//.test(rel) &&
+          !/\.mdx?$/.test(rel) &&
+          src.includes(`<${NAME}`) &&
+          rendersTag(src, rel)
+        )
+          adopters.push(rel);
+        // Prefilter (see needsParse): a file that contains neither the bare
+        // name, an escape spelling, nor (shipped trees) a tests/ fragment can
+        // neither create a static alias nor launder through the carve.
+        if (!needsParse(src, rel)) return [];
+        return classNameViolations(src, rel).map((v) => `${rel}: ${v}`);
+      });
+      expect(violations).toEqual([]);
+      // Pinned adopter set (r16): the consuming-context geometry (spec §5.1)
+      // is unverifiable statically, so adoption itself is the reviewable
+      // event — a new row lands only WITH its rect-intersection e2e and
+      // impeccable pass.
+      expect(adopters.sort()).toEqual([
+        "components/admin/showpage/PublishedReviewModal.tsx",
+        "components/admin/wizard/Step3ReviewModal.tsx",
+        "components/admin/wizard/step3ReviewSections.tsx",
+      ]);
+    },
+  );
 });

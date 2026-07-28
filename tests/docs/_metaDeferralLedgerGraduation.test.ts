@@ -116,12 +116,15 @@ const WRAP = "(?:[*_`]|✅|\\s)*";
 // `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
 // and digits are what would make it a different word.
 const AFTER = "(?![A-Za-z0-9])";
+// Both bold conventions carry the colon differently — `**Status:** X` and
+// `**Status**: X` are the same field label (r16), so the colon is accepted on
+// either side of the closing emphasis.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Status:?(?:\\*\\*)?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Filed:?(?:\\*\\*)?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_FIELD_TERMINAL = new RegExp(
@@ -131,6 +134,26 @@ const FILED_FIELD_TERMINAL = new RegExp(
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
 const OPENING_TERMINAL_BOLD = new RegExp(`^\\s*\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
 const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${WRAP}(${TERMINAL_WORDS})${AFTER}`);
+
+/**
+ * A terminal claim counts only when the CAPTURED word is not directly
+ * modified by a preceding PARTIAL/PARTIALLY (r16 — the previous line-wide
+ * /PARTIAL/i veto suppressed unrelated terminal claims: an id containing
+ * PARTIAL in `### BL-PARTIAL-EDGE — CLOSED`, a trailing "partial follow-up"
+ * clause after a bare CLOSED). Returns null when the matcher finds no claim
+ * at all, false when the claim stands (a hit), true when it is
+ * PARTIAL-modified (an open state). Word-position, not line-wide: `RESOLVED
+ * (was PARTIALLY CLOSED)` is still a hit on RESOLVED.
+ */
+function partialModified(line: string, matcher: RegExp): boolean | null {
+  const m = matcher.exec(line);
+  if (m === null) return null;
+  const wordAt = m.index + m[0].indexOf(m[1]!);
+  return /PARTIAL(?:LY)?[\s*_`:—–-]*$/i.test(line.slice(0, wordAt));
+}
+
+const terminalHit = (line: string, matcher: RegExp): boolean =>
+  partialModified(line, matcher) === false;
 
 /**
  * Ids from one ledger: SHOUTY tokens only, so prose headings yield nothing.
@@ -402,22 +425,22 @@ describe("backlog ledger graduation", () => {
       const lines = section.split("\n");
       const headingLine = lines[0] ?? "";
       const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
-      // PARTIALLY CLOSED / PARTIAL closure is a real open state — the entry
-      // records what shipped and what did not. Only a bare terminal counts.
+      // PARTIALLY CLOSED is a real open state — but the veto is per matched
+      // WORD (partialModified, r16), not per line: a trailing "partial
+      // follow-up" clause no longer shields a bare terminal claim.
       // Mainline #628's deliberate keep: an exempted id may sit terminal in
       // place with its rationale in the entry (sub-entry of a still-open
       // parent). Same exemption set as the dedicated heading test below.
       if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
       const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
       const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/i.test(l)) ?? "";
-      const statusHit = !/PARTIAL/i.test(statusLine) && STATUS_TERMINAL.test(statusLine);
+      const statusHit = terminalHit(statusLine, STATUS_TERMINAL);
       const filedHit =
-        !/PARTIAL/i.test(filedLine) &&
-        (FILED_TERMINAL.test(filedLine) || FILED_FIELD_TERMINAL.test(filedLine));
-      const headingHit = !/PARTIAL/i.test(headingLine) && HEADING_TERMINAL.test(headingLine);
+        terminalHit(filedLine, FILED_TERMINAL) || terminalHit(filedLine, FILED_FIELD_TERMINAL);
+      const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
       const openingHit =
-        !/PARTIAL/i.test(openingLine) &&
-        (OPENING_TERMINAL_BOLD.test(openingLine) || OPENING_TERMINAL_BARE.test(openingLine));
+        terminalHit(openingLine, OPENING_TERMINAL_BOLD) ||
+        terminalHit(openingLine, OPENING_TERMINAL_BARE);
       if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
@@ -437,13 +460,10 @@ describe("backlog ledger graduation", () => {
       const id = h[1]!;
       if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
       const heading = h[0]!;
-      // PARTIALLY CLOSED in a heading would be a real open state, same as the
-      // status-line rule above.
-      if (/PARTIAL/i.test(heading)) continue;
       // Union of both 2026-07-27 passes: the dash-anchored any-case form
-      // (module-scoped, shared with the status-line test — r15) plus a bare
-      // ✅ anywhere in the heading.
-      if (HEADING_TERMINAL.test(heading) || /✅/.test(heading)) offenders.push(id);
+      // (module-scoped, shared with the status-line test — r15; per-word
+      // PARTIAL veto since r16) plus a bare ✅ anywhere in the heading.
+      if (terminalHit(heading, HEADING_TERMINAL) || /✅/.test(heading)) offenders.push(id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -471,6 +491,24 @@ describe("backlog ledger graduation", () => {
     expect(OPENING_TERMINAL_BOLD.test("**_RESOLVED_** by the popover migration.")).toBe(true);
     expect(OPENING_TERMINAL_BARE.test("_RESOLVED_ by the popover migration.")).toBe(true);
     expect(OPENING_TERMINAL_BARE.test("Resolved only as part of BL-OTHER.")).toBe(false);
+    // r16 — the colon rides either side of the closing emphasis:
+    expect(STATUS_TERMINAL.test("**Status**: RESOLVED")).toBe(true);
+    expect(FILED_TERMINAL.test("**Filed**: CLOSED 2026-07-24")).toBe(true);
+    // r16 — the PARTIAL veto is per matched word, not per line:
+    expect(terminalHit("### BL-PARTIAL-EDGE — CLOSED", HEADING_TERMINAL)).toBe(true);
+    expect(terminalHit("**Status:** CLOSED — partial follow-up filed separately", STATUS_TERMINAL)).toBe(
+      true,
+    );
+    expect(terminalHit("**CLOSED**; partial follow-up in BL-Y", OPENING_TERMINAL_BOLD)).toBe(true);
+    expect(
+      terminalHit("**Status:** RESOLVED (was PARTIALLY CLOSED in June)", STATUS_TERMINAL),
+    ).toBe(true);
+    // …while a genuinely PARTIAL claim stays open in every lane that can
+    // reach one:
+    expect(terminalHit("**Filed:** 2026-07-20. **Partially closed:** 2026-07-24.", FILED_FIELD_TERMINAL)).toBe(
+      false,
+    );
+    expect(terminalHit("**Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
