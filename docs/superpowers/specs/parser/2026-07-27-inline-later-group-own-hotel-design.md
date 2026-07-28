@@ -94,8 +94,10 @@ Probe-verified (2026-07-27, all through the real `splitHotelNameAddress`): `… 
 | Tier | Condition | Action |
 | ---- | --------- | ------ |
 | 1 | D4 matched AND `hotelText` is postal-terminated (S8: trimmed `s2.slice(0, addressEnd)` matches `/(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)$/u`) AND the residual-tail guard passes AND the D6 rebuild succeeds | keep own hotel (D6); stash `HOTEL_INLINE_GROUP_OWN_HOTEL` |
-| 2 | (D4 matched but the postal terminator is absent, the residual-tail guard fired, or D6 aborted) OR (D4 did not match AND `baseWords(prefix) >= 4`) | inherit as today; stash `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` |
+| 2 | (D4 matched but the postal terminator is absent, the residual-tail guard fired, or D6 aborted) OR (D4 did not match AND `baseWords(prefix) >= 4`) OR post-guest address evidence (below) | inherit as today; stash `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` |
 | 3 | otherwise | inherit as today, no stash |
+
+**Post-guest address evidence (Codex R5 finding 2).** For any segment NOT kept by tier 1, evaluate `postGuest = s2.slice(prefixEnd)` (delimiter, conf, later guests, dates — everything after the prefix): if `" " + postGuest` matches `STREET_ADDRESS_RE` or `STREET_ADDRESS_ZIP_RE`, or `postGuest` matches the postal-evidence regex, the segment lists hotel/address text AFTER its guest (`Jane Doe - 1002 Marriott Downtown 200 Oak Ave …`) — the ordering the prefix scan cannot reach. Warn (tier 2), never auto-correct: guest-first ordering leaves no provable hotel span. False-positive surface is small by construction — the match needs a street number + suffix or a `ST ZIP` tail; conf numbers, `Check In: 3/3` dates, and bare guest names have neither (consultants' later group and B1z's bare-guest group 2 probe negative). Date-window edge: a street number followed by a suffix word can only come from address text, not from the `Check In/Out` grammar.
 
 **Postal-terminator rationale (Codex R4 finding 1).** `… 200 Oak Ave Chicago Doug - 1002 …` leaves residual `Chicago Doug` — 2 base words, indistinguishable from a 2-word guest, so guard (c) passes and tier 1 would persist guest `"Chicago Doug"` (Doug loses crew visibility) plus a city-truncated address. One-word guests exist in fixtures; no residual heuristic can discriminate. S8 confines tier 1 to postal-terminated addresses, where nothing address-like can follow the terminator except what the guards below catch. A D4 match WITHOUT a postal terminator always lands in tier 2 — address evidence without a provable end is exactly what `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` exists to say.
 
@@ -182,7 +184,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | { kind: "hotel-suspected"; rawCell: string }
 ```
 
-`toPending` (`lib/parser/blocks/hotels.ts:793`) appends them from the detector outcome; `commitHotels` maps each to a new emitter in `lib/parser/warnings.ts` (siblings of `emitHotelGuestSplitAmbiguity`, `lib/parser/warnings.ts:212`). Envelope, both codes: `severity: "warn"`, `blockRef: { kind: "hotels", index, field: "name", name: <resolved hotel_name when non-null, else key omitted — exactOptionalPropertyTypes> }`, `rawSnippet: <the row's segment>`, `message` per §7, no `resolution`, no `roleToken`. `blockRef.index` is the final-array index (parent spec §5.3 contract). Per-row stash order: guest ambiguity first, then own-hotel/suspected, then address — pinned by test.
+`toPending` (`lib/parser/blocks/hotels.ts:793`) appends them from the detector outcome; `commitHotels` maps each to a new emitter in `lib/parser/warnings.ts` (siblings of `emitHotelGuestSplitAmbiguity`, `lib/parser/warnings.ts:212`). Envelope, both codes: `severity: "warn"`, `blockRef: { kind: "hotels", index, field: "address", name: <resolved hotel_name when non-null, else key omitted — exactOptionalPropertyTypes> }`, `rawSnippet: <the row's segment>`, `message` per §7, no `resolution`, no `roleToken`. `field` is `"address"` because `FIELD_LABELS` maps it to `hotel name and address` (`lib/admin/step3Buckets.ts:129-135`) — exactly what the operator inspects — whereas `"name"` renders the ROOM label `(room name)` in the wizard title suffix (`components/admin/wizard/step3ReviewSections.tsx:642-657`), which would mislead (Codex R5 finding 1). `blockRef.index` is the final-array index (parent spec §5.3 contract). Per-row stash order: guest ambiguity first, then own-hotel/suspected, then address — pinned by test.
 
 `TRANSFORM_SITES` (`lib/parser/blocks/hotels.ts:1182`) gains two `{ site, code }` rows (`"inline later-group own-hotel detector"` × both codes); the walker's required-code list for `hotels.ts` (`tests/parser/_metaTransformSitesWalker.test.ts:42-49` region) gains both codes. The BACKLOG row is deleted in the same commit; the walker's `deferred:` cross-check does not apply (these are `code:` rows, not exempts) but the backlog-graduation guard does.
 
@@ -207,7 +209,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | o | `tests/parser/dataGapsClassCompleteness.test.ts:205`, `tests/parser/dataGapsClassCompleteness.test.ts:209`, doc comment `tests/parser/dataGapsClassCompleteness.test.ts:36`, `tests/parser/dataGapsClassCompleteness.test.ts:68`, test name `tests/parser/dataGapsClassCompleteness.test.ts:204` | 34 → **36**; `ALL_PERSISTED_WARNING_CODES.size` 54 → **56** |
 | p | `lib/messages/__generated__/internal-code-enums.ts` | `pnpm gen:internal-code-enums` (NOT gen:spec-codes; parent spec row dd) |
 | q | `tests/messages/_metaWarningCardCopy.test.ts`, `_metaCatalogCopyHygiene`, `_metaErrorCatalogDocs`, `_metaPopoverContextCoverage` | fail-by-default walkers; satisfied by rows c/h copy |
-| r | `lib/admin/step3Buckets.ts:129` `FIELD_LABELS` | **N/A** — both codes use `field: "name"`, whose label already exists |
+| r | `lib/admin/step3Buckets.ts:129` `FIELD_LABELS` | **N/A** — both codes use `field: "address"`, whose label `hotel name and address` already exists (parent spec C22). NOT `"name"`, which labels as `room name` (Codex R5 finding 1) |
 | s | `lib/sync/useRawOverlay.ts`, `components/admin/UseRawControl.tsx`, `lib/parser/types.ts` | **N/A — deliberately untouched** (S2) |
 | t | `tests/messages/warningCardCopyRegistry.ts:124` `EXPECTED_CORPUS_WARN_CODES` | **N/A** — neither code fires on either fixture family (§9) |
 | u | parent spec §3.1 row 7 | one-line amendment pointer (§5) |
@@ -275,7 +277,9 @@ The user's requirement (2026-07-27) that non-app-resolvable warnings say so and 
 | Unit tail inside a postal address | B1 variant, later hotel `Marriott Downtown 200 Oak Ave Suite 400, Chicago, IL 60601` | tier 1; `hotel_address === "200 Oak Ave Suite 400, Chicago, IL 60601"` (arm 1 then arm 2) |
 | Bare unit-terminal demotes (S8) | B1 variant, later hotel `Marriott Downtown 200 Oak Ave Suite 400` | tier 2: unit tail consumed but no postal terminator — SUSPECTED code, inherited hotel, no truncation |
 | ZIP-less city tail downgrades | B1 variant, later segment `Marriott Downtown 200 Oak Ave, Chicago Jane Doe - 1002 Check In: 3/3 Check Out: 3/4` | tier 2 (residual-tail guard): inherited hotel, `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED`, and NO truncated `"200 Oak Ave"` address anywhere on the row |
-| Tier 3 silence | probe B5 consultants shape | ZERO new-code warnings; guest-card count unchanged at 1; rows byte-equal to today's |
+| Post-guest own hotel warns (R5) | B1 variant, later segment `Jane Doe - 1002 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Check In: 3/3 Check Out: 3/4` | tier 2 via the post-guest evidence arm: inherited hotel, `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` at index 1, NO auto-correct, NO `HOTEL_INLINE_GROUP_OWN_HOTEL`. Kills the R5 silent-path finding |
+| Field label renders as hotel, never room | both new codes' emitted warnings | `blockRef.field === "address"` on every emit, and `fieldLabelFor("address") === "hotel name and address"` (`lib/admin/step3Buckets.ts:129-135`) — plus a negative: the derived label for these warnings is never `room name` (Codex R5 finding 1) |
+| Tier 3 silence | probe B5 consultants shape | ZERO new-code warnings; guest-card count unchanged at 1; rows byte-equal to today's (also the post-guest arm's key negative: `—2035937 Check In: 10/7 …` carries no street/postal shape) |
 | ZIP arm, numeric brand unsplit | probe B6 cell | row 1 `hotel_name === "Hotel 71 Chicago, IL 60601"`, `hotel_address === null`, names `["Jane Doe"]`, OWN code fires. Kills an implementation that uses the ZIP match to SPLIT name/address (parent R1) |
 | Divider strip | B8 with B1z's postal-address later hotel (`--- Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 …`) | tier 1 fires despite the `---` run before `Marriott` |
 | Nearest-preceding inheritance | §4 worked example (B1z + 3rd group) | row 2 hotel `"Marriott Downtown"` / `"200 Oak Ave, Chicago, IL 60601"`, names `["Bob Roe"]`; warnings: OWN@1, SUSPECTED@2, and NO suspected on row 0 |
@@ -317,7 +321,7 @@ Both fixture families re-probed at plan time before implementation. Expected: **
 ## 10. Numeric single-source
 
 - New codes = **2**; new emitters = **2**; new `HotelAmbiguity` kinds = **2**; new `TRANSFORM_SITES` rows = **2**
-- Tiers = **3**; tier-2 word threshold = **4** base words; tier-1 postal terminator = `/(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)$/u` (S8); residual-tail guard arms = **3** (a/b/c); D4b tail arms = **3**
+- Tiers = **3**; tier-2 word threshold = **4** base words; tier-1 postal terminator = `/(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)$/u` (S8); residual-tail guard arms = **3** (a/b/c); D4b tail arms = **3**; tier-2 entry arms = **4** (no-terminator / guard-or-D6 / word-count / post-guest evidence)
 - `DATA_GAP_CODES` 34 → **36**; `ALL_PERSISTED_WARNING_CODES` 54 → **56**
 - Normative copy strings = **22** (§7, 11 per code including the `GAP_CLASSES` plural)
 - Fan-out surfaces = **21** rows (§6.3 a–u; 3 are explicit N/A)
@@ -330,7 +334,7 @@ Both fixture families re-probed at plan time before implementation. Expected: **
 - Group-0 inline extraction quality (S5; parent spec §11).
 - Any use-raw / `UseRawControl` surface for the new codes (S2).
 - The no-conf later-group shape that falls back pre-detection (probe B7) — unreachable by design; its cells keep today's single-reservation fallback.
-- Hotels listed AFTER their guests within a segment (`Jane Doe - 1002 Marriott 200 Oak Ave …`): prefix ends at the delimiter, no anchor precedes it; tier 3 by construction. Accepted miss; the sheet-edit guidance in C-SUS copy is the remedy channel.
+- AUTO-CORRECTING hotels listed AFTER their guests within a segment (`Jane Doe - 1002 Marriott Downtown 200 Oak Ave …`): guest-first ordering leaves no provable hotel span, so no tier-1 path exists for it. It is NOT silent — the post-guest address evidence arm (§3 D5, Codex R5 finding 2) stashes `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED`, whose copy carries the sheet-fix guidance. Only the auto-correct is out of scope.
 - Sequential-inheritance semantics for cells with NO tier-1 group (unchanged group-0 inheritance).
 - The SAME ZIP+4-as-delimiter collision inside `buildInlineHotel`'s existing no-Check-In delimiter scan (`lib/parser/blocks/hotels.ts:953-957`) and its guest-evidence probe — pre-existing on main, group-0 scope, untouched here (class-swept on Codex R3 finding 2; only the NEW D3 scan gets the exclusion, because changing the existing scan changes shipped group-0 parses, S5's boundary).
 
