@@ -254,23 +254,34 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * conditionally executed regardless of shell content (R9 G1).
  */
 export type RunBlock = { run: string; guarded: boolean };
+type StepShape = { run?: unknown; if?: unknown; shell?: unknown };
+// bash and sh are the semantics the census models; any other shell
+// reinterprets the block (R10 — `shell: python {0}` can discard it).
+const customShell = (s: StepShape) =>
+  s.shell !== undefined && !/^(?:bash|sh)$/.test(String(s.shell).trim());
 export function runBlocksOf(doc: unknown): RunBlock[] {
   const out: RunBlock[] = [];
   const jobs = (
     doc as {
-      jobs?: Record<string, { if?: unknown; steps?: Array<{ run?: unknown; if?: unknown }> }>;
+      jobs?: Record<
+        string,
+        { if?: unknown; needs?: unknown; strategy?: unknown; steps?: StepShape[] }
+      >;
     }
   )?.jobs;
   for (const j of Object.values(jobs ?? {})) {
+    // needs: a failed/skipped dependency skips the whole job; strategy: an
+    // empty matrix executes nothing — both are execution context (R10).
+    const jobGuarded = j.if !== undefined || j.needs !== undefined || j.strategy !== undefined;
     for (const s of j.steps ?? []) {
       if (typeof s.run === "string")
-        out.push({ run: s.run, guarded: s.if !== undefined || j.if !== undefined });
+        out.push({ run: s.run, guarded: jobGuarded || s.if !== undefined || customShell(s) });
     }
   }
-  const actionSteps = (doc as { runs?: { steps?: Array<{ run?: unknown; if?: unknown }> } })?.runs
-    ?.steps;
+  const actionSteps = (doc as { runs?: { steps?: StepShape[] } })?.runs?.steps;
   for (const s of actionSteps ?? []) {
-    if (typeof s.run === "string") out.push({ run: s.run, guarded: s.if !== undefined });
+    if (typeof s.run === "string")
+      out.push({ run: s.run, guarded: s.if !== undefined || customShell(s) });
   }
   return out;
 }
@@ -294,6 +305,33 @@ export function logicalLinesOf(text: string): Array<{ line: string; continued: b
     out.push({ line, continued });
   }
   return out;
+}
+
+/**
+ * True when the line ENDS inside an unterminated quote — the next physical
+ * lines are string data, not shell, so nothing in that text may
+ * auto-classify (R10: a playwright line inside a multiline quoted string or
+ * array literal never executes as an invocation).
+ */
+export function endsInOpenQuote(line: string): boolean {
+  let quote: string | null = null;
+  let escaped = false;
+  for (const ch of line) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quote !== "'" && ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+  }
+  return quote !== null;
 }
 
 /**
@@ -458,9 +496,13 @@ export function censusInvocations(
   };
   // Shell control flow makes EXECUTION of any line state-dependent in ways a
   // line-classifier cannot model — a dead `playwright test --config x` would
-  // still record x (R9 G1).
+  // still record x (R9 G1). R10 additions: every function-definition
+  // spelling, block/array openers-closers, a trailing && / || (split-line
+  // short-circuit), and execution-neutering commands (exec/set/eval).
+  // exit/return/exec/set/eval count only at COMMAND POSITION (line start or
+  // after ;) — `pnpm exec playwright` is a runner subcommand, not bash exec.
   const controlFlowRe =
-    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\(\)\s*\{|(?:^|\s|;)(?:exit|return)\b/;
+    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\(\)\s*\{|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|;)\s*(?:exit|return|exec|set|eval)\b/;
   const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
   for (const item of texts) {
     const raw = typeof item === "string" ? item : item.text;
@@ -478,14 +520,18 @@ export function censusInvocations(
     // below (registered docker/regen lines keep matching — their
     // pre-backslash spaces survive the join and normalize to the same key).
     const logical = logicalLinesOf(raw);
-    // An if:-guarded step is conditionally executed regardless of shell
-    // content; in-text control flow conditions every playwright line in the
-    // SAME text (R9 G1). Either way: registry-or-loud, never auto-classified.
+    // A guarded step (if:/needs/strategy/custom shell) is conditionally
+    // executed regardless of shell content; in-text control flow conditions
+    // every playwright line in the SAME text (R9 G1); a line ending inside
+    // an open quote makes the FOLLOWING lines string data, not shell (R10).
+    // Either way: registry-or-loud, never auto-classified.
     const contextWhy = guarded
-      ? "if:-guarded step"
+      ? "context-guarded step (if:/needs/strategy/custom shell)"
       : logical.some(({ line }) => controlFlowRe.test(line))
         ? "shell control-flow context"
-        : null;
+        : logical.some(({ line }) => endsInOpenQuote(line))
+          ? "multiline lexical context"
+          : null;
     for (const { line, continued } of logical) {
       if (/^\s*#/.test(line)) continue;
       const forwarded = fwd?.exec(line);
@@ -495,15 +541,17 @@ export function censusInvocations(
       }
       if (!fuzzy.test(line) && !fuzzy.test(reduceBraces(line))) {
         const flagCount = configFlags(line).length;
-        // R9 G2: a config flag whose target command/script is COMPOSED at
-        // runtime ($VAR/backtick expansion, or a quoted script token a
-        // literal compare misses) can invoke playwright while mentioning it
-        // nowhere. Registry-or-loud.
-        if (
-          flagCount > 0 &&
-          (/[$`]/.test(line) || (/['"]/.test(line) && /\b(?:pnpm|npm|yarn|bun)\b/.test(line)))
-        ) {
-          routeRegistry(line, "config flag with a runtime-composed target");
+        // R9 G2 / R10: a config flag whose target command is COMPOSED at
+        // runtime — expansion, quote/backslash splicing of the command word
+        // itself (play""wright, play\wright), glob/class splicing
+        // (.bin/play?right), quoted script tokens — can invoke playwright
+        // while the line mentions it nowhere. ANY shell metacharacter
+        // alongside a config flag on a no-mention line: registry-or-loud.
+        if (flagCount > 0 && (complexRe.test(line) || /[?*[\]{}()]/.test(line))) {
+          routeRegistry(
+            line,
+            "config flag with shell metacharacters and no literal playwright mention",
+          );
           continue;
         }
         // Runner GLOBAL options before the script name (`pnpm --silent
@@ -520,30 +568,36 @@ export function censusInvocations(
         }
         continue;
       }
+      // contextWhy applies only to lines that would otherwise CLASSIFY
+      // (a `playwright test` mention or a config flag) — a `playwright
+      // install` line in a control-flow block contributes nothing either
+      // way and stays silent, exactly as it does outside one.
       const why =
         (complexRe.test(line) ? "quote/backslash/$/backtick" : null) ??
         suspicion(line) ??
         (continued ? "backslash-newline continuation" : null) ??
-        contextWhy;
+        (mentionsRe.test(line) || configFlags(line).length > 0 ? contextWhy : null);
       if (why) {
         routeRegistry(line, why);
         continue;
       }
       if (!mentionsRe.test(line)) continue;
-      // R7 F2: conditional execution. A `||` chain or a guard command
-      // (true/false/:/exit/return/[/test) can make the invocation DEAD at
-      // runtime — recording its config would keep set-equality green while
-      // that config runs nowhere. Unconditional `&&` chains stay
-      // classifiable: a failing predecessor fails the step loudly, there is
-      // no silent-skip path.
-      if (/\|\|/.test(line)) {
-        problems.push(`short-circuit || around a playwright invocation: ${line.trim()}`);
+      // R7 F2 / R10: ANY short-circuit chain is loud — bash -e exempts a
+      // failing command inside a && list (set -e; false && x; echo ok →
+      // exits 0 without running x), so even an "unconditional-looking" &&
+      // can silently skip the invocation while the step stays green. Guard
+      // commands (true/false/:/[/test/exit/return/exec/set/eval/negation)
+      // reachable via ;/| splits are loud for the same reason.
+      if (/\|\||&&/.test(line)) {
+        problems.push(`short-circuit chain around a playwright invocation: ${line.trim()}`);
         continue;
       }
       const guard = line
         .split(/[;&|]+/)
         .map((s) => s.trim())
-        .find((s) => /^(?:true$|false$|:$|\[|test\s|exit\b|return\b)/.test(s));
+        .find((s) =>
+          /^(?:true$|false$|:$|\[|test\s|exit\b|return\b|exec\b|set\b|eval\b|!)/.test(s),
+        );
       if (guard !== undefined) {
         problems.push(
           `guard command "${guard}" conditions a playwright invocation: ${line.trim()}`,
@@ -866,12 +920,33 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(r.problems).not.toEqual([]);
       expect([...r.invoked]).not.toContain("known.ts");
     }
-    // Unconditional && chains stay classifiable — the prior command failing
-    // fails the step loudly; there is no silent-skip path.
-    expect(c("corepack enable && playwright test --config real.ts").problems).toEqual([]);
-    expect([...c("corepack enable && playwright test --config real.ts").invoked]).toEqual([
-      "real.ts",
-    ]);
+    // R10: EVERY short-circuit chain is loud — R7's "unconditional && fails
+    // the step loudly" premise was WRONG: bash -e exempts a failing command
+    // inside a && list (set -e; false && x; echo ok → prints ok, exits 0),
+    // so a failed predecessor silently skips the invocation while the step
+    // stays green.
+    loudAndDark("corepack enable && playwright test --config real.ts");
+    loudAndDark("grep -q x f &&\nplaywright test --config ghost.ts\necho ok");
+    loudAndDark("! true && playwright test --config ghost.ts");
+    loudAndDark("(false) && playwright test --config ghost.ts");
+    // R10: execution-neutering commands ahead of the invocation.
+    loudAndDark("exec true\nplaywright test --config ghost.ts");
+    loudAndDark("set -n\nplaywright test --config ghost.ts");
+    // R10: command words spliced BEFORE the `playwr` substring — quote,
+    // backslash, glob, and class splicing all execute playwright in bash
+    // while containing no literal `playwr`.
+    loudAndDark('play""wright test --config ghost.ts');
+    loudAndDark("play\\wright test --config ghost.ts");
+    loudAndDark("./node_modules/.bin/play?right test --config ghost.ts");
+    loudAndDark("./node_modules/.bin/play[w]right test --config ghost.ts");
+    // R10: multiline lexical context — a quoted string or array literal
+    // spanning lines, and every function-definition spelling, must not let
+    // the inner line classify as a live invocation.
+    loudAndDark('echo "\nplaywright test --config ghost.ts\n"');
+    loudAndDark("ARR=(\nplaywright test --config ghost.ts\n)");
+    loudAndDark("function dead {\n  playwright test --config ghost.ts\n}");
+    loudAndDark("function dead\n{\n  playwright test --config ghost.ts\n}");
+    loudAndDark("dead()\n{\n  playwright test --config ghost.ts\n}");
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
@@ -905,6 +980,36 @@ describe("spec registration detector (spec §3.1)", () => {
     // Job-level if: guards every step in the job (R9 G1).
     const guardedJob = parse("jobs:\n  j:\n    if: false\n    steps:\n      - run: echo x\n");
     expect(runBlocksOf(guardedJob)).toEqual([{ run: "echo x", guarded: true }]);
+    // R10: needs (dependency may fail → job skipped), strategy (matrix may
+    // be empty), and a custom shell (reinterprets the block) are execution
+    // context too. bash/sh shells stay unguarded; composite actions REQUIRE
+    // an explicit shell, so bash there is not context.
+    expect(
+      runBlocksOf(parse("jobs:\n  j:\n    needs: build\n    steps:\n      - run: echo x\n")),
+    ).toEqual([{ run: "echo x", guarded: true }]);
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    strategy:\n      matrix:\n        s: [1]\n    steps:\n      - run: echo x\n",
+        ),
+      ),
+    ).toEqual([{ run: "echo x", guarded: true }]);
+    expect(
+      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: python\n")),
+    ).toEqual([{ run: "echo x", guarded: true }]);
+    expect(
+      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: bash\n")),
+    ).toEqual([{ run: "echo x", guarded: false }]);
+    expect(
+      runBlocksOf(
+        parse(
+          "runs:\n  using: composite\n  steps:\n    - run: echo a\n      shell: bash\n    - run: echo b\n      shell: python\n",
+        ),
+      ),
+    ).toEqual([
+      { run: "echo a", guarded: false },
+      { run: "echo b", guarded: true },
+    ]);
   });
 
   it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {
