@@ -170,6 +170,9 @@ export const INTERNAL_CODE_ENUMS = {
   OPERATOR_ERROR_NOT_FOLDER: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  ORPHANED_CREW_ROWS: {
+    source: "parse_warnings.code"
+  },
   parse_error: {
     source: "shows.last_sync_status"
   },

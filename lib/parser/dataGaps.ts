@@ -2,8 +2,9 @@
  * summarizeDataGaps — single-sourced count logic for the data-quality surfaces
  * (parse-data-quality-warnings §6).
  *
- * The three data-quality ParseWarning codes (FIELD_UNREADABLE,
- * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) are surfaced at the operator
+ * The original data-quality trio (FIELD_UNREADABLE,
+ * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) — since grown into the GAP_CLASSES
+ * registry below — are surfaced at the operator
  * surfaces (staged card, wizard Step 3, changes feed, SHOW_FIRST_PUBLISHED
  * digest, per-show panel). Every surface derives its count
  * from THIS helper so the logic is single-sourced — tests assert against the
@@ -25,11 +26,12 @@ import type { ParseWarning } from "@/lib/parser/types";
  * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 49-code persisted-ParseWarning partition.
+ * the full 55-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
   { code: "UNKNOWN_SECTION_HEADER", label: "unknown section" },
+  { code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" },
   { code: "BLOCK_DISAPPEARED", label: "removed section" },
   { code: "UNKNOWN_FIELD", label: "unrecognized field" },
   { code: "SCHEDULE_TIME_UNPARSED", label: "unreadable schedule time" },
@@ -108,7 +110,9 @@ export const DATA_GAP_CODES: ReadonlySet<string> = new Set(GAP_CLASSES.map((g) =
 const zeroClasses = (): Record<GapCode, number> =>
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, 0])) as Record<GapCode, number>;
 
-/** True when `w` is a `warn`-severity data-quality warning (one of the three DQ codes). */
+/** True when `w` is a `warn`-severity data-quality warning (a GAP_CLASSES member;
+ *  historically the original FIELD_UNREADABLE / UNKNOWN_SECTION_HEADER /
+ *  BLOCK_DISAPPEARED trio). */
 export function isDataQualityWarning(w: ParseWarning | null | undefined): boolean {
   return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
 }
@@ -242,7 +246,7 @@ export function formatAutoFixBreakdown(summary: AutoFixSummary, cap = 4): string
 }
 
 /**
- * Count the three data-quality warning classes in `warnings`, excluding any
+ * Count the data-quality warning classes (GAP_CLASSES) in `warnings`, excluding any
  * `severity:"info"` warning (only operator-actionable `warn`-severity drops
  * count) and any non-data-quality code. `null`/`undefined`/`[]` → `{ total: 0 }`.
  */
@@ -406,6 +410,7 @@ export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
   "PULL_SHEET_PARSE_PARTIAL",
   "PULL_SHEET_AMBIGUOUS_FORMAT",
   "PULL_SHEET_UNKNOWN_VARIANT",
+  "ORPHANED_CREW_ROWS",
   FIELD_UNREADABLE,
 ]);
 

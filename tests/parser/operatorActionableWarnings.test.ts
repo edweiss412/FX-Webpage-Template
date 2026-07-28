@@ -5,7 +5,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
 
 describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
-  it("contains exactly the twenty codes", () => {
+  it("contains exactly the twenty-one codes", () => {
     expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",
@@ -15,6 +15,7 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
       "COLUMN_HEADER_AUTOCORRECTED",
       "FIELD_LABEL_AUTOCORRECTED",
       "FIELD_UNREADABLE",
+      "ORPHANED_CREW_ROWS",
       "PULL_SHEET_AMBIGUOUS_FORMAT",
       "PULL_SHEET_PARSE_PARTIAL",
       "PULL_SHEET_UNKNOWN_VARIANT",
@@ -223,5 +224,31 @@ describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", 
     ];
     // The NUL delimiter makes "" a PRESENT discriminator; without it this pair aliases and collapses.
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+});
+
+// Spec 2026-07-27-export-blank-row-segmentation §6 T10 — card-surface membership.
+// Failure mode: dropping ORPHANED_CREW_ROWS from OPERATOR_ACTIONABLE_ANCHORED
+// silently removes its card (counts/digest keep working, so nothing else fails).
+describe("operatorActionableWarnings — ORPHANED_CREW_ROWS membership", () => {
+  it("passes an ORPHANED_CREW_ROWS warning through to the card list", () => {
+    const w: ParseWarning = {
+      severity: "warn",
+      code: "ORPHANED_CREW_ROWS",
+      message: "o",
+      blockRef: { kind: "crew" },
+      rawSnippet: "Doug Larson",
+    };
+    expect(operatorActionableWarnings([w])).toEqual([w]);
+  });
+
+  it("negative control: an unregistered code is still dropped", () => {
+    const w: ParseWarning = {
+      severity: "warn",
+      code: "NOT_A_REGISTERED_CODE",
+      message: "x",
+      blockRef: { kind: "crew" },
+    };
+    expect(operatorActionableWarnings([w])).toEqual([]);
   });
 });
