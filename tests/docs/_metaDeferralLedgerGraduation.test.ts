@@ -144,6 +144,10 @@ const BACKLOG_GRADUATED = [
   { id: "BL-VALIDATION-PARITY-DEFINITION-MATCH", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-VALIDATION-TARGET-BINDING", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
+  // fix/duration-tokens-emit-no-css (2026-07-27): @theme --transition-duration-*
+  // aliases made the duration-* utilities real; spec
+  // docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md §5.
+  { id: "BL-DURATION-TOKENS-EMIT-NO-CSS", provenance: "fix/duration-tokens-emit-no-css" },
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
   // behind the skipped picker-flow e2e stubs, all fixed in that branch.
   // feat/watch-reconcile-backoff (2026-07-27): the deferred backoff half shipped
