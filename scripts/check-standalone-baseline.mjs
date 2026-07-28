@@ -11,6 +11,14 @@
 //
 // The zero-args form exists so the workflow step literal stays exactly
 // `node scripts/check-standalone-baseline.mjs` (spec §4.1 structural pinning).
+//
+// Baseline schema (v2, R6 P1): per-file sorted MULTISETS of test identities
+// ("<projectName> :: <suite titles > test title>"), plus a totalTests field
+// that must equal the identity sum (self-consistency, human readability). A
+// file set + one global total permits COMPENSATED narrowing: a grep that
+// drops half the tests while repeatEach duplicates the survivors preserves
+// every filename and the total; equal-cardinality test/project substitutions
+// do the same. Identity multisets make each of those a mismatch.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -47,14 +55,21 @@ const toRepoPosix = (rootDir, file) => {
 // executed — a schema-malformed report could otherwise match the baseline.
 const KNOWN_OUTCOME_STATUSES = new Set(["expected", "unexpected", "flaky", "skipped"]);
 
+// One identity per test OUTCOME entry, so repeatEach duplication and project
+// membership both surface in the multiset. "(none)" keeps fixture reports
+// (and any reporter variant omitting projectName) comparable rather than
+// collapsing to undefined.
+const identity = (test, titlePath) => `${test?.projectName ?? "(none)"} :: ${titlePath}`;
+
 function membership(json, { executedOnly = false } = {}) {
   const rootDir = json?.config?.rootDir;
   if (typeof rootDir !== "string") fail("report has no config.rootDir");
-  const files = new Set();
+  const perFile = new Map();
   let total = 0;
-  const walk = (suites) => {
+  const walk = (suites, titles) => {
     for (const s of suites ?? []) {
-      walk(s.suites);
+      const next = typeof s.title === "string" && s.title !== "" ? [...titles, s.title] : titles;
+      walk(s.suites, next);
       for (const spec of s.specs ?? []) {
         // Run reports (executedOnly): a test whose outcome status is
         // "skipped" executed nothing — an environment-conditioned
@@ -75,13 +90,21 @@ function membership(json, { executedOnly = false } = {}) {
             })
           : (spec.tests ?? []);
         if (executedOnly && counted.length === 0) continue;
-        files.add(toRepoPosix(rootDir, spec.file));
+        const file = toRepoPosix(rootDir, spec.file);
+        const titlePath = [...next, spec.title]
+          .filter((t) => typeof t === "string" && t !== "")
+          .join(" > ");
+        const ids = perFile.get(file) ?? [];
+        for (const t of counted) ids.push(identity(t, titlePath));
+        perFile.set(file, ids);
         total += counted.length;
       }
     }
   };
-  walk(json.suites);
-  return { files: [...files].sort(), totalTests: total };
+  walk(json.suites, []);
+  const files = {};
+  for (const f of [...perFile.keys()].sort()) files[f] = perFile.get(f).sort();
+  return { files, totalTests: total };
 }
 
 function listResolution() {
@@ -108,21 +131,66 @@ function readBaseline() {
   } catch (e) {
     fail(`cannot read baseline ${BASELINE}: ${e}`);
   }
-  if (!Array.isArray(parsed.files) || typeof parsed.totalTests !== "number") {
-    fail(`malformed baseline ${BASELINE}`);
+  // v2 only: files is a plain object of per-file identity arrays. A legacy v1
+  // array (or any other shape) is malformed — never silently fall back to the
+  // coarse file-set + total comparison this schema exists to replace.
+  const f = parsed?.files;
+  if (
+    f === null ||
+    typeof f !== "object" ||
+    Array.isArray(f) ||
+    typeof parsed.totalTests !== "number" ||
+    Object.values(f).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))
+  ) {
+    fail(`malformed baseline ${BASELINE} (expected v2 per-file identity arrays)`);
   }
-  return { files: [...parsed.files].sort(), totalTests: parsed.totalTests };
+  const files = {};
+  let sum = 0;
+  for (const file of Object.keys(f).sort()) {
+    files[file] = [...f[file]].sort();
+    sum += files[file].length;
+  }
+  if (sum !== parsed.totalTests) {
+    fail(
+      `self-inconsistent baseline ${BASELINE}: totalTests ${parsed.totalTests} != identity sum ${sum}`,
+    );
+  }
+  return { files, totalTests: parsed.totalTests };
 }
 
 function compare(actual, label) {
   const base = readBaseline();
-  const missing = base.files.filter((f) => !actual.files.includes(f));
-  const extra = actual.files.filter((f) => !base.files.includes(f));
+  const actualFiles = Object.keys(actual.files);
+  const baseFiles = Object.keys(base.files);
+  const missing = baseFiles.filter((f) => !actualFiles.includes(f));
+  const extra = actualFiles.filter((f) => !baseFiles.includes(f));
   if (missing.length || extra.length) {
     fail(
       `${label} membership mismatch.\n` +
         `  missing from ${label}: ${missing.join(", ") || "-"}\n` +
         `  not in baseline: ${extra.join(", ") || "-"}\n` +
+        `  regenerate: node scripts/check-standalone-baseline.mjs --write`,
+    );
+  }
+  const drifted = [];
+  for (const f of baseFiles) {
+    const a = actual.files[f];
+    const b = base.files[f];
+    if (a.length !== b.length || a.some((id, i) => id !== b[i])) {
+      const missingIds = b.filter((id) => !a.includes(id));
+      const extraIds = a.filter((id) => !b.includes(id));
+      drifted.push(
+        `  ${f}: ${b.length} baseline / ${a.length} ${label} identities` +
+          (missingIds.length ? `\n    missing: ${missingIds.slice(0, 5).join(" | ")}` : "") +
+          (extraIds.length ? `\n    unexpected: ${extraIds.slice(0, 5).join(" | ")}` : ""),
+      );
+    }
+  }
+  if (drifted.length) {
+    fail(
+      `${label} test-identity mismatch (per-file multisets must match exactly —\n` +
+        `duplicated, substituted, or re-projected tests are narrowing even when\n` +
+        `file names and totals survive):\n${drifted.join("\n")}\n` +
         `  regenerate: node scripts/check-standalone-baseline.mjs --write`,
     );
   }
@@ -152,7 +220,7 @@ for (const a of args) {
 if (args.includes("--write")) {
   const m = listResolution();
   writeFileSync(BASELINE, `${JSON.stringify(m, null, 2)}\n`);
-  console.log(`wrote ${BASELINE}: ${m.files.length} files, ${m.totalTests} tests`);
+  console.log(`wrote ${BASELINE}: ${Object.keys(m.files).length} files, ${m.totalTests} tests`);
 } else if (flagValue("--report") !== undefined) {
   compareReport(flagValue("--report"));
 } else if (args.includes("--list-check")) {
