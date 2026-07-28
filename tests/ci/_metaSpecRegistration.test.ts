@@ -224,8 +224,25 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * Package-script forwarding (`pnpm|npm|yarn|bun [run] <script> ... --config
  * other.ts` where <script> transitively invokes `playwright test`) composes
  * an invocation across two strings the per-string census cannot join, so a
- * forwarded config flag is a loud problem. Full-line comments never execute
- * and are skipped.
+ * forwarded config flag is a loud problem — including through runner GLOBAL
+ * options (`pnpm --silent test:e2e --config x`), which defeat the strict
+ * forwarding regex: any line naming a runner AND a playwright-wrapping
+ * script AND a config flag is loud. Full-line comments never execute and are
+ * skipped.
+ *
+ * 3. RUNTIME-COMPOSED forms (R6): brace expansion (`--confi{g..g}`,
+ *    `playwri{g..g}ht`), inline comments (hide trailing text from the shell
+ *    but not from a token scan), backslash-newline continuation (joined
+ *    faithfully — bash removes the pair without inserting a space — then
+ *    refused auto-classification), alternate CLI entries
+ *    (`node .../@playwright/test/cli.js test`), and glob-constructed command
+ *    words (`.bin/playwrigh?`) all compose an invocation the literal scan
+ *    cannot see. Each routes to the SAME complex-registry path as axis 2: a
+ *    human-declared row classifies it, anything else is loud. The gate that
+ *    feeds these checks matches the lowercase substring `playwr` (raw or
+ *    after single-level brace reduction) — perfect obfuscation detection is
+ *    impossible by the axiom above; the enumerated families are the ones
+ *    review produced.
  */
 export function censusInvocations(
   texts: string[],
@@ -240,6 +257,29 @@ export function censusInvocations(
   const cmdPos = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|npx\s+)?playwright\s+test\b/;
   const mentionsRe = /\bplaywright\s+test\b/;
   const complexRe = /['"\\$`]/;
+  // Deliberately case-sensitive, matching the classifier's lowercase-shell
+  // posture (mentionsRe/cmdPos are lowercase too): the substring `playwr`
+  // widens the old \bplaywright\b gate to catch constructed command words
+  // without pulling PLAYWRIGHT_* env-var prose into the census.
+  const fuzzy = /playwr/;
+  const braceRe = /\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
+  // Single-level reduction to the FIRST alternative — enough for the gate to
+  // see through `playw{r..r}ight`; classification of any braced line is
+  // refused regardless (suspicion below), so this never needs full bash
+  // brace semantics.
+  const reduceBraces = (s: string) =>
+    s.replace(/\{([^{},\s]+)\.\.[^{}\s]*\}/g, "$1").replace(/\{([^{}\s]*),[^{}\s]*\}/g, "$1");
+  const suspicion = (line: string): string | null => {
+    if (braceRe.test(line)) return "brace expansion";
+    if (/#/.test(line)) return "inline comment";
+    if (/\/cli\.js(?:\s|$)/.test(line) || /[\\/]\.bin[\\/]playwr/.test(line))
+      return "alternate playwright CLI entry";
+    for (const tok of line.split(/\s+/)) {
+      if (fuzzy.test(tok) && /[?*[]/.test(tok) && !/\bplaywright\b/.test(tok))
+        return `glob-constructed token "${tok}"`;
+    }
+    return null;
+  };
   const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
   const usedKeys = new Set<string>();
   const fwd =
@@ -251,24 +291,60 @@ export function censusInvocations(
         )
       : null;
   for (const raw of texts) {
-    if (/\bplaywright\b/.test(raw) && raw.includes("<<")) {
+    if (fuzzy.test(raw) && raw.includes("<<")) {
       problems.push(`heredoc in a text mentioning playwright: ${raw.slice(0, 120)}`);
       continue;
     }
-    for (const line of raw.replace(/\\\n/g, " ").split("\n")) {
+    // Bash removes a backslash-newline PAIR — no space is inserted, so a
+    // config path split mid-token rejoins into one token. The old space-join
+    // re-tokenized it and recorded the wrong config (R6). Join faithfully,
+    // PER LOGICAL LINE (a plain sibling line in the same run step must not
+    // inherit the flag), and refuse to auto-classify any joined line:
+    // continuation is a complex construct, so it takes the registry path
+    // below (registered docker/regen lines keep matching — their
+    // pre-backslash spaces survive the join and normalize to the same key).
+    const logical: Array<{ line: string; continued: boolean }> = [];
+    const rawLines = raw.split(/\r?\n/);
+    for (let i = 0; i < rawLines.length; i++) {
+      let line = rawLines[i] ?? "";
+      let continued = false;
+      while (/\\$/.test(line) && i + 1 < rawLines.length) {
+        line = line.slice(0, -1) + (rawLines[++i] ?? "");
+        continued = true;
+      }
+      logical.push({ line, continued });
+    }
+    for (const { line, continued } of logical) {
       if (/^\s*#/.test(line)) continue;
       const forwarded = fwd?.exec(line);
       if (forwarded && configFlags(forwarded[1] ?? "").length > 0) {
         problems.push(`config flag forwarded through a package script: ${line.trim()}`);
         continue;
       }
-      if (!/\bplaywright\b/.test(line)) continue;
-      if (complexRe.test(line)) {
+      if (!fuzzy.test(line) && !fuzzy.test(reduceBraces(line))) {
+        // Runner GLOBAL options before the script name (`pnpm --silent
+        // test:e2e --config x`) defeat the strict forwarding regex above
+        // while still forwarding the flag into a playwright invocation (R6).
+        if (
+          configFlags(line).length > 0 &&
+          /\b(?:pnpm|npm|yarn|bun)\b/.test(line) &&
+          line.split(/\s+/).some((t) => pwScriptNames.includes(t))
+        ) {
+          problems.push(
+            `config flag on a runner line naming a playwright-wrapping script: ${line.trim()}`,
+          );
+        }
+        continue;
+      }
+      const why = complexRe.test(line)
+        ? "quote/backslash/$/backtick"
+        : (suspicion(line) ?? (continued ? "backslash-newline continuation" : null));
+      if (why) {
         const key = normalize(line);
         const declared = complexRegistry[key];
         if (declared === undefined) {
           problems.push(
-            `complex shell construct (quote/backslash/$/backtick) on a playwright-mentioning ` +
+            `complex shell construct (${why}) on a playwright-adjacent ` +
               `line — declare it in the complex-invocation registry: ${key}`,
           );
         } else {
@@ -301,7 +377,10 @@ export function censusInvocations(
         let neutralized = false;
         for (const m of flags) {
           const before = segment.slice(0, m.index ?? 0).trimEnd();
-          const prevToken = before.slice(before.lastIndexOf(" ") + 1);
+          // Whitespace-aware, not space-aware: a TAB boundary must find the
+          // same preceding token a space would (R6 — commander consumes
+          // `--config` as `--grep`'s value regardless of separator).
+          const prevToken = before.split(/\s+/).filter(Boolean).pop() ?? "";
           if (/^--?[^=\s]+$/.test(prevToken) && !/^(?:--config|-c)/.test(prevToken)) {
             problems.push(
               `config flag may be consumed as the value of preceding bare option "${prevToken}": ${trimmed}`,
@@ -518,6 +597,34 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(c(form).problems, form).not.toEqual([]);
       expect([...c(form).invoked], form).not.toContain("ghost.ts");
     }
+    // R6 families: constructs that COMPOSE the invocation or its flag at
+    // runtime from text a literal scan cannot see — brace expansion, inline
+    // comments, backslash-newline continuation (a config path split
+    // mid-token rejoins into one token bash-side, so a joined line is never
+    // auto-classified), tab token boundaries, runner GLOBAL options before
+    // the script name, alternate CLI entries, glob-constructed command
+    // words. Every one is loud AND classifies nothing.
+    const loudAndDark = (form: string, names: string[] = []) => {
+      const r = censusInvocations([form], names);
+      expect(r.problems, form).not.toEqual([]);
+      expect(r.invoked.size, form).toBe(0);
+    };
+    loudAndDark("playwright test --confi{g..g} tests/e2e/standalone.config.ts");
+    loudAndDark("playwri{g..g}ht test --config ghost.ts");
+    loudAndDark("playw{r..r}ight test --config ghost.ts");
+    loudAndDark(
+      "playwright test --config tests/e2e/standalone.config.ts # --config playwright.config.ts",
+    );
+    loudAndDark(
+      "playwright test --config playwright.config.ts\\\n/../tests/e2e/standalone.config.ts",
+    );
+    loudAndDark("playwright test\t--grep\t--config tests/e2e/standalone.config.ts");
+    loudAndDark("pnpm --silent test:e2e --config tests/e2e/standalone.config.ts", ["test:e2e"]);
+    loudAndDark("pnpm --filter . test:e2e --config=ghost.ts", ["test:e2e"]);
+    loudAndDark(
+      "node node_modules/@playwright/test/cli.js test --config tests/e2e/standalone.config.ts",
+    );
+    loudAndDark("./node_modules/.bin/playwrigh? test --config ghost.ts");
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
