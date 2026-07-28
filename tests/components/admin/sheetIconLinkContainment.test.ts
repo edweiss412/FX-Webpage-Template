@@ -719,8 +719,24 @@ function bareSpecifierOffense(spec: string): string | null {
   return null;
 }
 
-function configReachableFiles(root: string): { files: string[]; offenders: string[] } {
+/**
+ * r19: `bareImports` — every bare package the config graph touches. A
+ * registry package invoked FROM the config (`withMDX`, `withSentryConfig`)
+ * executes at build time and could hand Next a resolver alias from
+ * node_modules, where no first-party scan reaches. The CONTENT of a pinned
+ * dependency is ratified supply-chain trust (lockfile + dependency review
+ * own upgrades, as they do for every package that could patch anything);
+ * the first-party, teachable surface is WHICH packages the config invokes —
+ * pinned by exact set in the resolver test, so a new config-level wrapper
+ * fails until this guard learns it.
+ */
+function configReachableFiles(root: string): {
+  files: string[];
+  offenders: string[];
+  bareImports: string[];
+} {
   const exts = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"];
+  const bareImports = new Set<string>();
   const jsonAliasKeys = (value: unknown, rel: string): string[] => {
     if (typeof value !== "object" || value === null) return [];
     const found: string[] = [];
@@ -782,6 +798,7 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
       if (base === null) {
         const offense = bareSpecifierOffense(spec);
         if (offense !== null) offenders.push(`${rel}: ${offense}`);
+        else bareImports.add(spec);
         ts.forEachChild(node, visit);
         return;
       }
@@ -810,7 +827,7 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
     };
     visit(sf);
   }
-  return { files, offenders };
+  return { files, offenders, bareImports: [...bareImports].sort() };
 }
 
 describe("sheet-link phrase containment (spec §7.10)", () => {
@@ -1216,6 +1233,13 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // silently skipped.
     const reachable = configReachableFiles(root);
     expect(reachable.files, "the config graph starts at the entry").toContain("next.config.ts");
+    // r19: the packages the config INVOKES are pinned by exact set — a
+    // config-wrapper package executes at build time and could hand Next an
+    // alias from node_modules, outside every first-party scan. Adding a new
+    // wrapper is a deliberate, reviewable act that teaches this guard first;
+    // the CONTENT of these pinned dependencies is ratified supply-chain
+    // trust (lockfile + dependency review own upgrades).
+    expect(reachable.bareImports).toEqual(["@next/mdx", "@sentry/nextjs", "next"]);
     const configOffenders = [
       ...reachable.offenders,
       ...reachable.files.flatMap((rel) =>
