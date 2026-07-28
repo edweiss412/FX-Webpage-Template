@@ -99,9 +99,12 @@ export function findingFor(siteId: string): string {
 
 // ─── LEDGER (ratchet-shrunk 2026-07-28 by the blank-row segmentation fix on this branch
 //     (BL-EXPORT-BLANK-ROW-SEGMENTATION, header-aware splitBlocks): 62 fixed holes dropped —
-//     all blank-row:inject/:remove — 0 rows added, 0 fingerprint drift; regenerated from the
-//     sharded HEAD corpus, 8 LPT shard dumps. Prior re-bless 2026-07-28 (hotel ambiguity-judgment
-//     drift, PR #633); before that 2026-07-22 (autocorrect field, 47b73d5c6/7295d794c). ─────────
+//     56 blank-row:inject plus 6 header-typo:*:B5-ish DRESS-header sites (whole-diff r1 F1:
+//     a typoed DRESS header orphans its crew-shaped rows, so ORPHANED_CREW_ROWS now alarms —
+//     detection-under-corruption; the corpus walker pins zero valid-sheet false positives) —
+//     0 rows added, 0 fingerprint drift; regenerated from the sharded HEAD corpus, 8 LPT shard
+//     dumps, re-verified byte-identical after the r1 F2/F3 repairs. Prior re-bless 2026-07-28
+//     (hotel ambiguity-judgment drift, PR #633); before that 2026-07-22 (autocorrect field). ────
 // 7842 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
