@@ -174,28 +174,40 @@ let `cells` = its cells, `firstCell` = first non-empty cell, `tok` = `firstCell`
 at the first `&#10;` or newline, trimmed. The block is an **orphaned crew tail** when ALL
 hold, evaluated in this order:
 
-1. **Not suppressed:** no `KNOWN_SECTION_HEADERS` entry is a whole-token prefix of `tok`
-   compared CASE-SENSITIVELY against the RAW text (registry entries are uppercase, so the
-   sheet text must carry the token in uppercase; boundary rule as `matchesTokenPrefix`).
-   This suppresses genuine section-header rows (`CREW | NAME | ...`), the DRESS shape
-   (probe 5), and the legacy fused header `TRANSPORTATION/Load In:`
-   (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md:24`) — while a crew NAME in
-   the first cell (mixed case: "Doug Larson", or adversarial R1's "Driver Jones") is
-   never suppressed, closing R1 finding 3's false-negative class. No sub-label or
-   pull-sheet clause: single-cell rows and header bands are excluded by arms 2-3.
-2. **Row shape:** ≥2 non-empty cells (kills single-cell ROLE-legend rows, probe 5).
-3. **Role cell:** some single cell matches ≥2 DISTINCT role tokens among
+1. **Not suppressed:** `tok` is not EXACTLY equal (raw, case-sensitive — registry entries
+   are uppercase) to a `KNOWN_SECTION_HEADERS` entry. Exact-only, NOT prefix (adversarial
+   R2 finding 3): prefix suppression silently missed an all-caps roster name sharing a
+   registry token (`| DRIVER JONES | - Load In / Set / Strike / Load Out - V1 |`).
+   Exact-equality still suppresses the only shape that needs it — the DRESS row
+   `| DRESS | Set/Strike: ... |` (probe 5) and intact section-header rows — while the
+   legacy fused header `TRANSPORTATION/Load In:`
+   (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md:24`) is excluded by arm 3
+   (its only role token is LOAD IN), and names in any case ("Doug Larson", "Driver
+   Jones", "DRIVER JONES") are never suppressed. No sub-label or pull-sheet clause:
+   single-cell rows and header bands are excluded by arms 2-3.
+2. **Row shape:** ≥2 non-empty cells (kills single-cell ROLE-legend rows, probe 5). Cell
+   extraction mirrors the parser's row convention — split on EVERY `|`
+   (`lib/parser/blocks/_helpers.ts:39`); an escaped `\|` inside a cell therefore splits
+   into separate cells, so a role cell authored with literal pipes (`Load In \| Set \|
+   Strike`) decomposes into single-token cells and is NOT detected — documented residual
+   (§8), pinned by a T5 negative. A cell is non-empty when any of its LINES (split on
+   `&#10;` entities and raw newlines) is non-blank after trimming.
+3. **Role cell:** some single cell has ONE LINE (per the same `&#10;`/newline line-split)
+   matching ≥2 DISTINCT role tokens among
    `LOAD IN` (`/\bLOAD\s*[- /]*\s*IN\b/i`), `LOAD OUT` (`/\bLOAD\s*[- /]*\s*OUT\b/i`),
    `STRIKE` (`/\bSTRIKE\b/i`), `SET` (`/\bSET\b/i`) — exported as `CREW_ROLE_CELL_TOKENS`
    (name + regex pairs) with helper `isCrewRoleCell(cell): boolean` in
-   `lib/parser/knownSections.ts` beside `SECTION_FIELD_HEADER_WORDS`. Single-token rows
-   (`GS Strike Time`, `Setup / Load In Date / Time`, agenda `9:00PM - LOAD IN` cells —
-   `SETUP` does not match `\bSET\b`) never fire; the token-per-CELL rule means two
-   single-token cells in one row (the consultants agenda row) do not fire either.
+   `lib/parser/knownSections.ts` beside `SECTION_FIELD_HEADER_WORDS`. Per-LINE evaluation
+   (R2 finding 5) keeps a multiline agenda cell
+   (`8:00AM - LOAD IN&#10;5:00PM - LOAD OUT`) from firing; corpus crew role cells are
+   single-line. Single-token rows (`GS Strike Time`, `Setup / Load In Date / Time` —
+   `SETUP` does not match `\bSET\b`) never fire; the tokens-per-LINE-per-CELL rule means
+   two single-token cells in one row (the consultants agenda row) do not fire either.
 
-De-dup: one emit per distinct `tok` per parse (a `Set`, mirroring
-`emittedUnknownHeaders`, `lib/parser/index.ts:701`). No numeric cap — the de-dup set
-bounds emission at one per distinct orphan first-row cell.
+De-dup: one emit per distinct KEY per parse, where the key is `tok` truncated to the
+shared 60-char constant (the same value emitted as `rawSnippet` — R2 finding 6 pins the
+key precisely; a `Set`, mirroring `emittedUnknownHeaders`, `lib/parser/index.ts:701`).
+No numeric cap — the de-dup set bounds emission at one per distinct key.
 
 The rule is adjacency-FREE (no "previous block recognized" condition): probe 3 shows
 adjacency adds only false positives; probe 5 shows the shape discriminator alone is
@@ -244,32 +256,46 @@ registrations below are therefore mandatory, with behavioral tests (§6 T10).
 | `pnpm gen:spec-codes` | Regenerate `lib/messages/__generated__/spec-codes.ts` |
 | `lib/messages/catalog.ts` | Full row (all fields, §3.4 copy; style `ROOM_HEADER_SPLIT_AMBIGUOUS` at `lib/messages/catalog.ts:1354-1366`) |
 | Warning-card copy | Code into `WARNING_CARD_COPY_CODES` AND popover copy into `EXPECTED_TRIGGER_CONTEXT` (`tests/messages/warningCardCopyRegistry.ts:4`, `tests/messages/warningCardCopyRegistry.ts:48`); inline + popover row appended to the canonical §4.2 table in `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:118` (the catalog carries the copy; the registry pins codes + trigger copy — R1 finding 6) |
+| `pnpm gen:internal-code-enums` | Regenerate + COMMIT `lib/messages/__generated__/internal-code-enums.ts` — the x2 extractor collects the new `code: "ORPHANED_CREW_ROWS"` literal (`scripts/extract-internal-code-enums.ts:67`) and CI regenerates and rejects an uncommitted diff (`.github/workflows/x-audits.yml:121-124`) (R2 finding 2) |
+| `tests/parser/operatorActionableWarnings.test.ts` | The registry has an exact-set pin ("contains exactly the twenty codes", `tests/parser/operatorActionableWarnings.test.ts:8`) — add the code to the expected list and reword the count (20 → 21). T10's behavioral cases live in this file |
 | `lib/parser/dataGaps.ts` `GAP_CLASSES` | `{ code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" }` (not `gateExempt`, §1.1) |
-| `tests/parser/dataGapsClassCompleteness.test.ts` | Add to `ALL_PERSISTED_WARNING_CODES`; bump the size pin at `tests/parser/dataGapsClassCompleteness.test.ts:209` (54 → 55) |
+| `tests/parser/dataGaps.test.ts` | Registry pins at `tests/parser/dataGaps.test.ts:43-44` (`toHaveLength(34)`, `DATA_GAP_CODES.size` 34) → 35; refresh the stale `// 34` count comment at `tests/parser/dataGaps.test.ts:157` |
+| `tests/parser/dataGapsClassCompleteness.test.ts` | Add to `ALL_PERSISTED_WARNING_CODES` AND to the `DATA_GAP_CODES` bucket; bump BOTH pins — `DATA_GAP_CODES.size` 34 → 35 (`tests/parser/dataGapsClassCompleteness.test.ts:204`) and the total 54 → 55 (`tests/parser/dataGapsClassCompleteness.test.ts:209`); refresh the bucket-count prose in the `it` title ("(34/7/2/11)" → "(35/7/2/11)", `tests/parser/dataGapsClassCompleteness.test.ts:203`) and the stale universe comments at `tests/parser/dataGapsClassCompleteness.test.ts:36` and `tests/parser/dataGapsClassCompleteness.test.ts:68` |
 | `app/help/errors/_families.ts` | Prefix `ORPHANED` into the `crew-schedule` family (the "Other" fallback is pinned EMPTY, `tests/help/errors-grouping.test.tsx:36`) |
 
 ### 3.4 Authored copy (canonical here; implementation copies verbatim)
 
 - **title:** `Some crew rows came loose from their section`
 - **dougFacing:** `Some crew rows in _<sheet-name>_ look separated from the CREW section
-  header, so they were not parsed as crew. A blank row may have been inserted in the
+  header, so they were not read as crew. A blank row may have been inserted in the
   middle of the section; check the crew block in your sheet.`
 - **crewFacing:** `null`
 - **followUp:** `Doug → remove the stray blank row in the crew section`
 - **helpfulContext** (= §4.2 inline): `Rows that look like crew assignments are not
-  attached to a crew section header, so they were not parsed. A blank row may have been
-  added in the middle of the crew section. Check the crew section in the sheet and remove
-  the stray blank row.`
+  attached to a crew section header, so they were not read as crew. A blank row may have
+  been added in the middle of the crew section. Check the crew section in the sheet and
+  remove the stray blank row.`
 - **triggerContext** (= §4.2 popover): `Appears when rows carrying crew role text (like
   'Load In / Set / Strike / Load Out') sit in a block with no section header above them.`
 - **longExplanation:** `A blank row inside the crew section splits the roster into two
   pieces, and the piece below the blank row loses its connection to the CREW header. Those
-  rows were not parsed, so the crew members on them may be missing from their pages.
+  rows were not read as crew, so the crew members on them may be missing from their pages.
   Remove the blank row in the sheet and the roster will read as one section again.`
 - **helpHref:** `/help/errors#ORPHANED_CREW_ROWS`
 
-No em-dashes; no raw codes in prose; apostrophes as straight quotes matching catalog
-convention.
+Copy constraints (R2 finding 1): `_metaWarningCardCopy` bans
+parse/parser/parsed/parsing (and token, structured, canonical, etc.) plus em-dashes in
+`title`, `helpfulContext`, and `triggerContext` (`tests/messages/_metaWarningCardCopy.test.ts:33-40`,
+`tests/messages/_metaWarningCardCopy.test.ts:66-70`) — the strings above use "read as crew" and contain no banned vocabulary in any
+field (kept out of dougFacing/longExplanation too, for §12.4 prose consistency). No raw
+codes in prose; straight apostrophes matching catalog convention.
+
+Copy freezing (R2 finding 6): the existing gates freeze `dougFacing` / `crewFacing` /
+`followUp` / `helpfulContext` (x1, `tests/cross-cutting/codes.test.ts:76`) and
+`triggerContext` (`tests/messages/_metaWarningCardCopy.test.ts:79-83`), but NOT `title`,
+`longExplanation`, or `helpHref` for a code absent from `EXPECTED_TITLE_CHANGES`. T4's
+test file therefore also asserts `MESSAGE_CATALOG.ORPHANED_CREW_ROWS.title`,
+`.longExplanation`, and `.helpHref` byte-equal to this section's strings.
 
 ## 4. What this feature does NOT touch
 
@@ -341,32 +367,42 @@ it never invokes exporter `splitBlocks`. Therefore:
 - **T4 — orphan warn positive** (`tests/parser`): east-coast shape (role text + phone in
   row), rpas shape (empty col0, name first non-empty, boolean column), fixed-income shape
   (name + role cell only, `|  | DJ Johnson | - Load In / Set / Strike / Load Out - V1 |  |  |`),
-  and R1-finding-3 collision shape (name starting with a registry token in mixed case:
-  `| Driver Jones | - Load In / Set / Strike / Load Out - V1 | 555-000-1111 |`) → each
+  and BOTH collision shapes (mixed-case `| Driver Jones | - Load In / Set / Strike / Load
+  Out - V1 | 555-000-1111 |` AND all-caps `| DRIVER JONES | - Load In / Set / Strike /
+  Load Out - V1 |` — R2 finding 3: exact-only suppression must not swallow either) → each
   emits exactly one warning with `severity:"warn"`, `blockRef.kind === "crew"`,
   `rawSnippet` = first cell. Assert against
   `parseSheet(...).warnings.filter(w => w.code === "ORPHANED_CREW_ROWS")`. De-dup: same
-  tail twice → one per distinct first cell.
+  tail twice → one; two tails whose first cells share line one but differ after an
+  `&#10;` (`"Doug Larson&#10;A"` vs `"Doug Larson&#10;B"`) → ONE warning (key is the
+  truncated first LINE — R2 finding 6). The same file asserts the §3.4 catalog literals
+  (`title` / `longExplanation` / `helpHref`).
 - **T5 — orphan warn negatives** (each pins a probe-4/5 class): `| GS Strike Time | 10/9 @ 4:30pm |`;
   `| Setup / Load In Date / Time | FALSE |`; a standalone ROLE-legend table
   (`| ROLE |` header then single-cell `| - Load In / Set / Strike / Load Out - LEAD |`
   rows, blank-split so a legend row IS a tail-first row) → none; the DRESS row
   `| DRESS | Set/Strike: Black Pants, Black Polo Shirt, Black Footwear |` as a tail-first
-  row → none (uppercase-raw suppression); the legacy fused header row
-  (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md:24` shape) → none; the
-  consultants agenda row (`TRAVEL / SET` cell + `9:00PM - LOAD IN` cell, two single-token
-  cells) → none; intact `CREW` table → none.
+  row → none (exact raw-uppercase suppression); the legacy fused header row
+  (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md:24` shape; excluded by the
+  role-cell arm, not suppression) → none; the consultants agenda row (`TRAVEL / SET`
+  cell + `9:00PM - LOAD IN` cell, two single-token cells) → none; a multiline agenda cell
+  `| Day 3 | 8:00AM - LOAD IN&#10;5:00PM - LOAD OUT |` → none (per-LINE token rule, R2
+  finding 5); an escaped-pipe role cell `Load In \| Set \| Strike` → none (documented
+  residual: the parser-convention pipe split decomposes it); intact `CREW` table → none.
 - **T6 — corpus zero-warning walker**: directory-walk
   `fixtures/shows/{exporter-xlsx,raw,synthetic,email-embedded,pdf-only}` for `*.md`
   (exclude `README.md`; `readdirSync`, never a hand-named list), parse each, assert zero
   `ORPHANED_CREW_ROWS`. Failure mode: discriminator drift re-admitting probe-3/4 classes
   on intact sheets.
-- **T9 — corpus split-recall ratchet** (R1 finding 7): for EVERY exporter fixture
-  markdown, locate every crew/TECH table block, insert a blank line before each internal
-  data row in turn, parse the mutated markdown, and assert ≥1 `ORPHANED_CREW_ROWS`. This
-  reproduces probe 5's recall claim as a permanent ratchet (29 simulated splits today;
-  the count derives from the corpus, not a hardcoded literal). Failure mode: a
-  discriminator change that silently trades away recall.
+- **T9 — corpus split-recall ratchet** (R1 finding 7; anti-vacuity hardened per R2
+  finding 4): for EVERY exporter fixture markdown, locate every crew/TECH table block,
+  insert a blank line before each internal data row in turn, parse, assert ≥1
+  `ORPHANED_CREW_ROWS`. To make traversal rot loud rather than silent, the test ALSO
+  pins the located universe: all 7 fixture slugs found, EVERY fixture yields ≥1 crew/TECH
+  block, and the total simulated-split count equals the frozen literal 29 (comment: the
+  probe-5 census; re-derive when the corpus is re-snapshotted). A locator returning zero
+  blocks or skipping a fixture fails the pin instead of passing vacuously. Failure mode:
+  a discriminator or locator change that silently trades away recall.
 - **T10 — surfacing behavioral** (R1 finding 1): `operatorActionableWarnings` passes an
   `ORPHANED_CREW_ROWS` warning through (and still drops a code not in the registry —
   negative control); the `showDayTimeAnchors` dispatch resolves it to the crew REGION
@@ -374,8 +410,10 @@ it never invokes exporter `splitBlocks`. Therefore:
   link) when not. Assert against the helpers' return values (the data source), in the
   existing test files for those helpers.
 - **T7 — lockstep gates**: existing `x1-catalog-parity`
-  (`tests/cross-cutting/codes.test.ts:69`), `_metaWarningCardCopy`,
-  `dataGapsClassCompleteness`, `errors-grouping` all green after the registrations.
+  (`tests/cross-cutting/codes.test.ts:69`), `x2-no-raw-codes` (with the regenerated,
+  committed `lib/messages/__generated__/internal-code-enums.ts`), `_metaWarningCardCopy`,
+  `dataGapsClassCompleteness`, `dataGaps` registry pins, `operatorActionableWarnings`
+  exact-set pin, `errors-grouping` — all green after the registrations.
 - **T8 — mutation-ledger reconciliation**: run the 8 shards + gates file with
   `VITEST_INCLUDE_MUTATION_HARNESS=1`; delete exactly the reported `fixedHoles` rows;
   re-bless any `driftedStale` fingerprints; update header counts; harness green (§5).
@@ -393,8 +431,9 @@ it never invokes exporter `splitBlocks`. Therefore:
 - `BACKLOG.md` `BL-EXPORT-BLANK-ROW-SEGMENTATION` → **PARTIALLY CLOSED (2026-07-27)**:
   fuse fixed structurally at runtime for uppercase-known headers (not ledger-visible, §5);
   splits detected for crew-role-shaped tails; residuals enumerated (non-crew splits;
-  fuses onto non-uppercase/unknown headers; crew rows without ≥2 role tokens; harness
-  cannot observe exporter-level fixes) with the probe evidence for why generic orphan
-  detection was refuted.
+  fuses onto non-uppercase/unknown headers; crew rows without ≥2 role tokens on one line
+  of one cell — including role cells authored with literal pipes, which decompose under
+  the parser's cell split; harness cannot observe exporter-level fixes) with the probe
+  evidence for why generic orphan detection was refuted.
 - Master spec §12.4 row + §4.2 card-copy rows (§3.3-3.4) — additive error-catalog rows via
   the standard process, not a contradiction of the master spec (invariant 7).
