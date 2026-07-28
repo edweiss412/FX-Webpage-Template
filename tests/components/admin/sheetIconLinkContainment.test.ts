@@ -262,6 +262,47 @@ function resolveSpecifier(spec: string, fromRel: string): string | null {
 /** The only trees allowed to import from tests/ — see the header (r11). */
 const TESTS_IMPORT_EXEMPT = /^(?:tests|scripts)\//;
 
+/** Unwrap parentheses and type-only wrappers around a callee (r15 — they are
+ * erased or transparent at runtime, so `(module.require as NodeRequire)(…)`
+ * is the same call as `module.require(…)`). */
+function unwrapCallee(expr: ts.Expression): ts.Expression {
+  let e = expr;
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isTypeAssertionExpression(e)
+  )
+    e = e.expression;
+  return e;
+}
+
+/**
+ * Every callee spelling that reaches a CJS require (r15): the bare
+ * identifier, ANY property access named `require` (`module.require`,
+ * `globalThis.require` — identifier `.text` cooks escapes), and a
+ * string-keyed element access (`module["require"]`), each optionally behind
+ * the runtime-transparent wrappers unwrapCallee strips. r14 taught the
+ * CONFIG collector `.require` property calls but left the live scan's
+ * specifierOf on the bare identifier, so
+ * `module.require("@/components/admin/SheetIconLink")` touched the module
+ * with no violation. Computed keys (`m["req" + "uire"]`) remain runtime
+ * construction, out of a static guard's reach with the other computed forms
+ * (and in config space nextConfigAliasOffenders flags every computed element
+ * access outright).
+ */
+function isRequireCallee(expr: ts.Expression): boolean {
+  const e = unwrapCallee(expr);
+  if (ts.isIdentifier(e) && e.text === "require") return true;
+  if (ts.isPropertyAccessExpression(e) && e.name.text === "require") return true;
+  return (
+    ts.isElementAccessExpression(e) &&
+    ts.isStringLiteralLike(e.argumentExpression) &&
+    e.argumentExpression.text === "require"
+  );
+}
+
 function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
   const out: string[] = [];
   if (fileName.endsWith(".mdx") || fileName.endsWith(".md")) {
@@ -301,7 +342,9 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
 
   // Every syntactic form that touches a module by string-literal specifier
   // (r10 — import/export declarations alone left require()/import()/import=
-  // as unscanned channels to both the component module and tests/).
+  // as unscanned channels to both the component module and tests/; r15 —
+  // the require CALLEE is matched by isRequireCallee, not the bare
+  // identifier alone).
   const specifierOf = (node: ts.Node): ts.StringLiteral | null => {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
@@ -311,8 +354,7 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
       return node.moduleSpecifier;
     if (
       ts.isCallExpression(node) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression)) &&
       node.arguments.length > 0 &&
       node.arguments[0] !== undefined &&
       ts.isStringLiteral(node.arguments[0])
@@ -350,10 +392,22 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
       // too (r13): with a tsconfig `baseUrl`, `import … from "tests/x"` is a
       // legal root-relative form that resolveSpecifier reports as unresolved;
       // baseUrl is also pinned absent below, and flagging the bare spelling
-      // costs nothing when it cannot resolve.
+      // costs nothing when it cannot resolve. r15: absolute-path and URL
+      // specifiers are OUTSIDE both shapes resolveSpecifier models (webpack
+      // resolves absolute imports; Node resolves file: URLs), and a
+      // `..`-escaping relative path can re-enter the repo from outside — for
+      // those unmodeled targets, ANY tests/ segment in the specifier is the
+      // ban's business. Root-relative resolutions keep the root-anchored
+      // rule: app/tests/ is a real route tree, not the carve.
       if (testsImportBanned) {
-        const resolved = resolveSpecifier(spec.text, fileName) ?? posix.normalize(spec.text);
-        if (resolved === "tests" || resolved.startsWith("tests/")) {
+        const resolved = resolveSpecifier(spec.text, fileName);
+        const target = resolved ?? posix.normalize(spec.text);
+        const unmodeled = resolved === null || resolved.startsWith("..");
+        if (
+          target === "tests" ||
+          target.startsWith("tests/") ||
+          (unmodeled && /(?:^|[\\/])tests[\\/]/.test(spec.text))
+        ) {
           out.push(`non-exempt file imports from tests/ (carve laundering channel): ${snip(node)}`);
         }
       }
@@ -505,8 +559,31 @@ function nextConfigAliasOffenders(src: string): string[] {
  * specifiers stay node_modules territory — pinned real by the
  * no-local-protocol-deps and no-workspace-packages assertions in the
  * resolver test — except `module`/`node:module`, whose `createRequire` is a
- * resolver escape hatch and is denied in config space.
+ * resolver escape hatch and is denied in config space. r15: "bare" is
+ * node_modules territory ONLY for names npm could host — resolveSpecifier
+ * also returns null for `data:`/`file:` URLs, absolute or drive-letter
+ * paths, and `#` subpath imports, and a literal
+ * `import("data:text/javascript,…")` executes under Node with its embedded
+ * alias never scanned; bareSpecifierOffense classifies the null lane instead
+ * of trusting it.
  */
+/**
+ * Bare-specifier classification for the config graph (r15). Denylist, not
+ * npm-name grammar: the classes resolveSpecifier cannot model all carry a
+ * telltale — a `:` (protocols, Windows drives), a leading `/` or `\`
+ * (absolute paths), or a leading `#` (package subpath imports, whose
+ * `imports` field is pinned absent anyway). `node:` builtins pass, except
+ * the createRequire escape hatch.
+ */
+function bareSpecifierOffense(spec: string): string | null {
+  if (spec === "module" || spec === "node:module")
+    return `createRequire source "${spec}" in config graph`;
+  if (/^node:[a-zA-Z0-9_/-]+$/.test(spec)) return null;
+  if (spec.includes(":") || spec.startsWith("/") || spec.startsWith("\\") || spec.startsWith("#"))
+    return `non-package specifier "${spec}" in config graph — cannot be cleared`;
+  return null;
+}
+
 function configReachableFiles(root: string): { files: string[]; offenders: string[] } {
   const exts = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"];
   const jsonAliasKeys = (value: unknown, rel: string): string[] => {
@@ -544,10 +621,7 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
         specNode = node.moduleReference.expression;
       } else if (
         ts.isCallExpression(node) &&
-        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-          (ts.isIdentifier(node.expression) && node.expression.text === "require") ||
-          (ts.isPropertyAccessExpression(node.expression) &&
-            node.expression.name.text === "require"))
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression))
       ) {
         specifierBearing = true;
         specNode = node.arguments[0] ?? null;
@@ -564,10 +638,8 @@ function configReachableFiles(root: string): { files: string[]; offenders: strin
       const spec = specNode.text;
       const base = resolveSpecifier(spec, rel);
       if (base === null) {
-        // Bare specifier: node_modules territory (pinned in the resolver
-        // test), except the createRequire escape hatch.
-        if (spec === "module" || spec === "node:module")
-          offenders.push(`${rel}: createRequire source "${spec}" in config graph`);
+        const offense = bareSpecifierOffense(spec);
+        if (offense !== null) offenders.push(`${rel}: ${offense}`);
         ts.forEachChild(node, visit);
         return;
       }
@@ -807,6 +879,47 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('import { W } from "tests/helpers/W";', "components/consumer.tsx"),
     ).toHaveLength(1);
+    // r15 — property/element/wrapped require callees are module touches (the
+    // r14 collector knew `.require`; the live scan's specifierOf did not):
+    expect(
+      classNameViolations('const m = module.require("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const m = module["require"]("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const m = (module.require)("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'const m = (module.require as NodeRequire)("@/components/admin/SheetIconLink");',
+        "probe.ts",
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const h = mod.require("@/tests/helpers/x");', "lib/consumer.ts"),
+    ).toHaveLength(1);
+    // r15 — absolute-path and URL specifiers sit outside both shapes
+    // resolveSpecifier models; any tests/ segment in them is the ban's
+    // business, as is a `..`-escaping relative that re-enters via tests/:
+    expect(
+      classNameViolations(
+        'import { W } from "/Users/x/repo/tests/helpers/W";',
+        "components/consumer.tsx",
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'import { W } from "file:///Users/x/repo/tests/helpers/W";',
+        "components/consumer.tsx",
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'import { W } from "../../sibling/tests/helpers/W";',
+        "components/consumer.tsx",
+      ),
+    ).toHaveLength(1);
     // r11 — the phrase count has the same escape blindness the NAME prefilter
     // had; hiddenPhraseCount sees through cooked literals:
     expect(hiddenPhraseCount('const a = "Open the source \\u0073heet";', "lib/x.ts")).toBe(1);
@@ -921,6 +1034,21 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(nextConfigAliasOffenders('const c = { "alias": {} };').length).toBeGreaterThan(0);
     expect(nextConfigAliasOffenders('cfg.resolve["ali" + "as"] = {};').length).toBeGreaterThan(0);
     expect(nextConfigAliasOffenders("// alias is fine in prose\nconst x = 1;")).toEqual([]);
+    // r15 — the collector's null-resolution lane is npm territory only for
+    // names npm could host; URL/path/subpath specifiers execute or remap
+    // outside node_modules and surface as offenses:
+    expect(bareSpecifierOffense("react")).toBeNull();
+    expect(bareSpecifierOffense("@supabase/supabase-js")).toBeNull();
+    expect(bareSpecifierOffense("next/dist/lib/x")).toBeNull();
+    expect(bareSpecifierOffense("node:path")).toBeNull();
+    expect(bareSpecifierOffense("module")).not.toBeNull();
+    expect(bareSpecifierOffense("node:module")).not.toBeNull();
+    expect(
+      bareSpecifierOffense("data:text/javascript,export default {resolveAlias:{}}"),
+    ).not.toBeNull();
+    expect(bareSpecifierOffense("file:///tmp/alias.mjs")).not.toBeNull();
+    expect(bareSpecifierOffense("/abs/alias.mjs")).not.toBeNull();
+    expect(bareSpecifierOffense("#internal/alias")).not.toBeNull();
   });
 
   it("every live SheetIconLink call site keeps className positional-only string literals", () => {

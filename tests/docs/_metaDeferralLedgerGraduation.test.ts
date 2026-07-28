@@ -74,6 +74,65 @@ const TERMINAL_WORDS = "CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLE
 const HAS_LOWERCASE = /[a-z]/;
 
 /**
+ * Markdown emphasis a terminal value may be wrapped in (r15 — review found
+ * `**Status:** **RESOLVED**`, `_RESOLVED_`, and a backticked value all green
+ * because every matcher required the terminal word IMMEDIATELY after its
+ * anchor). Strikethrough is deliberately NOT here: `~~CLOSED~~` negates the
+ * claim — a reverted closure is an OPEN entry, and flagging it would order
+ * that entry into the archive.
+ */
+const WRAP = "(?:[*_`]|✅|\\s)*";
+
+/*
+ * One definition per matcher, module-scoped (r14 hoisted TERMINAL_WORDS after
+ * per-matcher drift; r15 hoists the matchers themselves — the status test and
+ * the dedicated heading test carried separately-spelled copies of the heading
+ * regex — and exercises them directly in the spelling-plants test below).
+ *
+ * STATUS_TERMINAL / FILED_TERMINAL: the terminal word is the line's own
+ * VALUE — anchored to the prefix (a mid-line /i match fires on narrative:
+ * "NARROWED — NOT closed", both live false positives when unanchored was
+ * tried, r5/r6), optionally ✅-ed and emphasis-wrapped (r15). Case-insensitive
+ * (r6: `**Status:** Shipped` is the same claim in titlecase). The wrapper
+ * class cannot cross a letter, so narrative past a non-terminal value stays
+ * out of reach.
+ *
+ * FILED_FIELD_TERMINAL (r13): the closure can arrive as a second bold FIELD
+ * later on the Filed line (`**Filed:** … **Closed:** …`); a bold segment
+ * containing a terminal word anywhere on that line counts.
+ *
+ * HEADING_TERMINAL: closure spelled as a heading suffix. Em dash, en dash, or
+ * the documented ASCII form (r15 — shoutyIds' own doc names `ID - text` an
+ * entry-heading shape, so `### BL-X - CLOSED` must not need the em dash; the
+ * ASCII hyphen requires preceding whitespace so a terminal word INSIDE an id,
+ * `BL-CLOSED-LOOP-FIX`, is not a closure claim).
+ *
+ * OPENING_TERMINAL_BOLD / _BARE (whole-diff r3; r6 casing split): a bold
+ * opening claim matches any case; a bare one ALL-CAPS only, so narrating
+ * prose ("Resolved only as part of BL-…") cannot false-positive. Both accept
+ * the r15 wrappers.
+ */
+// NOT `\b` after the word: a closing `_RESOLVED_` wrapper is a word char, so
+// `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
+// and digits are what would make it a different word.
+const AFTER = "(?![A-Za-z0-9])";
+const STATUS_TERMINAL = new RegExp(
+  `^\\s*(?:\\*\\*)?Status:?(?:\\*\\*)?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  "i",
+);
+const FILED_TERMINAL = new RegExp(
+  `^\\s*(?:\\*\\*)?Filed:?(?:\\*\\*)?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  "i",
+);
+const FILED_FIELD_TERMINAL = new RegExp(
+  `\\*\\*[^*\\n]*(?<![A-Za-z0-9])(${TERMINAL_WORDS})${AFTER}[^*\\n]*\\*\\*`,
+  "i",
+);
+const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
+const OPENING_TERMINAL_BOLD = new RegExp(`^\\s*\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
+const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${WRAP}(${TERMINAL_WORDS})${AFTER}`);
+
+/**
  * Ids from one ledger: SHOUTY tokens only, so prose headings yield nothing.
  *
  * Heading level differs by ledger and is not incidental. DEFERRED entries are
@@ -324,55 +383,14 @@ describe("backlog ledger graduation", () => {
     // "Resolved / shipped / superseded" as the archive-bound states (r5;
     // mainline #628 added SHIPPED independently the same day — BL-AGENDA-
     // PERDAY-VIEWER-FILTER sat as "**Status:** ✅ SHIPPED in PR #610").
-    // Case-insensitive (r6: `**Status:** Shipped` is the same claim in
-    // titlecase) but ANCHORED — the terminal word must BE the status value,
-    // directly after the prefix. A mid-line /i match fires on narrative
-    // ("NARROWED — NOT closed", "…which graduated when it shipped"), both
-    // live false positives found when the unanchored form was tried.
     // One union for every matcher (r13 — the lists had drifted per-matcher,
     // and two states this very file documents as graduations were missing
-    // from all of them: OBSOLETE — the watch-diagnostic entry closed as
-    // OBSOLETE against a deleted surface — and REFUTED, the sharehub entry's
-    // archived state).
-    const TERMINAL = new RegExp(
-      `^\\s*(?:\\*\\*)?Status:?(?:\\*\\*)?\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
-      "i",
-    );
-    // Filed-lines too (both passes independently: BL-HEADER-PROBE-RESIDUAL-
-    // VACUITY carried its terminal state on a "**Filed:** … **Closed:** …"
-    // line with no Status line at all).
-    const FILED_TERMINAL = new RegExp(
-      `^\\s*(?:\\*\\*)?Filed:?(?:\\*\\*)?\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
-      "i",
-    );
-    // r13: the documented "**Filed:** … **Closed:** …" shape never matched
-    // FILED_TERMINAL — that regex requires the terminal word DIRECTLY after
-    // the Filed prefix, but the closure arrives as a second bold FIELD later
-    // on the line. Match a bold segment containing a terminal word anywhere
-    // on the Filed line; bold narrative stays rare there and the PARTIAL
-    // guard still applies.
-    const FILED_FIELD_TERMINAL = new RegExp(
-      `\\*\\*[^*\\n]*\\b(${TERMINAL_WORDS})\\b[^*\\n]*\\*\\*`,
-      "i",
-    );
-    // Whole-diff r3 of the sheet-icon-link close-out: scanning ONLY the Status
-    // line let two other spellings of the same claim through — a closure as a
-    // heading suffix ("### BL-… — ✅ RESOLVED (…)") and a bold opening claim
-    // ("**CLOSED 2026-07-26** by …"). Both are still the entry's own claim
-    // about itself, so both count; deeper body lines stay out of scope for the
-    // same reason as before (entries legitimately DISCUSS closure).
-    // r6: heading suffix matches any case ("— ✅ Resolved"); the opening
-    // claim also matches unbolded ALL-CAPS ("SHIPPED …" as the first line) —
-    // unbolded lowercase prose is NOT matched, since an open entry's first
-    // line legitimately narrates ("Resolved only as part of BL-…" style).
-    const HEADING_TERMINAL = new RegExp(`—\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`, "i");
-    // Bold opening claim: any case ("**Resolved.**"). Bare opening claim:
-    // ALL-CAPS only, so narrating prose cannot false-positive.
-    const OPENING_TERMINAL_BOLD = new RegExp(
-      `^\\s*\\*\\*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`,
-      "i",
-    );
-    const OPENING_TERMINAL_BARE = new RegExp(`^\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`);
+    // from all of them: OBSOLETE and REFUTED). Whole-diff r3: scanning ONLY
+    // the Status line let two other spellings of the same claim through — a
+    // heading suffix and a bold opening claim; both are still the entry's own
+    // claim about itself. Deeper body lines stay out of scope (entries
+    // legitimately DISCUSS closure). Matcher definitions and their rationale
+    // live at module scope with TERMINAL_WORDS (r15).
     const offenders: string[] = [];
     // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
     // same optional bracket the shoutyIds matcher already accepts.
@@ -392,7 +410,7 @@ describe("backlog ledger graduation", () => {
       if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
       const statusLine = lines.find((l) => /^\s*(?:\*\*)?Status/i.test(l)) ?? "";
       const filedLine = lines.find((l) => /^\s*(?:\*\*)?Filed/i.test(l)) ?? "";
-      const statusHit = !/PARTIAL/i.test(statusLine) && TERMINAL.test(statusLine);
+      const statusHit = !/PARTIAL/i.test(statusLine) && STATUS_TERMINAL.test(statusLine);
       const filedHit =
         !/PARTIAL/i.test(filedLine) &&
         (FILED_TERMINAL.test(filedLine) || FILED_FIELD_TERMINAL.test(filedLine));
@@ -412,23 +430,47 @@ describe("backlog ledger graduation", () => {
     // drift, different spelling, so the guard grows a heading pass.
     const backlog = read("BACKLOG.md");
     const offenders: string[] = [];
-    for (const h of backlog.matchAll(/^#{2,3} ~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
+    // Priority-prefixed headings (`### [P1] BL-X — …`) are entries too (r15 —
+    // the status test's discovery gained the bracket group at r6; this walk
+    // never did, so a prefixed heading was invisible HERE specifically).
+    for (const h of backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
       const id = h[1]!;
       if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
       const heading = h[0]!;
       // PARTIALLY CLOSED in a heading would be a real open state, same as the
       // status-line rule above.
       if (/PARTIAL/i.test(heading)) continue;
-      // Union of both 2026-07-27 passes: the em-dash-anchored any-case form
-      // plus a bare ✅ anywhere in the heading. Same word union as the
-      // status-line test (r13: OBSOLETE/REFUTED joined there; keep in sync).
-      if (
-        new RegExp(`—\\s*(?:✅\\s*)?(${TERMINAL_WORDS})\\b`, "i").test(heading) ||
-        /✅/.test(heading)
-      )
-        offenders.push(id);
+      // Union of both 2026-07-27 passes: the dash-anchored any-case form
+      // (module-scoped, shared with the status-line test — r15) plus a bare
+      // ✅ anywhere in the heading.
+      if (HEADING_TERMINAL.test(heading) || /✅/.test(heading)) offenders.push(id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
+  });
+
+  it("terminal matchers catch wrapped values and the ascii-hyphen heading form (r15)", () => {
+    // Failure mode each plant pins: a closure spelled in a form the r14
+    // matchers required an em dash or an unwrapped adjacent word for, sitting
+    // green in the open queue.
+    expect(HEADING_TERMINAL.test("### BL-X - CLOSED")).toBe(true);
+    expect(HEADING_TERMINAL.test("## BL-X – RESOLVED (PR #612)")).toBe(true);
+    expect(HEADING_TERMINAL.test("### BL-X — **RESOLVED** (PR #612)")).toBe(true);
+    // …but a terminal word as an ID SEGMENT is not a closure claim:
+    expect(HEADING_TERMINAL.test("### BL-CLOSED-LOOP-FIX — tighten detection")).toBe(false);
+    expect(STATUS_TERMINAL.test("**Status:** **RESOLVED**")).toBe(true);
+    expect(STATUS_TERMINAL.test("**Status:** _RESOLVED_")).toBe(true);
+    expect(STATUS_TERMINAL.test("**Status:** `RESOLVED`")).toBe(true);
+    expect(STATUS_TERMINAL.test("**Status:** ✅ **SHIPPED** in PR #610")).toBe(true);
+    // narrative past a non-terminal value stays out of reach — the wrapper
+    // class cannot cross a letter:
+    expect(STATUS_TERMINAL.test("**Status:** Open — will land as RESOLVED via BL-X")).toBe(false);
+    // strikethrough negates the claim (a reverted closure is an open entry):
+    expect(STATUS_TERMINAL.test("**Status:** ~~CLOSED~~ reopened 2026-07-28")).toBe(false);
+    expect(FILED_TERMINAL.test("**Filed:** `WITHDRAWN`")).toBe(true);
+    expect(FILED_FIELD_TERMINAL.test("**Filed:** 2026-07-20. **Closed:** 2026-07-24.")).toBe(true);
+    expect(OPENING_TERMINAL_BOLD.test("**_RESOLVED_** by the popover migration.")).toBe(true);
+    expect(OPENING_TERMINAL_BARE.test("_RESOLVED_ by the popover migration.")).toBe(true);
+    expect(OPENING_TERMINAL_BARE.test("Resolved only as part of BL-OTHER.")).toBe(false);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
