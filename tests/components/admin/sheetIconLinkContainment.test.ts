@@ -1258,6 +1258,16 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // specifiers, directory packages, createRequire sources, and alias keys
     // in reached .json files all surface as offenders instead of being
     // silently skipped.
+    // r21: Next searches next.config.js, then .mjs, then .ts — a tracked
+    // higher-priority entry would silently REPLACE the graph this collector
+    // scans. The tracked entry set is exactly the file it starts at.
+    const configEntries = execFileSync("git", ["ls-files", "--", "next.config*"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n");
+    expect(configEntries, "the tracked Next config entry").toEqual(["next.config.ts"]);
     const reachable = configReachableFiles(root);
     expect(reachable.files, "the config graph starts at the entry").toContain("next.config.ts");
     // r19: the packages the config INVOKES are pinned by exact set — a
