@@ -39,18 +39,44 @@ function toArrayBuffer(buf: Buffer): ArrayBuffer {
   return ab;
 }
 
+// Archived-tab golden (spec 2026-07-27-export-blank-row-segmentation §6 T2): the
+// per-show `archivedPullSheetTabs` (tab name + fingerprint), captured from the
+// exporter BEFORE the header-aware splitBlocks change landed. Pins that the new
+// mid-block segmentation leaves every live archived-tab region — and therefore
+// every accepted-fingerprint comparison — byte-identical (probe 2026-07-27: zero
+// mid-block uppercase-known headers anywhere in the corpus, OLD tabs included).
+const EXPECTED_ARCHIVED_TABS: Record<string, { tabName: string; fingerprint: string }[]> = {
+  "redefining-fi": [
+    {
+      tabName: "OLD PULL SHEET",
+      fingerprint: "6b3c8678d8172968df7e1429aea9693fc98ffd85e4da1a514e566d5f0848e393",
+    },
+  ],
+  consultants: [],
+  fintech: [],
+  "east-coast": [],
+  ria: [],
+  "fixed-income": [],
+  rpas: [],
+};
+
 describe("production exporter fixtures: xlsx → markdown round trip (frozen snapshots)", () => {
   test.each(SHOWS)("%s: synthesizeMarkdownFromXlsx(committed .xlsx) === committed .md", (show) => {
     const xlsx = readFileSync(join(DIR, `${show}.xlsx`));
     const committedMarkdown = readFileSync(join(DIR, `${show}.md`), "utf8");
 
-    const { markdown: synthesized } = synthesizeMarkdownFromXlsx(toArrayBuffer(xlsx));
+    const { markdown: synthesized, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(
+      toArrayBuffer(xlsx),
+    );
 
     expect(synthesized).toBe(committedMarkdown);
     // Belt-and-suspenders: the structural parse must also match (distinguishes a
     // whitespace-only synthesis change from a semantic one in the failure output).
     expect(parseSheet(synthesized, `${show}.md`)).toEqual(
       parseSheet(committedMarkdown, `${show}.md`),
+    );
+    expect(archivedPullSheetTabs.map((t) => ({ tabName: t.tabName, fingerprint: t.fingerprint }))).toEqual(
+      EXPECTED_ARCHIVED_TABS[show],
     );
   });
 });
