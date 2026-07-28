@@ -56,10 +56,19 @@ const toRepoPosix = (rootDir, file) => {
 const KNOWN_OUTCOME_STATUSES = new Set(["expected", "unexpected", "flaky", "skipped"]);
 
 // One identity per test OUTCOME entry, so repeatEach duplication and project
-// membership both surface in the multiset. "(none)" keeps fixture reports
-// (and any reporter variant omitting projectName) comparable rather than
-// collapsing to undefined.
-const identity = (test, titlePath) => `${test?.projectName ?? "(none)"} :: ${titlePath}`;
+// membership both surface in the multiset. A JSON tuple, not a joined string:
+// ` :: `/` > ` delimiters were not INJECTIVE (R7) — a crafted title containing
+// the delimiter collides with a suite boundary, and projectName alone
+// collapses duplicate-named projects. [projectId, projectName,
+// repeatEachIndex, [titles...]] keeps every axis distinct; absent fields
+// normalize ("" / 0) so fixture reports stay comparable.
+const identity = (test, titles) =>
+  JSON.stringify([
+    test?.projectId ?? "",
+    test?.projectName ?? "",
+    test?.repeatEachIndex ?? 0,
+    titles,
+  ]);
 
 function membership(json, { executedOnly = false } = {}) {
   const rootDir = json?.config?.rootDir;
@@ -68,7 +77,9 @@ function membership(json, { executedOnly = false } = {}) {
   let total = 0;
   const walk = (suites, titles) => {
     for (const s of suites ?? []) {
-      const next = typeof s.title === "string" && s.title !== "" ? [...titles, s.title] : titles;
+      // Absent titles are skipped; an EMPTY-STRING title is kept — dropping
+      // it would collapse two structurally different trees (R7 injectivity).
+      const next = typeof s.title === "string" ? [...titles, s.title] : titles;
       walk(s.suites, next);
       for (const spec of s.specs ?? []) {
         // Run reports (executedOnly): a test whose outcome status is
@@ -91,11 +102,10 @@ function membership(json, { executedOnly = false } = {}) {
           : (spec.tests ?? []);
         if (executedOnly && counted.length === 0) continue;
         const file = toRepoPosix(rootDir, spec.file);
-        const titlePath = [...next, spec.title]
-          .filter((t) => typeof t === "string" && t !== "")
-          .join(" > ");
+        const titles = [...next];
+        if (typeof spec.title === "string") titles.push(spec.title);
         const ids = perFile.get(file) ?? [];
-        for (const t of counted) ids.push(identity(t, titlePath));
+        for (const t of counted) ids.push(identity(t, titles));
         perFile.set(file, ids);
         total += counted.length;
       }

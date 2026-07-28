@@ -7,9 +7,10 @@
  * assertion while destroying the proof, so the thing pinned HERE is the
  * script's rejection behavior — each mismatch class must exit non-zero.
  *
- * Baseline schema (v2, R6 P1): per-file sorted MULTISETS of test identities
- * ("<projectName> :: <suite titles > test title>"), not just a file set and a
- * global total. A file-set + one-total comparison permits COMPENSATED
+ * Baseline schema (v2, R6 P1; tuples R7): per-file sorted MULTISETS of test
+ * identities (JSON tuples [projectId, projectName, repeatEachIndex,
+ * [titles...]]), not just a file set and a global total. A file-set +
+ * one-total comparison permits COMPENSATED
  * narrowing — an environment-conditioned grep that drops half the tests while
  * repeatEach duplicates the survivors preserves every filename and the total,
  * and equal-cardinality test/project substitutions do the same. Identity
@@ -35,8 +36,8 @@ function run(args: string[], cwd: string = ROOT): number {
   }
 }
 
-type FixtureTest = { status?: string; projectName?: string };
-type FixtureSpec = { title: string; tests: FixtureTest[] };
+type FixtureTest = { status?: string; projectName?: string; projectId?: string };
+type FixtureSpec = { title: string; tests: FixtureTest[]; suiteTitle?: string };
 
 /**
  * Playwright-JSON-shaped report. config.rootDir is ROOT/tests/e2e so the
@@ -47,8 +48,16 @@ function reportFrom(specsByFile: Record<string, FixtureSpec[]>): string {
   const dir = mkdtempSync(join(tmpdir(), "baseline-report-"));
   const suites = Object.entries(specsByFile).map(([file, specs]) => ({
     file,
-    suites: [],
-    specs: specs.map((s) => ({ file, title: s.title, tests: s.tests })),
+    suites: specs
+      .filter((s) => s.suiteTitle !== undefined)
+      .map((s) => ({
+        title: s.suiteTitle,
+        suites: [],
+        specs: [{ file, title: s.title, tests: s.tests }],
+      })),
+    specs: specs
+      .filter((s) => s.suiteTitle === undefined)
+      .map((s) => ({ file, title: s.title, tests: s.tests })),
   }));
   const p = join(dir, "report.json");
   writeFileSync(p, JSON.stringify({ config: { rootDir: join(ROOT, "tests", "e2e") }, suites }));
@@ -68,9 +77,9 @@ function report(files: string[], testsPerFile: number): string {
 }
 
 /**
- * v2 baseline: per-file identity arrays. Identity format mirrors the script:
- * "<projectName or (none)> :: <titlePath>". totalTests defaults to the sum —
- * pass an explicit value only to construct a self-INCONSISTENT baseline.
+ * v2 baseline: per-file identity arrays (JSON tuples — see `id` below).
+ * totalTests defaults to the sum — pass an explicit value only to construct
+ * a self-INCONSISTENT baseline.
  */
 function baseline(perFile: Record<string, string[]>, totalTests?: number): string {
   const dir = mkdtempSync(join(tmpdir(), "baseline-file-"));
@@ -87,8 +96,15 @@ const A_REPORT = "a.spec.ts";
 const B_REPORT = "b.spec.ts";
 const A = "tests/e2e/a.spec.ts";
 const B = "tests/e2e/b.spec.ts";
-const T0 = "(none) :: t0";
-const T1 = "(none) :: t1";
+/**
+ * Identity format mirrors the script: a JSON tuple, so no crafted title can
+ * collide with a delimiter (R7: ` :: `/` > ` joins were not injective).
+ * [projectId, projectName, repeatEachIndex, [suite titles..., test title]]
+ */
+const id = (titles: string[], projectName = "", projectId = "", repeat = 0) =>
+  JSON.stringify([projectId, projectName, repeat, titles]);
+const T0 = id(["t0"]);
+const T1 = id(["t1"]);
 
 describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
   it("exits zero on a full match, resolving report paths against config.rootDir", () => {
@@ -138,7 +154,7 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
   it("rejects an equal-cardinality PROJECT substitution within a test", () => {
     // Two projects each running t0 narrows to one project running it twice:
     // same file, same count, half the coverage. Project identity reds it.
-    const bl = baseline({ [A]: ["p1 :: t0", "p2 :: t0"] });
+    const bl = baseline({ [A]: [id(["t0"], "p1"), id(["t0"], "p2")] });
     const rp = reportFrom({
       [A_REPORT]: [
         {
@@ -148,6 +164,43 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
             { status: "expected", projectName: "p1" },
           ],
         },
+      ],
+    });
+    expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
+  });
+
+  it("rejects a DUPLICATE-projectName substitution (projectId discriminates — R7 injectivity)", () => {
+    // Two projects sharing a display name: identity keyed on projectName
+    // alone collapses them, so dropping one and duplicating the other
+    // preserves the multiset. projectId in the tuple reds it.
+    const bl = baseline({
+      [A]: [id(["t0"], "dup", "proj-1"), id(["t0"], "dup", "proj-2")],
+    });
+    const rp = reportFrom({
+      [A_REPORT]: [
+        {
+          title: "t0",
+          tests: [
+            { status: "expected", projectName: "dup", projectId: "proj-1" },
+            { status: "expected", projectName: "dup", projectId: "proj-1" },
+          ],
+        },
+      ],
+    });
+    expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
+  });
+
+  it("rejects a DELIMITER-collision substitution (JSON tuples, not joined strings — R7 injectivity)", () => {
+    // Under a ' > '-joined identity, suite "a > b" + test "t" collides with
+    // suite "a" + test "b > t" — dropping one while duplicating the other
+    // preserves a joined-string multiset. JSON title ARRAYS stay distinct.
+    const bl = baseline({
+      [A]: [id(["a > b", "t"]), id(["a", "b > t"])],
+    });
+    const rp = reportFrom({
+      [A_REPORT]: [
+        { title: "t", suiteTitle: "a > b", tests: [{ status: "expected" }] },
+        { title: "t", suiteTitle: "a > b", tests: [{ status: "expected" }] },
       ],
     });
     expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
@@ -163,7 +216,7 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
       [A_REPORT]: [{ title: "t", tests: [] }],
       [B_REPORT]: [{ title: "t", tests: [{ status: "expected" }] }],
     });
-    const bl = baseline({ [A]: ["(none) :: t"], [B]: ["(none) :: t"] });
+    const bl = baseline({ [A]: [id(["t"])], [B]: [id(["t"])] });
     expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
   });
 
@@ -176,7 +229,7 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     const rp = reportFrom({
       [A_REPORT]: [{ title: "t", tests: [{ status: "expected" }, { status: "skipped" }] }],
     });
-    const bl = baseline({ [A]: ["(none) :: t", "(none) :: t"] });
+    const bl = baseline({ [A]: [id(["t"]), id(["t"])] });
     expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
   });
 
@@ -185,7 +238,7 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
       [A_REPORT]: [{ title: "t", tests: [{ status: "skipped" }] }],
       [B_REPORT]: [{ title: "t", tests: [{ status: "expected" }] }],
     });
-    const bl = baseline({ [A]: ["(none) :: t"], [B]: ["(none) :: t"] });
+    const bl = baseline({ [A]: [id(["t"])], [B]: [id(["t"])] });
     expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
   });
 
@@ -197,7 +250,7 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
     // exit 0 here is exactly the fail-open this pin exists to catch.
     for (const tests of [[{}], [{ status: "passed" }]]) {
       const rp = reportFrom({ [A_REPORT]: [{ title: "t", tests }] });
-      const bl = baseline({ [A]: ["(none) :: t"] });
+      const bl = baseline({ [A]: [id(["t"])] });
       expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
     }
   });
