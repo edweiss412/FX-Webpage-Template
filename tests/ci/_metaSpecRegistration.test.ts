@@ -499,10 +499,14 @@ export function censusInvocations(
   // still record x (R9 G1). R10 additions: every function-definition
   // spelling, block/array openers-closers, a trailing && / || (split-line
   // short-circuit), and execution-neutering commands (exec/set/eval).
-  // exit/return/exec/set/eval count only at COMMAND POSITION (line start or
-  // after ;) — `pnpm exec playwright` is a runner subcommand, not bash exec.
+  // exit/return/exec/set/eval — and the R11 state-changers hash/alias/
+  // unalias/shopt/trap/unset, which can neuter a LATER literal invocation —
+  // count only at COMMAND POSITION (line start or after ;): `pnpm exec
+  // playwright` is a runner subcommand, not bash exec. Function definitions
+  // match brace AND subshell bodies (`playwright() (:)` shadows the command
+  // word itself).
   const controlFlowRe =
-    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\(\)\s*\{|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|;)\s*(?:exit|return|exec|set|eval)\b/;
+    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\w*\(\)\s*[({]|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|;)\s*(?:exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset)\b/;
   const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
   for (const item of texts) {
     const raw = typeof item === "string" ? item : item.text;
@@ -590,6 +594,17 @@ export function censusInvocations(
       // reachable via ;/| splits are loud for the same reason.
       if (/\|\||&&/.test(line)) {
         problems.push(`short-circuit chain around a playwright invocation: ${line.trim()}`);
+        continue;
+      }
+      // R11: backgrounding (bare &) and piping (bare |) — text cannot prove
+      // the invocation COMPLETES (kill $! reaps a backgrounded run; a closed
+      // pipe SIGPIPEs it). The presence layer refuses both; completion of
+      // live configs is owned by the OBSERVATION layer (spec §4 run-report
+      // comparator for standalone, real CI greenness for the rest).
+      // Redirection fds (2>&1) are not backgrounding: `&` preceded by > or
+      // digit-> stays clean.
+      if (/(^|[^|&])\|([^|]|$)/.test(line) || /(^|[^&>])&([^&]|$)/.test(line)) {
+        problems.push(`backgrounded or piped playwright invocation: ${line.trim()}`);
         continue;
       }
       const guard = line
@@ -801,11 +816,15 @@ describe("spec registration detector (spec §3.1)", () => {
     // Last config flag wins — commander semantics, empirically verified: a
     // bogus first --config followed by the real one lists the full suite.
     expect([...c("playwright test --config a.ts --config b.ts").invoked]).toEqual(["b.ts"]);
-    // Attached short form + single-& compound (both R2 fail-open forms).
-    expect([...c("playwright test -ca.ts & playwright test").invoked].sort()).toEqual([
-      "a.ts",
-      "playwright.config.ts",
-    ]);
+    // Attached short form still classifies; the single-& compound FLIPPED in
+    // R11 — `&` BACKGROUNDS the first command (kill $! can reap it before it
+    // completes), it does not sequence, so text cannot prove completion.
+    expect([...c("playwright test -ca.ts").invoked]).toEqual(["a.ts"]);
+    {
+      const bg = c("playwright test -ca.ts & playwright test");
+      expect(bg.problems).not.toEqual([]);
+      expect(bg.invoked.size).toBe(0);
+    }
     // Env-var-prefixed command position is still command position.
     expect([...c("CI=1 FOO=bar playwright test -c x.ts").invoked]).toEqual(["x.ts"]);
     // A full-line comment never executes and contributes nothing.
@@ -947,6 +966,22 @@ describe("spec registration detector (spec §3.1)", () => {
     loudAndDark("function dead {\n  playwright test --config ghost.ts\n}");
     loudAndDark("function dead\n{\n  playwright test --config ghost.ts\n}");
     loudAndDark("dead()\n{\n  playwright test --config ghost.ts\n}");
+    // R11: backgrounding and piping — the text cannot prove the invocation
+    // COMPLETES (kill $! reaps it; a closed pipe SIGPIPEs it). Presence
+    // layer refuses; completion of live configs belongs to the observation
+    // layer (run-report comparator, real CI).
+    loudAndDark("playwright test --config ghost.ts >/dev/null 2>&1 &\nkill $!");
+    loudAndDark("playwright test --config ghost.ts | head -n 0");
+    // R11: state-changing siblings neuter a later literal invocation —
+    // hash/alias/trap/shopt/unset and function-shadowing (of playwright OR
+    // of the runner) are execution context.
+    loudAndDark("hash -p /usr/bin/true playwright\nplaywright test --config ghost.ts");
+    loudAndDark(
+      "shopt -s expand_aliases\nalias playwright=true\nplaywright test --config ghost.ts",
+    );
+    loudAndDark('trap "exit 0" DEBUG\nplaywright test --config ghost.ts');
+    loudAndDark("playwright() (:)\nplaywright test --config ghost.ts");
+    loudAndDark("pnpm() (:)\npnpm exec playwright test --config ghost.ts");
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
@@ -1123,6 +1158,22 @@ describe("spec registration detector (spec §3.1)", () => {
       "shell constructs the census cannot faithfully classify — rewrite the invocation " +
         "or extend censusInvocations deliberately (fail-closed by design)",
     ).toEqual([]);
+    // LAYERED CONTRACT (R11). This equality is a PRESENCE claim, not a
+    // liveness claim: every config's invocation text survives somewhere
+    // censusable, and no unknown config's text exists anywhere. That a
+    // present invocation actually EXECUTES AND COMPLETES is unprovable from
+    // text (the axiom above) and is owned by the OBSERVATION layer instead:
+    //   - tests/e2e/standalone.config.ts → the §4 run-report comparator
+    //     (executed-test identity multisets vs committed baseline) on every
+    //     real standalone-e2e run;
+    //   - playwright.config.ts → the required e2e workflows' pinned run
+    //     steps going green on every PR;
+    //   - visual/screenshots configs → the drift gates comparing committed
+    //     bytes against pinned-container captures.
+    // The census's job ends at: text present, nothing unknown, nothing
+    // unclassifiable — every liveness-threatening construct (control flow,
+    // guards, chains, backgrounding, piping, state-changers) is refused
+    // above rather than modeled.
     expect([...invoked].sort()).toEqual([...CONFIGS].sort());
 
     const belt = walkFiles(ROOT)
