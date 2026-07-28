@@ -70,7 +70,22 @@ Regex ground truth (padded reads, `" " + prefix`):
 
 ## 3. The detector (normative)
 
-A pure function over one raw segment, run per later group inside `buildInlineReservations`, and EXPORTED from `lib/parser/blocks/hotels.ts` so the §8.1 D6-abort oracle can unit-test it directly (R11 finding 4). It never runs on group 0 and never on single-group cells (`checkInCount < 2`, `lib/parser/blocks/hotels.ts:718`).
+A pure function over one raw segment, run per later group inside `buildInlineReservations`, and EXPORTED from `lib/parser/blocks/hotels.ts` so the §8.1 D6-abort oracle can unit-test it directly (R11 finding 4). Pinned API (R15 finding 1):
+
+```ts
+export type LaterSegmentOutcome =
+  | { tier: 1; hotelText: string; build: InlineBuild } // build = buildInlineHotel(rest, ordinal, contextYear); D7 reads build.judgedGuestBoundary
+  | { tier: 2 } // caller stashes HOTEL_INLINE_GROUP_HOTEL_SUSPECTED
+  | { tier: 3 };
+
+export function classifyLaterSegment(
+  rawSegment: string, // pre-D1 segment as returned by splitInlineReservationGroups
+  ordinal: number,
+  contextYear: string | null,
+): LaterSegmentOutcome;
+```
+
+`InlineBuild` is the existing `buildInlineHotel` return type (`lib/parser/blocks/hotels.ts` — the `{ row, judgedGuestBoundary, addressAmbiguity? }` shape read at `lib/parser/blocks/hotels.ts:724`). The detector never runs on group 0 and never on single-group cells (`checkInCount < 2`, `lib/parser/blocks/hotels.ts:718`); the scope-A/B degraded scans are the CALLER's (they need cross-segment context the pure function does not have).
 
 **Ordering vs the all-names fallback + degraded segmentation (Codex R7 finding 1; widened R9 finding 1).** Detection is computed for every later segment BEFORE the all-names guard (`lib/parser/blocks/hotels.ts:735-753`) decides whether the cell collapses to a single reservation. Two degraded paths can still reach the single-reservation fallback: (i) a provisional build had `names: []` (e.g. a non-ASCII guest `José Núñez - 1002` defeats the ASCII matchers, parent spec §3.1 row-6 note); (ii) **segmentation itself fails** — `splitInlineReservationGroups` cuts only at `Check Out` markers (`lib/parser/blocks/hotels.ts:863`), so a multi-`Check In` cell whose group 0 lacks its checkout comes back as ONE segment and there are no later segments to classify at all (R9; probe-confirmed: `… John Smith - 1001 Check In: 3/1 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3 Check Out: 3/4` collapses to a single Hyatt reservation and the Marriott vanishes).
 
@@ -218,7 +233,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | d | master spec §12.4 helpfulContext appendix (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3199` region — the machine-parsed `CODE: "text"` block whose entries `gen:spec-codes` extracts as `SPEC_CODES.helpfulContext`; R13 finding 1) | 2 new entries, each byte-identical to the code's C-OWN-5 / C-SUS-5 helpfulContext string — NOT the longExplanation, which is catalog-only |
 | e | `lib/parser/ambiguityCodes.ts:19` | add both, comment cites this spec |
 | f | `tests/parser/ambiguityCodes.test.ts:17` sorted list + the test NAME at line 16 ("has exactly the five ratified members" — five → **seven**, R14 f4) | extend sorted list; rename test |
-| g | `lib/parser/dataGaps.ts` `GAP_CLASSES` (sibling rows `lib/parser/dataGaps.ts:74-79`) | 2 new rows, each with `label` AND `plural` (C-OWN-9/9p, C-SUS-9/9p, §7) — clause-shaped labels cannot take the default bare `s` (`lib/parser/dataGaps.ts:70`, Codex R4 finding 2) |
+| g | `lib/parser/dataGaps.ts` `GAP_CLASSES` (sibling rows `lib/parser/dataGaps.ts:74-79`) PLUS the doc comment at `lib/parser/dataGaps.ts:28`, whose "49-code persisted-ParseWarning partition" is ALREADY STALE on main (live 54; R15 finding 2) | 2 new rows, each with `label` AND `plural` (C-OWN-9/9p, C-SUS-9/9p, §7) — clause-shaped labels cannot take the default bare `s` (`lib/parser/dataGaps.ts:70`, Codex R4 finding 2); rewrite the `lib/parser/dataGaps.ts:28` comment to "56-code" in the same commit |
 | h | `tests/messages/warningCardCopyRegistry.ts:16` code list + `tests/messages/warningCardCopyRegistry.ts:66` triggerContext map | 2 rows each |
 | i | `app/help/errors/_families.ts:66` `HOTEL` prefix family | **N/A — file untouched (Codex R3 finding 3).** The family matches by the `HOTEL` prefix, which both new codes carry; coverage is verified by the existing families test, and its illustrative comment is not edited, so no `app/` file changes and no invariant-8 gate is triggered |
 | j | `lib/parser/warnings.ts` | 2 new emitters + exported code constants (siblings `lib/parser/warnings.ts:211`, `lib/parser/warnings.ts:360`) |
@@ -286,7 +301,7 @@ The user's requirement (2026-07-27) that non-app-resolvable warnings say so and 
 | 7b guest warning on kept row | cell B1z | `HOTEL_GUEST_SPLIT_AMBIGUOUS` count === 2, indices {0, 1} (row 7b: the rebuild's Pattern-1 exit judged Jane's boundary) |
 | Tier 2, word arm | B1 variant, later hotel `Marriott Downtown` (no address) | row 1 hotel INHERITED (byte-equal to today's `"Hyatt Regency 100"`), one `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` at index 1, envelope + C-SUS-1 message, `resolution` absent |
 | Position-0 all-address hotel keeps | full cell `Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1 Check Out: 3/2 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3 Check Out: 3/4` (R13 f3 pin) | tier 1: `hotel_name === "200 Oak Ave, Chicago, IL 60601"`, `hotel_address === null`, names `["Jane Doe"]` — the address-only hotel shape, pinned so the D6 note's behavior is deliberate |
-| Tier 2, D6 names-empty abort | UNIT test of the exported detector helper (the detector ships as an exported pure function per §3), segment literal `Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe Check In: 3/3 Check Out: 3/4` — its rest `Jane Doe Check In: …` has no conf token and probe-parses to `names: []` (probe B7 family), so D6's success guard fails. The unit route is normative, not a fallback: the full-cell form cannot reach the multi-row path (probe 2026-07-28: the no-conf later guest collapses the whole cell via the all-names guard, which is scope-B territory) | tier 2, NOT tier 1: SUSPECTED outcome from the helper. Kills an implementation that keeps a row whose guests were lost by the re-slice |
+| Tier 2, D6 names-empty abort | UNIT test of the exported detector helper (the detector ships as an exported pure function per §3), segment literal `Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe Check In: 3/3 Check Out: 3/4` — its rest `Jane Doe Check In: …` has no conf token and probe-parses to `names: []` (probe B7 family), so D6's success guard fails. The unit route is normative, not a fallback: the full-cell form cannot reach the multi-row path (probe 2026-07-28: the no-conf later guest collapses the whole cell via the all-names guard, which is scope-B territory) | `classifyLaterSegment(<segment literal>, 1, "2026")` returns `{ tier: 2 }` — asserted as `outcome.tier === 2` (R15 finding 1), NOT tier 1. Kills an implementation that keeps a row whose guests were lost by the re-slice |
 | Address tail, comma city+state+ZIP | B1 variant, later hotel `Marriott Downtown 200 Oak Ave, Chicago, IL 60601` | tier 1; `hotel_address === "200 Oak Ave, Chicago, IL 60601"` — the FULL tail persists (kills the R1 truncation: a suffix-end implementation persists `"200 Oak Ave"`) |
 | Address tail, comma-less city (comma before state) | B1 variant, later hotel `Marriott Downtown 200 Oak Ave Chicago, IL 60601` | tier 1 via the longer-match tie-break (D4); full address persists. Kills an implementation whose tie-break prefers the suffix match |
 | Address tail, fully comma-less US (R2) | B1 variant, later hotel `Marriott Downtown 200 Oak Ave Chicago IL 60601` | tier 1 via arm 3; `hotel_address === "200 Oak Ave Chicago IL 60601"` — kills the R2 truncation (suffix-only and comma-led arms both miss it) |
