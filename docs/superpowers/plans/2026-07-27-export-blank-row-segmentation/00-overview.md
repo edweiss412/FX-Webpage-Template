@@ -121,7 +121,7 @@ Red-first, two test surfaces:
 Implementation per spec §2.2. Commit body records the green run of
 `pnpm vitest run tests/drive/round-trip-fixture.test.ts tests/drive/exportSheetToMarkdown.test.ts`.
 
-### Task 3 — `feat(parser)`: orphan scan + `ORPHANED_CREW_ROWS` emitter
+### Task 3 — `feat(parser)`: orphan scan + emitter + FULL code-registration lockstep (one atomic commit)
 
 Red-first NEW FILE tests/parser/orphanedCrewRows.test.ts (spec §6 T4+T5, shapes verbatim from
 spec — positives: east-coast, rpas, fixed-income (`|  | DJ Johnson | - Load In / Set / Strike / Load Out - V1 |  |  |`),
@@ -138,17 +138,40 @@ blockRef.kind, rawSnippet.
 
 Implementation per spec §3.1-3.2: scan in `lib/parser/index.ts` after the class-B scan
 (`lib/parser/index.ts:700-719`); `emitOrphanedCrewRows` in `lib/parser/warnings.ts`
-(string-literal `code:` for the x2 scanner; shared 60-char truncation constant). The
-catalog-literal pins (§3.4 title/longExplanation/helpHref) do NOT land here — they land
-with the catalog row in Task 4, so Task 3's commit is green (plan-R1 finding 1). Because
-the new `code:` literal enters the x2 manifest scan, Task 3's commit ALSO runs
-`pnpm gen:internal-code-enums` and commits the regenerated
-`lib/messages/__generated__/internal-code-enums.ts` (x2 parity is per-commit,
-`.github/workflows/x-audits.yml:121-125`).
+(string-literal `code:` for the x2 scanner; shared 60-char truncation constant).
 
-### Task 4 — `feat(parser)`: corpus walker + recall ratchet + surfacing + lockstep
+**Atomicity (plan-R2 finding): the producer literal makes the ENTIRE registration
+lockstep one commit.** The x1 orphan-producer guard scans `lib/` producer literals and
+rejects any code absent from `SPEC_CODES` (`tests/cross-cutting/codes.test.ts:125`,
+`lib/messages/__internal__/codeProducers.ts:13`), and the x1 catalog-parity assertion
+requires every §12.4 code to deep-match a catalog row — so emitter, §12.4 prose row +
+copy entry, `pnpm gen:spec-codes` regen, `pnpm gen:internal-code-enums` regen (x2,
+`.github/workflows/x-audits.yml:121-125`), the full `lib/messages/catalog.ts` row (§3.4
+copy), the warning-card registry rows (`WARNING_CARD_COPY_CODES` +
+`EXPECTED_TRIGGER_CONTEXT`) + §4.2 table row + the copy-restore back-fill/count
+reconciliation (spec §3.3 R4 row), `OPERATOR_ACTIONABLE_ANCHORED` + its exact-set pin
+update (20 → 21), the `showDayTimeAnchors` anchor arm, `GAP_CLASSES` + all count pins
+from the sweep, `_families.ts` `ORPHANED` prefix, and the stale-comment refreshes ALL
+land in THIS commit. The red-first tests for this task therefore ALSO include the §3.4
+catalog-literal pins (title/longExplanation/helpHref) and the T10 surfacing behavioral
+cases (`tests/parser/operatorActionableWarnings.test.ts`,
+`tests/drive/showDayTimeAnchors.test.ts`).
 
-Red-first tests (spec §6 T6, T9, T10):
+Verification (recorded in commit body): `pnpm vitest run tests/cross-cutting/codes.test.ts
+tests/cross-cutting/no-raw-codes.test.ts tests/messages/_metaWarningCardCopy.test.ts
+tests/parser/dataGapsClassCompleteness.test.ts tests/help/errors-grouping.test.tsx
+tests/parser/orphanedCrewRows.test.ts tests/parser/dataGaps.test.ts
+tests/parser/operatorActionableWarnings.test.ts tests/drive/showDayTimeAnchors.test.ts`
+plus the GAP_CLASSES consumer files (`tests/admin/step3Buckets.test.ts`,
+`tests/notify/monitorNewShowGaps.test.ts`, `tests/notify/renderDigest.monitor.test.ts`,
+`tests/parser/qualityRegressionComparator.test.ts`).
+
+### Task 4 — `test(parser)`: corpus walker + recall ratchet (test-only, green on arrival)
+
+Tests (spec §6 T6, T9). These are pure test additions on top of Task 3's shipped
+behavior — "red-first" here means each was written and observed failing against a
+deliberately broken local discriminator during development; the committed state is
+green:
 
 - NEW FILE tests/parser/orphanedCrewRowsCorpus.test.ts: (a) T6 walker — `readdirSync` over
   `fixtures/shows/{exporter-xlsx,raw,synthetic,email-embedded,pdf-only}`, parse every
@@ -156,41 +179,10 @@ Red-first tests (spec §6 T6, T9, T10):
   frozen universe (spec §6 T9): 7 fixture slugs found, every fixture ≥1 crew/TECH block,
   total simulated splits === 29 (frozen literal, regen note), each split asserts ≥1
   `ORPHANED_CREW_ROWS`.
-- Catalog-literal pins (spec §3.4: `title` / `longExplanation` / `helpHref` byte-equal),
-  appended to the Task-3 file tests/parser/orphanedCrewRows.test.ts in THIS task alongside the catalog
-  row (moved out of Task 3 — plan-R1 finding 1).
-- T10 surfacing behavioral, in the existing helper test files
-  (`tests/parser/operatorActionableWarnings.test.ts`, `tests/drive/showDayTimeAnchors.test.ts`):
-  `operatorActionableWarnings` passes `ORPHANED_CREW_ROWS` through + drops an
-  unregistered code (negative control); anchor dispatch resolves crew REGION anchor when
-  the region source exists, `null` otherwise.
 
-Lockstep registrations in the SAME commit (spec §3.3 table + §3.4 copy verbatim):
-`OPERATOR_ACTIONABLE_ANCHORED` row; `showDayTimeAnchors` arm (region fallback, mirroring
-`lib/drive/showDayTimeAnchors.ts:146-154`); master spec §12.4 row + copy entry;
-`pnpm gen:spec-codes` regen; `pnpm gen:internal-code-enums` re-run (first committed in
-Task 3; re-run here in case the catalog row adds literals — x2 CI regenerates and rejects
-an uncommitted diff, `.github/workflows/x-audits.yml:121-125`);
-`lib/messages/catalog.ts` full row (§3.4 copy: "read as crew" phrasing — the
-`_metaWarningCardCopy` banned-vocabulary gate rejects parse-family words); warning-card
-registry (`WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT`) + §4.2 table row;
-`GAP_CLASSES` entry; all count pins from the sweep above; `_families.ts` `ORPHANED`
-prefix; warning-card-copy-restore.md reconciliation per spec §3.3 R4 row (back-fill the two
-missing §4.2 rows — AGENDA_FILE_INACCESSIBLE, HOTEL_ADDRESS_SPLIT_AMBIGUOUS — from the
-live frozen copy; counts/lists → 42 total, 29 parser / 13 sync, "20-code" → 21; emitter
-inventory rows for all three codes; `lib/parser/dataGaps.ts:28` "49-code" → 55; the
-legacy "three DQ codes" comments at `lib/parser/dataGaps.ts:5`,
-`lib/parser/dataGaps.ts:111`, `lib/parser/dataGaps.ts:245` reworded;
-`tests/parser/dataGapsClassCompleteness.test.ts:17` "42-partition" refreshed).
-
-Verification (recorded in commit body): `pnpm vitest run tests/cross-cutting/codes.test.ts
-tests/cross-cutting/no-raw-codes.test.ts tests/messages/_metaWarningCardCopy.test.ts
-tests/parser/dataGapsClassCompleteness.test.ts tests/help/errors-grouping.test.tsx
-tests/parser/orphanedCrewRowsCorpus.test.ts tests/parser/orphanedCrewRows.test.ts
-tests/parser/dataGaps.test.ts tests/parser/operatorActionableWarnings.test.ts
-tests/drive/showDayTimeAnchors.test.ts` plus the GAP_CLASSES consumer files
-(`tests/admin/step3Buckets.test.ts`, `tests/notify/monitorNewShowGaps.test.ts`,
-`tests/notify/renderDigest.monitor.test.ts`, `tests/parser/qualityRegressionComparator.test.ts`).
+Verification (recorded in commit body): `pnpm vitest run
+tests/parser/orphanedCrewRowsCorpus.test.ts` green, with the T9 pin output showing
+7 fixtures / 29 splits.
 
 ### Task 5 — `test(parser)`: mutation-ledger reconciliation (spec §5, §6 T8)
 
