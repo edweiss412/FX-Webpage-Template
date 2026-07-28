@@ -53,8 +53,11 @@ describe("duration token emission (compiled)", () => {
   test("reduced-motion terminus zeroes the non-zero source tokens", () => {
     // --duration-instant is 0ms by value and is deliberately absent from the
     // reduced-motion override; fast/normal/slow are the ones it must rewrite.
+    // Brace-bounded ([^}]* cannot cross a rule boundary), so all three
+    // declarations must sit inside the SAME :root block of the media query —
+    // a lazy [\s\S]*? span could collect them from unrelated later rules.
     const rmBlock = css.match(
-      /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?--duration-fast:\s*0ms;[\s\S]*?--duration-normal:\s*0ms;[\s\S]*?--duration-slow:\s*0ms;/,
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*:root\s*\{[^}]*--duration-fast:\s*0ms;[^}]*--duration-normal:\s*0ms;[^}]*--duration-slow:\s*0ms;[^}]*\}/,
     );
     expect(
       rmBlock,

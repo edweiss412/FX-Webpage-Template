@@ -20,7 +20,7 @@
 
 ## Reconciliation sweep (authored AND run now)
 
-`grep -rn "transition-duration" app tests docs DESIGN.md | grep -v node_modules` current hits and dispositions:
+`grep -rn "transition-duration" app tests docs DESIGN.md | grep -v node_modules` — STALE-CLAIM hits and dispositions. (Not an exhaustive match list: matches that are the fix itself — the new aliases, the compile guard, this branch's spec/plan — and orthogonal historical/test references with no stale claim are intentionally omitted; the table's job is the sweep of claims the aliases falsify.)
 
 | Hit | Disposition |
 | --- | --- |
@@ -95,9 +95,11 @@ Harness readiness (per writing-plans checklist): (a) server boot = the existing 
 
 1. Full local suite: `pnpm test` green.
 2. Local e2e re-run of the two touched Playwright files, green.
-3. Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff (invariant 8 — `@theme` change). P0/P1 fixed or DEFERRED.md-logged.
-4. Whole-diff Codex cross-model review (fresh-eyes brief, REVIEWER ONLY, do-not-relitigate list from spec §1.1) to APPROVE.
-5. Push, PR, real CI green (quality + crew-e2e must both run — crew-e2e path filters include `tests/e2e/crew-section-toggle.spec.ts` and `components/**`; verify the run actually fired), `gh pr merge --merge`, fast-forward main, `git rev-list --left-right --count main...origin/main` == `0 0`.
+3. Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff (invariant 8 — `@theme` change). P0/P1 fixed or DEFERRED.md-logged; findings + dispositions recorded in this plan's §12 Close-out section (the handoff record — executed 2026-07-27, zero P0-P2).
+4. Spec-lint attachment gate: `pnpm spec:lint` on the governing spec runs before EACH adversarial dispatch and its summary is inlined in the brief (executed: R1/R2/R3 briefs each carried `0 hard, 1 advisory`).
+5. Whole-diff Codex cross-model review (fresh-eyes brief, REVIEWER ONLY, do-not-relitigate list from spec §1.1) to APPROVE.
+6. Push, PR. **Immediately after PR creation:** backfill the PR number into the `BL-DURATION-TOKENS-EMIT-NO-CSS` resolution line in `BACKLOG-archive.md` (the archive entry is written pre-PR and cannot know it) and commit before merge.
+7. Real CI green — `crew-e2e.yml` triggers via `paths-ignore` (docs-only patterns), so this branch's app/test changes DO fire it; verify the run actually appeared alongside `quality`. Then `gh pr merge --merge`, fast-forward main, `git rev-list --left-right --count main...origin/main` == `0 0`.
 
 ## Checklist
 
