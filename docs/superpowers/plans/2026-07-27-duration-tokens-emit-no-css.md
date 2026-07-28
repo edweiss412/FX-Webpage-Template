@@ -107,3 +107,24 @@ Harness readiness (per writing-plans checklist): (a) server boot = the existing 
 - [ ] Plan self-review
 - [ ] Adversarial review (cross-model) — plan
 - [ ] Task 4 gates → merge → ff-sync
+
+## §12 Close-out — impeccable dual-gate (invariant 8), 2026-07-27
+
+Both commands ran diff-scoped with the canonical v3 setup gates (context.mjs load, product register).
+
+**`/impeccable critique`** — dual-agent (design review + detector/evidence). Verdict: APPROVE, diff-scoped heuristics 4/4/4 (status-visibility, consistency, accessibility), zero P0-P2. Findings + dispositions:
+
+- P3 chevron duration split (Step1Share 220ms vs agenda 120ms, each container-matched): NOT taken this diff — doc-polish candidate for the next DESIGN.md pass, no user impact.
+- P3 residual-gap fix shape (`--default-transition-duration` aliasing): APPLIED as a note on the `BL-BARE-TRANSITION-NO-DURATION-CLASS` entry.
+
+**`/impeccable audit`** — diff-scoped 5-dimension scan:
+
+| Dimension | Score | Finding |
+| --- | --- | --- |
+| Accessibility | 4 | The diff IS an a11y fix: reduced-motion now zeroes ~230 previously-unreduced Tailwind sites. Residual bare-`transition-*` gap disclosed + backlogged. |
+| Performance | 4 | No layout-property animation added; four inert-until-consumed CSS custom properties; compile evidence clean. |
+| Theming | 4 | Strengthens the token system (utility↔token chain); test expectations token-derived, no new hardcoded values. |
+| Responsive | 4 | No layout/markup change; N/A hazards. |
+| Anti-patterns | 4 | Detector 0 findings on behavior-anchor components; added prose cited and specific. |
+
+Total 20/20 diff-scoped. Zero P0/P1 across both gates — nothing to fix or defer. Evidence: detector run, fixture-probe compile assertions, committed WebKit computed-value test (Assessment B); snapshot at `.impeccable/critique/2026-07-28T03-55-53Z__app-globals-css.md` (local, gitignored).
