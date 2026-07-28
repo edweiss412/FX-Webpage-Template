@@ -274,6 +274,10 @@ export function censusInvocations(
     if (/#/.test(line)) return "inline comment";
     if (/\/cli\.js(?:\s|$)/.test(line) || /[\\/]\.bin[\\/]playwr/.test(line))
       return "alternate playwright CLI entry";
+    // JS \s treats NBSP/U+2028/etc. as token boundaries; bash treats them as
+    // ordinary word characters — the classifier and the shell would tokenize
+    // DIFFERENT commands (R7 F2).
+    if (/[^\S \t]/.test(line)) return "non-shell whitespace character";
     for (const tok of line.split(/\s+/)) {
       if (fuzzy.test(tok) && /[?*[]/.test(tok) && !/\bplaywright\b/.test(tok))
         return `glob-constructed token "${tok}"`;
@@ -354,6 +358,26 @@ export function censusInvocations(
         continue;
       }
       if (!mentionsRe.test(line)) continue;
+      // R7 F2: conditional execution. A `||` chain or a guard command
+      // (true/false/:/exit/return/[/test) can make the invocation DEAD at
+      // runtime — recording its config would keep set-equality green while
+      // that config runs nowhere. Unconditional `&&` chains stay
+      // classifiable: a failing predecessor fails the step loudly, there is
+      // no silent-skip path.
+      if (/\|\|/.test(line)) {
+        problems.push(`short-circuit || around a playwright invocation: ${line.trim()}`);
+        continue;
+      }
+      const guard = line
+        .split(/[;&|]+/)
+        .map((s) => s.trim())
+        .find((s) => /^(?:true$|false$|:$|\[|test\s|exit\b|return\b)/.test(s));
+      if (guard !== undefined) {
+        problems.push(
+          `guard command "${guard}" conditions a playwright invocation: ${line.trim()}`,
+        );
+        continue;
+      }
       const lineFlagCount = configFlags(line).length;
       let consumed = 0;
       for (const segment of line.split(/[;&|]+/)) {
@@ -625,6 +649,21 @@ describe("spec registration detector (spec §3.1)", () => {
       "node node_modules/@playwright/test/cli.js test --config tests/e2e/standalone.config.ts",
     );
     loudAndDark("./node_modules/.bin/playwrigh? test --config ghost.ts");
+    // R7 F2 families: conditional execution — a short-circuit chain or guard
+    // command can make the recorded invocation DEAD at runtime, keeping
+    // set-equality green while the named config runs nowhere. And non-shell
+    // whitespace: JS \s treats NBSP as a token boundary, bash does not.
+    loudAndDark("true || playwright test --config ghost.ts");
+    loudAndDark("false && playwright test --config ghost.ts || true");
+    loudAndDark("exit 0; playwright test --config ghost.ts");
+    loudAndDark("[ -f cfg ] && playwright test --config ghost.ts");
+    loudAndDark("playwright\u00A0test --config ghost.ts");
+    // Unconditional && chains stay classifiable — the prior command failing
+    // fails the step loudly; there is no silent-skip path.
+    expect(c("corepack enable && playwright test --config real.ts").problems).toEqual([]);
+    expect([...c("corepack enable && playwright test --config real.ts").invoked]).toEqual([
+      "real.ts",
+    ]);
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
