@@ -15,39 +15,59 @@ components.
 ## Meta-test inventory (writing-plans rule)
 
 - **EXTENDS** `tests/parser/dataGapsClassCompleteness.test.ts` — `ORPHANED_CREW_ROWS`
-  into `ALL_PERSISTED_WARNING_CODES` (size pin `tests/parser/dataGapsClassCompleteness.test.ts:209`
-  54 → 55) and `GAP_CLASSES` (`lib/parser/dataGaps.ts`).
+  into `ALL_PERSISTED_WARNING_CODES` (size pins: `tests/parser/dataGapsClassCompleteness.test.ts:205`
+  34 → 35, `tests/parser/dataGapsClassCompleteness.test.ts:209` 54 → 55) and `GAP_CLASSES`
+  (`lib/parser/dataGaps.ts`).
 - **EXTENDS** `tests/parser/operatorActionableWarnings.test.ts` — exact-set pin
   ("contains exactly the twenty codes", `tests/parser/operatorActionableWarnings.test.ts:8`)
-  gains `ORPHANED_CREW_ROWS` (20 → 21) + the T10 behavioral cases.
+  gains `ORPHANED_CREW_ROWS` (20 → 21, title reworded) + the T10 behavioral cases.
 - **EXTENDS** `tests/messages/_metaWarningCardCopy.test.ts` enforcement data —
   `WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT` rows
-  (`tests/messages/warningCardCopyRegistry.ts:4`, `:48`), byte-identical to the §4.2 table
+  (`tests/messages/warningCardCopyRegistry.ts:4`, `tests/messages/warningCardCopyRegistry.ts:48`), byte-identical to the §4.2 table
   in `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:118`.
 - **EXTENDS** `tests/help/errors-grouping.test.tsx`'s pinned taxonomy — prefix `ORPHANED`
   into the `crew-schedule` family (`app/help/errors/_families.ts`; "Other" fallback pinned
-  EMPTY at `tests/help/errors-grouping.test.tsx:36`).
+  EMPTY at `tests/help/errors-grouping.test.tsx:40`).
 - **EXTENDS** `tests/drive/round-trip-fixture.test.ts` — adds the `archivedPullSheetTabs`
   golden (spec §6 T2).
+- **EXTENDS** `tests/parser/dataGaps.test.ts` — registry pins at
+  `tests/parser/dataGaps.test.ts:44-45` (34 → 35 both) plus the stale `// 34` comment at
+  `tests/parser/dataGaps.test.ts:157`.
+- **EXTENDS** `tests/cross-cutting/codes.test.ts` (x1) and
+  `tests/cross-cutting/no-raw-codes.test.ts` (x2) — their enforcement universes grow via
+  the regenerated `spec-codes.ts` and `internal-code-enums.ts` manifests (no test-code
+  edits; the committed fixtures are the extension).
 - **CREATES none.** Advisory-lock topology: N/A — no `pg_advisory*`. Supabase
   call-boundary registry: N/A — no Supabase calls. Mutation-surface observability: N/A —
   no routes/actions.
 
 ## Plan-time sweeps (run 2026-07-27, outputs inline)
 
-Hardcoded-count pins touching the new code (command:
-`grep -rn "toBe(54)\|toBe(49)\|GAP_CLASSES.length\|GAP_CLASSES.size" tests lib --include="*.ts*"`):
+Hardcoded-count pins touching the new code. Comprehensive command (run 2026-07-27,
+scoped to the registry-adjacent test trees):
+`grep -rnE 'toBe\(34\)|toHaveLength\(34\)|toBe\(54\)|"contains exactly' tests/parser tests/messages tests/cross-cutting tests/help --include="*.ts*"`
 
 ```
-tests/parser/dataGaps.test.ts:157:    expect(out.total).toBe(GAP_CLASSES.length); // 34
-tests/parser/dataGapsClassCompleteness.test.ts:209:    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(54);
+tests/parser/dataGaps.test.ts:44:    expect(GAP_CLASSES).toHaveLength(34);
+tests/parser/dataGaps.test.ts:45:    expect(DATA_GAP_CODES.size).toBe(34);
+tests/parser/operatorActionableWarnings.test.ts:8:  it("contains exactly the twenty codes", () => {
+tests/parser/dataGapsClassCompleteness.test.ts:205:    expect(DATA_GAP_CODES.size).toBe(34);
+tests/parser/dataGapsClassCompleteness.test.ts:209:    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(54); // Set dedups → proves pairwise-disjoint
 ```
 
-Disposition: `dataGaps.test.ts:157` derives from `GAP_CLASSES.length` (self-adjusting;
-Task 4 refreshes the stale `// 34` comment). Deliberate pins Task 4 bumps: `dataGaps.test.ts:43-44`
-(34 → 35 twice), `dataGapsClassCompleteness.test.ts:204` (`DATA_GAP_CODES.size` 34 → 35),
-`:209` (total 54 → 55), the `:203` it-title prose "(34/7/2/11)" → "(35/7/2/11)", stale
-comments `:36`/`:68`, and `operatorActionableWarnings.test.ts:8` (20 → 21).
+Per-hit disposition (all Task 4): `tests/parser/dataGaps.test.ts:44-45` → 35/35;
+`tests/parser/operatorActionableWarnings.test.ts:8` → add the code to the exact list and
+reword "twenty" → "twenty-one"; `tests/parser/dataGapsClassCompleteness.test.ts:205` → 35;
+`tests/parser/dataGapsClassCompleteness.test.ts:209` → 55. Derived (self-adjusting, comment
+refresh only): `tests/parser/dataGaps.test.ts:157` (`toBe(GAP_CLASSES.length)` with a stale
+`// 34`). Prose/comment refreshes (no executable pins): the it-title bucket prose
+"(34/7/2/11)" → "(35/7/2/11)" at `tests/parser/dataGapsClassCompleteness.test.ts:204`;
+stale universe comments at `tests/parser/dataGapsClassCompleteness.test.ts:17`
+("42-partition"), `tests/parser/dataGapsClassCompleteness.test.ts:36` and
+`tests/parser/dataGapsClassCompleteness.test.ts:68` ("51"); `lib/parser/dataGaps.ts:28`
+("49-code" → 55); the legacy "three DQ codes" comments at `lib/parser/dataGaps.ts:5`,
+`lib/parser/dataGaps.ts:111`, `lib/parser/dataGaps.ts:245` (reworded per spec §3.3);
+warning-card-copy-restore.md counts/lists per spec §3.3 R4 row.
 
 Vitest wiring: new test files land under `tests/parser/**` and `tests/drive/**`, covered
 by `BASE_INCLUDE` (`vitest.projects.ts:34`) and the parallel globs
@@ -59,7 +79,7 @@ automatically because the diff touches `tests/parser/mutation/knownHoles.ts` (pa
 
 ### Task 1 — `feat(parser)`: `isMidBlockSectionStart`, `MID_BLOCK_SPLIT_EXCLUDED`, `isCrewRoleCell`, `CREW_ROLE_CELL_TOKENS`
 
-Red-first `tests/parser/knownSectionsMidBlock.test.ts` (spec §6 T1, cases verbatim from
+Red-first NEW FILE tests/parser/knownSectionsMidBlock.test.ts (spec §6 T1, cases verbatim from
 the spec):
 
 - `isMidBlockSectionStart`: uppercase exact (`"HOTEL"`, `"TRANSPORTATION"`) true; family
@@ -103,12 +123,12 @@ Implementation per spec §2.2. Commit body records the green run of
 
 ### Task 3 — `feat(parser)`: orphan scan + `ORPHANED_CREW_ROWS` emitter
 
-Red-first `tests/parser/orphanedCrewRows.test.ts` (spec §6 T4+T5, shapes verbatim from
+Red-first NEW FILE tests/parser/orphanedCrewRows.test.ts (spec §6 T4+T5, shapes verbatim from
 spec — positives: east-coast, rpas, fixed-income (`|  | DJ Johnson | - Load In / Set / Strike / Load Out - V1 |  |  |`),
 collisions (mixed-case `| Driver Jones | - Load In / Set / Strike / Load Out - V1 | 555-000-1111 |`
 AND all-caps `| DRIVER JONES | - Load In / Set / Strike / Load Out - V1 |`); de-dup pairs
 (identical tails → one; same-first-line `&#10;`-suffix pair → one, key = truncated first
-line); §3.4 catalog literal pins (title/longExplanation/helpHref); negatives:
+line); negatives:
 `GS Strike Time`, `Setup / Load In Date / Time | FALSE`, ROLE-legend tail, DRESS tail
 (exact raw-uppercase suppression), legacy `TRANSPORTATION/Load In:` row (role-cell arm),
 consultants agenda row, multiline agenda cell (`8:00AM - LOAD IN&#10;5:00PM - LOAD OUT`),
@@ -117,19 +137,28 @@ escaped-pipe role cell (`Load In \| Set \| Strike`), intact CREW table). Assert 
 blockRef.kind, rawSnippet.
 
 Implementation per spec §3.1-3.2: scan in `lib/parser/index.ts` after the class-B scan
-(`lib/parser/index.ts:700-718`); `emitOrphanedCrewRows` in `lib/parser/warnings.ts`
-(string-literal `code:` for the x2 scanner; shared 60-char truncation constant).
+(`lib/parser/index.ts:700-719`); `emitOrphanedCrewRows` in `lib/parser/warnings.ts`
+(string-literal `code:` for the x2 scanner; shared 60-char truncation constant). The
+catalog-literal pins (§3.4 title/longExplanation/helpHref) do NOT land here — they land
+with the catalog row in Task 4, so Task 3's commit is green (plan-R1 finding 1). Because
+the new `code:` literal enters the x2 manifest scan, Task 3's commit ALSO runs
+`pnpm gen:internal-code-enums` and commits the regenerated
+`lib/messages/__generated__/internal-code-enums.ts` (x2 parity is per-commit,
+`.github/workflows/x-audits.yml:121-125`).
 
 ### Task 4 — `feat(parser)`: corpus walker + recall ratchet + surfacing + lockstep
 
 Red-first tests (spec §6 T6, T9, T10):
 
-- `tests/parser/orphanedCrewRowsCorpus.test.ts`: (a) T6 walker — `readdirSync` over
+- NEW FILE tests/parser/orphanedCrewRowsCorpus.test.ts: (a) T6 walker — `readdirSync` over
   `fixtures/shows/{exporter-xlsx,raw,synthetic,email-embedded,pdf-only}`, parse every
   `*.md` (exclude README), assert zero `ORPHANED_CREW_ROWS`; (b) T9 recall ratchet with
   frozen universe (spec §6 T9): 7 fixture slugs found, every fixture ≥1 crew/TECH block,
   total simulated splits === 29 (frozen literal, regen note), each split asserts ≥1
   `ORPHANED_CREW_ROWS`.
+- Catalog-literal pins (spec §3.4: `title` / `longExplanation` / `helpHref` byte-equal),
+  appended to the Task-3 file tests/parser/orphanedCrewRows.test.ts in THIS task alongside the catalog
+  row (moved out of Task 3 — plan-R1 finding 1).
 - T10 surfacing behavioral, in the existing helper test files
   (`tests/parser/operatorActionableWarnings.test.ts`, `tests/drive/showDayTimeAnchors.test.ts`):
   `operatorActionableWarnings` passes `ORPHANED_CREW_ROWS` through + drops an
@@ -138,10 +167,10 @@ Red-first tests (spec §6 T6, T9, T10):
 
 Lockstep registrations in the SAME commit (spec §3.3 table + §3.4 copy verbatim):
 `OPERATOR_ACTIONABLE_ANCHORED` row; `showDayTimeAnchors` arm (region fallback, mirroring
-`lib/drive/showDayTimeAnchors.ts:146-153`); master spec §12.4 row + copy entry;
-`pnpm gen:spec-codes` regen; `pnpm gen:internal-code-enums` regen + COMMIT the
-manifest (`lib/messages/__generated__/internal-code-enums.ts` — x2 CI regenerates and
-rejects an uncommitted diff, `.github/workflows/x-audits.yml:121-124`);
+`lib/drive/showDayTimeAnchors.ts:146-154`); master spec §12.4 row + copy entry;
+`pnpm gen:spec-codes` regen; `pnpm gen:internal-code-enums` re-run (first committed in
+Task 3; re-run here in case the catalog row adds literals — x2 CI regenerates and rejects
+an uncommitted diff, `.github/workflows/x-audits.yml:121-125`);
 `lib/messages/catalog.ts` full row (§3.4 copy: "read as crew" phrasing — the
 `_metaWarningCardCopy` banned-vocabulary gate rejects parse-family words); warning-card
 registry (`WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT`) + §4.2 table row;
@@ -149,14 +178,17 @@ registry (`WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT`) + §4.2 table 
 prefix; warning-card-copy-restore.md reconciliation per spec §3.3 R4 row (back-fill the two
 missing §4.2 rows — AGENDA_FILE_INACCESSIBLE, HOTEL_ADDRESS_SPLIT_AMBIGUOUS — from the
 live frozen copy; counts/lists → 42 total, 29 parser / 13 sync, "20-code" → 21; emitter
-inventory rows for all three codes; `dataGaps.ts:28` "49-code" → 55; the
-legacy "three DQ codes" comments at `dataGaps.ts:5`/`:111`/`:245` reworded;
-`dataGapsClassCompleteness.test.ts:17` "42-partition" refreshed).
+inventory rows for all three codes; `lib/parser/dataGaps.ts:28` "49-code" → 55; the
+legacy "three DQ codes" comments at `lib/parser/dataGaps.ts:5`,
+`lib/parser/dataGaps.ts:111`, `lib/parser/dataGaps.ts:245` reworded;
+`tests/parser/dataGapsClassCompleteness.test.ts:17` "42-partition" refreshed).
 
 Verification (recorded in commit body): `pnpm vitest run tests/cross-cutting/codes.test.ts
-tests/messages/_metaWarningCardCopy.test.ts tests/parser/dataGapsClassCompleteness.test.ts
-tests/help/errors-grouping.test.tsx tests/parser/orphanedCrewRowsCorpus.test.ts
-tests/parser/dataGaps.test.ts` plus the GAP_CLASSES consumer files
+tests/cross-cutting/no-raw-codes.test.ts tests/messages/_metaWarningCardCopy.test.ts
+tests/parser/dataGapsClassCompleteness.test.ts tests/help/errors-grouping.test.tsx
+tests/parser/orphanedCrewRowsCorpus.test.ts tests/parser/orphanedCrewRows.test.ts
+tests/parser/dataGaps.test.ts tests/parser/operatorActionableWarnings.test.ts
+tests/drive/showDayTimeAnchors.test.ts` plus the GAP_CLASSES consumer files
 (`tests/admin/step3Buckets.test.ts`, `tests/notify/monitorNewShowGaps.test.ts`,
 `tests/notify/renderDigest.monitor.test.ts`, `tests/parser/qualityRegressionComparator.test.ts`).
 
@@ -172,7 +204,11 @@ update the ledger header counts; re-run affected shards green before committing.
 ### Task 6 — `docs`: BACKLOG.md closure update (spec §8)
 
 `BL-EXPORT-BLANK-ROW-SEGMENTATION` → PARTIALLY CLOSED (2026-07-27), residuals + probe
-refutation note verbatim from spec §8.
+refutation note verbatim from spec §8. Docs-only task — declared TDD exception (no
+executable behavior to test); verification recorded in the commit body:
+`grep -n "PARTIALLY CLOSED (2026-07-27)" BACKLOG.md` returns the updated status line, and
+`grep -c "BL-EXPORT-BLANK-ROW-SEGMENTATION" BACKLOG.md` is unchanged (entry updated in
+place, not duplicated).
 
 ### Task 7 — close-out (pipeline Stage 4)
 
