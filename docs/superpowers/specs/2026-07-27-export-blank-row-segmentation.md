@@ -102,12 +102,17 @@ are reproduced as ratchets by the mandated test suite (§6 T2/T6/T9).
   role convention (a role cell listing ≥2 of Load In / Set / Strike / Load Out, present in
   100% of corpus crew rows across all shapes). A crew row authored with zero or one role
   token in every cell is not detected when orphaned. Documented residual, not a defect.
-- **No UI component/route files change.** The new warning surfaces through the existing
-  catalog-driven card machinery (`PerShowActionableWarnings` renders items already
-  filtered by `operatorActionableWarnings`; `components/admin/PerShowActionableWarnings.tsx:34-38`)
-  — the feature adds REGISTRY rows + one anchor branch in `lib/drive/showDayTimeAnchors.ts`
-  (lib code), not component edits. Invariant-8 impeccable gates do not apply. No DB; no
-  advisory locks; no mutation surfaces (invariants 2/10 untouched).
+- **No UI component/route files change, but the invariant-8 gate APPLIES (adversarial R3
+  finding 1).** The new warning surfaces through the existing catalog-driven card
+  machinery (`PerShowActionableWarnings` renders items already filtered by
+  `operatorActionableWarnings`; `components/admin/PerShowActionableWarnings.tsx:34-38`) —
+  the feature adds REGISTRY rows + one anchor branch in `lib/drive/showDayTimeAnchors.ts`.
+  However, the one-line prefix addition to `app/help/errors/_families.ts` is a non-API
+  file under `app/`, which is a UI surface by the letter of invariant 8 (AGENTS.md rule
+  8). The `/impeccable critique` + `/impeccable audit` dual-gate therefore runs on the
+  affected diff at close-out, before the whole-diff adversarial review, with P0/P1
+  findings fixed or DEFERRED.md-logged. No DB; no advisory locks; no mutation surfaces
+  (invariants 2/10 untouched).
 - **`severity: "warn"`, NOT `gateExempt`.** An orphaned crew tail means crew members can
   silently lose their pages — push-worthy, same default posture as
   `UNKNOWN_SECTION_HEADER` (`lib/parser/dataGaps.ts:32`).
@@ -261,7 +266,9 @@ registrations below are therefore mandatory, with behavioral tests (§6 T10).
 | `lib/parser/dataGaps.ts` `GAP_CLASSES` | `{ code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" }` (not `gateExempt`, §1.1) |
 | `tests/parser/dataGaps.test.ts` | Registry pins at `tests/parser/dataGaps.test.ts:43-44` (`toHaveLength(34)`, `DATA_GAP_CODES.size` 34) → 35; refresh the stale `// 34` count comment at `tests/parser/dataGaps.test.ts:157` |
 | `tests/parser/dataGapsClassCompleteness.test.ts` | Add to `ALL_PERSISTED_WARNING_CODES` AND to the `DATA_GAP_CODES` bucket; bump BOTH pins — `DATA_GAP_CODES.size` 34 → 35 (`tests/parser/dataGapsClassCompleteness.test.ts:204`) and the total 54 → 55 (`tests/parser/dataGapsClassCompleteness.test.ts:209`); refresh the bucket-count prose in the `it` title ("(34/7/2/11)" → "(35/7/2/11)", `tests/parser/dataGapsClassCompleteness.test.ts:203`) and the stale universe comments at `tests/parser/dataGapsClassCompleteness.test.ts:36` and `tests/parser/dataGapsClassCompleteness.test.ts:68` |
-| `app/help/errors/_families.ts` | Prefix `ORPHANED` into the `crew-schedule` family (the "Other" fallback is pinned EMPTY, `tests/help/errors-grouping.test.tsx:36`) |
+| `app/help/errors/_families.ts` | Prefix `ORPHANED` into the `crew-schedule` family (the "Other" fallback is pinned EMPTY, `tests/help/errors-grouping.test.tsx:36`). This file is under `app/` and triggers the invariant-8 dual-gate (§1.1) |
+| `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` count prose (R3 finding 3) | The document's registry-count claims (39 total / 27 parser / 12 sync, at `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:44` and lines 53, 60, 64, 103, 104 of that document) have ALREADY drifted (live registry holds 41) and this feature makes 42. Refresh every count claim to the post-addition registry-derived totals in the same commit as the row append |
+| Stale universe comments (R3 finding 3) | Refresh: `lib/parser/dataGaps.ts:28` ("49-code" → 55); reword the legacy "three data-quality codes" comments (`lib/parser/dataGaps.ts:5`, `lib/parser/dataGaps.ts:111`, `lib/parser/dataGaps.ts:245`) so they name the historical DQ trio explicitly instead of implying the full gap-class universe; `tests/parser/dataGapsClassCompleteness.test.ts:17` ("42-partition" → the post-change partition size) |
 
 ### 3.4 Authored copy (canonical here; implementation copies verbatim)
 
@@ -421,7 +428,9 @@ it never invokes exporter `splitBlocks`. Therefore:
 ## 7. Numeric / consistency notes
 
 - Probe numbers (85, 2, 0, 30) are defined once in §1.0 and referenced as "probe result
-  N". The recall/miss numbers are corpus-derived at test time (T9), not spec literals.
+  N". T9's simulated-split total is a FROZEN ratchet literal (29, §6 T9) — deliberately a
+  spec/test literal so locator rot fails loud; it is re-derived (and the literal updated)
+  only when the exporter corpus is re-snapshotted (R3 finding 2 resolved in T9's favor).
 - Truncation: 60 chars for both `message` interpolation and `rawSnippet` (§3.2), one
   shared constant.
 - Copy strings are canonical in §3.4; §12.4 / catalog / §4.2 table copy them verbatim.
