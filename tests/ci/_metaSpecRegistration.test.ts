@@ -279,17 +279,41 @@ const runnerScriptRe = (names: string[], tail = "") =>
   );
 
 /**
- * Fixpoint closure over package.json script bodies: a script whose body
- * invokes another playwright-wrapping script (via any runner form the
- * grammar above accepts) is itself playwright-wrapping (R7 F3 pulled this
- * out of the tripwire body so the closure grammar is unit-testable).
+ * REACHABILITY grammar for the closure (R8): runner word, then ANY tokens
+ * within the same shell segment (no ;/&/| crossed), then the script name.
+ * Deliberately WIDER than runnerScriptRe — a value-taking option's bare
+ * value ("yarn --cwd . base") must not hide the name. Over-inclusion is
+ * safe in this direction: closure membership only ever ADDS census
+ * loudness, never removes it.
  */
-export function transitivePwScriptNames(scripts: Record<string, string>): string[] {
-  const names = Object.keys(scripts).filter((n) => /\bplaywright\s+test\b/.test(scripts[n] ?? ""));
+const runnerReachRe = (names: string[]) =>
+  new RegExp(
+    `\\b(?:pnpm|npm|yarn|bun)\\s+(?:[^\\s;&|]+\\s+)*?(?:${names.map(escRe).join("|")})(?:\\s|$)`,
+  );
+
+/**
+ * Fixpoint closure over package.json script bodies: a script whose body
+ * invokes another playwright-wrapping script (via any runner form) is
+ * itself playwright-wrapping (R7 F3 pulled this out of the tripwire body so
+ * the closure grammar is unit-testable). Seeds (R8): a literal `playwright
+ * test` body, OR a body whose normalized line is REGISTERED with declared
+ * config contributions — a registry row the census trusts as an invocation
+ * is an invocation for reachability too.
+ */
+export function transitivePwScriptNames(
+  scripts: Record<string, string>,
+  complexRegistry: Record<string, readonly string[]> = {},
+): string[] {
+  const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
+  const registryInvokes = (body: string) =>
+    body.split(/\r?\n/).some((l) => (complexRegistry[normalize(l)]?.length ?? 0) > 0);
+  const names = Object.keys(scripts).filter(
+    (n) => /\bplaywright\s+test\b/.test(scripts[n] ?? "") || registryInvokes(scripts[n] ?? ""),
+  );
   for (;;) {
-    const re = runnerScriptRe(names);
+    const re = runnerReachRe(names);
     const next = Object.keys(scripts).filter(
-      (n) => !names.includes(n) && re.test(scripts[n] ?? ""),
+      (n) => !names.includes(n) && names.length > 0 && re.test(scripts[n] ?? ""),
     );
     if (next.length === 0) break;
     names.push(...next);
@@ -756,6 +780,34 @@ describe("spec registration detector (spec §3.1)", () => {
     }
   });
 
+  it("closure reaches through value-taking runner options and registry-classified bodies (R8)", () => {
+    // Value-taking options separate the runner from the script name with a
+    // bare value token ("yarn --cwd . base") — the closure must still reach
+    // the name. Over-inclusion is SAFE here: closure membership only ever
+    // ADDS loudness.
+    for (const wrap of [
+      "yarn --cwd . base",
+      "npm --prefix . run base",
+      "pnpm --filter . base",
+      "bun --cwd . run base",
+    ]) {
+      const names = transitivePwScriptNames({ base: "playwright test", wrap });
+      expect([...names].sort(), wrap).toEqual(["base", "wrap"]);
+    }
+    // A REGISTERED body with declared config contributions is a playwright
+    // invocation the census already trusts — it must seed the closure too,
+    // or forwarding through its wrapper stays silent.
+    const regLine = 'docker run img bash -lc "pnpm exec playwright test --config x.ts"';
+    const names = transitivePwScriptNames(
+      { reg: regLine, wrap: "pnpm --silent reg", inert: "git status" },
+      { [regLine]: ["x.ts"] },
+    );
+    expect([...names].sort()).toEqual(["reg", "wrap"]);
+    const r = censusInvocations(["pnpm wrap --config ghost.ts"], names);
+    expect(r.problems).not.toEqual([]);
+    expect(r.invoked.size).toBe(0);
+  });
+
   it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const scripts = pkg.scripts as Record<string, string>;
@@ -777,7 +829,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // wrapping script (via any runner form, including runner global options)
     // is itself playwright-wrapping — the multi-hop forwarding route
     // composes the same way the one-hop route does.
-    const pwScriptNames = transitivePwScriptNames(scripts);
+    const pwScriptNames = transitivePwScriptNames(scripts, COMPLEX_INVOCATION_REGISTRY);
     const { invoked, problems } = censusInvocations(
       texts,
       pwScriptNames,
