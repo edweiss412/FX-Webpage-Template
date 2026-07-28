@@ -136,3 +136,24 @@ describe("ORPHANED_CREW_ROWS catalog literals (spec §3.4; fields no gate freeze
     expect(entry.helpHref).toBe("/help/errors#ORPHANED_CREW_ROWS");
   });
 });
+
+// Codex whole-diff r1 F3: newline-shape edge cases in the orphan scan.
+describe("ORPHANED_CREW_ROWS newline edge cases (whole-diff r1 F3)", () => {
+  it("a &#10;-only first cell does not suppress the orphan (tok comes from the next cell)", () => {
+    const md = [
+      CREW_HEADER,
+      table(["| &#10; | Doug Larson | - Load In / Set / Strike / Load Out - V1 |"]),
+    ].join("\n\n");
+    const w = orphanWarnings(md);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.rawSnippet).toBe("Doug Larson");
+  });
+
+  it("bare-CR separated role tokens stay on separate lines: single-token lines are NOT a role cell", () => {
+    const md = [
+      CREW_HEADER,
+      table(["| Jane Doe | - Load In -\r- Set - | 555-000-1111 |"]),
+    ].join("\n\n");
+    expect(orphanWarnings(md)).toHaveLength(0);
+  });
+});

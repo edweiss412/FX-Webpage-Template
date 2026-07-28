@@ -19,6 +19,7 @@ import {
   countFieldHeaderWords,
   KNOWN_SECTION_HEADERS,
   isCrewRoleCell,
+  cellLines,
 } from "./knownSections";
 import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
@@ -746,9 +747,12 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
         .split("|")
         .slice(1, -1)
         .map((c) => c.trim()); // canonicalize-exempt: markdown cell whitespace, not an email
-      const nonEmpty = cells.filter((c) => c.length > 0);
+      // A cell is non-empty only if some display LINE has content — a cell holding
+      // only newline entities ("&#10;") must not suppress the scan by yielding an
+      // empty first token (whole-diff r1 F3).
+      const nonEmpty = cells.filter((c) => cellLines(c).some((l) => l.trim().length > 0));
       if (nonEmpty.length < 2) continue;
-      const tok = (nonEmpty[0]!.split(/&#10;|\r?\n/)[0] ?? "").trim();
+      const tok = (cellLines(nonEmpty[0]!).find((l) => l.trim().length > 0) ?? "").trim();
       if (tok.length === 0 || KNOWN_SECTION_HEADERS.has(tok)) continue;
       if (!cells.some((c) => isCrewRoleCell(c))) continue;
       const key = tok.slice(0, 60);

@@ -252,3 +252,34 @@ describe("operatorActionableWarnings — ORPHANED_CREW_ROWS membership", () => {
     expect(operatorActionableWarnings([w])).toEqual([]);
   });
 });
+
+// Codex whole-diff r1 F2: every ORPHANED_CREW_ROWS warning region-anchors to the
+// same crew A1, so an a1-only dedup key collapsed two DISTINCT orphan tails into
+// one card. Failure mode caught: dropping the rawSnippet fold hides the second
+// orphan tail whenever two tails survive in one sheet.
+describe("ORPHANED_CREW_ROWS rawSnippet fold (whole-diff r1 F2)", () => {
+  const cell = { title: "II", gid: 7, a1: "A10" };
+  const base = {
+    severity: "warn" as const,
+    code: "ORPHANED_CREW_ROWS" as const,
+    message: "m",
+    blockRef: { kind: "crew" as const },
+    sourceCell: cell,
+  };
+
+  it("two distinct orphan tails sharing the crew-region anchor BOTH survive", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "Carl Fenton" },
+      { ...base, rawSnippet: "Doug Larson" },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+
+  it("true duplicates (same rawSnippet) still collapse to one", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "Carl Fenton" },
+      { ...base, rawSnippet: "Carl Fenton" },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(1);
+  });
+});

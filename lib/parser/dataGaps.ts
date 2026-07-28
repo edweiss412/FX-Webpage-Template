@@ -454,7 +454,13 @@ export function operatorActionableWarnings(
             `\0${w.blockRef.index}${typeof w.blockRef.field === "string" ? `\0${w.blockRef.field}` : ""}`
           : w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string"
             ? `\0${w.roleToken}`
-            : "";
+            : // Every ORPHANED_CREW_ROWS warning region-anchors to the SAME crew A1
+              // (spec 2026-07-27 §3.3), so the a1-only key collapses two distinct
+              // orphan tails into one card; fold the emit-time identity (rawSnippet,
+              // the truncated first line) so distinct tails survive (whole-diff r1 F2).
+              w.code === "ORPHANED_CREW_ROWS" && typeof w.rawSnippet === "string"
+              ? `\0${w.rawSnippet}`
+              : "";
       const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}${rowDisc}`;
       if (seen.has(key)) continue;
       seen.add(key);

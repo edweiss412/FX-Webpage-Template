@@ -267,7 +267,7 @@ export const MID_BLOCK_SPLIT_EXCLUDED: ReadonlySet<string> = new Set(["CLIENT"])
  * uppercase rule minus CLIENT hits 0).
  */
 export function isMidBlockSectionStart(rawCell: string): boolean {
-  const line1 = (rawCell.split(/\r?\n/)[0] ?? "").trim();
+  const line1 = (rawCell.split(/\r\n?|\n/)[0] ?? "").trim();
   if (line1.length === 0) return false;
   if (/[a-z]/.test(line1)) return false;
   if (MID_BLOCK_SPLIT_EXCLUDED.has(normalizeHeader(line1))) return false;
@@ -291,9 +291,11 @@ export const CREW_ROLE_CELL_TOKENS: ReadonlyArray<readonly [string, RegExp]> = [
 ];
 
 /** Split a raw cell into display lines: `&#10;` entities (exporter-encoded newlines)
- *  and raw newlines both break lines. */
+ *  and raw newlines both break lines. Bare CR (legacy Mac line ends surviving a
+ *  paste) breaks a line too — otherwise two single-token lines read as one line
+ *  and defeat the per-line ≥2-token gate (whole-diff r1 F3). */
 export function cellLines(rawCell: string): string[] {
-  return rawCell.split(/&#10;|\r?\n/);
+  return rawCell.split(/&#10;|\r\n?|\n/);
 }
 
 export function isCrewRoleCell(rawCell: string): boolean {
