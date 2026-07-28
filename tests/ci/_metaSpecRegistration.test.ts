@@ -244,6 +244,24 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  *    impossible by the axiom above; the enumerated families are the ones
  *    review produced.
  */
+/**
+ * Every `run:` block a parsed GitHub YAML doc can execute: workflow jobs
+ * (`jobs.*.steps[].run`) AND composite-action steps (`runs.steps[].run`).
+ * One collector for both shapes so the census universe cannot silently
+ * exclude local actions the workflows `uses:` (R7 F4 — the PLAYWRIGHT_
+ * raw-text sweep already treats .github/actions as execution surface).
+ */
+export function runBlocksOf(doc: unknown): string[] {
+  const out: string[] = [];
+  const jobs = (doc as { jobs?: Record<string, { steps?: Array<{ run?: unknown }> }> })?.jobs;
+  for (const j of Object.values(jobs ?? {})) {
+    for (const s of j.steps ?? []) if (typeof s.run === "string") out.push(s.run);
+  }
+  const actionSteps = (doc as { runs?: { steps?: Array<{ run?: unknown }> } })?.runs?.steps;
+  for (const s of actionSteps ?? []) if (typeof s.run === "string") out.push(s.run);
+  return out;
+}
+
 const escRe = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
@@ -706,6 +724,19 @@ describe("spec registration detector (spec §3.1)", () => {
     expect([...c("playwright test > out.log 2>&1").invoked]).toEqual(["playwright.config.ts"]);
   });
 
+  it("runBlocksOf collects workflow jobs AND composite-action runs.steps (R7 F4)", () => {
+    // A local composite action executes run blocks the workflow file never
+    // textually contains (`uses: ./.github/actions/...`) — the PLAYWRIGHT_
+    // raw-text sweep already treats actions as execution surface; the census
+    // must see the same universe or the two guards disagree.
+    const wfDoc = parse("jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y\n");
+    const actionDoc = parse(
+      "name: setup\nruns:\n  using: composite\n  steps:\n    - run: echo action-step\n      shell: bash\n",
+    );
+    expect(runBlocksOf(wfDoc)).toEqual(["echo wf-step"]);
+    expect(runBlocksOf(actionDoc)).toEqual(["echo action-step"]);
+  });
+
   it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {
     const names = transitivePwScriptNames({
       base: "playwright test",
@@ -733,12 +764,14 @@ describe("spec registration detector (spec §3.1)", () => {
     for (const wfPath of readdirSync(wfDir).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
     )) {
-      const doc = parse(readFileSync(join(wfDir, wfPath), "utf8"));
-      for (const j of Object.values(
-        (doc.jobs ?? {}) as Record<string, { steps?: Array<{ run?: string }> }>,
-      )) {
-        for (const step of j.steps ?? []) if (typeof step.run === "string") texts.push(step.run);
-      }
+      texts.push(...runBlocksOf(parse(readFileSync(join(wfDir, wfPath), "utf8"))));
+    }
+    // Local composite actions execute run blocks no workflow file textually
+    // contains — same universe, same census (R7 F4).
+    for (const p of walkFiles(join(ROOT, ".github", "actions")).filter(
+      (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
+    )) {
+      texts.push(...runBlocksOf(parse(readFileSync(p, "utf8"))));
     }
     // Transitive closure: a script whose body invokes another playwright-
     // wrapping script (via any runner form, including runner global options)
