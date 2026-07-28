@@ -630,6 +630,18 @@ const REMAP_SPELLINGS = new Set([
   "extensionAlias",
   "descriptionFiles",
   "NormalModuleReplacementPlugin",
+  // r18: keys that redirect which FILES/ROOTS resolution reads — the same
+  // laundering power with one indirection. `typescript.tsconfigPath` makes
+  // Next install a tracked ALTERNATE tsconfig's `paths` (the resolver pin
+  // reads only the root file); `experimental.externalDir` legalises imports
+  // from OUTSIDE the repo root, i.e. outside the walk entirely;
+  // `modularizeImports` rewrites import specifiers by template; and
+  // `turbopack.root` moves the resolution root. None appears in the real
+  // config; a legitimate future use teaches this guard first.
+  "tsconfigPath",
+  "externalDir",
+  "modularizeImports",
+  "root",
 ]);
 
 function nextConfigAliasOffenders(src: string): string[] {
@@ -1255,6 +1267,22 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(nextConfigAliasOffenders('cfg.resolve.modules = ["aliases"];').length).toBeGreaterThan(
       0,
     );
+    // r18 — keys that redirect which files/roots resolution reads carry the
+    // same laundering power one indirection removed:
+    expect(
+      nextConfigAliasOffenders('const c = { typescript: { tsconfigPath: "tsconfig.ship.json" } };')
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      nextConfigAliasOffenders("const c = { experimental: { externalDir: true } };").length,
+    ).toBeGreaterThan(0);
+    expect(
+      nextConfigAliasOffenders('const c = { modularizeImports: { x: { transform: "y" } } };')
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      nextConfigAliasOffenders('const c = { turbopack: { root: ".." } };').length,
+    ).toBeGreaterThan(0);
   });
 
   it(
