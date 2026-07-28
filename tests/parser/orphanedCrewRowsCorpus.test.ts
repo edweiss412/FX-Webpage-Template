@@ -12,6 +12,7 @@
 // vacuously. Re-derive the literals only when the exporter corpus is
 // re-snapshotted (fixtures/shows/exporter-xlsx/README.md).
 import { readdirSync, readFileSync } from "node:fs";
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseSheet } from "@/lib/parser";
@@ -29,7 +30,7 @@ describe("ORPHANED_CREW_ROWS corpus zero-warning walker (T6)", () => {
   ];
   for (const root of ROOTS) {
     const files = readdirSync(join(process.cwd(), root)).filter(
-      (f) => f.endsWith(".md") && f !== "README.md",
+      (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith(CORPUS_TEMP_PREFIX),
     );
     it(`${root}: every committed fixture parses with zero orphan warnings (${files.length} files)`, () => {
       expect(files.length).toBeGreaterThan(0); // traversal-rot guard: an empty dir is a failure
@@ -62,7 +63,9 @@ describe("ORPHANED_CREW_ROWS split-recall ratchet (T9, frozen universe)", () => 
   };
 
   it("all 7 fixtures found; every fixture has >=1 crew/TECH block; 29 simulated splits all detected", () => {
-    const found = readdirSync(DIR).filter((f) => f.endsWith(".md") && f !== "README.md");
+    const found = readdirSync(DIR).filter(
+      (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith(CORPUS_TEMP_PREFIX),
+    );
     expect(found.sort()).toEqual(SLUGS.map((s) => `${s}.md`).sort());
 
     let totalSplits = 0;

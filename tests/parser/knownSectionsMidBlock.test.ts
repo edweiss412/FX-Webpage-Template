@@ -13,6 +13,12 @@ describe("isMidBlockSectionStart (spec §2.1)", () => {
     expect(isMidBlockSectionStart("TRANSPORTATION")).toBe(true);
   });
 
+  it("bare-CR breaks line 1: a header followed by CR-joined detail still starts a block (whole-diff r2)", () => {
+    // Reverting the bare-CR split leaves line1 = "HOTEL\rFour Seasons", whose
+    // lowercase letters disqualify it — this assertion fails on that revert.
+    expect(isMidBlockSectionStart("HOTEL\rFour Seasons")).toBe(true);
+  });
+
   it("uppercase family prefixes start a new block (first line of a fused cell)", () => {
     expect(isMidBlockSectionStart("GENERAL SESSION - GRAND BALLROOM A/B")).toBe(true);
     expect(isMidBlockSectionStart("GENERAL SESSION\nGRAND BALLROOM")).toBe(true);
