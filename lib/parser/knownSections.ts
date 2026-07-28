@@ -248,3 +248,61 @@ export function countFieldHeaderWords(cells: readonly string[]): number {
   }
   return columns;
 }
+
+/** Section labels that live mid-block in real sheets (corpus-verified) and must NOT
+ *  start a new block when seen mid-block. CLIENT: east-coast INFO (a CLIENT label row
+ *  directly under a #NUM! row) + fintech INFO; probe 2026-07-27
+ *  (spec 2026-07-27-export-blank-row-segmentation §2.1). */
+export const MID_BLOCK_SPLIT_EXCLUDED: ReadonlySet<string> = new Set(["CLIENT"]);
+
+/**
+ * True when a grid row's first non-blank cell BEGINS a new section mid-block
+ * (exporter `splitBlocks` header-aware segmentation, spec
+ * 2026-07-27-export-blank-row-segmentation §2.1-2.2). Case-SENSITIVE by design:
+ * only the first LINE of the cell is considered (fused multi-line room headers keep
+ * their header on line 1), and ANY lowercase letter disqualifies — real section
+ * headers on the live sheets are uppercase, while mixed-case shapes ("General
+ * Session Room Name" FORM labels, "In House AV", "Driver") legitimately sit
+ * mid-block (probe 2026-07-27: a case-insensitive rule hits 85 corpus rows; the
+ * uppercase rule minus CLIENT hits 0).
+ */
+export function isMidBlockSectionStart(rawCell: string): boolean {
+  const line1 = (rawCell.split(/\r?\n/)[0] ?? "").trim();
+  if (line1.length === 0) return false;
+  if (/[a-z]/.test(line1)) return false;
+  if (MID_BLOCK_SPLIT_EXCLUDED.has(normalizeHeader(line1))) return false;
+  return isKnownSectionHeader(line1);
+}
+
+/**
+ * Crew-role token set for orphaned-crew-row detection (spec
+ * 2026-07-27-export-blank-row-segmentation §3.1 arm 3). A cell is a crew ROLE cell
+ * only when ≥2 DISTINCT tokens co-occur on ONE line — every corpus crew roster row
+ * carries a single-line role cell with ≥2 of these ("- Load In / Set / Strike /
+ * Load Out - LEAD", "- Load In / Set ONLY"), while the single-token shapes that
+ * would false-positive ("GS Strike Time", "Setup / Load In Date / Time", agenda
+ * "9:00PM - LOAD IN" lines) never do. "SETUP" does not match SET (word boundary).
+ */
+export const CREW_ROLE_CELL_TOKENS: ReadonlyArray<readonly [string, RegExp]> = [
+  ["LOAD_IN", /\bLOAD\s*[- /]*\s*IN\b/i],
+  ["LOAD_OUT", /\bLOAD\s*[- /]*\s*OUT\b/i],
+  ["STRIKE", /\bSTRIKE\b/i],
+  ["SET", /\bSET\b/i],
+];
+
+/** Split a raw cell into display lines: `&#10;` entities (exporter-encoded newlines)
+ *  and raw newlines both break lines. */
+export function cellLines(rawCell: string): string[] {
+  return rawCell.split(/&#10;|\r?\n/);
+}
+
+export function isCrewRoleCell(rawCell: string): boolean {
+  for (const line of cellLines(rawCell)) {
+    let distinct = 0;
+    for (const [, re] of CREW_ROLE_CELL_TOKENS) {
+      if (re.test(line)) distinct += 1;
+    }
+    if (distinct >= 2) return true;
+  }
+  return false;
+}
