@@ -710,6 +710,23 @@ function nextConfigAliasOffenders(src: string): string[] {
  * `imports` field is pinned absent anyway). `node:` builtins pass, except
  * the createRequire escape hatch.
  */
+/**
+ * Remap-key scan for JSON reachable from the config graph. r20: this lane
+ * carried only the two alias literals while REMAP_SPELLINGS grew across
+ * r16-r18 — a reachable JSON object could hold `modularizeImports` or
+ * `tsconfigPath` and be spread into the config with no offense. ONE set
+ * feeds every lane (the ledger-union lesson again).
+ */
+function jsonRemapOffenses(value: unknown, rel: string): string[] {
+  if (typeof value !== "object" || value === null) return [];
+  const found: string[] = [];
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (REMAP_SPELLINGS.has(k)) found.push(`resolver-remap key "${k}" in ${rel}`);
+    found.push(...jsonRemapOffenses(v, rel));
+  }
+  return found;
+}
+
 function bareSpecifierOffense(spec: string): string | null {
   if (spec === "module" || spec === "node:module")
     return `createRequire source "${spec}" in config graph`;
@@ -737,15 +754,6 @@ function configReachableFiles(root: string): {
 } {
   const exts = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"];
   const bareImports = new Set<string>();
-  const jsonAliasKeys = (value: unknown, rel: string): string[] => {
-    if (typeof value !== "object" || value === null) return [];
-    const found: string[] = [];
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === "resolveAlias" || k === "alias") found.push(`alias key "${k}" in ${rel}`);
-      found.push(...jsonAliasKeys(v, rel));
-    }
-    return found;
-  };
   const queue = ["next.config.ts"];
   const seen = new Set<string>(queue);
   const files: string[] = [];
@@ -818,7 +826,9 @@ function configReachableFiles(root: string): {
           `${rel}: local specifier "${spec}" does not resolve to a scannable file — cannot be cleared`,
         );
       } else if (hit.endsWith(".json")) {
-        offenders.push(...jsonAliasKeys(JSON.parse(readFileSync(join(root, hit), "utf8")), hit));
+        offenders.push(
+          ...jsonRemapOffenses(JSON.parse(readFileSync(join(root, hit), "utf8")), hit),
+        );
       } else if (!seen.has(hit)) {
         seen.add(hit);
         queue.push(hit);
@@ -1207,6 +1217,23 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     }
     const workspaceYaml = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8");
     expect(workspaceYaml).not.toMatch(/^\s*packages\s*:/m);
+    // r20: pnpm resolution controls are FIRST-PARTY package mutation — a root
+    // `resolutions`/`overrides`/`pnpm.*` entry or a workspace
+    // overrides/patchedDependencies/catalog key can redirect an
+    // already-pinned config package onto tracked local bytes (a .tgz, a
+    // patch) without touching the bare-import set, and a .pnpmfile.cjs hook
+    // rewrites resolution at install time. All absent; a future legitimate
+    // use teaches this guard first.
+    expect(pkg.resolutions).toBeUndefined();
+    expect(pkg.overrides).toBeUndefined();
+    expect(pkg.pnpm).toBeUndefined();
+    const wsKeys = [...workspaceYaml.matchAll(/^([A-Za-z][A-Za-z0-9_-]*)\s*:/gm)].map((m) => m[1]);
+    expect(wsKeys, "pnpm-workspace.yaml top-level keys").toEqual(["allowBuilds"]);
+    const pnpmfiles = execFileSync("git", ["ls-files", "--", "*pnpmfile*"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect(pnpmfiles, "no tracked pnpmfile hooks").toBe("");
     // r17: package scope is PER-DIRECTORY — a tracked nested package.json
     // (`components/package.json`) carries its own imports/exports/browser
     // remaps that the root-manifest pins above never see, and resolvers honor
@@ -1307,6 +1334,19 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       nextConfigAliasOffenders('const c = { turbopack: { root: ".." } };').length,
     ).toBeGreaterThan(0);
+    // r20 — the JSON lane shares the SAME remap-key set as the code lane:
+    expect(jsonRemapOffenses({ modularizeImports: { x: {} } }, "cfg.json").length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      jsonRemapOffenses({ typescript: { tsconfigPath: "t.json" } }, "cfg.json").length,
+    ).toBeGreaterThan(0);
+    expect(jsonRemapOffenses({ nested: { resolveAlias: {} } }, "cfg.json").length).toBeGreaterThan(
+      0,
+    );
+    expect(jsonRemapOffenses({ remarkPlugins: [], pageExtensions: ["mdx"] }, "cfg.json")).toEqual(
+      [],
+    );
   });
 
   it(
