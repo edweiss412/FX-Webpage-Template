@@ -146,8 +146,10 @@ rejects an uncommitted diff, `.github/workflows/x-audits.yml:121-124`);
 `_metaWarningCardCopy` banned-vocabulary gate rejects parse-family words); warning-card
 registry (`WARNING_CARD_COPY_CODES` + `EXPECTED_TRIGGER_CONTEXT`) + §4.2 table row;
 `GAP_CLASSES` entry; all count pins from the sweep above; `_families.ts` `ORPHANED`
-prefix; count-prose refreshes per spec §3.3 R3 rows (warning-card-copy-restore.md 39/27/12
-claims → post-addition registry-derived totals; `dataGaps.ts:28` "49-code" → 55; the
+prefix; warning-card-copy-restore.md reconciliation per spec §3.3 R4 row (back-fill the two
+missing §4.2 rows — AGENDA_FILE_INACCESSIBLE, HOTEL_ADDRESS_SPLIT_AMBIGUOUS — from the
+live frozen copy; counts/lists → 42 total, 29 parser / 13 sync, "20-code" → 21; emitter
+inventory rows for all three codes; `dataGaps.ts:28` "49-code" → 55; the
 legacy "three DQ codes" comments at `dataGaps.ts:5`/`:111`/`:245` reworded;
 `dataGapsClassCompleteness.test.ts:17` "42-partition" refreshed).
 
