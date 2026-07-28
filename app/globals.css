@@ -224,6 +224,18 @@
   --duration-normal: 220ms;
   --duration-slow: 360ms;
 
+  /* Tailwind v4 resolves the `duration-<name>` utility from the
+     `--transition-duration-<name>` namespace, NOT `--duration-<name>`. These
+     aliases chain the utility namespace to the source tokens above so
+     `duration-fast` etc. emit real CSS, and the prefers-reduced-motion
+     override below (which zeroes `--duration-*`) propagates through the
+     var() chain to every `duration-<name>` utility.
+     (BL-DURATION-TOKENS-EMIT-NO-CSS; probe evidence in the 2026-07-27 spec.) */
+  --transition-duration-instant: var(--duration-instant);
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-normal: var(--duration-normal);
+  --transition-duration-slow: var(--duration-slow);
+
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
