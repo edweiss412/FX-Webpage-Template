@@ -55,7 +55,7 @@ tests/parser/dataGapsClassCompleteness.test.ts:205:    expect(DATA_GAP_CODES.siz
 tests/parser/dataGapsClassCompleteness.test.ts:209:    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(54); // Set dedups → proves pairwise-disjoint
 ```
 
-Per-hit disposition (all Task 4): `tests/parser/dataGaps.test.ts:44-45` → 35/35;
+Per-hit disposition (all in Task 3's atomic lockstep commit): `tests/parser/dataGaps.test.ts:44-45` → 35/35;
 `tests/parser/operatorActionableWarnings.test.ts:8` → add the code to the exact list and
 reword "twenty" → "twenty-one"; `tests/parser/dataGapsClassCompleteness.test.ts:205` → 35;
 `tests/parser/dataGapsClassCompleteness.test.ts:209` → 55. Derived (self-adjusting, comment
