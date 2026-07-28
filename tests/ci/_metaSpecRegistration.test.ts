@@ -244,6 +244,41 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  *    impossible by the axiom above; the enumerated families are the ones
  *    review produced.
  */
+const escRe = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * `runner [options...] [run|run-script] script` — option tokens BEFORE the
+ * script name are part of the grammar (R7 F3: `pnpm --silent test:e2e`
+ * forwards exactly like `pnpm test:e2e`; `npm run-script x` runs like
+ * `npm run x`). A value-taking option's value is not modeled — a coincidental
+ * name match there only ADDS loudness, never removes it (fail-closed).
+ */
+const runnerScriptRe = (names: string[], tail = "") =>
+  new RegExp(
+    `\\b(?:pnpm|npm|yarn|bun)\\s+(?:(?:-{1,2}[^\\s]+|run|run-script)\\s+)*(?:${names
+      .map(escRe)
+      .join("|")})(?:\\s|$)${tail}`,
+  );
+
+/**
+ * Fixpoint closure over package.json script bodies: a script whose body
+ * invokes another playwright-wrapping script (via any runner form the
+ * grammar above accepts) is itself playwright-wrapping (R7 F3 pulled this
+ * out of the tripwire body so the closure grammar is unit-testable).
+ */
+export function transitivePwScriptNames(scripts: Record<string, string>): string[] {
+  const names = Object.keys(scripts).filter((n) => /\bplaywright\s+test\b/.test(scripts[n] ?? ""));
+  for (;;) {
+    const re = runnerScriptRe(names);
+    const next = Object.keys(scripts).filter(
+      (n) => !names.includes(n) && re.test(scripts[n] ?? ""),
+    );
+    if (next.length === 0) break;
+    names.push(...next);
+  }
+  return names;
+}
+
 export function censusInvocations(
   texts: string[],
   pwScriptNames: string[],
@@ -286,14 +321,7 @@ export function censusInvocations(
   };
   const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
   const usedKeys = new Set<string>();
-  const fwd =
-    pwScriptNames.length > 0
-      ? new RegExp(
-          `\\b(?:pnpm|npm|yarn|bun)\\s+(?:run\\s+)?(?:${pwScriptNames
-            .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-            .join("|")})(?:\\s|$)([^\\n]*)`,
-        )
-      : null;
+  const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
   for (const raw of texts) {
     if (fuzzy.test(raw) && raw.includes("<<")) {
       problems.push(`heredoc in a text mentioning playwright: ${raw.slice(0, 120)}`);
@@ -678,6 +706,25 @@ describe("spec registration detector (spec §3.1)", () => {
     expect([...c("playwright test > out.log 2>&1").invoked]).toEqual(["playwright.config.ts"]);
   });
 
+  it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {
+    const names = transitivePwScriptNames({
+      base: "playwright test",
+      wrap: "pnpm --silent base",
+      wrap2: "npm run-script wrap",
+      unrelated: "eslint .",
+    });
+    expect([...names].sort()).toEqual(["base", "wrap", "wrap2"]);
+    for (const form of [
+      "pnpm --silent wrap --config ghost.ts",
+      "yarn --cwd . base --config=ghost.ts",
+      "npm run-script wrap2 -- --config ghost.ts",
+    ]) {
+      const r = censusInvocations([form], names);
+      expect(r.problems, form).not.toEqual([]);
+      expect(r.invoked.size, form).toBe(0);
+    }
+  });
+
   it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const scripts = pkg.scripts as Record<string, string>;
@@ -694,22 +741,10 @@ describe("spec registration detector (spec §3.1)", () => {
       }
     }
     // Transitive closure: a script whose body invokes another playwright-
-    // wrapping script (via any runner) is itself playwright-wrapping — the
-    // multi-hop forwarding route composes the same way the one-hop route does.
-    const esc = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pwScriptNames = Object.keys(scripts).filter((n) =>
-      /\bplaywright\s+test\b/.test(scripts[n] ?? ""),
-    );
-    for (;;) {
-      const re = new RegExp(
-        `\\b(?:pnpm|npm|yarn|bun)\\s+(?:run\\s+)?(?:${pwScriptNames.map(esc).join("|")})(?:\\s|$)`,
-      );
-      const next = Object.keys(scripts).filter(
-        (n) => !pwScriptNames.includes(n) && re.test(scripts[n] ?? ""),
-      );
-      if (next.length === 0) break;
-      pwScriptNames.push(...next);
-    }
+    // wrapping script (via any runner form, including runner global options)
+    // is itself playwright-wrapping — the multi-hop forwarding route
+    // composes the same way the one-hop route does.
+    const pwScriptNames = transitivePwScriptNames(scripts);
     const { invoked, problems } = censusInvocations(
       texts,
       pwScriptNames,
