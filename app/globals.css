@@ -224,6 +224,18 @@
   --duration-normal: 220ms;
   --duration-slow: 360ms;
 
+  /* Tailwind v4 resolves the `duration-<name>` utility from the
+     `--transition-duration-<name>` namespace, NOT `--duration-<name>`. These
+     aliases chain the utility namespace to the source tokens above so
+     `duration-fast` etc. emit real CSS, and the prefers-reduced-motion
+     override below (which zeroes `--duration-*`) propagates through the
+     var() chain to every `duration-<name>` utility.
+     (BL-DURATION-TOKENS-EMIT-NO-CSS; probe evidence in the 2026-07-27 spec.) */
+  --transition-duration-instant: var(--duration-instant);
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-normal: var(--duration-normal);
+  --transition-duration-slow: var(--duration-slow);
+
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -712,12 +724,11 @@ body {
 }
 
 /* Agenda day disclosure (components/crew/AgendaScheduleBlock): the chevron rotates as the
-   row opens. HAND-WRITTEN rather than a Tailwind `duration-fast` class, and that is the whole
-   point of this block: Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`,
-   which this project never defines -- it defines `--duration-*`. A `duration-fast` class therefore
-   emits NO duration and is invisible to the reduced-motion block below, which only rewrites
-   `--duration-*`. Consuming the variable directly is what makes reduced motion free here, the same
-   way the admin-alert panel above does it. */
+   row opens. HAND-WRITTEN CSS from before the `--transition-duration-*` aliases existed in the
+   @theme block above (a Tailwind `duration-fast` class emitted nothing back then). A class would
+   work today, but the rule stays hand-written: it keeps the transition co-located with its
+   `details[open]` sibling selector below, and consuming var(--duration-fast) directly keeps
+   reduced motion free the same way the admin-alert panel above does it. */
 [data-agenda-day-chevron] {
   transition: transform var(--duration-fast) ease-out;
 }

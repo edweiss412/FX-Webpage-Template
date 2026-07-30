@@ -1351,6 +1351,21 @@ export const MESSAGE_CATALOG = {
       "We derive each venue's time zone from its location so the crew page shows the right local times. We couldn't this time, so the page falls back to Eastern Time, usually a temporary gap that clears on the next sync once the location resolves. If it persists, check the venue address in the sheet.",
     helpHref: "/help/errors#VENUE_TIMEZONE_UNRESOLVED",
   },
+  ORPHANED_CREW_ROWS: {
+    code: "ORPHANED_CREW_ROWS",
+    dougFacing:
+      "Some crew rows in _<sheet-name>_ look separated from the CREW section header, so they were not read as crew. A blank row may have been inserted in the middle of the section; check the crew block in your sheet.",
+    crewFacing: null,
+    followUp: "Doug → remove the stray blank row in the crew section",
+    helpfulContext:
+      "Rows that look like crew assignments are not attached to a crew section header, so they were not read as crew. A blank row may have been added in the middle of the crew section. Check the crew section in the sheet and remove the stray blank row.",
+    triggerContext:
+      "Appears when rows carrying crew role text (like 'Load In / Set / Strike / Load Out') sit in a block with no section header above them.",
+    title: "Some crew rows came loose from their section",
+    longExplanation:
+      "A blank row inside the crew section splits the roster into two pieces, and the piece below the blank row loses its connection to the CREW header. Those rows were not read as crew, so the crew members on them may be missing from their pages. Remove the blank row in the sheet and the roster will read as one section again.",
+    helpHref: "/help/errors#ORPHANED_CREW_ROWS",
+  },
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     dougFacing:

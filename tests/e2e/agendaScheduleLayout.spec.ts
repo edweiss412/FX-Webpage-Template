@@ -354,10 +354,11 @@ for (const vw of VIEWPORTS) {
 // ── T4: the chevron's rotation actually animates.
 //
 // Its own test rather than a rider on a dimension assertion, because a class that compiles to
-// NOTHING looks identical to a deliberately-instant transition. That is not hypothetical here:
-// a Tailwind `duration-fast` class emits no duration at all in this repo, since Tailwind v4
-// resolves `duration-<name>` from `--transition-duration-<name>` and this project defines only
-// `--duration-*`. The rule therefore has to be hand-written CSS consuming `var(--duration-fast)`.
+// NOTHING looks identical to a deliberately-instant transition. That was not hypothetical when
+// this landed: a Tailwind `duration-fast` class emitted no duration here until the @theme
+// `--transition-duration-*` aliases (fix/duration-tokens-emit-no-css, 2026-07-27) wired the
+// namespace Tailwind v4 actually resolves. The chevron rule predates the aliases and stays
+// hand-written CSS consuming `var(--duration-fast)`; this test pins its behavior either way.
 test("chevron: rotation has a real transition-duration (§5.2)", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(baseUrl);

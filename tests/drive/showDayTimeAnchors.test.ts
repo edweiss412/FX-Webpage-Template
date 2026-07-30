@@ -493,3 +493,29 @@ describe("attachSourceCellAnchors — UNKNOWN_FIELD per-row anchor", () => {
     expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A55:B74" });
   });
 });
+
+// Spec 2026-07-27-export-blank-row-segmentation §6 T10 — ORPHANED_CREW_ROWS anchor
+// dispatch. Failure mode: the code silently falling through the dispatch chain
+// (no arm) would leave the card link-less even when a crew region anchor exists.
+describe("attachSourceCellAnchors — ORPHANED_CREW_ROWS crew-region fallback", () => {
+  const orphanWarning = (): ParseWarning => ({
+    severity: "warn",
+    code: "ORPHANED_CREW_ROWS",
+    message: "o",
+    blockRef: { kind: "crew" },
+    rawSnippet: "Doug Larson",
+  });
+
+  it("resolves the crew REGION anchor when the region source exists", () => {
+    const region = { crew: { title: "INFO", gid: 0, a1: "A10:D20" } };
+    const warnings: ParseWarning[] = [orphanWarning()];
+    attachSourceCellAnchors(warnings, { showDay: [], crewRole: [], region });
+    expect(warnings[0]!.sourceCell).toEqual(region.crew);
+  });
+
+  it("stays link-less (no sourceCell) when no crew region source exists", () => {
+    const warnings: ParseWarning[] = [orphanWarning()];
+    attachSourceCellAnchors(warnings, { showDay: [], crewRole: [], region: {} });
+    expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+});

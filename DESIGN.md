@@ -266,6 +266,8 @@ Every motion token must be wrapped in a media-query reduction. The pattern is:
 
 This is implemented in `app/globals.css` `:root` block. Components do NOT need to opt in — they get reduction for free as long as they consume the duration tokens (not hardcoded ms values). Spec §8.2 motion contracts (crossfade body, morph-to-last-good for sync errors) all consume `--duration-normal` / `--duration-slow`.
 
+Tailwind `duration-<name>` utility classes (`duration-fast`, `duration-normal`, …) are equally covered: the `@theme` block chains `--transition-duration-<name>: var(--duration-<name>)` aliases (Tailwind v4 resolves the utility from the `--transition-duration-*` namespace), so a class site and a direct `var(--duration-*)` site get identical values and identical reduced-motion collapse. Guarded by `tests/design/durationTokenEmission.test.ts` (compile emission + chain) and the crew sub-nav computed-value e2e assertion. Elements with a bare `transition-*` utility and NO named duration class fall back to Tailwind's 150ms default and sit outside this collapse (tracked: `BL-BARE-TRANSITION-NO-DURATION-CLASS`).
+
 ### 5.4 Layout-property ban
 
 Don't animate `width`, `height`, `padding`, `margin`, `top`, `left`, etc. — they trigger layout. Use `transform`, `opacity`, and `filter`. The Right Now card crossfade is `opacity` + a 4px `translateY`; the "see more" disclosure is `max-height` (the documented exception, since explicit `max-height` doesn't trigger reflow on siblings).

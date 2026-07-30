@@ -277,3 +277,105 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 });
+
+// Spec 2026-07-27-export-blank-row-segmentation §6 T3 — header-aware splitBlocks.
+// Failure modes pinned: a stray spacer-row value fusing two sections into one
+// table (the audit-#10 fuse), and a regression that splits on excluded/mixed-case
+// labels or breaks the blank-row path.
+describe("splitBlocks header-aware segmentation (spec §2.2)", () => {
+  const fusedRows = [
+    ["DATES", "5/13/24 - 5/15/24"],
+    ["", "stray note"], // spacer row carrying one stray value — previously fused A+B
+    ["HOTEL", "NAME", "CONF"],
+    ["Four Seasons", "Doug Larson", "ABC123"],
+  ];
+
+  test("a stray spacer-row value no longer fuses the next uppercase-known section", () => {
+    const { markdown } = synthesizeMarkdownFromXlsx(
+      workbookBuffer([{ name: "INFO", rows: fusedRows }]),
+    );
+    const tables = markdown.split("\n\n");
+    expect(tables).toHaveLength(2);
+    expect(tables[1]!.split("\n")[0]).toBe("| HOTEL | NAME | CONF |");
+    // the stray row stays in section A's table
+    expect(tables[0]).toContain("| stray note |");
+  });
+
+  test("a true blank spacer still splits (blank-row path unchanged)", () => {
+    const { markdown } = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["DATES", "5/13/24 - 5/15/24"],
+            ["", ""],
+            ["HOTEL", "NAME", "CONF"],
+            ["Four Seasons", "Doug Larson", "ABC123"],
+          ],
+        },
+      ]),
+    );
+    expect(markdown.split("\n\n")).toHaveLength(2);
+  });
+
+  test("CLIENT is excluded from mid-block splitting (corpus-verified label)", () => {
+    const { markdown } = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["DATES", "5/13/24 - 5/15/24"],
+            ["", "#NUM!"],
+            ["CLIENT", "Institutional Investor"],
+          ],
+        },
+      ]),
+    );
+    expect(markdown.split("\n\n")).toHaveLength(1);
+  });
+
+  test("OLD-tab fused HOTEL block is excluded from the pull-sheet region and its fingerprint (spec §1.1 OLD-tab semantic)", async () => {
+    const { createHash } = await import("node:crypto");
+    const { archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "OLD PULL SHEET",
+          rows: [
+            ["PULL SHEET", "PULL SHEET"],
+            ["East Coast Symposium", ""],
+            ["QTY", "ITEM"],
+            ["2", "DLP DATA PROJECTOR"],
+            ["", "stray"], // stray spacer fuses the HOTEL block into the region pre-fix
+            ["HOTEL", "NAME"],
+            ["Four Seasons", "Doug Larson"],
+          ],
+        },
+      ]),
+    );
+    expect(archivedPullSheetTabs).toHaveLength(1);
+    const tab = archivedPullSheetTabs[0]!;
+    // Re-derive the expected fingerprint from the tab's own region markdown shape:
+    // synthesize the SAME grid without the fused HOTEL rows; the fingerprints must
+    // match, proving the HOTEL rows are not hashed into the region.
+    const { archivedPullSheetTabs: cleanTabs } = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "OLD PULL SHEET",
+          rows: [
+            ["PULL SHEET", "PULL SHEET"],
+            ["East Coast Symposium", ""],
+            ["QTY", "ITEM"],
+            ["2", "DLP DATA PROJECTOR"],
+            ["", "stray"],
+          ],
+        },
+      ]),
+    );
+    expect(cleanTabs).toHaveLength(1);
+    expect(tab.fingerprint).toBe(cleanTabs[0]!.fingerprint);
+    // and the fingerprint is a real sha256 hex (sanity, not tautology: the equality
+    // above is between two INDEPENDENT syntheses)
+    expect(tab.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    void createHash;
+  });
+});

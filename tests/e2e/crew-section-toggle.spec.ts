@@ -26,6 +26,9 @@
  * single writer). desktop-chromium early-returns from every test so it never
  * re-runs the same seed reads at the wrong widths.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -427,5 +430,31 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
         `first-contentful-paint should be under the 8s sanity ceiling; got ${fcpMs}ms (see CREW_PERF log)`,
       ).toBeLessThan(8000);
     }
+  });
+
+  // ── Test 6 — duration tokens reach Tailwind utilities (BL-DURATION-TOKENS-EMIT-NO-CSS) ──
+  // The sub-nav tab carries literal `transition-colors duration-fast` classes
+  // (CrewSubNav.tsx). Pre-fix, `duration-fast` compiled to NOTHING and the
+  // computed duration was Tailwind's 0.15s default; reduced-motion never
+  // reached it. Expected value is DERIVED from the token in globals.css, not
+  // hardcoded — a token edit moves the expectation with it.
+  test("sub-nav tab duration comes from --duration-fast and zeroes under reduced motion", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const tokenCss = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
+    const m = tokenCss.match(/--duration-fast:\s*(\d+)ms/);
+    if (!m?.[1]) throw new Error("app/globals.css must declare --duration-fast in ms");
+    const expected = `${Number(m[1]) / 1000}s`;
+
+    await gotoSection(page, "today");
+    const tab = page.getByTestId("crew-sub-nav").locator('[data-section="venue"]:visible');
+    await expect(tab).toBeVisible();
+    expect(await tab.evaluate((el) => getComputedStyle(el).transitionDuration)).toBe(expected);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await gotoSection(page, "today");
+    await expect(tab).toBeVisible();
+    expect(await tab.evaluate((el) => getComputedStyle(el).transitionDuration)).toBe("0s");
   });
 });

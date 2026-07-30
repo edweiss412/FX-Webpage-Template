@@ -202,6 +202,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-hotel-address-split-ambiguous",
   "warn-hotel-cardinality-exceeded",
   "warn-hotel-guest-split-ambiguous",
+  "warn-orphaned-crew-rows",
   "warn-pull-sheet-ambiguous-format",
   "warn-pull-sheet-on-archived-tab",
   "warn-pull-sheet-override-content-changed",

@@ -752,6 +752,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → open the parent folder and copy that folder link",
     "helpfulContext": "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
   },
+  "ORPHANED_CREW_ROWS": {
+    "crewFacing": null,
+    "dougFacing": "Some crew rows in _<sheet-name>_ look separated from the CREW section header, so they were not read as crew. A blank row may have been inserted in the middle of the section; check the crew block in your sheet.",
+    "followUp": "Doug → remove the stray blank row in the crew section",
+    "helpfulContext": "Rows that look like crew assignments are not attached to a crew section header, so they were not read as crew. A blank row may have been added in the middle of the crew section. Check the crew section in the sheet and remove the stray blank row.",
+  },
   "PAGE_RENDER_FAILED": {
     "crewFacing": "This page ran into a problem. Try reloading. If it keeps happening, text Doug.",
     "dougFacing": null,
