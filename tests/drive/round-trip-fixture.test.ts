@@ -75,8 +75,8 @@ describe("production exporter fixtures: xlsx → markdown round trip (frozen sna
     expect(parseSheet(synthesized, `${show}.md`)).toEqual(
       parseSheet(committedMarkdown, `${show}.md`),
     );
-    expect(archivedPullSheetTabs.map((t) => ({ tabName: t.tabName, fingerprint: t.fingerprint }))).toEqual(
-      EXPECTED_ARCHIVED_TABS[show],
-    );
+    expect(
+      archivedPullSheetTabs.map((t) => ({ tabName: t.tabName, fingerprint: t.fingerprint })),
+    ).toEqual(EXPECTED_ARCHIVED_TABS[show]);
   });
 });

@@ -86,9 +86,11 @@ describe("ORPHANED_CREW_ROWS split-recall ratchet (T9, frozen universe)", () => 
             [dataRows[0]!, lines.find(isDelim) ?? "", ...dataRows.slice(1, i)].join("\n"),
             dataRows.slice(i).join("\n"),
           ].join("\n\n");
-          const mutated = [...blocks.slice(0, blockIndex), splitBlock, ...blocks.slice(blockIndex + 1)].join(
-            "\n\n",
-          );
+          const mutated = [
+            ...blocks.slice(0, blockIndex),
+            splitBlock,
+            ...blocks.slice(blockIndex + 1),
+          ].join("\n\n");
           expect(
             orphanCount(mutated, `${slug}--split${i}.md`),
             `${slug} crew block, split before row ${i}`,

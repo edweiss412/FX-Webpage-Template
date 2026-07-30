@@ -17,7 +17,10 @@ const table = (rows: string[]): string => {
 const orphanWarnings = (md: string) =>
   parseSheet(md, "orphan-test.md").warnings.filter((w) => w.code === "ORPHANED_CREW_ROWS");
 
-const CREW_HEADER = table(["| CREW | NAME | ROLE | PHONE | EMAIL |", "|  | Doug Larson | - Load In / Set / Strike / Load Out - LEAD |  |  |"]);
+const CREW_HEADER = table([
+  "| CREW | NAME | ROLE | PHONE | EMAIL |",
+  "|  | Doug Larson | - Load In / Set / Strike / Load Out - LEAD |  |  |",
+]);
 
 describe("ORPHANED_CREW_ROWS positives (spec §6 T4)", () => {
   it("east-coast shape: role text embedded in the name cell, phone column", () => {
@@ -69,7 +72,9 @@ describe("ORPHANED_CREW_ROWS positives (spec §6 T4)", () => {
   });
 
   it("de-dup: the same orphan tail twice emits once", () => {
-    const tail = table(["|  | Doug Larson | - Load In / Set / Strike / Load Out - LEAD |  |  | TRUE |"]);
+    const tail = table([
+      "|  | Doug Larson | - Load In / Set / Strike / Load Out - LEAD |  |  | TRUE |",
+    ]);
     const md = [CREW_HEADER, tail, tail].join("\n\n");
     expect(orphanWarnings(md)).toHaveLength(1);
   });
@@ -150,10 +155,9 @@ describe("ORPHANED_CREW_ROWS newline edge cases (whole-diff r1 F3)", () => {
   });
 
   it("bare-CR separated role tokens stay on separate lines: single-token lines are NOT a role cell", () => {
-    const md = [
-      CREW_HEADER,
-      table(["| Jane Doe | - Load In -\r- Set - | 555-000-1111 |"]),
-    ].join("\n\n");
+    const md = [CREW_HEADER, table(["| Jane Doe | - Load In -\r- Set - | 555-000-1111 |"])].join(
+      "\n\n",
+    );
     expect(orphanWarnings(md)).toHaveLength(0);
   });
 });
