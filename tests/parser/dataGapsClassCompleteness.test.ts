@@ -14,7 +14,7 @@
  *   Layer 2 (drift alarm): collect EVERY code-shaped string literal across
  *     lib/parser + lib/sync, intersect the canonical MESSAGE_CATALOG (drops
  *     non-code noise, keeps only real system codes wherever/however threaded),
- *     and assert each survivor is classified — in the 42-partition OR the
+ *     and assert each survivor is classified — in the data-gap partition OR the
  *     NON_GAP_CATALOG_CODES ignore-list. A new persisted gap code that
  *     nobody classified fails here; naming another literal is the guard WORKING.
  *
@@ -33,7 +33,7 @@ import { familyFor } from "@/app/help/errors/_families";
 
 // ── Layer 1: the editorial partition (every PERSISTED ParseWarning code) ──────
 
-/** 34 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 35 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
@@ -65,7 +65,7 @@ const ASSET_WARN_CODES = new Set<string>([
   "OPENING_REEL_NOT_VIDEO",
 ]);
 
-/** The full persisted-ParseWarning universe (51) — every code lands in exactly one bucket. */
+/** The full persisted-ParseWarning universe (55) — every code lands in exactly one bucket. */
 const ALL_PERSISTED_WARNING_CODES = new Set<string>([
   ...DATA_GAP_CODES,
   ...BENIGN_WARN_CODES,
@@ -201,12 +201,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 54 (34/7/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(34);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 55 (35/7/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(35);
     expect(BENIGN_WARN_CODES.size).toBe(7);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(54); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(55); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [

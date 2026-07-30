@@ -117,6 +117,34 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
 }
 
 /**
+ * Orphaned-crew-rows warning (2026-07-27-export-blank-row-segmentation §3.2) — a
+ * table block whose first row carries a crew-role cell but no section header: a
+ * blank row was likely inserted mid-CREW-section, severing the tail rows from
+ * their header (audit #10 split case). `severity:"warn"` is mandatory (operator
+ * StagedReviewCard filter); `blockRef.kind:"crew"` routes the crew region anchor.
+ * The 60-char truncation is shared between the message interpolation and
+ * rawSnippet (spec §3.2). No-ops when `agg` is undefined.
+ */
+export const ORPHANED_CREW_ROWS = "ORPHANED_CREW_ROWS";
+
+const ORPHAN_SNIPPET_MAX = 60;
+
+export function emitOrphanedCrewRows(
+  agg: ParseAggregator | undefined,
+  firstCellText: string,
+): void {
+  if (!agg) return;
+  const snippet = firstCellText.slice(0, ORPHAN_SNIPPET_MAX);
+  agg.warnings.push({
+    severity: "warn",
+    code: "ORPHANED_CREW_ROWS",
+    message: `Crew rows starting at "${snippet}" aren't attached to a section header; a blank row may have split the crew section. Those rows were not parsed as crew. Check the sheet.`,
+    blockRef: { kind: "crew" },
+    rawSnippet: snippet,
+  });
+}
+
+/**
  * Emit an UNKNOWN_FIELD operator-review warning + a structured raw_unrecognized
  * entry for a row whose label resolved to no known field inside a block scope.
  * `block` names the source (diagnostic message + raw_unrecognized.block); `kind`

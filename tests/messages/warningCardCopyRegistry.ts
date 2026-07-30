@@ -43,6 +43,7 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "TRAVEL_TRANSPORT_NAME_UNMATCHED",
   "VENUE_GEOCODE_UNRESOLVED",
   "VENUE_TIMEZONE_UNRESOLVED",
+  "ORPHANED_CREW_ROWS",
 ]);
 
 export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
@@ -110,6 +111,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
     "Appears when a transport name matches zero or several crew names.",
   VENUE_GEOCODE_UNRESOLVED: "Appears when the venue address doesn't resolve to a city.",
   VENUE_TIMEZONE_UNRESOLVED: "Appears when the venue's location doesn't resolve to a time zone.",
+  ORPHANED_CREW_ROWS:
+    "Appears when rows carrying crew role text (like 'Load In / Set / Strike / Load Out') sit in a block with no section header above them.",
 };
 
 export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
