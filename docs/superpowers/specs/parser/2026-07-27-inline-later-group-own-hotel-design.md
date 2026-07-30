@@ -234,7 +234,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | e | `lib/parser/ambiguityCodes.ts:19` | add both, comment cites this spec |
 | f | `tests/parser/ambiguityCodes.test.ts:17` sorted list + the test NAME at line 16 ("has exactly the five ratified members" — five → **seven**, R14 f4) | extend sorted list; rename test |
 | g | `lib/parser/dataGaps.ts` `GAP_CLASSES` (sibling rows `lib/parser/dataGaps.ts:76-84`) PLUS the doc comment at `lib/parser/dataGaps.ts:29`, which reads "55-code persisted-ParseWarning partition" on the merged tree (post-merge refresh: main's ORPHANED_CREW_ROWS moved every count +1 and fixed the old staleness) | 2 new rows, each with `label` AND `plural` (C-OWN-9/9p, C-SUS-9/9p, §7) — clause-shaped labels cannot take the default bare `s` (`lib/parser/dataGaps.ts:72`, Codex R4 finding 2); rewrite the `lib/parser/dataGaps.ts:29` comment to "57-code" in the same commit |
-| h | `tests/messages/warningCardCopyRegistry.ts:16` code list + `tests/messages/warningCardCopyRegistry.ts:66` triggerContext map | 2 rows each |
+| h | `tests/messages/warningCardCopyRegistry.ts:4` `WARNING_CARD_COPY_CODES` set + `tests/messages/warningCardCopyRegistry.ts:49` `EXPECTED_TRIGGER_CONTEXT` map (anchors re-verified on the merged tree 2026-07-30) | 2 rows each |
 | i | `app/help/errors/_families.ts:66` `HOTEL` prefix family | **N/A — file untouched (Codex R3 finding 3).** The family matches by the `HOTEL` prefix, which both new codes carry; coverage is verified by the existing families test, and its illustrative comment is not edited, so no `app/` file changes and no invariant-8 gate is triggered |
 | j | `lib/parser/warnings.ts` | 2 new emitters + exported code constants (siblings `lib/parser/warnings.ts:239`, `lib/parser/warnings.ts:389`). Each emitter's warning object MUST carry the code as a LITERAL `code: "HOTEL_INLINE_GROUP_OWN_HOTEL"` / `code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED"` property — the established file convention (documented at `lib/parser/warnings.ts:30` region): `scripts/extract-internal-code-enums.ts:70-73` recognizes parser-warning codes ONLY from literal `code: "..."` properties, so a constant-only emitter regenerates row p WITHOUT the codes and `serializeParseWarning` then blanks them to `code: ""` at the telemetry boundary (`lib/observe/query/serializeWarning.ts:26-42`; R18 finding 4) |
 | k | `lib/parser/blocks/hotels.ts:1182` `TRANSFORM_SITES` | 2 rows (§6.2) |
@@ -246,7 +246,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | q | `tests/messages/_metaWarningCardCopy.test.ts`, `_metaCatalogCopyHygiene`, `_metaErrorCatalogDocs`, `_metaPopoverContextCoverage` | fail-by-default walkers; satisfied by rows c/h copy |
 | r | `lib/admin/step3Buckets.ts:129` `FIELD_LABELS` | **N/A** — both codes use `field: "address"`, whose label `hotel name and address` already exists (parent spec C22). NOT `"name"`, which labels as `room name` (Codex R5 finding 1) |
 | s | `lib/sync/useRawOverlay.ts`, `components/admin/UseRawControl.tsx`, `lib/parser/types.ts` | **N/A — deliberately untouched** (S2) |
-| t | `tests/messages/warningCardCopyRegistry.ts:124` `EXPECTED_CORPUS_WARN_CODES` | **N/A** — neither code fires on either fixture family (§9) |
+| t | `tests/messages/warningCardCopyRegistry.ts:127` `EXPECTED_CORPUS_WARN_CODES` | **N/A** — neither code fires on either fixture family (§9) |
 | u | parent spec §3.1 row 7 | one-line amendment pointer (§5) |
 
 ---
