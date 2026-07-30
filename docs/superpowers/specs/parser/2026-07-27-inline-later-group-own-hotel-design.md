@@ -248,6 +248,7 @@ Both join `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-25`) — each repo
 | s | `lib/sync/useRawOverlay.ts`, `components/admin/UseRawControl.tsx`, `lib/parser/types.ts` | **N/A — deliberately untouched** (S2) |
 | t | `tests/messages/warningCardCopyRegistry.ts:127` `EXPECTED_CORPUS_WARN_CODES` | **N/A** — neither code fires on either fixture family (§9) |
 | u | parent spec §3.1 row 7 | one-line amendment pointer (§5) |
+| v | `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` — the CANONICAL warning-card copy registry (R28 finding 1; the AGENTS.md §12.4-lockstep bullet requires §4.2-style copy for every new warn code, and `ORPHANED_CREW_ROWS` set the precedent: its spec updated this doc to 42) | same commit as row h: §3.1 registry count 42 → **44** and both codes inserted into its sorted enumeration; §4.2 canonical table gains rows 43/44 — `helpfulContext` column byte-identical to C-OWN-5 / C-SUS-5 and `triggerContext` column byte-identical to C-OWN-4 / C-SUS-4 (the frozen-fixture test asserts §4.2 ↔ catalog byte parity); §4.3 emitter inventory gains both codes (`lib/parser/warnings.ts`, this spec); the parser-emitter enumeration (its line-60 region) 29 → **31** with both names; T5 additionally grep-sweeps that document for EVERY count-bearing literal touched by the +2 (the R28 review enumerated its lines 44/53/60/64/103-104/114-165/171/207) and updates each — a partial bump leaves the canonical doc self-contradicting |
 
 ---
 
@@ -415,7 +416,7 @@ Both fixture families re-probed at plan time before implementation. Expected: **
 - Tiers = **3**; tier-2 word threshold = **4** base words; tier-1 postal terminator = postal PROVENANCE (last consumed component is the D4 ZIP-arm match, tail arm 2, or tail arm 3 — S8/R22; the shape regex `/(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)$/u` alone is insufficient); D3 delimiter classes = **3** (dash-run with ZIP+4 exclusion and NO street exemption, R27 / hash-only / bare six-plus — stripper-aligned, R23-R27); tier-1 partition conditions = **5** (S9: at most **1** `Check In` match / D4+terminator / residual guards / D6 success / negative post-prefix scan); residual-tail guard arms = **3** (a/b/c); D4b tail arms = **3**; tier-2 entry arms = **4**, matching the D5 table's OR-clauses (no-terminator-or-guard-or-D6 / word-count / post-prefix evidence — the R5 post-guest arm and the R12 demotion of an otherwise-qualifying segment are ONE scan / degraded demotion, R11)
 - `DATA_GAP_CODES` 35 → **37**; `ALL_PERSISTED_WARNING_CODES` 55 → **57** (post-merge base: main's `ORPHANED_CREW_ROWS` moved both +1)
 - Normative copy rows = **22** (§7, 11 per code including the `GAP_CLASSES` plural; **20** are non-null strings and **2** are explicit `null` `crewFacing` rows, R11 finding 5)
-- Fan-out surfaces = **21** rows (§6.3 a–u; **4** are explicit N/A: i, r, s, t — R11 finding 5)
+- Fan-out surfaces = **22** rows (§6.3 a–v; **4** are explicit N/A: i, r, s, t — R11 finding 5; row v added R28)
 - Corpus deltas = **0** (§9)
 - Files under `app/`+`components/` changed = **0** (S2; fan-out i is N/A — the family file is untouched, comment included)
 - `resolution` payloads added = **0**; `types.ts` changes = **0**
