@@ -17,7 +17,7 @@
 - No UI surface: zero files under `app/` or `components/` change (impeccable gate N/A). No DB, no advisory locks, no Supabase calls (invariants 2/9 N/A — declared, see meta-test inventory).
 - Emitters use LITERAL code strings (`lib/parser/warnings.ts:29-30` convention; extractor `scripts/extract-internal-code-enums.ts:70-73`).
 - Persisted `rawSnippet`/`rawCells` stay RAW (post-`clean()` cell text; D1 normalization is scan/detector-internal only). `clean()` at `lib/parser/blocks/hotels.ts:691`/line 704 strips zero-width + backslashes BEFORE `buildInlineReservations` — no rawSnippet can retain zero-width bytes (spec R49).
-- Copy caps: `helpfulContext` ≤ 300 (C-OWN-5 is 294), `triggerContext` ≤ 160 (`tests/messages/_metaWarningCardCopy.test.ts:53-56`); no em-dashes, straight apostrophes.
+- Copy caps: `helpfulContext` ≤ 300 (C-OWN-5 is 294), `triggerContext` ≤ 160 (helpfulContext cap at `tests/messages/_metaWarningCardCopy.test.ts:53-56`; triggerContext cap in the lines-58-61 region — cite completed plan R9 f2); no em-dashes, straight apostrophes.
 - Counts after this feature: DATA_GAP_CODES 35→37, ALL_PERSISTED 55→57, card-copy registry 42→44, walker required-list five→eight, AMBIGUITY_CODES five→seven.
 - `pnpm spec:lint <doc>` must report 0 hard before any spec/plan doc commit.
 
