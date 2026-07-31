@@ -116,22 +116,37 @@ const WRAP = "(?:[*_`]|✅|\\s)*";
 // `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
 // and digits are what would make it a different word.
 const AFTER = "(?![A-Za-z0-9])";
+// r22: markdown CONTAINER prefixes — bullets (`-`/`*`/`+`), ordered items
+// (`1.`/`1)`), blockquotes (`>`), nested or mixed — are still the entry's own
+// line, and every ^-anchored lane was blind behind them (`- **Status:**
+// CLOSED` hid from the status lane, `> **CLOSED**` from the opening lane).
+// One fragment feeds every line-anchored matcher AND the field-line filters
+// below, so the next lane cannot forget it. Bullets require the space that
+// makes them a list in markdown; a blockquote marker does not.
+const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,3}[.)])\\s+)*";
 // Both bold conventions carry the colon differently — `**Status:** X` and
 // `**Status**: X` are the same field label (r16), so the colon is accepted on
 // either side of the closing emphasis.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
+// The field-line FILTERS share the container fragment (r22) — a matcher that
+// sees through a bullet is dead code if the filter never hands it the line.
+const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Status`, "i");
+const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Filed`, "i");
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
-const OPENING_TERMINAL_BOLD = new RegExp(`^\\s*\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
-const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${WRAP}(${TERMINAL_WORDS})${AFTER}`);
+const OPENING_TERMINAL_BOLD = new RegExp(
+  `^\\s*${CONTAINER}\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  "i",
+);
+const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${CONTAINER}${WRAP}(${TERMINAL_WORDS})${AFTER}`);
 
 /**
  * A terminal claim counts only when the CAPTURED word is not directly
@@ -454,8 +469,8 @@ describe("backlog ledger graduation", () => {
       if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
       // ALL status/filed lines, not the first (r17 — an appended second
       // `Status: SHIPPED` after a stale `Status: OPEN` was never inspected).
-      const statusLines = lines.filter((l) => /^\s*(?:\*\*)?Status/i.test(l));
-      const filedLines = lines.filter((l) => /^\s*(?:\*\*)?Filed/i.test(l));
+      const statusLines = lines.filter((l) => STATUS_FIELD_LINE.test(l));
+      const filedLines = lines.filter((l) => FILED_FIELD_LINE.test(l));
       const statusHit = statusLines.some((l) => terminalHit(l, STATUS_TERMINAL));
       const filedHit = filedLines.some(
         (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l),
@@ -541,6 +556,21 @@ describe("backlog ledger graduation", () => {
     expect(terminalHit("### BL-X — PARTIALLY CLOSED — RESOLVED (PR #9)", HEADING_TERMINAL)).toBe(
       true,
     );
+    // r22 — markdown CONTAINER prefixes (bullets, ordered items, blockquotes,
+    // nested/mixed) are still the entry's own line; every ^-anchored lane must
+    // see through them, or `- **Status:** CLOSED` sits green in the open queue:
+    expect(terminalHit("- **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("> Status: RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("1. **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    expect(terminalHit("> > **CLOSED** by the merge.", OPENING_TERMINAL_BOLD)).toBe(true);
+    expect(terminalHit("- RESOLVED by PR #631.", OPENING_TERMINAL_BARE)).toBe(true);
+    // …the field-line FILTERS see through the same prefixes (a matcher that
+    // sees through a bullet is dead code if the filter never hands it the
+    // line)…
+    expect(STATUS_FIELD_LINE.test("- **Status:** CLOSED")).toBe(true);
+    expect(FILED_FIELD_LINE.test("> **Filed:** 2026-07-01")).toBe(true);
+    // …and the PARTIAL veto still holds behind a prefix:
+    expect(terminalHit("- **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {

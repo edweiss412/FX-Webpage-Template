@@ -642,6 +642,17 @@ const REMAP_SPELLINGS = new Set([
   "externalDir",
   "modularizeImports",
   "root",
+  // r22: keys that redirect which FILE a specifier lands on by EXTENSION.
+  // `turbopack.resolveExtensions` REPLACES the candidate-extension list, and
+  // Next's schema accepts arbitrary strings — an entry like "IconLink.tsx"
+  // makes an innocent-looking specifier (`…/Sheet`) land on the component
+  // file while both the suffix and identifier checks stay green.
+  // `extensions` is the webpack twin (`resolve.extensions`) behind the
+  // already-denied `webpack` hook key, listed for the same defense-in-depth
+  // the r16 sub-keys carry. Neither token appears in the real config or its
+  // reachable JSON; a legitimate future use teaches this guard first.
+  "resolveExtensions",
+  "extensions",
 ]);
 
 function nextConfigAliasOffenders(src: string): string[] {
@@ -1234,6 +1245,19 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       encoding: "utf8",
     }).trim();
     expect(pnpmfiles, "no tracked pnpmfile hooks").toBe("");
+    // r22: the pnpmfile pin above matches FILENAMES, but pnpm accepts
+    // arbitrary hook paths via .npmrc (`pnpmfile=hooks.cjs`,
+    // `global-pnpmfile=…`) — a tracked .npmrc would re-open install-time
+    // resolution rewriting under any hook name the glob never sees. No other
+    // tracked surface can point at a hook: the workspace-yaml top-level keys
+    // are pinned above, manifest `pnpm` is pinned absent, and env/CLI are not
+    // tracked state. Zero tracked npmrc files today; a future legitimate one
+    // teaches this guard (and its key denylist) first.
+    const npmrcs = execFileSync("git", ["ls-files", "--", "*npmrc*"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect(npmrcs, "no tracked npmrc (pnpm hook-path redirect surface)").toBe("");
     // r17: package scope is PER-DIRECTORY — a tracked nested package.json
     // (`components/package.json`) carries its own imports/exports/browser
     // remaps that the root-manifest pins above never see, and resolvers honor
