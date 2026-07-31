@@ -972,18 +972,47 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // r33: the identifier/phrase lanes bind the COMPONENT; the destination
       // binds the CLASS. A hand-rolled icon-only anchor that mentions neither
       // the identifier nor the canonical phrase still needs a sheet URL, and
-      // there are exactly two static ways to get one: the raw host-path
-      // literal (count-pinned per file below, escape spellings flagged via
-      // the cooked-literal scan) or `buildSheetDeepLink` (fragment-censused
-      // across shipped trees below — renamed imports, namespace access, and
-      // string-literal re-exports all still spell the fragment; computed and
-      // runtime forms stay in the ratified out-of-scope class). A new sheet
-      // link therefore teaches this guard first, where review sees it.
+      // every static acquisition path is pinned: the raw host-path literal
+      // (count-pinned per file, escape spellings flagged via the
+      // cooked-literal scan), the `buildSheetDeepLink` fragment
+      // (COUNT-pinned per shipped file since r34 — a second call or a
+      // re-export inside an existing consumer is as loud as a new consumer;
+      // escape-spelled identifiers and literals cook in the AST and are
+      // counted by cookedFragmentExtra, riding the same single-backslash
+      // tell as the r11 prefilter), and the three adopter href variables
+      // (token-count-pinned below — reusing `openSheetHref` in a sibling
+      // hand-rolled anchor, or renaming it to dodge the pin, changes a
+      // pinned count either way). Computed and runtime construction stay in
+      // the ratified out-of-scope class. A new sheet link therefore teaches
+      // this guard first, where review (the invariant-8 UI gate) sees it.
       const SHEET_URL = "docs.google.com/spreadsheets";
+      const BUILDER = "buildSheetDeepLink";
       const root = join(__dirname, "..", "..", "..");
       const urlFound: Record<string, number> = {};
       const urlHidden: string[] = [];
-      const builderConsumers: string[] = [];
+      const builderCounts: Record<string, number> = {};
+      const cookedFragmentExtra = (src: string, rel: string, needle: string): number => {
+        if (!src.includes("\\")) return 0;
+        const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
+        const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
+        let extra = 0;
+        const visit = (node: ts.Node): void => {
+          if (
+            ts.isIdentifier(node) ||
+            ts.isStringLiteral(node) ||
+            ts.isNoSubstitutionTemplateLiteral(node) ||
+            ts.isTemplateHead(node) ||
+            ts.isTemplateMiddle(node) ||
+            ts.isTemplateTail(node)
+          ) {
+            const raw = src.slice(node.getStart(sf), node.getEnd());
+            if (node.text.includes(needle) && !raw.includes(needle)) extra += 1;
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sf);
+        return extra;
+      };
       for (const file of walkedFiles(root)) {
         const rel = file.slice(root.length + 1);
         const src = readFileSync(file, "utf8");
@@ -991,7 +1020,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         if (count > 0) urlFound[rel] = count;
         if (!rel.endsWith(".mdx") && hiddenPhraseCount(src, rel, SHEET_URL) > 0)
           urlHidden.push(`${rel}: escape-hidden sheet-URL occurrence(s)`);
-        if (!/^tests\//.test(rel) && src.includes("buildSheetDeepLink")) builderConsumers.push(rel);
+        if (!/^tests\//.test(rel)) {
+          const raw = src.split(BUILDER).length - 1;
+          const cooked = rel.endsWith(".mdx") ? 0 : cookedFragmentExtra(src, rel, BUILDER);
+          if (raw + cooked > 0) builderCounts[rel] = raw + cooked;
+        }
       }
       expect(urlHidden).toEqual([]);
       expect(urlFound).toEqual({
@@ -1016,46 +1049,62 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "tests/e2e/_skeletonParityHarness.tsx": 1,
         "tests/sheet-links/buildSheetDeepLink.test.ts": 1,
       });
-      expect(builderConsumers.sort()).toEqual(
-        [
-          "app/admin/_showReviewModal.tsx",
-          "app/api/admin/onboarding/finalize/route.ts",
-          "components/admin/NoteWarningCard.tsx",
-          "components/admin/OnboardingWizard.tsx",
-          "components/admin/PerShowActionableWarnings.tsx",
-          "components/admin/wizard/Step3Review.tsx",
-          "components/admin/wizard/Step3ReviewModal.tsx",
-          "components/admin/wizard/Step3SheetCard.tsx",
-          "components/admin/wizard/step3ReviewSections.tsx",
-          "components/crew/primitives/CardHeaderActions.tsx",
-          "components/crew/primitives/SourceLink.tsx",
-          "components/crew/sections/BudgetSection.tsx",
-          "components/crew/sections/CrewSection.tsx",
-          "components/crew/sections/GearSection.tsx",
-          "components/crew/sections/ScheduleSection.tsx",
-          "components/crew/sections/TodaySection.tsx",
-          "components/crew/sections/TravelSection.tsx",
-          "components/crew/sections/VenueSection.tsx",
-          "components/shared/CardReportTrigger.tsx",
-          "lib/admin/step3SectionStatus.ts",
-          "lib/adminAlerts/alertActions.ts",
-          "lib/data/getShowForViewer.ts",
-          "lib/dev/publishedModalFixture.ts",
-          "lib/drive/crewRoleAnchors.ts",
-          "lib/drive/showDayTimeAnchors.ts",
-          "lib/drive/sourceAnchors.ts",
-          "lib/drive/unknownFieldAnchors.ts",
-          "lib/parser/sectionHeaderNormalize.ts",
-          "lib/parser/types.ts",
-          "lib/sheet-links/buildSheetDeepLink.ts",
-          "lib/sync/applyParseResult.ts",
-          "lib/sync/attachWarningAnchors.ts",
-          "lib/sync/phase1.ts",
-          "lib/sync/phase2.ts",
-          "lib/sync/runOnboardingScan.ts",
-          "lib/sync/runScheduledCronSync.ts",
-        ].sort(),
-      );
+      expect(builderCounts).toEqual({
+        "app/admin/_showReviewModal.tsx": 3,
+        "app/api/admin/onboarding/finalize/route.ts": 1,
+        "components/admin/NoteWarningCard.tsx": 3,
+        "components/admin/OnboardingWizard.tsx": 1,
+        "components/admin/PerShowActionableWarnings.tsx": 3,
+        "components/admin/wizard/Step3Review.tsx": 1,
+        "components/admin/wizard/Step3ReviewModal.tsx": 3,
+        "components/admin/wizard/Step3SheetCard.tsx": 3,
+        "components/admin/wizard/step3ReviewSections.tsx": 8,
+        "components/crew/primitives/CardHeaderActions.tsx": 1,
+        "components/crew/primitives/SourceLink.tsx": 5,
+        "components/crew/sections/BudgetSection.tsx": 1,
+        "components/crew/sections/CrewSection.tsx": 1,
+        "components/crew/sections/GearSection.tsx": 1,
+        "components/crew/sections/ScheduleSection.tsx": 1,
+        "components/crew/sections/TodaySection.tsx": 1,
+        "components/crew/sections/TravelSection.tsx": 1,
+        "components/crew/sections/VenueSection.tsx": 1,
+        "components/shared/CardReportTrigger.tsx": 1,
+        "lib/admin/step3SectionStatus.ts": 1,
+        "lib/adminAlerts/alertActions.ts": 5,
+        "lib/data/getShowForViewer.ts": 2,
+        "lib/dev/publishedModalFixture.ts": 4,
+        "lib/drive/crewRoleAnchors.ts": 1,
+        "lib/drive/showDayTimeAnchors.ts": 1,
+        "lib/drive/sourceAnchors.ts": 1,
+        "lib/drive/unknownFieldAnchors.ts": 2,
+        "lib/parser/sectionHeaderNormalize.ts": 1,
+        "lib/parser/types.ts": 2,
+        "lib/sheet-links/buildSheetDeepLink.ts": 1,
+        "lib/sync/applyParseResult.ts": 1,
+        "lib/sync/attachWarningAnchors.ts": 1,
+        "lib/sync/phase1.ts": 1,
+        "lib/sync/phase2.ts": 1,
+        "lib/sync/runOnboardingScan.ts": 1,
+        "lib/sync/runScheduledCronSync.ts": 1,
+      });
+      // r34: the three adopters' sheet-href VARIABLES are the last static
+      // acquisition path — a sibling hand-rolled `<a href={openSheetHref}>`
+      // adds a token occurrence, and renaming the variable to dodge the pin
+      // zeroes one. Exact counts, escape spellings included via the cooked
+      // scan.
+      const HREF_TOKEN_PINS: Array<[string, string, number]> = [
+        ["components/admin/showpage/PublishedReviewModal.tsx", "openSheetHref", 5],
+        ["components/admin/wizard/Step3ReviewModal.tsx", "sheetLink", 3],
+        ["components/admin/wizard/step3ReviewSections.tsx", "sheetHref", 7],
+      ];
+      for (const [rel, token, pinned] of HREF_TOKEN_PINS) {
+        const src = readFileSync(join(root, rel), "utf8");
+        const raw = [
+          ...src.matchAll(new RegExp(`(?<![A-Za-z0-9_$])${token}(?![A-Za-z0-9_$])`, "g")),
+        ].length;
+        const cooked = cookedFragmentExtra(src, rel, token);
+        expect(raw + cooked, `${rel}: ${token} token count`).toBe(pinned);
+      }
     },
   );
 
