@@ -294,12 +294,24 @@ const PARTICLE_WORDS =
  * r39: a closure field needs no bold at all — `Closed: 2026`, `*Closed:*`,
  * `Resolved by: PR #621` are the same claim unwrapped. Any terminal word
  * followed (through an optional preposition chain and optional emphasis
- * marks) by a colon is a field-value claim, with the same word-position
+ * marks) by a separator is a field-value claim, with the same word-position
  * veto. The word-between guard keeps `**Shipped precedent:**` out — the
- * lookahead crosses only particles.
+ * lookahead crosses only particles. r40: the separator set matches the
+ * field matchers (colon; em/en dash; ASCII dash only when whitespace
+ * FOLLOWS, so a hyphenated id like BL-CLOSED-LOOP-FIX quoted on a field
+ * line never reads as a claim).
+ *
+ * RATIFIED (r40): COMPOUND prepositions — `due to`, `because of`,
+ * `in favor of`, `as part of`, `by means of` and kin — are NOT chased.
+ * Their interior tokens are open-class nouns (`part`, `favor`, `means`,
+ * `account`), so admitting them to PARTICLE_WORDS would re-open exactly
+ * the `**Shipped precedent:**` metadata false-positive class the r35 rule
+ * exists to prevent; distinguishing the two is phrase grammar, which the
+ * r30 ratification places with BL-LEDGER-GUARD-MDAST-REWRITE. Zero live
+ * instances exist in any ledger (checked r40).
  */
 const FIELD_VALUE_TERMINAL = new RegExp(
-  `(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?=(?:\\s+(?:${PARTICLE_WORDS}))*[*_\x60]{0,3}\\s*:)`,
+  `(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?=(?:\\s+(?:${PARTICLE_WORDS}))*[*_\x60]{0,3}(?:\\s*:|\\s*[—–](?=\\s|$)|\\s+-(?=\\s|$)))`,
   "gi",
 );
 
@@ -311,6 +323,30 @@ function fieldValueTerminalHit(line: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * r40: ONE evaluator for a normalized entry section, used by the live
+ * BACKLOG walk AND exercised directly by pipeline plants — so removing a
+ * lane wiring (STATUS→bold-field, STATUS→bare-field, FILED→bare-field)
+ * breaks an executable plant, not just a code-reading claim.
+ */
+function entrySectionTerminal(section: string): boolean {
+  const lines = section.split("\n");
+  const headingLine = lines[0] ?? "";
+  const openingLine = firstContentLine(lines.slice(1));
+  const statusLines = lines.filter((l) => STATUS_FIELD_LINE.test(l));
+  const filedLines = lines.filter((l) => FILED_FIELD_LINE.test(l));
+  const statusHit = statusLines.some(
+    (l) => terminalHit(l, STATUS_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
+  );
+  const filedHit = filedLines.some(
+    (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
+  );
+  const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
+  const openingHit =
+    terminalHit(openingLine, OPENING_TERMINAL_BOLD) || terminalHit(openingLine, OPENING_TERMINAL_BARE);
+  return statusHit || filedHit || headingHit || openingHit;
 }
 
 function boldFieldTerminalHit(line: string): boolean {
@@ -642,9 +678,6 @@ describe("backlog ledger graduation", () => {
       // r27: normalize BEFORE any lane runs — bold-twin `__` spellings and
       // HTML comments (rendered as nothing) otherwise defeat every matcher.
       const section = normalizeSection(backlog.slice(start, end));
-      const lines = section.split("\n");
-      const headingLine = lines[0] ?? "";
-      const openingLine = firstContentLine(lines.slice(1));
       // PARTIALLY CLOSED is a real open state — but the veto is per matched
       // WORD (partialModified, r16), not per line: a trailing "partial
       // follow-up" clause no longer shields a bare terminal claim.
@@ -652,24 +685,10 @@ describe("backlog ledger graduation", () => {
       // place with its rationale in the entry (sub-entry of a still-open
       // parent). Same exemption set as the dedicated heading test below.
       if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
-      // ALL status/filed lines, not the first (r17 — an appended second
-      // `Status: SHIPPED` after a stale `Status: OPEN` was never inspected).
-      const statusLines = lines.filter((l) => STATUS_FIELD_LINE.test(l));
-      const filedLines = lines.filter((l) => FILED_FIELD_LINE.test(l));
-      // r39: the bold-FIELD and bare-field lanes run on STATUS lines too —
-      // `**Status:** OPEN · **Closed:** 2026` closes on its second field —
-      // and a closure field needs no bold at all.
-      const statusHit = statusLines.some(
-        (l) => terminalHit(l, STATUS_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
-      );
-      const filedHit = filedLines.some(
-        (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
-      );
-      const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
-      const openingHit =
-        terminalHit(openingLine, OPENING_TERMINAL_BOLD) ||
-        terminalHit(openingLine, OPENING_TERMINAL_BARE);
-      if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
+      // ALL status/filed lines, not the first (r17); the evaluation itself
+      // is entrySectionTerminal (r40) — shared with the pipeline plants so
+      // every lane wiring is executable-pinned.
+      if (entrySectionTerminal(section)) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -901,6 +920,23 @@ describe("backlog ledger graduation", () => {
     expect(fieldValueTerminalHit("**Shipped precedent:** PR #500")).toBe(false);
     expect(fieldValueTerminalHit("Not CLOSED: still open")).toBe(false);
     expect(fieldValueTerminalHit("**Status:** REOPENED 2026-07-30")).toBe(false);
+    // r40 — dashes are field separators in the bare lane too, with the
+    // ASCII dash requiring following whitespace so a hyphenated id quoted
+    // on a field line never reads as a claim:
+    expect(fieldValueTerminalHit("Closed — 2026-07-30")).toBe(true);
+    expect(fieldValueTerminalHit("*Closed* – 2026")).toBe(true);
+    expect(fieldValueTerminalHit("Resolved by — PR #700")).toBe(true);
+    expect(fieldValueTerminalHit("see BL-CLOSED-LOOP-FIX for the shape")).toBe(false);
+    expect(fieldValueTerminalHit("Not Closed — still open")).toBe(false);
+    // r40 — the three r39 lane wirings are executable-pinned through the
+    // ACTUAL section evaluator, not just helper calls:
+    const entry = (body: string): string => `## BL-PLANT — plant\n\n${body}\n`;
+    expect(entrySectionTerminal(entry("**Status:** OPEN · **Closed:** 2026-07-30."))).toBe(true);
+    expect(entrySectionTerminal(entry("**Status:** OPEN · Closed: 2026-07-30."))).toBe(true);
+    expect(entrySectionTerminal(entry("**Filed:** 2026-07-01 · Closed - 2026-07-30."))).toBe(true);
+    expect(entrySectionTerminal(entry("**Status:** OPEN — parked pending owner call."))).toBe(
+      false,
+    );
     expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
       false,
     );
