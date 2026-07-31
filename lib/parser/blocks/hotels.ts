@@ -1160,6 +1160,428 @@ function buildInlineHotel(raw: string, ordinal: number, contextYear: string | nu
   };
 }
 
+// ── Inline later-group own-hotel detector (spec 2026-07-27 §3) ────────────────
+//
+// A pure function over ONE later segment as returned by splitInlineReservationGroups.
+// It answers a single question: does this group carry its OWN hotel (name + postal-
+// complete address) safely enough to keep, or must it inherit group 0's hotel?
+//
+//   tier 1 — keep the group's own hotel (caller stashes HOTEL_INLINE_GROUP_OWN_HOTEL)
+//   tier 2 — inherit as today, but the segment carries hotel evidence the parser
+//            cannot safely attribute (caller stashes HOTEL_INLINE_GROUP_HOTEL_SUSPECTED)
+//   tier 3 — inherit as today, silently (byte parity with the pre-feature parse)
+//
+// The pipeline is D1 normalize → D2 divider strip → D3 prefix cut → D4/D4b address
+// anchor + tail extension → D5 tier decision (guards, caps, scans) → D6 rebuild.
+// Tier 1 is reachable ONLY when the segment's ENTIRE text is accounted for by the
+// structural partition (S9): the kept hotel text, a guard-bounded residual, and a
+// post-prefix region that scans NEGATIVE for hotel evidence.
+
+/** The three-tier verdict for one later reservation group. */
+export type LaterSegmentOutcome =
+  | { tier: 1; hotelText: string; build: InlineBuild }
+  | { tier: 2 }
+  | { tier: 3 };
+
+/** D4b arm 1 — unit tail. The separator before the unit value is MANDATORY: without
+ * it ordinary words are consumed through alias prefixes ("Steve" = "Ste"+"ve"). */
+const D4B_UNIT_TAIL_RE =
+  /^\s*,?\s*(?:Suite|Ste\.?|Unit|Apt\.?|Rm|Room|Floor|Fl)(?:\s+#?|\s*#)\s*[\w-]+/iu;
+/** D4b arm 2 — comma-led, postal-anchored city/state/postal tail (city 1-3 words). */
+const D4B_COMMA_POSTAL_RE =
+  /^\s*,\s*(?:(?:[\p{L}][\p{L}.'-]*\s+){0,2}[\p{L}][\p{L}.'-]*,\s*)?[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
+/** D4b arm 3 — comma-LESS city/state/postal tail (up to 3 city words). */
+const D4B_COMMALESS_POSTAL_RE =
+  /^\s+(?:[\p{L}][\p{L}.'-]*\s+){0,3}[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
+/** Residual guard (b) / scan arm (i): an unconsumed "<ST> <postal>" anchor. The state
+ * token is uppercase-only, exactly as the live STREET_ADDRESS_ZIP_RE writes it. */
+const POSTAL_EVIDENCE_RE =
+  /\b[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
+/** Residual guard (a0): a BARE unit alias token. Token equality, so "Stephanie" and
+ * "Florence" are not hits, and a dotted "Ste." is left to D6's c0 clause. */
+const BARE_UNIT_ALIAS_RE = /^(?:Suite|Ste|Unit|Apt|Rm|Room|Floor|Fl)$/iu;
+/** The optional direction token STREET_ADDRESS_RE allows before the street name. */
+const STREET_DIRECTION_RE = /^(?:[NSEW]{1,2}|North|South|East|West)\.?$/iu;
+const CHECK_IN_RE = /check\s+in/i;
+const CHECK_IN_GLOBAL_RE = /check\s+in/gi;
+/** D3 dash class: mirrors the stripConfTokens MATCHER — no trailing `\b`, because
+ * D3's job is to keep the prefix free of anything the row-level strip pass would
+ * later delete or mangle in crew-visible text. */
+const D3_DASH_SOURCE = "(\\s*)([-\\u2013\\u2014]{1,3})(\\s*#?\\s*)(\\d{4,})";
+const D3_HASH_SOURCE = "#\\s*\\d{4,}";
+const D3_BARE_SOURCE = "\\b\\d{6,}\\b";
+/** Scan arm (ii) dash family: mirrors hasGuestEvidence, whose dash arm KEEPS its `\b`. */
+const ARM_II_DASH_SOURCE = "(\\s*)([-\\u2013\\u2014]{1,3})(\\s*#?\\s*)(\\d{4,})\\b";
+
+/**
+ * D1 — normalize. buildInlineHotel's entity rewrite EXTENDED with `&#9;` (the other
+ * exporter whitespace entity), then the live `normalizeHotelCellText` semantics:
+ * zero-width out, straight/smart double quotes to spaces, whitespace collapsed.
+ *
+ * Detector-internal and scan-input only — no persisted `rawSnippet` is ever built
+ * from this text. Exported so the caller-side scope-A/B scans normalize identically;
+ * a scan left on the old `&#10;`-only rewrite misses evidence a tab entity splits.
+ */
+export function normalizeLaterSegmentText(raw: string): string {
+  return normalizeHotelCellText(
+    raw.replace(/&#10;/g, " ").replace(/&#9;/g, " ").replace(/\r/g, " "),
+  );
+}
+
+/** Whitespace word count minus a trailing single-letter initial ("Eric W" → 1) —
+ * the same rule the no-Check-In branch applies at hotels.ts:945-948. */
+function detectorBaseWords(s: string): number {
+  const w = s.split(/\s+/).filter(Boolean);
+  return w.length > 1 && /^\p{Lu}\.?$/u.test(w[w.length - 1]!) ? w.length - 1 : w.length;
+}
+
+function plainWords(s: string): number {
+  return s.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * The `stripConfTokens` ZIP+4 predicate, all five clauses: a single ASCII hyphen, no
+ * separator, exactly 4 digits, a word-boundary 5-digit run immediately before, and no
+ * word character after. A true ZIP+4 hyphen is postal bytes, never a conf delimiter.
+ */
+function isZip4Hyphen(
+  str: string,
+  offset: number,
+  whole: string,
+  ws: string,
+  dashes: string,
+  sep: string,
+  digits: string,
+): boolean {
+  const afterMatch = str.charAt(offset + whole.length);
+  return (
+    dashes === "-" &&
+    sep.length === 0 &&
+    digits.length === 4 &&
+    /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
+    (afterMatch === "" || !/\w/.test(afterMatch))
+  );
+}
+
+/** First qualifying D3 dash-run delimiter at or after `from`; `null` if none. */
+function nextDashDelimiter(
+  str: string,
+  from: number,
+  source: string,
+): { start: number; end: number } | null {
+  const re = new RegExp(source, "gu");
+  re.lastIndex = from;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(str)) !== null) {
+    const [whole, ws = "", dashes = "", sep = "", digits = ""] = m;
+    if (isZip4Hyphen(str, m.index, whole, ws, dashes, sep, digits)) continue;
+    return { start: m.index + ws.length, end: m.index + whole.length };
+  }
+  return null;
+}
+
+function nextSimpleMatch(
+  str: string,
+  from: number,
+  source: string,
+): { start: number; end: number } | null {
+  const re = new RegExp(source, "gu");
+  re.lastIndex = from;
+  const m = re.exec(str);
+  return m ? { start: m.index, end: m.index + m[0].length } : null;
+}
+
+/**
+ * D6 clauses c1/c2 count D3-class delimiter TOKENS by ONE left-to-right scan, taking
+ * at each position the earliest match start (tie: longest span) and CONSUMING it — so
+ * overlapping family matches merge into a single token ("- 2035940" is ONE token, not
+ * a dash plus a bare run). A per-family count scores the ratified two-guest keep as
+ * four delimiters against two names and falsely demotes it.
+ */
+function countConfDelimiterTokens(region: string): number {
+  let pos = 0;
+  let count = 0;
+  while (pos < region.length) {
+    const candidates = [
+      nextDashDelimiter(region, pos, D3_DASH_SOURCE),
+      nextSimpleMatch(region, pos, D3_HASH_SOURCE),
+      nextSimpleMatch(region, pos, D3_BARE_SOURCE),
+    ].filter((c): c is { start: number; end: number } => c !== null);
+    if (candidates.length === 0) break;
+    let best = candidates[0]!;
+    for (const c of candidates.slice(1)) {
+      if (c.start < best.start || (c.start === best.start && c.end > best.end)) best = c;
+    }
+    count += 1;
+    pos = best.end;
+  }
+  return count;
+}
+
+/**
+ * The RESTRICTED dash neutralizer for scan arm (i). Only a dash run IMMEDIATELY
+ * followed by a digit is replaced, and never a true ZIP+4 hyphen. It reveals a street
+ * number glued to a preceding dash or word ("-1515 Madison Ave", "Hilton-1515 Madison
+ * Ave") that defeats the street regex's leading-whitespace anchor while arm (ii)
+ * street-start-suppresses the same candidate — evidence otherwise invisible to BOTH
+ * arms. Scan-input only: never D3, never persisted text.
+ */
+function neutralizeGluedDashes(s: string): string {
+  return s.replace(/[-–—]+(?=\d)/gu, (run: string, offset: number) => {
+    const digits = /^\d+/.exec(s.slice(offset + run.length))?.[0] ?? "";
+    const afterMatch = s.charAt(offset + run.length + digits.length);
+    const isZip4 =
+      run === "-" &&
+      digits.length === 4 &&
+      /\b\d{5}$/.test(s.slice(0, offset)) &&
+      (afterMatch === "" || !/\w/.test(afterMatch));
+    return isZip4 ? run : " ";
+  });
+}
+
+/** Scan arm (i): street/postal evidence in a region, read RAW and dash-neutralized. */
+function hasAddressEvidence(region: string): boolean {
+  for (const read of [region, neutralizeGluedDashes(region)]) {
+    const padded = " " + read;
+    if (STREET_ADDRESS_RE.test(padded)) return true;
+    if (STREET_ADDRESS_ZIP_RE.test(padded)) return true;
+    if (POSTAL_EVIDENCE_RE.test(read)) return true;
+  }
+  return false;
+}
+
+/**
+ * Scan arm (ii): a confirmation token of any LIVE family after the region's start.
+ * Mirrors `hasGuestEvidence` with ONE normative delta — the dash family carries D3's
+ * ZIP+4 exclusion, which live `hasGuestEvidence` lacks. Without it a post-marker
+ * ZIP+4 reads as a conf token and falsely demotes a fully-qualifying keep.
+ */
+function hasConfTokenEvidence(region: string): boolean {
+  if (new RegExp(D3_HASH_SOURCE, "u").test(region)) return true;
+  if (new RegExp(D3_BARE_SOURCE, "u").test(region)) return true;
+  const re = new RegExp(ARM_II_DASH_SOURCE, "gu");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(region)) !== null) {
+    const [whole, ws = "", dashes = "", sep = "", digits = ""] = m;
+    if (isZip4Hyphen(region, m.index, whole, ws, dashes, sep, digits)) continue;
+    const numStart = m.index + whole.length - digits.length;
+    if (!looksLikeStreetStart(" " + region.slice(numStart))) return true;
+  }
+  return false;
+}
+
+/** Interior word run of a STREET_ADDRESS_RE match: between number/direction and suffix. */
+function streetArmInteriorWords(matchText: string): number {
+  const m = /^\s*\d{1,5}\s+([\s\S]*)$/u.exec(matchText);
+  if (!m) return 0;
+  const words = m[1]!.split(/\s+/).filter(Boolean);
+  if (words.length > 0 && STREET_DIRECTION_RE.test(words[0]!)) words.shift();
+  return Math.max(0, words.length - 1); // the last word is the street suffix
+}
+
+/** Interior word run of a STREET_ADDRESS_ZIP_RE match: between number and first comma. */
+function zipArmInteriorWords(matchText: string): number {
+  const m = /^\s*\d{1,5}\s+([^,]*),/u.exec(matchText);
+  return m ? m[1]!.split(/\s+/).filter(Boolean).length : 0;
+}
+
+/**
+ * D3 — prefix cut at the five-way minimum. Every dash-run candidate is a delimiter,
+ * street-shaped or not, hashed or not, subject ONLY to the ZIP+4 exclusion: a street
+ * exemption lets a guest between the hotel and a dash-street reach tier 1 and be
+ * buried inside the kept `hotel_name`.
+ */
+function computePrefixEnd(s2: string): number {
+  const ends = [s2.length];
+  const dash = nextDashDelimiter(s2, 0, D3_DASH_SOURCE);
+  if (dash) ends.push(dash.start);
+  const hash = nextSimpleMatch(s2, 0, D3_HASH_SOURCE);
+  if (hash) ends.push(hash.start);
+  const bare = nextSimpleMatch(s2, 0, D3_BARE_SOURCE);
+  if (bare) ends.push(bare.start);
+  const marker = CHECK_IN_RE.exec(s2);
+  if (marker) ends.push(marker.index);
+  return Math.min(...ends);
+}
+
+type AnchorMatch = { start: number; end: number; text: string; postalAnchored: boolean };
+
+/** D4 — address anchor. Both regexes read against `" " + prefix`; smaller index wins,
+ * ties break to the LONGER match (only the ZIP match spans a comma-less city tail). */
+function computeAnchor(prefix: string): AnchorMatch | null {
+  const padded = " " + prefix;
+  const street = STREET_ADDRESS_RE.exec(padded);
+  const zip = STREET_ADDRESS_ZIP_RE.exec(padded);
+  let winner: RegExpExecArray | null = null;
+  let postalAnchored = false;
+  if (street && zip) {
+    const zipWins =
+      zip.index < street.index ||
+      (zip.index === street.index && zip[0].length > street[0].length);
+    winner = zipWins ? zip : street;
+    postalAnchored = zipWins;
+  } else if (zip) {
+    winner = zip;
+    postalAnchored = true;
+  } else if (street) {
+    winner = street;
+  }
+  if (!winner) return null;
+  // Unpad: the match's leading `\s` is the pad for a position-0 address, so the match
+  // index in the padded string IS the address start index in the unpadded prefix.
+  return {
+    start: winner.index,
+    end: winner.index + winner[0].length - 1,
+    text: winner[0],
+    postalAnchored,
+  };
+}
+
+/**
+ * Classify one later reservation group.
+ *
+ * `rawSegment` is the PRE-D1 segment as returned by `splitInlineReservationGroups`.
+ * `ordinal` carries a PRECONDITION, not a runtime check: callers pass the group's
+ * positive integer ordinal. The detector never runs on group 0 and never on
+ * single-group cells; the scope-A/B degraded scans are the caller's.
+ */
+export function classifyLaterSegment(
+  rawSegment: string,
+  ordinal: number,
+  contextYear: string | null,
+): LaterSegmentOutcome {
+  // D1 — normalize.
+  const s = normalizeLaterSegmentText(rawSegment);
+  if (!s) return { tier: 3 };
+
+  // D2 — divider strip. Later groups in the shared-hotel shape begin with a divider;
+  // a hotel name never does.
+  const s2 = s.replace(/^[\s\-–—]+/u, "");
+  if (!s2) return { tier: 3 };
+
+  // A segment with two or more markers glued multiple bookings together and cannot be
+  // attributed — tier 1 is unreachable for it, however well its prefix qualifies.
+  const markerCount = (s2.match(CHECK_IN_GLOBAL_RE) ?? []).length;
+
+  // D3 — prefix.
+  const prefixEnd = computePrefixEnd(s2);
+  const prefix = s2.slice(0, prefixEnd).trim();
+
+  // S9 post-prefix scan. Arm (i) reads everything after the prefix; arm (ii) reads
+  // only AFTER the first marker, because a clean multi-guest booking legitimately
+  // carries conf delimiters BEFORE its marker.
+  const postGuest = s2.slice(prefixEnd);
+  const firstMarker = CHECK_IN_RE.exec(s2);
+  const postMarker = firstMarker ? s2.slice(firstMarker.index + firstMarker[0].length) : "";
+  const postPrefixPositive =
+    hasAddressEvidence(postGuest) || (firstMarker !== null && hasConfTokenEvidence(postMarker));
+
+  // D4 — address anchor.
+  const anchor = computeAnchor(prefix);
+
+  if (anchor) {
+    const qualifies = evaluateTierOneGates(s2, prefix, anchor, ordinal, contextYear);
+    if (qualifies && markerCount <= 1 && !postPrefixPositive) return qualifies;
+    return { tier: 2 };
+  }
+
+  if (postPrefixPositive) return { tier: 2 };
+  // D5 word arm: a prefix long enough to hold a hotel plus a guest is evidence of an
+  // own hotel the detector could not anchor; 3-word prefixes stay silent because
+  // 3-word guest names are common.
+  if (detectorBaseWords(prefix) >= 4) return { tier: 2 };
+  return { tier: 3 };
+}
+
+/**
+ * The tier-1 conjuncts that depend on the address anchor: D4b tail extension with the
+ * postal stop, S8 postal provenance, the free-run interior caps, the name-region guard
+ * (d), the residual-tail guard (a0/a/b/c), and the D6 rebuild (c0/c1/c2). Returns the
+ * tier-1 outcome when every conjunct holds, `null` otherwise.
+ */
+function evaluateTierOneGates(
+  s2: string,
+  prefix: string,
+  anchor: AnchorMatch,
+  ordinal: number,
+  contextYear: string | null,
+): Extract<LaterSegmentOutcome, { tier: 1 }> | null {
+  // Free-run interior caps: guest words consumed INSIDE an address match are invisible
+  // to guard (d) and the residual guard, so the caps are the only defense there.
+  if (anchor.postalAnchored) {
+    if (zipArmInteriorWords(anchor.text) > 4) return null;
+  } else if (streetArmInteriorWords(anchor.text) > 3) {
+    return null;
+  }
+
+  // D4b — tail extension, POSTAL-FIRST (arm 2, arm 3, arm 1). The loop TERMINATES the
+  // moment a postal-anchored component is consumed: the postal anchor proves the
+  // address end, so nothing after it may be consumed. A D4 ZIP match is itself postal-
+  // anchored, so no extension follows it.
+  let addressEnd = anchor.end;
+  let postalTerminated = anchor.postalAnchored;
+  while (!postalTerminated) {
+    const tail = prefix.slice(addressEnd);
+    const comma = D4B_COMMA_POSTAL_RE.exec(tail);
+    if (comma) {
+      addressEnd += comma[0].length;
+      postalTerminated = true;
+      break;
+    }
+    const commaless = D4B_COMMALESS_POSTAL_RE.exec(tail);
+    if (commaless) {
+      addressEnd += commaless[0].length;
+      postalTerminated = true;
+      break;
+    }
+    const unit = D4B_UNIT_TAIL_RE.exec(tail);
+    if (!unit) break;
+    addressEnd += unit[0].length;
+  }
+  // S8 provenance: arm 1's `[\w-]+` unit value counterfeits every postal shape
+  // ("Suite 12345", "Unit M5V2T6"), so a trailing-SHAPE check is not sufficient.
+  if (!postalTerminated) return null;
+
+  // Name-region guard (d) — a DAMAGE BOUND on how much unconfirmed text a kept
+  // hotel_name can absorb. Plain count, deliberately NOT baseWords: a trailing initial
+  // in the name region is guest evidence, not hotel branding.
+  if (plainWords(s2.slice(0, anchor.start).trim()) > 4) return null;
+
+  // Residual-tail guard over the pre-guest residue.
+  const remainder = prefix.slice(addressEnd);
+  const remainderTrimmed = remainder.trim();
+  const firstWord = remainderTrimmed.split(/\s+/).filter(Boolean)[0] ?? "";
+  if (BARE_UNIT_ALIAS_RE.test(firstWord)) return null; // (a0) stranded unit designation
+  if (/^\s*,/u.test(remainder)) return null; // (a) ZIP-less city tail
+  if (POSTAL_EVIDENCE_RE.test(remainder)) return null; // (b) unconsumed postal anchor
+  if (detectorBaseWords(remainderTrimmed) > 2) return null; // (c) note text on the guest
+
+  // D6 — rebuild. The existing machinery extracts guests and dates from the hotel-free
+  // remainder; the detector only replaces the hotel text.
+  const hotelText = s2.slice(0, addressEnd).trim();
+  const rest = s2.slice(addressEnd).trim();
+  const rebuild = buildInlineHotel(rest, ordinal, contextYear);
+  if (rebuild.row.names.length === 0) return null; // (c0)
+  const restMarker = CHECK_IN_RE.exec(rest);
+  const preMarker = restMarker ? rest.slice(0, restMarker.index) : rest;
+  const preMarkerTokens = countConfDelimiterTokens(preMarker);
+  // (c1) live Pattern 1 lifts only two-plus-word ASCII title-case guests, so a
+  // one-word guest alongside a conforming one vanishes silently.
+  if (rebuild.row.names.length < preMarkerTokens) return null;
+  // (c2) with two or more delimiters the no-Check-In learn-K path assumes a hotel
+  // prefix and eats the first guest's lead words.
+  if (!restMarker && preMarkerTokens > 1) return null;
+
+  return {
+    tier: 1,
+    hotelText,
+    build: {
+      ...rebuild,
+      row: { ...rebuild.row, hotel_name: hotelText, hotel_address: null },
+    },
+  };
+}
+
 // ── Row-level helper (works on already-split lines) ───────────────────────────
 
 function parseLinesIntoRows(lines: string[]): string[][] {
