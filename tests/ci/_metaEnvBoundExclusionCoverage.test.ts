@@ -112,11 +112,23 @@ function coverageRowProblems(
   // ${{ github.workflow }}-scoped job-level group would share the covering
   // run's repository-wide group and could cancel it — job-level concurrency
   // is refused on EVERY job of the registry workflow, not just the covering
-  // one.
+  // one. R7-B extends the same reasoning to reusable workflows: inside a
+  // CALLED workflow, ${{ github.workflow }} resolves to the CALLER's display
+  // name, so a callee (direct or nested, local or external) with a
+  // workflow-scoped cancel-in-progress group can cancel this run while
+  // every corpus scan stays green — the callee graph is unscannable by
+  // construction, so `uses:` jobs are refused outright in the registry
+  // workflow. (Other workflows' callees resolve under THEIR callers' names,
+  // which display-name uniqueness keeps distinct from this workflow's.)
   for (const [jobName, j] of Object.entries(wf.jobs ?? {})) {
     if ((j as Record<string, unknown>).concurrency !== undefined) {
       problems.push(
         `job-level concurrency on job ${jobName} (any job shares the repo-wide group namespace)`,
+      );
+    }
+    if ((j as Record<string, unknown>).uses !== undefined) {
+      problems.push(
+        `reusable-workflow job ${jobName} (a callee's \${{ github.workflow }} group resolves to THIS caller's name and can cancel the covering run)`,
       );
     }
   }
@@ -324,6 +336,10 @@ describe("env-bound exclusion coverage (spec §6)", () => {
         "SIBLING job with job-level concurrency (R5-B F2: shares the repo-wide group namespace)",
         base("", "") +
           "  sibling:\n    runs-on: ubuntu-latest\n    concurrency:\n      group: ${{ github.workflow }}-${{ github.ref }}\n    steps:\n      - run: echo hi\n",
+      ],
+      [
+        "SIBLING reusable-workflow job (R7-B: callee group resolves under this caller's name)",
+        base("", "") + "  caller:\n    uses: ./.github/workflows/other.yml\n",
       ],
       ["nonexistent hosted label (R2-B F5)", base("", "").replace("ubuntu-latest", "ubuntu-99.99")],
       ["job env (F2)", base("    env:\n      PATH: ./fake\n", "")],
