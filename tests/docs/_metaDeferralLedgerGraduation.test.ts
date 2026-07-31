@@ -144,6 +144,13 @@ const FILED_TERMINAL = new RegExp(
 // sees through a bullet is dead code if the filter never hands it the line.
 const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Status`, "i");
 const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Filed`, "i");
+// r26: a line that is ONLY container markers (`>`, an empty `- ` item, an
+// empty task box) is not content — selecting it as the opening line let
+// `>\n> **CLOSED** …` hide its claim behind the bare marker, since the
+// matchers examined the `>` and never the next line.
+const CONTAINER_ONLY = new RegExp(`^\\s*${CONTAINER}\\s*$`);
+const firstContentLine = (lines: string[]): string =>
+  lines.find((l) => l.trim() !== "" && !CONTAINER_ONLY.test(l)) ?? "";
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
@@ -158,12 +165,17 @@ const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${CONTAINER}${WRAP}(${TERMINAL_WO
  * modified by a preceding PARTIAL/PARTIALLY (r16 — the previous line-wide
  * /PARTIAL/i veto suppressed unrelated terminal claims: an id containing
  * PARTIAL in `### BL-PARTIAL-EDGE — CLOSED`, a trailing "partial follow-up"
- * clause after a bare CLOSED). Returns null when the matcher finds no claim
- * at all, false when the claim stands (a hit), true when it is
- * PARTIAL-modified (an open state). Word-position, not line-wide: `RESOLVED
- * (was PARTIALLY CLOSED)` is still a hit on RESOLVED.
+ * clause after a bare CLOSED). r26 adds the direct NEGATIONS — `**Not
+ * CLOSED:**` / `**Never RESOLVED**` are OPEN claims that the bold-field
+ * lane (which matches terminal words anywhere in a segment) read as
+ * terminal, force-graduating live entries. Same word-position discipline:
+ * only a modifier DIRECTLY before the word vetoes it, so `RESOLVED (was
+ * NOT CLOSED at first)` still hits on RESOLVED, and CANNOT does not
+ * contain a bounded NOT. Returns null when the matcher finds no claim at
+ * all, false when the claim stands (a hit), true when it is modified into
+ * an open state.
  */
-const PARTIAL_BEFORE = /PARTIAL(?:LY)?[\s*_`:—–-]*$/i;
+const PARTIAL_BEFORE = /(?:PARTIAL(?:LY)?|\bNOT|\bNEVER)[\s*_`:—–-]*$/i;
 
 function partialModified(line: string, matcher: RegExp): boolean | null {
   const m = matcher.exec(line);
@@ -464,7 +476,7 @@ describe("backlog ledger graduation", () => {
       const section = backlog.slice(start, end);
       const lines = section.split("\n");
       const headingLine = lines[0] ?? "";
-      const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
+      const openingLine = firstContentLine(lines.slice(1));
       // PARTIALLY CLOSED is a real open state — but the veto is per matched
       // WORD (partialModified, r16), not per line: a trailing "partial
       // follow-up" clause no longer shields a bare terminal claim.
@@ -587,6 +599,19 @@ describe("backlog ledger graduation", () => {
     // grammar, not three:
     expect(terminalHit("1234. [x] **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
     expect(terminalHit("123456789. **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    // r26 — marker-only lines are not content: the opening-line selector
+    // skips bare blockquote/list/task markers so the claim BEHIND them is
+    // the line the matchers see…
+    expect(firstContentLine(["", ">", "> **CLOSED** by PR #1"])).toBe("> **CLOSED** by PR #1");
+    expect(firstContentLine(["- ", "- [ ] ", "1. ", "plain text"])).toBe("plain text");
+    expect(firstContentLine(["", "> "])).toBe("");
+    // …and direct negations are OPEN claims in the bold-field lane, while a
+    // later bare claim still counts per-occurrence, and CANNOT carries no
+    // bounded NOT:
+    expect(boldFieldTerminalHit("**Filed:** 2026-07-01. **Not CLOSED:** still open.")).toBe(false);
+    expect(boldFieldTerminalHit("**Never RESOLVED** — parked pending owner call.")).toBe(false);
+    expect(boldFieldTerminalHit("**Not closed at first, later CLOSED:** shipped.")).toBe(true);
+    expect(boldFieldTerminalHit("**CANNOT-CLOSE follow-up, RESOLVED:** shipped.")).toBe(true);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
