@@ -108,6 +108,19 @@ function coverageRowProblems(
     }
   }
 
+  // R5-B F2: a SIBLING job inside this same workflow carrying the identical
+  // ${{ github.workflow }}-scoped job-level group would share the covering
+  // run's repository-wide group and could cancel it — job-level concurrency
+  // is refused on EVERY job of the registry workflow, not just the covering
+  // one.
+  for (const [jobName, j] of Object.entries(wf.jobs ?? {})) {
+    if ((j as Record<string, unknown>).concurrency !== undefined) {
+      problems.push(
+        `job-level concurrency on job ${jobName} (any job shares the repo-wide group namespace)`,
+      );
+    }
+  }
+
   const job = wf.jobs?.[row.job];
   if (job === undefined) {
     problems.push(`job ${row.job} must exist`);
@@ -236,16 +249,30 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       ).toEqual([]);
       const groupOf = (c: { group?: unknown } | string | undefined): string =>
         typeof c === "string" ? c : String(c?.group ?? "");
-      const colliders = others.filter(({ doc }) => {
+      // Two refusals per other-workflow group (workflow- AND job-level;
+      // R2-B F4, completed R5-B F2): (a) naming this workflow explicitly —
+      // it resolves into the same repository-wide, case-insensitive group;
+      // (b) interpolating ANYTHING beyond the static run-context set —
+      // matrix/needs/inputs/vars/event data or expression functions can
+      // SYNTHESIZE a colliding group at runtime without containing the name
+      // literally, which no static scan can resolve, so dynamic group
+      // construction is refused rather than modelled.
+      const ALLOWED_INTERP = /\$\{\{\s*github\.(workflow|ref|head_ref|event_name|run_id)\s*\}\}/g;
+      const offenders = others.flatMap(({ f, doc }) => {
         const groups = [
           groupOf(doc.concurrency),
           ...Object.values(doc.jobs ?? {}).map((j) => groupOf(j.concurrency)),
-        ];
-        return groups.some((g) => g.toLowerCase().includes(nameLc));
+        ].filter((g) => g !== "");
+        return groups
+          .filter(
+            (g) =>
+              g.toLowerCase().includes(nameLc) || g.replace(ALLOWED_INTERP, "").includes("${{"),
+          )
+          .map((g) => `${f}: ${g}`);
       });
       expect(
-        colliders.map(({ f }) => f),
-        `${row.workflow}: another workflow's concurrency group names ${JSON.stringify(name)} explicitly — it would resolve into this workflow's repository-wide group and could cancel the covering run`,
+        offenders,
+        `${row.workflow}: another workflow's concurrency group either names ${JSON.stringify(name)} explicitly or builds its group from dynamic context — either can resolve into this workflow's repository-wide group and cancel the covering run`,
       ).toEqual([]);
     }
   });
@@ -273,6 +300,11 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       [
         "ref-only concurrency group (R2-B F4: repo-wide collision, e.g. unit-suite-${{ github.ref }})",
         base("", "", "concurrency:\n  group: g-${{ github.ref }}\n"),
+      ],
+      [
+        "SIBLING job with job-level concurrency (R5-B F2: shares the repo-wide group namespace)",
+        base("", "") +
+          "  sibling:\n    runs-on: ubuntu-latest\n    concurrency:\n      group: ${{ github.workflow }}-${{ github.ref }}\n    steps:\n      - run: echo hi\n",
       ],
       ["nonexistent hosted label (R2-B F5)", base("", "").replace("ubuntu-latest", "ubuntu-99.99")],
       ["job env (F2)", base("    env:\n      PATH: ./fake\n", "")],

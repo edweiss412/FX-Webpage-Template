@@ -210,7 +210,19 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     const npmrcPath = join(ROOT, ".npmrc");
     if (existsSync(npmrcPath)) {
       const npmrc = readFileSync(npmrcPath, "utf8");
-      for (const key of ["script-shell", "node-options", "bail", "shell-emulator"]) {
+      for (const key of [
+        "script-shell",
+        "node-options",
+        "bail",
+        "shell-emulator",
+        // R5-B F1: config-source SELECTORS — each can redirect pnpm to
+        // another tracked rc file carrying any guarded setting, so their
+        // presence is refused outright rather than followed.
+        "workspace-prefix",
+        "userconfig",
+        "globalconfig",
+        "prefix",
+      ]) {
         // pnpm accepts quoted ini keys ('script-shell'=… / "bail"=…), which
         // a bare-key regex missed (R4-B F1).
         expect(new RegExp(`^\\s*['"]?${key}['"]?\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(
