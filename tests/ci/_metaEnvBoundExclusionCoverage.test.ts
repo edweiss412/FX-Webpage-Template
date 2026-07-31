@@ -43,6 +43,120 @@ type WorkflowShape = {
 /** The one job-level `if:` the spec permits: schedule exclusion, verbatim. */
 const SCHEDULE_EXCLUSION = "github.event_name != 'schedule'";
 
+/**
+ * Registry workflow paths must be DISCOVERABLE workflows (R1-B F4): GitHub
+ * runs only top-level .yml/.yaml files directly under .github/workflows —
+ * a row pointing at nested/relocated/other-extension YAML could carry the
+ * trigger, job, and literal while GitHub never executes it.
+ */
+const DISCOVERABLE_WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+
+/**
+ * Everything that must hold on the PARSED workflow for one {workflow, job}
+ * row, returned as problems (empty = verified). Pure so the adversarial
+ * fixtures below can exercise every rejection class without touching real
+ * workflow files — a verifier tested only against the clean corpus proves
+ * nothing about its rejections (the mocked-only-APPROVE lesson).
+ */
+function coverageRowProblems(
+  row: { workflow: string; job: string },
+  file: string,
+  rawYaml: string,
+): string[] {
+  const problems: string[] = [];
+  const wf = parse(rawYaml) as WorkflowShape & {
+    env?: unknown;
+    concurrency?: { group?: unknown } | string;
+  };
+
+  // Bare pull_request KEY (types:/branches: filters never run on ordinary
+  // PRs — R3 F4); other triggers may coexist.
+  const on = wf.on;
+  if (on === null || typeof on !== "object" || Array.isArray(on) || !("pull_request" in on)) {
+    problems.push("on.pull_request key must exist (mapping form)");
+  } else {
+    const pr = (on as Record<string, unknown>).pull_request;
+    if (pr !== null && pr !== undefined) {
+      problems.push(`pull_request must be BARE — found filters: ${JSON.stringify(pr)}`);
+    }
+  }
+
+  // Workflow-scope execution context. env: at ANY of the three scopes can
+  // set BASH_ENV (a sourced file defining a no-op pnpm function) or PATH (a
+  // checked-in fake pnpm) while the step literal survives verbatim (R1-B
+  // F2) — distinct from the filed cross-step GITHUB_ENV vector.
+  if (wf.defaults !== undefined) problems.push("workflow-level defaults:");
+  if (wf.env !== undefined) problems.push("workflow-level env:");
+  // concurrency: a shared group could queue/cancel the job on ordinary PRs
+  // (R1-B F5). A ref-scoped group only supersedes runs of the SAME ref,
+  // whose newest run re-proves execution — so the group must interpolate
+  // github.ref; anything else is refused rather than modelled.
+  if (wf.concurrency !== undefined) {
+    const group = typeof wf.concurrency === "object" ? wf.concurrency?.group : wf.concurrency;
+    if (typeof group !== "string" || !group.includes("${{ github.ref }}")) {
+      problems.push(
+        `workflow-level concurrency group must interpolate \${{ github.ref }} — found ${JSON.stringify(group)}`,
+      );
+    }
+  }
+
+  const job = wf.jobs?.[row.job];
+  if (job === undefined) {
+    problems.push(`job ${row.job} must exist`);
+    return problems;
+  }
+  const jobIf = job.if;
+  if (jobIf !== undefined && String(jobIf).trim() !== SCHEDULE_EXCLUSION) {
+    problems.push(
+      `job if: must be absent or exactly \`${SCHEDULE_EXCLUSION}\` — found ${JSON.stringify(jobIf)}`,
+    );
+  }
+  // container: (the scanner's own disqualifier class the first draft
+  // omitted — R1-B F3) controls the executable named `pnpm`; env:/
+  // concurrency: as above; the rest are the scanner's execution-override
+  // classes plus environment: (R6 F2).
+  for (const key of [
+    "needs",
+    "strategy",
+    "continue-on-error",
+    "environment",
+    "defaults",
+    "container",
+    "env",
+    "concurrency",
+  ]) {
+    if ((job as Record<string, unknown>)[key] !== undefined) {
+      problems.push(`job-level ${key}:`);
+    }
+  }
+  // A self-hosted or drifted runner label is the same executable-control
+  // vector as container: — require a GitHub-hosted ubuntu label.
+  const runsOn = (job as Record<string, unknown>)["runs-on"];
+  if (typeof runsOn !== "string" || !/^ubuntu-(latest|\d+\.\d+|\d+)$/.test(runsOn)) {
+    problems.push(`runs-on must be a GitHub-hosted ubuntu label — found ${JSON.stringify(runsOn)}`);
+  }
+
+  // The covering step: run EXACTLY the literal, and the STEP itself
+  // undecorated (a step-level `shell: bash -c ":" {0}` consumes the literal
+  // without executing it — plan R3 F1; step env: is scope three of F2).
+  const literal = `pnpm run-excluded ${file}`;
+  const matches = (job.steps ?? []).filter(
+    (s) => typeof s.run === "string" && s.run.trim() === literal,
+  );
+  if (matches.length !== 1) {
+    problems.push(
+      `exactly one step whose run: is verbatim \`${literal}\` (found ${matches.length})`,
+    );
+    return problems;
+  }
+  const step = matches[0]!;
+  for (const key of ["if", "continue-on-error", "working-directory", "shell", "env"]) {
+    if (step[key] !== undefined) problems.push(`run-excluded step: ${key}:`);
+  }
+  if ((step.run as string).includes("|")) problems.push("run-excluded step: no pipes");
+  return problems;
+}
+
 describe("env-bound exclusion coverage (spec §6)", () => {
   const files = ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, ""));
 
@@ -72,54 +186,86 @@ describe("env-bound exclusion coverage (spec §6)", () => {
   it("every {workflow, job} row is a verbatim, unconditioned run-excluded step on a bare-PR workflow", () => {
     for (const [file, row] of Object.entries(ENV_BOUND_COVERAGE_REGISTRY)) {
       if ("dark" in row) continue;
+      expect(
+        DISCOVERABLE_WORKFLOW.test(row.workflow),
+        `${row.workflow}: must be a top-level .github/workflows/*.yml|yaml file — GitHub ` +
+          "discovers nothing else, so any other path could carry the literal while never running",
+      ).toBe(true);
       const raw = readFileSync(join(ROOT, row.workflow), "utf8");
-      const wf = parse(raw) as WorkflowShape;
+      expect(
+        coverageRowProblems(row, file, raw),
+        `${row.workflow}#${row.job} failed verification for ${file}`,
+      ).toEqual([]);
+    }
+  });
 
-      // Workflow qualification: the pull_request KEY exists and is bare. A
-      // types:/branches:-filtered trigger passes a paths-only check while
-      // never running on ordinary PRs (R3 F4); other triggers may coexist.
-      const on = wf.on;
-      expect(
-        on !== null && typeof on === "object" && !Array.isArray(on) && "pull_request" in on,
-        `${row.workflow}: on.pull_request key must exist (mapping form)`,
-      ).toBe(true);
-      const pr = (on as Record<string, unknown>).pull_request;
-      expect(
-        pr === null || pr === undefined,
-        `${row.workflow}: pull_request must be BARE — found filters: ${JSON.stringify(pr)}`,
-      ).toBe(true);
-      expect(wf.defaults, `${row.workflow}: workflow-level defaults:`).toBeUndefined();
-
-      const job = wf.jobs?.[row.job];
-      expect(job, `${row.workflow}: job ${row.job} must exist`).toBeDefined();
-      const jobIf = job!.if;
-      expect(
-        jobIf === undefined || String(jobIf).trim() === SCHEDULE_EXCLUSION,
-        `${row.workflow}#${row.job}: job if: must be absent or exactly \`${SCHEDULE_EXCLUSION}\` — found ${JSON.stringify(jobIf)}`,
-      ).toBe(true);
-      for (const key of ["needs", "strategy", "continue-on-error", "environment", "defaults"]) {
-        expect(job![key], `${row.workflow}#${row.job}: job-level ${key}:`).toBeUndefined();
-      }
-
-      // The covering step: run EXACTLY the literal, and the STEP itself
-      // undecorated. A step-level `shell: bash -c ":" {0}` consumes the
-      // literal without executing it (plan R3 F1).
-      const literal = `pnpm run-excluded ${file}`;
-      const matches = (job!.steps ?? []).filter(
-        (s) => typeof s.run === "string" && s.run.trim() === literal,
-      );
-      expect(
-        matches.length,
-        `${row.workflow}#${row.job}: exactly one step whose run: is verbatim \`${literal}\``,
-      ).toBe(1);
-      const step = matches[0]!;
-      for (const key of ["if", "continue-on-error", "working-directory", "shell"]) {
-        expect(step[key], `${row.workflow}#${row.job} run-excluded step: ${key}:`).toBeUndefined();
-      }
-      expect(
-        (step.run as string).includes("|"),
-        `${row.workflow}#${row.job} run-excluded step: no pipes`,
-      ).toBe(false);
+  it("the verifier REJECTS every execution-override class (fixture negatives, not corpus luck)", () => {
+    const row = { workflow: ".github/workflows/w.yml", job: "j" };
+    const FILE = "tests/x/y.test.ts";
+    const base = (jobExtra: string, stepExtra: string, wfExtra = "") =>
+      `name: w\non:\n  pull_request:\n${wfExtra}jobs:\n  j:\n${jobExtra}    runs-on: ubuntu-latest\n    steps:\n      - name: prove\n${stepExtra}        run: pnpm run-excluded ${FILE}\n`;
+    // Clean control: the fixture grammar itself verifies.
+    expect(coverageRowProblems(row, FILE, base("", ""))).toEqual([]);
+    // Each case must produce at least one problem.
+    const cases: Array<[string, string]> = [
+      [
+        "filtered pull_request",
+        base("", "").replace("  pull_request:\n", "  pull_request:\n    paths: [x]\n"),
+      ],
+      [
+        "types-filtered pull_request",
+        base("", "").replace("  pull_request:\n", "  pull_request:\n    types: [closed]\n"),
+      ],
+      ["workflow env (BASH_ENV/PATH poison — F2)", base("", "", "env:\n  BASH_ENV: ./x.sh\n")],
+      ["workflow defaults", base("", "", "defaults:\n  run:\n    shell: bash -c ':' {0}\n")],
+      ["shared concurrency group (F5)", base("", "", "concurrency:\n  group: shared\n")],
+      ["job env (F2)", base("    env:\n      PATH: ./fake\n", "")],
+      ["job container (F3)", base("    container: node:20\n", "")],
+      ["job concurrency (F5)", base("    concurrency:\n      group: g\n", "")],
+      ["job needs", base("    needs: gate\n", "")],
+      ["job strategy", base("    strategy:\n      matrix:\n        a: [1]\n", "")],
+      ["job environment (R6 F2)", base("    environment: prod\n", "")],
+      ["job continue-on-error", base("    continue-on-error: true\n", "")],
+      ["job arbitrary if", base("    if: false\n", "")],
+      ["self-hosted runs-on (F3 class)", base("", "").replace("ubuntu-latest", "[self-hosted]")],
+      ["step env (F2)", base("", "        env:\n          PATH: ./fake\n")],
+      ["step if", base("", "        if: failure()\n")],
+      ["step shell override", base("", '        shell: bash -c ":" {0}\n')],
+      ["step working-directory", base("", "        working-directory: other\n")],
+      ["step continue-on-error", base("", "        continue-on-error: true\n")],
+      [
+        "decorated literal",
+        base("", "").replace(`pnpm run-excluded ${FILE}`, `pnpm run-excluded ${FILE} || true`),
+      ],
+      ["missing step", base("", "").replace(`pnpm run-excluded ${FILE}`, "echo hi")],
+    ];
+    for (const [label, yamlText] of cases) {
+      expect(coverageRowProblems(row, FILE, yamlText), label).not.toEqual([]);
+    }
+    // …and the allowed forms stay allowed: schedule-exclusion if, ref-scoped
+    // concurrency, versioned ubuntu.
+    expect(
+      coverageRowProblems(
+        row,
+        FILE,
+        base(
+          "    if: github.event_name != 'schedule'\n",
+          "",
+          "concurrency:\n  group: ${{ github.workflow }}-${{ github.ref }}\n",
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      coverageRowProblems(row, FILE, base("", "").replace("ubuntu-latest", "ubuntu-24.04")),
+    ).toEqual([]);
+    // Discoverability regex (F4): the four undiscoverable shapes.
+    for (const bad of [
+      "workflows/x.yml",
+      ".github/workflows/nested/x.yml",
+      ".github/workflows/x.yml.txt",
+      "../.github/workflows/x.yml",
+    ]) {
+      expect(DISCOVERABLE_WORKFLOW.test(bad), bad).toBe(false);
     }
   });
 });

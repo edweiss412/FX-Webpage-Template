@@ -75,6 +75,22 @@ const failed = report?.numFailedTests;
 if (typeof passed !== "number" || typeof failed !== "number") {
   fail("report lacks numeric numPassedTests/numFailedTests — refusing to classify (fail-closed)");
 }
+// Per-file attribution (R1-B F1): vitest positionals are SUBSTRING filters
+// (cli-api filterFiles, case-insensitive), so the aggregate counts alone
+// cannot prove the NAMED file supplied the passes — a sibling matching the
+// filter (a .tsx twin, a longer path) could pass while the registered file
+// skips entirely. Require >=1 passed assertion in a testResults entry whose
+// name IS the named file (exact, or suffix at a path boundary).
+const results = Array.isArray(report?.testResults) ? report.testResults : null;
+if (results === null) {
+  fail("report lacks a testResults array — cannot attribute passes to the named file");
+}
+const namedEntry = results.filter(
+  (r) => typeof r?.name === "string" && (r.name === file || r.name.endsWith(`/${file}`)),
+);
+const namedPassed = namedEntry
+  .flatMap((r) => (Array.isArray(r.assertionResults) ? r.assertionResults : []))
+  .filter((a) => a?.status === "passed").length;
 if (childExit !== 0) {
   fail(`child vitest exited ${childExit} (run-level failure, even if test cases passed)`);
 }
@@ -84,4 +100,12 @@ if (passed < 1) {
 if (failed !== 0) {
   fail(`report shows ${failed} failed tests`);
 }
-console.log(`run-excluded-test: ${file} executed ${passed} passed / 0 failed (child exit 0)`);
+if (namedPassed < 1) {
+  fail(
+    `no passed assertion is attributed to ${file} itself (${passed} aggregate passes came from ` +
+      "other files matching the substring filter)",
+  );
+}
+console.log(
+  `run-excluded-test: ${file} executed ${namedPassed} passed in-file / ${passed} total / 0 failed (child exit 0)`,
+);

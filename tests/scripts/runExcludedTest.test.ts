@@ -68,7 +68,26 @@ function stub(opts: { report?: unknown; rawBytes?: string; exitCode: number }): 
   return JSON.stringify({ cmd: "node", args: [stubPath] });
 }
 
-const passing = { numPassedTests: 3, numFailedTests: 0, numPendingTests: 0 };
+// Reports carry per-file attribution (R1-B F1): vitest positionals are
+// SUBSTRING filters (cli-api filterFiles), so aggregate counts alone cannot
+// prove the NAMED file supplied the passing tests — a sibling matching the
+// filter (email-canonicalization.test.tsx, a longer path) could pass while
+// the registered file skips. The oracle requires >=1 passed assertion in a
+// testResults entry whose name ends with the named file.
+const forFile = (file: string, passed: number, failed = 0) => ({
+  name: `/abs/checkout/${file}`,
+  assertionResults: [
+    ...Array.from({ length: passed }, () => ({ status: "passed" })),
+    ...Array.from({ length: failed }, () => ({ status: "failed" })),
+  ],
+});
+const NAMED = "tests/whatever.test.ts";
+const passing = {
+  numPassedTests: 3,
+  numFailedTests: 0,
+  numPendingTests: 0,
+  testResults: [forFile(NAMED, 3)],
+};
 
 describe("run-excluded-test execution oracle (spec §6.1)", () => {
   it("exit 0 IFF child exit 0 AND >=1 passed AND 0 failed", () => {
@@ -104,6 +123,34 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     // Collection, setup, teardown, and unhandled-runtime failures can coexist
     // with passed test cases — BOTH conditions must hold, not either.
     expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: passing, exitCode: 1 }) })).not.toBe(0);
+  });
+
+  it("rejects a failing report even when the child exits 0 (independent third condition)", () => {
+    // Without this case, deleting the numFailedTests check leaves every other
+    // rejection green via the child-exit condition — the IFF needs each
+    // condition pinned alone (R1-B F6).
+    const r = {
+      numPassedTests: 2,
+      numFailedTests: 1,
+      numPendingTests: 0,
+      testResults: [forFile(NAMED, 2, 1)],
+    };
+    expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
+  });
+
+  it("rejects aggregate passes attributed to a DIFFERENT file than the named one (R1-B F1)", () => {
+    const r = {
+      numPassedTests: 3,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      testResults: [forFile("tests/whatever.test.tsx", 3)],
+    };
+    expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
+  });
+
+  it("rejects a report with NO testResults attribution at all", () => {
+    const r = { numPassedTests: 3, numFailedTests: 0, numPendingTests: 0 };
+    expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
   });
 
   it("REFUSES the override seam under GITHUB_ACTIONS (CI always runs real vitest)", () => {
