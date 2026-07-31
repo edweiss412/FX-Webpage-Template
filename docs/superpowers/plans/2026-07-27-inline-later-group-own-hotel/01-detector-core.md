@@ -71,7 +71,7 @@ describe("classifyLaterSegment unit oracles (spec 2026-07-27 §8.1)", () => {
 Remaining unit `it()` blocks (same file, same pattern — input + assertions from the named row):
 
 1. "contextYear-null postal segment" (row: Detector guard branches (ii)) — tier 1 with `build.row.check_in === null` and `check_out === null`.
-2. "Trailing-initial UNIT oracle" — `classifyLaterSegment("Marriott Plaza Jane D - 1002 Check In: 3/3 Check Out: 3/4", 1, "2026")` → `outcome.tier === 3` (4 whitespace words, 3 BASE words). Failure mode: whitespace word-count implementation returns `{ tier: 2 }`.
+2. "Trailing-initial UNIT oracle" — `classifyLaterSegment("Marriott Plaza Jane D - 1002 Check In: 3/3/26 Check Out: 3/4/26", 1, "2026")` → `outcome.tier === 3` (year-suffixed per the §8.1 materialization convention — the ONLY authorized yearless oracles are contextYear forwarding and contextYear-null; plan R5 f2) (4 whitespace words, 3 BASE words). Failure mode: whitespace word-count implementation returns `{ tier: 2 }`.
 3. "Zero-width strip UNIT oracle" — the row's segment literal with U+200B (`​`) between `2` and `00` of the street number → tier 1, `build.row.hotel_name === "Marriott Downtown 200 Oak Ave, Chicago, IL 60601"` (zero-width GONE), `build.row.hotel_address === null` (D6 leaves the split to the caller's `stripHotelNameConf` pass), names `["Jane Doe"]`. Materialize ONLY U+200B/U+200C/U+200D, never U+FEFF (BOM is JavaScript `\s`). Failure mode: strip-less D1 falls to the word arm, `{ tier: 2 }`.
 4. "D4 smaller-index precedence" unit assertion (optional per spec — include): the row's input → tier 2.
 
@@ -79,7 +79,7 @@ Failure modes stated per group: (1) kills fire-tier-1-on-D4-match; (2) kills mis
 
 **Branch coverage matrix (plan R4 f1 — MANDATORY; every D1-D6 branch step 4 implements has at least one unit oracle in THIS file before implementation).** Each entry names its spec §8.1 row; the unit oracle calls `classifyLaterSegment` directly with the row's later-segment literal and asserts the stated tier (plus `hotelText`/`build.row` fields where the row keeps). Task 2 re-verifies the same rows at the integration layer (rows/warnings/stripHotelNameConf interplay) — a different observation surface, not duplication.
 
-- D1 entity member: the `&#10;` envelope keep input → tier 1. D1 tab member + marker bound: a segment whose second marker is written `Check&#9;In` → tier 2 (the ≥2-marker S9 bound fires on D1 text — the unit-level form of the tab-entity-split degrade). D1 quote members: quoted corpus keep AND smart-quote keep → tier 1 each.
+- D1 entity member: the `&#10;` envelope keep input → tier 1 AND `build.row.hotel_name` equals the row's NORMALIZED literal (entity replaced by one space, doubles collapsed) with `hotel_address === null` — tier alone is insufficient, a no-op D1 can still reach tier 1 with corrupted text (plan R5 f1). D1 tab member + marker bound: a segment whose second marker is written `Check&#9;In` → tier 2 (the ≥2-marker S9 bound fires on D1 text — the unit-level form of the tab-entity-split degrade). D1 quote members: quoted corpus keep AND smart-quote keep → tier 1 each.
 - D2: divider strip ×3 dash forms → tier 1, NAME-asserted.
 - D3 five-way minimum: two-guest hyphen keep (dash-run cut) → tier 1; hash counterfeit → tier 2; bare-conf → tier 2; tail keep (Check-In-start cut) → tier 1; position-0 all-address keep (s2.length arm) → tier 1.
 - isZip4 five-clause boundary: the tier-1-path ZIP+4 rejection row's five materializations — first FOUR → tier 2, FIFTH (`1234A`) → tier 1 — plus the true-ZIP+4 keep → tier 1.
@@ -88,7 +88,7 @@ Failure modes stated per group: (1) kills fire-tier-1-on-D4-match; (2) kills mis
 - D5 word arm: tier-2 word arm row → tier 2. Post-prefix scan arm (i): post-prefix street-only → tier 2 (raw read); dash-glued street one form → tier 2 (neutralized read); word-glued street one form → tier 2; digit-run prose one form → tier 2. Arm (ii): conf-glue dash form → tier 2; hash/bare glue → tier 2.
 - D6: dotted c0 pin → tier 2; Doug c1 → tier 2; Alice c2 → tier 2 (names-empty abort already above).
 
-Remaining materializations of each family (the full ×3 dash forms, all 12 arm-1 syntax cells, all 8 a0 aliases, both provenance paths, etc.) stay Task-2 integration rows — the matrix pins every BRANCH at unit level; Task 2 exhausts every MATERIALIZATION.
+Remaining materializations of each family (the full ×3 dash forms, all 12 arm-1 syntax cells, all 8 a0 aliases, both provenance paths, etc.) stay Task-2 integration rows — the matrix pins every BRANCH at unit level; Task 2 exhausts every MATERIALIZATION. **Byte-assert rule for every tier-1 matrix entry (plan R5 f1 class-sweep):** each tier-1 oracle asserts the row's stated `hotel_name`/`hotel_address` (or `hotelText`) literals and `names`, never `tier === 1` alone — the branch under test transforms TEXT, so only text assertions kill its no-op mutant.
 
 - [ ] **Step 2: Run tests, verify they fail on the missing export**
 
