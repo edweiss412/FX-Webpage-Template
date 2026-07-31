@@ -122,8 +122,11 @@ const AFTER = "(?![A-Za-z0-9])";
 // CLOSED` hid from the status lane, `> **CLOSED**` from the opening lane).
 // One fragment feeds every line-anchored matcher AND the field-line filters
 // below, so the next lane cannot forget it. Bullets require the space that
-// makes them a list in markdown; a blockquote marker does not.
-const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,3}[.)])\\s+)*";
+// makes them a list in markdown; a blockquote marker does not. r23: a GFM
+// task-list checkbox (`[ ]`/`[x]`/`[X]`) rides a list marker — `- [x]
+// **Status:** CLOSED` is still the entry's own claim, so the optional
+// checkbox is part of the list-marker alternative (it cannot appear bare).
+const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,3}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // Both bold conventions carry the colon differently — `**Status:** X` and
 // `**Status**: X` are the same field label (r16), so the colon is accepted on
 // either side of the closing emphasis.
@@ -571,6 +574,13 @@ describe("backlog ledger graduation", () => {
     expect(FILED_FIELD_LINE.test("> **Filed:** 2026-07-01")).toBe(true);
     // …and the PARTIAL veto still holds behind a prefix:
     expect(terminalHit("- **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
+    // r23 — GFM task-list checkboxes ride the list marker in every lane,
+    // including nested-in-blockquote, and the veto still holds behind one:
+    expect(terminalHit("- [x] **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("1. [X] **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    expect(terminalHit("> - [x] **CLOSED** by PR #631.", OPENING_TERMINAL_BOLD)).toBe(true);
+    expect(STATUS_FIELD_LINE.test("- [ ] Status: RESOLVED")).toBe(true);
+    expect(terminalHit("- [ ] **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {

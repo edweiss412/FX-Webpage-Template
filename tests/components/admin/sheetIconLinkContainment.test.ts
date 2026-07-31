@@ -653,6 +653,12 @@ const REMAP_SPELLINGS = new Set([
   // reachable JSON; a legitimate future use teaches this guard first.
   "resolveExtensions",
   "extensions",
+  // r23: the MDX loader's `extension` option redirects which FILES the MDX
+  // pipeline claims — `createMDX({ extension: /\.mdx?$/ })` compiles tracked
+  // `.md` (a tree the walk treats as prose) into importable/page source. The
+  // real config passes no such key; the compiled-page surface is additionally
+  // pinned by the pageExtensions equality check below.
+  "extension",
 ]);
 
 function nextConfigAliasOffenders(src: string): string[] {
@@ -1308,6 +1314,49 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ),
     ];
     expect(configOffenders).toEqual([]);
+    // r23: the compiled-PAGE surface is a resolution surface too — adding
+    // "md" to pageExtensions (or an MDX `extension` regex, denied via
+    // REMAP_SPELLINGS above) turns tracked `.md` — a tree the walk treats as
+    // prose — into compiled first-party source. The array is pinned by exact
+    // AST equality: exactly one `pageExtensions` property in the config
+    // graph, every element a plain string literal, equal to the current set.
+    const entrySrc = readFileSync(join(root, "next.config.ts"), "utf8");
+    const entrySf = ts.createSourceFile(
+      "next.config.ts",
+      entrySrc,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const pageExtSets: string[][] = [];
+    const collectPageExts = (node: ts.Node): void => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+        node.name.text === "pageExtensions"
+      ) {
+        if (!ts.isArrayLiteralExpression(node.initializer)) {
+          pageExtSets.push(["<non-array pageExtensions initializer>"]);
+        } else {
+          pageExtSets.push(
+            node.initializer.elements.map((el) =>
+              ts.isStringLiteralLike(el) ? el.text : "<non-literal pageExtensions element>",
+            ),
+          );
+        }
+      }
+      ts.forEachChild(node, collectPageExts);
+    };
+    collectPageExts(entrySf);
+    expect(pageExtSets, "pageExtensions pinned by exact set").toEqual([["ts", "tsx", "mdx"]]);
+    // …and the named artifact stays impossible even if the pins above are
+    // ever loosened: zero tracked .md under app/ (the only page-capable
+    // tree). A future legitimate .md page teaches this guard first.
+    const appMd = execFileSync("git", ["ls-files", "--", "app/*.md"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect(appMd, "no tracked .md under app/ (page-candidate tripwire)").toBe("");
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and
     // prose-comment mentions are not.
@@ -1380,6 +1429,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     );
     expect(jsonRemapOffenses({ remarkPlugins: [], pageExtensions: ["mdx"] }, "cfg.json")).toEqual(
       [],
+    );
+    // r23 — extension-selection keys are remap keys in every lane:
+    expect(jsonRemapOffenses({ extension: {} }, "cfg.json").length).toBeGreaterThan(0);
+    expect(jsonRemapOffenses({ resolveExtensions: ["x.tsx"] }, "cfg.json").length).toBeGreaterThan(
+      0,
     );
   });
 
