@@ -428,6 +428,18 @@ export const SPEC_CODES = {
     "followUp": "Doug → spot-check hotel guests",
     "helpfulContext": "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
   },
+  "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED": {
+    "crewFacing": null,
+    "dougFacing": "A hotel line in _<sheet-name>_ may show a reservation under the wrong hotel; check it against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, fixes this.",
+    "followUp": "Doug → fix the sheet: one booking per HOTEL RESERVATION column",
+    "helpfulContext": "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
+  },
+  "HOTEL_INLINE_GROUP_OWN_HOTEL": {
+    "crewFacing": null,
+    "dougFacing": "A hotel line in _<sheet-name>_ seems to book more than one hotel; check each reservation's hotel against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, keeps them from running together.",
+    "followUp": "Doug → spot-check hotel reservations",
+    "helpfulContext": "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
+  },
   "IDEMPOTENCY_IN_FLIGHT": {
     "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",
     "dougFacing": "Hold on. Your previous report is still being submitted. Try again in a moment if it doesn't go through.",

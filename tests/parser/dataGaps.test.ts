@@ -40,9 +40,9 @@ const classesWith = (overrides: Record<string, number>): Record<string, number> 
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 35 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(35);
-    expect(DATA_GAP_CODES.size).toBe(35);
+  it("has exactly 37 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(37);
+    expect(DATA_GAP_CODES.size).toBe(37);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
@@ -77,10 +77,12 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
       warn("ROOM_HEADER_SPLIT_AMBIGUOUS"),
       warn("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
       warn("HOTEL_ADDRESS_SPLIT_AMBIGUOUS"),
+      warn("HOTEL_INLINE_GROUP_OWN_HOTEL"),
+      warn("HOTEL_INLINE_GROUP_HOTEL_SUSPECTED"),
       warn("DATE_ORDER_SUGGESTS_DMY"),
       warn("HOTEL_CARDINALITY_EXCEEDED"),
     ]);
-    expect(s.total).toBe(5);
+    expect(s.total).toBe(7);
     // recovery symmetry: an ambiguity regression blocks recovery to baseline
     expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
   });
@@ -99,6 +101,12 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     );
     expect(labelFor("DATE_ORDER_SUGGESTS_DMY")).toBe("dates may be day-first");
     expect(labelFor("HOTEL_CARDINALITY_EXCEEDED")).toBe("too many hotels");
+    expect(labelFor("HOTEL_INLINE_GROUP_OWN_HOTEL")).toBe(
+      "reservations given their own hotel from a shared line",
+    );
+    expect(labelFor("HOTEL_INLINE_GROUP_HOTEL_SUSPECTED")).toBe(
+      "reservations may show the wrong hotel",
+    );
     // The noun default is untouched.
     expect(labelFor("FIELD_UNREADABLE")).toBe("unreadable fields");
   });
@@ -154,7 +162,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 35
+    expect(out.total).toBe(GAP_CLASSES.length); // 37
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 
