@@ -62,6 +62,12 @@ type Keep = {
   index: number;
 };
 
+// Two row pairs carry byte-identical inputs — "Backlog clobber fixed (postal form)"
+// with "Address tail, comma city+state+ZIP", and "guests inside the address match
+// (ZIP interior)" with "ZIP-arm interior boundary, FIVE demotes". Both are kept
+// deliberately: each name traces to its OWN spec §8.1 row, so deleting either breaks
+// row-to-oracle traceability. They add NO independent discrimination — read the pair
+// as one oracle when counting distinct coverage.
 const KEEPS: readonly Keep[] = [
   {
     name: "Backlog clobber fixed (postal form)",
