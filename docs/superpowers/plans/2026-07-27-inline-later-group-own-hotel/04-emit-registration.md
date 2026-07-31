@@ -32,7 +32,7 @@ Plan R1 findings 1–3 merged the old Tasks 4+5: the walker's `isMessageCode` ga
 
 ## Oracle groups (spec §8.1/§8.4 rows, byte-exact)
 
-1. Envelope OWN and SUSPECTED on D1-affected inputs (`&#10;`, doubled space, quotes): `rawSnippet` === the RAW segment/cell bytes AND `!== normalized`; surviving `index`; verdict fields (D7 — `build.judgedGuestBoundary` mapping; 7b guest warning); roleToken-absent asserts (R43).
+1. Envelope OWN and SUSPECTED on D1-affected inputs (`&#10;`, doubled space, quotes): `rawSnippet` === the RAW segment/cell bytes AND `!== normalized`; surviving `index`; verdict fields (D7 — `build.judgedGuestBoundary` mapping; 7b guest warning); roleToken-absent asserts (R43). PLUS the two ATTRIBUTION rawSnippet oracles (plan R8 f1/f2, the spec-R14 per-producer discrimination): the **Degraded LATER segment never auto-corrects** row asserts its SUSPECTED `rawSnippet` === THAT later segment's raw bytes (kills whole-cell or group-0 stashing for degraded demotes), and the **Nearest-preceding inheritance** row asserts its SUSPECTED `rawSnippet` === the INHERITING (Bob) segment's raw bytes, not the tier-1 predecessor's (kills predecessor-bytes reuse) — both pass the cardinality block trivially, so the byte asserts are the only kill.
 2. Null group-0 `baseName` envelope (R16 f5).
 3. Stash order, OWN slot (§8.1 **Stash order** row — probe B6 cell, address-shape-unsplit path, per-row emit order guest → own-hotel → address; first-stash-wins per-row sink). The **Stash order, SUSPECTED slot** row (R20 f3) is Task 5's — its SUSPECTED comes from the whole-cell scope-A scan, unemittable before Task 5 (plan R3 f2).
 4. Field-label render (`field: "address"` bucket mapping).
