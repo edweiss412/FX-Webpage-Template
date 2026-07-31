@@ -612,12 +612,12 @@ function rendersTag(src: string, rel: string): boolean {
  * reach like computed specifiers. MDX needs no twin: the live scan already
  * flags ANY backslash in MDX.
  */
-function hiddenPhraseCount(src: string, rel: string): number {
+function hiddenPhraseCount(src: string, rel: string, needle: string = PHRASE): number {
   if (!src.includes("\\")) return 0;
   const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
   const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
   let hidden = 0;
-  const countIn = (s: string): number => s.split(PHRASE).length - 1;
+  const countIn = (s: string): number => s.split(needle).length - 1;
   const visit = (node: ts.Node): void => {
     if (
       ts.isStringLiteral(node) ||
@@ -964,6 +964,100 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(hidden).toEqual([]);
     expect(found).toEqual(EXPECTED);
   });
+
+  it(
+    "sheet-URL destination surface is pinned: one builder, censused consumers",
+    { timeout: 30_000 },
+    () => {
+      // r33: the identifier/phrase lanes bind the COMPONENT; the destination
+      // binds the CLASS. A hand-rolled icon-only anchor that mentions neither
+      // the identifier nor the canonical phrase still needs a sheet URL, and
+      // there are exactly two static ways to get one: the raw host-path
+      // literal (count-pinned per file below, escape spellings flagged via
+      // the cooked-literal scan) or `buildSheetDeepLink` (fragment-censused
+      // across shipped trees below — renamed imports, namespace access, and
+      // string-literal re-exports all still spell the fragment; computed and
+      // runtime forms stay in the ratified out-of-scope class). A new sheet
+      // link therefore teaches this guard first, where review sees it.
+      const SHEET_URL = "docs.google.com/spreadsheets";
+      const root = join(__dirname, "..", "..", "..");
+      const urlFound: Record<string, number> = {};
+      const urlHidden: string[] = [];
+      const builderConsumers: string[] = [];
+      for (const file of walkedFiles(root)) {
+        const rel = file.slice(root.length + 1);
+        const src = readFileSync(file, "utf8");
+        const count = src.split(SHEET_URL).length - 1;
+        if (count > 0) urlFound[rel] = count;
+        if (!rel.endsWith(".mdx") && hiddenPhraseCount(src, rel, SHEET_URL) > 0)
+          urlHidden.push(`${rel}: escape-hidden sheet-URL occurrence(s)`);
+        if (!/^tests\//.test(rel) && src.includes("buildSheetDeepLink")) builderConsumers.push(rel);
+      }
+      expect(urlHidden).toEqual([]);
+      expect(urlFound).toEqual({
+        "docs/superpowers/specs/step3-onboarding/2026-07-02-step3-review-modal-mock/data.jsx": 1,
+        "lib/sheet-links/buildSheetDeepLink.ts": 1,
+        "tests/admin/attentionClearingKind.test.ts": 1,
+        "tests/adminAlerts/alertActions.test.ts": 5,
+        "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 1,
+        "tests/components/admin/review/attentionBanner.test.tsx": 1,
+        "tests/components/admin/sheetIconLink.test.tsx": 1,
+        // This file's own SHEET_URL constant — the self-row the phrase
+        // census also carries.
+        "tests/components/admin/sheetIconLinkContainment.test.ts": 1,
+        "tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx": 1,
+        "tests/components/admin/showpage/attentionMenuGroups.test.tsx": 1,
+        "tests/components/admin/showpage/publishedReviewModal.test.tsx": 2,
+        "tests/components/admin/wizard/Step2Verify.test.tsx": 1,
+        "tests/components/step3SheetCard.test.tsx": 1,
+        "tests/dev/fullSplitComposite.test.ts": 1,
+        "tests/e2e/_pillFocusLiveEntry.tsx": 1,
+        "tests/e2e/_publishedReviewModalHarness.tsx": 1,
+        "tests/e2e/_skeletonParityHarness.tsx": 1,
+        "tests/sheet-links/buildSheetDeepLink.test.ts": 1,
+      });
+      expect(builderConsumers.sort()).toEqual(
+        [
+          "app/admin/_showReviewModal.tsx",
+          "app/api/admin/onboarding/finalize/route.ts",
+          "components/admin/NoteWarningCard.tsx",
+          "components/admin/OnboardingWizard.tsx",
+          "components/admin/PerShowActionableWarnings.tsx",
+          "components/admin/wizard/Step3Review.tsx",
+          "components/admin/wizard/Step3ReviewModal.tsx",
+          "components/admin/wizard/Step3SheetCard.tsx",
+          "components/admin/wizard/step3ReviewSections.tsx",
+          "components/crew/primitives/CardHeaderActions.tsx",
+          "components/crew/primitives/SourceLink.tsx",
+          "components/crew/sections/BudgetSection.tsx",
+          "components/crew/sections/CrewSection.tsx",
+          "components/crew/sections/GearSection.tsx",
+          "components/crew/sections/ScheduleSection.tsx",
+          "components/crew/sections/TodaySection.tsx",
+          "components/crew/sections/TravelSection.tsx",
+          "components/crew/sections/VenueSection.tsx",
+          "components/shared/CardReportTrigger.tsx",
+          "lib/admin/step3SectionStatus.ts",
+          "lib/adminAlerts/alertActions.ts",
+          "lib/data/getShowForViewer.ts",
+          "lib/dev/publishedModalFixture.ts",
+          "lib/drive/crewRoleAnchors.ts",
+          "lib/drive/showDayTimeAnchors.ts",
+          "lib/drive/sourceAnchors.ts",
+          "lib/drive/unknownFieldAnchors.ts",
+          "lib/parser/sectionHeaderNormalize.ts",
+          "lib/parser/types.ts",
+          "lib/sheet-links/buildSheetDeepLink.ts",
+          "lib/sync/applyParseResult.ts",
+          "lib/sync/attachWarningAnchors.ts",
+          "lib/sync/phase1.ts",
+          "lib/sync/phase2.ts",
+          "lib/sync/runOnboardingScan.ts",
+          "lib/sync/runScheduledCronSync.ts",
+        ].sort(),
+      );
+    },
+  );
 
   it("className checker flags off-contract tokens and non-literal expressions (negative plants)", () => {
     expect(
