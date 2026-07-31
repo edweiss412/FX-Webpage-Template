@@ -15,7 +15,7 @@
 ## Oracle groups (spec §8.1 rows, byte-exact; same harness file/pattern as Task 2)
 
 1. Nearest-preceding worked example (S7) — the inheriting row's `hotel_name` equals the PRECEDING tier-1 group's kept hotel, not group 0's.
-2. Two-tier-1-predecessors discriminator (R16 f2) — kills a "most recent tier-1 anywhere" or "always group 0" implementation; the row names which predecessor wins.
+2. Two-tier-1-predecessors discriminator (R16 f2) — kills a FIRST-tier-1 latch (an implementation that locks onto the earliest tier-1 hotel) and unconditional group-0 inheritance; the nearest PRECEDING tier-1 hotel is the required winner, and the row names it (failure-mode claim corrected plan R7 f3 — "most recent preceding tier-1" IS the required behavior, not a mutant).
 3. Null group-0 `baseName` inheritance shape (R16 f5) — row fields only here; the envelope bytes for this row land in Task 4's envelope tests.
 
 Warning-cardinality clauses for these rows extend the Task 2 `describe.skip("warning cardinality (unskipped by Task 4)")` block, same row names.
