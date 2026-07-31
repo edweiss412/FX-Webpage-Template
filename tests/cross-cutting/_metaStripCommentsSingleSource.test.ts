@@ -136,6 +136,15 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
     reason: "E6: YAML # directives filter",
   },
   {
+    file: "tests/ci/_metaSpecRegistration.test.ts",
+    family: "marker-skip-regex",
+    marker: "#",
+    reason:
+      "shell-grammar classifier, not comment stripping: the invocation census skips full-line " +
+      "# lines because they never EXECUTE (and routes inline # to the fail-closed registry) — " +
+      "same class as the E5/E6 YAML rows",
+  },
+  {
     file: "tests/cross-cutting/vitest-projects-partition.test.ts",
     family: "startswith-filter",
     marker: "#",

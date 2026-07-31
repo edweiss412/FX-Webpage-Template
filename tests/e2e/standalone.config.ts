@@ -85,7 +85,14 @@ export default defineConfig({
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,
-  reporter: "list",
+  // The json reporter's report is what the CI post-run baseline comparison
+  // reads (spec 2026-07-26-ci-dark-descoped-closeout §4.1): the run's OWN
+  // output is the only artifact guaranteed to share the run's environment.
+  // Playwright resolves a relative outputFile against the CONFIG directory
+  // (1.59.1 lib/reporters/base.js resolveOutputFile), not the cwd — the ../..
+  // climbs from tests/e2e/ to the repo-root test-results/ the comparator's
+  // zero-args default reads. Resolution pinned by _metaSpecRegistration.
+  reporter: [["list"], ["json", { outputFile: "../../test-results/standalone-report.json" }]],
   projects: [
     {
       name: "standalone-chromium",

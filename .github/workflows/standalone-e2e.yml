@@ -30,6 +30,16 @@ name: standalone-e2e
 # fallbacks that used to live in modal-header-layout-e2e.yml's `env:`.
 #
 # Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §4.
+#
+# The comparison step after the run reads the run's OWN json report (the
+# config's json reporter writes it) and compares files + total test count
+# against tests/e2e/standalone-baseline.json. Structurally pinned by
+# tests/ci/_metaSpecRegistration.test.ts: it must DIRECTLY follow the run
+# step with no step-level if/env/continue-on-error/shell/working-directory
+# on either step, and NO comment lines may sit between the two steps — the
+# coverage scanner is regex-on-YAML and swallows inter-step comments into
+# the run command, un-claiming the whole config. Spec:
+# docs/superpowers/specs/ci/2026-07-26-ci-dark-descoped-closeout-design.md §4.
 
 on:
   pull_request:
@@ -59,6 +69,8 @@ jobs:
       - run: pnpm exec playwright install chromium
       - name: Run the whole standalone config
         run: pnpm exec playwright test --config tests/e2e/standalone.config.ts
+      - name: Compare the run's own report against the committed baseline
+        run: node scripts/check-standalone-baseline.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
