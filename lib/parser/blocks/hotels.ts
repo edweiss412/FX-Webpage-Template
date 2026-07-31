@@ -784,16 +784,25 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     return outcome?.tier === 1 ? outcome.build.judgedGuestBoundary : false;
   });
 
+  // Spec §4 (S7): rows are processed IN ORDER and a tier-2/3 row inherits from the
+  // NEAREST PRECEDING row that carries its own hotel — group 0, or the closest earlier
+  // tier-1 group. Latching onto group 0 unconditionally hands a guest the wrong hotel
+  // whenever an own-hotel group precedes them; latching onto the FIRST tier-1 group
+  // makes the same error one hotel later.
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
+  let inheritedName = baseName;
   rows.forEach((r, i) => {
     const outcome = laterOutcomes[i];
     if (i > 0 && outcome?.tier === 1) {
       // The kept row already carries `hotel_name = hotelText` / `hotel_address = null`;
-      // the per-row stripHotelNameConf pass below splits it like any other row.
+      // the per-row stripHotelNameConf pass below splits it like any other row, and
+      // every following inheriting row takes the SAME unsplit text so its own split
+      // lands identically.
       rows[i] = outcome.build.row;
+      inheritedName = outcome.hotelText;
       return;
     }
-    r.hotel_name = baseName;
+    r.hotel_name = i === 0 ? baseName : inheritedName;
   });
   // Address ambiguity follows the same row-7 anchor: only reservation 0's
   // hotel_name is the splitter's own output — every later row holds inherited
