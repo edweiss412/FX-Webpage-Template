@@ -92,6 +92,31 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
     }
   });
 
+  it("canonical §4.2 rows and the catalog agree, read from the DOCUMENT itself", () => {
+    // A fixture that duplicates the table's strings cannot detect the table changing:
+    // editing canonical row 43 or 44 alone would leave the suite green while the doc
+    // and the shipped copy diverge. This reads the document, so either side moving
+    // fails. Scoped to EXPECTED_HELPFUL_CONTEXT's codes for the same reason that map
+    // is scoped (BL-CARD-COPY-HELPFULCONTEXT-PARITY covers rows 1-42).
+    const doc = readFileSync(
+      join(process.cwd(), "docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md"),
+      "utf8",
+    );
+    const rowFor = (code: string): { helpfulContext: string; triggerContext: string } => {
+      const line = doc
+        .split("\n")
+        .find((l) => l.startsWith("| ") && l.split("|")[2]?.trim() === code);
+      expect(line, `no §4.2 row for ${code}`).toBeDefined();
+      const cells = line!.split("|");
+      return { helpfulContext: cells[3]!.trim(), triggerContext: cells[4]!.trim() };
+    };
+    for (const code of Object.keys(EXPECTED_HELPFUL_CONTEXT)) {
+      const row = rowFor(code);
+      expect(CATALOG[code]?.helpfulContext, `${code} §4.2 helpfulContext`).toBe(row.helpfulContext);
+      expect(CATALOG[code]?.triggerContext, `${code} §4.2 triggerContext`).toBe(row.triggerContext);
+    }
+  });
+
   it("frozen copy fixture: helpfulContext matches spec §4.2 byte-for-byte", () => {
     // Scoped to EXPECTED_HELPFUL_CONTEXT, not the whole registry: the pre-existing
     // HOTEL_GUEST_SPLIT_AMBIGUOUS divergence is shipped copy (BL-CARD-COPY-

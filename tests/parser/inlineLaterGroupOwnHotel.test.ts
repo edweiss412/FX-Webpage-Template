@@ -2642,6 +2642,10 @@ describe("inline later-group own-hotel — keeps (tier 1)", () => {
       expect(row!.names).toEqual(k.names);
       expect(row!.check_in).toBe(k.checkIn);
       expect(row!.check_out).toBe(k.checkOut);
+      // The kept group is the LAST group in every keep cell, so the row vector must
+      // end there — without this a regression appending an unwarned extra reservation
+      // passes every field assertion above.
+      expect(rows.length).toBe(k.index + 1);
       // Row 0 is never perturbed by a later group's keep.
       expect({
         hotel_name: rows[0]!.hotel_name,
@@ -2783,6 +2787,54 @@ describe("inheritance after a tier-1 group", () => {
   });
 });
 
+// A row inheriting a tier-1 predecessor takes that hotel WHOLE. Its own provisional
+// `hotel_address` described a DIFFERENT hotel — its segment's own text — and
+// `stripHotelNameConf` deliberately never clobbers a set address with null, so an
+// inheritance pass that only rewrites `hotel_name` leaves a hybrid row: the
+// predecessor's name beside this segment's address. Reachable on every provenance
+// path whose kept hotel splits to a null address.
+describe("inheriting rows never keep another hotel's address", () => {
+  const TAIL = " Hilton Midtown 300 Pine St, Seattle, WA 98101 Alice Smith - 1003 Doug - 1004";
+
+  const cases: ReadonlyArray<readonly [string, string, string]> = [
+    [
+      "ZIP-arm numeric brand predecessor",
+      "Hotel 71 Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+      "Hotel 71 Chicago, IL 60601",
+    ],
+    [
+      "position-0 all-address predecessor",
+      "200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+      "200 Oak Ave, Chicago, IL 60601",
+    ],
+  ];
+
+  for (const [label, later, keptHotel] of cases) {
+    it(`${label}: the inheriting row carries the kept hotel and a NULL address`, () => {
+      const rows = rowsOf(cell(later + TAIL));
+      expect(rows.length).toBe(3);
+      // row 1 is the tier-1 keep
+      expect(rows[1]!.hotel_name).toBe(keptHotel);
+      expect(rows[1]!.hotel_address).toBeNull();
+      // row 2 inherits it — name AND address, never a mix of two hotels
+      expect(rows[2]!.hotel_name).toBe(keptHotel);
+      expect(rows[2]!.hotel_address).toBeNull();
+      // its own guests and dates are untouched (today's c2-demoted extraction)
+      expect(rows[2]!.names).toEqual(["Smith", "Doug"]);
+      expect(rows[2]!.check_in).toBeNull();
+      expect(rows[2]!.check_out).toBeNull();
+    });
+  }
+
+  it("a cell with NO tier-1 group keeps today's inherited-row bytes exactly", () => {
+    // Byte-parity guard for spec §4: the null-out applies ONLY to rows inheriting a
+    // tier-1 predecessor. Group-0 inheritance is untouched, provisional address included.
+    const rows = rowsOf(cell("Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26" + TAIL));
+    expect(rows[2]!.hotel_name).toBe("Hyatt Regency 100");
+    expect(rows[2]!.hotel_address).toBe("300 Pine St, Seattle, WA 98101 Alice");
+  });
+});
+
 describe("warning cardinality", () => {
   for (const k of KEEPS) {
     it(`${k.name} — exactly one OWN at index ${k.index}, zero SUSPECTED`, () => {
@@ -2794,10 +2846,22 @@ describe("warning cardinality", () => {
     });
   }
 
+  // Every demote row's SUSPECTED anchors the LATER group (index 1) unless its cell
+  // shifts the surviving row: the zero-marker tail demotes on row 2, and the dotted
+  // `Ste.` cell collapses to ONE fallback reservation so its stash lands on row 0.
+  // Cardinality alone is not enough — an implementation anchoring every warning at
+  // row 0 would point the operator at the wrong reservation and still pass.
+  const SUSPECTED_INDEX: Readonly<Record<string, number>> = {
+    "zero-marker multi-delimiter tail demotes (c2)": 2,
+    "dotted Ste. Grand c0 pin": 0,
+  };
+
   for (const d of DEMOTES) {
     it(`${d.name} — exactly one SUSPECTED, zero OWN`, () => {
       const { warnings } = parse(cellFor(d));
-      expect(warnings.filter((w) => w.code === SUSPECTED).length).toBe(1);
+      const suspected = warnings.filter((w) => w.code === SUSPECTED);
+      expect(suspected.length).toBe(1);
+      expect(suspected[0]!.blockRef?.index).toBe(SUSPECTED_INDEX[d.name] ?? 1);
       expect(warnings.filter((w) => w.code === OWN).length).toBe(0);
     });
   }

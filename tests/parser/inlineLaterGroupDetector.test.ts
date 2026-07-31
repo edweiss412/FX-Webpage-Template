@@ -240,6 +240,30 @@ describe("classifyLaterSegment branch matrix — isZip4 five-clause boundary", (
     });
   }
 
+  // The five materializations above are ALL post-marker, where arm (ii)'s trailing `\b`
+  // means `-1234A` never reaches isZip4Hyphen at all and `Note 99999-1234` has no suffix
+  // word for the neutralized read to catch. Two clauses therefore survive deletion there.
+  // These two oracles put each on the side of the boundary that DOES discriminate it.
+  it("isZip4 afterMatch clause: a PRE-marker trailing word char is a delimiter, demoting", () => {
+    // D3's dash class carries no trailing `\b`, so `-1234A` IS a candidate; the
+    // afterMatch clause refuses the ZIP+4 exclusion, the prefix cuts at the dash, and
+    // the post-prefix scan sees the street. Deleting the afterMatch clause makes this
+    // a true ZIP+4, no cut happens, and the segment keeps with Jane buried.
+    expectDemote(
+      "Jane Doe 99999-1234A 1515 Madison Ave, Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
+  });
+
+  it("neutralizer isZip4 exclusion: a true ZIP+4 before a suffix word still keeps", () => {
+    // Deleting the neutralizer's ZIP+4 exclusion splits `99999-1234` into `99999 1234`,
+    // whereupon ` 1234 Way` matches the street regex and this ratified keep demotes.
+    const outcome = expectKeep(
+      "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Note 99999-1234 Way Check Out: 3/4/26",
+    );
+    expect(outcome.build.row.hotel_name).toBe(B1Z_HOTEL_TEXT);
+    expect(outcome.build.row.names).toEqual(["Jane Doe"]);
+  });
+
   it("Trailing word character defeats the dash family's \\b and still keeps", () => {
     const outcome = expectKeep(zip4Segment("99999-1234A"));
     expect(outcome.build.row.hotel_name).toBe(B1Z_HOTEL_TEXT);

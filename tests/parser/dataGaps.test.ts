@@ -101,6 +101,12 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     );
     expect(labelFor("DATE_ORDER_SUGGESTS_DMY")).toBe("dates may be day-first");
     expect(labelFor("HOTEL_CARDINALITY_EXCEEDED")).toBe("too many hotels");
+    expect(labelFor("HOTEL_INLINE_GROUP_OWN_HOTEL")).toBe(
+      "reservations given their own hotel from a shared line",
+    );
+    expect(labelFor("HOTEL_INLINE_GROUP_HOTEL_SUSPECTED")).toBe(
+      "reservations may show the wrong hotel",
+    );
     // The noun default is untouched.
     expect(labelFor("FIELD_UNREADABLE")).toBe("unreadable fields");
   });

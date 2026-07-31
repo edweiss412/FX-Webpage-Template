@@ -78,9 +78,16 @@ describe("hotel ambiguity — corpus golden (spec §9)", () => {
     expect(WARNING_CARD_COPY_CODES.has(SUSPECTED_CODE), SUSPECTED_CODE).toBe(true);
   });
 
-  it("every corpus fixture has a golden row", () => {
-    const missing = fixtures.map(([name]) => name).filter((n) => !(n in GOLDEN));
+  it("the fixture set and the golden keys are EXACTLY equal", () => {
+    // Subset-only ("every fixture has a row") pins ADDITIONS but not DELETIONS:
+    // removing or renaming a fixture leaves the per-fixture loop and the totals
+    // unchanged while silently shrinking the two-family coverage this file claims.
+    const found = fixtures.map(([name]) => name).sort();
+    const declared = Object.keys(GOLDEN).sort();
+    const missing = found.filter((n) => !declared.includes(n));
+    const stale = declared.filter((n) => !found.includes(n));
     expect(missing, `fixtures with no GOLDEN entry: ${missing.join(", ")}`).toEqual([]);
+    expect(stale, `GOLDEN rows with no fixture: ${stale.join(", ")}`).toEqual([]);
   });
 
   it.each(fixtures)("%s emits exactly its golden card counts", (name, path) => {
