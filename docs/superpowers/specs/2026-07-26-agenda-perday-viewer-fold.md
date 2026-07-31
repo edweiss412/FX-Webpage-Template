@@ -689,6 +689,8 @@ defines — it defines `--duration-*`. So `className="transition-transform durat
 `transition-property` with **no duration from that class**, and it is invisible to the reduced-motion
 block at `app/globals.css:417`, which only rewrites `--duration-*`. The existing class-based sites are pre-existing and out of scope here; what matters is that this spec adds no new one.
 
+> **UPDATE 2026-07-27 (`fix/duration-tokens-emit-no-css`).** The gap this section documents is closed: the `@theme` block now carries `--transition-duration-<name>: var(--duration-<name>)` aliases for all four named durations, so `duration-<name>` classes emit real CSS and inherit the reduced-motion collapse through the var() chain (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`; compile-emission guard at tests/design/durationTokenEmission.test.ts). The analysis above was correct when written and stays as the record of why this section's chevron rule is hand-written. The `grep -c` transcript above reflects the pre-alias tree.
+
 Two acceptable mechanisms, and the implementation MUST pick one explicitly:
 
 1. **Preferred — hand-written CSS in `app/globals.css` consuming `var(--duration-fast)`**, the way the

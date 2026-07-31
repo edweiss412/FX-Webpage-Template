@@ -5,7 +5,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
 
 describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
-  it("contains exactly the twenty codes", () => {
+  it("contains exactly the twenty-one codes", () => {
     expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",
@@ -15,6 +15,7 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
       "COLUMN_HEADER_AUTOCORRECTED",
       "FIELD_LABEL_AUTOCORRECTED",
       "FIELD_UNREADABLE",
+      "ORPHANED_CREW_ROWS",
       "PULL_SHEET_AMBIGUOUS_FORMAT",
       "PULL_SHEET_PARSE_PARTIAL",
       "PULL_SHEET_UNKNOWN_VARIANT",
@@ -223,5 +224,62 @@ describe("FIELD_UNREADABLE field fold (crewwarn-instance-discriminator §2.1)", 
     ];
     // The NUL delimiter makes "" a PRESENT discriminator; without it this pair aliases and collapses.
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+});
+
+// Spec 2026-07-27-export-blank-row-segmentation §6 T10 — card-surface membership.
+// Failure mode: dropping ORPHANED_CREW_ROWS from OPERATOR_ACTIONABLE_ANCHORED
+// silently removes its card (counts/digest keep working, so nothing else fails).
+describe("operatorActionableWarnings — ORPHANED_CREW_ROWS membership", () => {
+  it("passes an ORPHANED_CREW_ROWS warning through to the card list", () => {
+    const w: ParseWarning = {
+      severity: "warn",
+      code: "ORPHANED_CREW_ROWS",
+      message: "o",
+      blockRef: { kind: "crew" },
+      rawSnippet: "Doug Larson",
+    };
+    expect(operatorActionableWarnings([w])).toEqual([w]);
+  });
+
+  it("negative control: an unregistered code is still dropped", () => {
+    const w: ParseWarning = {
+      severity: "warn",
+      code: "NOT_A_REGISTERED_CODE",
+      message: "x",
+      blockRef: { kind: "crew" },
+    };
+    expect(operatorActionableWarnings([w])).toEqual([]);
+  });
+});
+
+// Codex whole-diff r1 F2: every ORPHANED_CREW_ROWS warning region-anchors to the
+// same crew A1, so an a1-only dedup key collapsed two DISTINCT orphan tails into
+// one card. Failure mode caught: dropping the rawSnippet fold hides the second
+// orphan tail whenever two tails survive in one sheet.
+describe("ORPHANED_CREW_ROWS rawSnippet fold (whole-diff r1 F2)", () => {
+  const cell = { title: "II", gid: 7, a1: "A10" };
+  const base = {
+    severity: "warn" as const,
+    code: "ORPHANED_CREW_ROWS" as const,
+    message: "m",
+    blockRef: { kind: "crew" as const },
+    sourceCell: cell,
+  };
+
+  it("two distinct orphan tails sharing the crew-region anchor BOTH survive", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "Carl Fenton" },
+      { ...base, rawSnippet: "Doug Larson" },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(2);
+  });
+
+  it("true duplicates (same rawSnippet) still collapse to one", () => {
+    const ws: ParseWarning[] = [
+      { ...base, rawSnippet: "Carl Fenton" },
+      { ...base, rawSnippet: "Carl Fenton" },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(1);
   });
 });

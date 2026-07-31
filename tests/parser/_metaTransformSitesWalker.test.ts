@@ -12,9 +12,11 @@
 //   (2) every declared `code` passes `isMessageCode` (lib/messages/lookup.ts:91) —
 //       NO catalog-severity assertion (retired R8: severity is optional/"warning",
 //       and ParseWarning.severity==="warn" is proven by each site's emit unit test);
-//   (4) the five required named declarations exist (crew → CREW_COLUMN_POSITIONAL_FALLBACK;
-//       rooms → ROOM_HEADER_SPLIT_AMBIGUOUS; hotels → HOTEL_GUEST_SPLIT_AMBIGUOUS AND
-//       HOTEL_CARDINALITY_EXCEEDED; dates → DATE_ORDER_SUGGESTS_DMY);
+//   (4) the eight required named declarations exist (crew → CREW_COLUMN_POSITIONAL_FALLBACK;
+//       rooms → ROOM_HEADER_SPLIT_AMBIGUOUS; hotels → HOTEL_GUEST_SPLIT_AMBIGUOUS,
+//       HOTEL_CARDINALITY_EXCEEDED, HOTEL_ADDRESS_SPLIT_AMBIGUOUS,
+//       HOTEL_INLINE_GROUP_OWN_HOTEL AND HOTEL_INLINE_GROUP_HOTEL_SUSPECTED;
+//       dates → DATE_ORDER_SUGGESTS_DMY);
 //   (5) inverse completeness — every AMBIGUITY_CODES member is declared as some file's
 //       TRANSFORM_SITES code.
 // PLUS the deferred-ref discipline (plan R5 hardening): every `deferred:<ref>` exempt
@@ -39,7 +41,7 @@ interface Scanned {
   sites: readonly TransformSiteEntry[];
 }
 
-// The five required per-file named declarations (spec §6(4)).
+// The eight required per-file named declarations (spec §6(4)).
 const REQUIRED_DECLARATIONS: Record<string, readonly string[]> = {
   "crew.ts": ["CREW_COLUMN_POSITIONAL_FALLBACK"],
   "rooms.ts": ["ROOM_HEADER_SPLIT_AMBIGUOUS"],
@@ -47,6 +49,8 @@ const REQUIRED_DECLARATIONS: Record<string, readonly string[]> = {
     "HOTEL_GUEST_SPLIT_AMBIGUOUS",
     "HOTEL_CARDINALITY_EXCEEDED",
     "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
   ],
   "dates.ts": ["DATE_ORDER_SUGGESTS_DMY"],
 };
@@ -92,7 +96,7 @@ describe("transform-sites source walker", () => {
     }
   });
 
-  it("(4) the five required per-file named declarations exist", async () => {
+  it("(4) the eight required per-file named declarations exist", async () => {
     const scanned = await scanFiles();
     const byFile = new Map(scanned.map((s) => [s.file, s.sites]));
     for (const [file, required] of Object.entries(REQUIRED_DECLARATIONS)) {

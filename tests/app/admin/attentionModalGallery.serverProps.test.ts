@@ -89,6 +89,12 @@ const EXPECTED_GLOBAL_IDS = [
 // under test. The post-change expectation is this list MINUS
 // EXPECTED_GLOBAL_IDS and nothing else, so an unrelated scenario moving (or an
 // accidental edit to isModalVisible) fails loudly.
+//
+// The gallery derives one scenario per catalog code, so a NEW warn code extends this
+// baseline by construction — that is the intended fail-by-default, and each addition
+// is a reviewed diff naming its spec. Added since the capture:
+// warn-hotel-inline-group-own-hotel + warn-hotel-inline-group-hotel-suspected
+// (docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md §6).
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -202,6 +208,9 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-hotel-address-split-ambiguous",
   "warn-hotel-cardinality-exceeded",
   "warn-hotel-guest-split-ambiguous",
+  "warn-hotel-inline-group-hotel-suspected",
+  "warn-hotel-inline-group-own-hotel",
+  "warn-orphaned-crew-rows",
   "warn-pull-sheet-ambiguous-format",
   "warn-pull-sheet-on-archived-tab",
   "warn-pull-sheet-override-content-changed",
