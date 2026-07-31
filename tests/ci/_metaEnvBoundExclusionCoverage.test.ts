@@ -209,24 +209,43 @@ describe("env-bound exclusion coverage (spec §6)", () => {
         coverageRowProblems(row, file, raw),
         `${row.workflow}#${row.job} failed verification for ${file}`,
       ).toEqual([]);
-      // github.workflow interpolates the DISPLAY name, and concurrency groups
-      // are repository-wide (R2-B F4) — a second workflow reusing this name:
-      // would collide the group the verifier just accepted.
-      const name = (parse(raw) as { name?: unknown }).name;
-      const dupes = readdirSync(join(ROOT, ".github", "workflows"))
+      // github.workflow interpolates the DISPLAY name, and concurrency
+      // groups are repository-wide AND case-insensitive (R2-B F4, tightened
+      // R4-B F2): a case-only name duplicate collides the standard
+      // ${{ github.workflow }} group, and any OTHER workflow's explicit
+      // group (workflow- or job-level) that names this workflow resolves
+      // into the same group. Both are swept over the real corpus,
+      // case-insensitively.
+      const name = String((parse(raw) as { name?: unknown }).name ?? "");
+      const others = readdirSync(join(ROOT, ".github", "workflows"))
         .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
         .filter((f) => `.github/workflows/${f}` !== row.workflow)
-        .filter(
-          (f) =>
-            (
-              parse(readFileSync(join(ROOT, ".github", "workflows", f), "utf8")) as {
-                name?: unknown;
-              }
-            ).name === name,
-        );
+        .map((f) => ({
+          f,
+          doc: parse(readFileSync(join(ROOT, ".github", "workflows", f), "utf8")) as {
+            name?: unknown;
+            concurrency?: { group?: unknown } | string;
+            jobs?: Record<string, { concurrency?: { group?: unknown } | string }>;
+          },
+        }));
+      const nameLc = name.toLowerCase();
+      const dupes = others.filter(({ doc }) => String(doc.name ?? "").toLowerCase() === nameLc);
       expect(
-        dupes,
-        `${row.workflow}: display name ${JSON.stringify(name)} reused by other workflows — github.workflow-scoped concurrency would collide`,
+        dupes.map(({ f }) => f),
+        `${row.workflow}: display name ${JSON.stringify(name)} reused (case-insensitively) by other workflows — github.workflow-scoped concurrency would collide`,
+      ).toEqual([]);
+      const groupOf = (c: { group?: unknown } | string | undefined): string =>
+        typeof c === "string" ? c : String(c?.group ?? "");
+      const colliders = others.filter(({ doc }) => {
+        const groups = [
+          groupOf(doc.concurrency),
+          ...Object.values(doc.jobs ?? {}).map((j) => groupOf(j.concurrency)),
+        ];
+        return groups.some((g) => g.toLowerCase().includes(nameLc));
+      });
+      expect(
+        colliders.map(({ f }) => f),
+        `${row.workflow}: another workflow's concurrency group names ${JSON.stringify(name)} explicitly — it would resolve into this workflow's repository-wide group and could cancel the covering run`,
       ).toEqual([]);
     }
   });

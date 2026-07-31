@@ -193,7 +193,16 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     }
     const workspacePath = join(ROOT, "pnpm-workspace.yaml");
     if (existsSync(workspacePath)) {
-      const ws = parse(readFileSync(workspacePath, "utf8")) as Record<string, unknown> | null;
+      const raw = readFileSync(workspacePath, "utf8");
+      // pnpm resolves YAML merge keys (<<: *anchor), which inject settings
+      // without their key names appearing top-level (R4-B F1) — parse WITH
+      // merge resolution, and refuse anchors/merge syntax outright as the
+      // belt (the real file needs neither).
+      expect(
+        /(^|\n)\s*<<\s*:|&\w|\*\w/.test(raw),
+        "pnpm-workspace.yaml uses YAML anchors/merge keys — refused, settings could hide behind them",
+      ).toBe(false);
+      const ws = parse(raw, { merge: true }) as Record<string, unknown> | null;
       for (const key of ["scriptShell", "nodeOptions", "bail", "shellEmulator"]) {
         expect(ws?.[key], `pnpm-workspace.yaml ${key}:`).toBeUndefined();
       }
@@ -202,7 +211,11 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     if (existsSync(npmrcPath)) {
       const npmrc = readFileSync(npmrcPath, "utf8");
       for (const key of ["script-shell", "node-options", "bail", "shell-emulator"]) {
-        expect(new RegExp(`^\\s*${key}\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(false);
+        // pnpm accepts quoted ini keys ('script-shell'=… / "bail"=…), which
+        // a bare-key regex missed (R4-B F1).
+        expect(new RegExp(`^\\s*['"]?${key}['"]?\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(
+          false,
+        );
       }
     }
   });
