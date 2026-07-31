@@ -222,6 +222,16 @@ the `quality` context". Measured live 2026-07-26: `main` requires **twelve** con
 third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
 check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
 
+## BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it
+
+**Filed:** 2026-07-31 (R12 adversarial review of `feat/ci-dark-descoped-guards`, class-sweep spillover). **Class:** CI guard soundness. **Effort:** M.
+
+R12 closed the WITHIN-run-block shell-state class in both guard layers (the invocation census's `controlFlowRe`/`cmdPos` in `tests/ci/_metaSpecRegistration.test.ts`, and the workflow-coverage scanner's `UNMODELLED_SHELL_RE` in `tests/ci/_workflowCoverageScan.ts`): assignments, assignment builtins, source/dot, cd/pushd/popd, builtin/command wrappers are now registry-or-loud / refuse-to-cover. The CROSS-STEP variant remains open: a step that runs `echo "PATH=/fake:$PATH" >> "$GITHUB_PATH"` (or writes PATH via `$GITHUB_ENV`) mutates the environment of every LATER step in the same job, so a textually-clean `pnpm exec playwright test …` step downstream runs a fake pnpm that exits 0 — green step, no tests. The census processes run blocks as a flat text list with no job grouping, and the scanner qualifies each step independently, so neither models cross-step state. Partial existing mitigations: `standalone-e2e.yml` liveness is owned by the §4 run-report comparator (a fake pnpm writes no report, so the comparison step reds); the `PLAYWRIGHT_` raw-text sweep covers that env-var family; **zero live workflows write GITHUB_ENV/GITHUB_PATH today** (measured 2026-07-31), so this is a forward-looking hole, not a live one.
+
+**Work:** teach both layers job-scoped grouping — census: refuse-to-auto-classify any run block whose SIBLING (same-job, earlier) blocks write `GITHUB_ENV`/`GITHUB_PATH`; scanner: reject a step's claims when any earlier same-job step matches the same write pattern. Composite-action steps inherit the same job env and need the same grouping.
+
+**Status:** OPEN.
+
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).

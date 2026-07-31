@@ -46,6 +46,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
+  "tests/e2e/admin-lifecycle-transitions.spec.ts":
+    "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
@@ -270,6 +272,34 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
   it("still counts a PRECEDING && chain, which does not swallow status", () => {
     const r = S(base("  pull_request:", "", `pnpm setup && playwright test ${spec}`));
     expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects unmodelled shell constructs — state changes and control flow (R12)", () => {
+    // `PATH=fixtures/fake pnpm exec playwright test …` runs a fake pnpm that
+    // exits 0: the step is green, the spec never ran, and the scanner marked
+    // it covered. Shell-state mutation (assignments in every form, the
+    // assignment builtins, source/dot, directory changes, builtin/command
+    // wrappers) and control flow (an invocation inside a dead branch) both
+    // make "this run block executes this spec" unprovable by a line scan, so
+    // any run block containing one claims nothing — the spec reads as dark
+    // and costs an allowlist row, never as falsely covered.
+    for (const run of [
+      `PATH=fixtures/fake pnpm exec playwright test ${spec}`,
+      `|\n          PATH=fixtures/fake\n          pnpm exec playwright test ${spec}`,
+      `|\n          export NODE_OPTIONS=--require=./evil.cjs\n          pnpm exec playwright test ${spec}`,
+      `|\n          cd fixtures\n          pnpm exec playwright test ${spec}`,
+      `|\n          source ./env.sh\n          pnpm exec playwright test ${spec}`,
+      `|\n          . ./env.sh\n          pnpm exec playwright test ${spec}`,
+      `|\n          command unset -f playwright\n          pnpm exec playwright test ${spec}`,
+      `|\n          if false; then\n            pnpm exec playwright test ${spec}\n          fi`,
+      `|\n          for i in 1 2; do\n            pnpm exec playwright test ${spec}\n          done`,
+    ]) {
+      const r = S(base("  pull_request:", "", run));
+      expect(r.covered.has(spec), `must not cover: ${run}`).toBe(false);
+      expect(r.rejected[0]!.reason, `must reject as unmodelled: ${run}`).toBe(
+        "unmodelled shell construct",
+      );
+    }
   });
 
   it("rejects continue-on-error in any form that is not literally false", () => {

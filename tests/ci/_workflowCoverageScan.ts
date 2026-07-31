@@ -168,6 +168,36 @@ function hasContinueOnError(block: string): boolean {
  */
 const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container|needs)\s*:/;
 
+/**
+ * Shell constructs INSIDE a run block that make "this block executes this
+ * spec" unprovable by a line scan (R12 finding — the census's sibling
+ * refusal, mirrored here because the two layers fell to the same vector):
+ *
+ *   - shell-STATE mutation: variable assignment in every form (inline
+ *     `PATH=fixtures/fake pnpm exec playwright test …` runs a fake pnpm that
+ *     exits 0 — green step, no tests; standalone, `+=` append, `A[i]=`
+ *     array), the assignment builtins (export/declare/typeset/readonly/
+ *     local/let/read/mapfile/readarray/getopts), source/dot scripts,
+ *     directory changes (cd/pushd/popd — a relative spec or config path now
+ *     resolves elsewhere), builtin/command/enable wrappers, and the census's
+ *     R11 blacklist (hash/alias/unalias/shopt/trap/unset/exec/set/eval/
+ *     exit/return);
+ *   - control FLOW: an invocation inside an if/case/loop branch or a
+ *     function body may never execute (`if false; then … fi` is a green
+ *     step that ran nothing).
+ *
+ * Matched at COMMAND POSITION only — start of a line or after `;`, `&`,
+ * `|`, `(`, `{` — so `pnpm setup && playwright test` (the ratified
+ * &&-chain allowance: a failing predecessor fails the step) and option
+ * tokens like `--reporter=list` (not command position) stay clean. Whole
+ * run block, not just invocation lines: state mutated on line 1 governs an
+ * invocation on line 2. Refusal direction per the header contract: a false
+ * "dark" costs a reasoned allowlist row; a false "covered" silently deletes
+ * real coverage.
+ */
+const UNMODELLED_SHELL_RE =
+  /(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts)\b|\.[ \t]|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\))/;
+
 export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
@@ -230,6 +260,8 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
           else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
           else if (suppressesExit(cmd))
             rejected.push({ file, spec, reason: "exit-code suppression" });
+          else if (UNMODELLED_SHELL_RE.test(cmd))
+            rejected.push({ file, spec, reason: "unmodelled shell construct" });
           else covered.add(spec);
         }
       }

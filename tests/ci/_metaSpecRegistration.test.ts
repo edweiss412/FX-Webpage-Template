@@ -204,8 +204,9 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * design is FAIL-CLOSED along two axes:
  *
  * 1. PLAIN lines (no quote, backslash, `$`, or backtick) are auto-classified:
- *    invocations are recognized only at COMMAND POSITION (optional env-var
- *    prefixes, optional `pnpm exec `/`npx `); within one the LAST config flag
+ *    invocations are recognized only at COMMAND POSITION (optional `pnpm
+ *    exec `/`npx ` runner prefixes — env-assignment prefixes are shell STATE
+ *    and refused since R12); within one the LAST config flag
  *    wins (commander semantics, empirically verified: bogus first --config +
  *    real second lists the full standalone suite); a `playwright test` token
  *    outside command position, a config flag orphaned from every recognized
@@ -451,7 +452,12 @@ export function censusInvocations(
   const configFlags = (s: string) => [
     ...s.matchAll(/(?:^|\s)(?:--config(?:=|\s+)|-c(?:=|\s+)?)(\S+)/g),
   ];
-  const cmdPos = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|npx\s+)?playwright\s+test\b/;
+  // R12: no env-assignment prefix group here — `PATH=fixtures/fake pnpm exec
+  // playwright test` runs a FAKE pnpm that exits 0 (green step, no tests), so
+  // an assignment-prefixed invocation is refused, not admitted as command
+  // position. The state-changer context below refuses it first; failing
+  // command position here is the belt to that suspender.
+  const cmdPos = /^(?:pnpm\s+exec\s+|npx\s+)?playwright\s+test\b/;
   const mentionsRe = /\bplaywright\s+test\b/;
   const complexRe = /['"\\$`]/;
   // Deliberately case-sensitive, matching the classifier's lowercase-shell
@@ -499,14 +505,24 @@ export function censusInvocations(
   // still record x (R9 G1). R10 additions: every function-definition
   // spelling, block/array openers-closers, a trailing && / || (split-line
   // short-circuit), and execution-neutering commands (exec/set/eval).
-  // exit/return/exec/set/eval — and the R11 state-changers hash/alias/
-  // unalias/shopt/trap/unset, which can neuter a LATER literal invocation —
-  // count only at COMMAND POSITION (line start or after ;): `pnpm exec
-  // playwright` is a runner subcommand, not bash exec. Function definitions
-  // match brace AND subshell bodies (`playwright() (:)` shadows the command
-  // word itself).
+  // exit/return/exec/set/eval — and the state-changers, which can neuter a
+  // LATER literal invocation — count only at COMMAND POSITION: `pnpm exec
+  // playwright` is a runner subcommand, not bash exec. R12 widened both
+  // sides of that rule. The state-changer list grew from R11's
+  // hash/alias/unalias/shopt/trap/unset to the full shell-state class:
+  // variable assignment in every form (`PATH=fixtures/fake` inline or
+  // standalone, `+=` append, `A[i]=` array — a fake PATH makes a literal
+  // `pnpm exec playwright test` run a fake pnpm that exits 0), the
+  // assignment builtins (export/declare/typeset/readonly/local/let/read/
+  // mapfile/readarray/getopts), source/dot scripts, directory changes
+  // (cd/pushd/popd — relative config paths re-resolve), and
+  // builtin/command/enable wrappers around any of these. And command
+  // position itself now includes `;`, `&`, `|`, `(`, `{` — a state changer
+  // reached through && or a subshell open mutates state all the same.
+  // Function definitions match brace AND subshell bodies (`playwright() (:)`
+  // shadows the command word itself).
   const controlFlowRe =
-    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\w*\(\)\s*[({]|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|;)\s*(?:exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset)\b/;
+    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\w*\(\)\s*[({]|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|[;&|({])\s*(?:(?:exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts)\b|\.(?=\s)|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=)/;
   const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
   for (const item of texts) {
     const raw = typeof item === "string" ? item : item.text;
@@ -532,7 +548,7 @@ export function censusInvocations(
     const contextWhy = guarded
       ? "context-guarded step (if:/needs/strategy/custom shell)"
       : logical.some(({ line }) => controlFlowRe.test(line))
-        ? "shell control-flow context"
+        ? "shell control-flow or state-change context"
         : logical.some(({ line }) => endsInOpenQuote(line))
           ? "multiline lexical context"
           : null;
@@ -799,6 +815,16 @@ describe("spec registration detector (spec §3.1)", () => {
     // through the registry (R9 G1).
     "pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts":
       ["playwright.config.ts"],
+    // R12: env-assignment prefixes are shell state (a PATH= prefix runs a
+    // fake binary that exits 0), so command position no longer admits them
+    // and these two package-script bodies route here. Human declaration:
+    // ENABLE_TEST_AUTH / TEST_AUTH_SECRET are harness toggles, not
+    // resolution state — each line's one direct invocation names its config
+    // with -c.
+    "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-gallery":
+      ["playwright.screenshots.config.ts"],
+    "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture":
+      ["playwright.screenshots.config.ts"],
     'docker run --rm --platform linux/amd64 --network host -v "$PWD:/work" -w /work -e CI=true mcr.microsoft.com/playwright:v1.59.1-jammy bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"':
       [],
     'git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)" -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner after the M12.2 B1 /admin chrome redesign (screenshots-regen workflow_dispatch job), so the bytes match the screenshots-drift gate capture environment."':
@@ -825,8 +851,6 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(bg.problems).not.toEqual([]);
       expect(bg.invoked.size).toBe(0);
     }
-    // Env-var-prefixed command position is still command position.
-    expect([...c("CI=1 FOO=bar playwright test -c x.ts").invoked]).toEqual(["x.ts"]);
     // A full-line comment never executes and contributes nothing.
     expect(c("# playwright test --config ghost.ts").invoked.size).toBe(0);
     expect(c("# playwright test --config ghost.ts").problems).toEqual([]);
@@ -982,6 +1006,44 @@ describe("spec registration detector (spec §3.1)", () => {
     loudAndDark('trap "exit 0" DEBUG\nplaywright test --config ghost.ts');
     loudAndDark("playwright() (:)\nplaywright test --config ghost.ts");
     loudAndDark("pnpm() (:)\npnpm exec playwright test --config ghost.ts");
+    // R12: env-assignment prefixes are STATE, not grammar — `PATH=fixtures/
+    // fake pnpm exec playwright test` runs a fake pnpm that exits 0 while
+    // running no tests, so command position no longer admits them (this
+    // FLIPS the R2-era "still command position" assertion, exactly as R11
+    // flipped single-&). Every shell-state mutation form — inline and
+    // standalone assignment (plain/append/array), the assignment builtins,
+    // source/dot, directory changes, and builtin/command wrappers around the
+    // R11 blacklist — is execution context: registry-or-loud, never
+    // auto-classified.
+    loudAndDark("CI=1 FOO=bar playwright test -c x.ts");
+    loudAndDark("PATH=fixtures/fake pnpm exec playwright test --config playwright.config.ts");
+    loudAndDark("NODE_OPTIONS=--require=./evil.cjs playwright test --config ghost.ts");
+    loudAndDark("PATH=fixtures/fake\nplaywright test --config ghost.ts");
+    loudAndDark("PATH+=:/tmp/fake\nplaywright test --config ghost.ts");
+    loudAndDark("FLAGS[0]=--config=ghost.ts\nplaywright test");
+    loudAndDark("export PATH=fixtures/fake\nplaywright test --config ghost.ts");
+    loudAndDark("declare -x PATH=fixtures/fake\nplaywright test --config ghost.ts");
+    loudAndDark("typeset PW=fake\nplaywright test --config ghost.ts");
+    loudAndDark("readonly CFG=ghost.ts\nplaywright test --config ghost.ts");
+    loudAndDark("source ./env.sh\nplaywright test --config ghost.ts");
+    loudAndDark(". ./env.sh\nplaywright test --config ghost.ts");
+    loudAndDark("cd fixtures\nplaywright test --config ghost.ts");
+    loudAndDark("pushd fixtures\nplaywright test --config ghost.ts");
+    loudAndDark("popd\nplaywright test --config ghost.ts");
+    loudAndDark("command unset -f playwright\nplaywright test --config ghost.ts");
+    loudAndDark("builtin alias playwright=true\nplaywright test --config ghost.ts");
+    loudAndDark("enable -f ./evil.so pw\nplaywright test --config ghost.ts");
+    loudAndDark("read PW_CFG\nplaywright test --config ghost.ts");
+    loudAndDark("let N=1\nplaywright test --config ghost.ts");
+    loudAndDark("mapfile ARR\nplaywright test --config ghost.ts");
+    // R12: the (?:^|;) command-position anchor was itself a hole — a state
+    // changer reached through &&, a pipe, or a subshell open is still at
+    // command position and still mutates state before a later invocation.
+    loudAndDark("true && cd fixtures\nplaywright test --config ghost.ts");
+    loudAndDark("true; PATH=fixtures/fake\nplaywright test --config ghost.ts");
+    // `env VAR=x playwright test` is an external-command prefix, not shell
+    // state — it fails command position and stays loud through that gate.
+    loudAndDark("env PATH=fixtures/fake playwright test --config ghost.ts");
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);
