@@ -1133,9 +1133,26 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         const src = readFileSync(file, "utf8");
         if (!src.includes("<a")) continue;
         const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        // r36: an expression child is text-bearing only when it can RENDER
+        // text — a wrapped element (`{<ExternalLink />}`), `{null}`, and a
+        // whitespace-only string are not text; anything else (identifiers,
+        // calls, member access) is conservatively text-bearing so legit
+        // `{title}` links stay out of the census. Visually hidden text
+        // (sr-only) and single-symbol glyph children are HIDING — review's
+        // failure class per the dataflow ratification above, not this
+        // census's.
         const textBearing = (node: ts.Node): boolean => {
           if (ts.isJsxText(node) && node.text.trim() !== "") return true;
-          if (ts.isJsxExpression(node) && node.expression !== undefined) return true;
+          if (ts.isJsxExpression(node)) {
+            const e = node.expression;
+            if (e === undefined) return false;
+            if (ts.isStringLiteralLike(e)) return e.text.trim() !== "";
+            if (e.kind === ts.SyntaxKind.NullKeyword) return false;
+            if (ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e) || ts.isJsxFragment(e)) {
+              return textBearing(e);
+            }
+            return true;
+          }
           let hit = false;
           ts.forEachChild(node, (c) => {
             if (!hit && textBearing(c)) hit = true;
@@ -1143,6 +1160,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
           return hit;
         };
         const visit = (node: ts.Node): void => {
+          // r36: a self-closing `<a />` renders no text by construction
+          // (pseudo-element/CSS content included) — censused too.
+          if (
+            ts.isJsxSelfClosingElement(node) &&
+            ts.isIdentifier(node.tagName) &&
+            node.tagName.text === "a"
+          ) {
+            found[rel] = (found[rel] ?? 0) + 1;
+          }
           if (
             ts.isJsxElement(node) &&
             ts.isIdentifier(node.openingElement.tagName) &&

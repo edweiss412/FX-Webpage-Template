@@ -121,8 +121,12 @@ const WRAP = "(?:[*_`]|✅|\\s)*";
  * while narrowing the lanes to dodge it would reopen silent
  * under-detection, the failure class this guard exists for. The bold-FIELD
  * lane is the exception with a clean structural rule (the r35 colon-label
- * final-word test below); the residual judgment tail rides
- * BL-LEDGER-GUARD-MDAST-REWRITE with the rest of the grammar class.
+ * final-word test below, r36: separator inside OR just outside the segment,
+ * trailing preposition chains kept as claims — `**Resolved by:**` is live
+ * archive prose); the residual judgment tail — including an UNPUNCTUATED
+ * bold lead-in (`**Shipped precedent** remains open`), which no separator
+ * rule can classify — rides BL-LEDGER-GUARD-MDAST-REWRITE with the rest of
+ * the grammar class, under the same fail-loud posture.
  */
 // NOT `\b` after the word: a closing `_RESOLVED_` wrapper is a word char, so
 // `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
@@ -295,10 +299,26 @@ function boldFieldTerminalHit(line: string): boolean {
     // `**…, then CLOSED:**`). Segments without a trailing colon keep the
     // per-occurrence scan.
     const inner = seg.slice(2, -2);
-    const labelMatch = /([A-Za-z]+)\s*:\s*$/.exec(inner);
-    if (labelMatch !== null) {
-      if (new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(labelMatch[1]!)) {
-        const wordAt = s.index + 2 + inner.lastIndexOf(labelMatch[1]!);
+    // r36: the separator may sit INSIDE the segment (`**Closed:**`) or just
+    // OUTSIDE it (`**Shipped precedent**:` / `**Shipped precedent** —`) —
+    // either way the segment is a LABEL. And a label's claim may end in a
+    // PREPOSITION chain: `**Resolved by:** PR #621` (live archive prose) is
+    // a closure, while `**Shipped precedent:**` labels a noun. So the rule
+    // strips trailing prepositions/particles, then asks whether the final
+    // remaining word is terminal.
+    const after = line.slice(s.index + seg.length);
+    const externallyLabeled = /^\s*[:—–-]/.test(after);
+    const innerLabel = /:\s*$/.test(inner);
+    if (innerLabel || externallyLabeled) {
+      const words = inner
+        .replace(/:\s*$/, "")
+        .split(/[^A-Za-z]+/)
+        .filter(Boolean);
+      const PARTICLES = /^(?:by|via|in|with|through|per|as|on|at|to|from)$/i;
+      while (words.length > 0 && PARTICLES.test(words[words.length - 1]!)) words.pop();
+      const last = words[words.length - 1];
+      if (last !== undefined && new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(last)) {
+        const wordAt = s.index + 2 + inner.lastIndexOf(last);
         if (!PARTIAL_BEFORE.test(line.slice(0, wordAt))) return true;
       }
       continue;
@@ -821,6 +841,16 @@ describe("backlog ledger graduation", () => {
     );
     expect(boldFieldTerminalHit("**Filed:** 2026. **Closed:** 2026-07-30.")).toBe(true);
     expect(boldFieldTerminalHit("**Filed:** x. **PARTIALLY CLOSED, then CLOSED:** y.")).toBe(true);
+    // r36 — the separator may sit outside the segment, and a claim label
+    // may end in a preposition chain (live archive prose: **Resolved by:**):
+    expect(boldFieldTerminalHit("**Filed:** 2026. **Resolved by:** PR #621.")).toBe(true);
+    expect(boldFieldTerminalHit("**Shipped via:** PR #500.")).toBe(true);
+    expect(boldFieldTerminalHit("**Closed in:** the phase-2 sweep.")).toBe(true);
+    expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
+      false,
+    );
+    expect(boldFieldTerminalHit("**Shipped precedent** — PR #500, remains open.")).toBe(false);
+    expect(boldFieldTerminalHit("**Superseded approach**: see below.")).toBe(false);
     // r30 — the heading checkmark lane is anchored to a terminal word; a
     // decorative checkmark in an open entry's title is not a claim:
     expect(terminalHit("## BL-X — ✅ RESOLVED (PR #612)", CHECKED_TERMINAL)).toBe(true);
