@@ -1108,6 +1108,65 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     },
   );
 
+  it(
+    "icon-only anchors in the admin tree are censused by exact set (r35)",
+    { timeout: 30_000 },
+    () => {
+      // r35: the drift class is the ICON-ONLY sheet anchor, and the attack
+      // shape is census-able directly — an `<a>` whose subtree carries no
+      // rendered text (no non-whitespace JsxText, no expression child, which
+      // may render text) is an icon-only anchor wherever its href came from,
+      // pinned here by exact per-file count. A sibling hand-rolled icon
+      // anchor reusing ANY existing URL variable adds a row and teaches this
+      // guard first. Text-labeled anchors are the site-C pattern — visible
+      // words carry the affordance — and are not the drift class. URL-value
+      // REUSE beyond this shape (prop drilling, aliased locals feeding
+      // text-labeled links) is intra-file dataflow: out of a static guard's
+      // scope with the other computed forms, owned by the invariant-8 UI
+      // gate and review, exactly as runtime indirection is.
+      const root = join(__dirname, "..", "..", "..");
+      const found: Record<string, number> = {};
+      for (const file of walkedFiles(root)) {
+        const rel = file.slice(root.length + 1);
+        if (!/^(components\/admin|app\/admin)\//.test(rel)) continue;
+        if (!/\.(tsx|jsx)$/.test(rel)) continue;
+        const src = readFileSync(file, "utf8");
+        if (!src.includes("<a")) continue;
+        const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        const textBearing = (node: ts.Node): boolean => {
+          if (ts.isJsxText(node) && node.text.trim() !== "") return true;
+          if (ts.isJsxExpression(node) && node.expression !== undefined) return true;
+          let hit = false;
+          ts.forEachChild(node, (c) => {
+            if (!hit && textBearing(c)) hit = true;
+          });
+          return hit;
+        };
+        const visit = (node: ts.Node): void => {
+          if (
+            ts.isJsxElement(node) &&
+            ts.isIdentifier(node.openingElement.tagName) &&
+            node.openingElement.tagName.text === "a" &&
+            !node.children.some((c) => textBearing(c))
+          ) {
+            found[rel] = (found[rel] ?? 0) + 1;
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sf);
+      }
+      expect(found).toEqual({
+        // The bell panel's chevron affordance (reviewed, not a sheet link).
+        "components/admin/BellPanel.tsx": 1,
+        // The component this whole guard contains.
+        "components/admin/SheetIconLink.tsx": 1,
+        // Three icon-only CONTACT affordances (the crew-row call action and
+        // the tel:/mailto: pair) — none is a sheet link.
+        "components/admin/wizard/step3ReviewSections.tsx": 3,
+      });
+    },
+  );
+
   it("className checker flags off-contract tokens and non-literal expressions (negative plants)", () => {
     expect(
       classNameViolations(

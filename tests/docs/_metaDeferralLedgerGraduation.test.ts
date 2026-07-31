@@ -111,6 +111,18 @@ const WRAP = "(?:[*_`]|✅|\\s)*";
  * opening claim matches any case; a bare one ALL-CAPS only, so narrating
  * prose ("Resolved only as part of BL-…") cannot false-positive. Both accept
  * the r15 wrappers.
+ *
+ * FALSE-POSITIVE POSTURE (r35, ratified): the heading, checkmark, and
+ * opening lanes CANNOT distinguish "— CLOSED by PR #9" (a claim followed by
+ * prose) from "— SHIPPED badge regression" (a terminal token modifying a
+ * noun) without sentence semantics. They stay as-is deliberately: a false
+ * positive here is FAIL-LOUD — a red test naming the entry, resolved by a
+ * one-word rephrase or a HEADING_TERMINAL_EXEMPT row with its rationale —
+ * while narrowing the lanes to dodge it would reopen silent
+ * under-detection, the failure class this guard exists for. The bold-FIELD
+ * lane is the exception with a clean structural rule (the r35 colon-label
+ * final-word test below); the residual judgment tail rides
+ * BL-LEDGER-GUARD-MDAST-REWRITE with the rest of the grammar class.
  */
 // NOT `\b` after the word: a closing `_RESOLVED_` wrapper is a word char, so
 // `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
@@ -141,11 +153,11 @@ const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // `**Resolution:** Shipped …` closes three archive entries verbatim, so an
 // active entry closed that way must trip the same lane.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)(?:[*_]{1,3})?\\s*[:—–-]?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:[*_]{1,3})?Filed(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:[*_]{1,3})?Filed(?:[*_]{1,3})?\\s*[:—–-]?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 // The field-line FILTERS share the container fragment (r22) — a matcher that
@@ -276,6 +288,21 @@ function boldFieldTerminalHit(line: string): boolean {
   const segRe = /\*\*[^*\n]+\*\*/g;
   for (let s = segRe.exec(line); s !== null; s = segRe.exec(line)) {
     const seg = s[0];
+    // r35: a colon-terminated bold segment is a LABEL. When it labels
+    // something else (`**Shipped precedent:**`, `**Superseded approach:**`)
+    // the terminal token is a modifier, not the entry's state — only the
+    // FINAL word before the colon is a field-value claim (`**Closed:**`,
+    // `**…, then CLOSED:**`). Segments without a trailing colon keep the
+    // per-occurrence scan.
+    const inner = seg.slice(2, -2);
+    const labelMatch = /([A-Za-z]+)\s*:\s*$/.exec(inner);
+    if (labelMatch !== null) {
+      if (new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(labelMatch[1]!)) {
+        const wordAt = s.index + 2 + inner.lastIndexOf(labelMatch[1]!);
+        if (!PARTIAL_BEFORE.test(line.slice(0, wordAt))) return true;
+      }
+      continue;
+    }
     const word = new RegExp(`(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?![A-Za-z0-9])`, "gi");
     for (let m = word.exec(seg); m !== null; m = word.exec(seg)) {
       if (!PARTIAL_BEFORE.test(line.slice(0, s.index + m.index))) return true;
@@ -779,6 +806,21 @@ describe("backlog ledger graduation", () => {
     expect(terminalHit("- [x] __Resolution:__ SHIPPED in PR #500", STATUS_TERMINAL)).toBe(true);
     expect(terminalHit("**Resolution:** pending owner call", STATUS_TERMINAL)).toBe(false);
     expect(STATUS_FIELD_LINE.test("**Resolution:** Shipped")).toBe(true);
+    // r35 — dash separators are ordinary field punctuation in every width…
+    expect(terminalHit("**Status** — CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("**Resolution** – SHIPPED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("**Filed** - DONE", FILED_TERMINAL)).toBe(true);
+    // …and a colon-terminated bold segment is a LABEL: a terminal token
+    // MODIFYING the label's noun is metadata, not the entry's state, while
+    // the final-word-before-colon claim still counts:
+    expect(boldFieldTerminalHit("**Shipped precedent:** PR #500 — this one remains open.")).toBe(
+      false,
+    );
+    expect(boldFieldTerminalHit("**Filed:** 2026. **Superseded approach:** see below.")).toBe(
+      false,
+    );
+    expect(boldFieldTerminalHit("**Filed:** 2026. **Closed:** 2026-07-30.")).toBe(true);
+    expect(boldFieldTerminalHit("**Filed:** x. **PARTIALLY CLOSED, then CLOSED:** y.")).toBe(true);
     // r30 — the heading checkmark lane is anchored to a terminal word; a
     // decorative checkmark in an open entry's title is not a claim:
     expect(terminalHit("## BL-X — ✅ RESOLVED (PR #612)", CHECKED_TERMINAL)).toBe(true);
