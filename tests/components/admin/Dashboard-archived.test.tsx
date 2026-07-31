@@ -81,7 +81,10 @@ function makeClient() {
   };
 }
 
-vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => makeClient() }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
+  createSupabaseServerClient: async () => makeClient(),
+}));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),

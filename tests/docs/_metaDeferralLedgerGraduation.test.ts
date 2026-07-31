@@ -732,8 +732,7 @@ describe("backlog ledger graduation", () => {
     ).toBe(false);
     // …and comment deletion is same-line only, so an unterminated literal
     // `<!--` cannot swallow the rest of the section (the cross-line shapes
-    // are ratified out of scope — see normalizeSection's header; note the
-    // inline-code strip removes the bounded span itself):
+    // are ratified out of scope — see normalizeSection's header):
     expect(normalizeSection("marker <!-- doc\n**Status:** OPEN")).toBe(
       "marker <!-- doc\n**Status:** OPEN",
     );
@@ -785,7 +784,13 @@ describe("backlog ledger graduation", () => {
     // Anchor on the HEADING, not the first mention: an earlier summary reference
     // would send this at another section — the same bug the provenance check above
     // already avoids.
-    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID}`, "m").exec(backlog);
+    const headingMatch = new RegExp(
+      // r31: same CommonMark whitespace + priority-prefix tolerance as every
+      // other heading locator — a validly formatted heading must not turn
+      // this substance check falsely red.
+      `^ {0,3}#{2,3}[ \\t]+(?:\\[[^\\]]+\\]\\s*)?~{0,2}${ORIGIN_GATE_ID}`,
+      "m",
+    ).exec(backlog);
     expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
     const start = headingMatch!.index;
     const rest = backlog.slice(start);

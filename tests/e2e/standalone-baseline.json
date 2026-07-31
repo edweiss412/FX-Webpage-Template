@@ -229,6 +229,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-0e888296ddb71f5e8389\",[\"published-review-modal.layout.spec.ts\",\"crew warning indent + cap (crewwarn-underrow-polish)\",\"T-WARN-CAP @1280: banner + 1 warning visible, \\\"2 more\\\" hidden, per-kind widths, both subtrees hop-by-hop\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-2553d6f5b3c9752eecfd\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [archived] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-28d5cba2a15eaeb05f32\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-HUB-FLUSH @ 1280: the share-hub group's right edge sits at the band's content-box right edge\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-32736040a5c3f6e766f1\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"sheet-link overlay intersects NO neighbouring box @ 1280 (saturated title)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-34d1650d53f27da3d7eb\",[\"published-review-modal.layout.spec.ts\",\"crew warning placement — containment (crew-warning-attachment T5)\",\"T-WARN-UNDERROW @1280: matched warning's stack sits inside the card, between its row and the next\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-36cd861f3c0424ce5204\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-SLOT-PAINTS [archived] @1280: the sheet/sync slot stays in flow when it HAS content\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-36dd7b8fec5655edb85e\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-NOSCROLLPORT @ 1280: the corner clip did not make the panel a scroll port\"]]",
@@ -260,6 +261,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-d28f429ce130132c90de\",[\"published-review-modal.layout.spec.ts\",\"crew warning indent + cap (crewwarn-underrow-polish)\",\"T-WARN-INDENT @1280: single-warning page, full visible chain\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-da034a7a04abdc62b015\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [archived] sheet @ 375: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-db85f3673a7b9e8ae43c\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-CONTRAST dark: the hub kebab's icon color clears WCAG 1.4.3 (>=4.5:1) on its real backdrop\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-e4c9cd235b7f28d91937\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"sheet-link overlay intersects NO neighbouring box @ 375 (saturated title)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-e836513325e9f1bcc13a\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [normal (published, not archived)] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-ea066676567a6a83162d\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-HUB-FLUSH @ 375: the share-hub group's right edge sits at the band's content-box right edge\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-eae958ec18f35c38dd99\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-TAP @1280: the ghost Re-sync trigger's own box clears 44px\"]]",
@@ -328,6 +330,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-3ed11b10ca4a9c7d3e33\",[\"section-header-layout.layout.spec.ts\",\"section-header G6a-flagged @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-49fe58dbb280cdfb22df\",[\"section-header-layout.layout.spec.ts\",\"section-header G6a-clean @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-4d5d54ebfa39bfab3edb\",[\"section-header-layout.layout.spec.ts\",\"section-header G2-clean @ 320\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-4d5da507c9460ff01f94\",[\"section-header-layout.layout.spec.ts\",\"wide inline: overlay clears pill, count and heading @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-4dbb563a95f236a57f70\",[\"section-header-layout.layout.spec.ts\",\"section-header G2-clean @ 1280\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-4fcb004a965fa1e02422\",[\"section-header-layout.layout.spec.ts\",\"header centring @ 320\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-52316cfefb5baaef80a5\",[\"section-header-layout.layout.spec.ts\",\"section-header G6a-clean @ 320\"]]",
@@ -338,6 +341,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-70cca23a9767a5c132a7\",[\"section-header-layout.layout.spec.ts\",\"section-header G6b-clean @ 430\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-7313a2b967ec08375786\",[\"section-header-layout.layout.spec.ts\",\"section-header G6b-clean @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-737c62409ebcb7840a83\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-flagged @ 1280\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-73ef4c6e5976160ffd21\",[\"section-header-layout.layout.spec.ts\",\"saturated name: overlay intersects NO neighbouring box @ 320\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-7459b53eb44dcbdbd54d\",[\"section-header-layout.layout.spec.ts\",\"transition audit: the header snaps when its pill changes on a mounted node\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-79c08a008ef1c7cbda6a\",[\"section-header-layout.layout.spec.ts\",\"section-header G6a-clean @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-79c3518103ab3ac04dce\",[\"section-header-layout.layout.spec.ts\",\"section-header G2-flagged @ 375\"]]",
@@ -354,12 +358,14 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-8d957e0775b612cbb540\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-judgment @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-925523feb2c6cf3cf1d0\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-clean @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-94f10d85fa9d9852b330\",[\"section-header-layout.layout.spec.ts\",\"corner link's focus-ring offset matches the surface behind it\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-97cdc5ed039ad08f9fa7\",[\"section-header-layout.layout.spec.ts\",\"saturated name: overlay intersects NO neighbouring box @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-9acbeb9801c352f0c0d6\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-clean @ 1280\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-9d461c3279f3e862cfbf\",[\"section-header-layout.layout.spec.ts\",\"section-header G3-clean @ 1280\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-a23af2e64db3c007d069\",[\"section-header-layout.layout.spec.ts\",\"section-header G2-clean @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-a676450915fffed2e713\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-judgment @ 1280\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-a82644deda8025ea9ff4\",[\"section-header-layout.layout.spec.ts\",\"section-header G6b-clean @ 640\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-b001e861f7ce74c364c1\",[\"section-header-layout.layout.spec.ts\",\"transition audit: wide header keeps 44px when its pill changes on a mounted node\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-b260acceee22c31b457b\",[\"section-header-layout.layout.spec.ts\",\"flagged narrow: overlay clears the line-2 pill @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-b2b50ebe4355a215b4bc\",[\"section-header-layout.layout.spec.ts\",\"section-header G2-clean @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-bac69b3aff4d6e217f8f\",[\"section-header-layout.layout.spec.ts\",\"section-header G6b-flagged @ 375\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-bdf8d3e04b205de516a4\",[\"section-header-layout.layout.spec.ts\",\"section-header G6b-flagged @ 320\"]]",
@@ -456,6 +462,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-24f94d69b7d834468676\",[\"step3-review-modal.layout.spec.ts\",\"§15 tap-target audit @ popup 800px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-2580da445c6cea60793d\",[\"step3-review-modal.layout.spec.ts\",\"§5.1.1/§5.1.4: panel = header + main + footer and height cap @ two-pane 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-26907a19104c5667dfaa\",[\"step3-review-modal.layout.spec.ts\",\"§9.4 nav exclusivity: one visible nav, one visible [aria-current] @ popup 800px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-287182d4f8319959b116\",[\"step3-review-modal.layout.spec.ts\",\"sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 390\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-452c24b4ac4168375585\",[\"step3-review-modal.layout.spec.ts\",\"T-CORNER: the footer does not paint over the panel's rounded corners @ two-pane 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-46eb9bee1fdbde1f8764\",[\"step3-review-modal.layout.spec.ts\",\"§K15 diagrams grid: no horizontal overflow, cap + fixture-derived overflow note @ sheet 390px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8794f61ad30e22c36bee-4c309b50318f48ac4d5a\",[\"step3-review-modal.layout.spec.ts\",\"T-CORNER: the footer does not paint over the panel's rounded corners @ sheet 390px\"]]",
@@ -501,5 +508,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 440
+  "totalTests": 447
 }

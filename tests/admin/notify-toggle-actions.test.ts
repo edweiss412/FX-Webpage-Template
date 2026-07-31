@@ -41,7 +41,10 @@ const {
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin, requireAdminIdentity }));
 vi.mock("next/cache", () => ({ revalidatePath }));
-vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
+  createSupabaseServerClient,
+}));
 // invariant #10: the toggles emit via logAdminOutcome post-commit; stub it so this
 // pre-existing test doesn't drive the real logger (behavioral proof lives in
 // tests/log/adminOutcomeBehavior.test.ts).

@@ -41,6 +41,7 @@ const supabaseMock = vi.hoisted(() => ({
   throwOnCreate: false,
 }));
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (supabaseMock.throwOnCreate) throw new Error("SUPABASE_URL unset");
     supabaseMock.createClient();

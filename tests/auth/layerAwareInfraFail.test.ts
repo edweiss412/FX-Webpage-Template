@@ -52,6 +52,7 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: server.createSupabaseServerClient,
 }));
 

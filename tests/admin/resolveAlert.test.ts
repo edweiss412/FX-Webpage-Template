@@ -71,6 +71,7 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     // The UPDATE chain records its filters (pinned by the happy-path assertion).
     const filterBuilder = {
