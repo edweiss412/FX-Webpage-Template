@@ -157,7 +157,9 @@ describe("stash order, OWN slot", () => {
 describe("field label renders as hotel, never room", () => {
   it("every new-code emit uses field `address`", () => {
     const cells = [
-      cell("Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26"),
+      cell(
+        "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+      ),
       cell("Marriott Downtown Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26"),
     ];
     for (const c of cells) {

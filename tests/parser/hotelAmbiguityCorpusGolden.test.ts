@@ -22,10 +22,7 @@ const SUSPECTED_CODE = "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED";
 const FAMILIES = ["fixtures/shows/raw", "fixtures/shows/exporter-xlsx"] as const;
 
 /** basename (minus .md) → expected card counts. Every fixture is listed. */
-const GOLDEN: Record<
-  string,
-  { guest: number; address: number; own: number; suspected: number }
-> = {
+const GOLDEN: Record<string, { guest: number; address: number; own: number; suspected: number }> = {
   // ── inline shows: the parser judges the hotel/first-guest boundary ──
   "2024-05-east-coast-family-office": { guest: 1, address: 0, own: 0, suspected: 0 },
   "2025-03-dci-rpas-central": { guest: 1, address: 0, own: 0, suspected: 0 },

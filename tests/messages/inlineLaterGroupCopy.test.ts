@@ -127,9 +127,9 @@ describe("INTERNAL_CODE_ENUMS membership", () => {
   for (const code of [OWN, SUSPECTED]) {
     it(`${code} is registered with source parse_warnings.code`, () => {
       expect(INTERNAL_CODE_ENUMS).toHaveProperty(code);
-      expect(
-        (INTERNAL_CODE_ENUMS as Record<string, { source: string }>)[code]?.source,
-      ).toBe("parse_warnings.code");
+      expect((INTERNAL_CODE_ENUMS as Record<string, { source: string }>)[code]?.source).toBe(
+        "parse_warnings.code",
+      );
     });
   }
 });

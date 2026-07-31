@@ -784,9 +784,13 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     const survivorSuspect =
       laterOutcomes.some((o) => o !== null && (o.tier === 1 || o.tier === 2)) ||
       degradedSegmentHasEvidence(raw);
-    return toPending(one, [single.judgedGuestBoundary], [raw], [addr], [
-      survivorSuspect ? "hotel-suspected" : undefined,
-    ]);
+    return toPending(
+      one,
+      [single.judgedGuestBoundary],
+      [raw],
+      [addr],
+      [survivorSuspect ? "hotel-suspected" : undefined],
+    );
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -1300,8 +1304,7 @@ const D4B_COMMALESS_POSTAL_RE =
   /^\s+(?:[\p{L}][\p{L}.'-]*\s+){0,3}[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
 /** Residual guard (b) / scan arm (i): an unconsumed "<ST> <postal>" anchor. The state
  * token is uppercase-only, exactly as the live STREET_ADDRESS_ZIP_RE writes it. */
-const POSTAL_EVIDENCE_RE =
-  /\b[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
+const POSTAL_EVIDENCE_RE = /\b[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
 /** Residual guard (a0): a BARE unit alias token. Token equality, so "Stephanie" and
  * "Florence" are not hits, and a dotted "Ste." is left to D6's c0 clause. */
 const BARE_UNIT_ALIAS_RE = /^(?:Suite|Ste|Unit|Apt|Rm|Room|Floor|Fl)$/iu;
@@ -1521,8 +1524,7 @@ function computeAnchor(prefix: string): AnchorMatch | null {
   let postalAnchored = false;
   if (street && zip) {
     const zipWins =
-      zip.index < street.index ||
-      (zip.index === street.index && zip[0].length > street[0].length);
+      zip.index < street.index || (zip.index === street.index && zip[0].length > street[0].length);
     winner = zipWins ? zip : street;
     postalAnchored = zipWins;
   } else if (zip) {

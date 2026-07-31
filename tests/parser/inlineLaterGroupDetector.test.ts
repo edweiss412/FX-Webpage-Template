@@ -83,7 +83,11 @@ describe("classifyLaterSegment unit oracles (spec 2026-07-27 §8.1)", () => {
     // `Marriott Plaza Jane D` is 4 whitespace words but 3 BASE words. A whitespace
     // word-count implementation reaches the word arm and returns { tier: 2 }.
     expect(
-      classifyLaterSegment("Marriott Plaza Jane D - 1002 Check In: 3/3/26 Check Out: 3/4/26", 1, "2026"),
+      classifyLaterSegment(
+        "Marriott Plaza Jane D - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+        1,
+        "2026",
+      ),
     ).toEqual({ tier: 3 });
   });
 
@@ -103,7 +107,9 @@ describe("classifyLaterSegment unit oracles (spec 2026-07-27 §8.1)", () => {
     // The padded street match sits at the smaller (position-0) index; a ZIP-shaped
     // match starts later at `71 Chicago, IL 60601`, which no D4b arm can span, so
     // guard (b) sees the unconsumed postal evidence.
-    expectDemote("200 Oak Ave 71 Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "200 Oak Ave 71 Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 });
 
@@ -129,7 +135,9 @@ describe("classifyLaterSegment branch matrix — D1 normalization", () => {
     const outcome = expectKeep(
       'Park Hyatt Chicago "800 N Michigan Ave Chicago, IL 60611" Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26',
     );
-    expect(outcome.build.row.hotel_name).toBe("Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611",
+    );
     expect(outcome.build.row.hotel_address).toBeNull();
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
@@ -138,7 +146,9 @@ describe("classifyLaterSegment branch matrix — D1 normalization", () => {
     const outcome = expectKeep(
       "Park Hyatt Chicago “800 N Michigan Ave Chicago, IL 60611” Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611",
+    );
     expect(outcome.build.row.hotel_address).toBeNull();
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
@@ -176,11 +186,15 @@ describe("classifyLaterSegment branch matrix — D3 prefix cut (five-way minimum
   });
 
   it("Hash-marked counterfeit street demotes", () => {
-    expectDemote("Jane - # 1515 Madison Ave, Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "Jane - # 1515 Madison Ave, Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 
   it("Bare-conf counterfeit street demotes", () => {
-    expectDemote("Jane Doe 100200 1515 Madison Ave, Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "Jane Doe 100200 1515 Madison Ave, Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 
   it("Zero-marker tail with own hotel keeps", () => {
@@ -193,7 +207,9 @@ describe("classifyLaterSegment branch matrix — D3 prefix cut (five-way minimum
   });
 
   it("Position-0 all-address hotel keeps", () => {
-    const outcome = expectKeep("200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    const outcome = expectKeep(
+      "200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
     expect(outcome.build.row.hotel_name).toBe(B1Z_ADDRESS);
     expect(outcome.build.row.hotel_address).toBeNull();
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
@@ -260,7 +276,9 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Marriott Downtown 200 Oak Ave Salt Lake City UT 84101 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Oak Ave Salt Lake City UT 84101");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Oak Ave Salt Lake City UT 84101",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -268,19 +286,25 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Park Hyatt Chicago 800 N Michigan Ave Chicago, IL 60611",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
   it("ZIP-arm interior boundary: FIVE interior words demotes", () => {
-    expectDemote("Hotel 71 Jane Doe Alice Brown Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "Hotel 71 Jane Doe Alice Brown Chicago, IL 60601 Bob Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 
   it("Unit tail inside a postal address keeps (arm 1 then arm 2)", () => {
     const outcome = expectKeep(
       "Marriott Downtown 200 Oak Ave Suite 400, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Oak Ave Suite 400, Chicago, IL 60601");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Oak Ave Suite 400, Chicago, IL 60601",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -288,7 +312,9 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Marriott Downtown 200 Oak Ave Floor 4, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Oak Ave Floor 4, Chicago, IL 60601");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Oak Ave Floor 4, Chicago, IL 60601",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -296,7 +322,9 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Marriott Downtown 200 Oak Ave Suite#400, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Oak Ave Suite#400, Chicago, IL 60601");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Oak Ave Suite#400, Chicago, IL 60601",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -326,7 +354,9 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Marriott Downtown 200 Oak Ave, Salt Lake City, UT 84101 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Oak Ave, Salt Lake City, UT 84101");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Oak Ave, Salt Lake City, UT 84101",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -334,7 +364,9 @@ describe("classifyLaterSegment branch matrix — D4 anchor and D4b tail arms", (
     const outcome = expectKeep(
       "Marriott Downtown 200 Martin Luther King Blvd, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Marriott Downtown 200 Martin Luther King Blvd, Chicago, IL 60601");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Marriott Downtown 200 Martin Luther King Blvd, Chicago, IL 60601",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 });
@@ -348,13 +380,17 @@ describe("classifyLaterSegment branch matrix — residual-tail guards", () => {
 
   it("(a0) token boundary: `Florence` is not an alias and still keeps", () => {
     // Kills any prefix-matching a0 — it would demote Florence.
-    const outcome = expectKeep("Hotel 71 Chicago, IL 60601 Florence Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    const outcome = expectKeep(
+      "Hotel 71 Chicago, IL 60601 Florence Roe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
     expect(outcome.build.row.hotel_name).toBe("Hotel 71 Chicago, IL 60601");
     expect(outcome.build.row.names).toEqual(["Florence Roe"]);
   });
 
   it("(a) ZIP-less city comma residual demotes", () => {
-    expectDemote("Marriott Downtown 200 Oak Ave, Chicago Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "Marriott Downtown 200 Oak Ave, Chicago Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 
   it("(b) unconsumed postal evidence after a unit tail demotes", () => {
@@ -373,7 +409,9 @@ describe("classifyLaterSegment branch matrix — residual-tail guards", () => {
     const outcome = expectKeep(
       "Four Seasons Hotel Chicago 909 Michigan Ave, Chicago, IL 60611 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("Four Seasons Hotel Chicago 909 Michigan Ave, Chicago, IL 60611");
+    expect(outcome.build.row.hotel_name).toBe(
+      "Four Seasons Hotel Chicago 909 Michigan Ave, Chicago, IL 60611",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -381,7 +419,9 @@ describe("classifyLaterSegment branch matrix — residual-tail guards", () => {
     const outcome = expectKeep(
       "The Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
     );
-    expect(outcome.build.row.hotel_name).toBe("The Marriott Downtown 200 Oak Ave, Chicago, IL 60601");
+    expect(outcome.build.row.hotel_name).toBe(
+      "The Marriott Downtown 200 Oak Ave, Chicago, IL 60601",
+    );
     expect(outcome.build.row.names).toEqual(["Jane Doe"]);
   });
 
@@ -398,7 +438,9 @@ describe("classifyLaterSegment branch matrix — D5 word arm and post-prefix sca
   });
 
   it("Arm (i) raw read: post-prefix street-only evidence demotes", () => {
-    expectDemote("Jane Doe - 1002 Marriott Downtown 200 Oak Ave Check In: 3/3/26 Check Out: 3/4/26");
+    expectDemote(
+      "Jane Doe - 1002 Marriott Downtown 200 Oak Ave Check In: 3/3/26 Check Out: 3/4/26",
+    );
   });
 
   it("Arm (i) neutralized read: a dash-glued street demotes", () => {

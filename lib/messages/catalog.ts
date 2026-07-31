@@ -1416,7 +1416,8 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → fix the sheet: one booking per HOTEL RESERVATION column",
     helpfulContext:
       "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
-    triggerContext: "Appears when a reservation on a shared hotel line may be under the wrong hotel.",
+    triggerContext:
+      "Appears when a reservation on a shared hotel line may be under the wrong hotel.",
     title: "A reservation may show the wrong hotel",
     longExplanation:
       "A reservation on a shared hotel line may be showing the wrong hotel. Spot-check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
