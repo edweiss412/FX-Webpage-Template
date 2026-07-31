@@ -45,6 +45,9 @@ export type ConfigProbe = {
   testMatchSource: string;
   /** The observed value of each requested name after the module ran. */
   env: Record<string, string | null>;
+  /** The evaluated `config.reporter` value, JSON round-tripped (spec §4.1: the
+   *  json-reporter declaration is pinned by observation, not source reading). */
+  reporter: unknown;
 };
 
 /**
@@ -92,6 +95,7 @@ export function probeConfig(
         isRegExp: testMatch instanceof RegExp,
         testMatchSource: testMatch instanceof RegExp ? testMatch.source : String(testMatch),
         env: Object.fromEntries(names.map((n) => [n, process.env[n] ?? null])),
+        reporter: config.reporter ?? null,
       }));
     })().catch((e) => { console.error(e); process.exit(1); });
   `;

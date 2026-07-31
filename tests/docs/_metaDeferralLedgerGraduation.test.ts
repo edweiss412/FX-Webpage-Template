@@ -138,6 +138,11 @@ const BACKLOG_GRADUATED = [
   // test/alert-action-links-e2e (2026-07-27): PR6, the last of the sweep — live-app
   // e2e over every registered alert action link.
   { id: "BL-ALERT-ACTION-LINKS-E2E", provenance: "test/alert-action-links-e2e" },
+  // feat/ci-dark-descoped-guards (2026-07-27, PR #626): PR-A of the ci-dark descoped
+  // close-out — the spec-registration detector closed the descoped item, and the post-run
+  // baseline comparator closed the parent cluster's env-narrowing ceiling.
+  { id: "BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC", provenance: "feat/ci-dark-descoped-guards" },
+  { id: "BL-CI-ENV-DEPENDENT-CONFIG-NARROWING", provenance: "feat/ci-dark-descoped-guards" },
   // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },

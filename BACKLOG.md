@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-27 (second pass, `fix/duration-tokens-emit-no-css`) — `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated to `BACKLOG-archive.md` (shipped on that branch, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Prior same-day pass: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
+Last reconciled: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
 
 ---
 
@@ -78,9 +78,13 @@ Measured consequence: the event-detail group title "Wardrobe & key moments" fill
 
 ## Descoped from the CI-dark coverage cluster (2026-07-26) — read before re-attempting any of these
 
-Four items below were **designed, built, and measured**, then descoped after four cross-model
-review rounds (37 accepted findings, none disputed) on branch `feat/ci-dark-coverage`. The owner
-chose to ship the provably-sound subset rather than keep iterating.
+Four items landed here when the cluster descoped them — **designed, built, and measured**, then
+descoped after four cross-model review rounds (37 accepted findings, none disputed) on branch
+`feat/ci-dark-coverage`. The owner chose to ship the provably-sound subset rather than keep
+iterating. One of the four, `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`, shipped 2026-07-27 on
+`feat/ci-dark-descoped-guards` (with the separately-filed ceiling item
+`BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`) and graduated to
+[BACKLOG-archive.md](./BACKLOG-archive.md); the three below remain open.
 
 **Do not re-derive this analysis.** Each entry records what was tried and the measurement that
 killed it. The reason each is open is that the obvious approach was implemented and shown not to
@@ -139,20 +143,6 @@ boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgr
 alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
 `step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
 modules at module scope.
-
-### BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC — detect a self-contained spec nobody registered
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD COMPLETENESS
-
-`standalone.config.ts`'s `testMatch` is an explicit allow-list, so a new harness spec that nobody
-adds runs nowhere. The shipped guard proves every _listed_ branch resolves to a file (total, and it
-caught the stale `overrideableField.layout`), but cannot see a spec that was never listed.
-
-Two detector definitions were tried and both fail: "calls the toolchain helper" is neither
-necessary nor sufficient, and "imports `node:http`/`node:https`" misses harnesses that boot no
-server — `tests/e2e/phantomGapHelper.layout.spec.ts` drives `page.setContent`, and `data:`
-navigation and route-fulfillment harnesses evade it identically. **Trigger:** a new standalone spec
-discovered dark, which is the event this would have prevented.
 
 ### BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere
 
@@ -221,22 +211,6 @@ dark-exclusion incident.
 
 **If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
 
-### BL-CI-ENV-DEPENDENT-CONFIG-NARROWING — a Playwright config could narrow on a variable only GitHub sets
-
-**Status:** OPEN · **Severity:** LOW (guard completeness, not a live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR2 of the CI-dark cluster, adversarial R4)
-
-**Do not re-derive this analysis.** Four adversarial rounds converged here; the measurements are below.
-
-`tests/ci/_standaloneConfigProbe.ts` proves that under the environment it can construct, `tests/e2e/standalone.config.ts` resolves to exactly the 30 spec files whose allowlist rows PR #609 deleted. Membership comes from Playwright's own `--list`, so `projects[].testMatch`, `testIgnore`, `testDir`, `projects: []`, and `grep`/`grepInvert` are all resolved by Playwright rather than modelled, and a companion assertion requires that resolved set to equal what the top-level `testMatch` declares (verified by mutation: a project-level `testMatch` reds it).
-
-**The gap:** a config branching on a variable only the runner sets. The probe pins `CI` and `GITHUB_ACTIONS` and asserts the matcher is identical with and without them, but a branch on `GITHUB_EVENT_NAME`, on another runner default, or on workflow/job/step `env` is invisible to any LOCAL probe **by construction** — the CI environment is not reproducible on a developer machine. Two concrete mutations that pass today's parity check while narrowing under Actions: `process.env.GITHUB_EVENT_NAME === "pull_request"` and `process.env.NODE_ENV === "test"`.
-
-**Why it is not patched:** enumerating variables is the mechanism that failed in rounds 1–3 (regex reader → AST reader → semantics modelling), each replaced rather than extended. A fourth enumeration would be the same shape.
-
-**Mitigation already in place (procedural, and it holds):** the job is unfiltered and runs the WHOLE config on every PR, so a config that narrowed under Actions would show a reduced test count in the run log — 404 tests across 30 files is the current baseline.
-
-**If picked up:** the sound fix is to compare the CI run's own reported test count against a committed baseline, i.e. verify in the environment rather than predict it locally.
-
 ### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
 
 **Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
@@ -247,6 +221,16 @@ the `quality` context". Measured live 2026-07-26: `main` requires **twelve** con
 `postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
 third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
 check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
+
+## BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it
+
+**Filed:** 2026-07-31 (R12 adversarial review of `feat/ci-dark-descoped-guards`, class-sweep spillover). **Class:** CI guard soundness. **Effort:** M.
+
+R12 closed the WITHIN-run-block shell-state class in both guard layers (the invocation census's `controlFlowRe`/`cmdPos` in `tests/ci/_metaSpecRegistration.test.ts`, and the workflow-coverage scanner's `UNMODELLED_SHELL_RE` in `tests/ci/_workflowCoverageScan.ts`): assignments, assignment builtins, source/dot, cd/pushd/popd, builtin/command wrappers are now registry-or-loud / refuse-to-cover. The CROSS-STEP variant remains open: a step that runs `echo "PATH=/fake:$PATH" >> "$GITHUB_PATH"` (or writes PATH via `$GITHUB_ENV`) mutates the environment of every LATER step in the same job, so a textually-clean `pnpm exec playwright test …` step downstream runs a fake pnpm that exits 0 — green step, no tests. The census processes run blocks as a flat text list with no job grouping, and the scanner qualifies each step independently, so neither models cross-step state. Partial existing mitigations: `standalone-e2e.yml` liveness is owned by the §4 run-report comparator (a fake pnpm writes no report, so the comparison step reds); the `PLAYWRIGHT_` raw-text sweep covers that env-var family; **zero live workflows write GITHUB_ENV/GITHUB_PATH today** (measured 2026-07-31), so this is a forward-looking hole, not a live one.
+
+**Work:** teach both layers job-scoped grouping — census: refuse-to-auto-classify any run block whose SIBLING (same-job, earlier) blocks write `GITHUB_ENV`/`GITHUB_PATH`; scanner: reject a step's claims when any earlier same-job step matches the same write pattern. Composite-action steps inherit the same job env and need the same grouping.
+
+**Status:** OPEN.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 

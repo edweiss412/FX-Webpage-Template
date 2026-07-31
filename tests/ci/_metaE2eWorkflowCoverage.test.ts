@@ -46,6 +46,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
+  "tests/e2e/admin-lifecycle-transitions.spec.ts":
+    "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-phase2-surfaces.spec.ts": UNSEEN,
@@ -93,6 +95,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/root-landing.spec.ts": UNSEEN,
   "tests/e2e/sample.spec.ts": UNSEEN,
+  "tests/e2e/section-header-visual.spec.ts":
+    "invoked only through the section-header-visual.yml docker run … bash -lc '…' block, which the R13 scanner refuses (spec path inside a quoted string is not a command-position invocation, and the block carries $PWD expansion). The census routes that same block through the complex-invocation registry, and the spec's LIVENESS is owned by the byte-comparing visual drift gate itself (a dead run has no fresh capture to compare); BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT tracks required-set promotion",
   "tests/e2e/schedule-tile.spec.ts": UNSEEN,
   "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
@@ -270,6 +274,68 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
   it("still counts a PRECEDING && chain, which does not swallow status", () => {
     const r = S(base("  pull_request:", "", `pnpm setup && playwright test ${spec}`));
     expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("rejects unmodelled shell constructs — state changes and control flow (R12)", () => {
+    // `PATH=fixtures/fake pnpm exec playwright test …` runs a fake pnpm that
+    // exits 0: the step is green, the spec never ran, and the scanner marked
+    // it covered. Shell-state mutation (assignments in every form, the
+    // assignment builtins, source/dot, directory changes, builtin/command
+    // wrappers) and control flow (an invocation inside a dead branch) both
+    // make "this run block executes this spec" unprovable by a line scan, so
+    // any run block containing one claims nothing — the spec reads as dark
+    // and costs an allowlist row, never as falsely covered.
+    for (const run of [
+      `PATH=fixtures/fake pnpm exec playwright test ${spec}`,
+      `|\n          PATH=fixtures/fake\n          pnpm exec playwright test ${spec}`,
+      `|\n          export NODE_OPTIONS=--require=./evil.cjs\n          pnpm exec playwright test ${spec}`,
+      `|\n          cd fixtures\n          pnpm exec playwright test ${spec}`,
+      `|\n          source ./env.sh\n          pnpm exec playwright test ${spec}`,
+      `|\n          . ./env.sh\n          pnpm exec playwright test ${spec}`,
+      `|\n          command unset -f playwright\n          pnpm exec playwright test ${spec}`,
+      `|\n          if false; then\n            pnpm exec playwright test ${spec}\n          fi`,
+      `|\n          for i in 1 2; do\n            pnpm exec playwright test ${spec}\n          done`,
+    ]) {
+      const r = S(base("  pull_request:", "", run));
+      expect(r.covered.has(spec), `must not cover: ${run}`).toBe(false);
+      expect(r.rejected[0]!.reason, `must reject as unmodelled: ${run}`).toBe(
+        "unmodelled shell construct",
+      );
+    }
+  });
+
+  it("rejects the R13 evasions: punctuation function names, printf -v, expansion assignment, arithmetic", () => {
+    for (const run of [
+      `|\n          foo-bar ( ) { :\n          pnpm exec playwright test ${spec}\n          :; }`,
+      `|\n          printf -v PATH fixtures/fake\n          pnpm exec playwright test ${spec}`,
+      `|\n          : \${NODE_OPTIONS:=--require=./evil.cjs}\n          pnpm exec playwright test ${spec}`,
+      `|\n          (( CI = 1 ))\n          pnpm exec playwright test ${spec}`,
+    ]) {
+      const r = S(base("  pull_request:", "", run));
+      expect(r.covered.has(spec), `must not cover: ${run}`).toBe(false);
+      expect(r.rejected[0]!.reason, `must reject as unmodelled: ${run}`).toBe(
+        "unmodelled shell construct",
+      );
+    }
+  });
+
+  it("claims nothing from lines that are not command-position invocations (echo/docker text)", () => {
+    // SPEC_RE and the alias grammar used to grep the WHOLE run block, so
+    // `echo tests/e2e/foo.spec.ts` — or a spec path inside a docker/bash -lc
+    // quoted string — counted as coverage. A claim now requires its line to
+    // START (command position) with a recognized runner/invocation word.
+    for (const run of [
+      `echo ${spec}`,
+      `echo pnpm exec playwright test ${spec}`,
+      "echo pnpm test:e2e:foo",
+      `docker run img bash -lc "pnpm exec playwright test ${spec}"`,
+    ]) {
+      const r = S(base("  pull_request:", "", run), { "test:e2e:foo": `playwright test ${spec}` });
+      expect(r.covered.has(spec), `must not cover: ${run}`).toBe(false);
+    }
+    // …and command position still recognizes the real forms, through ;/&& too.
+    const ok = S(base("  pull_request:", "", `pnpm setup && pnpm exec playwright test ${spec}`));
+    expect(ok.covered.has(spec)).toBe(true);
   });
 
   it("rejects continue-on-error in any form that is not literally false", () => {
