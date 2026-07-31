@@ -1,21 +1,18 @@
-# Task 6: Corpus close-out, parent-spec pointer, BACKLOG
+# Task 6: Corpus close-out, BACKLOG add, full gates
 
 **Files:**
-- Modify (test re-assert only): corpus golden tests — re-run and confirm ZERO deltas (guest cards 9, consultants 1, address cards 0, new-code cards 0 — spec §9; the only multi-marker fixture cell is consultants' tier-3 `Eric Weiss` tail)
-- Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §3.1 row 7 — the ratified 7a/7b amendment pointer to the feature spec (spec §5 wording verbatim)
-- Modify: `lib/parser/blocks/hotels.ts:756-767` region comment — rewrite the "later groups inherit" comment to describe the detector routing (spec row m text)
-- Modify: `BACKLOG.md` — DELETE the `BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL` entry (`:994-998` region; re-grep the heading line first); ADD `BL-CARD-COPY-HELPFULCONTEXT-PARITY` recording the pre-existing §4.2↔catalog helpfulContext divergence for `HOTEL_GUEST_SPLIT_AMBIGUOUS` (verified 2026-07-30; shipped copy, out of this feature's scope — spec row v/R57)
+
+- Modify: `tests/parser/hotelAmbiguityCorpusGolden.test.ts` — CONCRETE zero-delta enforcement for the two new codes (plan R1 finding 5): extend `countsFor` (lines 44-51) with `own: agg.warnings.filter((w) => w.code === "HOTEL_INLINE_GROUP_OWN_HOTEL").length` and `suspected: agg.warnings.filter((w) => w.code === "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED").length`; every GOLDEN row gains `own: 0, suspected: 0` (BOTH fixture families — raw AND exporter-xlsx, so an erroneous new code on `consultants.md` fails); the totals test asserts the new sums are 0/0 alongside guest 9 / address 0
+- Modify: `BACKLOG.md` — ADD `BL-CARD-COPY-HELPFULCONTEXT-PARITY` recording the pre-existing §4.2↔catalog helpfulContext divergence for `HOTEL_GUEST_SPLIT_AMBIGUOUS` (verified 2026-07-30; shipped copy, out of this feature's scope — spec row v/R57). (The DELETE of `BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL` already landed in Task 4's commit per spec §6.2; the parent-spec §3.1 row-7 pointer already landed in Task 2's behavior commit per the feature spec's line-200 requirement — NEITHER recurs here.)
 
 ## Steps
 
-- [ ] **Step 1: Corpus goldens** — `pnpm vitest run tests/parser` (goldens included); assert zero warning-card deltas. If any fixture emits a new code, STOP — that contradicts §9 and the spec's corpus re-probe; investigate before proceeding.
-- [ ] **Step 2: Parent-spec §3.1 row 7 pointer** — apply spec §5's amendment text; `pnpm spec:lint docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` → 0 hard.
-- [ ] **Step 3: hotels.ts comment rewrite** — `:756-767` region; `pnpm typecheck` (comment-only, but keep the gate).
-- [ ] **Step 4: BACKLOG edits** — delete + add per above; `npx prettier --write BACKLOG.md`.
-- [ ] **Step 5: FULL gates** — `pnpm typecheck && pnpm lint && pnpm format:check && pnpm vitest run` (whole unit suite) — all green. (Do NOT start mutation-harness runs; check `pgrep -f "vitest run --project mutation"` is not ours to trigger — sibling-session constraint.)
-- [ ] **Step 6: Commits** —
-  - `docs(parser): amend parent spec 3.1 row 7 pointer + rewrite hotels.ts inherit comment`
-  - `chore: close BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL; file BL-CARD-COPY-HELPFULCONTEXT-PARITY`
+- [ ] **Step 1: Corpus golden extension, failing-first check** — apply the `countsFor` + GOLDEN-row edits, run `pnpm vitest run tests/parser/hotelAmbiguityCorpusGolden.test.ts`. Expected: PASS immediately (zero corpus deltas per spec §9 — the only multi-marker fixture cell is consultants' tier-3 `Eric Weiss` tail). If ANY fixture emits a new code, STOP — that contradicts §9 and the spec's corpus re-probe; investigate before proceeding. (This extension's red case is counterfactual by design; its value is fail-by-default against FUTURE scan widenings — the same pattern as `EXPECTED_CORPUS_WARN_CODES`.)
+- [ ] **Step 2: BACKLOG add** — write the `BL-CARD-COPY-HELPFULCONTEXT-PARITY` entry; `npx prettier --write BACKLOG.md`.
+- [ ] **Step 3: FULL gates (feature spec §8.5 verbatim)** — `pnpm typecheck && pnpm lint && pnpm format:check && pnpm vitest run && pnpm spec:lint docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md` — all green / 0 hard. (Do NOT start mutation-harness runs; `pgrep -f "vitest run --project mutation"` is not ours to trigger — sibling-session constraint.)
+- [ ] **Step 4: Commits (staging split explicit)** —
+  - `git add tests/parser/hotelAmbiguityCorpusGolden.test.ts && git commit -m "test(parser): pin zero corpus emissions for HOTEL_INLINE_GROUP_* codes"`
+  - `git add BACKLOG.md && git commit -m "chore: file BL-CARD-COPY-HELPFULCONTEXT-PARITY"`
 
 ## After Task 6 (pipeline close-out, from 00-overview Task 7)
 

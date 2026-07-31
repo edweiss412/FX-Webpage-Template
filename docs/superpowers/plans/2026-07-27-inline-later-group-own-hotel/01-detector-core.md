@@ -1,10 +1,12 @@
 # Task 1: Detector core — exported `classifyLaterSegment` (D1–D7)
 
 **Files:**
-- Create: `tests/parser/inlineLaterGroupDetector.test.ts`
+
+- Create: tests/parser/inlineLaterGroupDetector.test.ts
 - Modify: `lib/parser/blocks/hotels.ts` (add the exported detector beside `buildInlineHotel`; touch nothing else)
 
 **Interfaces:**
+
 - Consumes: `buildInlineHotel(rest, ordinal, contextYear)` (module-private `InlineBuild` return `{ row, judgedGuestBoundary, addressAmbiguity? }`, read at `lib/parser/blocks/hotels.ts:724`); `STREET_ADDRESS_RE`/`STREET_ADDRESS_ZIP_RE`/`looksLikeStreetStart`/`stripConfTokens` machinery in `lib/parser/blocks/hotelConfTokens.ts`.
 - Produces (later tasks rely on these EXACT names):
 
@@ -29,7 +31,7 @@ export function classifyLaterSegment(
 
 - [ ] **Step 1: Write the failing unit tests**
 
-Create `tests/parser/inlineLaterGroupDetector.test.ts` with this harness and the unit-oracle set below. Every oracle's input/assertion text is copied byte-exact from its named spec §8.1 row (the row name is in the `it()` title); the code below is complete for the first three and the remaining `it()` blocks follow the identical pattern with their row's literal input and assertions.
+Create tests/parser/inlineLaterGroupDetector.test.ts with this harness and the unit-oracle set below. Every oracle's input/assertion text is copied byte-exact from its named spec §8.1 row (the row name is in the `it()` title); the code below is complete for the first three and the remaining `it()` blocks follow the identical pattern with their row's literal input and assertions.
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -67,6 +69,7 @@ describe("classifyLaterSegment unit oracles (spec 2026-07-27 §8.1)", () => {
 ```
 
 Remaining unit `it()` blocks (same file, same pattern — input + assertions from the named row):
+
 1. "contextYear-null postal segment" (row: Detector guard branches (ii)) — tier 1 with `build.row.check_in === null` and `check_out === null`.
 2. "Trailing-initial UNIT oracle" — `classifyLaterSegment("Marriott Plaza Jane D - 1002 Check In: 3/3 Check Out: 3/4", 1, "2026")` → `outcome.tier === 3` (4 whitespace words, 3 BASE words). Failure mode: whitespace word-count implementation returns `{ tier: 2 }`.
 3. "Zero-width strip UNIT oracle" — the row's segment literal with U+200B (`​`) between `2` and `00` of the street number → tier 1, `build.row.hotel_name === "Marriott Downtown 200 Oak Ave, Chicago, IL 60601"` (zero-width GONE), `build.row.hotel_address === null` (D6 leaves the split to the caller's `stripHotelNameConf` pass), names `["Jane Doe"]`. Materialize ONLY U+200B/U+200C/U+200D, never U+FEFF (BOM is JavaScript `\s`). Failure mode: strip-less D1 falls to the word arm, `{ tier: 2 }`.
