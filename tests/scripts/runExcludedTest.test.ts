@@ -172,68 +172,56 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
   });
 
-  it("guards the alias against pnpm-level redirection (R2-B F3, sources completed R3-B)", () => {
-    // `pnpm run-excluded` executes MORE than scripts["run-excluded"]: pnpm
-    // runs pre/post lifecycle scripts by default; scriptShell replaces the
-    // shell that runs the command line (/usr/bin/true consumes it whole);
-    // nodeOptions preloads code into the oracle's own node process
-    // (--import=data:… can exit 0 before the module runs); bail:false
-    // converts an oracle FAILURE into pnpm exit 0 (empirically confirmed on
-    // pinned pnpm 10.33.2 — R3-B); shellEmulator swaps execution semantics.
-    // pnpm merges these from pnpm-workspace.yaml AND .npmrc, so every
-    // tracked source is pinned clean.
+  it("guards the alias against pnpm-level redirection (R2-B F3; ALLOWLIST since R10-B)", () => {
+    // `pnpm run-excluded` executes MORE than scripts["run-excluded"], and
+    // seven review rounds proved enumerating the dangerous settings loses to
+    // whoever finds the next one (scriptShell, nodeOptions, bail,
+    // shellEmulator, config-source selectors, array spellings, and R10-B's
+    // dir/ifPresent/recursive/selectedProjectsGraph/workspaceDir routing
+    // class — pnpm merges ARBITRARY top-level workspace-manifest keys into
+    // runtime options). The guard now asks the opposite question, the same
+    // allowlist flip the coverage scanner's exit-suppression check made:
+    // every pnpm settings source must contain ONLY what this repo actually
+    // needs, and anything else — known-dangerous or not — is refused until
+    // a human amends the allowlist deliberately.
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
       pnpm?: Record<string, unknown>;
     };
     expect(pkg.scripts["prerun-excluded"], "prerun-excluded lifecycle script").toBeUndefined();
     expect(pkg.scripts["postrun-excluded"], "postrun-excluded lifecycle script").toBeUndefined();
-    for (const key of ["scriptShell", "nodeOptions", "executionEnv", "bail", "shellEmulator"]) {
-      expect(pkg.pnpm?.[key], `package.json pnpm.${key}`).toBeUndefined();
-    }
+    expect(
+      Object.keys(pkg.pnpm ?? {}),
+      "package.json pnpm field must stay empty — settings belong nowhere the oracle chain reads",
+    ).toEqual([]);
     const workspacePath = join(ROOT, "pnpm-workspace.yaml");
     if (existsSync(workspacePath)) {
       const raw = readFileSync(workspacePath, "utf8");
       // pnpm resolves YAML merge keys (<<: *anchor), which inject settings
-      // without their key names appearing top-level (R4-B F1) — parse WITH
-      // merge resolution, and refuse anchors/merge syntax outright as the
-      // belt (the real file needs neither).
+      // without their key names appearing top-level (R4-B F1) — refuse
+      // anchors/merge syntax outright, then allowlist the parsed keys.
       expect(
         /(^|\n)\s*<<\s*:|&\w|\*\w/.test(raw),
         "pnpm-workspace.yaml uses YAML anchors/merge keys — refused, settings could hide behind them",
       ).toBe(false);
       const ws = parse(raw, { merge: true }) as Record<string, unknown> | null;
-      for (const key of ["scriptShell", "nodeOptions", "bail", "shellEmulator"]) {
-        expect(ws?.[key], `pnpm-workspace.yaml ${key}:`).toBeUndefined();
-      }
+      const WORKSPACE_ALLOWLIST = new Set(["allowBuilds"]);
+      expect(
+        Object.keys(ws ?? {}).filter((k) => !WORKSPACE_ALLOWLIST.has(k)),
+        "pnpm-workspace.yaml keys outside the allowlist — pnpm merges arbitrary " +
+          "top-level keys into runtime options (dir/ifPresent/recursive/… can " +
+          "green the covering step with zero tests); extend the allowlist " +
+          "deliberately or move the concern elsewhere",
+      ).toEqual([]);
     }
-    const npmrcPath = join(ROOT, ".npmrc");
-    if (existsSync(npmrcPath)) {
-      const npmrc = readFileSync(npmrcPath, "utf8");
-      for (const key of [
-        "script-shell",
-        "node-options",
-        "bail",
-        "shell-emulator",
-        // R5-B F1: config-source SELECTORS — each can redirect pnpm to
-        // another tracked rc file carrying any guarded setting, so their
-        // presence is refused outright rather than followed.
-        "workspace-prefix",
-        "userconfig",
-        "globalconfig",
-        "prefix",
-      ]) {
-        // pnpm accepts quoted ini keys ('script-shell'=… / "bail"=…), which
-        // a bare-key regex missed (R4-B F1) — and ARRAY spellings
-        // (node-options[]=…, quoted or bare), which pnpm honors for
-        // nodeOptions and a probe rode to a green step with zero tests
-        // executed (R9-B). The [] is accepted inside or outside quotes.
-        expect(
-          new RegExp(`^\\s*['"]?${key}(\\[\\])?['"]?(\\[\\])?\\s*=`, "m").test(npmrc),
-          `.npmrc ${key}=`,
-        ).toBe(false);
-      }
-    }
+    // The repo has no .npmrc, and any future one is an unbounded settings
+    // source (quoted keys, array spellings, config-source selectors,
+    // if-present…) — its EXISTENCE is refused; adding one means consciously
+    // amending this guard with a key allowlist.
+    expect(
+      existsSync(join(ROOT, ".npmrc")),
+      ".npmrc exists — an unbounded pnpm settings source the oracle chain reads",
+    ).toBe(false);
   });
 
   it("REFUSES the override seam under GITHUB_ACTIONS (CI always runs real vitest)", () => {
