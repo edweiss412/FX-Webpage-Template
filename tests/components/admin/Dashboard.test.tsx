@@ -99,6 +99,7 @@ function emptyClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("boom");
     return emptyClient();

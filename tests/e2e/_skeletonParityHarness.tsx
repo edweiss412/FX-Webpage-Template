@@ -52,8 +52,9 @@ const SHOW_ID = "22222222-3333-4444-8555-666666666666";
  * contract under test.
  *
  *  - TITLE: short and unbreakable at 390px. The header's text block is already
- *    squeezed by a 44px sheet-link anchor and a 44px close affordance, so the
- *    budget is roughly 200px — "Acme Gala" clears it with room to spare.
+ *    squeezed by the sheet-link anchor (a 20px box in the min-h-tap-min row —
+ *    sheet-icon-link spec §5.1) and a 44px close affordance — "Acme Gala"
+ *    clears the remaining budget with room to spare.
  *  - CLIENT: non-null (the §6.3 subline's client entry + its bullet only render
  *    when non-null) and short.
  *  - DATES: a SINGLE show day and nothing else, so `dateSummarySegments` yields
@@ -162,10 +163,11 @@ function loadedElement(): React.ReactElement {
     now: new Date("2026-05-02T13:00:00.000Z"),
     attentionItems: [],
     alertsDegraded: false,
-    // Non-null: the sheet-link anchor is 44px and is what sets the loaded title
-    // row's height, so the skeleton must mirror a row of that height. Omitting
-    // it here would make the skeleton look wrong against a header that no real
-    // published show renders.
+    // Non-null: the loaded title row renders the sheet-link anchor (20px box;
+    // the row's height comes from its min-h-tap-min floor — sheet-icon-link
+    // spec §5.1), and the skeleton mirrors that row. Omitting it here would
+    // make the skeleton look wrong against a header that no real published
+    // show renders.
     openSheetHref: "https://docs.google.com/spreadsheets/d/example",
     archiveAction: NOOP_OK,
     unarchiveAction: async () => {},

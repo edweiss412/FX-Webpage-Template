@@ -995,8 +995,11 @@ describe("every external link in the live tree announces its new tab", () => {
         // component here: that same upstream commit added a filesystem guard forbidding the
         // identifier anywhere under app/, components/ or tests/, and CI caught this comment
         // violating it. See spec §1.4 for the name and the census change.
-        "components/admin/showpage/PublishedReviewModal.tsx",
-        "components/admin/wizard/Step3ReviewModal.tsx",
+        // The B/D modal-title anchors and the section-header corner link now
+        // delegate to the ONE shared component (sheet-icon-link spec §3), so
+        // the census rows for the two modal files collapse into it; the
+        // sections file keeps its row for the agenda error-state text link.
+        "components/admin/SheetIconLink.tsx",
         "components/admin/wizard/step3ReviewSections.tsx",
         "components/crew/primitives/SourceLink.tsx",
         // The two labels that already announced before this sweep (§2).

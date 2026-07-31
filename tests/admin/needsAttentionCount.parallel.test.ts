@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (state.throwOnCreate) throw new Error("META: client create failed");
     return {

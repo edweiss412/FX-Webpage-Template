@@ -210,6 +210,7 @@ function makeClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (sbMock.throwOnConstruct) throw new Error("META: construction fault");
     return makeClient();

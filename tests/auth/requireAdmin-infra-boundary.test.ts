@@ -12,6 +12,7 @@ vi.mock("next/headers", () => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: vi.fn(async () => ({
     auth: { getClaims: mockState.getClaimsImpl },
     rpc: mockState.rpcImpl,

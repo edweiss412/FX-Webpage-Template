@@ -51,6 +51,7 @@ function makeBuilder() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({
     auth: {
       getUser: async () => ({ data: { user: { email: "admin@example.com" } }, error: null }),

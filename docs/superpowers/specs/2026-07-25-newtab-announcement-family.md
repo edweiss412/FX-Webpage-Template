@@ -120,7 +120,7 @@ The third is one of the two sites §2 otherwise preserves: it announces correctl
 
 **Decision: fix all three while editing these exact lines.** Leaving a Level-A failure on a line this spec is already rewriting, in a change whose subject is the accessible naming of external links, is not defensible. New labels contain the visible words AND keep the destination information. **Comma separators, never em dashes** (`DESIGN.md:350`):
 
-- `components/admin/wizard/step3ReviewSections.tsx:934` → `` `In sheet, open the source sheet for ${label} (opens in a new tab)` ``
+- `components/admin/wizard/step3ReviewSections.tsx:934` → `` `In sheet, open the source sheet for ${label} (opens in a new tab)` `` _(SUPERSEDED twice: the wide-inline rebuild dropped the "In sheet," prefix, and the 2026-07-26 sheet-icon-link spec §1.7/§3 ratified the one canonical phrasing `Open the source sheet for X in Google Sheets (opens in a new tab)`, now emitted by components/admin/SheetIconLink.tsx.)_
 - `components/crew/primitives/SourceLink.tsx:71` → `In sheet, view this section in the source sheet (opens in a new tab)`
 - `components/admin/wizard/VenueMapTile.tsx:138` → `Directions, open the venue in Google Maps (opens in a new tab)`
 

@@ -242,6 +242,10 @@ export const HARNESS_CAPPED_ALERT_COUNT = 1200;
  *  expectation — so the harness must be able to render it. */
 export type HarnessStateOverrides = {
   archived?: boolean;
+  /** sheet-icon-link spec §7.7: a saturated header title, so the action-side
+   *  rect-intersection cases measure a link pushed against the actions cluster
+   *  rather than one sitting in free flex space (short-title vacuity). */
+  title?: string;
   isLive?: boolean;
   published?: boolean;
   /** attention split §6a probe: drive the pill/menu with explicit items. */
@@ -365,7 +369,7 @@ export function modalElement(
     bySection,
     slug: MODAL_SLUG,
     showId: SHOW_ID,
-    title: MODAL_TITLE,
+    title: state.title ?? MODAL_TITLE,
     archived,
     published,
     finalizeOwned: false,
@@ -445,6 +449,13 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       crewWarningsCapped: renderModalHtml(HARNESS_ALERT_COUNT, {
         withCappedCrewWarnings: true,
         attentionItems: [...harnessAttentionItems(HARNESS_ALERT_COUNT), crewCappedAttentionItem()],
+      }),
+      // sheet-icon-link spec §7.7: saturated title fills the header's flex-1
+      // block at every measured width, pushing the sheet link to the cluster
+      // gap so the action-side intersection cases measure the real worst case.
+      saturatedTitle: renderModalHtml(HARNESS_ALERT_COUNT, {
+        title:
+          "II - Northeast Regional Partner Kickoff and Extended Production Rehearsal Marathon Week Whole-Campus Load-In",
       }),
     }),
   );

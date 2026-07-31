@@ -105,6 +105,13 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
     reason: "E7: marker literal in the documented loud-error design (its lines 110-114)",
   },
   {
+    file: "tests/components/admin/sheetIconLinkContainment.test.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason:
+      "bareSpecifierOffense leading-# package-subpath-import telltale (r15), not comment handling — detector false positive",
+  },
+  {
     file: "tests/cross-cutting/db-test-connection-hygiene.test.ts",
     family: "startswith-filter",
     marker: "#",

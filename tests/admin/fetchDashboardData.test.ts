@@ -235,6 +235,7 @@ function makeDeferredClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => (state.deferred ? makeDeferredClient() : makeClient()),
 }));
 const nowDateSpy = vi.hoisted(() => vi.fn(async () => new Date("2026-06-03T12:00:00.000Z")));

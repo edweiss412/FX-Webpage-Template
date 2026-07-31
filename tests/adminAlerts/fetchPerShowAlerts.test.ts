@@ -37,6 +37,7 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase/server", () => {
   return {
+    createSupabaseServiceRoleClient: vi.fn(),
     createSupabaseServerClient: async () => {
       function createBuilder(table: string) {
         const inFilter: { column: string | null; values: string[] | null } = {

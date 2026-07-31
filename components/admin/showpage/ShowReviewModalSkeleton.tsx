@@ -70,17 +70,25 @@ export function ShowReviewModalSkeleton({ onClose }: { onClose?: () => void } = 
             <h2 id={headingId} className="sr-only">
               Loading show details…
             </h2>
-            {/* Title row. Its height is set by the 44px box on the right, NOT
-                by the bar — same as the loaded row, whose height comes from the
-                44px sheet-link anchor rather than its text-lg title. */}
-            <div className="flex min-w-0 items-center gap-1" aria-hidden="true">
+            {/* Title row. Its height is set by the min-h-tap-min FLOOR, NOT by
+                any child — same as the loaded row, where the SheetIconLink
+                anchor is a 20px box whose 44px target is an invisible overlay
+                and the floor supplies the band (sheet-icon-link spec §5.1). */}
+            <div
+              data-testid="published-show-review-loading-title-row"
+              className="flex min-h-tap-min min-w-0 items-center gap-2.5"
+              aria-hidden="true"
+            >
               <Skeleton className="h-6 w-40 max-w-full" />
               {/* The sheet-link anchor's slot. Deliberately an EMPTY spacer,
-                  not a Skeleton: the loaded anchor is a small glyph in a mostly
-                  transparent 44px hit area, so painting a 44px block here would
-                  promise a control that never arrives — while still needing to
-                  occupy the row's height driver. */}
-              <div className="size-tap-min shrink-0" />
+                  not a Skeleton: the loaded anchor is a small glyph whose hit
+                  area is transparent overlay, so painting a block here would
+                  promise a control that never arrives. 20px + mr-0.5 mirrors
+                  the loaded anchor's box and clearance exactly. */}
+              <div
+                data-testid="published-show-review-loading-sheetlink-slot"
+                className="mr-0.5 size-5 shrink-0"
+              />
             </div>
             {/* Subline row (§6.1.1 requirement 2). WITHOUT this the skeleton
                 header is one text row shorter than the loaded one, so the

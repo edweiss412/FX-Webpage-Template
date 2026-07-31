@@ -296,7 +296,7 @@ describe("Step3ReviewModal — a11y-safe title (spec §9.1/§15)", () => {
     expect(q.getByTestId(tid("title")).tagName).toBe("H2");
   });
 
-  test("sheet deep link: separate 44px icon anchor with the action aria-label and safe target/rel", () => {
+  test("sheet deep link: separate overlay-idiom icon anchor with the action aria-label and safe target/rel", () => {
     const { q } = renderModal();
     const link = q.getByTestId(tid("sheetlink")) as HTMLAnchorElement;
     expect(link.tagName).toBe("A");
@@ -306,7 +306,17 @@ describe("Step3ReviewModal — a11y-safe title (spec §9.1/§15)", () => {
     expect(link.getAttribute("aria-label")).toBe(
       `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
     );
-    expect(link.className).toMatch(/\bsize-tap-min\b/);
+    // SheetIconLink idiom (sheet-icon-link spec §3): 20px box + overlay target,
+    // text-text rest colour — never the boxed size-tap-min form or the banned
+    // text-text-subtle. Token membership, not substring ("text-text-subtle"
+    // CONTAINS "text-text").
+    const tokens = new Set(link.className.split(/\s+/).filter(Boolean));
+    expect(tokens.has("size-5")).toBe(true);
+    expect(tokens.has("before:-left-2.5")).toBe(true);
+    expect(tokens.has("text-text")).toBe(true);
+    expect(tokens.has("mr-0.5")).toBe(true);
+    expect(tokens.has("size-tap-min")).toBe(false);
+    expect(tokens.has("text-text-subtle")).toBe(false);
   });
 });
 
@@ -1280,7 +1290,7 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
       // (feat/section-header-rebuild-phantom-spacers): no visible words remain, so
       // WCAG 2.5.3 label-in-name no longer requires it to mirror an "In sheet" label.
       expect(link.getAttribute("aria-label")).toBe(
-        `Open the source sheet for ${s.label} (opens in a new tab)`,
+        `Open the source sheet for ${s.label} in Google Sheets (opens in a new tab)`,
       );
     }
   });

@@ -200,3 +200,11 @@ From the same audit. At 4s the live region empties and the button's accessible n
 **Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
 
 **Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
+
+### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
+
+From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
+
+**Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
+
+**Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.

@@ -18,6 +18,7 @@ const state = {
 };
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("construct boom");
     return {

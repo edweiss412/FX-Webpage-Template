@@ -23,8 +23,8 @@
  *
  * Heading-safe title (spec §9.1/§15): the dialog's accessible name comes from
  * `aria-labelledby` → the `<h2>` that contains ONLY the plain title text. The
- * sheet deep link is a SEPARATE adjacent 44px icon anchor OUTSIDE the heading,
- * so its action label ("Open the source sheet for …") can never hijack the
+ * sheet deep link is the SEPARATE adjacent SheetIconLink OUTSIDE the heading,
+ * so its sheet-opening action label can never hijack the
  * accessible-name computation (the reason SheetTitleLink is NOT reused here).
  *
  * Result-bearing publish (spec §9.1/§9.2-consumer): the footer's primary
@@ -38,8 +38,9 @@
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
 import { useId, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Camera, Check, ExternalLink, Loader2 } from "lucide-react";
+import { AlertTriangle, Camera, Check, Loader2 } from "lucide-react";
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
+import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContext";
 import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
@@ -387,8 +388,13 @@ export function Step3ReviewModal({
               Review before publishing
             </div>
             {/* Heading-safe title split: the h2 holds ONLY the plain title;
-                the deep link is a separate adjacent 44px icon anchor. */}
-            <div className="flex min-w-0 items-center gap-1">
+                the deep link is the separate adjacent SheetIconLink. The row's
+                min-h-tap-min + gap-2.5 + the link's mr-0.5 are its consuming-
+                context requirements (SheetIconLink header): floor contains the
+                12px vertical reach short of eyebrow/subline; the gap covers the
+                10px title-side reach; mr-0.5 + the shell's gap-3 = the 14px
+                trailing reach to the chip, exactly. */}
+            <div className="flex min-h-tap-min min-w-0 items-center gap-2.5">
               <h2
                 id={h2Id}
                 data-testid={`wizard-step3-card-${dfid}-review-title`}
@@ -400,20 +406,13 @@ export function Step3ReviewModal({
               </h2>
               {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
               {sheetLink !== null ? (
-                <a
-                  data-testid={`wizard-step3-card-${dfid}-review-sheetlink`}
+                <SheetIconLink
                   href={sheetLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={
-                    title.trim()
-                      ? `Open the source sheet for ${title.trim()} in Google Sheets (opens in a new tab)`
-                      : "Open the source sheet in Google Sheets (opens in a new tab)"
-                  }
-                  className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                >
-                  <ExternalLink aria-hidden="true" className="size-4" />
-                </a>
+                  subjectLabel={title}
+                  testId={`wizard-step3-card-${dfid}-review-sheetlink`}
+                  ringOffset="surface"
+                  className="mr-0.5"
+                />
               ) : null}
             </div>
             {/* Subline: client entry (omitted when null) + dates entry ALWAYS
@@ -465,9 +464,11 @@ export function Step3ReviewModal({
               </span>
             )}
             {/* Dev-capture icon (spec §2.3): developer-only, size-tap-min,
-                between the status chip and close — same idiom as the header
-                sheet-link anchor. Busy state disables + spins; the adjacent
-                status node carries busy/error copy (§7.1). */}
+                between the status chip and close. (A deliberate BOXED control —
+                the header sheet link migrated to the SheetIconLink 20px-box +
+                overlay idiom; this developer-only affordance keeps its 44px
+                box.) Busy state disables + spins; the adjacent status node
+                carries busy/error copy (§7.1). */}
             {/* §11: instant — deliberate (developer flag is session truth, not a state transition) */}
             {viewerIsDeveloper ? (
               <>

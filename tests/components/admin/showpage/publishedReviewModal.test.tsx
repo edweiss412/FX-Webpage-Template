@@ -359,13 +359,25 @@ describe("PublishedReviewModal header (spec §6.1/§6.2)", () => {
     expect(label.textContent).toBe(SLUG);
   });
 
-  it("openSheetHref renders the 44px sheet deep-link icon anchor with the fixture href", () => {
+  it("openSheetHref renders the shared overlay-idiom sheet link with the fixture href", () => {
     renderModal();
     const sheet = screen.getByTestId(`${TB}-sheetlink`);
     expect(sheet.getAttribute("href")).toBe(SHEET_HREF);
     expect(sheet.getAttribute("aria-label")).toBe(
       `Open the source sheet for ${TITLE} in Google Sheets (opens in a new tab)`,
     );
+    // The SheetIconLink idiom (sheet-icon-link spec §3): 20px visual box, hit
+    // target from the ::before overlay, rest colour text-text — NEVER the boxed
+    // size-tap-min form or the banned text-text-subtle. Token membership, not
+    // substring: "text-text-subtle" CONTAINS "text-text".
+    const tokens = new Set(sheet.className.split(/\s+/).filter(Boolean));
+    expect(tokens.has("size-5")).toBe(true);
+    expect(tokens.has("before:-left-2.5")).toBe(true);
+    expect(tokens.has("text-text")).toBe(true);
+    expect(tokens.has("size-tap-min")).toBe(false);
+    expect(tokens.has("text-text-subtle")).toBe(false);
+    // Trailing clearance: mr-0.5 + the shell's gap-3 = the 14px the overlay reaches.
+    expect(tokens.has("mr-0.5")).toBe(true);
   });
 
   it("openSheetHref=null omits the sheet icon entirely (no dead anchor)", () => {

@@ -19,6 +19,7 @@ const server = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: server.createSupabaseServerClient,
 }));
 

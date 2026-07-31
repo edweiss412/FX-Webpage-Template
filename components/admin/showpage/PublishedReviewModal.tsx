@@ -6,8 +6,9 @@
  * The published review surface composed inside the shared `ReviewModalShell`
  * chrome: the dashboard's `/admin?show=<slug>` modal. Header slot owns the
  * heading-safe `<h2>` title (the dialog's aria-labelledby target — ONLY the
- * title text; the sheet deep link is a separate adjacent 44px icon anchor, the
- * Step3ReviewModal pattern) plus the close button. The control strip is NOT in
+ * title text; the sheet deep link is the separate adjacent SheetIconLink — a
+ * 20px box with a 44px overlay target, the Step3ReviewModal pattern) plus the
+ * close button. The control strip is NOT in
  * the header: it mounts in the shell's `subHeader` band, its own seamed row
  * below the header (modal-header-reconciliation §6.1) — identity above, live
  * controls below. `<StatusStrip>` renders no title of its own and no container
@@ -33,9 +34,10 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
-import { ChevronDown, ExternalLink, History, LayoutDashboard } from "lucide-react";
+import { ChevronDown, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
+import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import {
   ShowReviewSurface,
@@ -702,9 +704,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         <>
           <div className="min-w-0 flex-1">
             {/* Heading-safe title split (Step3 pattern): the h2 holds ONLY the
-                plain title (the dialog's accessible name); the deep link is a
-                separate adjacent 44px icon anchor. */}
-            <div className="flex min-w-0 items-center gap-1">
+                plain title (the dialog's accessible name); the deep link is the
+                separate adjacent SheetIconLink. */}
+            {/* min-h-tap-min + gap-2.5 + the link's mr-0.5 are the SheetIconLink
+                consuming-context requirements (its header): the floor contains
+                the overlay's 12px vertical reach short of the subline, the gap
+                covers the 10px title-side reach, and mr-0.5 + the shell's gap-3
+                give the 14px trailing reach exactly the cluster clearance. */}
+            <div className="flex min-h-tap-min min-w-0 items-center gap-2.5">
               <h2 id={h2Id} data-testid={`${TESTID_BASE}-title`} className="min-w-0">
                 <span className="min-w-0 wrap-break-word text-lg font-bold tracking-tight text-text-strong">
                   {displayTitle}
@@ -712,20 +719,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               </h2>
               {/* §6.2 guard: null → omitted entirely (no dead anchor). */}
               {openSheetHref !== null ? (
-                <a
-                  data-testid={`${TESTID_BASE}-sheetlink`}
+                <SheetIconLink
                   href={openSheetHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={
-                    displayTitle.trim()
-                      ? `Open the source sheet for ${displayTitle.trim()} in Google Sheets (opens in a new tab)`
-                      : "Open the source sheet in Google Sheets (opens in a new tab)"
-                  }
-                  className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                >
-                  <ExternalLink aria-hidden="true" className="size-4" />
-                </a>
+                  subjectLabel={displayTitle}
+                  testId={`${TESTID_BASE}-sheetlink`}
+                  ringOffset="surface"
+                  className="mr-0.5"
+                />
               ) : null}
             </div>
             {/* §6.3 subline: client entry (omitted WITH its bullet when null —
