@@ -2794,14 +2794,8 @@ describe("warning cardinality", () => {
     });
   }
 
-  // Rows whose cell collapses to ONE fallback reservation: their SUSPECTED is stashed
-  // by the scope-B attribution scan (spec §3 scope B), which lands in Task 5. The row
-  // byte-parity assertion for each is active in the DEMOTES block above.
-  const SCOPE_B_PENDING: ReadonlySet<string> = new Set(["dotted Ste. Grand c0 pin"]);
-
   for (const d of DEMOTES) {
-    const run = SCOPE_B_PENDING.has(d.name) ? it.skip : it;
-    run(`${d.name} — exactly one SUSPECTED, zero OWN`, () => {
+    it(`${d.name} — exactly one SUSPECTED, zero OWN`, () => {
       const { warnings } = parse(cellFor(d));
       expect(warnings.filter((w) => w.code === SUSPECTED).length).toBe(1);
       expect(warnings.filter((w) => w.code === OWN).length).toBe(0);
@@ -2860,6 +2854,8 @@ type ScopeCase = {
   own: number;
   index: number | null;
   rawSnippet: "cell" | "seg0" | null;
+  /** Whether the input carries bytes D1 rewrites, so raw !== normalized is observable. */
+  d1Affected: boolean;
 };
 
 const SCOPE_CASES: readonly ScopeCase[] = [
@@ -2879,6 +2875,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: false,
   },
   {
     name: "scopeA conf-less glued guest silent",
@@ -2896,6 +2893,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: null,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA partial degradation, multi-row survival",
@@ -2920,6 +2918,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "seg0",
+    d1Affected: true,
   },
   {
     name: "scopeA street-only positive",
@@ -2937,6 +2936,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA postal-only positive",
@@ -2954,6 +2954,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA hash-conf glued guest WARNS",
@@ -2971,6 +2972,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA bare-digit glued guest WARNS",
@@ -2988,6 +2990,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 post-marker silent",
@@ -3005,6 +3008,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: null,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 rejection (99999-12345)",
@@ -3022,6 +3026,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 rejection (en dash)",
@@ -3039,6 +3044,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 rejection (spaced separator)",
@@ -3056,6 +3062,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 rejection (six-digit run)",
@@ -3073,6 +3080,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA ZIP+4 rejection (trailing word char)",
@@ -3090,6 +3098,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: null,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA entity-split evidence WARNS",
@@ -3107,6 +3116,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: true,
   },
   {
     name: "scopeA tab-split evidence WARNS",
@@ -3124,6 +3134,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: true,
   },
   {
     name: "scopeA quoted evidence WARNS",
@@ -3141,6 +3152,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: true,
   },
   {
     name: "scopeA digit-run prose WARNS",
@@ -3158,6 +3170,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA dash-glued street (hyphen)",
@@ -3175,6 +3188,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA dash-glued street (en dash)",
@@ -3192,6 +3206,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA dash-glued street (em dash)",
@@ -3209,6 +3224,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA word-glued street (hyphen)",
@@ -3226,6 +3242,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA word-glued street (en dash)",
@@ -3243,6 +3260,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA word-glued street (em dash)",
@@ -3260,6 +3278,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA lowercase-state stays silent",
@@ -3277,6 +3296,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: null,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeA entity-split FIRST checkout WARNS",
@@ -3294,6 +3314,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: true,
   },
   {
     name: "scopeB Jose non-ASCII fallback",
@@ -3311,6 +3332,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: "cell",
+    d1Affected: true,
   },
   {
     name: "scopeB Jose fallback plus third group",
@@ -3328,6 +3350,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB fallback suffix-only evidence",
@@ -3345,6 +3368,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB fallback no address evidence",
@@ -3362,6 +3386,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: null,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB fallback survivor conf positive (hyphen)",
@@ -3379,6 +3404,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB fallback survivor conf positive (en dash)",
@@ -3396,6 +3422,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB fallback survivor conf positive (glued em dash)",
@@ -3413,6 +3440,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "scopeB missing group-0 checkout, later postal hotel",
@@ -3430,6 +3458,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "maxOne pair a: word arm plus tier-1 inheritance",
@@ -3461,6 +3490,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 1,
     index: 2,
     rawSnippet: null,
+    d1Affected: false,
   },
   {
     name: "stash order SUSPECTED slot",
@@ -3478,6 +3508,7 @@ const SCOPE_CASES: readonly ScopeCase[] = [
     own: 0,
     index: 0,
     rawSnippet: null,
+    d1Affected: false,
   },
 ];
 
@@ -3503,8 +3534,11 @@ describe("scope A / scope B degraded-segment evidence scans", () => {
       if (c.rawSnippet !== null) {
         const expected = c.rawSnippet === "cell" ? c.cell : segmentZero(c.cell);
         expect(suspected[0]!.rawSnippet).toBe(expected);
-        // The scan reads D1-NORMALIZED text but persists the RAW bytes.
-        expect(suspected[0]!.rawSnippet).not.toBe(normalizeLaterSegmentText(expected));
+        // Where the input carries bytes D1 rewrites, raw !== normalized is observable —
+        // that is what kills a normalized-persisting emitter.
+        if (c.d1Affected) {
+          expect(suspected[0]!.rawSnippet).not.toBe(normalizeLaterSegmentText(expected));
+        }
       }
     });
   }

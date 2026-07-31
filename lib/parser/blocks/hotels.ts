@@ -776,7 +776,17 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     single.row.check_out = null;
     let addr = single.addressAmbiguity;
     const one = stripHotelNameConf([single.row], (_i, a) => (addr ??= a));
-    return toPending(one, [single.judgedGuestBoundary], [raw], [addr]);
+    // Scope B (spec §3): the per-group rows are discarded, but if ANY later segment's
+    // outcome carried hotel evidence (tier 1 or tier 2, a D6 abort included), the cell
+    // may book another hotel even though the parser could not split it — the operator
+    // has to be told. Scope A also applies to the survivor, via the whole cell as its
+    // own "segment"; both producers collapse to at most ONE stash.
+    const survivorSuspect =
+      laterOutcomes.some((o) => o !== null && (o.tier === 1 || o.tier === 2)) ||
+      degradedSegmentHasEvidence(raw);
+    return toPending(one, [single.judgedGuestBoundary], [raw], [addr], [
+      survivorSuspect ? "hotel-suspected" : undefined,
+    ]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -843,6 +853,14 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     }
     if (outcome?.tier === 2 || sawTierOne) return "hotel-suspected";
     return undefined;
+  });
+  // Scope A applies to EVERY segment, group 0 included — a degraded segment 0 whose
+  // post-first-marker region carries evidence has silently absorbed a later booking,
+  // and no detector outcome exists for it. Assigned only where no stash exists yet, so
+  // the max-one-per-row rule holds however many producers fire.
+  segments.forEach((seg, i) => {
+    if (detectorStashes[i]) return;
+    if (degradedSegmentHasEvidence(seg)) detectorStashes[i] = "hotel-suspected";
   });
   // Address ambiguity follows the same row-7 anchor: only reservation 0's
   // hotel_name is the splitter's own output — every later row holds inherited
@@ -1522,6 +1540,33 @@ function computeAnchor(prefix: string): AnchorMatch | null {
     text: winner[0],
     postalAnchored,
   };
+}
+
+/**
+ * Scope A (spec §3) — the caller-side degraded-segment evidence scan.
+ *
+ * A segment holding TWO OR MORE `Check In` markers glued multiple bookings together
+ * (an intermediate checkout is missing), and the detector cannot classify what it
+ * cannot segment. The scan asks a narrower question the partition cannot: does the
+ * region AFTER the segment's first marker carry recognizable booking evidence? That
+ * region can only hold later bookings' material, since the segment's own hotel text
+ * precedes its first marker.
+ *
+ * The scan input is D1-NORMALIZED and the first marker is located in that normalized
+ * text — raw-byte scanning misses evidence an exporter entity or a quote splits
+ * (`200&#10;Oak Ave` matches only after normalization). Only the INPUT is normalized;
+ * the stashed `rawSnippet` stays the raw text.
+ *
+ * The arm definitions are the detector's, deliberately shared: two scan sites reading
+ * "conf token" or "street evidence" differently is exactly the drift these oracles pin.
+ */
+function degradedSegmentHasEvidence(rawSegment: string): boolean {
+  const s = normalizeLaterSegmentText(rawSegment);
+  if ((s.match(CHECK_IN_GLOBAL_RE) ?? []).length < 2) return false;
+  const first = CHECK_IN_RE.exec(s);
+  if (!first) return false;
+  const region = s.slice(first.index + first[0].length);
+  return hasAddressEvidence(region) || hasConfTokenEvidence(region);
 }
 
 /**
