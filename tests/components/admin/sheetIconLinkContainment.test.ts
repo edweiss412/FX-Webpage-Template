@@ -715,10 +715,43 @@ function nextConfigAliasOffenders(src: string): string[] {
     ) {
       out.push(`computed element access in next.config.ts — cannot be statically cleared`);
     }
+    // r25: a computed PROPERTY NAME is the object-literal twin of computed
+    // element access — `{ ["page" + "Extensions"]: [...] }` constructs a key
+    // no token scan can see. A string-literal computed name cooks into the
+    // token scans above; anything else is statically unclearable in config
+    // space, same class as the element-access rule.
+    if (ts.isComputedPropertyName(node)) {
+      const key = unwrapTransparent(node.expression);
+      if (!ts.isStringLiteralLike(key) && !ts.isNumericLiteral(key)) {
+        out.push(`computed property name in next.config.ts — cannot be statically cleared`);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
   return out;
+}
+
+/**
+ * Every AST spelling of the `pageExtensions` token in a module (r25):
+ * identifiers and string literals cook escapes in `.text`, so the pinned
+ * property's own name, a shorthand property (`{ pageExtensions }`), a
+ * string-literal computed key, a getter, a later dot/bracket assignment,
+ * and a `delete` all count — the graph-wide pin requires EXACTLY ONE
+ * occurrence (the entry property's name), so any second spelling in any
+ * form fails without this guard having to model object semantics.
+ * Non-literal computed keys are offenses outright (above).
+ */
+function pageExtensionsTokenCount(sf: ts.SourceFile): number {
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === "pageExtensions") {
+      count += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return count;
 }
 
 /**
@@ -1395,6 +1428,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // jsonRemapOffenses (a JSON file is never the sanctioned definition
     // site).
     const pageExtSets: Array<[string, string[]]> = [];
+    // r25: property-shape collection alone is fail-open — shorthand
+    // (`{ pageExtensions }`), string-literal computed keys, getters, later
+    // dot/bracket assignments, and `delete` all reshape the config while
+    // presenting no PropertyAssignment. Every one of those spellings still
+    // carries the token as an identifier or string literal, so the pin
+    // ALSO counts raw token occurrences graph-wide and requires exactly ONE
+    // — the pinned entry property's own name. Non-literal computed keys are
+    // config-space offenses (nextConfigAliasOffenders, r25).
+    const pageExtTokenAt: string[] = [];
     for (const rel of reachable.files) {
       const graphSf = ts.createSourceFile(
         rel,
@@ -1403,6 +1445,7 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         true,
         /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX,
       );
+      for (let i = 0; i < pageExtensionsTokenCount(graphSf); i += 1) pageExtTokenAt.push(rel);
       const collectPageExts = (node: ts.Node): void => {
         if (
           ts.isPropertyAssignment(node) &&
@@ -1427,6 +1470,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(pageExtSets, "pageExtensions pinned by exact set, graph-wide").toEqual([
       ["next.config.ts", ["ts", "tsx", "mdx"]],
     ]);
+    expect(
+      pageExtTokenAt,
+      "exactly one pageExtensions token spelling in the whole config graph",
+    ).toEqual(["next.config.ts"]);
     // …and the named artifact stays impossible even if the pins above are
     // ever loosened: zero tracked .md under app/ (the only page-capable
     // tree). A future legitimate .md page teaches this guard first.
@@ -1514,6 +1561,22 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // r24 — pageExtensions in reachable JSON is spread-fodder, denied (the
     // sanctioned definition site is the entry file's own pinned property):
     expect(jsonRemapOffenses({ pageExtensions: ["mdx"] }, "cfg.json").length).toBeGreaterThan(0);
+    // r25 — every override spelling carries the token as an identifier or
+    // string literal, so the graph-wide token count sees each one; a
+    // non-literal computed key is an offense outright:
+    const tokCount = (src: string): number =>
+      pageExtensionsTokenCount(
+        ts.createSourceFile("probe.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+      );
+    expect(tokCount("const nextConfig = { pageExtensions };")).toBe(1);
+    expect(tokCount('const c = { ["pageExtensions"]: ["md"] };')).toBe(1);
+    expect(tokCount("const c = { get pageExtensions() { return ['md']; } };")).toBe(1);
+    expect(tokCount('cfg.pageExtensions = ["md"];')).toBe(1);
+    expect(tokCount('delete cfg["pageExtensions"];')).toBe(1);
+    expect(tokCount("const unrelated = { remarkPlugins: [] };")).toBe(0);
+    expect(
+      nextConfigAliasOffenders('const c = { ["page" + "Extensions"]: ["md"] };').length,
+    ).toBeGreaterThan(0);
   });
 
   it(
