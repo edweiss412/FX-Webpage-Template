@@ -1182,3 +1182,13 @@ supersession note.
 **Mitigation already in place (procedural, and it holds):** the job is unfiltered and runs the WHOLE config on every PR, so a config that narrowed under Actions would show a reduced test count in the run log — 404 tests across 30 files is the current baseline.
 
 **If picked up:** the sound fix is to compare the CI run's own reported test count against a committed baseline, i.e. verify in the environment rather than predict it locally.
+
+---
+
+## BL-DURATION-TOKENS-EMIT-NO-CSS — `duration-fast` / `duration-normal` are inert across 89 files — ✅ RESOLVED (2026-07-27)
+
+**Status:** CLOSED 2026-07-27, shipped on `fix/duration-tokens-emit-no-css` (PR #632) · **How it closed.** Approach A (alias, not the entry's literal rename): the `@theme` block gained `--transition-duration-<name>: var(--duration-<name>)` aliases for all four named durations, so `duration-<name>` utilities emit real CSS and the reduced-motion collapse propagates through the var() chain. Guarded by a compile-emission structural test (`tests/design/durationTokenEmission.test.ts`, fixture probe covering all four names) and a WebKit computed-value e2e assertion in `tests/e2e/crew-section-toggle.spec.ts` (0.15s fallback red → 0.12s / 0s green). Spec: `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`. Residual bare-`transition-*` gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`. The original entry follows for provenance.
+
+**Original entry (filed 2026-07-25, destruct-thumb-order impeccable audit P1 · Severity MEDIUM · Class DESIGN TOKEN WIRING, repo-wide):**
+
+Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.

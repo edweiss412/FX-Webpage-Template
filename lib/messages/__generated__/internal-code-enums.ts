@@ -116,6 +116,12 @@ export const INTERNAL_CODE_ENUMS = {
   HOTEL_GUEST_SPLIT_AMBIGUOUS: {
     source: "parse_warnings.code"
   },
+  HOTEL_INLINE_GROUP_HOTEL_SUSPECTED: {
+    source: "parse_warnings.code"
+  },
+  HOTEL_INLINE_GROUP_OWN_HOTEL: {
+    source: "parse_warnings.code"
+  },
   IDEMPOTENCY_IN_FLIGHT: {
     source: "admin_alerts.code"
   },
@@ -169,6 +175,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   OPERATOR_ERROR_NOT_FOLDER: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  ORPHANED_CREW_ROWS: {
+    source: "parse_warnings.code"
   },
   parse_error: {
     source: "shows.last_sync_status"

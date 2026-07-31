@@ -274,35 +274,42 @@ describe("full resolution payload at each reachable caller", () => {
   });
 });
 
-// Whole-diff review R3 finding 2, closed structurally with spec §3.1 row 7:
-// in a multi-group inline cell every row's hotel_name is assigned by
-// INHERITANCE from group 0's baseName, so the only reservation whose name the
-// splitter actually judged is reservation 0. A later-row address warning is
-// incoherent by construction — its parsed payload describes baseName (text
-// from segment 0) while its raw fragment is a guest-only segment that never
-// contained that text, so its "undo" replacement corrupts the row (the R3 f2
-// probe: one decision rewrote every reservation to the whole booking line).
-// Multi-group cells therefore carry AT MOST ONE address warning, anchored at
-// index 0, with segment 0 as its raw fragment.
-describe("multi-group inline cells anchor the address warning at row 0", () => {
+// Whole-diff review R3 finding 2, closed structurally with spec §3.1 row 7: an
+// INHERITED later row's address warning is incoherent by construction — its parsed
+// payload describes baseName (text from segment 0) while its raw fragment is a
+// guest-only segment that never contained that text, so its "undo" replacement
+// corrupts the row (the R3 f2 probe: one decision rewrote every reservation to the
+// whole booking line).
+//
+// Row 7 is AMENDED by
+// docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md §5:
+// a TIER-1 later group's hotel_name is its OWN segment's text, not inherited, so its
+// split IS judged and its stash IS coherent — the undo replacement writes back text
+// the row's own fragment actually contained. The R3-f2 protection is therefore scoped
+// to inherited rows, which is exactly where the incoherence lived; the second test
+// below pins it on a tier-3 inherited group.
+describe("multi-group inline cells anchor address warnings at judged rows only", () => {
   const SEGMENT_0 = "Hyatt Place Chicago 71 Chicago, IL 60601 John Smith - 1001";
-  const TWO_AMBIGUOUS =
-    `${SEGMENT_0} Check In: 3/1 Check Out: 3/2 ` +
+  const SEGMENT_1 =
     "Marriott Place Chicago 72 Chicago, IL 60602 Jane Doe - 1002 Check In: 3/3 Check Out: 3/4";
+  const TWO_AMBIGUOUS = `${SEGMENT_0} Check In: 3/1 Check Out: 3/2 ${SEGMENT_1}`;
 
-  it("emits exactly ONE warning, at index 0, with segment 0 as its fragment", () => {
+  it("warns at row 0 and at the tier-1 kept row, each with its OWN segment as fragment", () => {
     const agg = newAggregator();
     const hotels = parseHotels(`| Hotel Reservations | ${TWO_AMBIGUOUS} |`, "v2", agg);
     expect(hotels.length).toBeGreaterThan(1);
     const w = agg.warnings.filter((x) => x.code === "HOTEL_ADDRESS_SPLIT_AMBIGUOUS");
-    expect(w, "row 7: later rows inherit, only row 0's split was judged").toHaveLength(1);
-    expect(w[0]!.blockRef?.index).toBe(0);
-    // The fragment is EXACTLY group 0's segment (cut inclusive of its own
-    // "Check Out"), pinned by content, not by exclusions — a mutant passing any
-    // shorter slice of segment 0 would survive a not-the-parent-cell check
-    // while its use-raw replacement rewrote hotel_name to that slice
-    // (whole-diff R5 f3).
+    expect(w, "row 7 as amended: row 0 plus the tier-1 kept row were both judged").toHaveLength(2);
+    expect(w.map((x) => x.blockRef?.index)).toEqual([0, 1]);
+    // Each fragment is EXACTLY its own group's segment (group 0's cut inclusive of its
+    // own "Check Out"), pinned by content, not by exclusions — a mutant passing any
+    // shorter slice would survive a not-the-parent-cell check while its use-raw
+    // replacement rewrote hotel_name to that slice (whole-diff R5 f3).
     expect(w[0]!.rawSnippet).toBe(`${SEGMENT_0} Check In: 3/1 Check Out: 3/2`);
+    expect(w[1]!.rawSnippet).toBe(SEGMENT_1);
+    // The kept row holds its own hotel text, never group 0's — that is what makes the
+    // second stash coherent.
+    expect(hotels[1]!.hotel_name).toBe("Marriott Place Chicago 72 Chicago, IL 60602");
   });
 
   it("never lets a later guest-only fragment become an undo replacement", () => {

@@ -191,6 +191,8 @@ From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-d
 
 **Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
 
+> **UPDATE 2026-07-27: fixed** on `fix/duration-tokens-emit-no-css` (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) via `@theme` `--transition-duration-*` aliases (approach A, not the rename sketched above). The reduced-motion path is now proven on a real Tailwind utility by a WebKit computed-value e2e assertion; compile-emission guard at `tests/design/durationTokenEmission.test.ts`. `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated to `BACKLOG-archive.md`; residual bare-`transition-*` gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`.
+
 ### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
 
 From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.

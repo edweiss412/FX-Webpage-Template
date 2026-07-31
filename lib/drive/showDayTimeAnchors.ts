@@ -152,6 +152,13 @@ export function attachSourceCellAnchors(
       cell =
         resolveCrewRoleCell(sources.crewRole, w.blockRef?.name) ??
         (w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null);
+    } else if (w.code === "ORPHANED_CREW_ROWS") {
+      // Region fallback ONLY (spec 2026-07-27-export-blank-row-segmentation §3.3):
+      // the orphan tail's exact source row cannot be uniquely located
+      // post-synthesis, so the crew REGION link is the correct grain — a region
+      // link, never a wrong-cell link. Null (link-less card) when no crew region
+      // source exists.
+      cell = w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null;
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
       // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
       // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to

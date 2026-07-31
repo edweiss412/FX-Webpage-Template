@@ -12,8 +12,15 @@
 import { classifyVersion } from "./schema";
 import { isAgendaLinkRow } from "./agendaLinkRow";
 import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
-import { newAggregator, emitUnknownSection } from "./warnings";
-import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";
+import { newAggregator, emitUnknownSection, emitOrphanedCrewRows } from "./warnings";
+import {
+  isKnownSectionHeader,
+  isKnownSubLabel,
+  countFieldHeaderWords,
+  KNOWN_SECTION_HEADERS,
+  isCrewRoleCell,
+  cellLines,
+} from "./knownSections";
 import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
@@ -715,6 +722,43 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
       if (emittedUnknownHeaders.has(key)) continue;
       emittedUnknownHeaders.add(key);
       emitUnknownSection(agg, col0);
+    }
+  }
+
+  // Orphaned-crew-rows scan (2026-07-27-export-blank-row-segmentation §3.1) — a
+  // table BLOCK whose first data row has no section header but carries a crew-role
+  // cell is the tail of a blank-row-split CREW section. Rule v2, corpus-probed:
+  // (1) not suppressed — the first non-empty cell's first line is not EXACTLY a
+  //     KNOWN_SECTION_HEADERS entry (raw, case-sensitive; exact-only so all-caps
+  //     roster names like "DRIVER JONES" are never swallowed);
+  // (2) >=2 non-empty cells (single-cell ROLE-legend rows never fire);
+  // (3) some cell has >=2 distinct role tokens on ONE line (isCrewRoleCell).
+  // De-dup key: the truncated first line (same value emitted as rawSnippet).
+  {
+    const emittedOrphanKeys = new Set<string>();
+    for (const rawBlock of markdown.split(/\n{2,}/)) {
+      const rows = rawBlock
+        .split("\n")
+        .filter((l) => l.trim().startsWith("|"))
+        .filter((l) => !/^\|(\s*:?-+:?\s*\|)+\s*$/.test(l.trim()));
+      const first = rows[0];
+      if (!first) continue;
+      const cells = first
+        .split("|")
+        .slice(1, -1)
+        .map((c) => c.trim()); // canonicalize-exempt: markdown cell whitespace, not an email
+      // A cell is non-empty only if some display LINE has content — a cell holding
+      // only newline entities ("&#10;") must not suppress the scan by yielding an
+      // empty first token (whole-diff r1 F3).
+      const nonEmpty = cells.filter((c) => cellLines(c).some((l) => l.trim().length > 0));
+      if (nonEmpty.length < 2) continue;
+      const tok = (cellLines(nonEmpty[0]!).find((l) => l.trim().length > 0) ?? "").trim();
+      if (tok.length === 0 || KNOWN_SECTION_HEADERS.has(tok)) continue;
+      if (!cells.some((c) => isCrewRoleCell(c))) continue;
+      const key = tok.slice(0, 60);
+      if (emittedOrphanKeys.has(key)) continue;
+      emittedOrphanKeys.add(key);
+      emitOrphanedCrewRows(agg, tok);
     }
   }
 

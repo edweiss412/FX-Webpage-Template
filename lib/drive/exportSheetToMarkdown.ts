@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
+import { isMidBlockSectionStart } from "@/lib/parser/knownSections";
 
 type CellGrid = string[][];
 
@@ -135,6 +136,17 @@ function splitBlocks(grid: CellGrid): CellGrid[] {
         current = [];
       }
       continue;
+    }
+    // Header-aware split (spec 2026-07-27-export-blank-row-segmentation §2.2): a
+    // mid-block row whose first non-blank cell is an uppercase known section header
+    // starts a new block, so a stray value in a spacer row can no longer fuse two
+    // sections (audit #10). The corpus round-trip fixtures pin zero live hits.
+    if (current.length > 0) {
+      const firstCell = row.find((cell) => !isBlank(cell)) ?? "";
+      if (isMidBlockSectionStart(firstCell)) {
+        blocks.push(current);
+        current = [];
+      }
     }
     current.push(row);
   }

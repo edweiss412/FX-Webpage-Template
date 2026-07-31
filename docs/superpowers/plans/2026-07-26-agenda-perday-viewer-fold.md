@@ -68,7 +68,7 @@ Every file, symbol, and line this plan names was verified against `origin/main` 
 
 | the spec is standalone-config only | matched at `tests/e2e/standalone.config.ts:36`; **no** match in `playwright.config.ts` |
 | the standalone job precedent | the retired modal-header-layout-e2e workflow runs `pnpm test:e2e:modal-header`; `package.json:52` expands to `playwright test --config=tests/e2e/standalone.config.ts …` |
-| `--duration-fast` is a real token; the Tailwind utility is not | `app/globals.css:223` defines `--duration-fast: 120ms`, `app/globals.css:419` zeroes it under `prefers-reduced-motion`; `grep -c transition-duration-fast app/globals.css` → `0` |
+| `--duration-fast` is a real token; the Tailwind utility is not | `app/globals.css:223` defines `--duration-fast: 120ms`, `app/globals.css:419` zeroes it under `prefers-reduced-motion`; `grep -c transition-duration-fast app/globals.css` → `0` — **UPDATE 2026-07-27 (`fix/duration-tokens-emit-no-css`):** superseded; the `@theme` aliases now define `--transition-duration-*` and the utility is real. Pre-alias transcript kept as the record. |
 
 ## Meta-test inventory (writing-plans rule)
 
@@ -260,7 +260,7 @@ Baseline note: run the FULL suite before every push, not a scoped subset — PR2
 ### Task 4: Chevron affordance — assertion first, then the CSS
 
 - [ ] **Test first, and it must fail for the right reason.** Assert in a real browser that the chevron's computed `transition-duration` is non-zero (and `0s` under `prefers-reduced-motion`). Before the CSS lands this fails because there is no transition at all — that is the red state T4 owns.
-- [ ] **The duration MUST come from `var(--duration-fast)` in hand-written CSS.** A Tailwind `duration-fast` class emits NOTHING here: `grep -c "transition-duration-fast" app/globals.css` → `0`, while Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`. (Spec §5.2 records why the count of existing class-based uses was removed from both documents: it was grep-flavour dependent, drew a finding in three consecutive rounds, and carried none of the argument.) So the class also misses the reduced-motion block at `app/globals.css:417`, which only rewrites `--duration-*`.
+- [ ] **The duration MUST come from `var(--duration-fast)` in hand-written CSS.** A Tailwind `duration-fast` class emits NOTHING here: `grep -c "transition-duration-fast" app/globals.css` → `0`, while Tailwind v4 resolves `duration-<name>` from `--transition-duration-<name>`. (Spec §5.2 records why the count of existing class-based uses was removed from both documents: it was grep-flavour dependent, drew a finding in three consecutive rounds, and carried none of the argument.) So the class also misses the reduced-motion block at `app/globals.css:417`, which only rewrites `--duration-*`. **UPDATE 2026-07-27 (`fix/duration-tokens-emit-no-css`):** superseded — the `@theme` aliases now make `duration-<name>` classes real and reduced-motion-safe; the shipped hand-written chevron rule stays valid and stays hand-written. Pre-alias rationale kept as the record.
 - [ ] **Precedents, located before implementation so this is copied rather than invented.** Three exist,
       and the one this task's earlier wording pointed at was the wrong shape:
       - `app/globals.css:709-710` is NOT a `<details>` accordion — it height-morphs

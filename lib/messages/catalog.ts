@@ -1351,6 +1351,21 @@ export const MESSAGE_CATALOG = {
       "We derive each venue's time zone from its location so the crew page shows the right local times. We couldn't this time, so the page falls back to Eastern Time, usually a temporary gap that clears on the next sync once the location resolves. If it persists, check the venue address in the sheet.",
     helpHref: "/help/errors#VENUE_TIMEZONE_UNRESOLVED",
   },
+  ORPHANED_CREW_ROWS: {
+    code: "ORPHANED_CREW_ROWS",
+    dougFacing:
+      "Some crew rows in _<sheet-name>_ look separated from the CREW section header, so they were not read as crew. A blank row may have been inserted in the middle of the section; check the crew block in your sheet.",
+    crewFacing: null,
+    followUp: "Doug → remove the stray blank row in the crew section",
+    helpfulContext:
+      "Rows that look like crew assignments are not attached to a crew section header, so they were not read as crew. A blank row may have been added in the middle of the crew section. Check the crew section in the sheet and remove the stray blank row.",
+    triggerContext:
+      "Appears when rows carrying crew role text (like 'Load In / Set / Strike / Load Out') sit in a block with no section header above them.",
+    title: "Some crew rows came loose from their section",
+    longExplanation:
+      "A blank row inside the crew section splits the roster into two pieces, and the piece below the blank row loses its connection to the CREW header. Those rows were not read as crew, so the crew members on them may be missing from their pages. Remove the blank row in the sheet and the roster will read as one section again.",
+    helpHref: "/help/errors#ORPHANED_CREW_ROWS",
+  },
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     dougFacing:
@@ -1378,6 +1393,35 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "A hotel line could be read more than one way, so we made a judgment call about where each part starts and ends. Spot-check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
     helpHref: "/help/errors#HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  },
+  HOTEL_INLINE_GROUP_OWN_HOTEL: {
+    code: "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    dougFacing:
+      "A hotel line in _<sheet-name>_ seems to book more than one hotel; check each reservation's hotel against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, keeps them from running together.",
+    crewFacing: null,
+    followUp: "Doug → spot-check hotel reservations",
+    helpfulContext:
+      "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
+    triggerContext: "Appears when one hotel line seems to book more than one hotel.",
+    title: "A hotel line may book more than one hotel",
+    longExplanation:
+      "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of sharing the line's first one. Spot-check this reservation's hotel name, address, guests, and dates. This cannot be fixed in the app: if the hotel is wrong, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
+    helpHref: "/help/errors#HOTEL_INLINE_GROUP_OWN_HOTEL",
+  },
+  HOTEL_INLINE_GROUP_HOTEL_SUSPECTED: {
+    code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+    dougFacing:
+      "A hotel line in _<sheet-name>_ may show a reservation under the wrong hotel; check it against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, fixes this.",
+    crewFacing: null,
+    followUp: "Doug → fix the sheet: one booking per HOTEL RESERVATION column",
+    helpfulContext:
+      "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
+    triggerContext:
+      "Appears when a reservation on a shared hotel line may be under the wrong hotel.",
+    title: "A reservation may show the wrong hotel",
+    longExplanation:
+      "A reservation on a shared hotel line may be showing the wrong hotel. Spot-check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
+    helpHref: "/help/errors#HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
   },
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS: {
     code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
