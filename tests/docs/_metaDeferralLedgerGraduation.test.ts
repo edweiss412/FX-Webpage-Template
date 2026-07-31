@@ -111,160 +111,39 @@ const WRAP = "(?:[*_`]|✅|\\s)*";
  * opening claim matches any case; a bare one ALL-CAPS only, so narrating
  * prose ("Resolved only as part of BL-…") cannot false-positive. Both accept
  * the r15 wrappers.
- *
- * FALSE-POSITIVE POSTURE (r35, ratified): the heading, checkmark, and
- * opening lanes CANNOT distinguish "— CLOSED by PR #9" (a claim followed by
- * prose) from "— SHIPPED badge regression" (a terminal token modifying a
- * noun) without sentence semantics. They stay as-is deliberately: a false
- * positive here is FAIL-LOUD — a red test naming the entry, resolved by a
- * one-word rephrase or a HEADING_TERMINAL_EXEMPT row with its rationale —
- * while narrowing the lanes to dodge it would reopen silent
- * under-detection, the failure class this guard exists for. The bold-FIELD
- * lane is the exception with a clean structural rule (the r35 colon-label
- * final-word test below, r36: separator inside OR just outside the segment,
- * trailing preposition chains kept as claims — `**Resolved by:**` is live
- * archive prose); the residual judgment tail — including an UNPUNCTUATED
- * bold lead-in (`**Shipped precedent** remains open`), which no separator
- * rule can classify — rides BL-LEDGER-GUARD-MDAST-REWRITE with the rest of
- * the grammar class, under the same fail-loud posture.
  */
 // NOT `\b` after the word: a closing `_RESOLVED_` wrapper is a word char, so
 // `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
 // and digits are what would make it a different word.
 const AFTER = "(?![A-Za-z0-9])";
-// r22: markdown CONTAINER prefixes — bullets (`-`/`*`/`+`), ordered items
-// (`1.`/`1)`), blockquotes (`>`), nested or mixed — are still the entry's own
-// line, and every ^-anchored lane was blind behind them (`- **Status:**
-// CLOSED` hid from the status lane, `> **CLOSED**` from the opening lane).
-// One fragment feeds every line-anchored matcher AND the field-line filters
-// below, so the next lane cannot forget it. Bullets require the space that
-// makes them a list in markdown; a blockquote marker does not. r23: a GFM
-// task-list checkbox (`[ ]`/`[x]`/`[X]`) rides a list marker — `- [x]
-// **Status:** CLOSED` is still the entry's own claim, so the optional
-// checkbox is part of the list-marker alternative (it cannot appear bare).
-// r24: ordered markers accept one through NINE digits — the CommonMark/GFM
-// grammar's own bound — not a guessed three.
-const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // Both bold conventions carry the colon differently — `**Status:** X` and
 // `**Status**: X` are the same field label (r16), so the colon is accepted on
 // either side of the closing emphasis.
-// r29: the label wrapper accepts italics too — `*Status:* CLOSED` /
-// `_Status_: CLOSED` are ordinary honest spellings (the trailing emphasis
-// mark on the `*Status:*` form rides the WRAP class). r30: up to three
-// emphasis marks per side — `***Status:***`, `___Filed:___`, and mixed
-// nestings like `**_Status_**` are the same label.
-// r32: `Resolution` is the house style's second status-valued field label —
-// `**Resolution:** Shipped …` closes three archive entries verbatim, so an
-// active entry closed that way must trip the same lane.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)(?:[*_]{1,3})?\\s*[:—–-]?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:[*_]{1,3})?Filed(?:[*_]{1,3})?\\s*[:—–-]?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
-// The field-line FILTERS share the container fragment (r22) — a matcher that
-// sees through a bullet is dead code if the filter never hands it the line.
-const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)`, "i");
-const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?Filed`, "i");
-// r26: a line that is ONLY container markers (`>`, an empty `- ` item, an
-// empty task box) is not content — selecting it as the opening line let
-// `>\n> **CLOSED** …` hide its claim behind the bare marker, since the
-// matchers examined the `>` and never the next line.
-const CONTAINER_ONLY = new RegExp(`^\\s*${CONTAINER}\\s*$`);
-const firstContentLine = (lines: string[]): string =>
-  lines.find((l) => l.trim() !== "" && !CONTAINER_ONLY.test(l)) ?? "";
-// r27/r28 — normalization folds RENDER-FAITHFUL twins into the lanes the
-// matchers know, and nothing more. Two folds: a boundary-anchored `__…__`
-// strong-emphasis pair becomes `**…**` (`__Status:__ CLOSED` renders
-// identically; an INTRAWORD run like `foo__CLOSED__bar` does not render
-// bold and is NOT folded — r28), and a COMPLETE same-line HTML comment is
-// deleted (a `<!-- bookkeeping -->` line renders as nothing and must not
-// swallow the opening-line selection). Deliberately absent (r28): no
-// multiline/unterminated comment handling — a cross-line deletion can
-// swallow legitimate claims when a literal `<!--` sits in a code span or
-// fence, which is worse than the shape it closes.
-//
-// RATIFIED SCOPE (r28, extended r30): this guard is a drift TRIPWIRE over
-// first-party ledger prose, not a markdown renderer. Its threat model is
-// the honest in-place closure — every drift instance it has ever caught
-// (r3, r15-r17, the 2026-07-27 reconciliation pair) was a plain spelling.
-// Render-equivalent OBFUSCATION — HTML wrappers (`<strong>`), character
-// references (`C&#76;OSED`), link text, table cells, escaped delimiters,
-// code-context comment literals, commented-out headings, lazy
-// continuations — is out of scope by ratification, exactly as runtime
-// indirection is out of a static containment guard's scope: closing it
-// requires a full markdown AST, and a ledger author reaching for those
-// shapes is not drifting, they are hiding — a different failure class that
-// review owns, not this tripwire.
-//
-// r30 draws the second boundary, learned the hard way: regex REIMPLEMENTATION
-// of markdown grammar is also out of scope. The r29 fence-blanking and
-// inline-code stripping shipped with their own CommonMark-semantics defects
-// (unbalanced fence toggling that could hide real prose; multi-backtick
-// spans mis-paired), so both are REMOVED rather than deepened — a guard
-// bug that can blank live ledger lines is strictly worse than the
-// example-quoting false positives it prevented, and no live ledger
-// contains a fenced Status example today. The same boundary covers
-// POSTFIX reopening semantics (`CLOSED but reopened`, `SHIPPED, then
-// rolled back`) and qualifier chains beyond one word (`Not yet fully
-// RESOLVED`): honest reopenings in these ledgers are written as
-// `Status: REOPENED` or narrative prose, both already silent here. The
-// durable owner for the whole grammar class is
-// BL-LEDGER-GUARD-MDAST-REWRITE in BACKLOG.md — port the tripwire onto
-// the remark/mdast AST this repo already depends on; until it lands,
-// grammar-completeness findings against these regexes re-litigate this
-// ratification.
-const normalizeSection = (text: string): string =>
-  text
-    .split("\n")
-    .map((line) => line.replace(/<!--.*?-->/g, ""))
-    .join("\n")
-    .replace(/(?<![A-Za-z0-9_])__(?!_)([^_\n]+?)(?<!_)__(?![A-Za-z0-9_])/g, "**$1**");
-
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
-const OPENING_TERMINAL_BOLD = new RegExp(
-  `^\\s*${CONTAINER}\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`,
-  "i",
-);
-const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${CONTAINER}${WRAP}(${TERMINAL_WORDS})${AFTER}`);
-// r30: the heading checkmark lane is ANCHORED — `✅` counts only when a
-// terminal word follows within the wrapper class. A bare `✅` in an open
-// entry's title (`— align the ✅ icon`) is not a closure claim; the
-// dash-anchored form stays HEADING_TERMINAL's job.
-const CHECKED_TERMINAL = new RegExp(`✅${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
+const OPENING_TERMINAL_BOLD = new RegExp(`^\\s*\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
+const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${WRAP}(${TERMINAL_WORDS})${AFTER}`);
 
 /**
  * A terminal claim counts only when the CAPTURED word is not directly
  * modified by a preceding PARTIAL/PARTIALLY (r16 — the previous line-wide
  * /PARTIAL/i veto suppressed unrelated terminal claims: an id containing
  * PARTIAL in `### BL-PARTIAL-EDGE — CLOSED`, a trailing "partial follow-up"
- * clause after a bare CLOSED). r26 adds the direct NEGATIONS — `**Not
- * CLOSED:**` / `**Never RESOLVED**` are OPEN claims that the bold-field
- * lane (which matches terminal words anywhere in a segment) read as
- * terminal, force-graduating live entries. Same word-position discipline:
- * only a modifier DIRECTLY before the word vetoes it, so `RESOLVED (was
- * NOT CLOSED at first)` still hits on RESOLVED, and CANNOT does not
- * contain a bounded NOT. Returns null when the matcher finds no claim at
- * all, false when the claim stands (a hit), true when it is modified into
- * an open state.
+ * clause after a bare CLOSED). Returns null when the matcher finds no claim
+ * at all, false when the claim stands (a hit), true when it is
+ * PARTIAL-modified (an open state). Word-position, not line-wide: `RESOLVED
+ * (was PARTIALLY CLOSED)` is still a hit on RESOLVED.
  */
-// r29: multiword negations and historical qualifiers are open claims too —
-// `Not fully CLOSED`, `Never completely SHIPPED`, `No longer CLOSED`,
-// `Previously CLOSED (regression reopened)`. One optional intervening word
-// is allowed after the modifier — but never a TERMINAL word, else the veto
-// on `PARTIALLY CLOSED — RESOLVED` would bridge across the first claim and
-// swallow the second (the r17 sequenced-heading plant). Two or more words
-// break the direct modification and the claim stands, so `was not the
-// blocker, CLOSED` still hits.
-const PARTIAL_BEFORE = new RegExp(
-  `(?:PARTIAL(?:LY)?|\\bNOT|\\bNEVER|\\bNO\\s+LONGER|\\bPREVIOUSLY|\\bFORMERLY)` +
-    `(?:\\s+(?!(?:${TERMINAL_WORDS})\\b)[A-Za-z]+)?[\\s*_\`:—–-]*$`,
-  "i",
-);
+const PARTIAL_BEFORE = /PARTIAL(?:LY)?[\s*_`:—–-]*$/i;
 
 function partialModified(line: string, matcher: RegExp): boolean | null {
   const m = matcher.exec(line);
@@ -282,117 +161,11 @@ const terminalHit = (line: string, matcher: RegExp): boolean =>
  * the FIRST identical spelling, so `**PARTIALLY CLOSED, then CLOSED**` read
  * as wholly partial; iterating occurrences lets a later bare claim count).
  */
-// r38/r39: the standard English closed-class preposition inventory —
-// prepositions are a closed class, so a noun a terminal word modifies
-// (`precedent`, `approach`) can never appear here, which is the entire
-// discrimination the label rule needs. Inventory edits are one-token
-// additions, not redesigns.
-const PARTICLE_WORDS =
-  "aboard|about|above|absent|across|after|against|along|alongside|amid|amidst|among|amongst|around|as|at|atop|barring|before|behind|below|beneath|beside|besides|between|beyond|but|by|circa|concerning|considering|despite|down|during|except|excepting|excluding|failing|following|for|from|in|including|inside|into|like|minus|near|notwithstanding|of|off|on|onto|opposite|out|outside|over|past|pending|per|plus|regarding|respecting|save|since|through|throughout|till|to|toward|towards|under|underneath|until|unto|up|upon|using|versus|via|with|within|without|worth";
-
-/**
- * r39: a closure field needs no bold at all — `Closed: 2026`, `*Closed:*`,
- * `Resolved by: PR #621` are the same claim unwrapped. Any terminal word
- * followed (through an optional preposition chain and optional emphasis
- * marks) by a separator is a field-value claim, with the same word-position
- * veto. The word-between guard keeps `**Shipped precedent:**` out — the
- * lookahead crosses only particles. r40: the separator set matches the
- * field matchers (colon; em/en dash; ASCII dash only when whitespace
- * FOLLOWS, so a hyphenated id like BL-CLOSED-LOOP-FIX quoted on a field
- * line never reads as a claim).
- *
- * RATIFIED (r40): COMPOUND prepositions — `due to`, `because of`,
- * `in favor of`, `as part of`, `by means of` and kin — are NOT chased.
- * Their interior tokens are open-class nouns (`part`, `favor`, `means`,
- * `account`), so admitting them to PARTICLE_WORDS would re-open exactly
- * the `**Shipped precedent:**` metadata false-positive class the r35 rule
- * exists to prevent; distinguishing the two is phrase grammar, which the
- * r30 ratification places with BL-LEDGER-GUARD-MDAST-REWRITE. Zero live
- * instances exist in any ledger (checked r40).
- */
-const FIELD_VALUE_TERMINAL = new RegExp(
-  `(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?=(?:\\s+(?:${PARTICLE_WORDS}))*[*_\x60]{0,3}(?:\\s*:|\\s*[—–](?=\\s|$)|\\s+-(?=\\s|$)))`,
-  "gi",
-);
-
-function fieldValueTerminalHit(line: string): boolean {
-  for (let m = FIELD_VALUE_TERMINAL.exec(line); m !== null; m = FIELD_VALUE_TERMINAL.exec(line)) {
-    if (!PARTIAL_BEFORE.test(line.slice(0, m.index))) {
-      FIELD_VALUE_TERMINAL.lastIndex = 0;
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * r40: ONE evaluator for a normalized entry section, used by the live
- * BACKLOG walk AND exercised directly by pipeline plants — so removing a
- * lane wiring (STATUS→bold-field, STATUS→bare-field, FILED→bare-field)
- * breaks an executable plant, not just a code-reading claim.
- */
-function entrySectionTerminal(section: string): boolean {
-  const lines = section.split("\n");
-  const headingLine = lines[0] ?? "";
-  const openingLine = firstContentLine(lines.slice(1));
-  const statusLines = lines.filter((l) => STATUS_FIELD_LINE.test(l));
-  const filedLines = lines.filter((l) => FILED_FIELD_LINE.test(l));
-  const statusHit = statusLines.some(
-    (l) => terminalHit(l, STATUS_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
-  );
-  const filedHit = filedLines.some(
-    (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
-  );
-  const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
-  const openingHit =
-    terminalHit(openingLine, OPENING_TERMINAL_BOLD) || terminalHit(openingLine, OPENING_TERMINAL_BARE);
-  return statusHit || filedHit || headingHit || openingHit;
-}
-
 function boldFieldTerminalHit(line: string): boolean {
-  // r27: the veto window is the LINE prefix, not the segment prefix — a
-  // modifier can sit outside the emphasis boundary (`Not **CLOSED:**`,
-  // `Partially **SHIPPED**`, `**Not** **CLOSED**`) and still directly
-  // modify the word; PARTIAL_BEFORE's tail class already crosses the `**`
-  // marks. Per-occurrence semantics are unchanged: a later segment with an
-  // unmodified claim still counts.
-  const segRe = /\*\*[^*\n]+\*\*/g;
-  for (let s = segRe.exec(line); s !== null; s = segRe.exec(line)) {
-    const seg = s[0];
-    // r35: a colon-terminated bold segment is a LABEL. When it labels
-    // something else (`**Shipped precedent:**`, `**Superseded approach:**`)
-    // the terminal token is a modifier, not the entry's state — only the
-    // FINAL word before the colon is a field-value claim (`**Closed:**`,
-    // `**…, then CLOSED:**`). Segments without a trailing colon keep the
-    // per-occurrence scan.
-    const inner = seg.slice(2, -2);
-    // r36: the separator may sit INSIDE the segment (`**Closed:**`) or just
-    // OUTSIDE it (`**Shipped precedent**:` / `**Shipped precedent** —`) —
-    // either way the segment is a LABEL. And a label's claim may end in a
-    // PREPOSITION chain: `**Resolved by:** PR #621` (live archive prose) is
-    // a closure, while `**Shipped precedent:**` labels a noun. So the rule
-    // strips trailing prepositions/particles, then asks whether the final
-    // remaining word is terminal.
-    const after = line.slice(s.index + seg.length);
-    const externallyLabeled = /^\s*[:—–-]/.test(after);
-    const innerLabel = /:\s*$/.test(inner);
-    if (innerLabel || externallyLabeled) {
-      const words = inner
-        .replace(/:\s*$/, "")
-        .split(/[^A-Za-z]+/)
-        .filter(Boolean);
-      const PARTICLES = new RegExp(`^(?:${PARTICLE_WORDS})$`, "i");
-      while (words.length > 0 && PARTICLES.test(words[words.length - 1]!)) words.pop();
-      const last = words[words.length - 1];
-      if (last !== undefined && new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(last)) {
-        const wordAt = s.index + 2 + inner.lastIndexOf(last);
-        if (!PARTIAL_BEFORE.test(line.slice(0, wordAt))) return true;
-      }
-      continue;
-    }
+  for (const seg of line.match(/\*\*[^*\n]+\*\*/g) ?? []) {
     const word = new RegExp(`(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?![A-Za-z0-9])`, "gi");
     for (let m = word.exec(seg); m !== null; m = word.exec(seg)) {
-      if (!PARTIAL_BEFORE.test(line.slice(0, s.index + m.index))) return true;
+      if (!PARTIAL_BEFORE.test(seg.slice(0, m.index))) return true;
     }
   }
   return false;
@@ -410,9 +183,7 @@ function boldFieldTerminalHit(line: string): boolean {
 function shoutyIds(text: string, requirePrefix: string | null): Set<string> {
   const level = requirePrefix === null ? "###" : "#{2,3}";
   const re = new RegExp(
-    // r30: CommonMark allows 1-3 leading spaces and any run of spaces/tabs
-    // after the hashes; a validly indented heading must not escape any scan.
-    `^ {0,3}${level}[ \\t]+(?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
+    `^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
     "gm",
   );
   const out = new Set<string>();
@@ -473,21 +244,12 @@ const BACKLOG_GRADUATED = [
   // test/alert-action-links-e2e (2026-07-27): PR6, the last of the sweep — live-app
   // e2e over every registered alert action link.
   { id: "BL-ALERT-ACTION-LINKS-E2E", provenance: "test/alert-action-links-e2e" },
-  // feat/ci-dark-descoped-guards (2026-07-27, PR #626): PR-A of the ci-dark descoped
-  // close-out — the spec-registration detector closed the descoped item, and the post-run
-  // baseline comparator closed the parent cluster's env-narrowing ceiling.
-  { id: "BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC", provenance: "feat/ci-dark-descoped-guards" },
-  { id: "BL-CI-ENV-DEPENDENT-CONFIG-NARROWING", provenance: "feat/ci-dark-descoped-guards" },
   // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-VALIDATION-PARITY-DEFINITION-MATCH", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-VALIDATION-TARGET-BINDING", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
-  // fix/duration-tokens-emit-no-css (2026-07-27): @theme --transition-duration-*
-  // aliases made the duration-* utilities real; spec
-  // docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md §5.
-  { id: "BL-DURATION-TOKENS-EMIT-NO-CSS", provenance: "fix/duration-tokens-emit-no-css" },
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
   // behind the skipped picker-flow e2e stubs, all fixed in that branch.
   // feat/watch-reconcile-backoff (2026-07-27): the deferred backoff half shipped
@@ -622,11 +384,11 @@ describe("backlog ledger graduation", () => {
     // indexOf() landing on a summary bullet above the section, with an arbitrary
     // ±4000-character window that could source the branch name from neighbouring
     // material. The section runs from its heading to the next one.
-    const heading = new RegExp(`^ {0,3}#{2,3}[ \\t]+~{0,2}${id}`, "m").exec(archive);
+    const heading = new RegExp(`^#{2,3} ~{0,2}${id}`, "m").exec(archive);
     expect(heading, `${id} has no heading in the archive`).not.toBeNull();
     const from = heading!.index;
     const rest = archive.slice(from);
-    const nextHeading = rest.slice(1).search(/\n {0,3}#{2,3}[ \t]/);
+    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
     const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
     expect(section).toContain(provenance);
     },
@@ -671,13 +433,14 @@ describe("backlog ledger graduation", () => {
     const offenders: string[] = [];
     // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
     // same optional bracket the shoutyIds matcher already accepts.
-    const headings = [...backlog.matchAll(/^ {0,3}#{2,3}[ \t]+(?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
+    const headings = [...backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
     for (const [i, h] of headings.entries()) {
       const start = h.index!;
       const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
-      // r27: normalize BEFORE any lane runs — bold-twin `__` spellings and
-      // HTML comments (rendered as nothing) otherwise defeat every matcher.
-      const section = normalizeSection(backlog.slice(start, end));
+      const section = backlog.slice(start, end);
+      const lines = section.split("\n");
+      const headingLine = lines[0] ?? "";
+      const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
       // PARTIALLY CLOSED is a real open state — but the veto is per matched
       // WORD (partialModified, r16), not per line: a trailing "partial
       // follow-up" clause no longer shields a bare terminal claim.
@@ -685,10 +448,19 @@ describe("backlog ledger graduation", () => {
       // place with its rationale in the entry (sub-entry of a still-open
       // parent). Same exemption set as the dedicated heading test below.
       if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
-      // ALL status/filed lines, not the first (r17); the evaluation itself
-      // is entrySectionTerminal (r40) — shared with the pipeline plants so
-      // every lane wiring is executable-pinned.
-      if (entrySectionTerminal(section)) offenders.push(h[1]!);
+      // ALL status/filed lines, not the first (r17 — an appended second
+      // `Status: SHIPPED` after a stale `Status: OPEN` was never inspected).
+      const statusLines = lines.filter((l) => /^\s*(?:\*\*)?Status/i.test(l));
+      const filedLines = lines.filter((l) => /^\s*(?:\*\*)?Filed/i.test(l));
+      const statusHit = statusLines.some((l) => terminalHit(l, STATUS_TERMINAL));
+      const filedHit = filedLines.some(
+        (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l),
+      );
+      const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
+      const openingHit =
+        terminalHit(openingLine, OPENING_TERMINAL_BOLD) ||
+        terminalHit(openingLine, OPENING_TERMINAL_BARE);
+      if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -703,15 +475,14 @@ describe("backlog ledger graduation", () => {
     // Priority-prefixed headings (`### [P1] BL-X — …`) are entries too (r15 —
     // the status test's discovery gained the bracket group at r6; this walk
     // never did, so a prefixed heading was invisible HERE specifically).
-    for (const h of backlog.matchAll(/^ {0,3}#{2,3}[ \t]+(?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
+    for (const h of backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
       const id = h[1]!;
       if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
       const heading = h[0]!;
       // Union of both 2026-07-27 passes: the dash-anchored any-case form
       // (module-scoped, shared with the status-line test — r15; per-word
       // PARTIAL veto since r16) plus a bare ✅ anywhere in the heading.
-      if (terminalHit(heading, HEADING_TERMINAL) || terminalHit(heading, CHECKED_TERMINAL))
-        offenders.push(id);
+      if (terminalHit(heading, HEADING_TERMINAL) || /✅/.test(heading)) offenders.push(id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -766,189 +537,6 @@ describe("backlog ledger graduation", () => {
     expect(terminalHit("### BL-X — PARTIALLY CLOSED — RESOLVED (PR #9)", HEADING_TERMINAL)).toBe(
       true,
     );
-    // r22 — markdown CONTAINER prefixes (bullets, ordered items, blockquotes,
-    // nested/mixed) are still the entry's own line; every ^-anchored lane must
-    // see through them, or `- **Status:** CLOSED` sits green in the open queue:
-    expect(terminalHit("- **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("> Status: RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("1. **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    expect(terminalHit("> > **CLOSED** by the merge.", OPENING_TERMINAL_BOLD)).toBe(true);
-    expect(terminalHit("- RESOLVED by PR #631.", OPENING_TERMINAL_BARE)).toBe(true);
-    // …the field-line FILTERS see through the same prefixes (a matcher that
-    // sees through a bullet is dead code if the filter never hands it the
-    // line)…
-    expect(STATUS_FIELD_LINE.test("- **Status:** CLOSED")).toBe(true);
-    expect(FILED_FIELD_LINE.test("> **Filed:** 2026-07-01")).toBe(true);
-    // …and the PARTIAL veto still holds behind a prefix:
-    expect(terminalHit("- **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
-    // r23 — GFM task-list checkboxes ride the list marker in every lane,
-    // including nested-in-blockquote, and the veto still holds behind one:
-    expect(terminalHit("- [x] **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("1. [X] **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    expect(terminalHit("> - [x] **CLOSED** by PR #631.", OPENING_TERMINAL_BOLD)).toBe(true);
-    expect(STATUS_FIELD_LINE.test("- [ ] Status: RESOLVED")).toBe(true);
-    expect(terminalHit("- [ ] **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
-    // r24 — ordered markers run to nine digits per the CommonMark/GFM
-    // grammar, not three:
-    expect(terminalHit("1234. [x] **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("123456789. **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    // r26 — marker-only lines are not content: the opening-line selector
-    // skips bare blockquote/list/task markers so the claim BEHIND them is
-    // the line the matchers see…
-    expect(firstContentLine(["", ">", "> **CLOSED** by PR #1"])).toBe("> **CLOSED** by PR #1");
-    expect(firstContentLine(["- ", "- [ ] ", "1. ", "plain text"])).toBe("plain text");
-    expect(firstContentLine(["", "> "])).toBe("");
-    // …and direct negations are OPEN claims in the bold-field lane, while a
-    // later bare claim still counts per-occurrence, and CANNOT carries no
-    // bounded NOT:
-    expect(boldFieldTerminalHit("**Filed:** 2026-07-01. **Not CLOSED:** still open.")).toBe(false);
-    expect(boldFieldTerminalHit("**Never RESOLVED** — parked pending owner call.")).toBe(false);
-    expect(boldFieldTerminalHit("**Not closed at first, later CLOSED:** shipped.")).toBe(true);
-    expect(boldFieldTerminalHit("**CANNOT-CLOSE follow-up, RESOLVED:** shipped.")).toBe(true);
-    // r27 — the veto window crosses the emphasis boundary: a modifier
-    // OUTSIDE the bold segment still directly modifies the word…
-    expect(boldFieldTerminalHit("**Filed:** 2026. Not **CLOSED:** waiting.")).toBe(false);
-    expect(boldFieldTerminalHit("Never **RESOLVED** — owner call pending.")).toBe(false);
-    expect(boldFieldTerminalHit("Partially **SHIPPED** behind the flag.")).toBe(false);
-    expect(boldFieldTerminalHit("**Not** **CLOSED** — blocked on #700.")).toBe(false);
-    expect(boldFieldTerminalHit("was **NOT CLOSED** early; later **CLOSED** by PR #9.")).toBe(true);
-    // r27 — `__` is markdown's bold twin and HTML comments render as
-    // nothing; normalizeSection folds both into the lanes every matcher
-    // already knows:
-    expect(terminalHit(normalizeSection("__Status:__ CLOSED"), STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit(normalizeSection("__Filed:__ CLOSED 2026-07-24"), FILED_TERMINAL)).toBe(
-      true,
-    );
-    expect(boldFieldTerminalHit(normalizeSection("**Filed:** 2026. __Closed:__ 2026."))).toBe(true);
-    expect(
-      terminalHit(normalizeSection("__Resolved__ by PR #9."), OPENING_TERMINAL_BOLD),
-    ).toBe(true);
-    expect(
-      firstContentLine(normalizeSection("<!-- bookkeeping -->\n**CLOSED** by PR #1.").split("\n")),
-    ).toBe("**CLOSED** by PR #1.");
-    expect(normalizeSection("open <!-- Status: CLOSED --> entry")).toBe("open  entry");
-    // r28 — the folds are render-faithful and nothing more: an intraword
-    // `__` run does not render bold and is not folded (no synthetic
-    // terminal segment)…
-    expect(
-      boldFieldTerminalHit(
-        normalizeSection("**Filed:** 2026. Token foo__CLOSED__bar is still open."),
-      ),
-    ).toBe(false);
-    // …and comment deletion is same-line only, so an unterminated literal
-    // `<!--` cannot swallow the rest of the section (the cross-line shapes
-    // are ratified out of scope — see normalizeSection's header):
-    expect(normalizeSection("marker <!-- doc\n**Status:** OPEN")).toBe(
-      "marker <!-- doc\n**Status:** OPEN",
-    );
-    // r29 — italic label wrappers are ordinary honest spellings, in the
-    // matchers AND the field-line filters:
-    expect(terminalHit("*Status:* CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("*Status*: CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("_Status:_ RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("_Status_: RESOLVED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("*Filed:* CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    expect(terminalHit("_Filed_: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    expect(STATUS_FIELD_LINE.test("*Status:* CLOSED")).toBe(true);
-    expect(FILED_FIELD_LINE.test("_Filed_: 2026-07-01")).toBe(true);
-    // r29 — multiword negations and historical qualifiers are open claims;
-    // a plain sequenced closure still hits:
-    expect(boldFieldTerminalHit("**Not fully CLOSED:** two items remain.")).toBe(false);
-    expect(boldFieldTerminalHit("**Not yet RESOLVED:** waiting on #700.")).toBe(false);
-    expect(boldFieldTerminalHit("**Never completely SHIPPED:** flag still off.")).toBe(false);
-    expect(boldFieldTerminalHit("**No longer CLOSED:** regression reopened it.")).toBe(false);
-    expect(boldFieldTerminalHit("**Previously CLOSED:** reopened 2026-07-30.")).toBe(false);
-    expect(boldFieldTerminalHit("**Reviewed, then CLOSED:** done.")).toBe(true);
-    expect(boldFieldTerminalHit("**was not the blocker, CLOSED:** shipped.")).toBe(true);
-    // r30 — up to three emphasis marks per label side, mixed nesting
-    // included, in matchers AND filters:
-    expect(terminalHit("***Status:*** CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("___Status___: RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("**_Filed_**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
-    expect(STATUS_FIELD_LINE.test("***Status:*** CLOSED")).toBe(true);
-    expect(FILED_FIELD_LINE.test("*__Filed__*: 2026-07-01")).toBe(true);
-    // r30 — CommonMark heading whitespace (1-3 leading spaces, spaces/tabs
-    // after the hashes) reaches every heading scan:
-    expect(shoutyIds("   ### BL-INDENTED-ID — text", "BL-").has("BL-INDENTED-ID")).toBe(true);
-    expect(shoutyIds("##\tBL-TABBED-ID — text", "BL-").has("BL-TABBED-ID")).toBe(true);
-    // r32 — `Resolution` is the house style's second status-valued label
-    // (three archive entries close with `**Resolution:** Shipped …`); the
-    // lane accepts it with every widening Status has, and a non-terminal
-    // value stays silent:
-    expect(
-      terminalHit("**Resolution:** Shipped per the recommended fix below.", STATUS_TERMINAL),
-    ).toBe(true);
-    expect(terminalHit("- [x] __Resolution:__ SHIPPED in PR #500", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("**Resolution:** pending owner call", STATUS_TERMINAL)).toBe(false);
-    expect(STATUS_FIELD_LINE.test("**Resolution:** Shipped")).toBe(true);
-    // r35 — dash separators are ordinary field punctuation in every width…
-    expect(terminalHit("**Status** — CLOSED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("**Resolution** – SHIPPED", STATUS_TERMINAL)).toBe(true);
-    expect(terminalHit("**Filed** - DONE", FILED_TERMINAL)).toBe(true);
-    // …and a colon-terminated bold segment is a LABEL: a terminal token
-    // MODIFYING the label's noun is metadata, not the entry's state, while
-    // the final-word-before-colon claim still counts:
-    expect(boldFieldTerminalHit("**Shipped precedent:** PR #500 — this one remains open.")).toBe(
-      false,
-    );
-    expect(boldFieldTerminalHit("**Filed:** 2026. **Superseded approach:** see below.")).toBe(
-      false,
-    );
-    expect(boldFieldTerminalHit("**Filed:** 2026. **Closed:** 2026-07-30.")).toBe(true);
-    expect(boldFieldTerminalHit("**Filed:** x. **PARTIALLY CLOSED, then CLOSED:** y.")).toBe(true);
-    // r36 — the separator may sit outside the segment, and a claim label
-    // may end in a preposition chain (live archive prose: **Resolved by:**):
-    expect(boldFieldTerminalHit("**Filed:** 2026. **Resolved by:** PR #621.")).toBe(true);
-    expect(boldFieldTerminalHit("**Shipped via:** PR #500.")).toBe(true);
-    expect(boldFieldTerminalHit("**Closed in:** the phase-2 sweep.")).toBe(true);
-    expect(boldFieldTerminalHit("**Filed:** 2026-07-31. **Closed after:** PR #700.")).toBe(true);
-    expect(boldFieldTerminalHit("**Superseded following:** the picker pivot.")).toBe(true);
-    expect(boldFieldTerminalHit("**Shipped without:** the optional knob.")).toBe(true);
-    expect(boldFieldTerminalHit("**Resolved for:** every adopter site.")).toBe(true);
-    expect(boldFieldTerminalHit("**Closed despite:** the flake noise.")).toBe(true);
-    // r39 — the standard closed-class inventory covers the long tail…
-    expect(boldFieldTerminalHit("**Shipped alongside:** PR #700.")).toBe(true);
-    expect(boldFieldTerminalHit("**Closed notwithstanding:** the flake.")).toBe(true);
-    // …a SECOND field closes a Status line…
-    expect(boldFieldTerminalHit("**Status:** OPEN · **Closed:** 2026-07-30.")).toBe(true);
-    // …and a closure field needs no bold at all (single emphasis, bare,
-    // bare-with-particle), with the word-between guard and veto intact:
-    expect(fieldValueTerminalHit("*Closed:* 2026-07-30")).toBe(true);
-    expect(fieldValueTerminalHit("_Superseded:_ by the picker pivot")).toBe(true);
-    expect(fieldValueTerminalHit("Closed: 2026-07-30")).toBe(true);
-    expect(fieldValueTerminalHit("Resolved by: PR #621")).toBe(true);
-    expect(fieldValueTerminalHit("**Shipped precedent:** PR #500")).toBe(false);
-    expect(fieldValueTerminalHit("Not CLOSED: still open")).toBe(false);
-    expect(fieldValueTerminalHit("**Status:** REOPENED 2026-07-30")).toBe(false);
-    // r40 — dashes are field separators in the bare lane too, with the
-    // ASCII dash requiring following whitespace so a hyphenated id quoted
-    // on a field line never reads as a claim:
-    expect(fieldValueTerminalHit("Closed — 2026-07-30")).toBe(true);
-    expect(fieldValueTerminalHit("*Closed* – 2026")).toBe(true);
-    expect(fieldValueTerminalHit("Resolved by — PR #700")).toBe(true);
-    expect(fieldValueTerminalHit("see BL-CLOSED-LOOP-FIX for the shape")).toBe(false);
-    expect(fieldValueTerminalHit("Not Closed — still open")).toBe(false);
-    // r40 — the three r39 lane wirings are executable-pinned through the
-    // ACTUAL section evaluator, not just helper calls:
-    const entry = (body: string): string => `## BL-PLANT — plant\n\n${body}\n`;
-    expect(entrySectionTerminal(entry("**Status:** OPEN · **Closed:** 2026-07-30."))).toBe(true);
-    expect(entrySectionTerminal(entry("**Status:** OPEN · Closed: 2026-07-30."))).toBe(true);
-    expect(entrySectionTerminal(entry("**Filed:** 2026-07-01 · Closed - 2026-07-30."))).toBe(true);
-    expect(entrySectionTerminal(entry("**Status:** OPEN — parked pending owner call."))).toBe(
-      false,
-    );
-    expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
-      false,
-    );
-    expect(boldFieldTerminalHit("**Shipped precedent** — PR #500, remains open.")).toBe(false);
-    expect(boldFieldTerminalHit("**Superseded approach**: see below.")).toBe(false);
-    // r30 — the heading checkmark lane is anchored to a terminal word; a
-    // decorative checkmark in an open entry's title is not a claim:
-    expect(terminalHit("## BL-X — ✅ RESOLVED (PR #612)", CHECKED_TERMINAL)).toBe(true);
-    expect(terminalHit("## BL-X ✅ **DONE**", CHECKED_TERMINAL)).toBe(true);
-    expect(terminalHit("## BL-CHECKMARK-ALIGNMENT — align the ✅ icon", CHECKED_TERMINAL)).toBe(
-      false,
-    );
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
@@ -960,17 +548,11 @@ describe("backlog ledger graduation", () => {
     // Anchor on the HEADING, not the first mention: an earlier summary reference
     // would send this at another section — the same bug the provenance check above
     // already avoids.
-    const headingMatch = new RegExp(
-      // r31: same CommonMark whitespace + priority-prefix tolerance as every
-      // other heading locator — a validly formatted heading must not turn
-      // this substance check falsely red.
-      `^ {0,3}#{2,3}[ \\t]+(?:\\[[^\\]]+\\]\\s*)?~{0,2}${ORIGIN_GATE_ID}`,
-      "m",
-    ).exec(backlog);
+    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID}`, "m").exec(backlog);
     expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
     const start = headingMatch!.index;
     const rest = backlog.slice(start);
-    const nextHeading = rest.slice(1).search(/\n {0,3}#{2,3}[ \t]/);
+    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
     const body = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
     expect(body.length).toBeGreaterThan(400);
 
