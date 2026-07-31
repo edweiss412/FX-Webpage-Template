@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHotels } from "@/lib/parser/blocks/hotels";
+import { parseHotels, normalizeLaterSegmentText } from "@/lib/parser/blocks/hotels";
 import { newAggregator } from "@/lib/parser/warnings";
 
 /**
@@ -2845,5 +2845,691 @@ describe("warning cardinality", () => {
     const suspected = warnings.filter((w) => w.code === SUSPECTED);
     expect(suspected.length).toBe(1);
     expect(suspected[0]!.blockRef?.index).toBe(3);
+  });
+});
+
+// Spec §3 scopes A and B: a segment the detector cannot classify (>= 2 `Check In`
+// markers) still gets an EVIDENCE SCAN over the region after its first marker, and a
+// cell the all-names guard collapses attributes one SUSPECTED to the survivor. Rows
+// stay byte-equal to today throughout — the scans' only delta is the warning.
+type ScopeCase = {
+  name: string;
+  cell: string;
+  today: RowShape[];
+  suspected: number;
+  own: number;
+  index: number | null;
+  rawSnippet: "cell" | "seg0" | null;
+};
+
+const SCOPE_CASES: readonly ScopeCase[] = [
+  {
+    name: "scopeA conf-carrying glued guest WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith", "Jane Doe"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeA conf-less glued guest silent",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 0,
+    own: 0,
+    index: null,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA partial degradation, multi-row survival",
+    cell: "Hyatt&#10;Regency  100 Main St John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency 100",
+        hotel_address: null,
+        names: ["Main St John Smith", "Jane Doe"],
+        check_in: "2026-03-01",
+        check_out: "2026-03-04",
+      },
+      {
+        hotel_name: "Hyatt Regency 100",
+        hotel_address: null,
+        names: ["Bob Roe"],
+        check_in: "2026-03-05",
+        check_out: "2026-03-06",
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "seg0",
+  },
+  {
+    name: "scopeA street-only positive",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200 Oak Ave Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA postal-only positive",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Marriott Downtown Chicago, IL 60601 Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA hash-conf glued guest WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe #1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA bare-digit glued guest WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 100200 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 post-marker silent",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 99999-1234 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 0,
+    own: 0,
+    index: null,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 rejection (99999-12345)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 99999-12345 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 rejection (en dash)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 99999–1234 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 rejection (spaced separator)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 99999 - 1234 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 rejection (six-digit run)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 123456-1234 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA ZIP+4 rejection (trailing word char)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Jane Doe 99999-1234A Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 0,
+    own: 0,
+    index: null,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA entity-split evidence WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200&#10;Oak Ave Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeA tab-split evidence WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200&#9;Oak Ave Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeA quoted evidence WARNS",
+    cell: 'Hyatt Regency John Smith - 1001 Check In: 3/1/26 Marriott Downtown "200 Oak Ave" Jane Doe Check In: 3/3/26 Check Out: 3/4/26',
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeA digit-run prose WARNS",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Note FY-2026 Drive kickoff Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA dash-glued street (hyphen)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton Midtown -1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith", "Hilton Midtown"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA dash-glued street (en dash)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton Midtown –1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith", "Hilton Midtown"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA dash-glued street (em dash)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton Midtown —1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith", "Hilton Midtown"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA word-glued street (hyphen)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton-1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA word-glued street (en dash)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton–1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA word-glued street (em dash)",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton—1515 Madison Ave Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA lowercase-state stays silent",
+    cell: "Hyatt Regency John Smith - 1001 Check In: 3/1/26 Hilton Midtown 71 chicago, il 60601 Bob Roe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency John Smith",
+        hotel_address: null,
+        names: ["Hyatt Regency John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 0,
+    own: 0,
+    index: null,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeA entity-split FIRST checkout WARNS",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check&#10;Out: 3/2/26 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith", "Jane Doe"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeB Jose non-ASCII fallback",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott&#10;Downtown  200 Oak Ave, Chicago, IL 60601 José Núñez - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: "cell",
+  },
+  {
+    name: "scopeB Jose fallback plus third group",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott&#10;Downtown  200 Oak Ave, Chicago, IL 60601 José Núñez - 1002 Check In: 3/3/26 Check Out: 3/4/26 Hilton Midtown Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith", "Hilton Midtown Bob Roe"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB fallback suffix-only evidence",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott Downtown 200 Oak Ave Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB fallback no address evidence",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 0,
+    own: 0,
+    index: null,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB fallback survivor conf positive (hyphen)",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott Plaza Jane D - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB fallback survivor conf positive (en dash)",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott Plaza Jane D – 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB fallback survivor conf positive (glued em dash)",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott Plaza Jane D—1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "scopeB missing group-0 checkout, later postal hotel",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency",
+        hotel_address: "100 Main St John Smith",
+        names: ["Main St John Smith", "Jane Doe"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+  {
+    name: "maxOne pair a: word arm plus tier-1 inheritance",
+    cell: "Hyatt Regency 100 Main St John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 Hilton Midtown Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26",
+    today: [
+      {
+        hotel_name: "Hyatt Regency 100",
+        hotel_address: null,
+        names: ["Main St John Smith"],
+        check_in: "2026-03-01",
+        check_out: "2026-03-02",
+      },
+      {
+        hotel_name: "Marriott Downtown",
+        hotel_address: "200 Oak Ave, Chicago, IL 60601",
+        names: ["Jane Doe"],
+        check_in: "2026-03-03",
+        check_out: "2026-03-04",
+      },
+      {
+        hotel_name: "Marriott Downtown",
+        hotel_address: "200 Oak Ave, Chicago, IL 60601",
+        names: ["Hilton Midtown Bob Roe"],
+        check_in: "2026-03-05",
+        check_out: "2026-03-06",
+      },
+    ],
+    suspected: 1,
+    own: 1,
+    index: 2,
+    rawSnippet: null,
+  },
+  {
+    name: "stash order SUSPECTED slot",
+    cell: "Hotel 71 Chicago, IL 60601 John Smith - 1001 Check In: 3/1/26 Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26",
+    today: [
+      {
+        hotel_name: "Hotel 71 Chicago, IL 60601 John Smith",
+        hotel_address: null,
+        names: ["John Smith", "Jane Doe"],
+        check_in: null,
+        check_out: null,
+      },
+    ],
+    suspected: 1,
+    own: 0,
+    index: 0,
+    rawSnippet: null,
+  },
+];
+
+/** Segment 0 as `splitInlineReservationGroups` cuts it: through its own "Check Out". */
+const segmentZero = (cellText: string): string => {
+  const m = /check\s+out\s*[:\s]+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/i.exec(cellText);
+  return m ? cellText.slice(0, m.index + m[0].length).trim() : cellText.trim();
+};
+
+describe("scope A / scope B degraded-segment evidence scans", () => {
+  for (const c of SCOPE_CASES) {
+    it(c.name, () => {
+      const { warnings } = parse(wholeCell(c.cell));
+      const shape = shapeOf(wholeCell(c.cell));
+      // The scans never move a row: today's parse is preserved byte-for-byte.
+      expect(shape).toEqual(c.today);
+      const suspected = warnings.filter((w) => w.code === SUSPECTED);
+      expect(suspected.length).toBe(c.suspected);
+      expect(warnings.filter((w) => w.code === OWN).length).toBe(c.own);
+      if (c.index !== null && c.suspected > 0) {
+        expect(suspected[0]!.blockRef?.index).toBe(c.index);
+      }
+      if (c.rawSnippet !== null) {
+        const expected = c.rawSnippet === "cell" ? c.cell : segmentZero(c.cell);
+        expect(suspected[0]!.rawSnippet).toBe(expected);
+        // The scan reads D1-NORMALIZED text but persists the RAW bytes.
+        expect(suspected[0]!.rawSnippet).not.toBe(normalizeLaterSegmentText(expected));
+      }
+    });
+  }
+
+  it("stash order, SUSPECTED slot: guest, SUSPECTED, address all at index 0", () => {
+    const c = SCOPE_CASES.find((x) => x.name === "stash order SUSPECTED slot")!;
+    const { warnings } = parse(wholeCell(c.cell));
+    expect(warnings.map((w) => w.code)).toEqual([
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      SUSPECTED,
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    ]);
+    for (const w of warnings) expect(w.blockRef?.index).toBe(0);
+  });
+
+  it("max-one pair (a): a word-arm row that ALSO inherits a tier-1 hotel warns once", () => {
+    const c = SCOPE_CASES.find(
+      (x) => x.name === "maxOne pair a: word arm plus tier-1 inheritance",
+    )!;
+    const { warnings } = parse(wholeCell(c.cell));
+    const own = warnings.filter((w) => w.code === OWN);
+    expect(own.length).toBe(1);
+    expect(own[0]!.blockRef?.index).toBe(1);
+    const suspected = warnings.filter((w) => w.code === SUSPECTED);
+    expect(suspected.length).toBe(1);
+    expect(suspected[0]!.blockRef?.index).toBe(2);
   });
 });
