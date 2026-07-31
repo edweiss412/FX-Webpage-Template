@@ -282,6 +282,37 @@ const terminalHit = (line: string, matcher: RegExp): boolean =>
  * the FIRST identical spelling, so `**PARTIALLY CLOSED, then CLOSED**` read
  * as wholly partial; iterating occurrences lets a later bare claim count).
  */
+// r38/r39: the standard English closed-class preposition inventory —
+// prepositions are a closed class, so a noun a terminal word modifies
+// (`precedent`, `approach`) can never appear here, which is the entire
+// discrimination the label rule needs. Inventory edits are one-token
+// additions, not redesigns.
+const PARTICLE_WORDS =
+  "aboard|about|above|absent|across|after|against|along|alongside|amid|amidst|among|amongst|around|as|at|atop|barring|before|behind|below|beneath|beside|besides|between|beyond|but|by|circa|concerning|considering|despite|down|during|except|excepting|excluding|failing|following|for|from|in|including|inside|into|like|minus|near|notwithstanding|of|off|on|onto|opposite|out|outside|over|past|pending|per|plus|regarding|respecting|save|since|through|throughout|till|to|toward|towards|under|underneath|until|unto|up|upon|using|versus|via|with|within|without|worth";
+
+/**
+ * r39: a closure field needs no bold at all — `Closed: 2026`, `*Closed:*`,
+ * `Resolved by: PR #621` are the same claim unwrapped. Any terminal word
+ * followed (through an optional preposition chain and optional emphasis
+ * marks) by a colon is a field-value claim, with the same word-position
+ * veto. The word-between guard keeps `**Shipped precedent:**` out — the
+ * lookahead crosses only particles.
+ */
+const FIELD_VALUE_TERMINAL = new RegExp(
+  `(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?=(?:\\s+(?:${PARTICLE_WORDS}))*[*_\x60]{0,3}\\s*:)`,
+  "gi",
+);
+
+function fieldValueTerminalHit(line: string): boolean {
+  for (let m = FIELD_VALUE_TERMINAL.exec(line); m !== null; m = FIELD_VALUE_TERMINAL.exec(line)) {
+    if (!PARTIAL_BEFORE.test(line.slice(0, m.index))) {
+      FIELD_VALUE_TERMINAL.lastIndex = 0;
+      return true;
+    }
+  }
+  return false;
+}
+
 function boldFieldTerminalHit(line: string): boolean {
   // r27: the veto window is the LINE prefix, not the segment prefix — a
   // modifier can sit outside the emphasis boundary (`Not **CLOSED:**`,
@@ -314,13 +345,7 @@ function boldFieldTerminalHit(line: string): boolean {
         .replace(/:\s*$/, "")
         .split(/[^A-Za-z]+/)
         .filter(Boolean);
-      // r38: prepositions are a CLOSED CLASS in English — the list below is
-      // the whole class copied once, ending the r36→r38 drip of "you missed
-      // `without`". A noun a terminal word modifies (`precedent`,
-      // `approach`) can never appear in it, which is the entire
-      // discrimination this rule needs.
-      const PARTICLES =
-        /^(?:about|above|across|after|against|along|among|around|as|at|before|behind|below|beneath|beside|besides|between|beyond|by|concerning|despite|down|during|except|following|for|from|in|inside|into|like|near|of|off|on|onto|out|outside|over|past|per|regarding|since|through|throughout|till|to|toward|towards|under|underneath|until|unto|up|upon|using|via|with|within|without)$/i;
+      const PARTICLES = new RegExp(`^(?:${PARTICLE_WORDS})$`, "i");
       while (words.length > 0 && PARTICLES.test(words[words.length - 1]!)) words.pop();
       const last = words[words.length - 1];
       if (last !== undefined && new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(last)) {
@@ -631,9 +656,14 @@ describe("backlog ledger graduation", () => {
       // `Status: SHIPPED` after a stale `Status: OPEN` was never inspected).
       const statusLines = lines.filter((l) => STATUS_FIELD_LINE.test(l));
       const filedLines = lines.filter((l) => FILED_FIELD_LINE.test(l));
-      const statusHit = statusLines.some((l) => terminalHit(l, STATUS_TERMINAL));
+      // r39: the bold-FIELD and bare-field lanes run on STATUS lines too —
+      // `**Status:** OPEN · **Closed:** 2026` closes on its second field —
+      // and a closure field needs no bold at all.
+      const statusHit = statusLines.some(
+        (l) => terminalHit(l, STATUS_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
+      );
       const filedHit = filedLines.some(
-        (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l),
+        (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l) || fieldValueTerminalHit(l),
       );
       const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
       const openingHit =
@@ -857,6 +887,20 @@ describe("backlog ledger graduation", () => {
     expect(boldFieldTerminalHit("**Shipped without:** the optional knob.")).toBe(true);
     expect(boldFieldTerminalHit("**Resolved for:** every adopter site.")).toBe(true);
     expect(boldFieldTerminalHit("**Closed despite:** the flake noise.")).toBe(true);
+    // r39 — the standard closed-class inventory covers the long tail…
+    expect(boldFieldTerminalHit("**Shipped alongside:** PR #700.")).toBe(true);
+    expect(boldFieldTerminalHit("**Closed notwithstanding:** the flake.")).toBe(true);
+    // …a SECOND field closes a Status line…
+    expect(boldFieldTerminalHit("**Status:** OPEN · **Closed:** 2026-07-30.")).toBe(true);
+    // …and a closure field needs no bold at all (single emphasis, bare,
+    // bare-with-particle), with the word-between guard and veto intact:
+    expect(fieldValueTerminalHit("*Closed:* 2026-07-30")).toBe(true);
+    expect(fieldValueTerminalHit("_Superseded:_ by the picker pivot")).toBe(true);
+    expect(fieldValueTerminalHit("Closed: 2026-07-30")).toBe(true);
+    expect(fieldValueTerminalHit("Resolved by: PR #621")).toBe(true);
+    expect(fieldValueTerminalHit("**Shipped precedent:** PR #500")).toBe(false);
+    expect(fieldValueTerminalHit("Not CLOSED: still open")).toBe(false);
+    expect(fieldValueTerminalHit("**Status:** REOPENED 2026-07-30")).toBe(false);
     expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
       false,
     );

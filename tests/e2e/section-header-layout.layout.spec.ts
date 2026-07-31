@@ -1135,7 +1135,14 @@ test("wide inline: overlay clears pill, count and heading @ 640", async ({ page 
         m.overlay!.left - pill.right,
         "pill adjacency: the 12px clearance really is the measured gap",
       ).toBeLessThanOrEqual(2 + 1);
-      expect(m.overlay!.left - pill.right, "pill never overlaps").toBeGreaterThanOrEqual(0);
+      // r39: the dead zone is a LOWER-bounded claim too — the graduated
+      // BL-HEADER-PILL-LINK-TOUCH-BUFFER entry's deliverable is ~2px of
+      // touch buffer, so 0px (e.g. sm:ml-0.5 dropped) must fail, not pass
+      // as "never overlaps".
+      expect(
+        m.overlay!.left - pill.right,
+        "pill dead zone: the ~2px touch buffer exists",
+      ).toBeGreaterThanOrEqual(2 - 0.5);
     }
   }
 });
