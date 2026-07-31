@@ -366,7 +366,7 @@ describe("inheritance after a tier-1 group", () => {
   });
 });
 
-describe.skip("warning cardinality (unskipped by Task 4)", () => {
+describe("warning cardinality", () => {
   for (const k of KEEPS) {
     it(`${k.name} — exactly one OWN at index ${k.index}, zero SUSPECTED`, () => {
       const { warnings } = parse(cell(k.later));
