@@ -126,7 +126,9 @@ const AFTER = "(?![A-Za-z0-9])";
 // task-list checkbox (`[ ]`/`[x]`/`[X]`) rides a list marker — `- [x]
 // **Status:** CLOSED` is still the entry's own claim, so the optional
 // checkbox is part of the list-marker alternative (it cannot appear bare).
-const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,3}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
+// r24: ordered markers accept one through NINE digits — the CommonMark/GFM
+// grammar's own bound — not a guessed three.
+const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // Both bold conventions carry the colon differently — `**Status:** X` and
 // `**Status**: X` are the same field label (r16), so the colon is accepted on
 // either side of the closing emphasis.
@@ -581,6 +583,10 @@ describe("backlog ledger graduation", () => {
     expect(terminalHit("> - [x] **CLOSED** by PR #631.", OPENING_TERMINAL_BOLD)).toBe(true);
     expect(STATUS_FIELD_LINE.test("- [ ] Status: RESOLVED")).toBe(true);
     expect(terminalHit("- [ ] **Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
+    // r24 — ordered markers run to nine digits per the CommonMark/GFM
+    // grammar, not three:
+    expect(terminalHit("1234. [x] **Status:** CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("123456789. **Filed**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {

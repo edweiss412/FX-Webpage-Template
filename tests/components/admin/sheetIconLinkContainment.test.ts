@@ -318,6 +318,38 @@ function isRequireCallee(expr: ts.Expression): boolean {
 }
 
 /**
+ * Resolution APIs are specifier-bearing too (r24): `require.resolve("./x")`
+ * takes the SAME literal specifier grammar as `require` itself, and its
+ * return value feeds a one-hop composition — `require(require.resolve(lit))`
+ * — whose inner literal the argument extractor never saw (the outer argument
+ * is a call expression, ratified computed; the inner callee is `.resolve`,
+ * not a require spelling). The member ride the same normalization as the
+ * require callee: property access or string-keyed element access named
+ * `resolve` (or webpack's `resolveWeak`) on any require-callee expression,
+ * plus the ESM twin `import.meta.resolve`, each behind runtime-transparent
+ * wrappers. Computed keys stay in the ratified computed class.
+ */
+function isResolveCallee(expr: ts.Expression): boolean {
+  const e = unwrapTransparent(expr);
+  const RESOLVE_NAMES = new Set(["resolve", "resolveWeak"]);
+  let base: ts.Expression;
+  if (ts.isPropertyAccessExpression(e) && RESOLVE_NAMES.has(e.name.text)) {
+    base = e.expression;
+  } else if (
+    ts.isElementAccessExpression(e) &&
+    ts.isStringLiteralLike(e.argumentExpression) &&
+    RESOLVE_NAMES.has(e.argumentExpression.text)
+  ) {
+    base = e.expression;
+  } else {
+    return false;
+  }
+  const owner = unwrapTransparent(base);
+  if (isRequireCallee(owner)) return true;
+  return ts.isMetaProperty(owner) && owner.keywordToken === ts.SyntaxKind.ImportKeyword;
+}
+
+/**
  * Context modules (r17): `require.context(dir, …, filter)` and
  * `import.meta.webpackContext(dir, …)` are documented static webpack module
  * syntaxes that select modules by directory + pattern, so no specifier ever
@@ -413,6 +445,7 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         isRequireCallee(node.expression) ||
+        isResolveCallee(node.expression) ||
         isAmdDefineCallee(node.expression))
     ) {
       const out: ts.StringLiteralLike[] = [];
@@ -739,6 +772,13 @@ function jsonRemapOffenses(value: unknown, rel: string): string[] {
   const found: string[] = [];
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (REMAP_SPELLINGS.has(k)) found.push(`resolver-remap key "${k}" in ${rel}`);
+    // r24: `pageExtensions` is denied in the JSON lane ONLY — the one
+    // sanctioned definition site is the entry file's own property, pinned by
+    // graph-wide AST equality; a reachable JSON carrying the key exists to be
+    // spread into the config, which is exactly the laundering the pin closes.
+    // (Not in REMAP_SPELLINGS: the code lane scans the entry file, where the
+    // legitimate property lives.)
+    if (k === "pageExtensions") found.push(`pageExtensions key in reachable JSON ${rel}`);
     found.push(...jsonRemapOffenses(v, rel));
   }
   return found;
@@ -800,7 +840,9 @@ function configReachableFiles(root: string): {
         specNode = node.moduleReference.expression;
       } else if (
         ts.isCallExpression(node) &&
-        (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression))
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          isRequireCallee(node.expression) ||
+          isResolveCallee(node.expression))
       ) {
         specifierBearing = true;
         specNode = node.arguments[0] ?? null;
@@ -1140,6 +1182,32 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('define("app", ["@/tests/helpers/x"], (h) => h);', "lib/consumer.ts"),
     ).toHaveLength(1);
+    // r24 — resolution APIs are specifier-bearing: the one-hop
+    // require(require.resolve(lit)) composition, the bare resolve call, the
+    // webpack resolveWeak twin, the ESM import.meta.resolve twin, and the
+    // wrapped/element-access spellings all surface the inner literal:
+    expect(
+      classNameViolations(
+        'const m = require(require.resolve("@/components/admin/SheetIconLink"));',
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = require.resolve("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = require.resolveWeak("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = import.meta.resolve("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'const p = (module.require)["resolve"]("@/components/admin/SheetIconLink");',
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const h = require.resolve("@/tests/helpers/x");', "lib/consumer.ts"),
+    ).toHaveLength(1);
     // r17 — context modules select by directory + pattern; the mechanism is
     // denied outright, and the `context` fragment gates the parse:
     expect(
@@ -1317,38 +1385,48 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     // r23: the compiled-PAGE surface is a resolution surface too — adding
     // "md" to pageExtensions (or an MDX `extension` regex, denied via
     // REMAP_SPELLINGS above) turns tracked `.md` — a tree the walk treats as
-    // prose — into compiled first-party source. The array is pinned by exact
-    // AST equality: exactly one `pageExtensions` property in the config
-    // graph, every element a plain string literal, equal to the current set.
-    const entrySrc = readFileSync(join(root, "next.config.ts"), "utf8");
-    const entrySf = ts.createSourceFile(
-      "next.config.ts",
-      entrySrc,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    const pageExtSets: string[][] = [];
-    const collectPageExts = (node: ts.Node): void => {
-      if (
-        ts.isPropertyAssignment(node) &&
-        (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-        node.name.text === "pageExtensions"
-      ) {
-        if (!ts.isArrayLiteralExpression(node.initializer)) {
-          pageExtSets.push(["<non-array pageExtensions initializer>"]);
-        } else {
-          pageExtSets.push(
-            node.initializer.elements.map((el) =>
-              ts.isStringLiteralLike(el) ? el.text : "<non-literal pageExtensions element>",
-            ),
-          );
+    // prose — into compiled first-party source. r24: the pin is GRAPH-WIDE,
+    // not entry-only — a reachable helper can hold
+    // `{ pageExtensions: [...] }` that the entry merely spreads AFTER its own
+    // property (the r13 lesson, replayed on a new key), so EVERY reachable
+    // TS/JS module is parsed and exactly one `pageExtensions` property may
+    // exist, in the entry file, every element a plain string literal, equal
+    // to the current set. Reachable JSON carrying the key is an offense in
+    // jsonRemapOffenses (a JSON file is never the sanctioned definition
+    // site).
+    const pageExtSets: Array<[string, string[]]> = [];
+    for (const rel of reachable.files) {
+      const graphSf = ts.createSourceFile(
+        rel,
+        readFileSync(join(root, rel), "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX,
+      );
+      const collectPageExts = (node: ts.Node): void => {
+        if (
+          ts.isPropertyAssignment(node) &&
+          (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+          node.name.text === "pageExtensions"
+        ) {
+          if (!ts.isArrayLiteralExpression(node.initializer)) {
+            pageExtSets.push([rel, ["<non-array pageExtensions initializer>"]]);
+          } else {
+            pageExtSets.push([
+              rel,
+              node.initializer.elements.map((el) =>
+                ts.isStringLiteralLike(el) ? el.text : "<non-literal pageExtensions element>",
+              ),
+            ]);
+          }
         }
-      }
-      ts.forEachChild(node, collectPageExts);
-    };
-    collectPageExts(entrySf);
-    expect(pageExtSets, "pageExtensions pinned by exact set").toEqual([["ts", "tsx", "mdx"]]);
+        ts.forEachChild(node, collectPageExts);
+      };
+      collectPageExts(graphSf);
+    }
+    expect(pageExtSets, "pageExtensions pinned by exact set, graph-wide").toEqual([
+      ["next.config.ts", ["ts", "tsx", "mdx"]],
+    ]);
     // …and the named artifact stays impossible even if the pins above are
     // ever loosened: zero tracked .md under app/ (the only page-capable
     // tree). A future legitimate .md page teaches this guard first.
@@ -1427,14 +1505,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(jsonRemapOffenses({ nested: { resolveAlias: {} } }, "cfg.json").length).toBeGreaterThan(
       0,
     );
-    expect(jsonRemapOffenses({ remarkPlugins: [], pageExtensions: ["mdx"] }, "cfg.json")).toEqual(
-      [],
-    );
+    expect(jsonRemapOffenses({ remarkPlugins: [] }, "cfg.json")).toEqual([]);
     // r23 — extension-selection keys are remap keys in every lane:
     expect(jsonRemapOffenses({ extension: {} }, "cfg.json").length).toBeGreaterThan(0);
     expect(jsonRemapOffenses({ resolveExtensions: ["x.tsx"] }, "cfg.json").length).toBeGreaterThan(
       0,
     );
+    // r24 — pageExtensions in reachable JSON is spread-fodder, denied (the
+    // sanctioned definition site is the entry file's own pinned property):
+    expect(jsonRemapOffenses({ pageExtensions: ["mdx"] }, "cfg.json").length).toBeGreaterThan(0);
   });
 
   it(
