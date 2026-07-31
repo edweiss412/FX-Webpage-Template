@@ -24,7 +24,7 @@
  * there — documented CI shape; the oracle still requires >=1 passed and the
  * remaining suites execute (19 passed locally, child exit 0).
  */
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -212,7 +212,13 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, e.name);
         if (lstatSync(p).isSymbolicLink()) {
-          symlinks.push(p);
+          // A DIRECTORY symlink aliases a whole tree of potential test
+          // files; a FILE symlink is a threat only when its name is
+          // test-shaped (vitest collects it). Non-test fixture symlinks
+          // (tests/specLint/fixtures/cited/symlink.md exists deliberately)
+          // stay legal.
+          const dirLink = statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
+          if (dirLink || /\.(test|spec)\.[cm]?[jt]sx?$/.test(e.name)) symlinks.push(p);
           continue;
         }
         if (e.isDirectory()) walk(p);
@@ -222,7 +228,7 @@ describe("env-bound exclusion coverage (spec §6)", () => {
     walk(join(ROOT, "tests"));
     expect(
       symlinks,
-      "symlinks under tests/ — vitest traverses them, the census walk does not; a linked tree can shadow an exclusion suffix",
+      "directory or test-shaped symlinks under tests/ — vitest traverses them, the census walk does not; a linked tree can shadow an exclusion suffix",
     ).toEqual([]);
     for (const f of files) {
       const matching = walked.filter((p) => p.endsWith(`/${f}`));
