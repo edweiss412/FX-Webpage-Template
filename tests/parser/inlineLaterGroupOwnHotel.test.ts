@@ -314,6 +314,58 @@ describe("Advertised remediation clears the warning", () => {
   });
 });
 
+// Spec §4: a tier-2/3 row inherits from the NEAREST PRECEDING row that carries its own
+// hotel — group 0, or the closest earlier tier-1 group (S7).
+describe("inheritance after a tier-1 group", () => {
+  const WORKED_EXAMPLE =
+    "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 " +
+    "Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26";
+  const TWO_PREDECESSORS =
+    "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 " +
+    "Hilton Midtown 300 Pine St, Seattle, WA 98101 Carol Fox - 1003 Check In: 3/5/26 Check Out: 3/6/26 " +
+    "Bob Roe - 1004 Check In: 3/7/26 Check Out: 3/8/26";
+  const NULL_BASENAME =
+    "John Smith - 1001 Check In: 3/1/26 Check Out: 3/2/26 " +
+    "Marriott Downtown Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26";
+
+  it("Nearest-preceding inheritance (§4 worked example)", () => {
+    // Kills unconditional group-0 inheritance: row 2 would read "Hyatt Regency 100".
+    const rows = rowsOf(cell(WORKED_EXAMPLE));
+    expect(rows.length).toBe(3);
+    expect(rows[2]!.hotel_name).toBe("Marriott Downtown");
+    expect(rows[2]!.hotel_address).toBe("200 Oak Ave, Chicago, IL 60601");
+    expect(rows[2]!.names).toEqual(["Bob Roe"]);
+    expect(rows[2]!.check_in).toBe("2026-03-05");
+    expect(rows[2]!.check_out).toBe("2026-03-06");
+  });
+
+  it("Nearest-preceding with TWO tier-1 predecessors", () => {
+    // Kills a first-tier-1-hit latch: row 3 would read "Marriott Downtown".
+    const rows = rowsOf(cell(TWO_PREDECESSORS));
+    expect(rows.length).toBe(4);
+    expect(rows[1]!.hotel_name).toBe("Marriott Downtown");
+    expect(rows[1]!.hotel_address).toBe("200 Oak Ave, Chicago, IL 60601");
+    expect(rows[2]!.hotel_name).toBe("Hilton Midtown");
+    expect(rows[2]!.hotel_address).toBe("300 Pine St, Seattle, WA 98101");
+    expect(rows[2]!.names).toEqual(["Carol Fox"]);
+    expect(rows[3]!.hotel_name).toBe("Hilton Midtown");
+    expect(rows[3]!.hotel_address).toBe("300 Pine St, Seattle, WA 98101");
+    expect(rows[3]!.names).toEqual(["Bob Roe"]);
+    expect(rows[3]!.check_in).toBe("2026-03-07");
+    expect(rows[3]!.check_out).toBe("2026-03-08");
+  });
+
+  it("Null group-0 baseName inheritance shape", () => {
+    // Regression pin: with no preceding tier-1 row, a null baseName is inherited as
+    // null today and must stay null — kills a null-deref on the inheritance source.
+    const rows = rowsOf(wholeCell(NULL_BASENAME));
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.hotel_name).toBeNull();
+    expect(rows[1]!.hotel_name).toBeNull();
+    expect(rows[1]!.names).toEqual(["Marriott Downtown Jane Doe"]);
+  });
+});
+
 describe.skip("warning cardinality (unskipped by Task 4)", () => {
   for (const k of KEEPS) {
     it(`${k.name} — exactly one OWN at index ${k.index}, zero SUSPECTED`, () => {
@@ -339,4 +391,36 @@ describe.skip("warning cardinality (unskipped by Task 4)", () => {
       expect(warnings.filter((w) => w.code === OWN || w.code === SUSPECTED).length).toBe(0);
     });
   }
+
+  // §4: every row whose inherited source is a tier-1 group ALSO stashes SUSPECTED,
+  // even when its own tier would stay silent.
+  it("Nearest-preceding inheritance — OWN@1, SUSPECTED@2, nothing on row 0", () => {
+    const { warnings } = parse(
+      cell(
+        "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 " +
+          "Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26",
+      ),
+    );
+    const own = warnings.filter((w) => w.code === OWN);
+    const suspected = warnings.filter((w) => w.code === SUSPECTED);
+    expect(own.length).toBe(1);
+    expect(own[0]!.blockRef?.index).toBe(1);
+    expect(suspected.length).toBe(1);
+    expect(suspected[0]!.blockRef?.index).toBe(2);
+    expect(suspected[0]!.rawSnippet).toBe("Bob Roe - 1003 Check In: 3/5/26 Check Out: 3/6/26");
+  });
+
+  it("Nearest-preceding with TWO tier-1 predecessors — OWN@1, OWN@2, SUSPECTED@3", () => {
+    const { warnings } = parse(
+      cell(
+        "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe - 1002 Check In: 3/3/26 Check Out: 3/4/26 " +
+          "Hilton Midtown 300 Pine St, Seattle, WA 98101 Carol Fox - 1003 Check In: 3/5/26 Check Out: 3/6/26 " +
+          "Bob Roe - 1004 Check In: 3/7/26 Check Out: 3/8/26",
+      ),
+    );
+    expect(warnings.filter((w) => w.code === OWN).map((w) => w.blockRef?.index)).toEqual([1, 2]);
+    const suspected = warnings.filter((w) => w.code === SUSPECTED);
+    expect(suspected.length).toBe(1);
+    expect(suspected[0]!.blockRef?.index).toBe(3);
+  });
 });
