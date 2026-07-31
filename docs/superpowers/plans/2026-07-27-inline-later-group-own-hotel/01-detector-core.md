@@ -77,6 +77,19 @@ Remaining unit `it()` blocks (same file, same pattern — input + assertions fro
 
 Failure modes stated per group: (1) kills fire-tier-1-on-D4-match; (2) kills missing guard branches / date-machinery bypass; (3) kills `buildInlineHotel(rest, 1, null)` hardcoding of ordinal/contextYear.
 
+**Branch coverage matrix (plan R4 f1 — MANDATORY; every D1-D6 branch step 4 implements has at least one unit oracle in THIS file before implementation).** Each entry names its spec §8.1 row; the unit oracle calls `classifyLaterSegment` directly with the row's later-segment literal and asserts the stated tier (plus `hotelText`/`build.row` fields where the row keeps). Task 2 re-verifies the same rows at the integration layer (rows/warnings/stripHotelNameConf interplay) — a different observation surface, not duplication.
+
+- D1 entity member: the `&#10;` envelope keep input → tier 1. D1 tab member + marker bound: a segment whose second marker is written `Check&#9;In` → tier 2 (the ≥2-marker S9 bound fires on D1 text — the unit-level form of the tab-entity-split degrade). D1 quote members: quoted corpus keep AND smart-quote keep → tier 1 each.
+- D2: divider strip ×3 dash forms → tier 1, NAME-asserted.
+- D3 five-way minimum: two-guest hyphen keep (dash-run cut) → tier 1; hash counterfeit → tier 2; bare-conf → tier 2; tail keep (Check-In-start cut) → tier 1; position-0 all-address keep (s2.length arm) → tier 1.
+- isZip4 five-clause boundary: the tier-1-path ZIP+4 rejection row's five materializations — first FOUR → tier 2, FIFTH (`1234A`) → tier 1 — plus the true-ZIP+4 keep → tier 1.
+- D4 anchor: comma-less city (comma before state) keep (tie-break) → tier 1; fully comma-less US (arm 3) → tier 1; arm-3 cap boundary EXACTLY-3 keep → tier 1 AND the ZIP-arm-boundary 4-keep/5-demote pair (the R4-f1 concrete case: a two-word-capped arm 3 fails the exactly-3 oracle HERE, in Task 1); Canadian postal keep → tier 1; arm-1 unit keeps ×2 + one separator-matrix materialization → tier 1; postal-stop (postal-then-trailing-unit) → tier 2; interior free-run caps: FL keep, exact-3 keep, name-region 3-word keep → tier 1 each.
+- Residual guards: a0 bare-alias (one of the ×8) → tier 2; (a) ZIP-less city comma residual → tier 2; (b) unconsumed-postal (unit-tail-comma-less) → tier 2; (c) guard-(c) note text → tier 2; (d) plain-word cap 4-keep → tier 1 / 5-demote → tier 2.
+- D5 word arm: tier-2 word arm row → tier 2. Post-prefix scan arm (i): post-prefix street-only → tier 2 (raw read); dash-glued street one form → tier 2 (neutralized read); word-glued street one form → tier 2; digit-run prose one form → tier 2. Arm (ii): conf-glue dash form → tier 2; hash/bare glue → tier 2.
+- D6: dotted c0 pin → tier 2; Doug c1 → tier 2; Alice c2 → tier 2 (names-empty abort already above).
+
+Remaining materializations of each family (the full ×3 dash forms, all 12 arm-1 syntax cells, all 8 a0 aliases, both provenance paths, etc.) stay Task-2 integration rows — the matrix pins every BRANCH at unit level; Task 2 exhausts every MATERIALIZATION.
+
 - [ ] **Step 2: Run tests, verify they fail on the missing export**
 
 Run: `pnpm vitest run tests/parser/inlineLaterGroupDetector.test.ts`
