@@ -7,8 +7,8 @@
  * assertion while destroying the proof, so the thing pinned HERE is the
  * script's rejection behavior — each mismatch class must exit non-zero.
  *
- * Baseline schema (v2, R6 P1; tuples R7): per-file sorted MULTISETS of test
- * identities (JSON tuples [projectId, projectName, repeatEachIndex,
+ * Baseline schema (v2 shape, R6 P1; tuples R7; specId R13): per-file sorted
+ * MULTISETS of test identities (JSON tuples [projectId, projectName, specId,
  * [titles...]]), not just a file set and a global total. A file-set +
  * one-total comparison permits COMPENSATED
  * narrowing — an environment-conditioned grep that drops half the tests while
@@ -37,7 +37,7 @@ function run(args: string[], cwd: string = ROOT): number {
 }
 
 type FixtureTest = { status?: string; projectName?: string; projectId?: string };
-type FixtureSpec = { title: string; tests: FixtureTest[]; suiteTitle?: string };
+type FixtureSpec = { title: string; tests: FixtureTest[]; suiteTitle?: string; id?: string };
 
 /**
  * Playwright-JSON-shaped report. config.rootDir is ROOT/tests/e2e so the
@@ -53,11 +53,11 @@ function reportFrom(specsByFile: Record<string, FixtureSpec[]>): string {
       .map((s) => ({
         title: s.suiteTitle,
         suites: [],
-        specs: [{ file, title: s.title, tests: s.tests }],
+        specs: [{ file, title: s.title, tests: s.tests, id: s.id }],
       })),
     specs: specs
       .filter((s) => s.suiteTitle === undefined)
-      .map((s) => ({ file, title: s.title, tests: s.tests })),
+      .map((s) => ({ file, title: s.title, tests: s.tests, id: s.id })),
   }));
   const p = join(dir, "report.json");
   writeFileSync(p, JSON.stringify({ config: { rootDir: join(ROOT, "tests", "e2e") }, suites }));
@@ -99,10 +99,12 @@ const B = "tests/e2e/b.spec.ts";
 /**
  * Identity format mirrors the script: a JSON tuple, so no crafted title can
  * collide with a delimiter (R7: ` :: `/` > ` joins were not injective).
- * [projectId, projectName, repeatEachIndex, [suite titles..., test title]]
+ * [projectId, projectName, specId, [suite titles..., test title]] — specId
+ * replaced the R7 repeatEachIndex component (R13: the json reporter never
+ * serializes repeatEachIndex; repeat identity rides spec.id).
  */
-const id = (titles: string[], projectName = "", projectId = "", repeat = 0) =>
-  JSON.stringify([projectId, projectName, repeat, titles]);
+const id = (titles: string[], projectName = "", projectId = "", specId = "") =>
+  JSON.stringify([projectId, projectName, specId, titles]);
 const T0 = id(["t0"]);
 const T1 = id(["t1"]);
 
@@ -188,6 +190,34 @@ describe("check-standalone-baseline behavioral contract (spec §4.1)", () => {
       ],
     });
     expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
+  });
+
+  it("rejects a REPEAT-INDEX substitution: same tests, same multiplicity, different repeat instances (R13 P1)", () => {
+    // The json reporter emits NO repeatEachIndex — the old tuple normalized
+    // it to 0 for every real outcome, so a local repeatEach:2 baseline
+    // compared equal to a CI run executing repeat indices 2/3 under
+    // repeatEach:4 + shard 2/2 (equal multiplicity either way). Repeat
+    // identity lives in spec.id (suiteUtils testIdExpression "(repeat:N)");
+    // the tuple now carries it and the substitution reds.
+    const bl = baseline({ [A]: [id(["t0"], "", "", "f-r0"), id(["t0"], "", "", "f-r1")] });
+    const rp = reportFrom({
+      [A_REPORT]: [
+        { title: "t0", id: "f-r2", tests: [{ status: "expected" }] },
+        { title: "t0", id: "f-r3", tests: [{ status: "expected" }] },
+      ],
+    });
+    expect(run(["--report", rp, "--baseline", bl])).not.toBe(0);
+  });
+
+  it("matching spec ids compare equal (control: the repeat-identity axis is live, not decorative)", () => {
+    const bl = baseline({ [A]: [id(["t0"], "", "", "f-r0"), id(["t0"], "", "", "f-r1")] });
+    const rp = reportFrom({
+      [A_REPORT]: [
+        { title: "t0", id: "f-r0", tests: [{ status: "expected" }] },
+        { title: "t0", id: "f-r1", tests: [{ status: "expected" }] },
+      ],
+    });
+    expect(run(["--report", rp, "--baseline", bl])).toBe(0);
   });
 
   it("rejects a DELIMITER-collision substitution (JSON tuples, not joined strings — R7 injectivity)", () => {

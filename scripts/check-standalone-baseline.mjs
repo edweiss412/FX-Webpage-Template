@@ -12,13 +12,15 @@
 // The zero-args form exists so the workflow step literal stays exactly
 // `node scripts/check-standalone-baseline.mjs` (spec §4.1 structural pinning).
 //
-// Baseline schema (v2, R6 P1): per-file sorted MULTISETS of test identities
-// ("<projectName> :: <suite titles > test title>"), plus a totalTests field
-// that must equal the identity sum (self-consistency, human readability). A
-// file set + one global total permits COMPENSATED narrowing: a grep that
-// drops half the tests while repeatEach duplicates the survivors preserves
-// every filename and the total; equal-cardinality test/project substitutions
-// do the same. Identity multisets make each of those a mismatch.
+// Baseline schema (v2 shape, R6 P1; identity tuple revised R13): per-file
+// sorted MULTISETS of test identities (JSON tuples [projectId, projectName,
+// specId, [titles...]]), plus a totalTests field that must equal the
+// identity sum (self-consistency, human readability). A file set + one
+// global total permits COMPENSATED narrowing: a grep that drops half the
+// tests while repeatEach duplicates the survivors preserves every filename
+// and the total; equal-cardinality test/project substitutions do the same.
+// Identity multisets make each of those a mismatch, and spec.id carries
+// repeat identity (see the identity() comment).
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -59,16 +61,23 @@ const KNOWN_OUTCOME_STATUSES = new Set(["expected", "unexpected", "flaky", "skip
 // membership both surface in the multiset. A JSON tuple, not a joined string:
 // ` :: `/` > ` delimiters were not INJECTIVE (R7) — a crafted title containing
 // the delimiter collides with a suite boundary, and projectName alone
-// collapses duplicate-named projects. [projectId, projectName,
-// repeatEachIndex, [titles...]] keeps every axis distinct; absent fields
-// normalize ("" / 0) so fixture reports stay comparable.
-const identity = (test, titles) =>
-  JSON.stringify([
-    test?.projectId ?? "",
-    test?.projectName ?? "",
-    test?.repeatEachIndex ?? 0,
-    titles,
-  ]);
+// collapses duplicate-named projects. [projectId, projectName, specId,
+// [titles...]] keeps every axis distinct; absent fields normalize ("") so
+// fixture reports stay comparable.
+//
+// REPEAT identity rides spec.id, NOT a repeatEachIndex field (R13 P1): the
+// json reporter never serializes repeatEachIndex — the old
+// `test?.repeatEachIndex ?? 0` was 0 for every real outcome, so a local
+// repeatEach:2 baseline compared equal to a CI run executing repeat indices
+// 2/3 under repeatEach:4 + shard 2/2. Playwright derives test.id from
+// `[project=<id>]<posix relative file><titles> (repeat:<n>)`
+// (playwright/lib/common/suiteUtils.js applyRepeatEachIndex) — relative
+// inputs, so the sha1 is machine-stable, and each repeat instance gets a
+// distinct id (verified: --list --repeat-each=2 yields 880 specs, 880
+// unique ids). projectId/projectName stay in the tuple as the belt for the
+// id's project axis.
+const identity = (test, specId, titles) =>
+  JSON.stringify([test?.projectId ?? "", test?.projectName ?? "", specId ?? "", titles]);
 
 function membership(json, { executedOnly = false } = {}) {
   const rootDir = json?.config?.rootDir;
@@ -105,7 +114,7 @@ function membership(json, { executedOnly = false } = {}) {
         const titles = [...next];
         if (typeof spec.title === "string") titles.push(spec.title);
         const ids = perFile.get(file) ?? [];
-        for (const t of counted) ids.push(identity(t, titles));
+        for (const t of counted) ids.push(identity(t, spec.id, titles));
         perFile.set(file, ids);
         total += counted.length;
       }

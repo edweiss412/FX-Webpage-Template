@@ -520,9 +520,15 @@ export function censusInvocations(
   // position itself now includes `;`, `&`, `|`, `(`, `{` — a state changer
   // reached through && or a subshell open mutates state all the same.
   // Function definitions match brace AND subshell bodies (`playwright() (:)`
-  // shadows the command word itself).
+  // shadows the command word itself). R13: bash function NAMES are any word
+  // free of metacharacters, not \w — `foo-bar ( ) {` with padded parens is a
+  // valid definition — so the name class is [^\s;&|(){}]+ and the parens may
+  // carry whitespace; brace group tokens `{` / `}` at command position are
+  // control flow too (an uncalled body's opener/closer can sit mid-line:
+  // `a && { true`). printf (-v writes a variable) joins the state-changer
+  // keywords, and `(( ))` arithmetic at command position assigns.
   const controlFlowRe =
-    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+\w+|\w*\(\)\s*[({]|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|[;&|({])\s*(?:(?:exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts)\b|\.(?=\s)|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=)/;
+    /(?:^|\s)(?:if|then|else|elif|fi|case|esac|while|until|for|done)(?:\s|;|$)|\bfunction\s+[^\s;&|(){}]+|[^\s;&|(){}]+\s*\(\s*\)|\(\s*\)\s*[({]|[({]\s*$|^\s*[)}]|(?:&&|\|\|)\s*$|(?:^|[;&|])\s*[{}]|(?:^|[;&|({])\s*(?:(?:exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.(?=\s)|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=)/;
   const fwd = pwScriptNames.length > 0 ? runnerScriptRe(pwScriptNames, "([^\\n]*)") : null;
   for (const item of texts) {
     const raw = typeof item === "string" ? item : item.text;
@@ -545,13 +551,21 @@ export function censusInvocations(
     // every playwright line in the SAME text (R9 G1); a line ending inside
     // an open quote makes the FOLLOWING lines string data, not shell (R10).
     // Either way: registry-or-loud, never auto-classified.
+    // R13: `${VAR:=default}` assigns DURING expansion on any command's
+    // arguments (`: ${NODE_OPTIONS:=…}`, `echo ${PATH:=…}`), and $(…) /
+    // backticks splice arbitrary state — so an expansion-capable character
+    // on ANY non-comment sibling line is execution context for the text's
+    // classifying lines, not just on the classifying line itself (where
+    // complexRe already refuses it).
     const contextWhy = guarded
       ? "context-guarded step (if:/needs/strategy/custom shell)"
       : logical.some(({ line }) => controlFlowRe.test(line))
         ? "shell control-flow or state-change context"
         : logical.some(({ line }) => endsInOpenQuote(line))
           ? "multiline lexical context"
-          : null;
+          : logical.some(({ line }) => !/^\s*#/.test(line) && /[$`]/.test(line))
+            ? "expansion-capable sibling line"
+            : null;
     for (const { line, continued } of logical) {
       if (/^\s*#/.test(line)) continue;
       const forwarded = fwd?.exec(line);
@@ -1044,6 +1058,23 @@ describe("spec registration detector (spec §3.1)", () => {
     // `env VAR=x playwright test` is an external-command prefix, not shell
     // state — it fails command position and stays loud through that gate.
     loudAndDark("env PATH=fixtures/fake playwright test --config ghost.ts");
+    // R13: bash function NAMES are not \w — hyphen/dot/colon names with
+    // whitespace-padded parens and braces evade both the \w*\(\) spelling
+    // and the line-boundary brace tripwires, hiding an invocation inside an
+    // uncalled body that exits 0.
+    loudAndDark("foo-bar ( ) { :\nplaywright test --config ghost.ts\n:; }");
+    loudAndDark("function foo.bar {\nplaywright test --config ghost.ts\n}");
+    loudAndDark("a && { true\nplaywright test --config ghost.ts\n}");
+    // R13: three mutation families the R12 state-changer list missed —
+    // printf -v writes a variable; ${VAR:=default} assigns during expansion
+    // on ANY command's arguments (so ANY expansion-capable sibling line is
+    // context); (( )) arithmetic assigns and can flip config-narrowing
+    // state.
+    loudAndDark("printf -v PATH fixtures/fake\nplaywright test --config ghost.ts");
+    loudAndDark(": ${NODE_OPTIONS:=--require=./evil.cjs}\nplaywright test --config ghost.ts");
+    loudAndDark("echo ${NODE_OPTIONS:=--require=./evil.cjs}\nplaywright test --config ghost.ts");
+    loudAndDark("(( CI = 1 ))\nplaywright test --config ghost.ts");
+    loudAndDark("(( ++CI ))\nplaywright test --config ghost.ts");
     // Value-carrying predecessors (=-attached or already-consumed) do NOT
     // neutralize — the flag still classifies.
     expect(c("playwright test --project=x --config real.ts").problems).toEqual([]);

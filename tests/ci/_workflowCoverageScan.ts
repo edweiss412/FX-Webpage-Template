@@ -194,9 +194,21 @@ const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container
  * invocation on line 2. Refusal direction per the header contract: a false
  * "dark" costs a reasoned allowlist row; a false "covered" silently deletes
  * real coverage.
+ *
+ * R13 additions, mirroring the census: function NAMES are any
+ * metacharacter-free word, not \w (`foo-bar ( ) {` is a valid definition
+ * with padded parens); brace-group tokens at command position (`a && {
+ * true`) are control flow; `printf` (-v writes a variable) and `(( ))`
+ * arithmetic assignment join the state changers; and ANY `$` or backtick
+ * anywhere in the block is refused outright — `${VAR:=default}` assigns
+ * during expansion on any command's arguments, and $(…)/backticks splice
+ * state no scan can model. The brace-token alternative deliberately
+ * excludes `(`/`{` from its anchor so a GitHub `${{ … }}` expression is
+ * caught by the `$` rule, not misparsed as a shell brace group. A false
+ * real coverage.
  */
 const UNMODELLED_SHELL_RE =
-  /(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts)\b|\.[ \t]|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\))/;
+  /[$`]|(?:^|[\n;&|])[ \t]*[{}]|(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.[ \t]|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[^\s;&|(){}]+[ \t]*\([ \t]*\))/;
 
 export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
   covered: Set<string>;
@@ -205,14 +217,31 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
   const covered = new Set<string>();
   const rejected: Array<{ file: string; spec: string; reason: string }> = [];
 
+  // R13: a claim requires COMMAND POSITION. SPEC_RE and the alias grammar
+  // used to grep the whole run block, so `echo tests/e2e/foo.spec.ts` — or a
+  // spec path inside a docker/bash -lc quoted string — counted as coverage
+  // (the census refuses those same lines as outside command position; the
+  // two layers now agree). Each ;/&&/||/|/&-split segment claims only when
+  // it BEGINS with a recognized runner/invocation word.
+  // Leading env-assignment prefixes stay CLAIMABLE on purpose: the claim
+  // must survive to the qualification chain so UNMODELLED_SHELL_RE rejects
+  // it WITH a reason ("REPORTED, not silently dropped").
+  const INVOKER_SEG =
+    /^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*[ \t]+)*(?:pnpm|npx|yarn|bun|playwright)\b/;
   const resolveSpecs = (cmd: string): string[] => {
-    const direct = cmd.match(SPEC_RE) ?? [];
-    // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
-    const aliases = [...cmd.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)]
-      .map((mm) => mm[1]!)
-      .filter((name) => name in packageScripts)
-      .flatMap((name) => resolveSpecs(packageScripts[name]!));
-    return [...direct, ...aliases];
+    const out: string[] = [];
+    for (const line of cmd.split("\n")) {
+      for (const seg of line.split(/(?:&&|\|\||[;&|])/)) {
+        if (!INVOKER_SEG.test(seg)) continue;
+        out.push(...(seg.match(SPEC_RE) ?? []));
+        // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
+        for (const mm of seg.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)) {
+          const name = mm[1]!;
+          if (name in packageScripts) out.push(...resolveSpecs(packageScripts[name]!));
+        }
+      }
+    }
+    return out;
   };
 
   for (const [file, yaml] of Object.entries(workflows)) {
@@ -236,7 +265,15 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
         if (!runMatch) continue;
-        const cmd = runMatch[2]!;
+        // Full-line YAML/shell comments never execute, and the step-splitter
+        // glues BETWEEN-step comment lines onto the preceding step's chunk —
+        // prose there routinely carries backticks/$/braces that would trip
+        // the shell-construct refusal on an innocent step. Inline comments
+        // are NOT stripped (the pre-# part executes; conservative).
+        const cmd = runMatch[2]!
+          .split("\n")
+          .filter((l) => !/^[ \t]*#/.test(l))
+          .join("\n");
         const stepIf = /(^|\n)\s*if\s*:/.test(step);
         const stepCoe = hasContinueOnError(step);
         // Whole-config claim. Evaluated against the ENTIRE run block, and
