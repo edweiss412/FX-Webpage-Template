@@ -727,6 +727,13 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   const segments = splitInlineReservationGroups(raw);
   const builds = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
   const rows = builds.map((b) => b.row);
+  // Detection runs for EVERY later segment BEFORE the all-names guard below decides
+  // whether the cell collapses to a single reservation (spec §3 ordering): the
+  // fallback path needs to know whether any later outcome carried hotel evidence.
+  // Group 0 is never classified — it is the hotel every later group inherits from.
+  const laterOutcomes = segments.map((seg, i) =>
+    i === 0 ? null : classifyLaterSegment(seg, i + 1, contextYear),
+  );
   // The split cuts at "Check Out: <date>", which only attributes guests correctly
   // when they PRECEDE their checkout (the consultants shape). If a group came out
   // with no guests, the cell lists guests AFTER each checkout (the redefining
@@ -753,20 +760,41 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // spans so the shared hotel name is the actual hotel/address, then apply it to
   // every group (later groups carry only a divider + guest, not the hotel).
   //
-  // Spec §3.1 row 7 is unconditional: a later group (index > 0) NEVER emits.
-  // Its hotel is assigned by inheritance from `baseName` below, so no
-  // hotel/first-guest boundary is judged for it. Three successive attempts to
-  // carve out "unless the fragment carries its own hotel text" — group index,
-  // leading-divider run, residual-word check — were each output-derived proxies
-  // and each wrong in both directions (whole-diff R3 finding 1), re-proving the
-  // spec's own claim that no output-derived rule can work. The carve-out is
-  // refuted as relitigation of ratified row 7; a later fragment that DOES carry
-  // its own hotel is a pre-existing inheritance clobber, filed as
-  // BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL rather than papered over here.
-  const verdicts = builds.map((b, i) => i === 0 && b.judgedGuestBoundary);
+  // Parent spec §3.1 row 7 held that a later group NEVER emits, because its hotel was
+  // ALWAYS inherited and no hotel/first-guest boundary was ever judged for it. That is
+  // now conditional: §5 of
+  // docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md
+  // amends row 7 — `classifyLaterSegment` routes each later segment to one of three
+  // tiers, and a TIER-1 group carries its OWN hotel (name + postal-complete address).
+  // Such a group is standalone-parsed by `buildInlineHotel` over its hotel-free
+  // remainder, so its exit DID judge a boundary and its verdict IS evaluated.
+  // Tier-2/tier-3 groups still inherit, and for them row 7 stands unchanged: verdict
+  // false, address stashes dropped.
+  //
+  // The earlier carve-out attempts row 7 refuted — group index, leading-divider run,
+  // residual-word check — were all OUTPUT-derived proxies and each wrong in both
+  // directions (whole-diff R3 finding 1). The detector is not one of those: it reads
+  // the segment's own INPUT text through a structural partition that must account for
+  // EVERY byte (S9), and any evidence outside that partition demotes to inheritance
+  // plus a warning rather than to a silent keep. The pre-existing inheritance clobber
+  // filed as BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL is what this closes.
+  const verdicts = builds.map((b, i) => {
+    if (i === 0) return b.judgedGuestBoundary;
+    const outcome = laterOutcomes[i];
+    return outcome?.tier === 1 ? outcome.build.judgedGuestBoundary : false;
+  });
 
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
-  for (const r of rows) r.hotel_name = baseName;
+  rows.forEach((r, i) => {
+    const outcome = laterOutcomes[i];
+    if (i > 0 && outcome?.tier === 1) {
+      // The kept row already carries `hotel_name = hotelText` / `hotel_address = null`;
+      // the per-row stripHotelNameConf pass below splits it like any other row.
+      rows[i] = outcome.build.row;
+      return;
+    }
+    r.hotel_name = baseName;
+  });
   // Address ambiguity follows the same row-7 anchor: only reservation 0's
   // hotel_name is the splitter's own output — every later row holds inherited
   // text. A later-row address warning is incoherent by construction: its parsed
@@ -777,9 +805,14 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // fragments were discarded by inheritance — whole-diff R1 finding 2) and
   // ignore later rows' re-split stashes (identical to row 0's by construction,
   // since every row now holds the same baseName).
+  // A TIER-1 kept row is the second exception (spec §3 D6): its hotel_name is its OWN
+  // segment's text, not inherited, so its re-split stash IS coherent — the "undo"
+  // replacement writes back text the row's own raw fragment actually contained. Seed
+  // only from the strip pass; the kept build's own stash came from the guest-only
+  // remainder and describes no hotel text.
   const addrs = builds.map((b, i) => (i === 0 ? b.addressAmbiguity : undefined));
   const stripped = stripHotelNameConf(rows, (i, a) => {
-    if (i === 0) addrs[0] ??= a;
+    if (i === 0 || laterOutcomes[i]?.tier === 1) addrs[i] ??= a;
   });
   return toPending(stripped, verdicts, segments, addrs);
 }
