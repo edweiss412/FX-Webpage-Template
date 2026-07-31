@@ -828,6 +828,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   // makes the same error one hotel later.
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   let inheritedName = baseName;
+  let inheritedFromTierOne = false;
   rows.forEach((r, i) => {
     const outcome = laterOutcomes[i];
     if (i > 0 && outcome?.tier === 1) {
@@ -837,9 +838,26 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
       // lands identically.
       rows[i] = outcome.build.row;
       inheritedName = outcome.hotelText;
+      inheritedFromTierOne = true;
       return;
     }
-    r.hotel_name = i === 0 ? baseName : inheritedName;
+    if (i === 0) {
+      r.hotel_name = baseName;
+      return;
+    }
+    r.hotel_name = inheritedName;
+    // A row inheriting a TIER-1 predecessor takes that hotel WHOLE. Its provisional
+    // `hotel_address` came from its OWN segment and describes a DIFFERENT hotel, and
+    // `stripHotelNameConf` deliberately never clobbers a set address with null — so
+    // leaving it produces a hybrid row: the predecessor's name beside this segment's
+    // address (probe: `Hotel 71 Chicago, IL 60601` + `300 Pine St, Seattle, WA 98101
+    // Alice`). Clearing it first makes the split of the inherited text the only
+    // source, exactly as it already is for the kept row itself.
+    //
+    // Scoped to tier-1 inheritance ON PURPOSE: a row inheriting group 0's baseName
+    // keeps today's bytes, provisional address included, because spec §4 requires a
+    // cell with no tier-1 group to reproduce today's rows byte-for-byte.
+    if (inheritedFromTierOne) r.hotel_address = null;
   });
 
   // Spec §6.1/§4 stash discipline. OWN on every tier-1 kept row. SUSPECTED on every
