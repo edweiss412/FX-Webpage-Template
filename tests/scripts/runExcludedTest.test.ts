@@ -241,6 +241,22 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     ).not.toBe(0);
   });
 
+  it("no dependency shadows the executables the covering chain resolves (R6-B F1)", () => {
+    // pnpm run places node_modules/.bin ahead of the hosted toolchain on
+    // PATH, so a dependency exporting bin.node (or pnpm/npx) would be what
+    // the alias's bare `node` resolves to — green step, oracle never
+    // executed. Checked on the INSTALLED tree the suite itself runs from
+    // (same lockfile + setup action as the covering job), so any direct,
+    // git/file, workspace, or hoisted dependency that grows such a bin reds
+    // here before the covering step can be fooled.
+    for (const bin of ["node", "pnpm", "npx"]) {
+      expect(
+        existsSync(join(ROOT, "node_modules", ".bin", bin)),
+        `node_modules/.bin/${bin} exists — a dependency shadows the ${bin} executable`,
+      ).toBe(false);
+    }
+  });
+
   it("alias pin: package.json wires run-excluded to exactly this script", () => {
     // An alias rewired to a no-op would satisfy the workflow's exact-literal
     // step check while running nothing — the mapping is part of the oracle.

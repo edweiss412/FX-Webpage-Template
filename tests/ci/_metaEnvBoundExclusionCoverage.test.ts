@@ -257,22 +257,41 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       // SYNTHESIZE a colliding group at runtime without containing the name
       // literally, which no static scan can resolve, so dynamic group
       // construction is refused rather than modelled.
-      const ALLOWED_INTERP = /\$\{\{\s*github\.(workflow|ref|head_ref|event_name|run_id)\s*\}\}/g;
+      // A group is safe only if its SHAPE makes collision impossible, not
+      // merely if its interpolations look tame (R6-B F2: literal splicing
+      // around ${{ github.workflow }}, and ${{ github.head_ref }} — an
+      // ATTACKER-CONTROLLED branch name — both synthesized the exact
+      // registry group from previously-allowed pieces). Allowed shapes:
+      //   1. ${{ github.workflow }}-${{ github.ref }}[-${{ github.event_name }}]
+      //      — resolves under the OTHER workflow's unique display name;
+      //   2. LITERAL-${{ github.ref }}[-${{ github.event_name }}] where
+      //      LITERAL is spaceless [A-Za-z0-9._-]+ and is not equal to or a
+      //      prefix of this workflow's display name (case-insensitive) —
+      //      such a literal can never spell the name's spaced prefix.
+      // Anything else — head_ref, run-context splicing, matrix/vars/event
+      // data, expression functions — is refused rather than modelled.
+      const SAFE_GROUP =
+        /^(\$\{\{ github\.workflow \}\}|[A-Za-z0-9._-]+)-\$\{\{ github\.ref \}\}(-\$\{\{ github\.event_name \}\})?$/;
       const offenders = others.flatMap(({ f, doc }) => {
         const groups = [
           groupOf(doc.concurrency),
           ...Object.values(doc.jobs ?? {}).map((j) => groupOf(j.concurrency)),
         ].filter((g) => g !== "");
         return groups
-          .filter(
-            (g) =>
-              g.toLowerCase().includes(nameLc) || g.replace(ALLOWED_INTERP, "").includes("${{"),
-          )
+          .filter((g) => {
+            if (g.toLowerCase().includes(nameLc)) return true;
+            const m = SAFE_GROUP.exec(g);
+            if (m === null) return true;
+            const literal = m[1]!;
+            return literal !== "${{ github.workflow }}" && nameLc.startsWith(literal.toLowerCase());
+          })
           .map((g) => `${f}: ${g}`);
       });
       expect(
         offenders,
-        `${row.workflow}: another workflow's concurrency group either names ${JSON.stringify(name)} explicitly or builds its group from dynamic context — either can resolve into this workflow's repository-wide group and cancel the covering run`,
+        `${row.workflow}: another workflow's concurrency group is not a collision-safe shape ` +
+          `(names ${JSON.stringify(name)}, uses a non-allowlisted shape, or its literal prefixes the display name) — ` +
+          "it could resolve into this workflow's repository-wide group and cancel the covering run",
       ).toEqual([]);
     }
   });
