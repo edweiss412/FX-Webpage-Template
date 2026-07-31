@@ -20,10 +20,18 @@
 // spawned command; the override still receives `--outputFile=<tmpfile>` as
 // its final argument. REFUSED under GITHUB_ACTIONS so CI always runs real
 // vitest. Behaviorally pinned at tests/scripts/runExcludedTest.test.ts.
+//
+// GUARD BOUNDARY (R2-B F2, accepted ceiling): the child executes
+// repository code (vitest config, setup files), and code that runs inside
+// the child can fabricate the report it writes (e.g. a process exit
+// handler overwriting the JSON after vitest finishes). No in-repo oracle
+// can defend against that actor — the same commit could edit the oracle,
+// the registry, or the meta-test itself. In-repo guards catch DRIFT and
+// accident; adversarial coordinator code is code review's jurisdiction.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 function fail(msg) {
   console.error(`run-excluded-test: ${msg}`);
@@ -75,18 +83,21 @@ const failed = report?.numFailedTests;
 if (typeof passed !== "number" || typeof failed !== "number") {
   fail("report lacks numeric numPassedTests/numFailedTests — refusing to classify (fail-closed)");
 }
-// Per-file attribution (R1-B F1): vitest positionals are SUBSTRING filters
-// (cli-api filterFiles, case-insensitive), so the aggregate counts alone
-// cannot prove the NAMED file supplied the passes — a sibling matching the
-// filter (a .tsx twin, a longer path) could pass while the registered file
-// skips entirely. Require >=1 passed assertion in a testResults entry whose
-// name IS the named file (exact, or suffix at a path boundary).
+// Per-file attribution (R1-B F1, tightened R2-B F1): vitest positionals are
+// SUBSTRING filters (cli-api filterFiles, case-insensitive), so the
+// aggregate counts alone cannot prove the NAMED file supplied the passes —
+// a JSX-extension twin, a case variant, or a NESTED path containing the
+// name (tests/shadow/tests/x.test.ts, which defeats suffix matching too)
+// could pass while the registered file skips entirely. Require >=1 passed
+// assertion in a testResults entry whose name resolves to EXACTLY the named
+// file against this cwd — identity, not suffix.
 const results = Array.isArray(report?.testResults) ? report.testResults : null;
 if (results === null) {
   fail("report lacks a testResults array — cannot attribute passes to the named file");
 }
+const namedAbs = resolve(process.cwd(), file);
 const namedEntry = results.filter(
-  (r) => typeof r?.name === "string" && (r.name === file || r.name.endsWith(`/${file}`)),
+  (r) => typeof r?.name === "string" && resolve(r.name) === namedAbs,
 );
 const namedPassed = namedEntry
   .flatMap((r) => (Array.isArray(r.assertionResults) ? r.assertionResults : []))

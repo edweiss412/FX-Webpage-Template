@@ -24,7 +24,7 @@
  * there — documented CI shape; the oracle still requires >=1 passed and the
  * remaining suites execute (19 passed locally, child exit 0).
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -88,14 +88,22 @@ function coverageRowProblems(
   if (wf.defaults !== undefined) problems.push("workflow-level defaults:");
   if (wf.env !== undefined) problems.push("workflow-level env:");
   // concurrency: a shared group could queue/cancel the job on ordinary PRs
-  // (R1-B F5). A ref-scoped group only supersedes runs of the SAME ref,
-  // whose newest run re-proves execution — so the group must interpolate
-  // github.ref; anything else is refused rather than modelled.
+  // (R1-B F5). Groups are REPOSITORY-wide (R2-B F4): ref alone still
+  // collides across workflows (`unit-suite-${{ github.ref }}` cancels
+  // unit-suite), so the group must interpolate BOTH github.workflow and
+  // github.ref — same-workflow, same-ref supersession only, where the
+  // newest run re-proves execution. The workflow display name's uniqueness
+  // is asserted separately against the real workflow corpus (a duplicate
+  // name: makes github.workflow collide too).
   if (wf.concurrency !== undefined) {
     const group = typeof wf.concurrency === "object" ? wf.concurrency?.group : wf.concurrency;
-    if (typeof group !== "string" || !group.includes("${{ github.ref }}")) {
+    if (
+      typeof group !== "string" ||
+      !group.includes("${{ github.ref }}") ||
+      !group.includes("${{ github.workflow }}")
+    ) {
       problems.push(
-        `workflow-level concurrency group must interpolate \${{ github.ref }} — found ${JSON.stringify(group)}`,
+        `workflow-level concurrency group must interpolate BOTH \${{ github.workflow }} and \${{ github.ref }} — found ${JSON.stringify(group)}`,
       );
     }
   }
@@ -130,10 +138,15 @@ function coverageRowProblems(
     }
   }
   // A self-hosted or drifted runner label is the same executable-control
-  // vector as container: — require a GitHub-hosted ubuntu label.
+  // vector as container: — and a NONEXISTENT label (`ubuntu-99.99`) simply
+  // never receives a runner (R2-B F5), so the accepted set is the finite
+  // GitHub-hosted ubuntu x64 roster, not a version-shaped pattern.
+  const HOSTED_UBUNTU = new Set(["ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04"]);
   const runsOn = (job as Record<string, unknown>)["runs-on"];
-  if (typeof runsOn !== "string" || !/^ubuntu-(latest|\d+\.\d+|\d+)$/.test(runsOn)) {
-    problems.push(`runs-on must be a GitHub-hosted ubuntu label — found ${JSON.stringify(runsOn)}`);
+  if (typeof runsOn !== "string" || !HOSTED_UBUNTU.has(runsOn)) {
+    problems.push(
+      `runs-on must be one of ${[...HOSTED_UBUNTU].join("/")} — found ${JSON.stringify(runsOn)}`,
+    );
   }
 
   // The covering step: run EXACTLY the literal, and the STEP itself
@@ -196,6 +209,25 @@ describe("env-bound exclusion coverage (spec §6)", () => {
         coverageRowProblems(row, file, raw),
         `${row.workflow}#${row.job} failed verification for ${file}`,
       ).toEqual([]);
+      // github.workflow interpolates the DISPLAY name, and concurrency groups
+      // are repository-wide (R2-B F4) — a second workflow reusing this name:
+      // would collide the group the verifier just accepted.
+      const name = (parse(raw) as { name?: unknown }).name;
+      const dupes = readdirSync(join(ROOT, ".github", "workflows"))
+        .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+        .filter((f) => `.github/workflows/${f}` !== row.workflow)
+        .filter(
+          (f) =>
+            (
+              parse(readFileSync(join(ROOT, ".github", "workflows", f), "utf8")) as {
+                name?: unknown;
+              }
+            ).name === name,
+        );
+      expect(
+        dupes,
+        `${row.workflow}: display name ${JSON.stringify(name)} reused by other workflows — github.workflow-scoped concurrency would collide`,
+      ).toEqual([]);
     }
   });
 
@@ -219,6 +251,11 @@ describe("env-bound exclusion coverage (spec §6)", () => {
       ["workflow env (BASH_ENV/PATH poison — F2)", base("", "", "env:\n  BASH_ENV: ./x.sh\n")],
       ["workflow defaults", base("", "", "defaults:\n  run:\n    shell: bash -c ':' {0}\n")],
       ["shared concurrency group (F5)", base("", "", "concurrency:\n  group: shared\n")],
+      [
+        "ref-only concurrency group (R2-B F4: repo-wide collision, e.g. unit-suite-${{ github.ref }})",
+        base("", "", "concurrency:\n  group: g-${{ github.ref }}\n"),
+      ],
+      ["nonexistent hosted label (R2-B F5)", base("", "").replace("ubuntu-latest", "ubuntu-99.99")],
       ["job env (F2)", base("    env:\n      PATH: ./fake\n", "")],
       ["job container (F3)", base("    container: node:20\n", "")],
       ["job concurrency (F5)", base("    concurrency:\n      group: g\n", "")],

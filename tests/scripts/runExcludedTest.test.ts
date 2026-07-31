@@ -20,7 +20,7 @@
  * R2 F4 / R3 F5).
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -69,13 +69,14 @@ function stub(opts: { report?: unknown; rawBytes?: string; exitCode: number }): 
 }
 
 // Reports carry per-file attribution (R1-B F1): vitest positionals are
-// SUBSTRING filters (cli-api filterFiles), so aggregate counts alone cannot
-// prove the NAMED file supplied the passing tests — a sibling matching the
-// filter (email-canonicalization.test.tsx, a longer path) could pass while
-// the registered file skips. The oracle requires >=1 passed assertion in a
-// testResults entry whose name ends with the named file.
+// SUBSTRING filters (cli-api filterFiles, case-insensitive), so aggregate
+// counts alone cannot prove the NAMED file supplied the passing tests — a
+// sibling matching the filter (a JSX-flavored extension twin, a case-only
+// variant, a longer containing pathname) could pass while the registered
+// file skips. The oracle requires >=1 passed assertion in a testResults
+// entry whose name IS the named file (exact, or suffix at a / boundary).
 const forFile = (file: string, passed: number, failed = 0) => ({
-  name: `/abs/checkout/${file}`,
+  name: join(ROOT, file),
   assertionResults: [
     ...Array.from({ length: passed }, () => ({ status: "passed" })),
     ...Array.from({ length: failed }, () => ({ status: "failed" })),
@@ -139,11 +140,13 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
   });
 
   it("rejects aggregate passes attributed to a DIFFERENT file than the named one (R1-B F1)", () => {
+    // A case-only variant matches vitest's case-insensitive substring filter
+    // while being a different file; attribution is case-sensitive and rejects.
     const r = {
       numPassedTests: 3,
       numFailedTests: 0,
       numPendingTests: 0,
-      testResults: [forFile("tests/whatever.test.tsx", 3)],
+      testResults: [forFile("TESTS/whatever.test.ts", 3)],
     };
     expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
   });
@@ -151,6 +154,44 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
   it("rejects a report with NO testResults attribution at all", () => {
     const r = { numPassedTests: 3, numFailedTests: 0, numPendingTests: 0 };
     expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
+  });
+
+  it("rejects a NESTED-suffix impostor path (R2-B F1: suffix matching is not identity)", () => {
+    // /repo/tests/shadow/tests/whatever.test.ts ends with /tests/whatever.test.ts
+    // yet is a different file vitest's substring filter can collect — only
+    // normalized absolute-path equality against cwd + the named file counts.
+    const r = {
+      numPassedTests: 3,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      testResults: [
+        { name: `${ROOT}/tests/shadow/${NAMED}`, assertionResults: [{ status: "passed" }] },
+      ],
+    };
+    expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
+  });
+
+  it("guards the alias against pnpm-level redirection (R2-B F3)", () => {
+    // `pnpm run-excluded` executes MORE than scripts["run-excluded"]: pnpm runs
+    // pre/post lifecycle scripts by default, and project-level scriptShell /
+    // nodeOptions settings replace the shell or preload code. Each route could
+    // consume the workflow's exact literal without running the oracle.
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+      pnpm?: Record<string, unknown>;
+    };
+    expect(pkg.scripts["prerun-excluded"], "prerun-excluded lifecycle script").toBeUndefined();
+    expect(pkg.scripts["postrun-excluded"], "postrun-excluded lifecycle script").toBeUndefined();
+    for (const key of ["scriptShell", "nodeOptions", "executionEnv"]) {
+      expect(pkg.pnpm?.[key], `package.json pnpm.${key}`).toBeUndefined();
+    }
+    const npmrcPath = join(ROOT, ".npmrc");
+    if (existsSync(npmrcPath)) {
+      const npmrc = readFileSync(npmrcPath, "utf8");
+      for (const key of ["script-shell", "node-options"]) {
+        expect(new RegExp(`^\\s*${key}\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(false);
+      }
+    }
   });
 
   it("REFUSES the override seam under GITHUB_ACTIONS (CI always runs real vitest)", () => {
