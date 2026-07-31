@@ -132,18 +132,21 @@ const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // Both bold conventions carry the colon differently — `**Status:** X` and
 // `**Status**: X` are the same field label (r16), so the colon is accepted on
 // either side of the closing emphasis.
+// r29: the label wrapper accepts italics too — `*Status:* CLOSED` /
+// `_Status_: CLOSED` are ordinary honest spellings (the trailing emphasis
+// mark on the `*Status:*` form rides the WRAP class).
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:\\*\\*|[*_])?Status(?:\\*\\*|[*_])?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:\\*\\*|[*_])?Filed(?:\\*\\*|[*_])?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 // The field-line FILTERS share the container fragment (r22) — a matcher that
 // sees through a bullet is dead code if the filter never hands it the line.
-const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Status`, "i");
-const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Filed`, "i");
+const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*|[*_])?Status`, "i");
+const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*|[*_])?Filed`, "i");
 // r26: a line that is ONLY container markers (`>`, an empty `- ` item, an
 // empty task box) is not content — selecting it as the opening line let
 // `>\n> **CLOSED** …` hide its claim behind the bare marker, since the
@@ -177,9 +180,34 @@ const firstContentLine = (lines: string[]): string =>
 const normalizeSection = (text: string): string =>
   text
     .split("\n")
-    .map((line) => line.replace(/<!--.*?-->/g, ""))
+    // r29: inline code renders literally — a Filed line quoting
+    // `` `**CLOSED**` `` as an example is not a claim; spans are bounded to
+    // one line, so deletion cannot swallow anything.
+    .map((line) => line.replace(/<!--.*?-->/g, "").replace(/`[^`\n]*`/g, ""))
     .join("\n")
     .replace(/(?<![A-Za-z0-9_])__(?!_)([^_\n]+?)(?<!_)__(?![A-Za-z0-9_])/g, "**$1**");
+
+// r29: fenced code blocks render as examples, not claims — a fenced
+// `**Status:** CLOSED` or `## BL-EXAMPLE — CLOSED` must not create a
+// phantom entry or a terminal hit. Fenced lines (and the fence markers)
+// are blanked BEFORE heading discovery, preserving line structure. The
+// whole-file pass matters: discovery scans the raw text, so a fenced
+// heading would otherwise split a real section. Indented (4-space) code
+// blocks are NOT blanked — list-container claims legitimately indent, and
+// this repo's ledgers use fences for examples; that trade is deliberate.
+const blankFences = (text: string): string => {
+  let inFence = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(?:```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return "";
+      }
+      return inFence ? "" : line;
+    })
+    .join("\n");
+};
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
@@ -204,7 +232,19 @@ const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${CONTAINER}${WRAP}(${TERMINAL_WO
  * all, false when the claim stands (a hit), true when it is modified into
  * an open state.
  */
-const PARTIAL_BEFORE = /(?:PARTIAL(?:LY)?|\bNOT|\bNEVER)[\s*_`:—–-]*$/i;
+// r29: multiword negations and historical qualifiers are open claims too —
+// `Not fully CLOSED`, `Never completely SHIPPED`, `No longer CLOSED`,
+// `Previously CLOSED (regression reopened)`. One optional intervening word
+// is allowed after the modifier — but never a TERMINAL word, else the veto
+// on `PARTIALLY CLOSED — RESOLVED` would bridge across the first claim and
+// swallow the second (the r17 sequenced-heading plant). Two or more words
+// break the direct modification and the claim stands, so `was not the
+// blocker, CLOSED` still hits.
+const PARTIAL_BEFORE = new RegExp(
+  `(?:PARTIAL(?:LY)?|\\bNOT|\\bNEVER|\\bNO\\s+LONGER|\\bPREVIOUSLY|\\bFORMERLY)` +
+    `(?:\\s+(?!(?:${TERMINAL_WORDS})\\b)[A-Za-z]+)?[\\s*_\`:—–-]*$`,
+  "i",
+);
 
 function partialModified(line: string, matcher: RegExp): boolean | null {
   const m = matcher.exec(line);
@@ -489,8 +529,10 @@ describe("backlog ledger graduation", () => {
     // discuss closure ("closes only as part of BL-…", "partially closed",
     // "SUPERSEDED 2026-07-25 by …", a quoted historical status), so a
     // section-wide substring match fires on entries that are genuinely open.
-    // The status line is the entry's own claim about itself.
-    const backlog = read("BACKLOG.md");
+    // The status line is the entry's own claim about itself. r29: fences
+    // blanked before discovery — a fenced example heading or Status line is
+    // not a claim and must not split or flag a real entry.
+    const backlog = blankFences(read("BACKLOG.md"));
     // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
     // "Resolved / shipped / superseded" as the archive-bound states (r5;
     // mainline #628 added SHIPPED independently the same day — BL-AGENDA-
@@ -544,8 +586,10 @@ describe("backlog ledger graduation", () => {
     // 2026-07-27 reconciliation: two shipped entries sat in the open queue with
     // the terminal state in their HEADING ("— CLOSED 2026-07-26 …",
     // "— ✅ RESOLVED (…)"), which the status-line check above cannot see. Same
-    // drift, different spelling, so the guard grows a heading pass.
-    const backlog = read("BACKLOG.md");
+    // drift, different spelling, so the guard grows a heading pass. r29:
+    // fences blanked here too — same phantom-heading hazard as the status
+    // test's discovery.
+    const backlog = blankFences(read("BACKLOG.md"));
     const offenders: string[] = [];
     // Priority-prefixed headings (`### [P1] BL-X — …`) are entries too (r15 —
     // the status test's discovery gained the bracket group at r6; this walk
@@ -681,11 +725,39 @@ describe("backlog ledger graduation", () => {
         normalizeSection("**Filed:** 2026. Token foo__CLOSED__bar is still open."),
       ),
     ).toBe(false);
-    // …and comment deletion is same-line only, so a literal `<!--` in a
-    // code span cannot swallow the rest of the section (the cross-line
-    // shapes are ratified out of scope — see normalizeSection's header):
-    expect(normalizeSection("see `<!--` in the fence docs\n**Status:** OPEN")).toBe(
-      "see `<!--` in the fence docs\n**Status:** OPEN",
+    // …and comment deletion is same-line only, so an unterminated literal
+    // `<!--` cannot swallow the rest of the section (the cross-line shapes
+    // are ratified out of scope — see normalizeSection's header; note the
+    // inline-code strip removes the bounded span itself):
+    expect(normalizeSection("marker <!-- doc\n**Status:** OPEN")).toBe(
+      "marker <!-- doc\n**Status:** OPEN",
+    );
+    // r29 — italic label wrappers are ordinary honest spellings, in the
+    // matchers AND the field-line filters:
+    expect(terminalHit("*Status:* CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("*Status*: CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("_Status:_ RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("_Status_: RESOLVED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("*Filed:* CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    expect(terminalHit("_Filed_: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    expect(STATUS_FIELD_LINE.test("*Status:* CLOSED")).toBe(true);
+    expect(FILED_FIELD_LINE.test("_Filed_: 2026-07-01")).toBe(true);
+    // r29 — multiword negations and historical qualifiers are open claims;
+    // a plain sequenced closure still hits:
+    expect(boldFieldTerminalHit("**Not fully CLOSED:** two items remain.")).toBe(false);
+    expect(boldFieldTerminalHit("**Not yet RESOLVED:** waiting on #700.")).toBe(false);
+    expect(boldFieldTerminalHit("**Never completely SHIPPED:** flag still off.")).toBe(false);
+    expect(boldFieldTerminalHit("**No longer CLOSED:** regression reopened it.")).toBe(false);
+    expect(boldFieldTerminalHit("**Previously CLOSED:** reopened 2026-07-30.")).toBe(false);
+    expect(boldFieldTerminalHit("**Reviewed, then CLOSED:** done.")).toBe(true);
+    expect(boldFieldTerminalHit("**was not the blocker, CLOSED:** shipped.")).toBe(true);
+    // r29 — fenced examples are not claims (fence markers and interiors
+    // blank, line structure preserved), and inline code renders literally:
+    expect(blankFences("```md\n**Status:** CLOSED\n## BL-EXAMPLE — CLOSED\n```\nreal text")).toBe(
+      "\n\n\n\nreal text",
+    );
+    expect(boldFieldTerminalHit(normalizeSection("**Filed:** see `**CLOSED**` for the shape."))).toBe(
+      false,
     );
   });
 

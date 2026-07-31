@@ -535,6 +535,17 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
         );
       }
     }
+    // r29: the identifier can be spelled as a STRING LITERAL in a binding
+    // position — `import { "SheetIconLink" as X }` / `export { X as
+    // "SheetIconLink" }` produce no Identifier node for the name. Denied in
+    // import/export-specifier positions specifically; a test quoting the
+    // name in assertion prose is not a binding and stays clean.
+    if (ts.isStringLiteralLike(node) && node.text === NAME) {
+      const p = node.parent;
+      if (p !== undefined && (ts.isImportSpecifier(p) || ts.isExportSpecifier(p))) {
+        out.push(`string-literal ${NAME} import/export binding: ${snip(p)}`);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
@@ -1215,6 +1226,16 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('define("app", ["@/tests/helpers/x"], (h) => h);', "lib/consumer.ts"),
     ).toHaveLength(1);
+    // r29 — string-literal binding spellings produce no Identifier node:
+    expect(
+      classNameViolations('import { "SheetIconLink" as X } from "@/lib/sheet-icon";').length,
+    ).toBeGreaterThan(0);
+    expect(
+      classNameViolations('export { X as "SheetIconLink" } from "./somewhere";').length,
+    ).toBeGreaterThan(0);
+    expect(classNameViolations('expect(name).toBe("SheetIconLink");', "tests/x.test.ts")).toEqual(
+      [],
+    );
     // r24 — resolution APIs are specifier-bearing: the one-hop
     // require(require.resolve(lit)) composition, the bare resolve call, the
     // webpack resolveWeak twin, the ESM import.meta.resolve twin, and the
@@ -1482,6 +1503,22 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       encoding: "utf8",
     }).trim();
     expect(appMd, "no tracked .md under app/ (page-candidate tripwire)").toBe("");
+    // r29: a tracked SYMLINK is a filesystem-level alias — an extensionless
+    // link `lib/sheet-icon → components/admin/SheetIconLink.tsx` resolves
+    // for every bundler while the walk never reads it, the specifier never
+    // ends with the component name, and no lane parses link targets. The
+    // tracked symlink set is pinned by exact equality (both current entries
+    // are documentation/fixture .md files); a new symlink teaches this
+    // guard first.
+    const symlinks = execFileSync("git", ["ls-files", "-s"], { cwd: root, encoding: "utf8" })
+      .split("\n")
+      .filter((l) => l.startsWith("120000 "))
+      .map((l) => l.split("\t")[1]!)
+      .sort();
+    expect(symlinks, "tracked symlinks pinned by exact set").toEqual([
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md",
+      "tests/specLint/fixtures/cited/symlink.md",
+    ]);
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and
     // prose-comment mentions are not.
