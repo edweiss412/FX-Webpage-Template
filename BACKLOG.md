@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
+Last reconciled: 2026-07-31 — `BL-CI-VITEST-EXCLUSION-COVERAGE` graduated on `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out: ENV_BOUND_COVERAGE_REGISTRY + run-excluded execution oracle; test-auth-gate returned to unit-suite). Prior: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
 
 ---
 
@@ -84,7 +84,7 @@ descoped after four cross-model review rounds (37 accepted findings, none disput
 iterating. One of the four, `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`, shipped 2026-07-27 on
 `feat/ci-dark-descoped-guards` (with the separately-filed ceiling item
 `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`) and graduated to
-[BACKLOG-archive.md](./BACKLOG-archive.md); the three below remain open.
+[BACKLOG-archive.md](./BACKLOG-archive.md), followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry); the two below remain open.
 
 **Do not re-derive this analysis.** Each entry records what was tried and the measurement that
 killed it. The reason each is open is that the obvious approach was implemented and shown not to
@@ -143,33 +143,6 @@ boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgr
 alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
 `step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
 modules at module scope.
-
-### BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
-
-`ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
-`VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
-file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
-while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
-mechanism this entry is about remains).
-
-Three formulations failed:
-
-1. **Matching a filename in a `run:` block** counts `echo <file>`, shell comments, and dead
-   branches as coverage.
-2. **Applying capability checks to a resolved alias body** cannot distinguish a runner argument
-   from arbitrary shell: `false && vitest run <f>`, `true || vitest run <f>`, `if false; then …`.
-3. **Resolved-config inclusion** is decidable, but must be resolved under the _same env CI sets_
-   (measured: env unset → 8 tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → `No test files found, exit
-1`), and pairing it with a `--project` run check reintroduces the shell problem for the run half.
-
-Current state of the other two entries, both invisible to any check built so far:
-`tests/admin/test-auth-gate.test.ts` runs **nowhere**, and
-`tests/cross-cutting/email-canonicalization.test.ts` runs only in an `x-audits.yml` job carrying a
-job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
-`tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
-dark-exclusion incident.
 
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 

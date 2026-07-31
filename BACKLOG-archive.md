@@ -1192,3 +1192,57 @@ supersession note.
 **Original entry (filed 2026-07-25, destruct-thumb-order impeccable audit P1 · Severity MEDIUM · Class DESIGN TOKEN WIRING, repo-wide):**
 
 Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.
+
+---
+
+## BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere — ✅ RESOLVED (2026-07-31, ci-dark descoped close-out PR-B)
+
+**Resolved by:** `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out, spec `docs/superpowers/specs/ci/2026-07-26-ci-dark-descoped-closeout-design.md` §6).
+**Status:** ✅ RESOLVED · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+**Resolution.** The three failed formulations below all PREDICTED execution by reading shell; the
+shipped guard uses the runner as the oracle instead. `ENV_BOUND_COVERAGE_REGISTRY`
+(`vitest.projects.ts`) maps every `ENV_BOUND_EXCLUDES` entry to a PR-blocking workflow job whose
+step is VERBATIM `pnpm run-excluded <file>` (string equality on the parsed YAML, the
+WHOLE_CONFIG_RE exact-literal posture — `false && pnpm run-excluded <f>` is simply not the
+literal), with the workflow/job/step qualified against the coverage scanner's
+execution-override classes plus `environment:`. The alias runs
+`scripts/run-excluded-test.mjs`: vitest on the file with a JSON report to a temp path, exit 0
+IFF child exit 0 AND >=1 passed AND 0 failed — collection is not execution, and a run-level
+failure with green cases is still a failure. Behaviorally pinned at
+`tests/scripts/runExcludedTest.test.ts` (9 cases incl. the CI-refused override seam and the
+alias-mapping pin); registry totality + workflow qualification at
+`tests/ci/_metaEnvBoundExclusionCoverage.test.ts` (dark rows are RED, never a pass).
+`tests/admin/test-auth-gate.test.ts` left the exclusion array and runs in unit-suite again
+(24 passed / 3 skipped under `VITEST_EXCLUDE_ENV_BOUND=1`, 5x stability-looped);
+`tests/cross-cutting/email-canonicalization.test.ts` is proven by the x5 job's run-excluded
+step (its three `livePsqlReachable` suites skip there — documented honest ceiling, spec §6.1).
+
+> **Historical (pre-resolution) text below, preserved verbatim.** The "nothing watches whether
+> an excluded file runs anywhere else" gap it describes is exactly what the shipped registry
+> closes; the **Trigger** at the end no longer applies.
+
+**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
+
+`ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
+`VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
+file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
+while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
+mechanism this entry is about remains).
+
+Three formulations failed:
+
+1. **Matching a filename in a `run:` block** counts `echo <file>`, shell comments, and dead
+   branches as coverage.
+2. **Applying capability checks to a resolved alias body** cannot distinguish a runner argument
+   from arbitrary shell: `false && vitest run <f>`, `true || vitest run <f>`, `if false; then …`.
+3. **Resolved-config inclusion** is decidable, but must be resolved under the _same env CI sets_
+   (measured: env unset → 8 tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → `No test files found, exit
+1`), and pairing it with a `--project` run check reintroduces the shell problem for the run half.
+
+Current state of the other two entries, both invisible to any check built so far:
+`tests/admin/test-auth-gate.test.ts` runs **nowhere**, and
+`tests/cross-cutting/email-canonicalization.test.ts` runs only in an `x-audits.yml` job carrying a
+job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
+`tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
+dark-exclusion incident.
