@@ -151,21 +151,35 @@ const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Filed`, "i");
 const CONTAINER_ONLY = new RegExp(`^\\s*${CONTAINER}\\s*$`);
 const firstContentLine = (lines: string[]): string =>
   lines.find((l) => l.trim() !== "" && !CONTAINER_ONLY.test(l)) ?? "";
-// r27 — CLASS closure for "a markdown spelling the regex lanes cannot see":
-// instead of teaching every lane every equivalent surface syntax, the
-// section text is NORMALIZED before any lane runs. Two rewrites:
-// `__` becomes `**` (markdown's bold twin — `__Status:__ CLOSED` renders
-// identically to the `**` form every lane recognizes), and HTML comments
-// (`<!-- … -->`, including multiline and unterminated) are deleted, since
-// commented text renders as nothing: a comment-only line must not swallow
-// the opening-line selection, and a claim inside a comment is not the
-// entry's rendered claim about itself. Single `_…_` italics already ride
-// the WRAP class unchanged.
+// r27/r28 — normalization folds RENDER-FAITHFUL twins into the lanes the
+// matchers know, and nothing more. Two folds: a boundary-anchored `__…__`
+// strong-emphasis pair becomes `**…**` (`__Status:__ CLOSED` renders
+// identically; an INTRAWORD run like `foo__CLOSED__bar` does not render
+// bold and is NOT folded — r28), and a COMPLETE same-line HTML comment is
+// deleted (a `<!-- bookkeeping -->` line renders as nothing and must not
+// swallow the opening-line selection). Deliberately absent (r28): no
+// multiline/unterminated comment handling — a cross-line deletion can
+// swallow legitimate claims when a literal `<!--` sits in a code span or
+// fence, which is worse than the shape it closes.
+//
+// RATIFIED SCOPE (r28): this guard is a drift TRIPWIRE over first-party
+// ledger prose, not a markdown renderer. Its threat model is the honest
+// in-place closure — every drift instance it has ever caught (r3, r15-r17,
+// the 2026-07-27 reconciliation pair) was a plain spelling. Render-
+// equivalent OBFUSCATION — HTML wrappers (`<strong>`), character
+// references (`C&#76;OSED`), link text, table cells, escaped delimiters,
+// code-context comment literals, commented-out headings, lazy
+// continuations — is out of scope by ratification, exactly as runtime
+// indirection is out of a static containment guard's scope: closing it
+// requires a full markdown AST, and a ledger author reaching for those
+// shapes is not drifting, they are hiding — a different failure class that
+// review owns, not this tripwire.
 const normalizeSection = (text: string): string =>
   text
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!--[\s\S]*$/, "")
-    .replace(/__/g, "**");
+    .split("\n")
+    .map((line) => line.replace(/<!--.*?-->/g, ""))
+    .join("\n")
+    .replace(/(?<![A-Za-z0-9_])__(?!_)([^_\n]+?)(?<!_)__(?![A-Za-z0-9_])/g, "**$1**");
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
@@ -658,10 +672,21 @@ describe("backlog ledger graduation", () => {
     expect(
       firstContentLine(normalizeSection("<!-- bookkeeping -->\n**CLOSED** by PR #1.").split("\n")),
     ).toBe("**CLOSED** by PR #1.");
-    expect(
-      firstContentLine(normalizeSection("<!--\nnote\n-->\n> **CLOSED** by PR #1.").split("\n")),
-    ).toBe("> **CLOSED** by PR #1.");
     expect(normalizeSection("open <!-- Status: CLOSED --> entry")).toBe("open  entry");
+    // r28 — the folds are render-faithful and nothing more: an intraword
+    // `__` run does not render bold and is not folded (no synthetic
+    // terminal segment)…
+    expect(
+      boldFieldTerminalHit(
+        normalizeSection("**Filed:** 2026. Token foo__CLOSED__bar is still open."),
+      ),
+    ).toBe(false);
+    // …and comment deletion is same-line only, so a literal `<!--` in a
+    // code span cannot swallow the rest of the section (the cross-line
+    // shapes are ratified out of scope — see normalizeSection's header):
+    expect(normalizeSection("see `<!--` in the fence docs\n**Status:** OPEN")).toBe(
+      "see `<!--` in the fence docs\n**Status:** OPEN",
+    );
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
