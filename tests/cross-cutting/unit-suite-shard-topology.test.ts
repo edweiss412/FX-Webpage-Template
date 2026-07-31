@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
@@ -114,6 +115,30 @@ describe("unit-suite matrix topology", () => {
     expect(runLine, `${key}'s vitest run line must be exactly the undecorated invocation`).toBe(
       "pnpm exec vitest run --project=" + project + " --shard=${{ matrix.shard }}/" + legs,
     );
+    // …and a verbatim run: still executes NOTHING under a step if:, a
+    // step shell: override, or a job/workflow defaults.run.shell no-op
+    // (R12-B — the same three shell scopes the coverage scanner refuses).
+    // Parsed-YAML qualification, allowlist form: the vitest step carries
+    // ONLY name/run and the exclusion-gate env, and no defaults: exists at
+    // any scope.
+    const doc = parseYaml(YAML) as {
+      defaults?: unknown;
+      jobs?: Record<string, { defaults?: unknown; steps?: Array<Record<string, unknown>> }>;
+    };
+    expect(doc.defaults, "workflow-level defaults:").toBeUndefined();
+    const job = doc.jobs?.[String(key)];
+    expect(job?.defaults, `${key} job-level defaults:`).toBeUndefined();
+    const vitestSteps = (job?.steps ?? []).filter(
+      (s) => typeof s.run === "string" && (s.run as string).includes("vitest run"),
+    );
+    expect(vitestSteps.length, `${key}: exactly one vitest step`).toBe(1);
+    expect(
+      Object.keys(vitestSteps[0]!).sort(),
+      `${key}'s vitest step must carry ONLY env/name/run — if:/shell:/working-directory:/continue-on-error: all suppress or re-point the verbatim command`,
+    ).toEqual(["env", "name", "run"]);
+    expect(vitestSteps[0]!.env, `${key}'s step env must be exactly the exclusion gate`).toEqual({
+      VITEST_EXCLUDE_ENV_BOUND: "1",
+    });
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently
