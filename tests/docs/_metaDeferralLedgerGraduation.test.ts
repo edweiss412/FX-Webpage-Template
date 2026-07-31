@@ -137,8 +137,11 @@ const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // mark on the `*Status:*` form rides the WRAP class). r30: up to three
 // emphasis marks per side — `***Status:***`, `___Filed:___`, and mixed
 // nestings like `**_Status_**` are the same label.
+// r32: `Resolution` is the house style's second status-valued field label —
+// `**Resolution:** Shipped …` closes three archive entries verbatim, so an
+// active entry closed that way must trip the same lane.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:[*_]{1,3})?Status(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
@@ -147,7 +150,7 @@ const FILED_TERMINAL = new RegExp(
 );
 // The field-line FILTERS share the container fragment (r22) — a matcher that
 // sees through a bullet is dead code if the filter never hands it the line.
-const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?Status`, "i");
+const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?(?:Status|Resolution)`, "i");
 const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?Filed`, "i");
 // r26: a line that is ONLY container markers (`>`, an empty `- ` item, an
 // empty task box) is not content — selecting it as the opening line let
@@ -766,6 +769,16 @@ describe("backlog ledger graduation", () => {
     // after the hashes) reaches every heading scan:
     expect(shoutyIds("   ### BL-INDENTED-ID — text", "BL-").has("BL-INDENTED-ID")).toBe(true);
     expect(shoutyIds("##\tBL-TABBED-ID — text", "BL-").has("BL-TABBED-ID")).toBe(true);
+    // r32 — `Resolution` is the house style's second status-valued label
+    // (three archive entries close with `**Resolution:** Shipped …`); the
+    // lane accepts it with every widening Status has, and a non-terminal
+    // value stays silent:
+    expect(
+      terminalHit("**Resolution:** Shipped per the recommended fix below.", STATUS_TERMINAL),
+    ).toBe(true);
+    expect(terminalHit("- [x] __Resolution:__ SHIPPED in PR #500", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("**Resolution:** pending owner call", STATUS_TERMINAL)).toBe(false);
+    expect(STATUS_FIELD_LINE.test("**Resolution:** Shipped")).toBe(true);
     // r30 — the heading checkmark lane is anchored to a terminal word; a
     // decorative checkmark in an open entry's title is not a claim:
     expect(terminalHit("## BL-X — ✅ RESOLVED (PR #612)", CHECKED_TERMINAL)).toBe(true);
