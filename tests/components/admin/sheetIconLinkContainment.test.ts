@@ -1519,6 +1519,58 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md",
       "tests/specLint/fixtures/cited/symlink.md",
     ]);
+    // r30: a tracked REGULAR file with no extension (or an unmodeled one)
+    // is a walk escape — `lib/sheet-icon` holding
+    // `module.exports = require("../components/admin/SheetIconLink").…`
+    // resolves as an exact-path import while no lane ever reads it, and its
+    // consumer mentions neither the name nor the module path. Every tracked
+    // file must carry a MODELED extension: a walked source extension, or a
+    // non-executable type no pinned-config bundler resolves as code without
+    // a rules/loader config (denied above). Extensionless files are pinned
+    // to the exact dotfile set below. A new extension or dotfile teaches
+    // this guard first.
+    const MODELED_EXTS = new Set([
+      ...SOURCE_EXTS,
+      ".md",
+      ".json",
+      ".sql",
+      ".png",
+      ".webp",
+      ".svg",
+      ".ico",
+      ".pdf",
+      ".xlsx",
+      ".css",
+      ".html",
+      ".yml",
+      ".yaml",
+      ".toml",
+      ".txt",
+      ".sh",
+      ".fixture",
+      ".snap",
+      ".example",
+    ]);
+    const DOTFILE_BASENAMES = new Set([
+      ".gitattributes",
+      ".gitignore",
+      ".nojekyll",
+      ".prettierignore",
+      ".prettierrc",
+      ".vercelignore",
+    ]);
+    const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .trim()
+      .split("\n");
+    const unmodeled = tracked.filter((f) => {
+      const base = f.slice(f.lastIndexOf("/") + 1);
+      if (DOTFILE_BASENAMES.has(base)) return false;
+      const stem = base.startsWith(".") ? base.slice(1) : base;
+      const dot = stem.lastIndexOf(".");
+      if (dot <= 0) return true;
+      return !MODELED_EXTS.has(stem.slice(dot).toLowerCase());
+    });
+    expect(unmodeled, "every tracked file carries a modeled extension").toEqual([]);
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and
     // prose-comment mentions are not.

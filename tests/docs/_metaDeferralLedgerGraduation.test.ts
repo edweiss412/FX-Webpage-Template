@@ -134,19 +134,21 @@ const CONTAINER = "(?:>\\s*|(?:[-*+]|\\d{1,9}[.)])\\s+(?:\\[[ xX]\\]\\s+)?)*";
 // either side of the closing emphasis.
 // r29: the label wrapper accepts italics too — `*Status:* CLOSED` /
 // `_Status_: CLOSED` are ordinary honest spellings (the trailing emphasis
-// mark on the `*Status:*` form rides the WRAP class).
+// mark on the `*Status:*` form rides the WRAP class). r30: up to three
+// emphasis marks per side — `***Status:***`, `___Filed:___`, and mixed
+// nestings like `**_Status_**` are the same label.
 const STATUS_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:\\*\\*|[*_])?Status(?:\\*\\*|[*_])?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:[*_]{1,3})?Status(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 const FILED_TERMINAL = new RegExp(
-  `^\\s*${CONTAINER}(?:\\*\\*|[*_])?Filed(?:\\*\\*|[*_])?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
+  `^\\s*${CONTAINER}(?:[*_]{1,3})?Filed(?:[*_]{1,3})?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
   "i",
 );
 // The field-line FILTERS share the container fragment (r22) — a matcher that
 // sees through a bullet is dead code if the filter never hands it the line.
-const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*|[*_])?Status`, "i");
-const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*|[*_])?Filed`, "i");
+const STATUS_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?Status`, "i");
+const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:[*_]{1,3})?Filed`, "i");
 // r26: a line that is ONLY container markers (`>`, an empty `- ` item, an
 // empty task box) is not content — selecting it as the opening line let
 // `>\n> **CLOSED** …` hide its claim behind the bare marker, since the
@@ -165,11 +167,11 @@ const firstContentLine = (lines: string[]): string =>
 // swallow legitimate claims when a literal `<!--` sits in a code span or
 // fence, which is worse than the shape it closes.
 //
-// RATIFIED SCOPE (r28): this guard is a drift TRIPWIRE over first-party
-// ledger prose, not a markdown renderer. Its threat model is the honest
-// in-place closure — every drift instance it has ever caught (r3, r15-r17,
-// the 2026-07-27 reconciliation pair) was a plain spelling. Render-
-// equivalent OBFUSCATION — HTML wrappers (`<strong>`), character
+// RATIFIED SCOPE (r28, extended r30): this guard is a drift TRIPWIRE over
+// first-party ledger prose, not a markdown renderer. Its threat model is
+// the honest in-place closure — every drift instance it has ever caught
+// (r3, r15-r17, the 2026-07-27 reconciliation pair) was a plain spelling.
+// Render-equivalent OBFUSCATION — HTML wrappers (`<strong>`), character
 // references (`C&#76;OSED`), link text, table cells, escaped delimiters,
 // code-context comment literals, commented-out headings, lazy
 // continuations — is out of scope by ratification, exactly as runtime
@@ -177,37 +179,31 @@ const firstContentLine = (lines: string[]): string =>
 // requires a full markdown AST, and a ledger author reaching for those
 // shapes is not drifting, they are hiding — a different failure class that
 // review owns, not this tripwire.
+//
+// r30 draws the second boundary, learned the hard way: regex REIMPLEMENTATION
+// of markdown grammar is also out of scope. The r29 fence-blanking and
+// inline-code stripping shipped with their own CommonMark-semantics defects
+// (unbalanced fence toggling that could hide real prose; multi-backtick
+// spans mis-paired), so both are REMOVED rather than deepened — a guard
+// bug that can blank live ledger lines is strictly worse than the
+// example-quoting false positives it prevented, and no live ledger
+// contains a fenced Status example today. The same boundary covers
+// POSTFIX reopening semantics (`CLOSED but reopened`, `SHIPPED, then
+// rolled back`) and qualifier chains beyond one word (`Not yet fully
+// RESOLVED`): honest reopenings in these ledgers are written as
+// `Status: REOPENED` or narrative prose, both already silent here. The
+// durable owner for the whole grammar class is
+// BL-LEDGER-GUARD-MDAST-REWRITE in BACKLOG.md — port the tripwire onto
+// the remark/mdast AST this repo already depends on; until it lands,
+// grammar-completeness findings against these regexes re-litigate this
+// ratification.
 const normalizeSection = (text: string): string =>
   text
     .split("\n")
-    // r29: inline code renders literally — a Filed line quoting
-    // `` `**CLOSED**` `` as an example is not a claim; spans are bounded to
-    // one line, so deletion cannot swallow anything.
-    .map((line) => line.replace(/<!--.*?-->/g, "").replace(/`[^`\n]*`/g, ""))
+    .map((line) => line.replace(/<!--.*?-->/g, ""))
     .join("\n")
     .replace(/(?<![A-Za-z0-9_])__(?!_)([^_\n]+?)(?<!_)__(?![A-Za-z0-9_])/g, "**$1**");
 
-// r29: fenced code blocks render as examples, not claims — a fenced
-// `**Status:** CLOSED` or `## BL-EXAMPLE — CLOSED` must not create a
-// phantom entry or a terminal hit. Fenced lines (and the fence markers)
-// are blanked BEFORE heading discovery, preserving line structure. The
-// whole-file pass matters: discovery scans the raw text, so a fenced
-// heading would otherwise split a real section. Indented (4-space) code
-// blocks are NOT blanked — list-container claims legitimately indent, and
-// this repo's ledgers use fences for examples; that trade is deliberate.
-const blankFences = (text: string): string => {
-  let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(?:```|~~~)/.test(line)) {
-        inFence = !inFence;
-        return "";
-      }
-      return inFence ? "" : line;
-    })
-    .join("\n");
-};
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
@@ -216,6 +212,11 @@ const OPENING_TERMINAL_BOLD = new RegExp(
   "i",
 );
 const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${CONTAINER}${WRAP}(${TERMINAL_WORDS})${AFTER}`);
+// r30: the heading checkmark lane is ANCHORED — `✅` counts only when a
+// terminal word follows within the wrapper class. A bare `✅` in an open
+// entry's title (`— align the ✅ icon`) is not a closure claim; the
+// dash-anchored form stays HEADING_TERMINAL's job.
+const CHECKED_TERMINAL = new RegExp(`✅${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
 
 /**
  * A terminal claim counts only when the CAPTURED word is not directly
@@ -292,7 +293,9 @@ function boldFieldTerminalHit(line: string): boolean {
 function shoutyIds(text: string, requirePrefix: string | null): Set<string> {
   const level = requirePrefix === null ? "###" : "#{2,3}";
   const re = new RegExp(
-    `^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
+    // r30: CommonMark allows 1-3 leading spaces and any run of spaces/tabs
+    // after the hashes; a validly indented heading must not escape any scan.
+    `^ {0,3}${level}[ \\t]+(?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
     "gm",
   );
   const out = new Set<string>();
@@ -502,11 +505,11 @@ describe("backlog ledger graduation", () => {
     // indexOf() landing on a summary bullet above the section, with an arbitrary
     // ±4000-character window that could source the branch name from neighbouring
     // material. The section runs from its heading to the next one.
-    const heading = new RegExp(`^#{2,3} ~{0,2}${id}`, "m").exec(archive);
+    const heading = new RegExp(`^ {0,3}#{2,3}[ \\t]+~{0,2}${id}`, "m").exec(archive);
     expect(heading, `${id} has no heading in the archive`).not.toBeNull();
     const from = heading!.index;
     const rest = archive.slice(from);
-    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
+    const nextHeading = rest.slice(1).search(/\n {0,3}#{2,3}[ \t]/);
     const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
     expect(section).toContain(provenance);
     },
@@ -534,10 +537,8 @@ describe("backlog ledger graduation", () => {
     // discuss closure ("closes only as part of BL-…", "partially closed",
     // "SUPERSEDED 2026-07-25 by …", a quoted historical status), so a
     // section-wide substring match fires on entries that are genuinely open.
-    // The status line is the entry's own claim about itself. r29: fences
-    // blanked before discovery — a fenced example heading or Status line is
-    // not a claim and must not split or flag a real entry.
-    const backlog = blankFences(read("BACKLOG.md"));
+    // The status line is the entry's own claim about itself.
+    const backlog = read("BACKLOG.md");
     // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
     // "Resolved / shipped / superseded" as the archive-bound states (r5;
     // mainline #628 added SHIPPED independently the same day — BL-AGENDA-
@@ -553,7 +554,7 @@ describe("backlog ledger graduation", () => {
     const offenders: string[] = [];
     // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
     // same optional bracket the shoutyIds matcher already accepts.
-    const headings = [...backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
+    const headings = [...backlog.matchAll(/^ {0,3}#{2,3}[ \t]+(?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
     for (const [i, h] of headings.entries()) {
       const start = h.index!;
       const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
@@ -591,22 +592,21 @@ describe("backlog ledger graduation", () => {
     // 2026-07-27 reconciliation: two shipped entries sat in the open queue with
     // the terminal state in their HEADING ("— CLOSED 2026-07-26 …",
     // "— ✅ RESOLVED (…)"), which the status-line check above cannot see. Same
-    // drift, different spelling, so the guard grows a heading pass. r29:
-    // fences blanked here too — same phantom-heading hazard as the status
-    // test's discovery.
-    const backlog = blankFences(read("BACKLOG.md"));
+    // drift, different spelling, so the guard grows a heading pass.
+    const backlog = read("BACKLOG.md");
     const offenders: string[] = [];
     // Priority-prefixed headings (`### [P1] BL-X — …`) are entries too (r15 —
     // the status test's discovery gained the bracket group at r6; this walk
     // never did, so a prefixed heading was invisible HERE specifically).
-    for (const h of backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
+    for (const h of backlog.matchAll(/^ {0,3}#{2,3}[ \t]+(?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
       const id = h[1]!;
       if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
       const heading = h[0]!;
       // Union of both 2026-07-27 passes: the dash-anchored any-case form
       // (module-scoped, shared with the status-line test — r15; per-word
       // PARTIAL veto since r16) plus a bare ✅ anywhere in the heading.
-      if (terminalHit(heading, HEADING_TERMINAL) || /✅/.test(heading)) offenders.push(id);
+      if (terminalHit(heading, HEADING_TERMINAL) || terminalHit(heading, CHECKED_TERMINAL))
+        offenders.push(id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -756,12 +756,22 @@ describe("backlog ledger graduation", () => {
     expect(boldFieldTerminalHit("**Previously CLOSED:** reopened 2026-07-30.")).toBe(false);
     expect(boldFieldTerminalHit("**Reviewed, then CLOSED:** done.")).toBe(true);
     expect(boldFieldTerminalHit("**was not the blocker, CLOSED:** shipped.")).toBe(true);
-    // r29 — fenced examples are not claims (fence markers and interiors
-    // blank, line structure preserved), and inline code renders literally:
-    expect(blankFences("```md\n**Status:** CLOSED\n## BL-EXAMPLE — CLOSED\n```\nreal text")).toBe(
-      "\n\n\n\nreal text",
-    );
-    expect(boldFieldTerminalHit(normalizeSection("**Filed:** see `**CLOSED**` for the shape."))).toBe(
+    // r30 — up to three emphasis marks per label side, mixed nesting
+    // included, in matchers AND filters:
+    expect(terminalHit("***Status:*** CLOSED", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("___Status___: RESOLVED (PR #631)", STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit("**_Filed_**: CLOSED 2026-07-24", FILED_TERMINAL)).toBe(true);
+    expect(STATUS_FIELD_LINE.test("***Status:*** CLOSED")).toBe(true);
+    expect(FILED_FIELD_LINE.test("*__Filed__*: 2026-07-01")).toBe(true);
+    // r30 — CommonMark heading whitespace (1-3 leading spaces, spaces/tabs
+    // after the hashes) reaches every heading scan:
+    expect(shoutyIds("   ### BL-INDENTED-ID — text", "BL-").has("BL-INDENTED-ID")).toBe(true);
+    expect(shoutyIds("##\tBL-TABBED-ID — text", "BL-").has("BL-TABBED-ID")).toBe(true);
+    // r30 — the heading checkmark lane is anchored to a terminal word; a
+    // decorative checkmark in an open entry's title is not a claim:
+    expect(terminalHit("## BL-X — ✅ RESOLVED (PR #612)", CHECKED_TERMINAL)).toBe(true);
+    expect(terminalHit("## BL-X ✅ **DONE**", CHECKED_TERMINAL)).toBe(true);
+    expect(terminalHit("## BL-CHECKMARK-ALIGNMENT — align the ✅ icon", CHECKED_TERMINAL)).toBe(
       false,
     );
   });
@@ -779,7 +789,7 @@ describe("backlog ledger graduation", () => {
     expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
     const start = headingMatch!.index;
     const rest = backlog.slice(start);
-    const nextHeading = rest.slice(1).search(/\n#{2,3} /);
+    const nextHeading = rest.slice(1).search(/\n {0,3}#{2,3}[ \t]/);
     const body = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
     expect(body.length).toBeGreaterThan(400);
 
