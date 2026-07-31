@@ -47,3 +47,7 @@ D byte baseline regenerated after the skin change (same throwaway-runner procedu
 ### §12.3 Dispositions
 
 P0: none. P1: one fixed, one DEFERRED.md-entried (above). P2/P3: recorded above with rationale. Visual pass: 8 screenshots (3 surfaces × light/dark + flagged variant) at `.claude/visual-pass/` — glyph affordance visible at rest in both themes, sub-row subordination intentional, saturated-title modal row centres the link, no bleed visible.
+
+### §12.4 Post-gate amendment (whole-diff r37, 2026-07-31)
+
+DESIGN.md's centred-section-header recipe still prescribed the symmetric `before:-inset-3` overlay — the exact 2px name-side bleed this feature fixed — and the tangency wording predated the shipped 2px pill buffer. Both lines now describe the shared `SheetIconLink` asymmetric overlay (`before:-inset-y-3 before:-left-2.5 before:-right-3.5`) and direct new icon-only sheet links to the component rather than the raw recipe. Doc-sync only — no rendered surface changed; the §12.1/§12.2 gate results and dispositions stand.

@@ -1109,6 +1109,22 @@ Per `docs/agents/spec-self-review.md`'s 3-round cap, the guard was descoped rath
 
 **Work, if revived:** start from the PROTOTYPE, not the prose — write the walker first, run it over `components/` + `app/`, and let the actual output define the rule (the reverse of the order that failed). Expect the deliverable to be an ALLOWLIST of accepted shapes rather than a leak hunt, per the same lesson `feedback_static_guard_allowlist_shapes_not_leak_hunting` records from PR #592. A guard that flags a painted hairline is worse than no guard, because the exemption comment it forces teaches the next author that the shape is fine.
 
+## Graduated 2026-07-31 — sheet-icon-link whole-diff r37
+
+Both entries below were RESOLVED by `feat/sheet-icon-link-affordance-class` itself and sat in the open queue until whole-diff r37 caught the drift. `BL-HEADER-PILL-LINK-TOUCH-BUFFER`: the shared component's asymmetric overlay (`before:-left-2.5`, 10px heading-side reach at `components/admin/SheetIconLink.tsx:73`) against the pill side's measured 12px clearance delivers exactly the requested 2px dead zone, pinned by the clearance cases in `tests/e2e/section-header-layout.layout.spec.ts`. `BL-HEADER-SUBBLOCK-HIERARCHY-WIDE`: the tap floor now drops for linkless sub-blocks at EVERY width (`sub && sheetHref === null`, spec §1 item 8), which is the entry's first candidate fix; its P3 sibling note (linkless+pilled row offset — combination unreachable in production) is carried in the entry verbatim and stays confirm-only. Original entries follow.
+
+## BL-HEADER-PILL-LINK-TOUCH-BUFFER — zero dead zone between the inline pill and the sheet link's hit area on touch
+
+**Filed:** 2026-07-26 (same late Assessment A).
+
+`sm:gap-2.5` + `sm:ml-0.5` = 12px, exactly the `before:-inset-3` reach — the 44px hit area is TANGENT to the pill's right edge (the #612 spec fixed the 2px overlap to tangency, pinned by an `elementFromPoint` case at the pill's right-edge-minus-1px). But `sm`+ is not mouse-only: a phone in landscape (~852px viewport) takes the inline branch, and a thumb landing 1px right of "Needs a look" opens a new tab. `sm:ml-1` (4px, tokenized) would buy a 2px dead zone at negligible visual cost; the existing tangency test keeps passing and a second probe just outside the pill edge could pin the buffer.
+
+## BL-HEADER-SUBBLOCK-HIERARCHY-WIDE — the Diagrams sub-block's subordination signal thins out in the sm+ row
+
+**Filed:** 2026-07-26 (same late Assessment A; extends the narrow-mode footprint item 6 in the 2026-07-25 post-merge review list above).
+
+The sub-block is always linkless and never flagged (its chrome provider sets no sectionId/dfid), so nothing in its header is tappable — yet `sm:min-h-tap-min` gives it the same 44px one-row shape as its parent section at `sm`+, leaving subordination to a 4px-smaller chip and 2px-smaller text. Candidates: drop the floor for `sub` at `sm`+ (`sm:min-h-0` — the narrow-mode fix already filed as item 6 applies the same conditional idea), or an `sm:pl-*` indent nesting it under its parent. Confirm-only sibling note (P3): a linkless+PILLED row would sit 32px right of a linked row's pill at `sm`+, but that combination appears unreachable in production (Diagrams is never flagged; "report" carries no pill) — verify before treating as real.
+
 ## Graduated 2026-07-27 — sheet-icon-link close-out (whole-diff r3)
 
 `BL-HEADER-LINK-AFFORDANCE-CLASS` (below) had been annotated closed in place in a spelling the terminal-status guard could not see (bold opening claim); the guard was widened in the same branch (heading-suffix and opening-line spellings, SUPERSEDED/DONE joining the terminal set) and the entry moved wholesale. Three further in-place-terminal entries this branch's sweeps caught — `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED`, `BL-HEADER-PROBE-RESIDUAL-VACUITY`, `BL-AGENDA-PERDAY-VIEWER-FILTER` — were independently graduated by mainline #628 the same day; their archive copies live at the top of this file with mainline provenance. This branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` was reverted in the merge per #628's deliberate keep (sub-entry of a still-open parent section).

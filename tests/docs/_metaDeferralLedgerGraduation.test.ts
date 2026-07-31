@@ -314,7 +314,11 @@ function boldFieldTerminalHit(line: string): boolean {
         .replace(/:\s*$/, "")
         .split(/[^A-Za-z]+/)
         .filter(Boolean);
-      const PARTICLES = /^(?:by|via|in|with|through|per|as|on|at|to|from)$/i;
+      // r37: the particle list is the ordinary English preposition set, not a
+      // guessed subset — `**Closed after:**` is as plain a closure as
+      // `**Resolved by:**`.
+      const PARTICLES =
+        /^(?:by|via|in|with|through|per|as|on|at|to|from|after|before|during|under|upon|using|following|since|within)$/i;
       while (words.length > 0 && PARTICLES.test(words[words.length - 1]!)) words.pop();
       const last = words[words.length - 1];
       if (last !== undefined && new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(last)) {
@@ -846,6 +850,8 @@ describe("backlog ledger graduation", () => {
     expect(boldFieldTerminalHit("**Filed:** 2026. **Resolved by:** PR #621.")).toBe(true);
     expect(boldFieldTerminalHit("**Shipped via:** PR #500.")).toBe(true);
     expect(boldFieldTerminalHit("**Closed in:** the phase-2 sweep.")).toBe(true);
+    expect(boldFieldTerminalHit("**Filed:** 2026-07-31. **Closed after:** PR #700.")).toBe(true);
+    expect(boldFieldTerminalHit("**Superseded following:** the picker pivot.")).toBe(true);
     expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
       false,
     );

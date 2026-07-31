@@ -1141,8 +1141,13 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // (sr-only) and single-symbol glyph children are HIDING — review's
         // failure class per the dataflow ratification above, not this
         // census's.
+        // r37: recursion is over RENDERED CHILDREN only — attributes never
+        // render text, so `<ExternalLink aria-hidden={true} />` must not
+        // read as text-bearing via its `{true}` prop (the default
+        // expression branch is for CHILD expressions, where an identifier
+        // can render text).
         const textBearing = (node: ts.Node): boolean => {
-          if (ts.isJsxText(node) && node.text.trim() !== "") return true;
+          if (ts.isJsxText(node)) return node.text.trim() !== "";
           if (ts.isJsxExpression(node)) {
             const e = node.expression;
             if (e === undefined) return false;
@@ -1153,11 +1158,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
             }
             return true;
           }
-          let hit = false;
-          ts.forEachChild(node, (c) => {
-            if (!hit && textBearing(c)) hit = true;
-          });
-          return hit;
+          if (ts.isJsxSelfClosingElement(node)) return false;
+          if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+            return node.children.some((c) => textBearing(c));
+          }
+          return false;
         };
         const visit = (node: ts.Node): void => {
           // r36: a self-closing `<a />` renders no text by construction
@@ -1187,8 +1192,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // The component this whole guard contains.
         "components/admin/SheetIconLink.tsx": 1,
         // Three icon-only CONTACT affordances (the crew-row call action and
-        // the tel:/mailto: pair) — none is a sheet link.
-        "components/admin/wizard/step3ReviewSections.tsx": 3,
+        // the tel:/mailto: pair) plus the staged-diagram image anchor
+        // (img-only, aria-labeled — the r37 attribute-expression fix
+        // surfaced it) — none is a sheet link.
+        "components/admin/wizard/step3ReviewSections.tsx": 4,
       });
     },
   );
