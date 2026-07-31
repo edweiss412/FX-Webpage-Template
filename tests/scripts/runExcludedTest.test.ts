@@ -24,6 +24,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 const ROOT = join(__dirname, "..", "..");
 const SCRIPT = join(ROOT, "scripts", "run-excluded-test.mjs");
@@ -171,24 +172,36 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     expect(run({ RUN_EXCLUDED_CMD_OVERRIDE: stub({ report: r, exitCode: 0 }) })).not.toBe(0);
   });
 
-  it("guards the alias against pnpm-level redirection (R2-B F3)", () => {
-    // `pnpm run-excluded` executes MORE than scripts["run-excluded"]: pnpm runs
-    // pre/post lifecycle scripts by default, and project-level scriptShell /
-    // nodeOptions settings replace the shell or preload code. Each route could
-    // consume the workflow's exact literal without running the oracle.
+  it("guards the alias against pnpm-level redirection (R2-B F3, sources completed R3-B)", () => {
+    // `pnpm run-excluded` executes MORE than scripts["run-excluded"]: pnpm
+    // runs pre/post lifecycle scripts by default; scriptShell replaces the
+    // shell that runs the command line (/usr/bin/true consumes it whole);
+    // nodeOptions preloads code into the oracle's own node process
+    // (--import=data:… can exit 0 before the module runs); bail:false
+    // converts an oracle FAILURE into pnpm exit 0 (empirically confirmed on
+    // pinned pnpm 10.33.2 — R3-B); shellEmulator swaps execution semantics.
+    // pnpm merges these from pnpm-workspace.yaml AND .npmrc, so every
+    // tracked source is pinned clean.
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
       pnpm?: Record<string, unknown>;
     };
     expect(pkg.scripts["prerun-excluded"], "prerun-excluded lifecycle script").toBeUndefined();
     expect(pkg.scripts["postrun-excluded"], "postrun-excluded lifecycle script").toBeUndefined();
-    for (const key of ["scriptShell", "nodeOptions", "executionEnv"]) {
+    for (const key of ["scriptShell", "nodeOptions", "executionEnv", "bail", "shellEmulator"]) {
       expect(pkg.pnpm?.[key], `package.json pnpm.${key}`).toBeUndefined();
+    }
+    const workspacePath = join(ROOT, "pnpm-workspace.yaml");
+    if (existsSync(workspacePath)) {
+      const ws = parse(readFileSync(workspacePath, "utf8")) as Record<string, unknown> | null;
+      for (const key of ["scriptShell", "nodeOptions", "bail", "shellEmulator"]) {
+        expect(ws?.[key], `pnpm-workspace.yaml ${key}:`).toBeUndefined();
+      }
     }
     const npmrcPath = join(ROOT, ".npmrc");
     if (existsSync(npmrcPath)) {
       const npmrc = readFileSync(npmrcPath, "utf8");
-      for (const key of ["script-shell", "node-options"]) {
+      for (const key of ["script-shell", "node-options", "bail", "shell-emulator"]) {
         expect(new RegExp(`^\\s*${key}\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(false);
       }
     }
