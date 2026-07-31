@@ -224,10 +224,14 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
         "prefix",
       ]) {
         // pnpm accepts quoted ini keys ('script-shell'=… / "bail"=…), which
-        // a bare-key regex missed (R4-B F1).
-        expect(new RegExp(`^\\s*['"]?${key}['"]?\\s*=`, "m").test(npmrc), `.npmrc ${key}=`).toBe(
-          false,
-        );
+        // a bare-key regex missed (R4-B F1) — and ARRAY spellings
+        // (node-options[]=…, quoted or bare), which pnpm honors for
+        // nodeOptions and a probe rode to a green step with zero tests
+        // executed (R9-B). The [] is accepted inside or outside quotes.
+        expect(
+          new RegExp(`^\\s*['"]?${key}(\\[\\])?['"]?(\\[\\])?\\s*=`, "m").test(npmrc),
+          `.npmrc ${key}=`,
+        ).toBe(false);
       }
     }
   });
