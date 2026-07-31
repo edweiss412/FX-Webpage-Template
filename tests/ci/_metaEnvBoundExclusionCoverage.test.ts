@@ -24,8 +24,8 @@
  * there — documented CI shape; the oracle still requires >=1 passed and the
  * remaining suites execute (19 passed locally, child exit 0).
  */
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { ENV_BOUND_COVERAGE_REGISTRY, ENV_BOUND_EXCLUDES } from "../../vitest.projects";
@@ -197,6 +197,41 @@ function coverageRowProblems(
 
 describe("env-bound exclusion coverage (spec §6)", () => {
   const files = ENV_BOUND_EXCLUDES.map((g) => g.replace(/^\*\*\//, ""));
+
+  it("each exclusion glob resolves to exactly ONE on-disk file, and tests/ holds no symlinks (R8-B)", () => {
+    // The `**/` glob is SUFFIX matching: a directory symlink under tests/
+    // pointing at a tracked tree would mint a second logical file with the
+    // same suffix — excluded from unit-suite by the glob, invisible to the
+    // readdirSync-based partition census (which does not traverse symlinks,
+    // while vitest's tinyglobby does), and unproven by x5, which names only
+    // the root file. Symlinks under tests/ are refused outright, and each
+    // exclusion must resolve to exactly its one literal path.
+    const symlinks: string[] = [];
+    const walked: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (lstatSync(p).isSymbolicLink()) {
+          symlinks.push(p);
+          continue;
+        }
+        if (e.isDirectory()) walk(p);
+        else walked.push(p.split(sep).join("/"));
+      }
+    };
+    walk(join(ROOT, "tests"));
+    expect(
+      symlinks,
+      "symlinks under tests/ — vitest traverses them, the census walk does not; a linked tree can shadow an exclusion suffix",
+    ).toEqual([]);
+    for (const f of files) {
+      const matching = walked.filter((p) => p.endsWith(`/${f}`));
+      expect(
+        matching,
+        `${f}: the exclusion suffix must match exactly its one literal file`,
+      ).toEqual([join(ROOT, f).split(sep).join("/")]);
+    }
+  });
 
   it("registry totality: every exclusion has exactly one row, every row names a live exclusion", () => {
     const uncovered = files.filter((f) => !(f in ENV_BOUND_COVERAGE_REGISTRY));
