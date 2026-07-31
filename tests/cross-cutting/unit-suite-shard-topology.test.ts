@@ -105,6 +105,15 @@ describe("unit-suite matrix topology", () => {
       (directives(body).match(/vitest run/g) ?? []).length,
       `${key} must invoke \`vitest run\` exactly once; a second invocation breaks exactly-once execution`,
     ).toBe(1);
+    // …and fragment-matching alone admits DECORATION (R11-B): a positional
+    // filter, --passWithNoTests, --config/--root/--dir, or a later duplicate
+    // --project/--shard override narrows or re-points what the shard
+    // executes while the fragment and count above stay green. The whole run
+    // line is pinned VERBATIM (the run-excluded exact-literal posture).
+    const runLine = /(^|\n)[ \t]*run:[ \t]*([^\n]*vitest run[^\n]*)/.exec(body)?.[2]?.trim();
+    expect(runLine, `${key}'s vitest run line must be exactly the undecorated invocation`).toBe(
+      "pnpm exec vitest run --project=" + project + " --shard=${{ matrix.shard }}/" + legs,
+    );
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently

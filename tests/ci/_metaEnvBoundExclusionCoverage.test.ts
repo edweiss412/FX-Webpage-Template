@@ -291,10 +291,26 @@ describe("env-bound exclusion coverage (spec §6)", () => {
           doc: parse(readFileSync(join(ROOT, ".github", "workflows", f), "utf8")) as {
             name?: unknown;
             concurrency?: { group?: unknown } | string;
-            jobs?: Record<string, { concurrency?: { group?: unknown } | string }>;
+            jobs?: Record<string, { concurrency?: { group?: unknown } | string; uses?: unknown }>;
           },
         }));
       const nameLc = name.toLowerCase();
+      // R11-B: an EXTERNAL reusable-workflow callee participates in the
+      // caller's run and can declare concurrency this corpus scan never
+      // sees — hard-coded or inputs/vars-synthesized to this workflow's
+      // group, it cancels the covering run while every in-repo file reads
+      // clean. Job-level uses: in other workflows must be LOCAL (./…), so
+      // the callee's own declarations are inside the swept corpus; the
+      // registry workflow itself refuses uses: jobs entirely.
+      const externalCallees = others.flatMap(({ f, doc }) =>
+        Object.entries(doc.jobs ?? {})
+          .filter(([, j]) => typeof j.uses === "string" && !String(j.uses).startsWith("./"))
+          .map(([jn, j]) => `${f}#${jn}: ${String(j.uses)}`),
+      );
+      expect(
+        externalCallees,
+        "external reusable-workflow callees — their concurrency declarations are outside the swept corpus and can cancel the covering run",
+      ).toEqual([]);
       const dupes = others.filter(({ doc }) => String(doc.name ?? "").toLowerCase() === nameLc);
       expect(
         dupes.map(({ f }) => f),
