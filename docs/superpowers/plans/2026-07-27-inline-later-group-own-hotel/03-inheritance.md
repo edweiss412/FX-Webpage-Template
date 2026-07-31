@@ -25,7 +25,7 @@ Concrete failure modes: rows 1–2 kill always-inherit-group-0 and wrong-predece
 ## Steps
 
 - [ ] **Step 1: Write the failing tests** — the `describe("inheritance")` block per the rows above; extend the skip block with their warning rows.
-- [ ] **Step 2: Run, verify the new block FAILS** — `pnpm vitest run tests/parser/inlineLaterGroupOwnHotel.test.ts`. Expected: inheritance rows FAIL (rows still always inherit group 0); Task 2 rows stay green.
+- [ ] **Step 2: Run, verify the new block FAILS** — `pnpm vitest run tests/parser/inlineLaterGroupOwnHotel.test.ts`. Expected: rows 1-2 (nearest-preceding + two-predecessor discriminator) FAIL — this task's red; row 3 (null group-0 baseName) PASSES already (with no preceding tier-1 row it inherits group 0's null today — a regression pin, plan R2 f6); Task 2 rows stay green.
 - [ ] **Step 3: Commit failing tests** — `git add tests/parser/inlineLaterGroupOwnHotel.test.ts && git commit -m "test(parser): nearest-preceding inheritance oracles"`
 - [ ] **Step 4: Implement** — nearest-preceding inheritance in the row-finalization pass: an inheriting (tier-2/tier-3) later row takes the hotel of the nearest preceding KEPT row (tier-1 or group 0).
 - [ ] **Step 5: Run to green** — `pnpm vitest run tests/parser/inlineLaterGroupOwnHotel.test.ts`. Expected: PASS.

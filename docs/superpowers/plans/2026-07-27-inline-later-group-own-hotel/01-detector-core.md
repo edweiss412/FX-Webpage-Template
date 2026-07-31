@@ -7,7 +7,7 @@
 
 **Interfaces:**
 
-- Consumes: `buildInlineHotel(rest, ordinal, contextYear)` (module-private `InlineBuild` return `{ row, judgedGuestBoundary, addressAmbiguity? }`, read at `lib/parser/blocks/hotels.ts:724`); `STREET_ADDRESS_RE`/`STREET_ADDRESS_ZIP_RE`/`looksLikeStreetStart`/`stripConfTokens` machinery in `lib/parser/blocks/hotelConfTokens.ts`.
+- Consumes: `buildInlineHotel(rest, ordinal, contextYear)` (module-private `InlineBuild` return `{ row, judgedGuestBoundary, addressAmbiguity? }`, declared at `lib/parser/blocks/hotels.ts:887-892`; a read site is `lib/parser/blocks/hotels.ts:724`); `STREET_ADDRESS_RE`/`STREET_ADDRESS_ZIP_RE`/`looksLikeStreetStart`/`stripConfTokens` machinery in `lib/parser/blocks/hotelConfTokens.ts`.
 - Produces (later tasks rely on these EXACT names):
 
 ```ts
