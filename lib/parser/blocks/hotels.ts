@@ -28,6 +28,8 @@ import {
   emitInlineHotelGuestAmbiguity,
   emitHotelAddressSplitAmbiguity,
   emitHotelCardinalityExceeded,
+  emitHotelInlineGroupOwnHotel,
+  emitHotelInlineGroupHotelSuspected,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
 import {
@@ -116,7 +118,12 @@ type HotelAmbiguity =
       rawCell: string;
       parsedName: string | null;
       parsedAddress: string | null;
-    };
+    }
+  // Spec 2026-07-27 §6.2: the inline later-group detector's two stashes. Each carries
+  // only the row's RAW segment — the envelope needs nothing else, and the detector's
+  // normalized text must never reach a persisted field.
+  | { kind: "own-hotel"; rawCell: string }
+  | { kind: "hotel-suspected"; rawCell: string };
 
 type PendingHotel = { row: HotelReservationRow; ambiguities: HotelAmbiguity[] };
 
@@ -143,6 +150,22 @@ function commitHotels(pending: PendingHotel[], agg?: ParseAggregator): HotelRese
           name: p.row.hotel_name,
           parsedName: amb.parsedName,
           parsedAddress: amb.parsedAddress,
+        });
+        continue;
+      }
+      if (amb.kind === "own-hotel") {
+        emitHotelInlineGroupOwnHotel(agg, {
+          name: p.row.hotel_name,
+          rawCell: amb.rawCell,
+          index,
+        });
+        continue;
+      }
+      if (amb.kind === "hotel-suspected") {
+        emitHotelInlineGroupHotelSuspected(agg, {
+          name: p.row.hotel_name,
+          rawCell: amb.rawCell,
+          index,
         });
         continue;
       }
@@ -804,6 +827,23 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
     }
     r.hotel_name = i === 0 ? baseName : inheritedName;
   });
+
+  // Spec §6.1/§4 stash discipline. OWN on every tier-1 kept row. SUSPECTED on every
+  // tier-2 row AND on every row that INHERITS a tier-1 predecessor's hotel — whether
+  // that guest belongs to the detected hotel or to the line's first one is exactly the
+  // judgment the operator has to check, so a tier-3 inheritor is not silent. At most
+  // one stash per row (the tier-1 branch returns before the inheritance branch).
+  let sawTierOne = false;
+  const detectorStashes: Array<"own-hotel" | "hotel-suspected" | undefined> = rows.map((_r, i) => {
+    const outcome = laterOutcomes[i];
+    if (i === 0) return undefined;
+    if (outcome?.tier === 1) {
+      sawTierOne = true;
+      return "own-hotel";
+    }
+    if (outcome?.tier === 2 || sawTierOne) return "hotel-suspected";
+    return undefined;
+  });
   // Address ambiguity follows the same row-7 anchor: only reservation 0's
   // hotel_name is the splitter's own output — every later row holds inherited
   // text. A later-row address warning is incoherent by construction: its parsed
@@ -823,7 +863,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Pendi
   const stripped = stripHotelNameConf(rows, (i, a) => {
     if (i === 0 || laterOutcomes[i]?.tier === 1) addrs[i] ??= a;
   });
-  return toPending(stripped, verdicts, segments, addrs);
+  return toPending(stripped, verdicts, segments, addrs, detectorStashes);
 }
 
 /**
@@ -842,6 +882,9 @@ function toPending(
   // corruption on the new write-back path (whole-diff R3 finding 2).
   rawCells: string[],
   addressAmbiguities: Array<AddressSplitAmbiguity | undefined> = [],
+  // Per-ROW detector verdict (spec 2026-07-27 §6.2). Slotted BETWEEN the guest and
+  // address stashes so the per-row emit order is guest, own-hotel/suspected, address.
+  detectorStashes: Array<"own-hotel" | "hotel-suspected" | undefined> = [],
 ): PendingHotel[] {
   return rows.map((row, i) => {
     const ambiguities: HotelAmbiguity[] = [];
@@ -849,6 +892,8 @@ function toPending(
     if (verdicts[i]) {
       ambiguities.push({ kind: "inline-guests", rawCell, parsedNames: row.names });
     }
+    const detector = detectorStashes[i];
+    if (detector) ambiguities.push({ kind: detector, rawCell });
     const addr = addressAmbiguities[i];
     if (addr) {
       ambiguities.push({
@@ -1650,4 +1695,6 @@ export const TRANSFORM_SITES: ReadonlyArray<
   { site: "cardinality cap (MAX_HOTELS truncation)", code: "HOTEL_CARDINALITY_EXCEEDED" },
   { site: "inline guest paths", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
   { site: "splitHotelNameAddress name/address boundary", code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS" },
+  { site: "inline later-group own-hotel detector", code: "HOTEL_INLINE_GROUP_OWN_HOTEL" },
+  { site: "inline later-group own-hotel detector", code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED" },
 ];

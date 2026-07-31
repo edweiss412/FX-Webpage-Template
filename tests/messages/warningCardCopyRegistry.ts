@@ -16,6 +16,8 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
   "HOTEL_CARDINALITY_EXCEEDED",
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+  "HOTEL_INLINE_GROUP_OWN_HOTEL",
   "PULL_SHEET_AMBIGUOUS_FORMAT",
   "PULL_SHEET_PARSE_PARTIAL",
   "PULL_SHEET_UNKNOWN_VARIANT",
@@ -48,6 +50,9 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
 
 export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   AGENDA_BLOCK_UNRESOLVED: "Appears when a day in the AGENDA tab has no readable date above it.",
+  HOTEL_INLINE_GROUP_OWN_HOTEL: "Appears when one hotel line seems to book more than one hotel.",
+  HOTEL_INLINE_GROUP_HOTEL_SUSPECTED:
+    "Appears when a reservation on a shared hotel line may be under the wrong hotel.",
   AGENDA_DAY_AMBIGUOUS:
     "Appears when an AGENDA day banner gives only a weekday (like 'Wednesday') and the show has two of them.",
   AGENDA_DAY_EMPTIED:
@@ -122,6 +127,21 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
   TRAVEL_FLIGHT_UNPARSEABLE: "Flight we couldn't read",
   AGENDA_FILE_INACCESSIBLE: "Can't open the agenda file",
   AGENDA_PDF_UNREADABLE: "No agenda schedule found",
+};
+
+/**
+ * Frozen `helpfulContext` for the codes whose spec-4.2 row and catalog entry are held
+ * in lockstep. The registry deliberately does NOT cover every code here: the
+ * pre-existing HOTEL_GUEST_SPLIT_AMBIGUOUS divergence between the canonical table and
+ * the catalog is shipped copy, recorded as BL-CARD-COPY-HELPFULCONTEXT-PARITY rather
+ * than frozen retroactively. Codes added from 2026-07-27 onward ARE frozen, so a typo
+ * in either the canonical row or the catalog entry fails the gate.
+ */
+export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
+  HOTEL_INLINE_GROUP_OWN_HOTEL:
+    "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
+  HOTEL_INLINE_GROUP_HOTEL_SUSPECTED:
+    "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
 };
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([

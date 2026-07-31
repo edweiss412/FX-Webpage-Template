@@ -26,7 +26,7 @@ import type { ParseWarning } from "@/lib/parser/types";
  * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 55-code persisted-ParseWarning partition.
+ * the full 57-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
@@ -81,6 +81,16 @@ export const GAP_CLASSES = [
     code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
     label: "hotel name and address may be split wrong",
     plural: "hotel names and addresses may be split wrong",
+  },
+  {
+    code: "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    label: "reservation given its own hotel from a shared line",
+    plural: "reservations given their own hotel from a shared line",
+  },
+  {
+    code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+    label: "reservation may show the wrong hotel",
+    plural: "reservations may show the wrong hotel",
   },
   {
     code: "DATE_ORDER_SUGGESTS_DMY",

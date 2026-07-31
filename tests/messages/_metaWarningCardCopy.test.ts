@@ -3,8 +3,12 @@
 //
 // Structural meta-test for warning-card copy: every registry code carries a
 // title + condensed helpfulContext (inline card guidance) + triggerContext
-// (? popover), within caps, free of reader-facing jargon, and byte-identical
-// to the spec §4.2 table via the frozen fixture. The corpus oracle parses the
+// (? popover), within caps, free of reader-facing jargon. Byte-identity to the
+// spec §4.2 table is frozen for triggerContext on EVERY registry code, for the
+// four changed titles, and for the helpfulContext of the codes listed in
+// EXPECTED_HELPFUL_CONTEXT (rows added from 2026-07-27 on) — not for every
+// code's helpfulContext: the pre-existing HOTEL_GUEST_SPLIT_AMBIGUOUS divergence
+// is shipped copy, tracked as BL-CARD-COPY-HELPFULCONTEXT-PARITY. The corpus oracle parses the
 // committed fixture corpus and requires every emitted warn-severity code to be
 // registered — behavioral fails-by-default for corpus-exercised parser codes
 // (spec §3.5.4 scope: sync/enrichment producers rely on the AGENTS.md
@@ -24,6 +28,7 @@ import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
   EXPECTED_TITLE_CHANGES,
+  EXPECTED_HELPFUL_CONTEXT,
   EXPECTED_CORPUS_WARN_CODES,
   EXPECTED_CORPUS_FIXTURES,
 } from "./warningCardCopyRegistry";
@@ -84,6 +89,17 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
     }
     for (const [code, title] of Object.entries(EXPECTED_TITLE_CHANGES)) {
       expect(CATALOG[code]?.title, `${code}.title`).toBe(title);
+    }
+  });
+
+  it("frozen copy fixture: helpfulContext matches spec §4.2 byte-for-byte", () => {
+    // Scoped to EXPECTED_HELPFUL_CONTEXT, not the whole registry: the pre-existing
+    // HOTEL_GUEST_SPLIT_AMBIGUOUS divergence is shipped copy (BL-CARD-COPY-
+    // HELPFULCONTEXT-PARITY). For the codes listed there, a typo in EITHER the
+    // canonical §4.2 row or the catalog entry fails here.
+    for (const [code, helpfulContext] of Object.entries(EXPECTED_HELPFUL_CONTEXT)) {
+      expect(WARNING_CARD_COPY_CODES.has(code), `${code} registered`).toBe(true);
+      expect(CATALOG[code]?.helpfulContext, `${code}.helpfulContext`).toBe(helpfulContext);
     }
   });
 

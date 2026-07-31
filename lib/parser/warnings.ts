@@ -385,6 +385,73 @@ export function emitUnknownField(
  * unstripped replacement would re-persist a confirmation number the parser had
  * correctly removed (ratified R2).
  */
+/**
+ * Spec 2026-07-27-inline-later-group-own-hotel §6.1/§6.2 — the inline later-group
+ * detector's two warnings, emitted from `commitHotels` like every other hotel stash.
+ *
+ * `field: "address"` is load-bearing: `FIELD_LABELS` renders it as "hotel name and
+ * address" (`lib/admin/step3Buckets.ts:129-135`) — exactly what the operator inspects —
+ * whereas `"name"` renders the ROOM label "(room name)" in the wizard title suffix.
+ *
+ * Neither carries a `resolution`: with the reading already committed to the row there
+ * is no raw value to swap back in, and with the key ABSENT the documented discriminator
+ * (`lib/parser/types.ts:86-95`) classifies both as non-recoverable, which is what keeps
+ * them out of `USE_RAW_CODES`.
+ *
+ * `rawSnippet` is the row's RAW segment — pre-D1-normalization. The detector's
+ * normalized text is internal and must never be persisted or quoted.
+ *
+ * The `code` property is a LITERAL in each push, never the constant interpolated:
+ * `scripts/extract-internal-code-enums.ts:70-73` recognizes parser-warning codes ONLY
+ * from literal `code: "..."` properties, and a constant-only emitter would regenerate
+ * the enum WITHOUT these codes, after which `serializeParseWarning` blanks them to
+ * `code: ""` at the telemetry boundary.
+ */
+export const HOTEL_INLINE_GROUP_OWN_HOTEL = "HOTEL_INLINE_GROUP_OWN_HOTEL";
+export function emitHotelInlineGroupOwnHotel(
+  agg: ParseAggregator | undefined,
+  params: { name?: string | null; rawCell: string; index: number },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  // exactOptionalPropertyTypes: omit the KEY when unresolved, never `undefined`.
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "address",
+    index: params.index,
+  };
+  if (params.name) blockRef.name = params.name;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    message: `Hotel line "${rawOneLine}" lists more than one hotel, so this reservation was given its own hotel rather than the line's first hotel; double-check its hotel, guests, and dates. To skip the guesswork, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.`,
+    blockRef,
+    rawSnippet: params.rawCell,
+  });
+}
+
+export const HOTEL_INLINE_GROUP_HOTEL_SUSPECTED = "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED";
+export function emitHotelInlineGroupHotelSuspected(
+  agg: ParseAggregator | undefined,
+  params: { name?: string | null; rawCell: string; index: number },
+): void {
+  if (!agg) return;
+  const rawOneLine = collapse(params.rawCell);
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
+    kind: "hotels",
+    field: "address",
+    index: params.index,
+  };
+  if (params.name) blockRef.name = params.name;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+    message: `Hotel line "${rawOneLine}" may put this reservation under the wrong hotel; double-check it. To fix it, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.`,
+    blockRef,
+    rawSnippet: params.rawCell,
+  });
+}
+
 export const HOTEL_ADDRESS_SPLIT_AMBIGUOUS = "HOTEL_ADDRESS_SPLIT_AMBIGUOUS";
 export function emitHotelAddressSplitAmbiguity(
   agg: ParseAggregator | undefined,
