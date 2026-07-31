@@ -314,11 +314,13 @@ function boldFieldTerminalHit(line: string): boolean {
         .replace(/:\s*$/, "")
         .split(/[^A-Za-z]+/)
         .filter(Boolean);
-      // r37: the particle list is the ordinary English preposition set, not a
-      // guessed subset — `**Closed after:**` is as plain a closure as
-      // `**Resolved by:**`.
+      // r38: prepositions are a CLOSED CLASS in English — the list below is
+      // the whole class copied once, ending the r36→r38 drip of "you missed
+      // `without`". A noun a terminal word modifies (`precedent`,
+      // `approach`) can never appear in it, which is the entire
+      // discrimination this rule needs.
       const PARTICLES =
-        /^(?:by|via|in|with|through|per|as|on|at|to|from|after|before|during|under|upon|using|following|since|within)$/i;
+        /^(?:about|above|across|after|against|along|among|around|as|at|before|behind|below|beneath|beside|besides|between|beyond|by|concerning|despite|down|during|except|following|for|from|in|inside|into|like|near|of|off|on|onto|out|outside|over|past|per|regarding|since|through|throughout|till|to|toward|towards|under|underneath|until|unto|up|upon|using|via|with|within|without)$/i;
       while (words.length > 0 && PARTICLES.test(words[words.length - 1]!)) words.pop();
       const last = words[words.length - 1];
       if (last !== undefined && new RegExp(`^(?:${TERMINAL_WORDS})$`, "i").test(last)) {
@@ -852,6 +854,9 @@ describe("backlog ledger graduation", () => {
     expect(boldFieldTerminalHit("**Closed in:** the phase-2 sweep.")).toBe(true);
     expect(boldFieldTerminalHit("**Filed:** 2026-07-31. **Closed after:** PR #700.")).toBe(true);
     expect(boldFieldTerminalHit("**Superseded following:** the picker pivot.")).toBe(true);
+    expect(boldFieldTerminalHit("**Shipped without:** the optional knob.")).toBe(true);
+    expect(boldFieldTerminalHit("**Resolved for:** every adopter site.")).toBe(true);
+    expect(boldFieldTerminalHit("**Closed despite:** the flake noise.")).toBe(true);
     expect(boldFieldTerminalHit("**Shipped precedent**: PR #500 — this one remains open.")).toBe(
       false,
     );
