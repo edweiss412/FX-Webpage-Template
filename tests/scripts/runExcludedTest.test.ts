@@ -233,6 +233,42 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     ).not.toBe(0);
   });
 
+  it("the bash pre-node guard rejects every node-killing source shape (R13-B)", () => {
+    // The vitest-hosted allowlist above runs INSIDE the process pnpm settings
+    // control — an effective nodeOptions preload exits node before vitest
+    // starts, so no vitest test can defend against it. CI therefore runs
+    // scripts/ci/assert-pnpm-sources-clean.sh (pure bash) BEFORE any
+    // pnpm/node; its rejection behavior is pinned here for the unpoisoned
+    // world, and its workflow placement is pinned by the shard-topology and
+    // exclusion-coverage guards.
+    const GUARD = join(ROOT, "scripts", "ci", "assert-pnpm-sources-clean.sh");
+    const runGuard = (fixture: Record<string, string>): number => {
+      const dir = mkdtempSync(join(tmpdir(), "pnpm-sources-"));
+      for (const [name, content] of Object.entries(fixture)) {
+        writeFileSync(join(dir, name), content);
+      }
+      try {
+        execFileSync("bash", [GUARD], { cwd: dir, stdio: "pipe" });
+        return 0;
+      } catch (e) {
+        const status = (e as { status?: number }).status;
+        return typeof status === "number" ? status : -1;
+      }
+    };
+    expect(runGuard({ "package.json": "{}", "pnpm-workspace.yaml": "allowBuilds: {}\n" })).toBe(0);
+    expect(runGuard({ ".npmrc": "" }), ".npmrc presence").not.toBe(0);
+    expect(
+      runGuard({ "pnpm-workspace.yaml": "nodeOptions: --import=x\n" }),
+      "workspace nodeOptions",
+    ).not.toBe(0);
+    expect(
+      runGuard({ "package.json": '{"pnpm":{"nodeOptions":"--import=x"}}' }),
+      "package.json nodeOptions",
+    ).not.toBe(0);
+    // …and the real tree passes it.
+    expect(execFileSync("bash", [GUARD], { cwd: ROOT, stdio: "pipe" }).toString()).toContain("ok");
+  });
+
   it("no dependency shadows the executables the covering chain resolves (R6-B F1)", () => {
     // pnpm run places node_modules/.bin ahead of the hosted toolchain on
     // PATH, so a dependency exporting bin.node (or pnpm/npx) would be what

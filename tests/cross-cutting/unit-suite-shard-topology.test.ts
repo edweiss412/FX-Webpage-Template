@@ -139,6 +139,29 @@ describe("unit-suite matrix topology", () => {
     expect(vitestSteps[0]!.env, `${key}'s step env must be exactly the exclusion gate`).toEqual({
       VITEST_EXCLUDE_ENV_BOUND: "1",
     });
+    // …and the node-side guards run INSIDE the process pnpm settings control:
+    // an effective nodeOptions preload exits node before vitest starts, so
+    // every vitest-hosted allowlist reports nothing while the step is green
+    // (R13-B, probe-confirmed). A bash-only pre-step — unpoisonable by
+    // construction — must precede the vitest step, verbatim and undecorated.
+    const steps = job?.steps ?? [];
+    const bashGuardIdx = steps.findIndex(
+      (s) =>
+        typeof s.run === "string" &&
+        s.run.trim() === "bash scripts/ci/assert-pnpm-sources-clean.sh",
+    );
+    const vitestIdx = steps.findIndex(
+      (s) => typeof s.run === "string" && (s.run as string).includes("vitest run"),
+    );
+    expect(bashGuardIdx, `${key} must run the bash pnpm-sources guard`).toBeGreaterThanOrEqual(0);
+    expect(
+      bashGuardIdx < vitestIdx,
+      `${key}'s bash pnpm-sources guard must precede the vitest step`,
+    ).toBe(true);
+    expect(
+      Object.keys(steps[bashGuardIdx]!).sort(),
+      `${key}'s bash guard step must carry ONLY name/run`,
+    ).toEqual(["name", "run"]);
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently

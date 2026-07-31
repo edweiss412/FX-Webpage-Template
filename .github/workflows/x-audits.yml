@@ -235,6 +235,8 @@ jobs:
       # ENV_BOUND_COVERAGE_REGISTRY — no if:, no shell:, no pipes, exact
       # string. The oracle behind the alias (scripts/run-excluded-test.mjs)
       # requires child exit 0 AND >=1 passed AND 0 failed.
+      - name: Refuse node-killing pnpm settings (bash layer, pre-node)
+        run: bash scripts/ci/assert-pnpm-sources-clean.sh
       - name: Prove the excluded email-canonicalization file executes here
         run: pnpm run-excluded tests/cross-cutting/email-canonicalization.test.ts
       - name: Upload X.5 email-canonicalization audit artifact

@@ -123,6 +123,8 @@ jobs:
         # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
         # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Refuse node-killing pnpm settings (bash layer, pre-node)
+        run: bash scripts/ci/assert-pnpm-sources-clean.sh
       - name: Run serial project, shard ${{ matrix.shard }}/8
         # fileParallelism:false still holds WITHIN a leg, and legs never share a
         # database (separate runners), so the serial-DB guarantee is unchanged.
@@ -155,6 +157,8 @@ jobs:
       # moved to serial in the same change). Adding a boot here would silently
       # hand back the ~71s per leg this job exists to save, so the topology
       # meta-test asserts this job never mentions the bootstrap.
+      - name: Refuse node-killing pnpm settings (bash layer, pre-node)
+        run: bash scripts/ci/assert-pnpm-sources-clean.sh
       - name: Run parallel project, shard ${{ matrix.shard }}/3
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
