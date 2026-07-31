@@ -151,6 +151,21 @@ const FILED_FIELD_LINE = new RegExp(`^\\s*${CONTAINER}(?:\\*\\*)?Filed`, "i");
 const CONTAINER_ONLY = new RegExp(`^\\s*${CONTAINER}\\s*$`);
 const firstContentLine = (lines: string[]): string =>
   lines.find((l) => l.trim() !== "" && !CONTAINER_ONLY.test(l)) ?? "";
+// r27 — CLASS closure for "a markdown spelling the regex lanes cannot see":
+// instead of teaching every lane every equivalent surface syntax, the
+// section text is NORMALIZED before any lane runs. Two rewrites:
+// `__` becomes `**` (markdown's bold twin — `__Status:__ CLOSED` renders
+// identically to the `**` form every lane recognizes), and HTML comments
+// (`<!-- … -->`, including multiline and unterminated) are deleted, since
+// commented text renders as nothing: a comment-only line must not swallow
+// the opening-line selection, and a claim inside a comment is not the
+// entry's rendered claim about itself. Single `_…_` italics already ride
+// the WRAP class unchanged.
+const normalizeSection = (text: string): string =>
+  text
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!--[\s\S]*$/, "")
+    .replace(/__/g, "**");
 // The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
 // in boldFieldTerminalHit below — per-occurrence since r17.
 const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
@@ -194,10 +209,18 @@ const terminalHit = (line: string, matcher: RegExp): boolean =>
  * as wholly partial; iterating occurrences lets a later bare claim count).
  */
 function boldFieldTerminalHit(line: string): boolean {
-  for (const seg of line.match(/\*\*[^*\n]+\*\*/g) ?? []) {
+  // r27: the veto window is the LINE prefix, not the segment prefix — a
+  // modifier can sit outside the emphasis boundary (`Not **CLOSED:**`,
+  // `Partially **SHIPPED**`, `**Not** **CLOSED**`) and still directly
+  // modify the word; PARTIAL_BEFORE's tail class already crosses the `**`
+  // marks. Per-occurrence semantics are unchanged: a later segment with an
+  // unmodified claim still counts.
+  const segRe = /\*\*[^*\n]+\*\*/g;
+  for (let s = segRe.exec(line); s !== null; s = segRe.exec(line)) {
+    const seg = s[0];
     const word = new RegExp(`(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?![A-Za-z0-9])`, "gi");
     for (let m = word.exec(seg); m !== null; m = word.exec(seg)) {
-      if (!PARTIAL_BEFORE.test(seg.slice(0, m.index))) return true;
+      if (!PARTIAL_BEFORE.test(line.slice(0, s.index + m.index))) return true;
     }
   }
   return false;
@@ -473,7 +496,9 @@ describe("backlog ledger graduation", () => {
     for (const [i, h] of headings.entries()) {
       const start = h.index!;
       const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
-      const section = backlog.slice(start, end);
+      // r27: normalize BEFORE any lane runs — bold-twin `__` spellings and
+      // HTML comments (rendered as nothing) otherwise defeat every matcher.
+      const section = normalizeSection(backlog.slice(start, end));
       const lines = section.split("\n");
       const headingLine = lines[0] ?? "";
       const openingLine = firstContentLine(lines.slice(1));
@@ -612,6 +637,31 @@ describe("backlog ledger graduation", () => {
     expect(boldFieldTerminalHit("**Never RESOLVED** — parked pending owner call.")).toBe(false);
     expect(boldFieldTerminalHit("**Not closed at first, later CLOSED:** shipped.")).toBe(true);
     expect(boldFieldTerminalHit("**CANNOT-CLOSE follow-up, RESOLVED:** shipped.")).toBe(true);
+    // r27 — the veto window crosses the emphasis boundary: a modifier
+    // OUTSIDE the bold segment still directly modifies the word…
+    expect(boldFieldTerminalHit("**Filed:** 2026. Not **CLOSED:** waiting.")).toBe(false);
+    expect(boldFieldTerminalHit("Never **RESOLVED** — owner call pending.")).toBe(false);
+    expect(boldFieldTerminalHit("Partially **SHIPPED** behind the flag.")).toBe(false);
+    expect(boldFieldTerminalHit("**Not** **CLOSED** — blocked on #700.")).toBe(false);
+    expect(boldFieldTerminalHit("was **NOT CLOSED** early; later **CLOSED** by PR #9.")).toBe(true);
+    // r27 — `__` is markdown's bold twin and HTML comments render as
+    // nothing; normalizeSection folds both into the lanes every matcher
+    // already knows:
+    expect(terminalHit(normalizeSection("__Status:__ CLOSED"), STATUS_TERMINAL)).toBe(true);
+    expect(terminalHit(normalizeSection("__Filed:__ CLOSED 2026-07-24"), FILED_TERMINAL)).toBe(
+      true,
+    );
+    expect(boldFieldTerminalHit(normalizeSection("**Filed:** 2026. __Closed:__ 2026."))).toBe(true);
+    expect(
+      terminalHit(normalizeSection("__Resolved__ by PR #9."), OPENING_TERMINAL_BOLD),
+    ).toBe(true);
+    expect(
+      firstContentLine(normalizeSection("<!-- bookkeeping -->\n**CLOSED** by PR #1.").split("\n")),
+    ).toBe("**CLOSED** by PR #1.");
+    expect(
+      firstContentLine(normalizeSection("<!--\nnote\n-->\n> **CLOSED** by PR #1.").split("\n")),
+    ).toBe("> **CLOSED** by PR #1.");
+    expect(normalizeSection("open <!-- Status: CLOSED --> entry")).toBe("open  entry");
   });
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
