@@ -35,11 +35,13 @@ Create tests/parser/inlineLaterGroupDetector.test.ts with this harness and the u
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { classifyLaterSegment } from "@/lib/parser/blocks/hotels";
+import { classifyLaterSegment, type LaterSegmentOutcome } from "@/lib/parser/blocks/hotels";
 
 describe("classifyLaterSegment unit oracles (spec 2026-07-27 §8.1)", () => {
   it("Tier 2, D6 names-empty abort", () => {
-    const outcome = classifyLaterSegment(
+    // the explicit annotation is the compile-time oracle for the exported
+    // LaterSegmentOutcome type (plan R10 f2)
+    const outcome: LaterSegmentOutcome = classifyLaterSegment(
       "Marriott Downtown 200 Oak Ave, Chicago, IL 60601 Jane Doe Check In: 3/3/26 Check Out: 3/4/26",
       1,
       "2026",
