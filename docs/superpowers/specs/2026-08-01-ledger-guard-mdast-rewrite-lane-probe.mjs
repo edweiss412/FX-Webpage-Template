@@ -214,6 +214,13 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
   const found = [];
   tops.forEach((n, i) => {
     if (n.type !== "heading" || !(levels ?? [2, 3]).includes(n.depth)) return;
+    // r8: source parity — the legacy matcher requires the id (or its bracket
+    // prefix) to start in PLAIN text at the heading start. A heading whose
+    // first inline child is strong/emphasis/inlineCode (`### **NOTES**`)
+    // never minted an id and must not now: gate on first child type text or
+    // delete (ratified strikethrough).
+    const first = (n.children ?? [])[0];
+    if (!first || (first.type !== "text" && first.type !== "delete")) return;
     const flat = flattenLines([n], "id")[0]?.text ?? "";
     const m = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat);
     if (!m || /[a-z]/.test(m[1])) return;
@@ -308,6 +315,46 @@ shape("post-id anchor still caught", "## [P2] BL-P5 — CLOSED 2026", true, "hea
 // r4-review shapes
 shape("pre-id duplicated-id anchor", "## [BL-P6 — CLOSED prior arc] BL-P6 — open", false, "heading");
 shape("pre-id id-substring anchor", "## [XBL-P7X — CLOSED prior arc] BL-P7 — open", false, "heading");
+// r8-review shapes: formatted SHOUTY prose headings mint no id (source parity)
+for (const [nm, md] of [
+  ["strong-formatted heading", "### **NOTES** — prose\n\nbody\n"],
+  ["emphasis-formatted heading", "### *NOTES* — prose\n\nbody\n"],
+  ["code-formatted heading", "### \`NOTES\` — prose\n\nbody\n"],
+]) {
+  const ids = entries(md, { requirePrefix: null, levels: [3] }).map((e) => e.id);
+  const ok = ids.length === 0;
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} expected=[] ${ok ? "OK" : "MISMATCH"}`);
+}
+// four-ledger id parity census: legacy regex vs walker extraction
+{
+  const legacyIds = (text, requirePrefix) => {
+    const level = requirePrefix === null ? "###" : "#{2,3}";
+    const re = new RegExp(`^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`, "gm");
+    const out = new Set();
+    for (const m of text.matchAll(re)) {
+      if (/[a-z]/.test(m[1])) continue;
+      if (requirePrefix !== null && !m[1].startsWith(requirePrefix)) continue;
+      out.add(m[1]);
+    }
+    return out;
+  };
+  for (const [rel, prefix, levels] of [
+    ["DEFERRED.md", null, [3]],
+    ["DEFERRED-archive.md", null, [3]],
+    ["BACKLOG.md", "BL-", [2, 3]],
+    ["BACKLOG-archive.md", "BL-", [2, 3]],
+  ]) {
+    const text = readFileSync(rel, "utf8");
+    const legacy = legacyIds(text, prefix);
+    const walker = new Set(entries(text, { requirePrefix: prefix, levels }).map((e) => e.id));
+    const onlyLegacy = [...legacy].filter((x) => !walker.has(x));
+    const onlyWalker = [...walker].filter((x) => !legacy.has(x));
+    const ok = onlyLegacy.length === 0 && onlyWalker.length === 0;
+    if (!ok) fails++;
+    console.log(`id-parity ${rel}: legacy=${legacy.size} walker=${walker.size} onlyLegacy=${JSON.stringify(onlyLegacy)} onlyWalker=${JSON.stringify(onlyWalker)} ${ok ? "OK" : "MISMATCH"}`);
+  }
+}
 // r5-review shapes: token maximality across strong-span edges
 shape("edge-split label prefix", "re-**CLOSED**: discussion", false);
 shape("edge-split label suffix", "**CLOSED**-by: discussion", false);
