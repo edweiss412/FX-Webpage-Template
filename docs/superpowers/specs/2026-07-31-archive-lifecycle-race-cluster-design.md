@@ -108,7 +108,7 @@ Migration mechanics (one new file, apply-twice idempotent):
 - `unarchiveShow`'s catch-up-sync gate (`data === true`) keeps working unchanged; it additionally surfaces `performed` on its return.
 - Non-lifecycle `{ ok: true }` LifecycleResult producers: plan runs `rg "ok: true" lib/showLifecycle app` to enumerate and update every constructor site (e.g. `SHOW_NOT_FOUND` sentinel is `ok:false`, unaffected).
 
-**Guard conditions:** `data` null (void RPC transitional window, thrown-catch path) → `performed:false` → emission suppressed, revalidate still runs. `data` non-boolean garbage → same. No new stored flags (no flag-lifecycle table needed — `performed` is a transient return value).
+**Guard conditions (R2 finding 1 repair):** `data` null on a RETURNED-ok call (void RPC transitional window) or non-boolean garbage → `{ok:true, performed:false}` → emission suppressed, revalidate still runs. A THROWN fault never reaches this mapping — `callLifecycleRpc`'s catch keeps producing `{ok:false, code:"infra_error"}` (invariant 9, refusal arm unchanged): no revalidate, no emission, retry copy rendered. No new stored flags (`performed` is a transient return value; no flag-lifecycle table).
 
 ## §5 UI hardening — kill the 6ms painted frame
 
