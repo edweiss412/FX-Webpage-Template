@@ -51,7 +51,7 @@ export function lineViolations(rel: string, text: string, lineNo: number): Viola
   for (const hit of text.matchAll(OFFSET)) {
     const chain = hit[1] ?? "";
     const companion = new RegExp(
-      `(?:^|[\\s"'\`])${esc(chain)}ring-offset-(${FOCUS_BACKDROP_ALLOWLIST.join("|")})(?![\\w-])`,
+      `(?:^|[\\s"'\`])${esc(chain)}ring-offset-(${FOCUS_BACKDROP_ALLOWLIST.join("|")})(?![\\w/-])`,
     );
     if (companion.test(text)) continue;
     if (rel in INDIRECTION_REGISTRY) continue;
@@ -95,6 +95,7 @@ describe("no bare ring-offset-2 / no focus outline-accent (spec 4.3)", () => {
     ["a.tsx", 'className="peer-focus-visible:ring-offset-2 focus-visible:ring-offset-surface"', true], // family 5: chain mismatch
     ["a.tsx", "className={`focus-visible:ring-offset-2 ${x}`}", true], // family 6: unregistered indirection
     ["a.tsx", 'className="focus-visible:outline-accent"', true], // family 7: focus outline-accent
+    ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-surface/garbage"', true], // whole-diff A mutant: modifier suffix emits nothing in Tailwind v4
     ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-surface"', false],
     ["a.tsx", 'className="peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"', false],
     ["components/shared/ReportButton.tsx", "className={`focus-visible:ring-offset-2 ${offsetClass}`}", false], // registry lane
