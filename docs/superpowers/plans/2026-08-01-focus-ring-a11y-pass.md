@@ -82,15 +82,18 @@ function blend(fg: string, alpha: number, bg: string): string {
       .toString(16).padStart(2, "0");
   return `#${mix(0)}${mix(2)}${mix(4)}`;
 }
-function blockOf(selectorStart: string): string {
-  const start = css.indexOf(selectorStart);
-  if (start < 0) throw new Error(`selector not found: ${selectorStart}`);
+function blockOf(selector: RegExp): string {
+  // Anchored regex (multiline, line-start) so a selector string appearing in a
+  // COMMENT never matches: globals.css:45 mentions [data-theme="dark"] in prose.
+  const m = selector.exec(css);
+  if (m === null) throw new Error(`selector not found: ${String(selector)}`);
+  const start = m.index;
   let depth = 0;
   for (let i = css.indexOf("{", start); i < css.length; i++) {
     if (css[i] === "{") depth++;
     if (css[i] === "}" && --depth === 0) return css.slice(start, i + 1);
   }
-  throw new Error(`unclosed block: ${selectorStart}`);
+  throw new Error(`unclosed block: ${String(selector)}`);
 }
 function tokenIn(block: string, token: string): string {
   const m = new RegExp(`${token}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block);
@@ -98,9 +101,9 @@ function tokenIn(block: string, token: string): string {
   return m[1];
 }
 
-const lightBlock = blockOf(":root {");
-const explicitDark = blockOf('[data-theme="dark"]'); // ~:380, NOT the :root:not(...) selector, which lives INSIDE the media query (~:336)
-const mediaDark = blockOf("@media (prefers-color-scheme: dark)");
+const lightBlock = blockOf(/^:root \{/m);
+const explicitDark = blockOf(/^\[data-theme="dark"\]\s*\{/m); // rule at ~:380; line-start anchor skips the :45 comment mention and the media-nested :root:not(...) (~:336)
+const mediaDark = blockOf(/^@media \(prefers-color-scheme: dark\)/m);
 
 const ringDecls = [...css.matchAll(/--color-focus-ring-runtime:\s*([^;]+);/g)]
   .map((m) => (m[1] ?? "").trim());
