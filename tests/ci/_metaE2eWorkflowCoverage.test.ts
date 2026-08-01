@@ -139,10 +139,24 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // run is the exact harm this guard exists to prevent.
   const standaloneMembers = listedSpecFiles().map((f) => `tests/e2e/${f}`);
 
+  // Local composite actions run in the caller's job env (cross-step-env-guard
+  // spec §2.2): hand the scanner every action manifest so a `uses: ./…` step
+  // resolves — a ./ ref MISSING from this map poisons fail-closed, so the map
+  // must be complete for the live tree.
+  const localActions = Object.fromEntries(
+    (readdirSync(join(ROOT, ".github/actions"), { recursive: true }) as string[])
+      .filter((f) => /(^|[\\/])action\.ya?ml$/.test(f))
+      .map((f) => [
+        `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`,
+        readFileSync(join(ROOT, ".github/actions", f), "utf8"),
+      ]),
+  );
+
   const { covered } = scanWorkflowCoverage({
     workflows,
     packageScripts,
     configSpecs: { "tests/e2e/standalone.config.ts": standaloneMembers },
+    localActions,
   });
 
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
@@ -359,6 +373,144 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
   it("rejects a step-level continue-on-error expression placed before run:", () => {
     const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - continue-on-error: \${{ true }}\n        run: playwright test ${spec}\n`;
     expect(S(w).covered.has(spec)).toBe(false);
+  });
+});
+
+describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec §2.2)", () => {
+  const spec = "tests/e2e/foo.spec.ts";
+  const REASON = "earlier same-job step writes GITHUB_ENV/GITHUB_PATH";
+  const INVOKE = `run: pnpm exec playwright test ${spec}`;
+  const two = (first: string, second = INVOKE) =>
+    `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${first}\n      - ${second}\n`;
+  const S = (w: string, localActions: Record<string, string> = {}) =>
+    scanWorkflowCoverage({ workflows: { "w.yml": w }, packageScripts: {}, localActions });
+
+  it("rejects a claim after an earlier same-job env write, in EVERY write shape (F1/F2)", () => {
+    // No write-shape grammar: mention = poison. A predicate narrowed to one
+    // redirect form would pass at least one of these three. Semantically
+    // real writes (R1 probe honesty): a GITHUB_PATH entry is a PATH
+    // COMPONENT to prepend — the corrupting form is a directory holding a
+    // fake pnpm; a PATH= assignment corrupts via GITHUB_ENV.
+    for (const write of [
+      'run: echo "/fake-bin" >> "$GITHUB_PATH"',
+      'run: echo "PATH=/fake-bin:$PATH" | tee -a "$GITHUB_ENV"',
+      'run: echo "/fake-bin" > "$GITHUB_PATH"',
+    ]) {
+      const r = S(two(write));
+      expect(r.covered.has(spec), write).toBe(false);
+      expect(r.rejected[0]!.reason, write).toBe(REASON);
+    }
+  });
+
+  it("a write AFTER the invocation step poisons nothing before it (F3)", () => {
+    const r = S(two(INVOKE, 'run: echo "X=1" >> "$GITHUB_ENV"'));
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("env state is job-scoped: a write in another job does not poison (F1 precision)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("local composite actions: unknown ref fails closed; provided text decides (F4/F5)", () => {
+    const ghost = S(two("uses: ./.github/actions/ghost"));
+    expect(ghost.covered.has(spec)).toBe(false);
+    expect(ghost.rejected[0]!.reason).toBe(REASON);
+    const clean = S(two("uses: ./.github/actions/ok"), {
+      "./.github/actions/ok": "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n",
+    });
+    expect(clean.covered.has(spec)).toBe(true);
+    const writer = S(two("uses: ./.github/actions/w"), {
+      "./.github/actions/w":
+        'runs:\n  using: composite\n  steps:\n    - run: echo "X=1" >> "$GITHUB_ENV"\n      shell: bash\n',
+    });
+    expect(writer.covered.has(spec)).toBe(false);
+    expect(writer.rejected[0]!.reason).toBe(REASON);
+  });
+
+  it("marketplace (non-./) actions stay trusted (spec §5 L1)", () => {
+    const r = S(two("uses: actions/checkout@v4"));
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("javascript/docker local actions are opaque even when provided (F7)", () => {
+    // R1 escaping mutant #1: no runs.steps to inspect, and the entry code
+    // can core.addPath / core.exportVariable — presence in the map is not
+    // "modeled". Fail-closed.
+    const r = S(two("uses: ./.github/actions/js"), {
+      "./.github/actions/js": "runs:\n  using: node20\n  main: index.js\n",
+    });
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(REASON);
+  });
+
+  it("nested local composites resolve recursively; cycles fail closed (F8)", () => {
+    // R1 escaping mutant #2: a composite may `uses:` another local
+    // composite; the child's writes must poison the caller's job.
+    const parent =
+      "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/child\n";
+    const w = two("uses: ./.github/actions/parent");
+    const writer = S(w, {
+      "./.github/actions/parent": parent,
+      "./.github/actions/child":
+        'runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      shell: bash\n',
+    });
+    expect(writer.covered.has(spec)).toBe(false);
+    expect(writer.rejected[0]!.reason).toBe(REASON);
+    const clean = S(w, {
+      "./.github/actions/parent": parent,
+      "./.github/actions/child":
+        "runs:\n  using: composite\n  steps:\n    - run: echo ok\n      shell: bash\n",
+    });
+    expect(clean.covered.has(spec)).toBe(true);
+    const cycle = S(two("uses: ./.github/actions/cycle"), {
+      "./.github/actions/cycle":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/cycle\n",
+    });
+    expect(cycle.covered.has(spec)).toBe(false);
+    expect(cycle.rejected[0]!.reason).toBe(REASON);
+  });
+
+  it("a QUOTED local ref cannot dodge into the trusted-marketplace branch", () => {
+    const r = S(two('uses: "./.github/actions/ghost"'));
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(REASON);
+  });
+
+  it("between-step comment prose mentioning GITHUB_ENV does not poison (F6 comment-glue)", () => {
+    // The step-splitter glues BETWEEN-step comment lines onto the preceding
+    // step's chunk; prose there must stay inert.
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      # GITHUB_ENV is documented prose, not a write\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
+  it("chunk-level matching is deliberately broader than run-block matching (spec §5 L5)", () => {
+    // A name: line mentioning GITHUB_ENV poisons — conservative direction,
+    // costs a rename or a reasoned row, never silent false coverage.
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: touch GITHUB_ENV\n        run: echo hi\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(REASON);
+  });
+
+  it("a poisoned whole-config claim is rejected AND reported, not dropped", () => {
+    const CFG = "tests/e2e/standalone.config.ts";
+    const members = ["tests/e2e/alpha.spec.ts", "tests/e2e/beta.spec.ts"];
+    const w = two(
+      'run: echo "X=1" >> "$GITHUB_ENV"',
+      `run: pnpm exec playwright test --config ${CFG}`,
+    );
+    const r = scanWorkflowCoverage({
+      workflows: { "w.yml": w },
+      packageScripts: {},
+      configSpecs: { [CFG]: members },
+      localActions: {},
+    });
+    expect([...r.covered]).toEqual([]);
+    expect(r.rejected.map((x) => x.spec).sort()).toEqual([...members].sort());
+    expect(new Set(r.rejected.map((x) => x.reason))).toEqual(new Set([REASON]));
   });
 });
 

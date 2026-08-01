@@ -85,7 +85,79 @@ type Opts = {
    * yields no whole-config claim.
    */
   configSpecs?: Record<string, string[]>;
+  /**
+   * Local composite-action ref exactly as written in `uses:` (e.g.
+   * "./.github/actions/setup") -> that action's raw YAML text. Composite
+   * steps execute in the CALLER's job env, so a local action that writes
+   * GITHUB_ENV/GITHUB_PATH poisons the caller's later steps (cross-step-env
+   * spec §2.2). A `./` ref ABSENT from this map is an opaque same-env
+   * executor and poisons fail-closed; non-`./` (marketplace) refs stay
+   * trusted — setup-node writes GITHUB_PATH by design, and modeling remote
+   * action internals is out of universe (spec §5 L1).
+   */
+  localActions?: Record<string, string>;
 };
+
+/**
+ * Cross-step env-state predicate (cross-step-env-guard spec §2.0): after
+ * dropping full-line `#` lines (they never execute, and the step-splitter
+ * glues BETWEEN-step comment prose onto the preceding chunk), any mention of
+ * GITHUB_ENV or GITHUB_PATH marks the environment of every LATER same-job
+ * step untrusted — `echo "PATH=/fake:$PATH" >> "$GITHUB_PATH"` makes a
+ * textually clean downstream `pnpm exec playwright test` run a fake pnpm
+ * that exits 0. Deliberately NO write-shape grammar (>> vs > vs tee vs
+ * heredoc) and no read/write distinction: that is shell modeling, the losing
+ * game. Matched against the WHOLE step chunk (name:/with:/env: lines
+ * included) — broader than the census's run-block match, in the safe
+ * direction (spec §5 L5).
+ */
+function writesJobEnv(chunk: string): boolean {
+  return /GITHUB_ENV|GITHUB_PATH/.test(
+    chunk
+      .split("\n")
+      .filter((l) => !/^[ \t]*#/.test(l))
+      .join("\n"),
+  );
+}
+
+/**
+ * Whether a step chunk's `uses:` refs make the job env untrusted. Local
+ * (`./`) refs resolve through `localActions` and RECURSE — a composite may
+ * `uses:` another local composite (spec R1's escaping mutant #2). Poison
+ * fail-closed when the ref is unknown, cyclic (PATH-scoped guard;
+ * sequential reuse is legit), NOT `using: composite` (a javascript/docker
+ * action's entry code can call core.addPath / core.exportVariable with
+ * nothing for a text scan to see — spec R1's escaping mutant #1), or when
+ * any resolved manifest mentions GITHUB_ENV/GITHUB_PATH outside comments.
+ * Quotes around the ref are stripped first — `uses: "./x"` must not dodge
+ * the `./` test into the trusted-marketplace branch. Non-`./` refs stay
+ * trusted (spec §5 L1: setup-node writes GITHUB_PATH by design).
+ */
+function localActionPoisons(
+  chunk: string,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): boolean {
+  const stripped = chunk
+    .split("\n")
+    .filter((l) => !/^[ \t]*#/.test(l))
+    .join("\n");
+  for (const m of stripped.matchAll(/(^|\n)\s*(?:-\s*)?uses\s*:\s*["']?([^\s"']+)/g)) {
+    const ref = m[2]!;
+    if (!ref.startsWith("./")) continue;
+    if (seen.has(ref)) return true;
+    const text = localActions[ref];
+    if (text === undefined) return true;
+    const textStripped = text
+      .split("\n")
+      .filter((l) => !/^[ \t]*#/.test(l))
+      .join("\n");
+    if (!/(^|\n)\s*using\s*:\s*["']?composite\b/.test(textStripped)) return true;
+    if (writesJobEnv(text)) return true;
+    if (localActionPoisons(text, localActions, new Set(seen).add(ref))) return true;
+  }
+  return false;
+}
 
 /** The `on:` block (from the `on:` line to the next top-level key). */
 function onBlock(yaml: string): string {
@@ -210,7 +282,12 @@ const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container
 const UNMODELLED_SHELL_RE =
   /[$`]|(?:^|[\n;&|])[ \t]*[{}]|(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.[ \t]|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[^\s;&|(){}]+[ \t]*\([ \t]*\))/;
 
-export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
+export function scanWorkflowCoverage({
+  workflows,
+  packageScripts,
+  configSpecs = {},
+  localActions = {},
+}: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
 } {
@@ -262,45 +339,64 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
       const jobCoe = hasContinueOnError(job.head);
+      // Cross-step env state, threaded across ALL step chunks of this job in
+      // order (uses: and other run-less steps included — bookkeeping must not
+      // sit behind the run:-presence early-continue). Qualification runs
+      // BEFORE this step's own bookkeeping: a step that both invokes and
+      // writes poisons only LATER steps — its own within-block write is the
+      // R12 class ($GITHUB_ENV trips UNMODELLED_SHELL_RE if the block
+      // claims). Per-job flag: env state does not cross jobs, and
+      // over-poisoning would force reason-free allowlist rows.
+      let envPoisoned = false;
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
-        if (!runMatch) continue;
-        // Full-line YAML/shell comments never execute, and the step-splitter
-        // glues BETWEEN-step comment lines onto the preceding step's chunk —
-        // prose there routinely carries backticks/$/braces that would trip
-        // the shell-construct refusal on an innocent step. Inline comments
-        // are NOT stripped (the pre-# part executes; conservative).
-        const cmd = runMatch[2]!
-          .split("\n")
-          .filter((l) => !/^[ \t]*#/.test(l))
-          .join("\n");
-        const stepIf = /(^|\n)\s*if\s*:/.test(step);
-        const stepCoe = hasContinueOnError(step);
-        // Whole-config claim. Evaluated against the ENTIRE run block, and
-        // deliberately NOT through alias resolution: an adversarial round
-        // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
-        // `set +e` block, and for a backgrounded `… &`, because alias
-        // recursion applied the exact match to the package-script BODY while
-        // qualification only ever saw the outer command. Requiring the whole
-        // run block to BE the literal removes the shell reasoning entirely —
-        // there is no surrounding context left to smuggle anything into.
-        const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
-        const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+        if (runMatch) {
+          // Full-line YAML/shell comments never execute, and the step-splitter
+          // glues BETWEEN-step comment lines onto the preceding step's chunk —
+          // prose there routinely carries backticks/$/braces that would trip
+          // the shell-construct refusal on an innocent step. Inline comments
+          // are NOT stripped (the pre-# part executes; conservative).
+          const cmd = runMatch[2]!
+            .split("\n")
+            .filter((l) => !/^[ \t]*#/.test(l))
+            .join("\n");
+          const stepIf = /(^|\n)\s*if\s*:/.test(step);
+          const stepCoe = hasContinueOnError(step);
+          // Whole-config claim. Evaluated against the ENTIRE run block, and
+          // deliberately NOT through alias resolution: an adversarial round
+          // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
+          // `set +e` block, and for a backgrounded `… &`, because alias
+          // recursion applied the exact match to the package-script BODY while
+          // qualification only ever saw the outer command. Requiring the whole
+          // run block to BE the literal removes the shell reasoning entirely —
+          // there is no surrounding context left to smuggle anything into.
+          const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+          const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
 
-        for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
-          if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
-          else if (unmodelled)
-            rejected.push({ file, spec, reason: "unmodelled execution override" });
-          else if (hasPathsFilter)
-            rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
-          else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
-          else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
-          else if (suppressesExit(cmd))
-            rejected.push({ file, spec, reason: "exit-code suppression" });
-          else if (UNMODELLED_SHELL_RE.test(cmd))
-            rejected.push({ file, spec, reason: "unmodelled shell construct" });
-          else covered.add(spec);
+          for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
+            if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
+            else if (unmodelled)
+              rejected.push({ file, spec, reason: "unmodelled execution override" });
+            else if (envPoisoned)
+              rejected.push({
+                file,
+                spec,
+                reason: "earlier same-job step writes GITHUB_ENV/GITHUB_PATH",
+              });
+            else if (hasPathsFilter)
+              rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
+            else if (jobIf || stepIf)
+              rejected.push({ file, spec, reason: "if: condition present" });
+            else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
+            else if (suppressesExit(cmd))
+              rejected.push({ file, spec, reason: "exit-code suppression" });
+            else if (UNMODELLED_SHELL_RE.test(cmd))
+              rejected.push({ file, spec, reason: "unmodelled shell construct" });
+            else covered.add(spec);
+          }
         }
+        if (writesJobEnv(step)) envPoisoned = true;
+        if (localActionPoisons(step, localActions, new Set())) envPoisoned = true;
       }
     }
   }
