@@ -80,9 +80,10 @@ The expiry announcement is set in EXACTLY ONE place per surface: the `ARM_REVERT
 - Explicit Cancel / Escape (panel idiom): user-initiated; announcing "nothing was changed" for a deliberate cancel is noise.
 - Sibling-action disarm (e.g. PendingPanelDiscardButtons: any discard starting disarms the pending permanent-ignore): the sibling's own announcements cover it.
 
-Region lifecycle (R1 F2 repair — one rule, both idioms): **arming writes the region; the timer callback writes the region; nothing else writes it.** Concretely:
+Region lifecycle (R1 F2 repair, completed R2 F1 — one rule, both idioms): **the `expired` flag is SET in exactly one place, the timer callback; it is CLEARED by arming AND by any action dispatch on the surface.** Concretely:
 
 - On ARM: morph rows replace the content with the arm prompt; panel rows (whose arm is focus-announced) and multiplex rows CLEAR the expiry text (multiplex rows already clear their outcome on re-arm today, e.g. PickerResetControl's `setOutcome(null)` in `enterConfirm`). Either way the region's content CHANGES on arm.
+- On ANY action dispatch (confirm firing, a sibling mutation starting): `expired` clears alongside the existing disarm. Without this, a surface that multiplexes running text into the same region (PendingPanelDiscardButtons renders "Working…" while running) would transition expiry → "Working…" → back to the PERSISTED expiry text after the mutation settles — re-announcing "Nothing was changed" right after something WAS changed (R2 F1). Row 4 is the only surface that multiplexes running text this way, but the clear-on-dispatch rule applies uniformly so no future multiplexing reopens the class.
 - On timer fire: the region gets `ARM_EXPIRED_ANNOUNCEMENT`.
 
 Because every arm changes the content, the sequence expire → re-arm → expire is two distinct content transitions and the second expiry always announces (an unchanged live-region rewrite may be skipped by screen readers; this rule makes the unchanged rewrite unreachable on the destructive surfaces). No auto-clear timer — a lingering sr-only string re-announces nothing and adds no visual.
@@ -139,8 +140,9 @@ For each matrix row with a timer, extend the surface's existing auto-revert test
 - **Expiry announces:** arm, advance past `ARM_REVERT_MS` → the sr-only `role="status"` region's text equals the LITERAL string "Confirm window closed. Nothing was changed." written in the test, NOT the imported constant (R1 F6 anti-tautology: comparing rendered output to the same import would pass if the constant were edited to anything, including empty).
 - **Every explicit disarm path is silent, including after the timer horizon** (R1 F4): for EACH path below — disarm, then advance past `ARM_REVERT_MS`, then assert the region never contained the expiry copy (the advance catches a stale timer that a same-tick assertion would miss). Paths per surface:
   - second-tap confirm (all timered rows);
-  - Cancel: rows 5, 8, 9, 10, 11; Cancel + Escape + parent-driven close: row 2;
+  - Cancel: rows 5, 8, 9, 10, 11; Cancel + Escape + backdrop click on the ARMED confirm (`closeFully(false)`, R2 F2 — existing backdrop coverage exercises menu mode only) + parent-driven close: row 2;
   - sibling actions: row 4 (defer discard), row 7 (Apply — proves the F1 fix — and discard);
+  - post-expiry action does not re-announce (R2 F1, row 4): expire → dispatch Defer → let it settle → assert the region holds the outcome/idle content and the expiry copy did NOT return;
   - external `disabled` flip while armed: row 3;
   - arming a DIFFERENT group while one is armed: row 1 (re-arm switches groups; old group's region stays empty).
 - **Re-arm audibility (R1 F2):** expire → re-arm → expire; assert the region content changed on the arm (arm prompt on morph rows, cleared on panel/multiplex rows) and carries the expiry copy again after the second advance.
