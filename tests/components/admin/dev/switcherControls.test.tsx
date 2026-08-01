@@ -260,7 +260,10 @@ describe("SwitcherControls", () => {
     // Row intact: the truncating span is still rendered, just empty.
     const emptySpan = wrapper.querySelector("span.truncate");
     expect(emptySpan).not.toBeNull();
-    expect(hasClass(emptySpan!, "min-w-0")).toBe(true);
+    // min-w-12 (was min-w-0): the 48px readable floor from the 390px pass
+    // (spec 2026-08-01-focus-ring-a11y-pass 7.1) — zero-width collapse was the
+    // BL-DEV-SWITCHER-BAR-MOBILE-WIDTH defect.
+    expect(hasClass(emptySpan!, "min-w-12")).toBe(true);
     expect(emptySpan!.textContent).toBe("");
 
     const long = "x".repeat(200);
