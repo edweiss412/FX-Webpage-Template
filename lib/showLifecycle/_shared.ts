@@ -1,7 +1,10 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-/** Typed result of a lifecycle RPC caller. `code` is a known §12.4 code or `infra_error`. */
-export type LifecycleResult = { ok: true } | { ok: false; code: string };
+/** Typed result of a lifecycle RPC caller. `code` is a known §12.4 code or `infra_error`.
+ *  `performed` is the RPC's discriminator: true iff THIS call performed the state transition,
+ *  false on an idempotent no-op (race-cluster spec §4) — admin actions gate forensic telemetry
+ *  on it so a repeat submit cannot duplicate a SHOW_* event for a transition that did not occur. */
+export type LifecycleResult = { ok: true; performed: boolean } | { ok: false; code: string };
 
 /** Shape of the injectable RPC dependency (matches the supabase-js `.rpc()` return contract). */
 export type LifecycleRpc = (
@@ -35,9 +38,12 @@ export const defaultRpc = (): LifecycleRpc => async (fn, args) => {
   return { data, error };
 };
 
-/** Map a {data,error} RPC result to a typed LifecycleResult. */
-export function mapRpcResult(error: { message?: string } | null): LifecycleResult {
-  if (!error) return { ok: true };
+/** Map a {data,error} RPC result to a typed LifecycleResult. `performed` is fail-closed
+ *  (`data === true` exactly): a void-RPC transitional window or malformed payload suppresses
+ *  one telemetry emission rather than fabricating a transition. Thrown faults never reach this
+ *  mapping — callLifecycleRpc's catch owns them (infra_error, invariant 9). */
+export function mapRpcResult(error: { message?: string } | null, data: unknown): LifecycleResult {
+  if (!error) return { ok: true, performed: data === true };
   const msg = error.message ?? "";
   const code = KNOWN.find((c) => msg.includes(c));
   return { ok: false, code: code ?? "infra_error" };
@@ -59,7 +65,7 @@ export async function callLifecycleRpc(
 ): Promise<{ result: LifecycleResult; data: unknown }> {
   try {
     const { data, error } = await rpc(fn, args);
-    return { result: mapRpcResult(error), data };
+    return { result: mapRpcResult(error, data), data };
   } catch {
     return { result: { ok: false, code: "infra_error" }, data: null };
   }

@@ -387,9 +387,29 @@ A rule-based esbuild plugin (`onResolve` matching server-only specifiers → a C
 
 **Trigger:** a second harness entry reaching the server tree, or a decision to invest in a graph-derived rule (stub a module iff it transitively imports a server-only package) rather than a path heuristic.
 
+> **Superseded (2026-07-31, ci-dark descoped close-out PR-C).** Resolved by a
+> DIRECTIVE rule rather than the path/graph heuristics weighed above:
+> `tests/e2e/helpers/useServerDirectivePlugin.mjs` stubs a module iff its own
+> prologue cooks to `"use server"` (a real TypeScript parse of the authoritative
+> Next signal — no path matching, no proxy). Each unsoundness above dissolves:
+> the stub THROWS on any property read or call (the "consumed without invocation"
+> silent path is gone; contract-tested with a disabled-plugin mutation control),
+> and there is no path rule to overmatch (`driveFolderUrl.ts` / `SHOW_NOT_FOUND`
+> carry no directive, so they are never touched). Contract-tested at the build
+> boundary over 18 fixtures and consolidated across both harness bundlers.
+> Graduated in `feat/ci-dark-directive-resolver`; see the close-out spec §5.
+
 ### §10.2 `BL-HARNESS-PACKLIST-SERVER-GRAPH`
 
 Removed from the config in PR1 (§3.1) because its entry reaches `googleapis` (913 graph inputs) and `postgres` through `"use server"` boundaries, and no per-module alias list fixes it. Restoring it needs either §10.1 or a trimmed import graph for `step3ReviewSections.tsx`. Full chain and the ten `lib/sync` importers are in §3.1.
+
+> **Superseded (2026-07-31, ci-dark descoped close-out PR-C).**
+> `packlist-rescan-recovery.spec.ts` is back in `tests/e2e/standalone.config.ts`'s
+> testMatch under the §10.1 directive resolver: it stubs every `"use server"`
+> boundary by class, so the whole `googleapis` / `postgres` / `google-auth-library`
+> subtree drops out. The import-graph reality check measured 0 inputs under those
+> packages on this exact entry (1909 total). Graduated in
+> `feat/ci-dark-directive-resolver`.
 
 ### §10.3 `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`
 

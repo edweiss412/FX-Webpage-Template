@@ -4,7 +4,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-08-01 — `fix/judgment-chip-newtab-suffix` (PR #640) graduated `BL-HEADER-JUDGMENT-CHIP-CONTRAST` (border-strong outline, owner-ratified Option A) and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` (`stripNewTabSuffix` value-position dedup at the three interpolated labels). Prior: 2026-07-31 (`feat/sheet-icon-link-affordance-class` close-out, over the 2026-07-27 three-parallel-pass merge base) — mainline #628 graduated three in-place-terminal entries (`BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` PR #615, `BL-HEADER-PROBE-RESIDUAL-VACUITY` PR #617 — its one live follow-up rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` — and `BL-AGENDA-PERDAY-VIEWER-FILTER` PR #610), corrected `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim, kept `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` deliberately, and hardened the graduation meta-test against terminal HEADINGS and SHIPPED status lines. `fix/duration-tokens-emit-no-css` graduated `BL-DURATION-TOKENS-EMIT-NO-CSS` (alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). `feat/ci-dark-descoped-guards` graduated `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`. `feat/sheet-icon-link-affordance-class` independently graduated the same three plus its own closure `BL-HEADER-LINK-AFFORDANCE-CLASS`, widening the meta-test to heading-suffix and opening-line spellings (SUPERSEDED/DONE in the terminal set); the merge deduplicated the double-graduated archive copies and reverted this branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` per #628's deliberate keep. Same branch, at close-out: `BL-HEADER-PILL-LINK-TOUCH-BUFFER` and `BL-HEADER-SUBBLOCK-HIERARCHY-WIDE` graduated — both resolved by the feature itself (asymmetric-overlay 2px pill buffer; linkless sub-block floor drop at every width). NOTE (2026-07-31 split, owner-directed): nineteen adversarial-review rounds of additional guard hardening (ledger container/normalization/field lanes; containment extension/symlink/URL/anchor censuses) were split OUT of the shipping PR to `test/guard-hardening-followup` (snapshot at `a1cfce98d`), chartered under `BL-LEDGER-GUARD-MDAST-REWRITE`. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
+Last reconciled: 2026-08-01 — `fix/judgment-chip-newtab-suffix` (PR #640) graduated `BL-HEADER-JUDGMENT-CHIP-CONTRAST` (border-strong outline, owner-ratified Option A) and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` (`stripNewTabSuffix` value-position dedup at the three interpolated labels). Prior: 2026-07-31 — `BL-HARNESS-RESOLVER-POLICY` + `BL-HARNESS-PACKLIST-SERVER-GRAPH` graduated on `feat/ci-dark-directive-resolver` (PR-C of the ci-dark descoped close-out: shared `"use server"` directive plugin — a parse-based, throw-on-call resolver — consolidated across both harness bundlers, and `packlist-rescan-recovery` returned to the standalone config under it). Prior: 2026-07-31 — `BL-CI-VITEST-EXCLUSION-COVERAGE` graduated on `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out: ENV_BOUND_COVERAGE_REGISTRY + run-excluded execution oracle; test-auth-gate returned to unit-suite). Prior: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries. Prior mainline reconciliation (merged into this branch 2026-07-31): 2026-07-31 (`feat/sheet-icon-link-affordance-class` close-out, over the 2026-07-27 three-parallel-pass merge base) — mainline #628 graduated three in-place-terminal entries (`BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` PR #615, `BL-HEADER-PROBE-RESIDUAL-VACUITY` PR #617 — its one live follow-up rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` — and `BL-AGENDA-PERDAY-VIEWER-FILTER` PR #610), corrected `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim, kept `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` deliberately, and hardened the graduation meta-test against terminal HEADINGS and SHIPPED status lines. `fix/duration-tokens-emit-no-css` graduated `BL-DURATION-TOKENS-EMIT-NO-CSS` (alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). `feat/ci-dark-descoped-guards` graduated `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`. `feat/sheet-icon-link-affordance-class` independently graduated the same three plus its own closure `BL-HEADER-LINK-AFFORDANCE-CLASS`, widening the meta-test to heading-suffix and opening-line spellings (SUPERSEDED/DONE in the terminal set); the merge deduplicated the double-graduated archive copies and reverted this branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` per #628's deliberate keep. Same branch, at close-out: `BL-HEADER-PILL-LINK-TOUCH-BUFFER` and `BL-HEADER-SUBBLOCK-HIERARCHY-WIDE` graduated — both resolved by the feature itself (asymmetric-overlay 2px pill buffer; linkless sub-block floor drop at every width). NOTE (2026-07-31 split, owner-directed): nineteen adversarial-review rounds of additional guard hardening (ledger container/normalization/field lanes; containment extension/symlink/URL/anchor censuses) were split OUT of the shipping PR to `test/guard-hardening-followup` (snapshot at `a1cfce98d`), chartered under `BL-LEDGER-GUARD-MDAST-REWRITE`. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
 
 ---
 
@@ -46,92 +46,12 @@ descoped after four cross-model review rounds (37 accepted findings, none disput
 iterating. One of the four, `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`, shipped 2026-07-27 on
 `feat/ci-dark-descoped-guards` (with the separately-filed ceiling item
 `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`) and graduated to
-[BACKLOG-archive.md](./BACKLOG-archive.md); the three below remain open.
+[BACKLOG-archive.md](./BACKLOG-archive.md), followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry); the two below remain open.
 
 **Do not re-derive this analysis.** Each entry records what was tried and the measurement that
 killed it. The reason each is open is that the obvious approach was implemented and shown not to
 work, not that nobody thought about it. Full write-up with metafile traces and per-entry bundle
 sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
-
-### BL-HARNESS-RESOLVER-POLICY — a sound server-only resolver for browser harnesses
-
-**Status:** OPEN · **Severity:** medium · **Class:** TEST-HARNESS SOUNDNESS
-
-A rule-based esbuild plugin (`onResolve` matching server-only specifiers, `onLoad` returning a CJS
-proxy stub) **was built and it works**: all 7 live harness entries build, all 7 render in a real
-browser, and no stub is called. It was descoped because its safety _guarantee_ is unsound, not
-because it fails.
-
-Measured, in order:
-
-1. **A proxy is consumable without being invoked.** `flags.code === "show_not_found"` compares a
-   proxy and quietly yields `false`; a truthiness test is always `true`; a destructured constant
-   stays a proxy. Nothing throws, the harness renders, and assertions run against altered
-   behaviour. No render check or call-counter can observe this.
-2. **A strict throw-on-any-property-read stub** gives byte-identical DOM and zero errors on 4 of 5
-   probed entries and **breaks the fifth's build** — esbuild reads module properties at bundle time
-   to resolve named exports.
-3. **Path rules overmatch**, with two named live instances: `lib/drive/driveFolderUrl.ts` is a pure
-   string function reachable from the alert-card harness via `lib/adminAlerts/alertActions.ts`
-   (fails LOUDLY, a call throws), and `SHOW_NOT_FOUND` at
-   `app/admin/show/[slug]/_actions/shared.ts:35` is the silent shape — real, but currently
-   unreachable from any harness, so latent.
-4. **A packages-and-builtins-only rule set** (zero overmatch surface) fails four times in sequence:
-   `node:fs/promises` unresolved, then a stub under-export, then `HASH_FOR_LOG_PEPPER` thrown at
-   module load, then `__dirname is not defined`.
-5. **A sentinel-based guard** detects only preselected sentinels, so it cannot support the claim it
-   exists to support.
-
-**Fix direction if resumed:** a graph-derived rule — stub a module iff it transitively imports a
-server-only package — rather than a path heuristic. **Trigger:** a second harness entry reaching
-the server tree.
-
-### BL-HARNESS-PACKLIST-SERVER-GRAPH — return `packlist-rescan-recovery` to the standalone config
-
-**Status:** OPEN · **Severity:** low (the spec was already dark; nothing that ran was lost)
-
-Removed from `tests/e2e/standalone.config.ts` because the whole-config CI job cannot carry a red
-spec, and no per-module alias list fixes it. Its entry reaches the entire server tree — traced by
-esbuild metafile:
-
-```
-_packListRescanLiveEntry.tsx -> step3ReviewSections.tsx -> UseRawControlBoundary.tsx
-  -> app/admin/show/[slug]/_actions/useRaw.ts ("use server")
-  -> lib/sync/runManualSyncForShow.ts -> runScheduledCronSync.ts -> googleapis (913 graph inputs)
-```
-
-`lib/sync/lockedShowTx.ts` reaches the `postgres` driver by a parallel edge. Stubbing that one
-boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgres`. A 4-entry
-alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
-`step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
-modules at module scope.
-
-### BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere
-
-**Status:** OPEN · **Severity:** medium · **Class:** GUARD SOUNDNESS
-
-`ENV_BOUND_EXCLUDES` (`vitest.projects.ts:48`) removes files from the serial project when
-`VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets. Nothing watches whether an excluded
-file runs anywhere else — the mechanism that kept `pg-cron-coverage.test.ts` dark in CI for months
-while passing locally (that specific file was un-excluded 2026-07-26; the unwatched-exclusion
-mechanism this entry is about remains).
-
-Three formulations failed:
-
-1. **Matching a filename in a `run:` block** counts `echo <file>`, shell comments, and dead
-   branches as coverage.
-2. **Applying capability checks to a resolved alias body** cannot distinguish a runner argument
-   from arbitrary shell: `false && vitest run <f>`, `true || vitest run <f>`, `if false; then …`.
-3. **Resolved-config inclusion** is decidable, but must be resolved under the _same env CI sets_
-   (measured: env unset → 8 tests pass; `VITEST_EXCLUDE_ENV_BOUND=1` → `No test files found, exit
-1`), and pairing it with a `--project` run check reintroduces the shell problem for the run half.
-
-Current state of the other two entries, both invisible to any check built so far:
-`tests/admin/test-auth-gate.test.ts` runs **nowhere**, and
-`tests/cross-cutting/email-canonicalization.test.ts` runs only in an `x-audits.yml` job carrying a
-job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
-`tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
-dark-exclusion incident.
 
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
@@ -142,18 +62,6 @@ dark-exclusion incident.
 **User-visible shape if it bites in production:** an admin flips Published on mobile Safari, the switch greys out and spins forever; the mutation HAS committed (crew link state is already flipped). A reload shows truth. All observations so far are Playwright WebKit under CI; not yet reproduced in desktop Chromium or a real handheld Safari — quantifying that is the first step if this is picked up.
 
 **Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
-
-### BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — no case covers an armed Archive during a refresh from another source
-
-**Status:** OPEN · **Severity:** LOW · **Class:** test coverage gap · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
-
-`tests/e2e/admin-lifecycle-transitions.spec.ts` had a "compound: Archive armed while another action refreshes → no torn state" case. It was removed because its premise became **structurally unreachable**, not because the invariant stopped mattering.
-
-**Measured:** the run fails with `share-hub-backdrop ... subtree intercepts pointer events`. The armed Archive control lives inside the ShareHub popover (`components/admin/showpage/ShareHub.tsx:929`), and while that popover is open it renders a `fixed inset-0 z-20` backdrop (`components/admin/showpage/ShareHub.tsx:631-642`) covering every control outside it — including the StatusStrip published-toggle the case dispatched. Closing the popover to reach the toggle unmounts the armed control. Mutually exclusive by design, introduced by `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9 composition rules (T3)`.
-
-**The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
-
-**If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
 
 ### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
 
@@ -914,18 +822,6 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 `tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
 **New instance observed 2026-07-26** (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. **Fix shape:** replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
-
-## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
-
-**Status:** OPEN · **Severity:** LOW (forensic telemetry cosmetics) · **Class:** idempotent-no-op observability — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24).
-
-`archive_show` is an under-lock idempotent no-op when the show is already archived (`supabase/migrations/20260601000000_b2_show_lifecycle.sql:73-74`), but `archiveShowAction` (`app/admin/show/[slug]/_actions/archive.ts`) treats that no-op as committed success and emits `SHOW_ARCHIVED` again — a repeat submit inside the committed-refreshing window (or from a stale tab) writes a duplicate forensic event for a transition that did not occur. Pre-existing on all variants. **Fix (when prioritized):** have the RPC return a performed/no-op discriminator and emit `SHOW_ARCHIVED` only on the actual false→true transition; add a repeat-submit test asserting single emission.
-
-## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending
-
-**Status:** OPEN · **Severity:** MEDIUM (destructive-control race; needs probe before design) · **Class:** cross-surface lifecycle race — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24); inferred from code paths, NOT yet empirically probed.
-
-Scenario: the archive RPC's show invalidation publishes before the server action finishes post-RPC work; the mounted realtime bridge refreshes `archived` props while `useFormStatus` is still pending; ShareHub swaps Archive for Unarchive; ArchiveShowButton's unmount cleanup releases the busy gate; a fast next tap could fire Unarchive while the original action is still settling (server-side advisory lock serializes actual mutations, so the exposure is UX/telemetry, not data corruption). Shared with the legacy variants; untouched by the row restyle. **Fix (when prioritized):** run the mandated empirical race probe (invalidation arriving before action completion), then ratify one of: retain pending UI across the swap, close the hub on the archived flip, or disable the replacement lifecycle control until settlement.
 
 ## BL-RESOLVE-INTENT-WRONG-VERB — two event-shaped alerts render "Mark resolved" where "Confirm" is correct
 

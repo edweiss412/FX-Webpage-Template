@@ -545,7 +545,13 @@ export function ShareHub({
   const prevLifecycleRef = useRef({ published, archived });
   const deferredCloseRef = useRef(false);
 
-  useEffect(() => {
+  // useLayoutEffect, NOT useEffect (race-cluster spec §5): the close must commit
+  // BEFORE paint. With useEffect, the archived flip's swap commit painted one
+  // frame with an ENABLED replacement lifecycle control inside the still-open
+  // popover before this effect closed it (probe-measured 6ms, Cases A and D;
+  // pinned by the compound e2e case's rAF sampler). Layout timing collapses
+  // swap + close into a single paint. Everything else here is unchanged.
+  useLayoutEffect(() => {
     const prev = prevLifecycleRef.current;
     if (prev.published === published && prev.archived === archived) return;
     prevLifecycleRef.current = { published, archived };

@@ -8,7 +8,7 @@
  * still "succeeds" if you only assert the file exists), and a missing entry
  * surfacing as an opaque esbuild resolution error instead of a named one.
  */
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -54,4 +54,50 @@ describe("bundleLiveEntry", () => {
       }),
     ).toThrow(/output directory does not exist/i);
   });
+
+  it("runs the shared directive plugin — a use-server module is stubbed, not shipped (C2)", () => {
+    // The CLI path had no plugin, so this is RED until bundleLiveEntry routes
+    // through the plugin-capable child. namedDecl carries `"use server"`; its
+    // body must be replaced by the plugin's throw, never bundled.
+    const work = mkdtempSync(join(tmpdir(), "bundle-directive-"));
+    const entry = join(work, "entry.tsx");
+    const fixture = join(ROOT, "tests/e2e/helpers/__fixtures__/directive/namedDecl.ts");
+    writeFileSync(entry, `import * as m from ${JSON.stringify(fixture)};\nconsole.log(m);\n`);
+    const outFile = join(work, "bundle.js");
+
+    bundleLiveEntry({ entry, outFile });
+
+    const bundle = readFileSync(outFile, "utf8");
+    expect(bundle).toContain("server action export f is not callable");
+    expect(bundle).not.toContain("NAMED_BODY_SENTINEL");
+  }, 60_000);
+
+  it("writes a REAL esbuild metafile when metafilePath is given (C2)", () => {
+    // RED until BundleOptions.metafilePath is wired. A fabricated stub would not
+    // carry the entry, a react input, and 100+ keys all at once. Bundles the
+    // packlist live entry (the deep graph C4's reality check measures — ~1900
+    // inputs) so the ">100 keys" real-metafile check has ample margin.
+    const work = mkdtempSync(join(tmpdir(), "bundle-metafile-"));
+    const outFile = join(work, "bundle.js");
+    const metafilePath = join(work, "meta.json");
+    const entry = join(ROOT, "tests/e2e/_packListRescanLiveEntry.tsx");
+
+    bundleLiveEntry({
+      entry,
+      outFile,
+      aliases: { "node:crypto": join(ROOT, "tests/e2e/_nodeCryptoStub.ts") },
+      metafilePath,
+    });
+
+    expect(existsSync(metafilePath)).toBe(true);
+    const meta = JSON.parse(readFileSync(metafilePath, "utf8")) as {
+      inputs: Record<string, unknown>;
+    };
+    const inputs = Object.keys(meta.inputs);
+    expect(inputs.length).toBeGreaterThan(100);
+    expect(inputs.some((p) => p.includes("_packListRescanLiveEntry"))).toBe(true);
+    expect(
+      inputs.some((p) => /node_modules\/.*\/react\//.test(p) || /node_modules\/react\//.test(p)),
+    ).toBe(true);
+  }, 60_000);
 });

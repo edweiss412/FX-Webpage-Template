@@ -168,9 +168,11 @@ const CONFIGS = [
   "tests/e2e/visual.config.ts",
 ] as const;
 
-export const DARK_SPEC_ALLOWLIST: Record<string, string> = {
-  "tests/e2e/packlist-rescan-recovery.spec.ts": "BL-HARNESS-PACKLIST-SERVER-GRAPH",
-};
+// Empty: packlist-rescan-recovery returned to CI under the PR-C directive
+// resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated). A row here means a spec
+// resolves in NO Playwright config — register it in a config, or add a row with
+// a backlog ref.
+export const DARK_SPEC_ALLOWLIST: Record<string, string> = {};
 
 /** Playwright's own default matcher (config.js:164), both name families. */
 const PW_TEST_FILE = /\.(?:spec|test)\.(?:c|m)?[jt]sx?$/;

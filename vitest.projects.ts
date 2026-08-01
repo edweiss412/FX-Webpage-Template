@@ -49,8 +49,27 @@ export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
 // boots a Postgres and applies the pg_cron migrations, so it has a live
 // database to introspect. See tests/cross-cutting/pgCronCiVacuity.test.ts for
 // the anti-vacuity guards that keep it from passing without asserting.
+/**
+ * Coverage registry for ENV_BOUND_EXCLUDES (spec 2026-07-26-ci-dark-descoped-
+ * closeout §6): every excluded file names the PR-blocking workflow job whose
+ * verbatim `pnpm run-excluded <file>` step proves it executes, or carries a
+ * dark row that keeps the build RED while naming the backlog entry. Verified
+ * structurally by tests/ci/_metaEnvBoundExclusionCoverage.test.ts.
+ */
+export type EnvBoundCoverageRow =
+  | { workflow: string; job: string }
+  | { dark: true; backlogRef: string };
+export const ENV_BOUND_COVERAGE_REGISTRY: Record<string, EnvBoundCoverageRow> = {
+  "tests/cross-cutting/email-canonicalization.test.ts": {
+    workflow: ".github/workflows/x-audits.yml",
+    job: "x5-email-canonicalization",
+  },
+};
+
 export const ENV_BOUND_EXCLUDES = [
-  "**/tests/admin/test-auth-gate.test.ts",
+  // test-auth-gate returned to unit-suite 2026-07-31 (PR-B of the ci-dark
+  // descoped close-out): resolution verified under VITEST_EXCLUDE_ENV_BOUND=1
+  // and 5x stability-looped before the row came out.
   "**/tests/cross-cutting/email-canonicalization.test.ts",
 ];
 
