@@ -23,14 +23,16 @@
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
-import { localDestructiveDbUrl } from "./_assertLocalDestructiveTarget.js";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // SAFETY: this test WIPES all shows via the reset RPC — never run it against a
-// remote DB. The guard now lives in tests/db/_assertLocalDestructiveTarget.ts so
+// remote DB. The guard now lives in tests/db/_localDbUrl.ts so
 // every wipe-executing file shares one implementation (and one meta-test).
 // TEST_DATABASE_URL is the validation project in this repo (.env.local) and is
 // deliberately NOT honored here.
-const DB_URL = localDestructiveDbUrl("the reset_validation_data audit (wipes all shows)");
+const DB_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 

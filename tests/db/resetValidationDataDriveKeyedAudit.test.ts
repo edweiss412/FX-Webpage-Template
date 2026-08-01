@@ -36,12 +36,14 @@
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { latestResetValidationDataBody } from "./_resetRpcSource.js";
-import { localDestructiveDbUrl } from "./_assertLocalDestructiveTarget.js";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // SAFETY: this test executes reset_validation_data(), which DELETEs every show.
 // TEST_DATABASE_URL is the validation project in this repo (.env.local) and is
-// deliberately NOT honored here — see tests/db/_assertLocalDestructiveTarget.ts.
-const DB_URL = localDestructiveDbUrl("the drive-keyed reset audit (wipes all shows)");
+// deliberately NOT honored here — see tests/db/_localDbUrl.ts.
+const DB_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 

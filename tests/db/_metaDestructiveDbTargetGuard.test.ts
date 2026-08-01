@@ -12,11 +12,15 @@
  * re-ingests all shows from Drive as brand-new rows, which re-triggers the
  * auto-publish undo email for every show (observed 2026-07-23, four batches).
  *
- * The guard convention already existed in two places before this meta-test
- * (tests/db/_remediationHelpers.ts assertLocalDbUrl,
- * tests/db/_validation-cleanup-helpers.ts assertSafeDestructiveTarget) — both
- * for NARROWER, fixture-scoped deletes. The unguarded file was the one running
- * the FULL wipe. This test exists so the next such file fails by default.
+ * RELATIONSHIP TO tests/db/_metaLocalDbUrlGuard.test.ts: that meta-test guards a
+ * DIFFERENT axis — every file that READS LOCAL_TEST_DATABASE_URL must route it
+ * through assertLocalDbUrl. It cannot see these files, because a wipe test that
+ * resolves from TEST_DATABASE_URL never reads the variable it scans for, which is
+ * exactly how the four whole-wipe suites survived the 2026-07-24 sweep
+ * (spec 2026-07-24-test-safety-hardening-batch.md §2.6) unguarded. This meta-test
+ * keys on the DESTRUCTIVE OPERATION instead, so a new wipe suite fails by default
+ * no matter which variable it reads. Both use the one shared assert in
+ * tests/db/_localDbUrl.ts; there is deliberately no second implementation.
  *
  * Discovery is filesystem-walked, not a hardcoded file list: a NEW test that
  * executes the wipe is caught without anyone remembering to register it.
@@ -24,11 +28,6 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import {
-  LOCAL_DEFAULT_DB_URL,
-  assertLocalDestructiveTarget,
-  localDestructiveDbUrl,
-} from "./_assertLocalDestructiveTarget.js";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 
@@ -41,8 +40,7 @@ const ENABLES_WIPE_GATE =
   /update\s+public\.destructive_reset_gate\s+set\s+enabled\s*=\s*(?:true|\$\{?\s*true)/i;
 
 /** Any of the sanctioned loopback asserts, called (not merely imported). */
-const CALLS_LOCAL_GUARD =
-  /\b(?:localDestructiveDbUrl|assertLocalDestructiveTarget|assertLocalDbUrl|assertSafeDestructiveTarget)\s*\(/;
+const CALLS_LOCAL_GUARD = /\b(?:assertLocalDbUrl|assertSafeDestructiveTarget)\s*\(/;
 
 /** Opt-out for a file that provably cannot reach a remote (documented inline). */
 const EXEMPTION = /\/\/\s*not-subject-to-destructive-target-guard:\s*\S+/;
@@ -63,35 +61,6 @@ const destructive = files.filter(
   ({ source }) => EXECUTES_WIPE.test(source) || ENABLES_WIPE_GATE.test(source),
 );
 
-describe("assertLocalDestructiveTarget — runtime behavior", () => {
-  test("refuses the validation session-pooler host (the exact URL shape in .env.local)", () => {
-    expect(() =>
-      assertLocalDestructiveTarget(
-        "postgresql://postgres.vzakgrxqwcalbmagufjh:pw@aws-1-us-east-2.pooler.supabase.com:5432/postgres",
-      ),
-    ).toThrow(/REFUSING non-local database host/i);
-  });
-
-  test("accepts loopback in every spelling", () => {
-    for (const host of ["127.0.0.1", "localhost", "[::1]"]) {
-      const url = `postgresql://postgres:postgres@${host}:54322/postgres`;
-      expect(assertLocalDestructiveTarget(url)).toBe(url);
-    }
-  });
-
-  test("localDestructiveDbUrl ignores TEST_DATABASE_URL even when it is remote", () => {
-    const prior = process.env.TEST_DATABASE_URL;
-    process.env.TEST_DATABASE_URL =
-      "postgresql://postgres.vzakgrxqwcalbmagufjh:pw@aws-1-us-east-2.pooler.supabase.com:5432/postgres";
-    try {
-      expect(localDestructiveDbUrl()).toBe(LOCAL_DEFAULT_DB_URL);
-    } finally {
-      if (prior === undefined) delete process.env.TEST_DATABASE_URL;
-      else process.env.TEST_DATABASE_URL = prior;
-    }
-  });
-});
-
 describe("destructive DB target guard", () => {
   test("the discovery patterns actually match the known wipe surface (anti-vacuity)", () => {
     // If this fails, the regexes drifted and every assertion below is vacuous.
@@ -110,9 +79,9 @@ describe("destructive DB target guard", () => {
         CALLS_LOCAL_GUARD.test(source),
         `${rel} executes public.reset_validation_data() (or enables destructive_reset_gate) but ` +
           "never calls a loopback assert. TEST_DATABASE_URL is the VALIDATION project in this " +
-          "repo's .env.local, so this file wipes live validation on a plain `pnpm test`. Call " +
-          "assertLocalDestructiveTarget() from tests/db/_assertLocalDestructiveTarget.ts on the " +
-          "resolved URL before opening the connection, or add an inline " +
+          "repo's .env.local, so this file wipes live validation on a plain `pnpm test`. Resolve " +
+          "the URL from LOCAL_TEST_DATABASE_URL and pass it through assertLocalDbUrl() " +
+          "(tests/db/_localDbUrl.ts) before opening the connection, or add an inline " +
           "`// not-subject-to-destructive-target-guard: <reason>` with a verified reason.",
       ).toBe(true);
     },
