@@ -1,119 +1,189 @@
-# Plan — archive/lifecycle race cluster
+# Plan — archive/lifecycle race cluster (v2, post plan-R1 restructure)
 
-**Spec:** `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md` (canonical; §-refs below are to it) · **Branch:** `fix/archive-lifecycle-race-cluster` · **Mode:** autonomous ship (owner-ratified; spec §1.1) · TDD per task, commit per task (invariants 1, 6).
+**Spec:** `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md` (canonical; APPROVED at spec-R3; §-refs below are to it) · **Branch:** `fix/archive-lifecycle-race-cluster` · **Mode:** autonomous ship (owner-ratified; spec §1.1) · TDD per task — each task carries its OWN red tests and its OWN implementation and lands as ONE commit (plan-R1 finding 1 restructure: the old T1↔T2 / T5↔T6 splits were commit-order-impossible and are merged).
 
 ## Meta-test inventory (mandatory declaration)
 
-- **EXTENDS:** `tests/log/adminOutcomeBehavior.test.ts` (no-op-branch zero-emission cases, T4); `tests/db/unarchive_show_rpc.test.ts` (peers for the three migrated RPCs, T2); `tests/showLifecycle/callers.test.ts` (performed mapping, T3).
-- **CREATES:** none. No new registry — `AUDITABLE_MUTATIONS` rows unchanged (spec §1.1 row 10); `tests/log/_metaMutationSurfaceObservability` discovery unaffected (same emit call sites, narrower guard).
-- **UNCHANGED-BY-CONTRACT:** `tests/auth/advisoryLockRpcDeadlock.test.ts` — acceptance criterion §9.2 requires it green WITHOUT modification.
+- **EXTENDS:** `tests/db/unarchive_show_rpc.test.ts` sibling coverage via a NEW test file `lifecycle_rpc_performed` under tests/db (T1); `tests/showLifecycle/callers.test.ts` (T2); `tests/log/adminOutcomeBehavior.test.ts` (T3); `tests/db/_b2Helpers.ts` gains three returning helpers (T1, plan-R1 finding 2).
+- **CREATES:** no new registry. `AUDITABLE_MUTATIONS` rows unchanged (spec §1.1 row 10); `tests/log/_metaMutationSurfaceObservability` discovery unaffected (same emit call sites, narrower guard).
+- **UNCHANGED-BY-CONTRACT:** `tests/auth/advisoryLockRpcDeadlock.test.ts` — spec §9.2 requires it green WITHOUT modification.
 
 ## Advisory-lock topology (mandatory: plan touches `pg_advisory*` code text)
 
-Every migrated RPC keeps its existing single in-RPC holder (`pg_advisory_xact_lock(hashtext('show:' || v_drive))` inside `archive_show` / `publish_show` / `unpublish_show`); JS callers hold nothing (`archiveShow.ts` doc comment: "The RPC self-locks; do NOT wrap in withShowLock"). The migration re-emits identical lock lines; no layer added or moved. Holder enumeration per hashkey `show:<drive_file_id>`: exactly one (in-RPC), before and after.
+Each migrated RPC keeps its existing single in-RPC holder (`pg_advisory_xact_lock(hashtext('show:' || v_drive))` inside `archive_show` / `publish_show` / `unpublish_show`); JS callers hold nothing (`lib/showLifecycle/archiveShow.ts` doc comment: "The RPC self-locks; do NOT wrap in withShowLock"). The migration re-emits identical lock lines; no layer added or moved. Holders per hashkey `show:<drive_file_id>`: exactly one (in-RPC), before and after.
+
+## e2e harness-readiness (mandatory; corrected per plan-R1 finding 4)
+
+- **Boot:** the mobile-safari webServer entry at `playwright.config.ts:244` — **CI runs `pnpm build` + `pnpm start -H 127.0.0.1`; only local runs use `pnpm dev`** (both on `E2E_PORT`, default 3000, `reuseExistingServer` locally).
+- **Readiness/hydration gate:** the suite's existing kebab-click `toPass` hydration proof (`waitForHydration` idiom, `tests/e2e/admin-lifecycle-transitions.spec.ts:79-85` region) plus nav-retry on `admin-layout-infra-error` (probe-measured local `is_session_live` flake, spec §2 environmental note).
+- **Detach-safety:** the rAF sampler runs entirely in page context over `document.querySelector` (never a Playwright locator that can auto-wait on an unmounted node); it is stopped and drained via one `page.evaluate` before any assertion reads it.
+- **Cleanup:** the suite's `afterAll` currently only deletes the seeded show (`tests/e2e/admin-lifecycle-transitions.spec.ts:207` region). T4 introduces `settleDashboardAdminState()` and MUST store its returned restore callback and invoke it in `afterAll` (plan-R1 finding 4; same contract the probe used).
 
 ## Tasks
 
-### T1 — migration: performed discriminator (spec §3)
+Each task: write the listed tests (RED — run the exact command, observe the exact failure class), implement, re-run (GREEN), then `pnpm typecheck`, one commit.
 
-A new migration file `<timestamp>_lifecycle_rpc_performed_discriminator` under supabase/migrations.
+### T1 — DB: performed discriminator (spec §3, §6.1)
 
-TDD: write T2's failing DB tests FIRST (they assert boolean returns; red against void RPCs), then the migration, then green.
+**Red tests first** — a new test file `lifecycle_rpc_performed` under tests/db (harness idioms of `tests/db/unarchive_show_rpc.test.ts`), PLUS three helpers in `tests/db/_b2Helpers.ts` mirroring `unarchiveShowReturning` (`tests/db/_b2Helpers.ts:59-66`) exactly (plan-R1 finding 2):
 
-1. `drop function if exists public.archive_show(uuid);` + recreate `returns boolean` — body = `20260601000000_b2_show_lifecycle.sql` archive_show verbatim except `if v_archived then return false; end if;` and trailing `return true;` after `perform public._archive_show_core(p_show_id);`. Re-revoke all / re-grant execute to `authenticated`.
-2. `drop function if exists public._publish_show_core(uuid);` + recreate `returns boolean` — body = `20260716210000_role_mappings_publish_freshness.sql` core verbatim (INCLUDING the role-mappings freshness gate + consumed-token stamp) except `if v_pub then return false; end if;` and trailing `return true;`. Revoke-all, NO grant (current posture).
-3. `drop function if exists public.publish_show(uuid);` + recreate `returns boolean` — outer body verbatim from `20260601000000` except final line `return public._publish_show_core(p_show_id);`. Re-revoke/re-grant.
-4. `drop function if exists public.unpublish_show(uuid);` + recreate `returns boolean` — body verbatim from `20260701000000_published_toggle_unpublish_show.sql` except `if not v_published then return false; end if;` and trailing `return true;` after `perform public._unpublish_show_core(p_show_id);`. Re-revoke/re-grant.
-5. `notify pgrst, 'reload schema';`
-6. **Whole file wrapped in one explicit `begin;` … `commit;`** (spec §3 R1-finding-1 bullet; precedent `20260619000001_lockdown_shows_internal.sql`) — recreate+revoke atomic on both the migration-runner path and the autocommitting surgical `psql -f` path; closes the default-EXECUTE grant window on the gate-free `_publish_show_core`.
-7. Apply-twice idempotency: file re-runs clean (DROP IF EXISTS guards; asserted by applying twice locally in the task's verification step).
-8. `pnpm gen:schema-manifest` regen + commit manifest in the same commit.
+```ts
+/** Call archive_show as admin and return its boolean result (true iff it performed live/held→archived). */
+export async function archiveShowReturning(showId: string): Promise<boolean> {
+  return asAdminTx(sql, async (tx) => {
+    const [row] = await tx.unsafe(`select public.archive_show($1::uuid) as transitioned`, [showId]);
+    return (row as unknown as { transitioned: boolean }).transitioned;
+  });
+}
+```
 
-`unarchive_show`: untouched (spec §1.1 row 8).
+(`publishShowReturning` / `unpublishShowReturning` identical modulo the function name. `asAdminRpc`'s `AdminRpcFn` union is untouched — the returning helpers are self-contained.)
+
+Test cases (failure mode each):
+
+- `archiveShowReturning`: seeded Held (`seedHeldShow`) → `true` + `readShow` shows `archived=true, published=false`; second call → `false` + `readShareToken` value unchanged between call 1 and call 2 (catches: recreate dropped the early-return — core would rotate the token twice).
+- `publishShowReturning`: seeded Held → `true` + `published=true`; second call → `false`, state unchanged (catches: `_publish_show_core` lost `if v_pub then return false`).
+- `unpublishShowReturning`: the published show from above → `true` + `published=false`; second call → `false` (catches: outer lost `if not v_published then return false`).
+- Refusal preservation: `publishShowReturning` on `seedArchivedShow()` rejects with message containing `SHOW_ARCHIVED_IMMUTABLE` (catches: recreate lost a gate).
+
+RED command: `pnpm vitest run tests/db/lifecycle_rpc_performed.test.ts  # (file created by this task)` — expected failure class: the returning helpers read no boolean from void RPCs (postgres returns empty-typed `select public.archive_show(...)` rows; `transitioned` undefined ≠ true), so every case fails.
+
+**Then the migration** — a new migration file `<timestamp>_lifecycle_rpc_performed_discriminator` under supabase/migrations, exact skeleton:
+
+```sql
+begin;  -- atomic on BOTH the runner path and autocommit surgical psql -f (spec §3)
+drop function if exists public.archive_show(uuid);
+create function public.archive_show(p_show_id uuid) returns boolean ...; -- body verbatim from 20260601000000; no-op arm `return false`; tail `return true`
+revoke all on function public.archive_show(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.archive_show(uuid) to authenticated;
+-- _publish_show_core (basis: 20260716210000 body incl. freshness gate): drop, create returns boolean, revoke-all, NO grant
+-- publish_show (basis: 20260601000000 outer): drop, create returns boolean, tail `return public._publish_show_core(p_show_id);`, revoke+grant
+-- unpublish_show (basis: 20260701000000): drop, create returns boolean, no-op arm `return false`, tail `return true`, revoke+grant
+notify pgrst, 'reload schema';
+commit;
+```
+
+`unarchive_show`: untouched (spec §1.1 row 8). GREEN: same vitest command. Verify apply-twice: run the file twice via `psql` against local; second apply clean. `pnpm gen:schema-manifest`; commit manifest with migration + tests + helpers.
 
 Commit: `feat(db): lifecycle RPCs return performed discriminator (archive/publish/unpublish)`
 
-### T2 — DB discriminator tests (spec §6.1)
+### T2 — type + caller chokepoint (spec §4, §6.2, §6.5)
 
-Extend/add alongside `tests/db/unarchive_show_rpc.test.ts` (same harness/idioms — postgres.js against local DB, loopback-guarded). Per RPC (archive, publish, unpublish; unarchive already covered by the existing file):
+**Red first** — extend `tests/showLifecycle/callers.test.ts`: injected rpc `{data:true, error:null}` → result `{ok:true, performed:true}`; `{data:false}` / `{data:null}` → `performed:false`; thrown → `{ok:false, code:"infra_error"}` (unchanged refusal arm). RED command: `pnpm vitest run tests/showLifecycle/callers.test.ts` — fails on missing `performed` property.
 
-- performed path: seed eligible show → RPC returns `true` → row state flipped.
-- repeat call: returns `false`, row unchanged, AND no-op side-effect probe — for archive: `show_share_tokens.rotated_at` unchanged by the second call (failure mode: recreate dropped the early-return; core would rotate twice).
-- refusal paths unchanged: e.g. publish on archived → `SHOW_ARCHIVED_IMMUTABLE` raise (failure mode: recreate lost a gate).
+**Then**, `lib/showLifecycle/_shared.ts`:
 
-Failure modes stated per test in-file. Commit: `test(db): performed/no-op discriminator coverage for lifecycle RPCs`
+```ts
+export type LifecycleResult = { ok: true; performed: boolean } | { ok: false; code: string };
 
-### T3 — type + caller mapping (spec §4)
+export function mapRpcResult(
+  error: { message?: string } | null,
+  data: unknown,
+): LifecycleResult {
+  if (!error) return { ok: true, performed: data === true };
+  const msg = error.message ?? "";
+  const code = KNOWN.find((c) => msg.includes(c));
+  return { ok: false, code: code ?? "infra_error" };
+}
+```
 
-TDD: extend `tests/showLifecycle/callers.test.ts` first — injected rpc `{data:true}` → `performed:true`; `{data:false}` / `{data:null}` / `{data:undefined}` → `performed:false`; thrown → `{ok:false, code:"infra_error"}`. Red (field absent), then:
+`callLifecycleRpc` passes its `data` into `mapRpcResult(error, data)`; its catch arm stays `{ result: { ok: false, code: "infra_error" }, data: null }` (spec §4 guard conditions — thrown never becomes `performed:false`). Callers unchanged (chokepoint is the only `{ok:true}` producer — pre-draft transcript below).
 
-- `lib/showLifecycle/_shared.ts`: `LifecycleResult = { ok: true; performed: boolean } | { ok: false; code: string }`; `mapRpcResult(error, data)` gains the data param → `{ ok: true, performed: data === true }`; `callLifecycleRpc` passes `data` through (single chokepoint — the ONLY `{ok:true}` producer, verified `rg "ok: true" lib/showLifecycle` → `lib/showLifecycle/_shared.ts:4` and line 40 only).
-- Callers (`archiveShow.ts`, `publishShow.ts`, `unpublishShow.ts`, `unarchiveShow.ts`) need no per-file mapping change (chokepoint produces the field); `unarchiveShow`'s `data === true` catch-up gate untouched.
-- `pnpm typecheck` sweeps the 13 enumerated `LifecycleResult`-referencing files (consumers read `.ok`/`.code`; required-field addition compiles clean or surfaces each site).
-- Mock-literal sweep (spec §6.5 disposition): add `performed` to `{ok: true}` lifecycle mocks in `tests/app/admin/set-published-action.test.ts`, `tests/app/admin/show-lifecycle-actions.test.ts`, `tests/components/admin/per-show-lifecycle.test.tsx:73-75` (plus the two suites already in T2/T4 scope).
+**Mock/assertion sweep in the same commit** (spec §6.5 + plan-R1 finding 5, ALL instances):
+
+- Literals gaining `performed: true`: `tests/app/admin/set-published-action.test.ts:24-25` region mocks; `tests/app/admin/show-lifecycle-actions.test.ts:37-39` region mocks; `tests/components/admin/per-show-lifecycle.test.tsx:73-75`.
+- Runtime `toEqual` assertions gaining the field: `tests/app/admin/show-lifecycle-actions.test.ts:96` (`expect(res).toEqual({ ok: true })` → `{ ok: true, performed: true }`), `tests/app/admin/set-published-action.test.ts:76` and `tests/app/admin/set-published-action.test.ts:83` (same change).
+- GREEN: `pnpm vitest run tests/showLifecycle/callers.test.ts tests/app/admin/set-published-action.test.ts tests/app/admin/show-lifecycle-actions.test.ts tests/components/admin/per-show-lifecycle.test.tsx` + `pnpm typecheck`.
 
 Commit: `feat(showLifecycle): LifecycleResult carries performed discriminator`
 
-### T4 — action emission gating (spec §4)
+### T3 — action emission gating (spec §4, §6.3)
 
-TDD: extend `tests/log/adminOutcomeBehavior.test.ts` first — per action (archive / unarchive / setPublished×2 directions): no-op branch (`{ok:true, performed:false}` via injected deps) → sink-spy records ZERO codes while revalidate spy observed; performed branch → exactly one code (existing cases updated to construct `performed:true`). Red, then:
+**Red first** — extend `tests/log/adminOutcomeBehavior.test.ts`: per action (archive / unarchive / setPublished both directions), a no-op case injecting `{ok:true, performed:false}` through the existing deps/mocking seam asserting the sink-spy records ZERO codes while the revalidate spy IS called; existing success cases updated to inject `performed:true` (they must keep recording exactly one code). RED: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` — no-op cases fail (emission still fires on `ok`).
 
-- `app/admin/show/[slug]/_actions/archive.ts`, `app/admin/show/[slug]/_actions/unarchive.ts`, `app/admin/show/[slug]/_actions/setPublished.ts`: wrap `await logAdminOutcome(...)` in `if (result.performed)` (archive/setPublished) / gate on `result.ok && result.performed` (unarchive's void flow). Revalidates stay on `ok` (spec §1.1 row 4).
-- Comment repairs: the three "never on a ... no-op" claims become accurate; update wording.
+**Then** the three actions: wrap `await logAdminOutcome(...)` in `if (result.performed) { ... }` — `app/admin/show/[slug]/_actions/archive.ts` (inside the existing `if (result.ok)` block), `app/admin/show/[slug]/_actions/unarchive.ts` (same), `app/admin/show/[slug]/_actions/setPublished.ts` (same). Revalidates stay on `ok` (spec §1.1 row 4). Comment repairs: the three "never on a refusal/no-op" claims now true — reword each to say emission requires a PERFORMED transition.
 
-Commit: `fix(admin): lifecycle telemetry emits only on performed transitions`
+GREEN + `pnpm typecheck`. Commit: `fix(admin): lifecycle telemetry emits only on performed transitions`
 
-### T5 — ShareHub layout-effect close (spec §5)
+### T4 — ShareHub pre-paint close + restored e2e case (spec §5, §6.4)
 
-TDD ordering: T6's e2e paint-sampler case is the failing test (red against `useEffect` — sampler catches the painted frame; measured 6ms in probe Cases A/D). Then: `components/admin/showpage/ShareHub.tsx` §4 lifecycle-close effect `useEffect` → `useLayoutEffect` (import + call site; body byte-identical; keep the existing `eslint-disable-next-line react-hooks/set-state-in-effect` if the rule fires on the new primitive). Transition-audit note: spec §5 Transition Inventory delta embedded in the e2e case comment.
+One task, one commit (plan-R1 finding 1): the e2e case IS the red test for the ShareHub change.
 
-Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) runs on this diff at close-out (invariant 8), findings dispositioned in the PR body / DEFERRED.md.
+**Red first** — in `tests/e2e/admin-lifecycle-transitions.spec.ts`:
 
-Commit: `fix(admin): close ShareHub pre-paint on lifecycle flip (kills 6ms enabled-replacement frame)`
+1. Replace the header removal note (`tests/e2e/admin-lifecycle-transitions.spec.ts:11-17` region) with the restoration rationale (realtime vector, backdrop-immune).
+2. `beforeAll` gains `restoreDashboardState = await settleDashboardAdminState()`; `afterAll` invokes it after the existing seeded-show delete (harness-readiness section above).
+3. New case (probe Case D productionized): two pages in one context; tab B → `/admin?show=<slug>` with infra-error nav retry → hydration proof → open hub → arm Archive; install sampler on tab B; tab A archives via its own modal confirm; wait for the `SHOW_ARCHIVED` telemetry row via sqlClient poll (settle signal, probe-proven — the popover closes on settle so UI is not the signal); then drain sampler and assert.
 
-### T6 — restored e2e case (spec §6.4)
+Sampler (page context, install/drain via `page.evaluate`), with health assertions (plan-R1 finding 3 anti-tautology set):
 
-In `tests/e2e/admin-lifecycle-transitions.spec.ts` (mobile-safari project; already wired in `lifecycle-layout-e2e.yml` ~line 119):
+```ts
+// install: samples on every animation frame until stopped
+(window as any).__frames = [];
+const sample = () => {
+  const popover = document.querySelector('[data-testid="share-hub-popover"]');
+  const unarch = document.querySelector<HTMLButtonElement>('[data-testid^="unarchive-show-button-"]');
+  const modal = document.querySelector('[data-testid="published-show-review-modal"]');
+  const armed = document.querySelector('[data-testid="archive-show-confirm-button"]');
+  (window as any).__frames.push({
+    t: performance.now(),
+    modal: modal !== null,
+    popoverOpen: popover !== null,
+    armed: armed !== null,
+    enabledUnarchInsidePopover:
+      unarch !== null && !unarch.disabled && popover !== null && popover.contains(unarch),
+  });
+  if (!(window as any).__stopSampler) requestAnimationFrame(sample);
+};
+requestAnimationFrame(sample);
+```
 
-- Replace the header's removal note (lines ~11-17, "It NO LONGER exercises the compound transition…") with the restoration rationale: realtime vector, backdrop-immune.
-- New case, probe Case D productionized: tab B `signInAs(ADMIN_FIXTURE)` → open modal → open hub (existing `toPass` hydration idiom) → arm Archive; tab A archives the seeded Held show; assertions on tab B: (a) popover closes within timeout, (b) no armed-confirm remnant / no error banner, (c) rAF sampler (installed pre-archive via `page.evaluate`: `requestAnimationFrame` loop recording per-frame `{enabled unarchive-row present, popover open}`) recorded NO frame with both true.
-- Harness readiness (mandatory checklist): server boot = existing workflow's dev server :3000 mechanism (no new boot); readiness gate = the spec-file's existing kebab-click `toPass` hydration proof + nav retry on `admin-layout-infra-error` (probe §2 environmental note); detach-safety = sampler runs in page context off `document.querySelector` (no Playwright locator that can auto-wait on unmounted nodes), stopped + drained via `page.evaluate` before assertions.
-- Seed via `seedHeldShow` + `settleDashboardAdminState` (probe-proven necessity on a wizard-state shared DB); cleanup per existing afterAll idiom.
-- Local verification: 3 consecutive green runs (acceptance §9.4).
+Assertions (each with its failure mode):
 
-Commit: `test(e2e): restore armed-Archive-during-concurrent-refresh coverage via realtime vector`
+- **Sampler health:** `frames.length > 30` (catches: sampler never ran); ≥1 pre-archive frame with `popoverOpen && armed && modal` (catches: case armed nothing / sampled too late).
+- **Positive terminal:** final frame has `modal && !popoverOpen && !armed` — popover closed while the modal REMAINED mounted (catches: wholesale modal detachment masquerading as "closed"; torn state).
+- **Paint invariant:** NO frame has `enabledUnarchInsidePopover` (catches: regression of the layout-effect close; the spec §5 contract). Containment via `popover.contains(unarch)` scopes the forbidden state to INSIDE the open popover.
+- **No error banner:** `archive-show-error` / `unarchive-show-error-*` absent at drain.
 
-### T7 — validation apply + backlog dispositions (spec §3, §8)
+RED command: `E2E_PORT=<free port> pnpm exec playwright test tests/e2e/admin-lifecycle-transitions.spec.ts --project=mobile-safari -g "<new case name>"` — expected failure: the paint-invariant assertion (probe measured the 6ms painted frame on the shipped `useEffect` in Cases A AND D; WebKit rAF samples it). RED gate: fails on the paint invariant in ≥2 of 3 attempts; if it will not reproduce red, STOP and escalate (spec §7 documents the headless-scheduler caveat — a never-red test here is a genuine ambiguity, not a skip).
 
-1. Apply T1's migration to validation surgically (`psql "$TEST_DATABASE_URL" -f supabase/migrations/<file>.sql` then `notify pgrst, 'reload schema';`) — validation-schema-parity Layer 2.
-2. `BACKLOG.md`: rewrite the three entries per spec §8 (SWAP-RACE refuted w/ Case A/B timelines; DEDUP resolved; ARMED-CONCURRENT-REFRESH resolved) and graduate all three to `BACKLOG-archive.md`.
-3. Delete the untracked probe spec file from the worktree (recorded in spec Appendix A).
+**Then** `components/admin/showpage/ShareHub.tsx`: the §4 lifecycle-close effect (`prevLifecycleRef` effect over `[published, archived, open, busy]`) switches `useEffect` → `useLayoutEffect` (add to the existing react import; body byte-identical; keep/adjust the `eslint-disable-next-line react-hooks/set-state-in-effect` pragma as the linter dictates). All sibling effects (deferral cancel, Escape handler, dialog focus) untouched.
+
+GREEN: same command, then the full file 3 consecutive green runs (spec §9.4), then `pnpm typecheck` (covers vitest AND playwright configs).
+
+Commit: `fix(admin): close ShareHub pre-paint on lifecycle flip; restore armed-vs-concurrent-refresh e2e coverage`
+
+### T5 — validation apply + backlog graduation (spec §3, §8)
+
+1. Surgical validation apply: `psql "$TEST_DATABASE_URL" -f supabase/migrations/<file>.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"` (file is transaction-wrapped; single atomic apply).
+2. Parity pre-check: `pnpm vitest run tests/db/validation-schema-parity.test.ts` (asserts validation ⊇ committed manifest).
+3. `BACKLOG.md`: rewrite + graduate the three entries to `BACKLOG-archive.md` per spec §8. Sweep for other references first: `rg -n "BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE|BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP|BL-ARCHIVE-ARMED-CONCURRENT-REFRESH" BACKLOG.md BACKLOG-archive.md docs/` and disposition every hit (the transitions-spec header reference is retired by T4; any CI-dark umbrella cross-reference gets its line updated).
+4. Delete the untracked probe spec file from the worktree.
 
 Commit: `docs: graduate archive race-cluster backlog items (probe-resolved)`
 
-### T8 — close-out gates
+### T6 — close-out gates
 
-Full suite + `pnpm typecheck` (vitest AND playwright configs) + `pnpm lint` + `pnpm format:check` locally; impeccable dual-gate on T5 diff; whole-diff Codex cross-model review (fresh-eyes brief, split-scope if needed per AGENTS.md); push; real CI green (all twelve required contexts); `gh pr merge --merge`; ff-sync main checkout, verify `0  0`; Stage 4.4 cron delete + pane clear.
+Full suite (`pnpm test`) + `pnpm typecheck` + `pnpm lint` + `pnpm format:check`; impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the T4 ShareHub diff (invariant 8; P0/P1 fixed or DEFERRED.md); whole-diff Codex cross-model review to APPROVE (fresh-eyes brief; split-scope per AGENTS.md if the file list warrants); push; PR; real CI green (all twelve required contexts); `gh pr merge --merge`; ff-sync the main checkout and verify `git rev-list --left-right --count main...origin/main` → `0  0`; Stage 4.4: CronDelete nudge + clear pane label.
 
 ## Checklist
 
-- [ ] T1 migration + manifest
-- [ ] T2 DB tests
-- [ ] T3 type/caller mapping
-- [ ] T4 emission gating
-- [ ] T5 ShareHub layout-effect
-- [ ] T6 e2e restoration ×3 green
-- [ ] T7 validation apply + backlog
-- [ ] Self-review (this doc, pre-draft verification transcript below)
-- [ ] Adversarial review (cross-model) — plan
-- [ ] T8 close-out (impeccable → whole-diff review → CI → merge)
+- [ ] T1 DB tests + helpers + migration + manifest (one commit)
+- [ ] T2 caller tests + type change + mock/assertion sweep (one commit)
+- [ ] T3 behavioral tests + emission gating (one commit)
+- [ ] T4 e2e case + ShareHub layout-effect, 3× green (one commit)
+- [ ] T5 validation apply + backlog graduation
+- [ ] Self-review + spec:lint (plan) — rerun on v2
+- [ ] Adversarial review (cross-model) — plan (R1 BLOCKING → this v2; redispatch)
+- [ ] T6 close-out (impeccable → whole-diff review → CI → merge → 0 0)
 
-## Pre-draft verification transcript (writing-plans mandate)
+## Pre-draft verification transcript (updated for v2)
 
-- `rg "ok: true" lib/showLifecycle app/admin/show` → LifecycleResult producers: `_shared.ts:4` (type), `_shared.ts:40` (mapRpcResult) ONLY; other `ok: true` hits are unrelated result shapes (`useRaw.ts`, `roleToken.ts`, `ResetPickerEpochButton.tsx`, `RotateShareTokenButton.tsx` — distinct types, not LifecycleResult).
-- `rg -ln "LifecycleResult"` → 13 files (listed in session log; all consumers read `.ok`/`.code` only).
-- Latest RPC definitions confirmed per spec §3 table (`grep -l "create or replace function public.<fn>(" supabase/migrations/*.sql | sort | tail`).
-- `lifecycle-layout-e2e.yml:119` runs `admin-lifecycle-transitions.spec.ts` on mobile-safari.
-- `tests/db/unarchive_show_rpc.test.ts` exists (harness template for T2).
-- `settleDashboardAdminState` exported from `tests/e2e/helpers/dashboardState.ts:36`.
-- Snippet typecheck: no snippets pasted verbatim in this plan (task bodies reference spec §6 shapes); T2/T3/T4 test code is written red-first in-repo where `pnpm typecheck` gates it (strict tsconfig incl. `exactOptionalPropertyTypes`).
+- Returning-helper basis: `tests/db/_b2Helpers.ts:50-56` (`asAdminRpc`, void by design — untouched), `tests/db/_b2Helpers.ts:59-66` (`unarchiveShowReturning` — template; T1 snippet mirrors it byte-for-byte modulo names, same `asAdminTx`/`sql`/`tx.unsafe` symbols in the same file scope).
+- Runtime assertions needing `performed`: `tests/app/admin/show-lifecycle-actions.test.ts:96`, `tests/app/admin/set-published-action.test.ts:76` and `tests/app/admin/set-published-action.test.ts:83` — read this session; exact-match `toEqual({ ok: true })` shapes (plan-R1 finding 5).
+- Boot mechanism: `playwright.config.ts:244-249` — CI `pnpm build && pnpm start -H 127.0.0.1 -p $E2E_PORT`, local `pnpm dev -H 127.0.0.1 -p $E2E_PORT` (plan-R1 finding 4).
+- Cleanup baseline: `tests/e2e/admin-lifecycle-transitions.spec.ts:207` region — afterAll deletes the seeded show only; no dashboard-state restore today (plan-R1 finding 4).
+- `settleDashboardAdminState` export: `tests/e2e/helpers/dashboardState.ts:36`, returns a restore callback (probe stored + invoked it; same contract for T4).
+- Producer sweep: `rg "ok: true" lib/showLifecycle` → `lib/showLifecycle/_shared.ts:4` (type) and line 40 (`mapRpcResult`) only. Consumer files: 13 (session log).
+- Latest RPC definitions: per spec §3 table, verified via `grep -l "create or replace function public.<fn>(" supabase/migrations/*.sql | sort | tail` for each of the seven lifecycle functions.
+- Snippet typecheck posture: T1's helper snippet reuses the exact symbols of its template in the same file (compiles by construction); T2's `_shared.ts` snippet drafted against the current body read this session (`KNOWN` in scope; strict-clean shapes); T4's sampler body is page-context code inside `page.evaluate` (browser DOM APIs; TS-checked as the evaluate callback when written in-spec). Each snippet still lands red-first in-repo where `pnpm typecheck` gates its commit.
