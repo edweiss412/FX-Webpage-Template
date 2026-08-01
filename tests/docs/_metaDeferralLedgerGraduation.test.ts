@@ -248,6 +248,14 @@ const BACKLOG_GRADUATED = [
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-VALIDATION-PARITY-DEFINITION-MATCH", provenance: "feat/driveid-guard-cluster" },
+  // fix/drive-api-call-timeouts (2026-08-01): the drive-timeout cluster — the
+  // eight app/api Drive calls bounded, the GoogleAuth token POST bounded via
+  // the URL-scoped TokenBoundGaxios, and the watch entry's last residual (the
+  // credential fetch) closed with it. Spec:
+  // docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md.
+  { id: "BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES", provenance: "fix/drive-api-call-timeouts" },
+  { id: "BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED", provenance: "fix/drive-api-call-timeouts" },
+  { id: "BL-WATCH-DRIVE-CALL-TIMEOUT", provenance: "fix/drive-api-call-timeouts" },
   { id: "BL-VALIDATION-TARGET-BINDING", provenance: "feat/driveid-guard-cluster" },
   { id: "BL-DRIVEID-BEHAVIORAL-COVERAGE", provenance: "feat/driveid-guard-cluster" },
   // fix/picker-flow-app-bugs (2026-07-25). The three app-behavior blockers
