@@ -91,14 +91,34 @@ describe("no bare ring-offset-2 / no focus outline-accent (spec 4.3)", () => {
     ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-text"', true], // family 2: non-backdrop token
     ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-garbage"', true], // family 3: non-emitting spelling
     ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-[garbage]"', true], // family 4: arbitrary value
-    ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-text)]"', true], // family 4: arbitrary var
-    ["a.tsx", 'className="peer-focus-visible:ring-offset-2 focus-visible:ring-offset-surface"', true], // family 5: chain mismatch
+    [
+      "a.tsx",
+      'className="focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-text)]"',
+      true,
+    ], // family 4: arbitrary var
+    [
+      "a.tsx",
+      'className="peer-focus-visible:ring-offset-2 focus-visible:ring-offset-surface"',
+      true,
+    ], // family 5: chain mismatch
     ["a.tsx", "className={`focus-visible:ring-offset-2 ${x}`}", true], // family 6: unregistered indirection
     ["a.tsx", 'className="focus-visible:outline-accent"', true], // family 7: focus outline-accent
-    ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-surface/garbage"', true], // whole-diff A mutant: modifier suffix emits nothing in Tailwind v4
+    [
+      "a.tsx",
+      'className="focus-visible:ring-offset-2 focus-visible:ring-offset-surface/garbage"',
+      true,
+    ], // whole-diff A mutant: modifier suffix emits nothing in Tailwind v4
     ["a.tsx", 'className="focus-visible:ring-offset-2 focus-visible:ring-offset-surface"', false],
-    ["a.tsx", 'className="peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"', false],
-    ["components/shared/ReportButton.tsx", "className={`focus-visible:ring-offset-2 ${offsetClass}`}", false], // registry lane
+    [
+      "a.tsx",
+      'className="peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"',
+      false,
+    ],
+    [
+      "components/shared/ReportButton.tsx",
+      "className={`focus-visible:ring-offset-2 ${offsetClass}`}",
+      false,
+    ], // registry lane
     ["a.tsx", 'className="outline-accent"', false], // non-focus outline-accent is out of scope
   ];
   for (const [rel, text, expected] of cases) {

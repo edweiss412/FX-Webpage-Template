@@ -457,9 +457,7 @@ test("claimed-row focus offset color equals the page backdrop in dark mode", asy
       document.documentElement.setAttribute("data-theme", "dark");
     });
 
-    const control = page
-      .locator('form[action*="/auth/sign-in"] button[type="submit"]')
-      .first();
+    const control = page.locator('form[action*="/auth/sign-in"] button[type="submit"]').first();
     await expect(control).toBeVisible();
     // Keyboard focus so :focus-visible applies (mouse focus would not).
     let guard = 0;
@@ -471,9 +469,7 @@ test("claimed-row focus offset color equals the page backdrop in dark mode", asy
       const cs = getComputedStyle(el);
       return {
         offsetColor: cs.getPropertyValue("--tw-ring-offset-color").trim(),
-        expected: getComputedStyle(document.documentElement)
-          .getPropertyValue("--color-bg")
-          .trim(),
+        expected: getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim(),
       };
     });
     expect(probe.offsetColor).toBe(probe.expected);

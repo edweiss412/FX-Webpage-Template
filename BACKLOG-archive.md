@@ -1473,6 +1473,7 @@ modules at module scope.
 > **Fix direction:** ensure the component under test is unmounted and any pending scheduler work flushed before the test completes — e.g. an explicit `cleanup()`/`unmount()` in a teardown hook, and awaiting pending timers/microtasks rather than letting the file end with work in flight. Reproducing reliably will likely need either a fast machine or artificially delayed teardown.
 >
 > **Provenance:** lifted to `main` 2026-08-01 from `chore/ci-namespace-runner-trial`, which was never opened as a PR; the branch remains the source of the underlying spec.
+
 ## BL-PICKER-ROW-RING-OFFSET-BACKDROP — claimed/active roster rows use a bare ring-offset-2 — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
 
 **Graduated:** 2026-08-01 — Resolved by the tree-wide bare-offset sweep (plan Task 3): the claimed/active roster rows gained `focus-visible:ring-offset-bg` (the rows sit on the picker `<main class="bg-bg">` ground, not their own fill); the dark-mode probe asserts the rendered offset color equals the computed `--color-bg`. The no-new-bare guard (tests/styles/noBareRingOffset.test.ts) prevents recurrence.

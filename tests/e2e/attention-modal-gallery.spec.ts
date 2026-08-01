@@ -556,7 +556,12 @@ test.describe("attention modal switcher gallery", () => {
     // visible matches. Pre-existing failure on origin/main (verified on a
     // clean worktree 2026-08-01) — dev-gate is schedule-only, so it rotted
     // dark (the BL-DEV-GATE-GALLERY-SPEC-ROT class).
-    await expect(dialog.getByText(/archived/i).locator("visible=true").first()).toBeVisible();
+    await expect(
+      dialog
+        .getByText(/archived/i)
+        .locator("visible=true")
+        .first(),
+    ).toBeVisible();
     await expect(dialog.getByRole("switch")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: /re-sync/i })).toHaveCount(0);
   });
@@ -612,10 +617,9 @@ test.describe("attention modal switcher gallery", () => {
     // poll the re-resolved locator so the measurement lands on the settled
     // tree (detach-safe: fresh single evaluate per attempt).
     await expect
-      .poll(
-        () => summary.evaluate((el) => el.getBoundingClientRect().height).catch(() => -1),
-        { timeout: 10_000 },
-      )
+      .poll(() => summary.evaluate((el) => el.getBoundingClientRect().height).catch(() => -1), {
+        timeout: 10_000,
+      })
       .toBeGreaterThanOrEqual(44);
   });
 

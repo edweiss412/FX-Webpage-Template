@@ -23,7 +23,11 @@ function channel(hexPair: string): number {
 }
 function relLuminance(hex: string): number {
   const h = hex.replace("#", "");
-  return 0.2126 * channel(h.slice(0, 2)) + 0.7152 * channel(h.slice(2, 4)) + 0.0722 * channel(h.slice(4, 6));
+  return (
+    0.2126 * channel(h.slice(0, 2)) +
+    0.7152 * channel(h.slice(2, 4)) +
+    0.0722 * channel(h.slice(4, 6))
+  );
 }
 function contrast(a: string, b: string): number {
   const [hi, lo] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x) as [number, number];
@@ -33,7 +37,9 @@ function blend(fg: string, alpha: number, bg: string): string {
   const f = fg.replace("#", "");
   const g = bg.replace("#", "");
   const mix = (i: number): string =>
-    Math.round(parseInt(f.slice(i, i + 2), 16) * alpha + parseInt(g.slice(i, i + 2), 16) * (1 - alpha))
+    Math.round(
+      parseInt(f.slice(i, i + 2), 16) * alpha + parseInt(g.slice(i, i + 2), 16) * (1 - alpha),
+    )
       .toString(16)
       .padStart(2, "0");
   return `#${mix(0)}${mix(2)}${mix(4)}`;
@@ -83,9 +89,15 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
       const hex =
         "#" +
         [darkRing[1], darkRing[2], darkRing[3]]
-          .map((c) => Number(c ?? "0").toString(16).padStart(2, "0"))
+          .map((c) =>
+            Number(c ?? "0")
+              .toString(16)
+              .padStart(2, "0"),
+          )
           .join("");
-      expect(contrast(blend(hex, Number(darkRing[4] ?? "1"), darkA), darkA)).toBeGreaterThanOrEqual(3.0);
+      expect(contrast(blend(hex, Number(darkRing[4] ?? "1"), darkA), darkA)).toBeGreaterThanOrEqual(
+        3.0,
+      );
     });
   }
 });
