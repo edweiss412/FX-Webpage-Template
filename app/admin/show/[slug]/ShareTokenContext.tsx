@@ -30,7 +30,16 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-type Ctx = { token: string | null; applyRotated: (token: string, epoch: number) => void };
+type Ctx = {
+  token: string | null;
+  applyRotated: (token: string, epoch: number) => void;
+  /** Monotone count of SEED-driven token changes — a rotation this browser did
+   *  NOT apply locally (another admin's rotate, a lifecycle rotation). A local
+   *  rotate goes through applyRotated first, so its follow-up seed carries an
+   *  equal token and never counts. Non-null-to-non-null changes only (spec
+   *  2026-08-01-announce-a11y-pass §4.1). */
+  remoteTokenChanges: number;
+};
 
 const ShareTokenContext = createContext<Ctx | null>(null);
 
@@ -56,8 +65,23 @@ export function ShareTokenProvider({
   // is no extra commit/flash and no cascading-render lint hazard. `seed` records
   // the last server pair we reconciled; a change to either prop fires the gate once.
   const [seed, setSeed] = useState({ token: initialToken, epoch: initialEpoch });
+  const [remoteTokenChanges, setRemoteTokenChanges] = useState(0);
   if (seed.token !== initialToken || seed.epoch !== initialEpoch) {
     setSeed({ token: initialToken, epoch: initialEpoch });
+    // Remote-change bump (spec 2026-08-01-announce-a11y-pass §4.1): the seed
+    // gate runs ONCE per server seed (the `seed` record de-dupes StrictMode /
+    // re-render replays), so this counts each accepted non-null-to-non-null
+    // token CHANGE exactly once. Reads this render's `state` — the same pair
+    // the accept gate below compares against. Outside the setState updater
+    // (updaters must stay pure).
+    if (
+      initialEpoch >= state.epoch &&
+      state.token !== null &&
+      initialToken !== null &&
+      initialToken !== state.token
+    ) {
+      setRemoteTokenChanges((n) => n + 1);
+    }
     setState((p) => {
       if (initialEpoch < p.epoch) return p; // stale refresh — reject
       if (initialToken === null) {
@@ -75,8 +99,8 @@ export function ShareTokenProvider({
   // (applyRotated is already stable). Without this, every provider render hands
   // them a fresh object and re-renders them all.
   const value = useMemo<Ctx>(
-    () => ({ token: state.token, applyRotated }),
-    [state.token, applyRotated],
+    () => ({ token: state.token, applyRotated, remoteTokenChanges }),
+    [state.token, applyRotated, remoteTokenChanges],
   );
 
   return <ShareTokenContext.Provider value={value}>{children}</ShareTokenContext.Provider>;

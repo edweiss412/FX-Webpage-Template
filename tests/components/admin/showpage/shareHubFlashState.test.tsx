@@ -84,7 +84,7 @@ const STEPS: ReadonlyArray<{ token: string; epoch: number }> = [
 ];
 
 function Probe() {
-  const { applyRotated } = useShareToken();
+  const { applyRotated, remoteTokenChanges } = useShareToken();
   return (
     <>
       {STEPS.map((s, i) => (
@@ -95,6 +95,7 @@ function Probe() {
           onClick={() => applyRotated(s.token, s.epoch)}
         />
       ))}
+      <output data-testid="remote-changes">{remoteTokenChanges}</output>
     </>
   );
 }
@@ -378,5 +379,47 @@ describe("teardown", () => {
     // baseline + 1. React 19 emits no setState-after-unmount warning, so a
     // warning-based pin would be vacuous.
     expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline);
+  });
+});
+
+// remoteTokenChanges counter (spec 2026-08-01-announce-a11y-pass §4.1): bumps
+// once per SEED-driven accepted non-null-to-non-null token change; never on
+// applyRotated (local), stale seeds, epoch-only advances, or null transitions.
+describe("ShareTokenContext.remoteTokenChanges", () => {
+  const count = () => Number(screen.getByTestId("remote-changes").textContent);
+
+  it("a seed-driven token change bumps exactly once", () => {
+    const { reseed } = renderHub();
+    expect(count()).toBe(0);
+    reseed(T2, 6); // remote rotation arrives via router.refresh seed
+    expect(count()).toBe(1);
+  });
+
+  it("a local applyRotated (+ its equal-token follow-up seed) never bumps", () => {
+    const { reseed } = renderHub();
+    remoteRotate(0); // applyRotated(T2, 6) — the LOCAL instant path
+    expect(count()).toBe(0);
+    reseed(T2, 6); // the follow-up server seed carries the SAME pair
+    expect(count()).toBe(0);
+  });
+
+  it("a stale (lower-epoch) seed is rejected and never bumps", () => {
+    const { reseed } = renderHub();
+    reseed("STALE", 4); // held epoch is 5
+    expect(count()).toBe(0);
+  });
+
+  it("a same-token higher-epoch seed (reset_picker_epoch_atomic shape) never bumps", () => {
+    const { reseed } = renderHub();
+    reseed(T1, 9); // epoch advanced, token unchanged
+    expect(count()).toBe(0);
+  });
+
+  it("null transitions never bump (token loss, token appearance)", () => {
+    const { reseed } = renderHub();
+    reseed(null, 9); // token -> null (authoritative loss)
+    expect(count()).toBe(0);
+    reseed(T2, 10); // null -> token (eligibility restored, nothing died)
+    expect(count()).toBe(0);
   });
 });
