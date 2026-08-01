@@ -184,6 +184,7 @@ import http from "node:http";
 import { generateKeyPairSync } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GOOGLE_AUTH_TOKEN_TIMEOUT_MS, TokenBoundGaxios, getDriveAuth } from "@/lib/drive/client";
+import { isDriveTimeoutShape } from "@/lib/drive/errorStatus";
 
 function stallServer(): Promise<{ port: number; close: () => void; seen: string[] }> {
   const seen: string[] = [];
@@ -195,11 +196,21 @@ function stallServer(): Promise<{ port: number; close: () => void; seen: string[
 
 describe("TokenBoundGaxios", () => {
   it("aborts a stalled token-host request at the budget (real socket)", async () => {
-    const { port, close } = await stallServer();
+    const { port, close, seen } = await stallServer();
     const t = new TokenBoundGaxios(250, `127.0.0.1:${port}`);
     const started = Date.now();
-    await expect(t.request({ url: `http://127.0.0.1:${port}/token`, method: "POST", retry: false })).rejects.toThrow();
-    expect(Date.now() - started).toBeLessThan(5_000);
+    let caught: unknown;
+    try {
+      await t.request({ url: `http://127.0.0.1:${port}/token`, method: "POST", retry: false });
+    } catch (e) {
+      caught = e;
+    }
+    const elapsed = Date.now() - started;
+    // Plan-review r2 F2: an immediate arbitrary throw must NOT pass. Prove all three:
+    expect(seen).toContain("/token");                 // the server was actually reached
+    expect(elapsed).toBeGreaterThanOrEqual(250);      // the wait ran to the budget...
+    expect(elapsed).toBeLessThan(5_000);              // ...and not past the test ceiling
+    expect(isDriveTimeoutShape(caught)).toBe(true);   // rejection carries the probed timeout shape
     close();
   }, 10_000);
   it("injects NO timeout for non-token hosts (slow-but-healthy response above token budget completes)", async () => {
@@ -340,7 +351,7 @@ Same shape as Task 4 — including the per-site strict metadata assertion (both 
 Checker rules (spec D7 + §2.1, verbatim contract):
 - Parse each non-test `.ts` under `lib/` and `app/` (skip .d.ts, `__generated__`) with `ts.createSourceFile`; walk `CallExpression`s.
 - MATCH when the callee property chain contains a NON-terminal segment in {`files`, `channels`, `revisions`, `spreadsheets`, `values`} and the terminal method name is NOT in the JS-collection blocklist (`map filter forEach some every find findIndex includes join slice splice reduce flat flatMap indexOf keys entries sort concat push pop shift unshift`).
-- A matched call is BOUND iff its LAST argument is an object literal containing: a `timeout` property whose initializer text is not `undefined`/`null`/`0`/`NaN`, contains no ternary, and any `??` has a non-degenerate right operand (identifier/member expression or positive numeric literal); OR a `signal` property under the same non-degenerate rule (rejecting bare `?.` chains without a `??` safe fallback).
+- A matched call is BOUND iff its LAST argument is an object literal containing a `timeout` or `signal` property whose initializer is one of an enumerated WHITELIST of AST shapes (plan-review r2 F1: a blacklist loses to logical-expression mutants like `0 && DRIVE_FILES_GET_TIMEOUT_MS`, which gaxios treats as no-timeout since it skips falsy values): (w1) a positive numeric literal; (w2) an identifier; (w3) a non-optional property-access chain (no `?.`); (w4) a nullish-coalescing expression `A ?? B` whose right operand is itself w1/w2/w3. EVERYTHING ELSE is unbound — ternaries, logical `&&`/`||` expressions, `undefined`/`null`/`0`/`NaN` literals, optional chains without a `??` safe fallback, call expressions, template strings. Whitelisting closes the mutant family by construction instead of enumerating escapes.
 - Exemption: line (or preceding line) contains `// drive-call-bound: `.
 - UNBOUND matches are findings; the walk test asserts ZERO findings tree-wide.
 
@@ -363,11 +374,21 @@ Module header states the MF5/MF7 honest ceiling verbatim from spec §2.1.
 - [ ] **Step 3: Run** `pnpm exec vitest run tests/docs/`, then `pnpm spec:lint docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`, then `pnpm spec:lint docs/superpowers/plans/2026-07-31-drive-timeout-cluster.md` (one document per invocation — the CLI rejects two positionals; plan-review r1 F11) — PASS/0 hard each.
 - [ ] **Step 4: Commit** `docs(plan): graduate the three drive-timeout backlog entries with registry coverage`
 
-### Task 9: Gates (no new code)
+### Task 9: Gates
 
 - [ ] Invariant-8 dual-gate on the UI diff (Step2Verify one-liner): `/impeccable critique` + `/impeccable audit` scoped to the affected diff, with the canonical v3 setup gates; P0/P1 fixed or DEFERRED.md'd. Findings + dispositions recorded in a `## 12. Invariant-8 close-out` section APPENDED TO THIS PLAN DOCUMENT (the durable handoff artifact for this non-milestone branch — AGENTS.md requires a §12 in the milestone's handoff doc, and this plan is that doc here; plan-review r1 F12), and summarized in the PR body.
+- [ ] Post-append hygiene (plan-review r2 F3): after writing the §12 section, re-run `pnpm spec:lint docs/superpowers/plans/2026-07-31-drive-timeout-cluster.md` (0 hard) and commit the appended section as its own commit: `docs(plan): invariant-8 close-out for drive-timeout cluster`.
 - [ ] Full local suite: `pnpm typecheck && pnpm lint && pnpm exec vitest run` (both default projects) — green before push.
 - [ ] Snippet-typecheck note: plan snippets for Tasks 2/3/7 were compile-checked standalone against `--strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes` during plan authoring; route-test snippets are contracts to be adapted to each file's existing harness idioms (stated inline).
+
+### Task 10: Autonomous close-out pipeline (plan-review r2 F4 — the plan carries its own terminus)
+
+- [ ] Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY, split tight-scope briefs if the diff is large per AGENTS.md) — iterate to APPROVE; triage findings land-now / DEFERRED.md / BACKLOG.md.
+- [ ] Push branch; open PR (merge-commit convention; PR body summarizes stages, review rounds, invariant-8 dispositions, and ends with the standard generated-with footer).
+- [ ] REAL CI green on the GitHub Actions run (not just local); reconcile if DIRTY/behind-base before claiming green.
+- [ ] `gh pr merge --merge` in the same turn CI goes green (never park a green PR).
+- [ ] Fast-forward local main: `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only` then verify `git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main` prints `0	0`.
+- [ ] Set ship-state marker `stage: "done"`, CronDelete the nudge job, clear the herdr pane label.
 
 ## Self-review + adversarial review
 
