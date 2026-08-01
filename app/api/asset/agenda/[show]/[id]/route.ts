@@ -32,6 +32,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
+import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";
+import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
@@ -302,8 +304,11 @@ async function authorizeAgendaRequest(
           supportsAllDrives?: boolean;
         },
         options?: {
-          responseType: "stream";
+          responseType?: "stream";
           headers?: Record<string, string>;
+          timeout?: number;
+          retry?: boolean;
+          signal?: AbortSignal;
         },
       ): Promise<{
         data: unknown;
@@ -317,11 +322,14 @@ async function authorizeAgendaRequest(
 
   let meta: DriveMetadata;
   try {
-    const metaResult = (await drive.files.get({
-      fileId: id,
-      fields: "mimeType,trashed,size",
-      supportsAllDrives: true,
-    })) as { data: DriveMetadata };
+    const metaResult = (await drive.files.get(
+      {
+        fileId: id,
+        fields: "mimeType,trashed,size",
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    )) as { data: DriveMetadata };
     meta = metaResult.data;
   } catch (err) {
     if (isNotFoundOrGone(err))
@@ -464,8 +472,11 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
             supportsAllDrives?: boolean;
           },
           options?: {
-            responseType: "stream";
+            responseType?: "stream";
             headers?: Record<string, string>;
+            timeout?: number;
+            retry?: boolean;
+            signal?: AbortSignal;
           },
         ): Promise<{
           data: unknown;
@@ -478,11 +489,14 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // Codex R14 P1: `supportsAllDrives: true` so files in Shared Drives
     // (the same surface M6 sync uses for show sheets) resolve instead
     // of returning 404 here.
-    const metaResult = (await drive.files.get({
-      fileId: id,
-      fields: "mimeType,trashed,size",
-      supportsAllDrives: true,
-    })) as { data: DriveMetadata };
+    const metaResult = (await drive.files.get(
+      {
+        fileId: id,
+        fields: "mimeType,trashed,size",
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    )) as { data: DriveMetadata };
     const meta = metaResult.data;
     if (meta.trashed || meta.mimeType !== PDF_MIME) {
       return gone();
@@ -513,18 +527,23 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       }
     }
 
+    // Bound the stream-open AWAIT (connect + headers), never the body: the
+    // guard clears the moment the await resolves, so a long healthy transfer
+    // is untouched while a stalled socket rejects at the budget
+    // (drive-timeout cluster spec 3.2).
+    const guard = createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS);
     try {
-      const driveOpts: {
-        responseType: "stream";
-        headers?: Record<string, string>;
-      } = { responseType: "stream" };
-      if (rangeHeader && Number.isFinite(reportedSize)) {
-        driveOpts.headers = { Range: rangeHeader };
-      }
       const bytesResult = await drive.files.get(
         { fileId: id, alt: "media", supportsAllDrives: true },
-        driveOpts,
+        {
+          responseType: "stream",
+          signal: guard.signal,
+          ...(rangeHeader && Number.isFinite(reportedSize)
+            ? { headers: { Range: rangeHeader } }
+            : {}),
+        },
       );
+      guard.clear();
       // Codex R2 P2: stream straight through with a bounded passthrough.
       // No buffering, no double-copy. The Response body is a Web stream
       // backed by the Drive Node stream wrapped in a byte-limit
@@ -608,6 +627,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       }
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
+      guard.clear();
       if (err instanceof ByteLimitExceededError)
         return gone("oversize", { showId: show, assetKey: id });
       // Codex R18 P1: Drive 416 means the requested Range is

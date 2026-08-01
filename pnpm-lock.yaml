@@ -41,6 +41,9 @@ importers:
       framer-motion:
         specifier: ^12.38.0
         version: 12.38.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      gaxios:
+        specifier: ^7.1.4
+        version: 7.1.4
       googleapis:
         specifier: ^171.4.0
         version: 171.4.0

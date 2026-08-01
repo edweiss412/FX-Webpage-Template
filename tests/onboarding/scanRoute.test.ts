@@ -256,6 +256,18 @@ describe("POST /api/admin/onboarding/scan", () => {
         code: "OPERATOR_ERROR_NOT_FOLDER",
       } satisfies FolderVerificationResult,
     ],
+    // Drive-timeout cluster: a pre-scan Drive stall passes through the widened
+    // FolderVerificationResult as 504 with the new cataloged code.
+    [
+      "https://drive.google.com/drive/folders/folder-1",
+      504,
+      "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
+      {
+        ok: false,
+        status: 504,
+        code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
+      } satisfies FolderVerificationResult,
+    ],
   ])("AC-10.2 failure path %# returns %i %s", async (folderUrl, status, code, verifyResult) => {
     const db = new FakeScanDb();
     const routeDeps = deps(db, { verifyFolder: vi.fn(async () => verifyResult) });

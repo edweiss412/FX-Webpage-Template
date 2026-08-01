@@ -239,6 +239,34 @@ describe("Step2Verify", () => {
     expect(container.textContent ?? "").not.toContain("INVALID_FOLDER_URL");
   });
 
+  test("on 504 ONBOARDING_FOLDER_VERIFY_UNAVAILABLE renders the cataloged copy, not the generic fallback", async () => {
+    // Drive-timeout cluster: a pre-scan Drive stall returns 504 with its own
+    // cataloged code. This is the assertion that fails if the code is left out
+    // of RECOGNIZED_CODES -- copyForCode would silently fall back to the
+    // generic copy and the operator would be told to contact the developer for
+    // a transient Drive stall.
+    fetchMock.mockResolvedValue(
+      mockJsonResponse(
+        { ok: false, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" },
+        { status: 504 },
+      ),
+    );
+    const { getByTestId, findByTestId, container } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    const err = await findByTestId("wizard-step2-error");
+    const expected = MESSAGE_CATALOG.ONBOARDING_FOLDER_VERIFY_UNAVAILABLE.dougFacing;
+    expect(expected).toBeTruthy();
+    expect(err.textContent ?? "").toContain(expected);
+    expect(err.textContent ?? "").not.toContain("contact the developer");
+    // No raw code leaks into visible text (invariant 5 / x2).
+    expect(container.textContent ?? "").not.toContain("ONBOARDING_FOLDER_VERIFY_UNAVAILABLE");
+  });
+
   test("on 403 FOLDER_NOT_SHARED renders the cataloged copy", async () => {
     fetchMock.mockResolvedValue(
       mockJsonResponse({ ok: false, code: "FOLDER_NOT_SHARED" }, { status: 403 }),

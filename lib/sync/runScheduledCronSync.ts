@@ -2100,7 +2100,8 @@ export function defaultDriveClient(): DriveClient {
       // BACKLOG.md (BL-DIAGRAMS-EMBEDDED-SOURCE).
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       // DXT-3: bound the previously-untimed Sheets metadata read with a per-call
-      // gaxios timeout (gaxios-7 "TimeoutError" → driveErrorStatus 504) under
+      // gaxios timeout (gaxios-7 timeout = GaxiosError with cause.name
+      // "AbortError", classified by isDriveTimeoutShape to 504) under
       // withDriveRetry; retry:false keeps withDriveRetry the single retry layer.
       const response = await withDriveRetry(() =>
         sheetsClient.spreadsheets.get(

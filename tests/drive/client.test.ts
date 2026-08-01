@@ -40,7 +40,8 @@ describe("getDriveClient", () => {
   });
 
   test("returns a Drive v3 client authenticated with GOOGLE_SERVICE_ACCOUNT_JSON", async () => {
-    const { getDriveClient, GOOGLE_DRIVE_SCOPES } = await import("@/lib/drive/client");
+    const { getDriveClient, GOOGLE_DRIVE_SCOPES, TokenBoundGaxios } =
+      await import("@/lib/drive/client");
 
     const client = getDriveClient();
 
@@ -48,12 +49,17 @@ describe("getDriveClient", () => {
     expect(googleAuthMock).toHaveBeenCalledWith({
       credentials: SERVICE_ACCOUNT,
       scopes: GOOGLE_DRIVE_SCOPES,
+      clientOptions: { transporter: expect.any(TokenBoundGaxios) },
     });
     expect(driveMock).toHaveBeenCalledWith({
       version: "v3",
       auth: {
         kind: "auth",
-        options: { credentials: SERVICE_ACCOUNT, scopes: GOOGLE_DRIVE_SCOPES },
+        options: {
+          credentials: SERVICE_ACCOUNT,
+          scopes: GOOGLE_DRIVE_SCOPES,
+          clientOptions: { transporter: expect.any(TokenBoundGaxios) },
+        },
       },
     });
   });
@@ -80,12 +86,14 @@ describe("getDriveClient", () => {
     googleAuthMock.mockImplementation(function GoogleAuth(options) {
       return { kind: "auth", options, getAccessToken: async () => "ya29.live-token" };
     });
-    const { getDriveAccessToken, GOOGLE_DRIVE_SCOPES } = await import("@/lib/drive/client");
+    const { getDriveAccessToken, GOOGLE_DRIVE_SCOPES, TokenBoundGaxios } =
+      await import("@/lib/drive/client");
 
     await expect(getDriveAccessToken()).resolves.toBe("ya29.live-token");
     expect(googleAuthMock).toHaveBeenCalledWith({
       credentials: SERVICE_ACCOUNT,
       scopes: GOOGLE_DRIVE_SCOPES,
+      clientOptions: { transporter: expect.any(TokenBoundGaxios) },
     });
     expect(driveMock).not.toHaveBeenCalled();
   });

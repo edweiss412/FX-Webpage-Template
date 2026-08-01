@@ -61,8 +61,8 @@ function definitiveGone(error: unknown): boolean {
 
 // Exported + injectable so the default metadata read is directly unit-testable
 // (DXT-3). Bounds the previously-untimed `files.get` with a per-call gaxios
-// timeout (gaxios-7 fires AbortSignal.timeout → "TimeoutError", which
-// driveErrorStatus maps to a transient 504) and routes it through withDriveRetry;
+// timeout (gaxios-7 timeout = GaxiosError with cause.name "AbortError",
+// classified by isDriveTimeoutShape to a transient 504) through withDriveRetry;
 // `retry: false` keeps withDriveRetry the single retry layer. A 403/404/410 is
 // non-transient → propagates unchanged to verifyReelOnApply's drift handling.
 export function defaultDrive(

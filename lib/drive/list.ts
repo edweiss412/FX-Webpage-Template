@@ -11,8 +11,9 @@ export const DRIVE_LIST_FIELDS =
  * FIRST Drive call in the onboarding scan (`prepareOnboardingFiles`), so an
  * unbounded stall here hangs the whole pass before any sheet is read — the same
  * silent-stall class as the export/`files.get` fixes, on the same hot path. A
- * gaxios-7 per-call `timeout` fires via `AbortSignal.timeout` (GaxiosError
- * `code: "TimeoutError"`), which `driveErrorStatus` maps to a transient 504 so
+ * gaxios-7 per-call `timeout` rejects with a GaxiosError whose signature is
+ * `cause.name: "AbortError"` (probed 2026-07-31; no `code` is set), which
+ * `driveErrorStatus` classifies via `isDriveTimeoutShape` to a transient 504 so
  * the wrapping `withDriveRetry` retries with a fresh budget then throws a typed
  * error. `retry: false` keeps `withDriveRetry` the single retry layer. The budget
  * is PER PAGE (each `withDriveRetry` call wraps one `files.list` page), so 10s is

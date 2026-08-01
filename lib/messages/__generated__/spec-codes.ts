@@ -704,6 +704,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix Drive share",
     "helpfulContext": "We tried to read your folder using the service account but Drive returned an access-denied response. Open the folder's share dialog and add the service-account email shown in the wizard. Once it's shared, click 'Try again'.",
   },
+  "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE": {
+    "crewFacing": null,
+    "dougFacing": "Google Drive didn't respond while we checked the folder. Nothing was scanned. Wait a moment and try again.",
+    "followUp": "Doug → retry in a moment",
+    "helpfulContext": "Before scanning, the wizard asks Google Drive to confirm the folder exists and is really a folder. Drive did not answer within the time limit, so the check was abandoned before any scanning started. Nothing was changed. This is usually a temporary Drive or network hiccup; wait a moment and click Verify again.",
+  },
   "ONBOARDING_LEGACY_ROW_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",

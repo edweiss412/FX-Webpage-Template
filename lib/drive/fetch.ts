@@ -1,5 +1,9 @@
 import type { drive_v3 } from "googleapis";
-import { driveErrorStatus as driveErrorStatusShape } from "@/lib/drive/errorStatus";
+import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";
+import {
+  driveErrorStatus as driveErrorStatusShape,
+  isDriveTimeoutShape,
+} from "@/lib/drive/errorStatus";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import {
   synthesizeMarkdownFromXlsx,
@@ -7,6 +11,11 @@ import {
 } from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { snapshotCronInFlight, type CronInFlightSnapshot } from "@/lib/log/requestContext";
+
+// Moved to the lean no-imports module so request routes can import the budget
+// without inheriting this module's xlsx dependency; re-exported here so the
+// existing sync-path importers are untouched.
+export { DRIVE_FILES_GET_TIMEOUT_MS };
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
 export const XLSX_EXPORT_MIME_TYPE =
@@ -79,36 +88,6 @@ export type DriveFetchOptions = {
  */
 export const DRIVE_EXPORT_TIMEOUT_MS = 45_000;
 
-/**
- * Per-attempt wall-clock budget for a Drive `files.get` metadata read.
- *
- * `getDriveClient()` builds the gaxios client with NO timeout (gaxios default is
- * unbounded), so a silent socket stall on the before-`get`/after-`get` issued
- * around every sheet hangs `prepareOne` exactly like the export bug did — on the
- * SAME onboarding hot path (DXT-1 part C). Healthy gets are 165-255ms, so 8s is
- * ~30x headroom while still bounding a stall.
- *
- * A gaxios-7 per-call timeout fires via `AbortSignal.timeout`, throwing a
- * `GaxiosError` with `code === "TimeoutError"` (a string, not the gaxios-6/axios
- * `ECONNABORTED`/`ETIMEDOUT` shape). `driveErrorStatus` maps that — and the
- * low-level socket-timeout codes, defensively — to a transient 504 so the
- * already-wrapping `withDriveRetry` retries with a fresh budget, then throws a
- * typed error after the bounded retries (same bounded contract as the export
- * guard, not an indefinite hang). The gaxios call passes `retry: false` so
- * `withDriveRetry` is the SINGLE retry layer and the per-attempt budget is
- * exactly this many ms.
- *
- * Aggregate budget: the dominant per-sheet term is the EXPORT guard (45s *
- * (1+maxRetries) = 180s). The metadata budgets are deliberately small on top of
- * it — a single sheet's pathological all-stall-and-exhaust critical path is
- * roughly list(10s*4) + before-get(8s*4) + export(180s) + after-get(8s*4) ≈
- * 284s, which stays under the route's 300s `maxDuration`; even at the cap,
- * maxDuration termination is a BOUNDED failure (the original bug was an
- * *indefinite* hang). Realistic prepare is a few seconds — this is the
- * astronomically improbable worst case, not the expected one.
- */
-export const DRIVE_FILES_GET_TIMEOUT_MS = 8_000;
-
 export class DriveFetchError extends Error {
   readonly status?: number;
   constructor(message: string, status?: number) {
@@ -177,17 +156,17 @@ export function driveErrorStatus(error: unknown): number | null {
   if (error instanceof DriveFetchError) {
     return typeof error.status === "number" ? error.status : null;
   }
-  // A gaxios-7 request timeout (per-call `timeout` -> AbortSignal.timeout) throws
-  // a GaxiosError with `code === "TimeoutError"` (string) and NO numeric status.
-  // Treat that — plus the low-level socket-timeout codes, defensively — as a
-  // transient 504 so withDriveRetry retries a stalled files.get instead of
-  // failing it on the first attempt. (gaxios 7 is the native-fetch rewrite, so
-  // its own per-call-timeout path ALWAYS yields "TimeoutError";
-  // ECONNABORTED/ETIMEDOUT are the older gaxios-6/axios shapes, retained only for
-  // a low-level undici/socket cause whose .code gaxios copies through — never
-  // from gaxios-7's timeout path itself.)
-  const code = (error as { code?: unknown })?.code;
-  if (code === "TimeoutError" || code === "ETIMEDOUT" || code === "ECONNABORTED") {
+  // A gaxios-7 per-call timeout (per-call `timeout` under its node-fetch
+  // adapter) throws a GaxiosError with NO `code`, `name === "Error"`, and the
+  // signature on `cause.name === "AbortError"` — live-probed 2026-07-31 against
+  // the installed gaxios@7.1.4 (drive-timeout-cluster spec 1.3; the earlier
+  // `code === "TimeoutError"` claim never fired on this path). Classify by
+  // SHAPE via the leaf reader — top-level TimeoutError/ETIMEDOUT/ECONNABORTED
+  // names and codes are retained inside it for native-fetch
+  // (AbortSignal.timeout) and socket-level variants — and map to a transient
+  // 504 so withDriveRetry retries a stalled files.get instead of failing it on
+  // the first attempt.
+  if (isDriveTimeoutShape(error)) {
     return 504;
   }
   // gaxios / googleapis error shapes: response.status, status, or numeric code.
