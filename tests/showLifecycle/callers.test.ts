@@ -28,7 +28,7 @@ describe("lifecycle callers — default RPC binding (R-impl-1)", () => {
     const res = await archiveShow("show-1"); // no deps → exercises defaultRpc (the production path)
     expect(sessionRpc).toHaveBeenCalledWith("archive_show", { p_show_id: "show-1" });
     expect(serviceRoleClient).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: false }); // sessionRpc stub returns data:null
   });
 
   it("publishShow with NO injected rpc also routes through the session client", async () => {
@@ -66,7 +66,7 @@ describe("lifecycle callers", () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const res = await archiveShow("show-1", { rpc });
     expect(rpc).toHaveBeenCalledWith("archive_show", { p_show_id: "show-1" });
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: false }); // data:null → fail-closed no-op
   });
 
   it("archiveShow maps FINALIZE_OWNED_SHOW errcode to a typed refusal", async () => {
@@ -88,7 +88,7 @@ describe("lifecycle callers", () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const res = await unpublishShow("show-1", { rpc });
     expect(rpc).toHaveBeenCalledWith("unpublish_show", { p_show_id: "show-1" });
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: false }); // data:null → fail-closed no-op
   });
 
   it("unpublishShow maps FINALIZE_OWNED_SHOW and SHOW_ARCHIVED_IMMUTABLE to typed refusals", async () => {
@@ -129,7 +129,7 @@ describe("lifecycle callers", () => {
     // Real signature is runManualSyncForShow(driveFileId, mode="manual", deps?) — positional mode string
     // (lib/sync/runManualSyncForShow.ts:217-220), NOT an options object.
     expect(catchUp).toHaveBeenCalledWith("drive-1", "manual");
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: true });
   });
 
   it("R8: a stale/double Unarchive (RPC no-op → returns false) does NOT run the mutating catch-up sync", async () => {
@@ -139,7 +139,7 @@ describe("lifecycle callers", () => {
     const catchUp = vi.fn();
     const res = await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp });
     expect(catchUp).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true }); // the RPC succeeded (idempotent no-op), so the action still reports ok
+    expect(res).toEqual({ ok: true, performed: false }); // the RPC succeeded (idempotent no-op), so the action still reports ok
   });
 
   it("unarchiveShow does NOT run the catch-up when the RPC fails, and surfaces the typed result", async () => {
@@ -191,5 +191,36 @@ describe("lifecycle callers — THROWN Supabase faults map to infra_error (R7, i
       unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp }),
     ).resolves.toEqual({ ok: false, code: "infra_error" });
     expect(catchUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("performed discriminator mapping (race-cluster spec §4)", () => {
+  // The chokepoint constructs `performed` from the RPC's returned data. Failure
+  // mode caught: a caller mapping `performed: !!data` (truthy garbage passes) or
+  // dropping the field entirely.
+  it("data:true → performed:true", async () => {
+    const rpc: LifecycleRpc = async () => ({ data: true, error: null });
+    const res = await archiveShow("show-1", { rpc });
+    expect(res).toEqual({ ok: true, performed: true });
+  });
+
+  it("data:false → performed:false (idempotent no-op)", async () => {
+    const rpc: LifecycleRpc = async () => ({ data: false, error: null });
+    const res = await archiveShow("show-1", { rpc });
+    expect(res).toEqual({ ok: true, performed: false });
+  });
+
+  it("data:null (transitional void RPC) → performed:false, still ok", async () => {
+    const rpc: LifecycleRpc = async () => ({ data: null, error: null });
+    const res = await publishShow("show-1", { rpc });
+    expect(res).toEqual({ ok: true, performed: false });
+  });
+
+  it("thrown fault stays infra_error — never a performed:false success", async () => {
+    const rpc: LifecycleRpc = async () => {
+      throw new Error("network down");
+    };
+    const res = await unpublishShow("show-1", { rpc });
+    expect(res).toEqual({ ok: false, code: "infra_error" });
   });
 });

@@ -34,9 +34,9 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 const logAdminOutcome = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome }));
 
-const archiveShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
-const publishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
-const unarchiveShow = vi.fn(async (_id: string, _drive: string) => ({ ok: true }) as const);
+const archiveShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
+const publishShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
+const unarchiveShow = vi.fn(async (_id: string, _drive: string) => ({ ok: true, performed: true }) as const);
 vi.mock("@/lib/showLifecycle/archiveShow", () => ({
   archiveShow: (...a: unknown[]) => archiveShow(...(a as [string])),
 }));
@@ -83,7 +83,7 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     });
     archiveShow.mockImplementation(async () => {
       order.push("archive");
-      return { ok: true } as const;
+      return { ok: true, performed: true } as const;
     });
     maybeSingleResult.value = { data: { id: "show-1", drive_file_id: "drive-1" }, error: null };
 
@@ -93,7 +93,7 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(from).toHaveBeenCalledWith("shows");
     expect(eq).toHaveBeenCalledWith("slug", "my-slug");
     expect(archiveShow).toHaveBeenCalledWith("show-1");
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: true });
     expect(revalidatePath).toHaveBeenCalled();
     // nav-perf tag-caching (Task 8): success revalidates the show's data-cache tag.
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
@@ -145,7 +145,7 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
   // Task 9: durable forensic telemetry on the committed-success branch only.
   it("unarchiveShowAction on committed success emits SHOW_UNARCHIVED_BY_ADMIN telemetry exactly once", async () => {
     maybeSingleResult.value = { data: { id: "show-7", drive_file_id: "drive-7" }, error: null };
-    unarchiveShow.mockResolvedValueOnce({ ok: true } as never);
+    unarchiveShow.mockResolvedValueOnce({ ok: true, performed: true } as const);
 
     await unarchiveShowAction("show-7");
 
@@ -179,7 +179,7 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
       data: { id: "show-arch-1", drive_file_id: "drive-arch-1" },
       error: null,
     };
-    archiveShow.mockResolvedValueOnce({ ok: true } as const);
+    archiveShow.mockResolvedValueOnce({ ok: true, performed: true } as const);
 
     await archiveShowAction("slug-arch-1");
 

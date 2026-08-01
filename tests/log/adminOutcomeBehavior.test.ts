@@ -343,8 +343,8 @@ const AUTO_APPLIED_FILE = "app/admin/_actions/autoApplied.ts";
 // runs against the shared swappable `serverClientImpl` (resolveShowBySlug/ById).
 // undoChange + showCacheTag.revalidateShow are already mocked above for the
 // dashboard auto-applied actions; feed.undoChangeAction reuses undoChangeMock.
-const archiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
-const unarchiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+const archiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
+const unarchiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
 const publishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
 const unpublishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
 vi.mock("@/lib/showLifecycle/archiveShow", () => ({
@@ -984,8 +984,8 @@ beforeEach(() => {
   }));
   resolveAdminAlertMock.mockImplementation(async () => undefined);
   // Batch 1 per-show action delegates (success defaults; failure set per-test):
-  archiveShowMock.mockImplementation(async () => ({ ok: true }));
-  unarchiveShowMock.mockImplementation(async () => ({ ok: true }));
+  archiveShowMock.mockImplementation(async () => ({ ok: true, performed: true }));
+  unarchiveShowMock.mockImplementation(async () => ({ ok: true, performed: true }));
   publishShowMock.mockImplementation(async () => ({ ok: true }));
   unpublishShowMock.mockImplementation(async () => ({ ok: true }));
   approveMi11HoldMock.mockImplementation(async () => ({ ok: true, showId: "show-77" }));

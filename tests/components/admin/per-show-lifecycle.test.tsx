@@ -70,9 +70,9 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("show=rpas"),
 }));
 vi.mock("@/app/admin/show/[slug]/_actions", () => ({
-  archiveShowAction: async () => ({ ok: true }),
+  archiveShowAction: async () => ({ ok: true, performed: true }),
   unarchiveShowAction: async () => undefined,
-  setShowPublishedAction: async () => ({ ok: true }),
+  setShowPublishedAction: async () => ({ ok: true, performed: true }),
   mi11ApproveAction: async () => undefined,
   mi11RejectAction: async () => undefined,
   undoChangeAction: async () => undefined,

@@ -21,8 +21,8 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({
   logAdminOutcome: (...a: unknown[]) => (logAdminOutcome as (...a: unknown[]) => unknown)(...a),
 }));
 
-const publishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
-const unpublishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
+const publishShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
+const unpublishShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
 vi.mock("@/lib/showLifecycle/publishShow", () => ({
   publishShow: (...a: unknown[]) => publishShow(...(a as [string])),
 }));
@@ -67,20 +67,20 @@ describe("setShowPublishedAction", () => {
     });
     publishShow.mockImplementation(async () => {
       order.push("publish");
-      return { ok: true } as const;
+      return { ok: true, performed: true } as const;
     });
     const res = await setShowPublishedAction("slug-1", true);
     expect(order).toEqual(["admin", "publish"]);
     expect(publishShow).toHaveBeenCalledWith("show-1");
     expect(unpublishShow).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: true });
   });
 
   it("dispatches unpublishShow for next=false", async () => {
     const res = await setShowPublishedAction("slug-1", false);
     expect(unpublishShow).toHaveBeenCalledWith("show-1");
     expect(publishShow).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, performed: true });
   });
 
   it("infra_error resolution short-circuits with NO lifecycle call", async () => {
@@ -121,7 +121,7 @@ describe("setShowPublishedAction", () => {
     unpublishShow.mockResolvedValueOnce({
       ok: false,
       code: "FINALIZE_OWNED_SHOW",
-    } as unknown as { ok: true });
+    } as unknown as { ok: true; performed: true });
     const res = await setShowPublishedAction("slug-1", false);
     expect(res).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
     expect(revalidateTag).not.toHaveBeenCalled();
