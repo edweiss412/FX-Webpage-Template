@@ -271,7 +271,7 @@ export function buildSectionWarningExtras(args: {
           <details data-testid={`section-ignored-warnings-${id}`} className="group">
             <summary
               data-testid={`section-ignored-summary-${id}`}
-              className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+              className="min-h-tap-min inline-flex items-center cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
             >
               Ignored ({ignoredWarnings.length}){" "}
               <ChevronRight

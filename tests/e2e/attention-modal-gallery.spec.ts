@@ -594,6 +594,26 @@ test.describe("attention modal switcher gallery", () => {
     await expect(dialog.getByRole("button", { name: /un-ignore/i }).first()).toBeVisible();
   });
 
+  // Tap-floor measurement (spec 2026-08-01-focus-ring-a11y-pass §6, plan Task
+  // 4): the rendered Ignored (N) summary must meet the 44px floor. A class
+  // assertion cannot catch token drift or a winning competing rule; only the
+  // measured box can.
+  test("Ignored (N) summary meets the 44px tap floor (§6)", async ({ page }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    const summary = dialog.locator('[data-testid^="section-ignored-summary-"]').first();
+    await expect(summary).toBeVisible();
+    // The modal re-renders shortly after gotoScenario, detaching early nodes;
+    // poll the re-resolved locator so the measurement lands on the settled
+    // tree (detach-safe: fresh single evaluate per attempt).
+    await expect
+      .poll(
+        () => summary.evaluate((el) => el.getBoundingClientRect().height).catch(() => -1),
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(44);
+  });
+
   // Focus-ring offset probe (spec 2026-08-01-focus-ring-a11y-pass §8 row 4, plan
   // Task 3 probe B): a REGISTRY-lane control (DataQualityWarningControls
   // RING_OFFSET[mode], ignored mode -> surface-sunken) must render its offset
