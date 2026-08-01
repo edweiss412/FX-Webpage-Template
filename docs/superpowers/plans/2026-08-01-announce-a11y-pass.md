@@ -247,3 +247,15 @@ Persistent sr-only region at the popover root (mounted whenever the popover rend
 - Type consistency: `expired`/`setExpired` per surface; `expiredCode` only on BulkIgnoreControls; `remoteTokenChanges` name identical in context, hub, tests.
 - Every snippet uses only APIs verified against live code (state names, handler names, fragment placements — spec §3.2 matrix anchors).
 - Failure modes stated per test (stale-timer advance, exclusivity, retroactive-announce, epoch-keyed-counter mutant).
+
+## Close-out: impeccable dual-gate record (invariant 8)
+
+⚠️ DEGRADED: single-context (both assessment subagents stalled past 15 minutes and a direct ping; sequential inline fallback per the critique contract — Assessment A completed before detector output entered context).
+
+Setup gates ran: context.mjs (PRODUCT.md + DESIGN.md loaded) → product register reference read.
+
+**Critique (Assessment A, product register).** Heuristics: visibility of system status 4 (the pass exists to fix its one SR gap), match to real world 4, user control 4, consistency 4 (one copy constant + family idiom + T4/T5 pins), error prevention 4 (the Apply-disarm fix closes a real mid-mutation hazard), recognition 4, flexibility 3 (no AT-specific timing accommodation — owner-ratified out), aesthetic/minimal 4 (zero visual change), error recognition 4, help/docs 4 (DESIGN.md §15 contract). Strengths: dispatch-entry clear rule structurally closes the stale-re-announce class; mirror-the-cue gives SR users exactly the sighted signal; single-return restructures make region persistence a reconciliation guarantee instead of a hope. Findings: NO P0, NO P1. P3 (accepted, no change): aria-live attribute style varies across the family — extended morph regions stay role="status"-only matching their pre-existing markup, new regions carry role + aria-live matching the ResetPickerEpochButton precedent; both are polite regions, per-surface nearest-precedent consistency wins over a cross-family attribute sweep.
+
+**Audit (Assessment B, deterministic).** detect.mjs over the 12 changed component files: exit 0, zero findings. Mechanical diff scan: em-dashes only inside code comments (none in user-visible copy); no straight apostrophes in rendered copy; no new visible controls (tap-target floor N/A); only canonical class tokens added (sr-only). Browser step skipped: authenticated admin surface, sr-only-only diff — nothing visual to screenshot. Dimension scores: A11y 4, Performance 4, Theming 4, Responsive 4, Anti-patterns 4.
+
+Dispositions: no fixes required; no DEFERRED.md entries. Gate PASSES.
