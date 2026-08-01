@@ -394,7 +394,7 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 61 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 65 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
@@ -404,8 +404,14 @@ describe(
           "guarded at the call site — spec 2026-07-26-driveid-guard-cluster-design §3.1) " +
           "+ tests/db/watchReconcileState.test.ts + tests/db/watchReconcileStateWrites.test.ts " +
           "+ tests/db/watchSurfaceStateIntegration.test.ts (watch backoff 2026-07-27; " +
-          "all three delete their RUN-scoped rows, local-only)",
-      ).toBe(61);
+          "all three delete their RUN-scoped rows, local-only) " +
+          "+ tests/db/destructiveResetGate.test.ts + tests/db/resetValidationData.test.ts " +
+          "+ tests/db/resetValidationDataConcurrency.test.ts " +
+          "+ tests/db/resetValidationDataDriveKeyedAudit.test.ts (the four whole-DB-wipe " +
+          "suites, swept off TEST_DATABASE_URL onto the loopback-only variable 2026-08-01 — " +
+          "they execute reset_validation_data(), so they were the highest-blast-radius " +
+          "readers still outside this scan set)",
+      ).toBe(65);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

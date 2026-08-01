@@ -36,15 +36,19 @@
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { SignJWT } from "jose";
+import { assertLocalDbUrl } from "./_localDbUrl";
 
 // ---------------------------------------------------------------------------
 // Layer B substrate — direct DB connection (postgres.js), admin/non-admin tx.
 // ---------------------------------------------------------------------------
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// SAFETY: this test flips destructive_reset_gate (the only thing standing between
+// a test run and a whole-DB wipe) and calls reset_validation_data(). TEST_DATABASE_URL
+// is the validation project in this repo (.env.local) and is deliberately NOT honored
+// here — see tests/db/_localDbUrl.ts.
+const DB_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 
