@@ -73,7 +73,19 @@ for wf in .github/workflows/unit-suite.yml .github/workflows/x-audits.yml; do
   printf '%s' "$body" | LC_ALL=C grep -q '[^[:print:][:space:]]' && fail "$wf contains a non-ASCII byte outside comments"
 done
 
-# 4. SELF-ENVIRONMENT: a workflow/job-scoped NODE_OPTIONS (or pnpm's
+# 4. SELF-EXCLUSION (R16-B): the coverage/oracle/topology guards are the
+#    only checks of the exclusion contract, and each is a vitest file that
+#    ENV_BOUND_EXCLUDES could list — excluding a guard silently disables it
+#    (the partition guard accepts zero membership for any array entry). This
+#    pre-node layer is not excludable, so it refuses any guard test appearing
+#    in the ENV_BOUND_EXCLUDES array of vitest.projects.ts.
+if [ -f vitest.projects.ts ]; then
+  arr="$(sed -n '/ENV_BOUND_EXCLUDES[[:space:]]*=[[:space:]]*\[/,/\]/p' vitest.projects.ts)"
+  printf '%s' "$arr" | grep -qE '_metaEnvBoundExclusionCoverage\.test\.ts|runExcludedTest\.test\.ts|unit-suite-shard-topology\.test\.ts|vitest-projects-partition\.test\.ts' &&
+    fail "a coverage/oracle guard test is listed in ENV_BOUND_EXCLUDES — it would exclude the very verifier of the exclusion contract"
+fi
+
+# 5. SELF-ENVIRONMENT: a workflow/job-scoped NODE_OPTIONS (or pnpm's
 #    npm_config_node_options) is present in THIS step's env too, since the
 #    guard runs in the same job — refuse it directly, regardless of how the
 #    workflow spelled it. Case-insensitive: node reads NODE_OPTIONS exactly,

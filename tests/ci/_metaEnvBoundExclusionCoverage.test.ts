@@ -239,6 +239,27 @@ describe("env-bound exclusion coverage (spec §6)", () => {
     }
   });
 
+  it("no coverage/oracle guard test may exclude ITSELF via ENV_BOUND_EXCLUDES (R16-B)", () => {
+    // This file is the sole verifier of exclusion totality, and it is a
+    // vitest file — listing it (or the oracle/topology/partition guards) in
+    // ENV_BOUND_EXCLUDES would silently stop it running while the partition
+    // guard accepts zero membership for any array entry. The LOAD-BEARING
+    // enforcement is the non-excludable bash composite guard
+    // (scripts/ci/assert-pnpm-sources-clean.sh step 4); this is the readable
+    // belt.
+    const GUARDS = [
+      "tests/ci/_metaEnvBoundExclusionCoverage.test.ts",
+      "tests/scripts/runExcludedTest.test.ts",
+      "tests/cross-cutting/unit-suite-shard-topology.test.ts",
+      "tests/cross-cutting/vitest-projects-partition.test.ts",
+    ];
+    const excluded = GUARDS.filter((g) => files.some((f) => f === g || f.endsWith(`/${g}`)));
+    expect(
+      excluded,
+      "a guard test is env-bound-excluded — it would disable the very check that enforces the contract",
+    ).toEqual([]);
+  });
+
   it("registry totality: every exclusion has exactly one row, every row names a live exclusion", () => {
     const uncovered = files.filter((f) => !(f in ENV_BOUND_COVERAGE_REGISTRY));
     expect(

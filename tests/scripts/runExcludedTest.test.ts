@@ -290,6 +290,24 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
       runGuard(CLEAN, { npm_config_node_options: "--import=x" }),
       "env npm_config_node_options",
     ).not.toBe(0);
+    // R16-B: a guard test listed in ENV_BOUND_EXCLUDES (its own verifier)
+    // is refused by the non-excludable bash layer.
+    expect(
+      runGuard({
+        ...CLEAN,
+        "vitest.projects.ts":
+          'export const ENV_BOUND_EXCLUDES = [\n  "**/tests/ci/_metaEnvBoundExclusionCoverage.test.ts",\n];\n',
+      }),
+      "self-excluded coverage guard",
+    ).not.toBe(0);
+    expect(
+      runGuard({
+        ...CLEAN,
+        "vitest.projects.ts":
+          'export const ENV_BOUND_EXCLUDES = [\n  "**/tests/cross-cutting/email-canonicalization.test.ts",\n];\n',
+      }),
+      "ordinary exclusion still passes",
+    ).toBe(0);
     // …and the real tree passes it.
     expect(execFileSync("bash", [GUARD], { cwd: ROOT, stdio: "pipe" }).toString()).toContain("ok");
   });
