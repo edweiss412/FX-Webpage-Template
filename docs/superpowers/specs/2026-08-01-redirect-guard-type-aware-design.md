@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** DRAFT for adversarial review · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R2 — round-1 findings repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**R1 disposition (2026-08-01):** NEEDS-ATTENTION, 7 findings, all accepted. F1 (typed value-flow escapes) is closed structurally by a second matching prong — every non-callee **reference** to the banned method is itself a finding (probe 4: all 12 mutants caught, incl. `as any` value extraction; negatives clean). F2/F3 (mechanism misstatements) fixed against probe-validated mechanics, pure ts-morph. F4 fixture-path contradiction resolved (`__audit_fixture__/` namespace under both roots). F5 `auditTree` contract specified. F6 typecheck overclaim replaced by a no-plain-JS sentinel (probe: zero JS modules under walked roots today). F7 probes now committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs`.
 
 Graduates `BL-SOUND-REDIRECT-GUARD` (BACKLOG.md): replace the syntactic resolution mechanism in `tests/cross-cutting/no-absolute-self-redirect-audit.ts` with type-checker-based callee resolution, so a `NextResponse.redirect` / `Response.redirect` call is recognized by what the callee **is**, not how it is spelled.
 
@@ -17,11 +19,12 @@ The guard bans `NextResponse.redirect(...)` (and Web API `Response.redirect`) un
 | Replace syntactic resolution; do NOT add a 20th spelling to the matcher | BACKLOG.md `BL-SOUND-REDIRECT-GUARD` ("Either is a real piece of work, not a patch"); five prior review rounds converged on this |
 | Mechanism: type-aware vitest audit (ts-morph over repo tsconfig), not an ESLint rule | §4 approaches; ts-morph is an existing devDependency (`package.json` `ts-morph`) with repo precedent (`lib/audit/noGlobalCursor.ts` `projectSourceFiles`, `tests/cross-cutting/no-raw-codes-audit.ts`) |
 | Walked roots: `app/**`, `lib/**`, root `middleware.{ts,tsx}` — extended from `app/` only | §5.3; closes the wrapper-relocation hole; probe 3 shows `lib/` clean today, no middleware file exists |
-| Match criterion: resolved-signature declaration named `redirect` whose enclosing named container is `NextResponse` or `Response` | Probe 2 output — every offending spelling resolves there; `next/navigation` `redirect` (free function, no container) and local methods named `redirect` (container ≠ those names) do not |
+| Match criterion is TWO-PRONG: (1) calls whose resolved-signature declaration is the banned `redirect` (container `NextResponse`/`Response`); (2) any non-callee reference to that method — extraction is banned outright, no allowlist row can cover it | Probe 2 + probe 4 outputs — prong 2 closes every R1/F1 typed value-flow mutant at the site where `redirect` is spelled; `next/navigation` `redirect` (free function, no container) and local methods named `redirect` stay clean |
+| Plain-JS modules are FENCED OUT of the walked roots by a sentinel test, not covered by a typecheck claim | R1/F6 probe: tsconfig `include` lists only TS extensions and `checkJs` is off, so `tsc --noEmit` proves nothing about a standalone `.js` route; zero JS modules exist under `app/`+`lib/` today (`find` probe) |
 | Allowlist mechanics unchanged: `path:line` key + exact-argument pin, stale-row + reason meta-tests kept | `EXTERNAL_REDIRECT_ALLOWLIST`, `unallowedRedirects` in the audit module; the pinning rationale comments carry forward verbatim |
 | `any`-erasure and reflection remain documented limits, not closed classes | §7; no static analysis closes them; consequence-bounded there |
 | Guard soundness is conditional on the tree resolving its imports; the `typecheck` merge gate (`package.json` `typecheck`: `tsc --noEmit`) discharges the condition | §5.6 |
-| Finding shape `{line, text, argument}` and test-file structure preserved | §5.5 |
+| Finding shape `{line, text, argument}` preserved plus a `kind: "call" \| "reference"` discriminant; test-file structure preserved | §5.1, §5.5 |
 
 ## 2. Probe data (probe-before-argue; detector surface)
 
@@ -63,11 +66,31 @@ findings (1):
   app/api/auth/google/start/route.ts:72 NextResponse.redirect(data.url, { status: 302 })
 ```
 
-Exactly the one allowlisted external-OAuth site; zero false positives across a tree that calls `next/navigation` `redirect` routinely. Runtime ~11.5s → §5.7 perf budget.
+Exactly the one allowlisted external-OAuth site; zero false positives across a tree that calls `next/navigation` `redirect` routinely. Runtime ~11.5s idle, ~23s under concurrent-session machine load → §5.7 perf budget.
+
+**Probe 4 — the reference prong closes every R1/F1 mutant (round-1 repair).** The R1 review demonstrated, with zero-diagnostic probes, that precise structural typing erases resolved-signature identity: a callback parameter typed `(url: string | URL, status?: number) => Response`, structurally-typed properties (type literal / interface / class field), composite callables (conditional, tuple, object-union), and `.call`/`.apply` adapters all escaped the call-prong alone. Prong 2 — flag every non-callee reference whose type carries a call signature declared by the banned method — catches all of them at the extraction site, where `redirect` is necessarily spelled:
+
+```
+OK  F1a callback param            -> reference: NextResponse.redirect
+OK  F1b/c/d structural property (type literal / interface / class field) -> reference
+OK  F1e/f/g composite (conditional / tuple / object-union)               -> reference
+OK  F1h/i/j .call and .apply adapters (NextResponse and Response)        -> reference
+OK  F1k renamed destructure `const { redirect: r } = NextResponse`       -> reference
+OK  F1l `const f = NextResponse.redirect as any` (VALUE laundering)      -> reference
+NEG next/navigation extraction, unrelated-container extraction           -> clean
+NEG direct call: exactly 1 hit (no double count)
+ALL MUTANTS CLOSED
+```
+
+Real-tree run of the two-prong matcher: **0 non-callee `redirect`-named candidates exist in the tree**, findings unchanged (the one allowlisted call), runtime 12.3s — prong 2 is effectively free.
+
+**Probe 4c — escape pins.** `(NextResponse as any).redirect(u)` (receiver laundering): 0 findings — remains the documented limit. `const k = "redirect"; NextResponse[k](u)` (const-literal computed key): **caught** by the call prong (the checker resolves literal-typed keys). Widened key (`const k: string = "redirect"` through a `Record` cast): 0 findings — documented limit.
+
+**Probe — no plain-JS modules under walked roots (R1/F6).** `find app lib -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs"` (node_modules excluded) → 0 files. tsconfig `include` covers only `**/*.ts`/`**/*.tsx`, `checkJs` off — so the typecheck gate does NOT discharge import resolution for standalone JS; the sentinel in §5.5 fences the class instead.
 
 ## 3. Consequence bound (acceptance criterion)
 
-The guard's claim after this work: **any call expression in the walked roots whose callee statically resolves to `NextResponse.redirect` or `Response.redirect` is reported, regardless of spelling or value flow.** Convergence for review is this consequence bound plus the documented-limits section (§7) — NOT "no imaginable defeating input". A hypothetical escape is a finding only with a live probe showing it escaping the NEW guard while producing the host flip; escapes that require defeating the type system (`as any`, reflection) file to §7 without a round (finding-admissibility contract, AGENTS.md).
+The guard's claim after this work: **in the walked roots, (1) any call whose callee statically resolves to `NextResponse.redirect` or `Response.redirect` is reported, and (2) any other reference to that method — extraction, storage, passing, adaptation — is reported at the site where the member name is spelled.** Typed value flow BEYOND an extraction site needs no tracking: the extraction itself is already a finding (probe 4). Convergence for review is this consequence bound plus the documented-limits section (§7) — NOT "no imaginable defeating input". A hypothetical escape is a finding only with a live probe showing it escaping the NEW two-prong guard; escapes that require laundering the RECEIVER before the member access (`(NextResponse as any).redirect`), a non-literal-typed computed key, or reflection/eval file to §7 without a round (finding-admissibility contract, AGENTS.md; boundary pinned by probe 4c).
 
 ## 4. Approaches considered
 
@@ -81,25 +104,56 @@ The guard's claim after this work: **any call expression in the walked roots who
 
 ### 5.1 Audit module: `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (rewritten in place)
 
-Deleted: `parseSource`, `resolveBindings`, `receiverText`, `unwrap`, `isRedirectCall` — the entire syntactic resolution layer. Kept: `SelfRedirectFinding` (same fields), `EXTERNAL_REDIRECT_ALLOWLIST` (same rows, same comments), `unallowedRedirects` filter semantics (exact-argument match, same rationale comment).
+Deleted: `parseSource`, `resolveBindings`, `receiverText`, `unwrap`, `isRedirectCall` — the entire syntactic resolution layer, and the raw `typescript` import with it. Kept: `EXTERNAL_REDIRECT_ALLOWLIST` (same rows, same comments), `unallowedRedirects` filter semantics (exact-argument match, same rationale comment). `SelfRedirectFinding` gains a `kind: "call" | "reference"` discriminant (line/text/argument fields unchanged; `argument` is `""` for references).
 
-New core:
+**Pure ts-morph API throughout (R1/F3).** ts-morph vendors its own compiler (`@ts-morph/common`); its nodes do not satisfy the standalone `typescript` package's nominal types under strict tsc. The implementation uses ts-morph wrappers only (`Node`, `Project`, type guards, `TypeChecker#getResolvedSignature`), matching `lib/audit/noGlobalCursor.ts` idiom. Validated: the §2 probe-4 core typechecks standalone with `--strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes`.
+
+**Banned-declaration predicate** (shared by both prongs; exact mechanics probe-validated, R1/F2):
 
 ```ts
-function isBannedRedirectCall(checker: ts.TypeChecker, call: ts.CallExpression): boolean
+function declaredName(decl: Node): string | null {
+  if (Node.isMethodDeclaration(decl) || Node.isMethodSignature(decl)) return decl.getName();
+  // Function-typed properties resolve to the nameless FunctionTypeNode; the name
+  // lives on the enclosing PropertySignature (interface/type literal) or
+  // PropertyDeclaration (class field).
+  if (Node.isFunctionTypeNode(decl)) {
+    const holder = decl.getParent();
+    if (Node.isPropertySignature(holder) || Node.isPropertyDeclaration(holder)) return holder.getName();
+    return null;
+  }
+  return null; // FunctionDeclaration (next/navigation's redirect), arrows: never banned
+}
+
+function isBannedDecl(decl: Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (declaredName(decl) !== "redirect") return false;
+  const container = containerName(decl); // nearest named class/interface, or the
+  return container === "NextResponse" || container === "Response"; // TypeLiteral's variable
+}
 ```
 
-1. `sig = checker.getResolvedSignature(call)`; no signature or no declaration → not banned (see §7 limit 1).
-2. Declaration must be named `redirect`. Declaration kinds accepted: `MethodDeclaration`, `MethodSignature`, `PropertySignature` whose type is a function (covers `var Response: { redirect(...) }`-shaped constructor types). `FunctionDeclaration` is never banned — that shape is `next/navigation`'s `redirect` (probe 2).
-3. Enclosing named container (nearest `ClassDeclaration`/`InterfaceDeclaration` ancestor name, or the `VariableDeclaration` name when the declaration sits in a `TypeLiteral` initializer/type) must be `NextResponse` or `Response`.
+**Prong 1 — calls:** flag every `CallExpression` where `isBannedDecl(getResolvedSignature(call)?.getDeclaration())`.
 
-Deliberately name-based, not declaration-path-based: a vendored or re-declared `NextResponse`/`Response` with a `redirect` member still flags. Default-deny — a false positive on a hypothetical innocent class named `NextResponse` is a visible, allowlistable event, not a silent miss.
+**Prong 2 — references (R1/F1 closure):** candidate nodes are `PropertyAccessExpression`s named `redirect`, `ElementAccessExpression`s with string-literal argument `"redirect"`, and `BindingElement`s whose property name is `redirect`. Skip candidates in direct-callee position (prong 1 owns those; the allowlist keys on calls). Flag the rest when the node's TYPE carries a banned call signature: `node.getType().getCallSignatures().some(s => isBannedDecl(s.getDeclaration()))`. Rationale: every way to move the method into differently-typed storage must spell the member name once, at the extraction site — probe 4 shows all twelve R1 mutants caught there, including `as any` VALUE laundering, and the real tree has zero such references. Extraction findings are unconditionally banned: no allowlist row can cover them (a reference's `argument` is `""`, which never matches a row's pinned argument, and no legitimate external-redirect use needs to extract the method).
 
-### 5.2 Entry points
+Deliberately name-based container matching, not declaration-path-based: a vendored or re-declared `NextResponse`/`Response` with a `redirect` member still flags. Default-deny — a false positive on a hypothetical innocent class named `NextResponse` is a visible, allowlistable event, not a silent miss.
 
-- `auditSource(repoRelativePath, source)` — fixture/single-file entry, signature preserved. Creates the file (overwrite) in a lazily-built module-level fixture `Project` (`tsConfigFilePath`, `skipAddingFilesFromTsConfig: true`) so `next/server` and `@/lib/**` resolve from the real filesystem. Fixture paths live under `app/__audit_fixture__/**` — a directory that must not exist on disk (meta-assertion in the test file) so fixtures can never shadow real files.
-- `auditTree()` — builds a fresh `Project` with roots `app/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `lib/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `middleware.{ts,tsx}`; returns findings per repo-relative path for all non-`node_modules` source files. Replaces the test file's `readdirSync` walk + per-file `readFileSync` (module resolution needs the project anyway; a separate manual walk would double-read the tree).
-- `unallowedRedirects(...)` — unchanged filter, now over `auditTree()`/`auditSource` output.
+### 5.2 Entry points (contract per R1/F5)
+
+- `auditSource(repoRelativePath, source)` — fixture/single-file entry, signature preserved, returns `SelfRedirectFinding[]`. Creates the file (overwrite) in a lazily-built module-level fixture `Project` (`tsConfigFilePath`, `skipAddingFilesFromTsConfig: true`) so `next/server` and `@/lib/**` resolve from the real filesystem. `addFixtureModule(repoRelativePath, source)` (exported) adds sibling modules to the same project for multi-file fixtures (R22 re-export). Fixture paths live under an `__audit_fixture__/` segment — `app/__audit_fixture__/**` or `lib/__audit_fixture__/**` (R1/F4: the wrapper-in-lib fixture R24 needs a `lib/` path) — and the test file asserts NEITHER directory exists on disk, so fixtures can never shadow real files.
+- `auditTree()` — builds a fresh `Project` (same config; separate instance from the fixture project, so fixtures can never leak into the tree audit) with roots `app/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `lib/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `middleware.{ts,tsx}`. Returns:
+
+  ```ts
+  type TreeAudit = {
+    findingsByFile: Map<string, SelfRedirectFinding[]>; // key: repo-relative path; every audited file present, [] when clean
+    visitedAppFiles: number;   // audited (non-node_modules) files under app/
+    visitedLibFiles: number;   // same, under lib/
+    plainJsFiles: string[];    // audited files with .js/.jsx/.mjs/.cjs extensions (sentinel input)
+  };
+  ```
+
+  Replaces the test file's `readdirSync` walk + per-file `readFileSync`. **Run once per test process:** the tree-consuming tests live in one `describe` whose `beforeAll(() => { tree = auditTree(); }, 120_000)` pays the ~12s (23s loaded-machine) build exactly once under its own explicit timeout; every tree assertion — offenders, stale-row live keys, vacuous-walk floors, JS sentinel — reads that shared result. Individual tests then need no elevated timeout.
+- `unallowedRedirects(repoRelativePath, findings)` — filter semantics unchanged (exact-argument match against `EXTERNAL_REDIRECT_ALLOWLIST`); operates on prong-1 findings by construction for allowlisting purposes, and passes every `kind: "reference"` finding through unconditionally (see §5.1).
 
 ### 5.3 Walked roots
 
@@ -111,22 +165,20 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new rows R20–R23 (§6.1) and the wrapper-in-lib and JS-ESM rows R24–R25.
-- Negative fixtures: `hostRelativeRedirect` (existing), `next/navigation` `redirect`, a local class method named `redirect`, `new NextResponse(null, { headers: { Location } })`.
-- Tree test: `every NextResponse.redirect under the walked roots is allow-listed` via `auditTree()`.
-- Stale-row test, reason/argument-pin row test: unchanged semantics.
-- Argument-changed test: the synthetic line-72 fixture becomes a compilable module padded so the call still lands on line 72 (the current bare-padding string would be invisible to the checker).
-- Vacuous-walk sentinel: `auditTree()` visited > 50 files under `app/` AND ≥ 1 file under `lib/` (extended roots get their own floor).
-- Escape-documentation test: the `as any` laundering fixture (§7 limit 1) asserted to produce **0 findings** — pinning the documented limit as behavior so a future "fix" that silently changes the boundary trips a test and updates the header deliberately.
-- Perf: the audit builds one `Project` per run (~12s, probe 3). Test timeout set explicitly (60s) on the tree test.
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R24 and R25–R37 (§6.1).
+- Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`.
+- Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
+- Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
+- Escape-documentation tests (§6.3): receiver-laundering and widened-key fixtures asserted to produce **0 findings** — pinning each documented limit as behavior so a future change to the boundary trips a test and updates the header deliberately.
+- Fixture-shadow assertions: neither `app/__audit_fixture__` nor `lib/__audit_fixture__` exists on disk.
 
 ### 5.6 Honesty header rewrite
 
-The module header's claim changes from "these 19 spellings" to: *resolved-callee identity over the walked roots, conditional on the program resolving its imports — a condition the `typecheck` merge gate (`tsc --noEmit`) enforces tree-wide. A green audit + green typecheck means: no call whose callee statically resolves to `NextResponse.redirect`/`Response.redirect` exists outside the allowlist. It does NOT mean the dynamic class is impossible: §7 limits (`any`-erasure, reflection, node_modules wrappers) remain, stated in the header.* The 19-spelling enumeration moves from "what the guard catches" to "regression floor pinned by fixtures".
+The module header's claim changes from "these 19 spellings" to: *two-prong resolved-identity matching over the walked roots — every call resolving to `NextResponse.redirect`/`Response.redirect`, and every non-callee reference to that method, is reported. Conditional on the program resolving its imports: for TypeScript files the `typecheck` merge gate (`tsc --noEmit`, `.github/workflows/quality.yml`) enforces that tree-wide; for plain-JS files no such backstop exists, which is why the JS sentinel (§5.5) keeps the walked roots TS-only. It does NOT mean the dynamic class is impossible: §7 limits (receiver laundering, non-literal computed keys, reflection, node_modules wrappers) remain, stated in the header.* The 19-spelling enumeration moves from "what the guard catches" to "regression floor pinned by fixtures".
 
 ### 5.7 Performance budget
 
-Probe 3: ~11.5s total on this tree (633 files, 16k calls). Accepted for a cross-cutting audit (the suite already carries whole-project ts-morph audits — `lib/audit/noGlobalCursor.ts` `projectSourceFiles` loads the full tsconfig). If tree growth pushes past the 60s timeout, the recorded fallback is root-file batching, not a return to syntactic matching.
+Probe 3/4b: ~11.5s idle, ~23s under concurrent-session machine load, on this tree (633 files, 16k calls); the reference prong adds no measurable cost (0 candidates in the real tree). Accepted for a cross-cutting audit (the suite already carries whole-project ts-morph audits — `lib/audit/noGlobalCursor.ts` `projectSourceFiles` loads the full tsconfig). The 120s `beforeAll` timeout (§5.2) covers the loaded-machine tail. If tree growth pushes past it, the recorded fallback is root-file batching, not a return to syntactic matching.
 
 ## 6. Mutation-family closure set
 
@@ -138,38 +190,53 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | --- | --- | --- |
 | R1–R19 | The 19 legacy spellings | existing `FLAGGED_SPELLINGS`, compilable preamble |
 | R20 | Helper return | `function pick() { return NextResponse.redirect; } … pick()(new URL(p, request.url))` |
-| R21 | Class field | `class R { go = NextResponse.redirect } … new R().go(…)` |
-| R22 | Re-export | `export { NextResponse as Redirector } from "next/server"` in a sibling fixture module; `Redirector.redirect(…)` at the call site |
+| R21 | Class field holding the method | `class R { go = NextResponse.redirect } … new R().go(…)` |
+| R22 | Re-export | `export { NextResponse as Redirector } from "next/server"` in a sibling fixture module (via `addFixtureModule`); `Redirector.redirect(…)` at the call site |
 | R23 | Dynamic dispatch (typed) | `const table = { go: NextResponse.redirect }; table["go" as const](…)` |
-| R24 | Wrapper in `lib/` | direct `NextResponse.redirect(…)` call in a `lib/`-path fixture (walked-roots extension) |
-| R25 | JS ESM route | a plain-JavaScript route fixture (.js extension) with ESM `import { NextResponse } from "next/server"` (allowJs is on: `tsconfig.json` `allowJs`) |
+| R24 | Wrapper in `lib/` | direct `NextResponse.redirect(…)` call in a `lib/__audit_fixture__/` fixture (walked-roots extension) |
+| R25 | Callback parameter (R1/F1a) | `invoke(NextResponse.redirect, url)` where `invoke(fn: RedirectFn, …)` is structurally typed |
+| R26 | Structural type-literal property (F1b) | `const impl: { redirect: RedirectFn } = { redirect: NextResponse.redirect }; impl.redirect(…)` |
+| R27 | Structural interface property (F1c) | same via `interface Redirish` |
+| R28 | Structural class-field property (F1d) | `class Impl { redirect: RedirectFn = NextResponse.redirect }` |
+| R29 | Conditional composite (F1e) | `(cond ? NextResponse.redirect : safe)(…)` |
+| R30 | Tuple composite (F1f) | `[safe, NextResponse.redirect] as const`, indexed call |
+| R31 | Object-union composite (F1g) | `cond ? { go: safe } : { go: NextResponse.redirect }`, `.go(…)` |
+| R32 | `.call` adapter (F1h) | `NextResponse.redirect.call(NextResponse, …)` |
+| R33 | `.apply` adapter (F1i) | `NextResponse.redirect.apply(NextResponse, […])` |
+| R34 | Web API adapter (F1j) | `Response.redirect.call(Response, …)` |
+| R35 | Renamed destructure extraction (F1k) | `const { redirect: r } = NextResponse; invoke(r, …)` |
+| R36 | `as any` VALUE laundering (F1l) | `const f = NextResponse.redirect as any; f(…)` — caught at the extraction reference |
+| R37 | Const-literal computed key (probe 4c) | `const k = "redirect"; NextResponse[k](…)` — the checker resolves literal-typed keys |
 
 ### 6.2 Must-not-flag (negatives)
 
 | # | Family | Why safe |
 | --- | --- | --- |
 | N1 | `hostRelativeRedirect(p, 302)` | sanctioned replacement; free function |
-| N2 | `next/navigation` `redirect("/x")` | free function, no container (probe 2) |
-| N3 | Local `class Router { redirect(u) {} }` | container ≠ NextResponse/Response |
+| N2 | `next/navigation` `redirect("/x")` — call AND extraction (`const r = redirect; r("/x")`) | free function, no container; its type's call signatures carry no banned declaration (probe 4 NEG) |
+| N3 | Local `class Router { redirect(u) {} }` — call, extraction, AND `.call` adapter | container ≠ NextResponse/Response (probe 4 NEG) |
 | N4 | `new NextResponse(null, { status, headers: { Location } })` | constructor, not a `redirect` signature — this is `hostRelativeRedirect`'s own mechanism |
+| N5 | Direct banned call produces exactly ONE finding | callee-position skip in prong 2 — no double count (probe 4 NEG) |
 
-### 6.3 Documented-escape pins (limits asserted as behavior)
+### 6.3 Documented-escape pins (limits asserted as behavior; boundary probed, 4c)
 
 | # | Family | Verdict |
 | --- | --- | --- |
-| E1 | `(NextResponse as any).redirect(…)` | 0 findings — pins §7 limit 1 |
+| E1 | `(NextResponse as any).redirect(…)` — RECEIVER laundered before member access | 0 findings — pins §7 limit 1 |
+| E2 | Widened computed key: `const k: string = "redirect"; (NextResponse as Record<string, Function>)[k]!(…)` | 0 findings — pins §7 limit 1 |
 
 ## 7. Documented limits (residual after this work)
 
-1. **Type erasure.** A callee laundered through `any`/`unknown`/`Function` (`(NextResponse as any).redirect(u)`, an `any`-typed dispatch table) resolves to no matching declaration and is invisible. No static analysis closes this. Consequence bound: the laundering cast is loud in review, and strict mode (`tsconfig.json` `strict`) keeps *implicit* `any` out — the escape requires a deliberate visible cast. Pinned as E1.
-2. **Reflection/eval.** `Reflect.get`, computed non-literal member names, `eval`. Same class as 1; visible constructs.
-3. **Soundness is conditional on import resolution.** A file whose `NextResponse` reference does not resolve (missing import) hides the call from the checker — and fails `tsc --noEmit` (TS2304), which the typecheck merge gate runs tree-wide. The guard's claim is joint with that gate.
+1. **Receiver laundering and widened keys.** Casting the RECEIVER before the member access (`(NextResponse as any).redirect(u)`) or reaching the member through a non-literal-typed computed key erases the declaration before the member name resolves — probe 4c pins both (E1, E2). VALUE laundering (`NextResponse.redirect as any`) is NOT in this class anymore: the extraction reference flags first (R36). Consequence bound: both residual shapes require a deliberate, visible cast on the `NextResponse`/`Response` receiver itself, the loudest possible construct in review; strict mode keeps implicit `any` out.
+2. **Reflection/eval.** `Reflect.get(NextResponse, k)`, `eval`. Same consequence bound as 1.
+3. **Soundness is conditional on import resolution — TypeScript files only.** A TS file whose `NextResponse` reference does not resolve fails `tsc --noEmit` (TS2304) at the merge gate. Plain-JS files have NO such backstop (tsconfig `include` is TS-only, `checkJs` off — R1/F6 probe); the §5.5 sentinel therefore keeps the walked roots free of plain-JS modules, and a future JS adoption must extend the guard's JS story deliberately.
 4. **`node_modules` wrappers.** A third-party package calling `NextResponse.redirect` internally is outside the walked roots. Unchanged from today.
-5. **Hand-rolled absolute Location.** `new NextResponse(null, { headers: { Location: absoluteUrl } })` is not a `redirect` call and never was this guard's claim; `hostRelativeRedirect` is the sanctioned constructor-shaped emitter.
+5. **Hand-rolled absolute Location.** `new NextResponse(null, { headers: { Location: absoluteUrl } })` is not a `redirect` call and never was this guard's claim; `hostRelativeRedirect` is the sanctioned constructor-shaped emitter (N4 pins it clean).
 
 ## 8. Deliverables
 
-1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (type-aware core, same exports where stated).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R25, N1–N4, E1; tree test over `auditTree()`; timeout).
+1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R37, N1–N5, E1–E2; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
-4. No production-code changes: `app/`, `lib/` untouched.
+4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
+5. No production-code changes: `app/`, `lib/` untouched.
