@@ -83,6 +83,21 @@ if [ -f vitest.projects.ts ]; then
   arr="$(sed -n '/ENV_BOUND_EXCLUDES[[:space:]]*=[[:space:]]*\[/,/\]/p' vitest.projects.ts)"
   printf '%s' "$arr" | grep -qE '_metaEnvBoundExclusionCoverage\.test\.ts|runExcludedTest\.test\.ts|unit-suite-shard-topology\.test\.ts|vitest-projects-partition\.test\.ts' &&
     fail "a coverage/oracle guard test is listed in ENV_BOUND_EXCLUDES — it would exclude the very verifier of the exclusion contract"
+  # R17-B: the literal scan above sees only what is written between the
+  # brackets — identifier indirection (`const X = "…guard…"; [X]`), a spread,
+  # or any non-literal entry hides the real runtime value from it while
+  # vitest.config.ts still resolves and excludes the guard. The value-level
+  # belt in _metaEnvBoundExclusionCoverage.test.ts catches indirection, but
+  # is itself excludable (circular for self-exclusion), so this non-excludable
+  # layer requires every array ELEMENT to be a PLAIN string literal — nothing
+  # can then be hidden behind a name the runtime resolves differently.
+  while IFS= read -r line; do
+    t="$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -z "$t" ] && continue
+    case "$t" in \#* | //*) continue ;; esac
+    printf '%s' "$t" | grep -qE "^(\"[^\"]*\"|'[^']*'),?$" ||
+      fail "ENV_BOUND_EXCLUDES entry is not a plain string literal: $t (indirection can hide a guard exclusion from the literal scan)"
+  done < <(printf '%s' "$arr" | sed '1d;$d')
 fi
 
 # 5. SELF-ENVIRONMENT: a workflow/job-scoped NODE_OPTIONS (or pnpm's

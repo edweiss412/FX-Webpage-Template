@@ -308,6 +308,16 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
       }),
       "ordinary exclusion still passes",
     ).toBe(0);
+    // R17-B: identifier indirection hides the runtime value from a literal
+    // scan — the array must contain ONLY plain string literals.
+    expect(
+      runGuard({
+        ...CLEAN,
+        "vitest.projects.ts":
+          'const INDIRECT =\n  "**/tests/ci/_metaEnvBoundExclusionCoverage.test.ts";\nexport const ENV_BOUND_EXCLUDES = [\n  INDIRECT,\n  "**/x.test.ts",\n];\n',
+      }),
+      "indirection in ENV_BOUND_EXCLUDES",
+    ).not.toBe(0);
     // …and the real tree passes it.
     expect(execFileSync("bash", [GUARD], { cwd: ROOT, stdio: "pipe" }).toString()).toContain("ok");
   });
