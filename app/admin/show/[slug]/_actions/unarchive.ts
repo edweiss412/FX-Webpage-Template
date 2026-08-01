@@ -40,14 +40,17 @@ export async function unarchiveShowAction(showId: string): Promise<void> {
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show`);
     revalidatePath("/admin");
-    // Durable forensic telemetry: emitted ONLY after the self-locking unarchive_show
-    // RPC has committed (result.ok), never on a no-op/refusal. The code literal rides
+    // Durable forensic telemetry: emitted ONLY on a PERFORMED archived→held transition —
+    // the RPC's discriminator is false on the idempotent no-op arm, so a stale/double
+    // Unarchive no longer duplicates this event (race-cluster spec §4). The code literal rides
     // the logAdminOutcome(...) span (stripped by stripLogEmissionCalls → not a §12.4 producer).
-    await logAdminOutcome({
-      code: "SHOW_UNARCHIVED_BY_ADMIN",
-      source: "admin.show.unarchive",
-      actorEmail: email,
-      showId: resolved.show.id,
-    });
+    if (result.performed) {
+      await logAdminOutcome({
+        code: "SHOW_UNARCHIVED_BY_ADMIN",
+        source: "admin.show.unarchive",
+        actorEmail: email,
+        showId: resolved.show.id,
+      });
+    }
   }
 }

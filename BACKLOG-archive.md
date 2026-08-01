@@ -1232,7 +1232,41 @@ supersession note.
 
 Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.
 
----
+## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — REFUTED BY PROBE 2026-07-31 (race-cluster feature)
+
+**Status:** CLOSED-REFUTED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** The mandated empirical probe (5 Playwright cases, spec §2 of `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md`) refuted the inferred mechanism: with the archive action's POST response HELD 3s after the server fully processed it (RPC committed, broadcast published), the same-tab UI recorded ZERO state changes during the hold — Next's app-router action queue serializes router.refresh() behind the in-flight action, so the "realtime invalidation swaps Archive→Unarchive while useFormStatus is pending" scenario cannot occur same-tab. 8/8 unforced runs settled first. The measured residue was a 6ms post-settle painted frame (enabled Unarchive inside the still-open popover, one commit before the §4 close; unclickable even by Playwright actionability), eliminated by switching the ShareHub §4 lifecycle-close effect to useLayoutEffect (close commits pre-paint). Cross-tab (armed, not pending) the §4 close behaves as designed, same 6ms frame, same fix; covered by the restored compound e2e case. Original entry below for provenance.
+
+## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending
+
+**Status:** OPEN · **Severity:** MEDIUM (destructive-control race; needs probe before design) · **Class:** cross-surface lifecycle race — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24); inferred from code paths, NOT yet empirically probed.
+
+Scenario: the archive RPC's show invalidation publishes before the server action finishes post-RPC work; the mounted realtime bridge refreshes `archived` props while `useFormStatus` is still pending; ShareHub swaps Archive for Unarchive; ArchiveShowButton's unmount cleanup releases the busy gate; a fast next tap could fire Unarchive while the original action is still settling (server-side advisory lock serializes actual mutations, so the exposure is UX/telemetry, not data corruption). Shared with the legacy variants; untouched by the row restyle. **Fix (when prioritized):** run the mandated empirical race probe (invalidation arriving before action completion), then ratify one of: retain pending UI across the swap, close the hub on the archived flip, or disable the replacement lifecycle control until settlement.
+
+## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — CLOSED 2026-07-31 (race-cluster feature)
+
+**Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** Probe Case C confirmed the duplicate (stale tab's no-op archive → two SHOW_ARCHIVED rows for one transition). Fixed FAMILY-WIDE per the class-sweep rule: archive_show / publish_show (+\_publish_show_core) / unpublish_show now return a performed/no-op boolean discriminator (migration `20260801000000_lifecycle_rpc_performed_discriminator.sql`, single-transaction DROP+recreate; unarchive_show already boolean — contract introduced by 20260602000002, preserved through the 20260718000001 refactor); `LifecycleResult` carries required `performed`; all three admin actions gate `logAdminOutcome` on it (revalidates still run on ok so a stale surface heals). Layered coverage: `tests/db/lifecycle_rpc_performed.test.ts` (RPC discriminator + no-op side-effect probes) and no-op zero-emission cases in `tests/log/adminOutcomeBehavior.test.ts`. Original entry below for provenance.
+
+## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
+
+**Status:** OPEN · **Severity:** LOW (forensic telemetry cosmetics) · **Class:** idempotent-no-op observability — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24).
+
+`archive_show` is an under-lock idempotent no-op when the show is already archived (`supabase/migrations/20260601000000_b2_show_lifecycle.sql:73-74`), but `archiveShowAction` (`app/admin/show/[slug]/_actions/archive.ts`) treats that no-op as committed success and emits `SHOW_ARCHIVED` again — a repeat submit inside the committed-refreshing window (or from a stale tab) writes a duplicate forensic event for a transition that did not occur. Pre-existing on all variants. **Fix (when prioritized):** have the RPC return a performed/no-op discriminator and emit `SHOW_ARCHIVED` only on the actual false→true transition; add a repeat-submit test asserting single emission.
+
+## BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — CLOSED 2026-07-31 (race-cluster feature)
+
+**Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** The case is RESTORED via the vector the entry itself proposed: a realtime-driven refresh needs no second user gesture, so the ShareHub backdrop cannot block it. The restored compound case in `tests/e2e/admin-lifecycle-transitions.spec.ts` arms Archive in tab B, archives from tab A, and asserts with a paint-aligned rAF sampler: popover closes (§4), loaded modal stays mounted, no armed remnant, no error banner, and NO painted frame contains an enabled replacement lifecycle control inside the open popover (pins the useLayoutEffect pre-paint close). Original entry below for provenance.
+
+### Original entry: BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — no case covers an armed Archive during a refresh from another source
+
+**Status:** OPEN · **Severity:** LOW · **Class:** test coverage gap · **Filed:** 2026-07-26 (PR4 of the CI-dark cluster)
+
+`tests/e2e/admin-lifecycle-transitions.spec.ts` had a "compound: Archive armed while another action refreshes → no torn state" case. It was removed because its premise became **structurally unreachable**, not because the invariant stopped mattering.
+
+**Measured:** the run fails with `share-hub-backdrop ... subtree intercepts pointer events`. The armed Archive control lives inside the ShareHub popover (`components/admin/showpage/ShareHub.tsx:929`), and while that popover is open it renders a `fixed inset-0 z-20` backdrop (`components/admin/showpage/ShareHub.tsx:631-642`) covering every control outside it — including the StatusStrip published-toggle the case dispatched. Closing the popover to reach the toggle unmounts the armed control. Mutually exclusive by design, introduced by `98bf7b17f feat(admin): ShareHub popover — behavior, ARIA, and the §9 composition rules (T3)`.
+
+**The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
+
+## **If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
 
 ## BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere — ✅ RESOLVED (2026-07-31, ci-dark descoped close-out PR-B)
 

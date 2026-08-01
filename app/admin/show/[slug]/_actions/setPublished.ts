@@ -35,15 +35,18 @@ export async function setShowPublishedAction(
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
-    // Durable admin-outcome telemetry — POST-COMMIT (both RPCs self-lock and have
-    // committed by resolve time). Code literals ride the logAdminOutcome span
-    // (stripped → §12.4-scanner-exempt), same contract as _actions/publish.ts.
-    await logAdminOutcome({
-      code: next ? "SHOW_PUBLISHED" : "SHOW_UNPUBLISHED_BY_ADMIN",
-      source: "admin.show.setPublished",
-      actorEmail: email,
-      showId: resolved.show.id,
-    });
+    // Durable admin-outcome telemetry — POST-COMMIT, and ONLY on a PERFORMED transition:
+    // the RPCs' discriminator is false on the idempotent no-op arm, so a repeat flip from a
+    // stale surface no longer duplicates the event (race-cluster spec §4). Code literals ride
+    // the logAdminOutcome span (stripped → §12.4-scanner-exempt), same contract as _actions/publish.ts.
+    if (result.performed) {
+      await logAdminOutcome({
+        code: next ? "SHOW_PUBLISHED" : "SHOW_UNPUBLISHED_BY_ADMIN",
+        source: "admin.show.setPublished",
+        actorEmail: email,
+        showId: resolved.show.id,
+      });
+    }
   }
   return result;
 }
