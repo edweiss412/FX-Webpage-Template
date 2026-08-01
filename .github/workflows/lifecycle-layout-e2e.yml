@@ -49,6 +49,17 @@ jobs:
       SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
       SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
       JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      # Subscriber-token mint (local supabase demo secret — the CI stack's
+      # realtime container verifies against the same demo JWT secret; without
+      # these the mint 500s and the bridge opens no socket). Needed since the
+      # restored compound case in admin-lifecycle-transitions.spec.ts drives
+      # tab B's refresh through the realtime bridge (race-cluster spec §6.4;
+      # measured on PR #639 run 1: tab-B terminal wait timed out CI-only while
+      # local runs read the same secrets from .env.local). Mirrors
+      # published-modal-e2e.yml; pinned by
+      # tests/cross-cutting/lifecycle-layout-e2e-realtime-wiring.test.ts.
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      SUPABASE_REALTIME_ISS: supabase-demo
       # Same demo key as crew-e2e.yml. Its ABSENCE here was invisible for
       # months and cost the round-trip case every CI run that survived the
       # commit wedge: the transitions spec's crew re-visit reaches the picker
