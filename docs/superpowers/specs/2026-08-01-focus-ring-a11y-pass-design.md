@@ -27,7 +27,11 @@ Rows deliberately NOT touched: `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREH
 
 `app/globals.css` defines the ring through the runtime-var pattern: `--color-focus-ring: var(--color-focus-ring-runtime)` (`@theme` block), with the light value `rgba(255, 140, 26, 0.55)` set in the root runtime block and the dark value `rgba(255, 160, 71, 0.65)` set twice (the media-query block and the data-theme-guarded root block).
 
-Change exactly one value: the **light** `--color-focus-ring-runtime` becomes `#E06000` (opaque). Both dark declarations stay. The global `outline: 3px solid var(--color-focus-ring)` consumer inherits the fix.
+There are **three** `--color-focus-ring-runtime` declarations in `app/globals.css`: the light root value, the media-query dark value, and the explicit data-theme dark value (the standard runtime-var triple). Change exactly one: the **light** declaration becomes `#E06000` (opaque). Both dark declarations stay `rgba(255, 160, 71, 0.65)` and must stay identical to each other. The global `outline: 3px solid var(--color-focus-ring)` consumer inherits the fix.
+
+### 2.1 Off-token focus outlines on the switcher surface
+
+`components/admin/dev/SwitcherControls.tsx` carries the only `focus-visible:outline-accent` sites in the tree (three: the STEP_BTN literal, the jump select, the excluded toggle — repo-wide grep 2026-08-01 confirms no other file uses a focus-colored outline utility). Raw accent `#FF8C1A` measures 2.33:1 on light surface — the same defect class as the ring token. All three migrate to `focus-visible:outline-focus-ring`, which resolves the token this spec fixes (≥3.24:1 light, ≥3.69:1 dark per §3). The §4.3 guard file gains a second tripwire: no `focus-visible:outline-accent` (or any `outline-accent` variant-prefixed focus spelling) anywhere under `app/`/`components/`.
 
 `DESIGN.md` §1.1 token-table row for `--color-focus-ring` updates in the same commit: new light value, contrast figures from §3, and a pointer to the meta-test. §1.2 contrast-summary table gains a focus-ring row.
 
@@ -47,7 +51,13 @@ Computed (WCAG relative luminance; dark rows alpha-composite `rgba(255,160,71,0.
 
 Every cell ≥3:1 (SC 2.4.13 indicator floor). The dark surface cell computes 4.39:1; the 4.40:1 figure elsewhere in this spec is the 2026-07-25 browser measurement of the same pair — rounding difference expected, the meta-test asserts the computed value. Light `surface-raised` shares the surface hex today; the meta-test reads the live values so a future divergence re-computes, not silently passes.
 
-**Meta-test** (planned new file tests/styles/focusRingContrast.test.ts, same construction as `tests/styles/status-token-contrast.test.ts`): parse the two `--color-focus-ring-runtime` declarations and the five backdrop-family pairs out of `app/globals.css`, alpha-composite where the ring value carries alpha, assert every pair ≥3.0. The test reads the CSS source (single source of truth) — it must fail if a hex in the table above drifts, and must NOT hardcode the ratios (anti-tautology: expected side is the 3.0 floor, actual side is computed from the live file).
+**Meta-test** (planned new file tests/styles/focusRingContrast.test.ts, same construction as `tests/styles/status-token-contrast.test.ts`): parse all **three** `--color-focus-ring-runtime` declarations and the five backdrop-family pairs out of `app/globals.css`, then assert three oracles:
+
+1. **Ratification pin:** the light declaration is exactly `#E06000` (opaque). This pins the owner-selected value — a different-but-accessible or translucent replacement fails until the spec record changes.
+2. **Dark-pair identity:** the media-query dark value and the data-theme dark value are byte-identical, so neither activation path drifts alone.
+3. **Matrix floor:** every ring × backdrop pair (alpha-composited where the ring carries alpha) ≥3.0.
+
+The ratios themselves are computed from the live file, never hardcoded (anti-tautology); the floor and the pin are the expected side. A backdrop hex drift that drops any pair below 3.0 fails oracle 3; a ring drift fails oracle 1 or 2 regardless of ratio.
 
 ## 4. Bare ring-offset sweep
 
@@ -63,13 +73,22 @@ For every bare site: add the `ring-offset-<backdrop>` matching the element's ren
 - Directly on the page ground → `focus-visible:ring-offset-bg`
 - On sunken/raised/warning fills → the matching token utility
 
-No site loses or gains an offset (§1.1). Sites already carrying a color companion are untouched. Where a component renders on more than one backdrop (shared primitives with an `overlay`-style prop), the offset color follows the same prop the background already follows; if the background is caller-supplied and unknowable, the component takes `ring-offset-surface` and the limitation is listed in §10.
+No site loses or gains an offset (§1.1). Sites already carrying a color companion are untouched — including the six components that assemble the companion away from the offset line (verified 2026-08-01): `components/shared/ReportButton.tsx` and `components/shared/AccentButton.tsx` (RING_OFFSET_CLASS maps), `components/crew/CrewSubNav.tsx` (split adjacent literals), `components/admin/PerShowActionableWarnings.tsx` (linkOffsetClass), `components/admin/SheetIconLink.tsx` (BACKDROP_SKIN map), `components/admin/DataQualityWarningControls.tsx` (RING_OFFSET map). These are correct today and are the seed of the §4.3 indirection registry.
+
+**The companion must carry the same variant chain as its offset.** `focus-visible:ring-offset-2` pairs with `focus-visible:ring-offset-<token>`; the tree's one `peer-focus-visible:ring-offset-2` site (`components/admin/wizard/Step3SheetCard.tsx` checkbox proxy) pairs with `peer-focus-visible:ring-offset-<token>` — a bare-prefix companion never activates there.
+
+Where a component renders on more than one backdrop (shared primitives with an `overlay`-style prop), the offset color follows the same prop the background already follows; if the background is caller-supplied and unknowable, the component takes `ring-offset-surface` and the limitation is listed in §10.
 
 ### 4.3 Structural guard (fails-by-default on new sites)
 
-Planned new test tests/styles/noBareRingOffset.test.ts: filesystem-walk every `.tsx`/`.ts` file under `app/` and `components/` (walked, not a named file list — class-sweep discipline), extract lines matching `ring-offset-2`, fail any line lacking a `ring-offset-[a-z[]` color companion on the same class string. No allowlist at ship time (the sweep clears the tree); the test message points here.
+Planned new test tests/styles/noBareRingOffset.test.ts: filesystem-walk every `.tsx`/`.ts` file under `app/` and `components/` (walked, not a named file list — class-sweep discipline). For each line matching `ring-offset-2` (comment lines excluded — trimmed lines starting `//`, `*`, or `{/*` are skipped), the line must satisfy ONE of:
 
-Known blind spot, documented not solved: class strings assembled across multiple lines or through helpers can split the pair. The guard is a line-scope tripwire, same honesty posture as `tests/cross-cutting/no-absolute-self-redirect-audit.ts` ("green = no known spelling present").
+1. **Valid literal companion, same variant chain:** a `ring-offset-<token>` on the same line whose variant prefix matches the offset's and whose `<token>` is a member of the backdrop-token set parsed from the `@theme` `--color-*` namespace in `app/globals.css` (or an arbitrary-value `ring-offset-[…]`). `ring-offset-garbage` — a color-shaped spelling Tailwind never emits — FAILS: validity is membership in the live token set, not a character-class match. (The escaping-mutant probe from spec review round 1 is the pinned counter-example.)
+2. **Registered indirection:** the line interpolates (`${`) and the file is a member of the guard's indirection registry (seeded with the six §4.2 components). A NEW file assembling companions away from the offset line fails by default until registered with a one-line reason.
+
+Second tripwire in the same file (§2.1): zero matches for focus-prefixed `outline-accent` under the same walk.
+
+Known blind spot, documented not solved: a registered-file line could interpolate something that is not a companion; registry membership is trust-scoped per file, not proof. Line-scope + registry is the same honesty posture as `tests/cross-cutting/no-absolute-self-redirect-audit.ts` ("green = no known spelling present").
 
 ## 5. Bare `transition-*` default duration
 
@@ -89,17 +108,19 @@ Side-effect evaluation (why this is safe):
 - Sites that WANT a different duration already say so with a `duration-<name>` class; none relied on "exactly 150ms" (nothing in the tree names 150ms).
 - Reduced-motion behavior changes from "animates anyway" to "instant" — that is the a11y fix, not a regression.
 
-**Meta-test:** extend the duration-token structural test (the `2026-07-27` spec's test file) with an assertion that `@theme` declares `--default-transition-duration` referencing a `--duration-*` token — so the alias can't be dropped in a refactor.
+Handwritten CSS transitions, `@keyframes`, and JS-driven animations use explicit durations or the `var(--duration-*)` chain directly — unaffected by the alias, confirmed by review-round-1 probe.
+
+**Meta-test (compiler-output proof, not source-structural):** following the mechanism the existing duration-token test already uses, compile Tailwind (the repo's own version) against a fixture carrying a bare `transition-colors` and assert the emitted CSS's `transition-duration` resolves through `--default-transition-duration` to the `--duration-fast` chain. A source-only "the alias line exists in @theme" assertion is insufficient — it stays green if a future Tailwind stops consuming that namespace; the compile proves consumption.
 
 ## 6. `Ignored (N)` tap target
 
-`components/admin/showpage/sectionWarningExtras.tsx` — the `Ignored (N)` `<summary>` (`cursor-pointer list-none text-xs font-semibold …`) has no `min-h-tap-min` and sits under the 44px floor. Fix: add `min-h-tap-min` plus `inline-flex items-center` (the recipe the wizard's equivalent summaries already carry, e.g. `components/admin/wizard/step3ReviewSections.tsx` `min-h-tap-min` link rows). Test: unit assertion that the summary's class string carries `min-h-tap-min`, plus the existing real-browser tap-floor pattern if the admin e2e already probes this surface (plan decides; jsdom class assertion is the floor).
+`components/admin/showpage/sectionWarningExtras.tsx` — the `Ignored (N)` `<summary>` (`cursor-pointer list-none text-xs font-semibold …`) has no `min-h-tap-min` and sits under the 44px floor. Fix: add `min-h-tap-min` plus `inline-flex items-center` (the recipe the wizard's equivalent summaries already carry, e.g. `components/admin/wizard/step3ReviewSections.tsx` `min-h-tap-min` link rows). Test: a **mandatory real-browser measurement** — `getBoundingClientRect().height >= 44` on the rendered summary (Playwright, in whichever admin e2e or component-browser harness the plan places it) — because a class-string assertion stays green if the spacing token drifts or a competing rule wins. The class assertion may exist as a fast unit companion but is not the acceptance.
 
 ## 7. Dev switcher bar mobile width
 
 `components/admin/dev/SwitcherControls.tsx` — at 390px the counter and scenario-description block (the `aria-live` `min-w-0 flex-1` group and its `truncate` label) measure clientWidth 0; flex siblings squeeze them out (`BL-DEV-SWITCHER-BAR-MOBILE-WIDTH`, surfaced 2026-07-22; filed against `AttentionModalSwitcher.tsx`, whose bar markup now lives in `SwitcherControls.tsx` — same surface).
 
-Fix: give the counter/label group a min-width floor (`min-w-16`-scale token, exact value at plan time from the rendered "52 / 116" width) or wrap the bar (`flex-wrap`) — implementer picks whichever keeps the row single-line at 390px with all four control clusters visible; the acceptance is the assertion, not the mechanism.
+Fix: mechanism is implementer-chosen — a min-width floor on the counter/label group, allowing the bar to wrap to a second row, or both. The prior draft's "single line with flex-nowrap" and "or wrap" were contradictory; the single-line requirement is DROPPED. The bar has **six** control clusters when exclusions exist (Prev, Next, the live counter/label group, the jump select, the tier control, the excluded toggle); the acceptance is the §7.1 assertions, not the mechanism or row count.
 
 ### 7.1 Dimensional Invariants
 
@@ -107,10 +128,12 @@ The switcher bar is the only surface in this pass with a parent→child dimensio
 
 | Parent | Child | Invariant | Guaranteeing class/style |
 | --- | --- | --- | --- |
-| Switcher bar row (`flex flex-nowrap items-center`, `components/admin/dev/SwitcherControls.tsx`) | Counter + scenario-label group (the `aria-live` group) | rendered width > 0 at 390px viewport | the min-width floor (or wrap) chosen at plan time — exact class recorded in the plan task |
-| Switcher bar row | Every control cluster | height ≥ 44px at 390px | existing `min-h-tap-min` on each control (already present, §7 fix must not remove it) |
+| Switcher bar (`components/admin/dev/SwitcherControls.tsx`) | Every one of the six control clusters | fully inside the 390px viewport: `rect.left >= 0`, `rect.right <= 390`, `rect.width > 0`; no horizontal overflow on the bar (`scrollWidth <= clientWidth`) | the min-width floor / wrap chosen at plan time — exact class recorded in the plan task |
+| Switcher bar | Counter element ("52 / 116") | not truncated: `scrollWidth <= clientWidth` and `rect.width > 0` | same |
+| Switcher bar | Scenario-description label | `rect.width >= 48` (readable floor, not merely nonzero) | same |
+| Switcher bar | Every control | `rect.height >= 44` at 390px | existing `min-h-tap-min` on each control (already present, §7 fix must not remove it) |
 
-**Assertion:** gallery e2e gains a 390px viewport check — `getBoundingClientRect().width > 0` for the counter and the description label, and every control in the bar still ≥44px tall. Real browser (Playwright), not jsdom.
+**Assertion:** gallery e2e gains a 390×844 viewport check asserting the full table above, with exclusions present so all six clusters render. Real browser (Playwright), not jsdom. A width merely `>0` is NOT the acceptance — the containment, no-overflow, and readability rows are what rule out a one-pixel label or clusters pushed off-viewport.
 
 ### 7.2 Transition Inventory
 
@@ -126,12 +149,13 @@ The §5 alias changes only the default duration of transitions that already exis
 
 | Surface | Test | Failure it catches |
 | --- | --- | --- |
-| Ring token | planned tests/styles/focusRingContrast.test.ts (§3) | Someone re-tunes a ring or backdrop hex below 3:1; light value regressed to translucent |
-| Offset sweep | planned tests/styles/noBareRingOffset.test.ts (§4.3), filesystem-walked | Any new bare `ring-offset-2` anywhere under `app/`/`components/` |
-| Sweep correctness (sample) | Real-browser probe in the existing e2e suites: `getComputedStyle` ring-offset-color on the picker claimed row + one confirm-go button in dark mode ≠ `rgb(255, 255, 255)` | The sweep "landed" as classes but a literal never compiled (asserts the rendered value, not the class string — anti-tautology) |
-| Transition alias | Extension of the duration-token structural test (§5) | Alias dropped; bare sites silently back to un-collapsible 150ms |
-| Tap target | Class assertion + (plan-decided) browser tap-floor probe (§6) | Summary reverts under the 44px floor |
-| Switcher bar | 390px Playwright `getBoundingClientRect` assertions (§7) | Counter/description collapse to zero width again |
+| Ring token | planned tests/styles/focusRingContrast.test.ts (§3): #E06000 pin + dark-pair identity + computed matrix floor | Light value re-tuned, made translucent, or swapped even to an accessible alternative; either dark declaration drifting alone; any backdrop hex dropping a pair below 3:1 |
+| Off-token outlines | §4.3 guard second tripwire | Any focus-prefixed `outline-accent` reappearing under `app/`/`components/` |
+| Offset sweep | planned tests/styles/noBareRingOffset.test.ts (§4.3): token-set-validated companion + variant-chain match + indirection registry, filesystem-walked | New bare `ring-offset-2`; non-emitting companion spelling (the `ring-offset-garbage` mutant); companion under the wrong variant prefix; new unregistered indirection file |
+| Sweep correctness (sample) | Real-browser probe: `getComputedStyle` ring-offset-color on the picker claimed row + one confirm-go button, in dark mode, **equals the sampled site's documented backdrop color** (exact rgb match pinned per site in the plan) | The sweep "landed" as classes but a literal never compiled, or the WRONG non-white token was applied (≠-white would pass it; equality does not) |
+| Transition alias | Compiler-output proof (§5): compiled fixture's `transition-duration` resolves the alias chain | Alias dropped; a Tailwind upgrade silently stops consuming `--default-transition-duration` |
+| Tap target | Mandatory browser measurement `height >= 44` (§6); class assertion as unit companion only | Summary under the 44px floor even via token drift or a winning competing rule |
+| Switcher bar | 390×844 Playwright assertions per the §7.1 table (containment, no-overflow, counter untruncated, label ≥48px, controls ≥44px) | Clusters squeezed to zero/one-pixel width, pushed off-viewport, or overflowing horizontally |
 
 TDD per task (invariant 1). No DB, no RPC, no advisory-lock surfaces, no §12.4 codes, no new flags (lifecycle table: N/A — no boolean toggle is introduced). Impeccable dual-gate (invariant 8) runs on the affected diff before close-out. No new mutation surfaces (invariant 10: N/A).
 
@@ -145,7 +169,8 @@ TDD per task (invariant 1). No DB, no RPC, no advisory-lock surfaces, no §12.4 
 ## 10. Documented limits
 
 - **Ring vs accent-fill adjacency:** on `bg-accent` (`#FF8C1A`) controls, the ring's inner edge measures 1.54:1 (light) against the fill. The indicator's contrast is carried by its outer boundary against the backdrop (≥3.24:1 everywhere, §3), which is the adjacency SC 2.4.13's minimum-area reading requires; the inner edge is not made compliant by any single-color ring at brand hue. Accepted; revisit only with a two-color ring design.
-- **Guard scope:** §4.3's tripwire is line-scoped; split class strings evade it (posture per the self-redirect guard precedent).
+- **Guard scope:** §4.3's tripwire is line-scoped with a per-file indirection registry; a registered file's interpolation is trusted, not proven (posture per the self-redirect guard precedent).
+- **Caller-unknown backdrops:** shared primitives whose backdrop is caller-supplied and not threaded through a prop take `ring-offset-surface` as the default (§4.2); on a non-surface caller backdrop the offset gap is slightly mismatched — visible-but-conservative, far from the 17.90:1 white-halo defect. Sites taking this default are enumerated in the plan's sweep task.
 - **Grep-flavour counts:** 84/152 are 2026-08-01 line-greps, recorded for orientation, not contract.
 
 ## 11. Ledger graduation (same PR)
