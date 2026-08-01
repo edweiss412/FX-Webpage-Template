@@ -1285,3 +1285,60 @@ Current state of the other two entries, both invisible to any check built so far
 job-level `if:` and a trailing `| tee` — each an explicit rejection condition in
 `tests/ci/_workflowCoverageScan.ts`. **Trigger:** a third entry joining the array, or a
 dark-exclusion incident.
+
+### BL-HARNESS-RESOLVER-POLICY — a sound server-only resolver for browser harnesses
+
+**Resolved:** 2026-07-31 (PR-C, `feat/ci-dark-directive-resolver`). Superseded by the DIRECTIVE rule: `tests/e2e/helpers/useServerDirectivePlugin.mjs` stubs a module iff its own prologue cooks to `"use server"` (the authoritative Next signal, a real TypeScript parse — not the path/graph heuristic this entry weighed), and the stub THROWS on any property read/call, so a consumed-but-uninvoked proxy can no longer silently alter behaviour (the unsoundness measured below). Contract-tested at the build boundary (`useServerDirectivePlugin.test.ts`, 18 fixtures + a disabled-plugin mutation case) and consolidated across both harness bundlers (bundleLiveEntry child + the step3 bundler). Original analysis retained:
+
+**Status:** RESOLVED · **Severity:** medium · **Class:** TEST-HARNESS SOUNDNESS
+
+A rule-based esbuild plugin (`onResolve` matching server-only specifiers, `onLoad` returning a CJS
+proxy stub) **was built and it works**: all 7 live harness entries build, all 7 render in a real
+browser, and no stub is called. It was descoped because its safety _guarantee_ is unsound, not
+because it fails.
+
+Measured, in order:
+
+1. **A proxy is consumable without being invoked.** `flags.code === "show_not_found"` compares a
+   proxy and quietly yields `false`; a truthiness test is always `true`; a destructured constant
+   stays a proxy. Nothing throws, the harness renders, and assertions run against altered
+   behaviour. No render check or call-counter can observe this.
+2. **A strict throw-on-any-property-read stub** gives byte-identical DOM and zero errors on 4 of 5
+   probed entries and **breaks the fifth's build** — esbuild reads module properties at bundle time
+   to resolve named exports.
+3. **Path rules overmatch**, with two named live instances: `lib/drive/driveFolderUrl.ts` is a pure
+   string function reachable from the alert-card harness via `lib/adminAlerts/alertActions.ts`
+   (fails LOUDLY, a call throws), and `SHOW_NOT_FOUND` at
+   `app/admin/show/[slug]/_actions/shared.ts:35` is the silent shape — real, but currently
+   unreachable from any harness, so latent.
+4. **A packages-and-builtins-only rule set** (zero overmatch surface) fails four times in sequence:
+   `node:fs/promises` unresolved, then a stub under-export, then `HASH_FOR_LOG_PEPPER` thrown at
+   module load, then `__dirname is not defined`.
+5. **A sentinel-based guard** detects only preselected sentinels, so it cannot support the claim it
+   exists to support.
+
+**Fix direction if resumed:** a graph-derived rule — stub a module iff it transitively imports a
+server-only package — rather than a path heuristic. **Trigger:** a second harness entry reaching
+the server tree.
+
+### BL-HARNESS-PACKLIST-SERVER-GRAPH — return `packlist-rescan-recovery` to the standalone config
+
+**Resolved:** 2026-07-31 (PR-C, `feat/ci-dark-directive-resolver`). `packlist-rescan-recovery.spec.ts` is back in `tests/e2e/standalone.config.ts`'s testMatch under the shared directive resolver: the C1 Step 5 import-graph reality check measured 0 inputs under googleapis / postgres / google-auth-library on its exact entry (1909 total inputs), so the whole server subtree drops out by class. Original analysis retained:
+
+**Status:** RESOLVED · **Severity:** low (the spec was already dark; nothing that ran was lost)
+
+Removed from `tests/e2e/standalone.config.ts` because the whole-config CI job cannot carry a red
+spec, and no per-module alias list fixes it. Its entry reaches the entire server tree — traced by
+esbuild metafile:
+
+```
+_packListRescanLiveEntry.tsx -> step3ReviewSections.tsx -> UseRawControlBoundary.tsx
+  -> app/admin/show/[slug]/_actions/useRaw.ts ("use server")
+  -> lib/sync/runManualSyncForShow.ts -> runScheduledCronSync.ts -> googleapis (913 graph inputs)
+```
+
+`lib/sync/lockedShowTx.ts` reaches the `postgres` driver by a parallel edge. Stubbing that one
+boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgres`. A 4-entry
+alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
+`step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
+modules at module scope.

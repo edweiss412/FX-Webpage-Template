@@ -78,7 +78,9 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/notify-toggles.spec.ts": UNSEEN,
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
   "tests/e2e/pack-list.spec.ts": UNSEEN,
-  "tests/e2e/packlist-rescan-recovery.spec.ts": UNSEEN,
+  // packlist-rescan-recovery returned to the standalone CI project under the
+  // PR-C directive resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated) — no
+  // longer local-only.
   "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
