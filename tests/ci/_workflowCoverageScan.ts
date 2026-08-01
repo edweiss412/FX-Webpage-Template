@@ -26,7 +26,34 @@
  * than none).
  */
 
+import { parse, stringify } from "yaml";
+
 const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
+
+/**
+ * Canonicalize YAML before any regex sees it (R6 structural defense): parse
+ * with the same library the census trusts, re-stringify in plain block
+ * style with folding OFF (lineWidth: 0 — folding a long run command would
+ * split tokens across lines and silently un-cover live specs). Quoted keys,
+ * tags, anchors/aliases, explicit keys, flow mappings, and comments all
+ * collapse to the canonical spelling the line-anchored regexes actually
+ * read — the whole spelling class dies at the door instead of being
+ * enumerated (spec §7 R3–R6 chased five probe-backed instances; the
+ * calibration rule says ship the structure, not round seven). Returns null
+ * when the text does not parse — an unparseable workflow never runs on
+ * GitHub either, so the caller treats it as claim-nothing (safe-dark) or
+ * poison (manifests). stringify re-emits anchors only for genuinely shared
+ * nodes, which the anchor belt then refuses — fail-closed both ways.
+ */
+function canonicalYaml(text: string): string | null {
+  try {
+    const doc: unknown = parse(text);
+    if (doc === null || typeof doc !== "object") return null;
+    return stringify(doc, { lineWidth: 0, singleQuote: false });
+  } catch {
+    return null;
+  }
+}
 /**
  * Whether the line that invokes a spec can swallow a non-zero exit.
  *
@@ -196,8 +223,12 @@ function localActionPoisons(
     if (unquoted.startsWith("./")) {
       const ref = unquoted;
       if (seen.has(ref)) return true;
-      const text = localActions[ref];
-      if (text === undefined) return true;
+      const raw = localActions[ref];
+      if (raw === undefined) return true;
+      // Manifests canonicalize like workflows (R6 structural defense):
+      // unparseable => opaque, fail-closed.
+      const text = canonicalYaml(raw);
+      if (text === null) return true;
       const runs = runsBlockOf(text);
       if (runs === null || !/(^|\n)\s*using\s*:\s*["']?composite\b/.test(runs)) return true;
       // A manifest using an unmodelled spelling inside runs: could hide a
@@ -378,7 +409,11 @@ export function scanWorkflowCoverage({
     return out;
   };
 
-  for (const [file, yaml] of Object.entries(workflows)) {
+  for (const [file, rawYaml] of Object.entries(workflows)) {
+    // Everything below reads the CANONICAL text; an unparseable workflow
+    // never runs on GitHub, so it claims nothing (safe-dark).
+    const yaml = canonicalYaml(rawYaml);
+    if (yaml === null) continue;
     const on = onBlock(yaml);
     const pr = pullRequestBlock(on);
     const hasPr = pr !== null || /(^|\n)on\s*:\s*\[[^\]\n]*pull_request/.test(yaml);
@@ -429,6 +464,22 @@ export function scanWorkflowCoverage({
       let envPoisoned = false;
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+        // Canonical stringify double-quotes scalars that plain style cannot
+        // carry (e.g. a shell command ending in a colon). Unquote the
+        // single-line double-quoted form (JSON-compatible by construction —
+        // singleQuote: false is pinned) so the command text is scanned and
+        // its suppression/shell constructs stay REPORTED rather than the
+        // claim silently vanishing behind a quote character.
+        if (runMatch) {
+          const q = runMatch[2]!.match(/^[ \t]*("(?:[^"\\\n]|\\.)*")\s*$/);
+          if (q) {
+            try {
+              runMatch[2] = ` ${JSON.parse(q[1]!) as string}`;
+            } catch {
+              /* leave quoted — belt refusals see the quote characters */
+            }
+          }
+        }
         // R3: spelling refusal reads step METADATA only (run value stripped),
         // so JSON/prose inside a run body cannot false-dark the step. A bad
         // spelling rejects this step's own claims AND poisons the job env —

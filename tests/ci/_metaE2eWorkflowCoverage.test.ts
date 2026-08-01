@@ -287,10 +287,22 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
     // An adversarial round walked past the previous leak-enumeration with all
     // three of these. The gate is now an allowlist, so the list below is a
     // regression pin rather than the definition.
-    for (const tail of ["|| true", "|| :", "; true", "; exit 0", "| sed -n 1p", "| tee out.txt"]) {
+    for (const tail of ["|| true", "; true", "; exit 0", "| sed -n 1p", "| tee out.txt"]) {
       const r = S(base("  pull_request:", "", `playwright test ${spec} ${tail}`));
       expect(r.covered.has(spec), `must not cover: ${tail}`).toBe(false);
       expect(r.rejected[0]!.reason).toBe("exit-code suppression");
+    }
+    // `cmd || :` UNQUOTED is invalid YAML (the trailing colon opens a nested
+    // mapping) — GitHub rejects the file, canonicalization nulls, safe-dark.
+    // A real workflow must QUOTE it; the canonical double-quoted scalar is
+    // unquoted before scanning so the suppression stays REPORTED.
+    {
+      const invalid = S(base("  pull_request:", "", `playwright test ${spec} || :`));
+      expect(invalid.covered.has(spec)).toBe(false);
+      expect(invalid.rejected).toEqual([]);
+      const quoted = S(base("  pull_request:", "", `"playwright test ${spec} || :"`));
+      expect(quoted.covered.has(spec)).toBe(false);
+      expect(quoted.rejected[0]!.reason).toBe("exit-code suppression");
     }
   });
 
@@ -468,40 +480,38 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(proseComposite.covered.has(spec)).toBe(true);
   });
 
-  it("document markers make regex and parser read different documents — refused (R3 audit)", () => {
-    // A second `---` document is text a regex scan would claim from while
-    // the runner never executes it. Zero live workflows carry any marker.
+  it("multi-document files claim nothing (R3 audit, canonicalized)", () => {
+    // parse() throws on a second `---` document, and GitHub does not run
+    // multi-document workflow files either — canonicalization returns null
+    // and the file is safe-dark: no claims, nothing to falsely cover.
     const w = `${two("run: echo hi")}---\nname: phantom\n`;
     const r = S(w);
     expect(r.covered.has(spec)).toBe(false);
-    expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+    expect(r.rejected).toEqual([]);
   });
 
-  it("YAML explicit-key syntax cannot hide scanner-read keys at any level (R4)", () => {
-    // `? key` / `: value` lines parse to ordinary keys the parser resolves
-    // while every line-anchored regex here is blind — R4 probe showed false
-    // coverage through explicit-key if:, paths filters, shell overrides,
-    // needs:, container:, and uses:. File-level refusal, marker-style.
+  it("YAML explicit-key syntax cannot hide scanner-read keys at any level (R4/R6, canonicalized)", () => {
+    // `? key` / `: value` lines (and R6's bare-indicator split form with an
+    // inline comment) parse to ordinary keys. Canonicalization (parse →
+    // re-stringify) collapses them BEFORE any regex runs, so the scanner
+    // rejects for the TRUE underlying reason, not a spelling refusal.
     const stepIf = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ? if\n        : failure()\n        run: playwright test ${spec}\n`;
     {
       const r = S(stepIf);
       expect(r.covered.has(spec)).toBe(false);
-      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+      expect(r.rejected[0]!.reason).toBe("if: condition present");
     }
-    // R6: bare indicator lines — `?` / `:` at END of line (key/value on the
-    // continuation, inline comment blocking the plain-key detector) parse
-    // identically; the anchors are EOL-tolerant so the split form reds too.
     const splitExplicit = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ?\n          if # split explicit key\n        :\n          false\n        run: playwright test ${spec}\n`;
     {
       const r = S(splitExplicit);
       expect(r.covered.has(spec)).toBe(false);
-      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+      expect(r.rejected[0]!.reason).toBe("if: condition present");
     }
     const explicitPaths = `name: x\non:\n  pull_request:\n    ? paths\n    : ["docs/**"]\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: playwright test ${spec}\n`;
     {
       const r = S(explicitPaths);
       expect(r.covered.has(spec)).toBe(false);
-      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+      expect(r.rejected[0]!.reason).toBe("pull_request.paths/paths-ignore filter");
     }
     const explicitUses = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ? uses\n        : ./.github/actions/w\n      - run: pnpm exec playwright test ${spec}\n`;
     {
@@ -510,32 +520,28 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
           'runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      shell: bash\n',
       });
       expect(r.covered.has(spec)).toBe(false);
-      // The explicit-key step's own spelling refusal poisons the job, so the
-      // LATER clean invocation rejects with the poison reason — either
-      // refusal is sound; false coverage is the only failure.
+      // Canonicalized to a plain uses: — the writing action poisons.
       expect(r.rejected[0]!.reason).toBe(REASON);
     }
   });
 
-  it("a YAML tag on an implicit key cannot hide a scanner-read key (R4 preempt, R5 widened)", () => {
+  it("a YAML tag on an implicit key cannot hide a scanner-read key (R4/R5, canonicalized)", () => {
     // `!!str if:`, bare `! if:`, and verbatim `!<tag:yaml.org,2002:str> if:`
-    // all parse as an ordinary if: key — the refusal is ANY line-start `!`
-    // on metadata segments (no trailing-character class left to enumerate
-    // against; run bodies keep shell negation at line start).
+    // all parse as an ordinary if: key — canonicalization collapses the tag
+    // before any regex runs, so the TRUE if:-condition rejection fires.
     for (const tag of ["!!str ", "! ", "!<tag:yaml.org,2002:str> "]) {
       const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        ${tag}if: 'false'\n        run: playwright test ${spec}\n`;
       const r = S(w);
       expect(r.covered.has(spec), tag).toBe(false);
-      expect(r.rejected[0]!.reason, tag).toBe("unmodelled YAML spelling");
+      expect(r.rejected[0]!.reason, tag).toBe("if: condition present");
     }
   });
 
-  it("an inline comment glued onto a uses: value fails closed, never mis-resolves (R3 audit)", () => {
-    // Strict value extraction: "actions/checkout@v4 # pin" is not a plain
-    // token, so it poisons rather than silently resolving to either branch.
+  it("an inline comment on a uses: value canonicalizes to the parsed ref (R3 audit)", () => {
+    // The parser strips the comment; canonical text carries the plain
+    // marketplace ref the runner actually resolves — trusted, covered.
     const r = S(two("uses: actions/checkout@v4 # pin"));
-    expect(r.covered.has(spec)).toBe(false);
-    expect(r.rejected[0]!.reason).toBe(REASON);
+    expect(r.covered.has(spec)).toBe(true);
   });
 
   it("nested local composites resolve recursively; cycles fail closed (F8)", () => {
@@ -604,11 +610,12 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.covered.has(spec)).toBe(false);
       expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
     }
-    // Alias value.
+    // Alias value referencing no anchor: parse-invalid YAML — GitHub would
+    // not run it either. Canonicalization nulls out → safe-dark.
     {
       const r = S(two("uses: *w"), writer);
       expect(r.covered.has(spec)).toBe(false);
-      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+      expect(r.rejected).toEqual([]);
     }
     // Nested site: a composite manifest hiding its child uses behind an
     // unmodelled spelling is refused whole.
@@ -623,11 +630,11 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
-  it("a quoted-key if: spelling cannot hide a condition (R3 class sweep)", () => {
+  it("a quoted-key if: spelling cannot hide a condition (R3 class sweep, canonicalized)", () => {
     const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        "if": github.event_name == 'push'\n        run: playwright test ${spec}\n`;
     const r = S(w);
     expect(r.covered.has(spec)).toBe(false);
-    expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+    expect(r.rejected[0]!.reason).toBe("if: condition present");
   });
 
   it("live metadata shapes stay covered: mid-line JSON env value, JSON in a run body", () => {
