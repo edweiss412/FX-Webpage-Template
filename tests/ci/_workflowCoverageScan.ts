@@ -170,7 +170,7 @@ function runsBlockOf(text: string): string | null {
  * reads (`uses`, `if`, `continue-on-error`, `run`, …).
  */
 const UNMODELLED_SPELLING_RE =
-  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]/;
+  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]|(^|\n)[ \t]*(?:-[ \t]+)?\?[ \t]|(^|\n)[ \t]*:[ \t]/;
 
 /** A step chunk minus its run VALUE — the metadata the spelling refusal reads. */
 function stepMetaOf(chunk: string): string {
@@ -398,6 +398,19 @@ export function scanWorkflowCoverage({
     // never executes it). Zero live workflows carry any; a run body printing
     // one costs a reasoned allowlist row — fail-closed.
     const docMarkers = /(^|\n)(---|\.\.\.|%YAML|%TAG)/.test(yaml);
+    // R4: EXPLICIT-KEY syntax (`? key` / `: value` lines) resolves to
+    // ordinary scanner-read keys in the parser while every line-anchored
+    // regex here is blind to it — probe showed false coverage through
+    // explicit-key paths filters, if:, needs:, container:, shell:,
+    // working-directory:, continue-on-error:, and uses: at every level. The
+    // check reads METADATA segments only (the pre-jobs head here; job heads
+    // and step metas below) — run VALUES legitimately start lines with the
+    // shell `:` builtin (the census R13 fixtures do), so a file-level test
+    // would false-dark them.
+    const jobsIdx = yaml.search(/(^|\n)jobs\s*:/);
+    const wfSpelling = UNMODELLED_SPELLING_RE.test(
+      stripCommentLines(jobsIdx === -1 ? yaml : yaml.slice(0, jobsIdx)),
+    );
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
@@ -448,7 +461,7 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
-            else if (docMarkers || headSpelling || stepSpelling)
+            else if (docMarkers || wfSpelling || headSpelling || stepSpelling)
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
             else if (envPoisoned)
               rejected.push({

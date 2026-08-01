@@ -477,6 +477,37 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
   });
 
+  it("YAML explicit-key syntax cannot hide scanner-read keys at any level (R4)", () => {
+    // `? key` / `: value` lines parse to ordinary keys the parser resolves
+    // while every line-anchored regex here is blind — R4 probe showed false
+    // coverage through explicit-key if:, paths filters, shell overrides,
+    // needs:, container:, and uses:. File-level refusal, marker-style.
+    const stepIf = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ? if\n        : failure()\n        run: playwright test ${spec}\n`;
+    {
+      const r = S(stepIf);
+      expect(r.covered.has(spec)).toBe(false);
+      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+    }
+    const explicitPaths = `name: x\non:\n  pull_request:\n    ? paths\n    : ["docs/**"]\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: playwright test ${spec}\n`;
+    {
+      const r = S(explicitPaths);
+      expect(r.covered.has(spec)).toBe(false);
+      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+    }
+    const explicitUses = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ? uses\n        : ./.github/actions/w\n      - run: pnpm exec playwright test ${spec}\n`;
+    {
+      const r = S(explicitUses, {
+        "./.github/actions/w":
+          'runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      shell: bash\n',
+      });
+      expect(r.covered.has(spec)).toBe(false);
+      // The explicit-key step's own spelling refusal poisons the job, so the
+      // LATER clean invocation rejects with the poison reason — either
+      // refusal is sound; false coverage is the only failure.
+      expect(r.rejected[0]!.reason).toBe(REASON);
+    }
+  });
+
   it("an inline comment glued onto a uses: value fails closed, never mis-resolves (R3 audit)", () => {
     // Strict value extraction: "actions/checkout@v4 # pin" is not a plain
     // token, so it poisons rather than silently resolving to either branch.
