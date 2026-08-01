@@ -75,8 +75,8 @@ Helper surface (names final):
 - `walkPlansTree(rootAbsPath: string): string[]` — the filesystem-acquisition step, its own exported function so plants exercise the fs layer against tmpdir fixture trees, not only in-memory path lists (r1 F1).
 - `partitionUnits(paths: string[]): { units: Map<string, string[]>; undated: string[] }` — §3.1.
 - `declaresGate(files: Map<string, string>): boolean` — §3.2 unit-wide fold (takes the unit's whole file map).
-- `parseMarkers(text: string): { valid: Marker[]; malformed: string[] }` — §3.3 incl. cross-check.
-- `unitVerdict(files: Map<path, text>): "conforms" | "no-marker" | "malformed-marker"` — strictness rule.
+- `parseMarkers(text: string, opts: { template: boolean }): { valid: Marker[]; template: number; malformed: string[] }` — §3.3 incl. cross-check; `opts.template` says whether the containing file is a template file (§4.5). Template-ness is a PARAMETER, not a registry read — the helper stays pure; the guard test wires the real `MARKER_TEMPLATE_FILES` registry (plan r2 F1 ratified delta).
+- `unitVerdict(files: Map<path, text>, opts: { templateFiles: ReadonlySet<string> }): "conforms" | "no-marker" | "malformed-marker"` — strictness rule; `opts.templateFiles` holds the template paths (literal sets in helper-contract tests; the registry in the live guard; plan r2 F1 ratified delta).
 
 ### 4.1 Live assertions (the test file)
 
