@@ -415,6 +415,41 @@ describe("env-bound exclusion coverage (spec §6)", () => {
     }
   });
 
+  it("x5 pins a verbatim, composite-guarded assert-guards-collected step (R18-B self-exclusion closer)", () => {
+    // The positive collection closer (scripts/ci/assert-guards-collected.mjs)
+    // is the AUTHORITATIVE defense against darkening a guard test via ANY
+    // exclusion array or pattern shape — it observes vitest's resolved outcome,
+    // not exclusion text, so the R16/R17/R18 array x shape whack-a-mole ends
+    // here. Pin its CI step so accidental removal reds this guard (deliberate
+    // removal is a glaring workflow diff — code review's jurisdiction, the
+    // ratified ceiling). It must ride a merge-blocking job (x5, the env-bound
+    // exclusion home), run the command VERBATIM, carry ONLY name/run (no
+    // if:/shell:/env: escape hatch), and be preceded by the composite pre-node
+    // guard so node starts unpoisoned before the checker spawns vitest.
+    const LITERAL = "node scripts/ci/assert-guards-collected.mjs";
+    const workflow = ".github/workflows/x-audits.yml";
+    const job = "x5-email-canonicalization";
+    const wf = parse(readFileSync(join(ROOT, workflow), "utf8")) as WorkflowShape;
+    const steps = wf.jobs?.[job]?.steps ?? [];
+    const stepIdx = steps.findIndex((s) => typeof s.run === "string" && s.run.trim() === LITERAL);
+    expect(stepIdx, `${job} must run \`${LITERAL}\` verbatim`).toBeGreaterThanOrEqual(0);
+    expect(
+      Object.keys(steps[stepIdx]! as object).sort(),
+      "the assert-guards-collected step must carry ONLY name/run (no if:/shell:/env:)",
+    ).toEqual(["name", "run"]);
+    const guardIdx = steps.findIndex(
+      (s) => (s as { uses?: unknown }).uses === "./.github/actions/assert-pnpm-sources",
+    );
+    expect(
+      guardIdx,
+      `${job} must use the assert-pnpm-sources composite guard`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      guardIdx < stepIdx,
+      "the composite pre-node guard must precede assert-guards-collected",
+    ).toBe(true);
+  });
+
   it("the verifier REJECTS every execution-override class (fixture negatives, not corpus luck)", () => {
     const row = { workflow: ".github/workflows/w.yml", job: "j" };
     const FILE = "tests/x/y.test.ts";

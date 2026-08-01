@@ -73,12 +73,17 @@ for wf in .github/workflows/unit-suite.yml .github/workflows/x-audits.yml; do
   printf '%s' "$body" | LC_ALL=C grep -q '[^[:print:][:space:]]' && fail "$wf contains a non-ASCII byte outside comments"
 done
 
-# 4. SELF-EXCLUSION (R16-B): the coverage/oracle/topology guards are the
-#    only checks of the exclusion contract, and each is a vitest file that
-#    ENV_BOUND_EXCLUDES could list — excluding a guard silently disables it
-#    (the partition guard accepts zero membership for any array entry). This
-#    pre-node layer is not excludable, so it refuses any guard test appearing
-#    in the ENV_BOUND_EXCLUDES array of vitest.projects.ts.
+# 4. SELF-EXCLUSION (R16-B) — FAST PRE-NODE BELT ONLY. The AUTHORITATIVE closer
+#    of the guard self-exclusion class is scripts/ci/assert-guards-collected.mjs
+#    (R18-B): it asks vitest's OWN resolver which files the unit-suite collects
+#    and fails if any guard was darkened by ANY exclusion array or pattern shape
+#    (glob fan-out, NIGHTLY_ONLY_EXCLUDES sibling, …). Text-scanning exclusion
+#    patterns here is provably INCOMPLETE (array x shape whack-a-mole — it never
+#    covered NIGHTLY_ONLY_EXCLUDES or brace globs) and is kept only as a cheap
+#    pre-node tripwire for the common ENV_BOUND_EXCLUDES literal/indirection
+#    shapes. Do NOT extend this text-scan to chase new shapes — add coverage to
+#    the collection checker instead. The scans below refuse any guard test
+#    appearing literally in the ENV_BOUND_EXCLUDES array of vitest.projects.ts.
 if [ -f vitest.projects.ts ]; then
   arr="$(sed -n '/ENV_BOUND_EXCLUDES[[:space:]]*=[[:space:]]*\[/,/\]/p' vitest.projects.ts)"
   printf '%s' "$arr" | grep -qE '_metaEnvBoundExclusionCoverage\.test\.ts|runExcludedTest\.test\.ts|unit-suite-shard-topology\.test\.ts|vitest-projects-partition\.test\.ts' &&
