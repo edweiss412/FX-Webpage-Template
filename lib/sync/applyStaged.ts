@@ -990,8 +990,9 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
 // Exported + injectable so the default revision-availability probe is directly
 // unit-testable (DXT-3). Bounds the previously-untimed (and un-retried)
 // revisions.list with a per-call gaxios timeout under withDriveRetry
-// (gaxios-7 "TimeoutError" → driveErrorStatus 504; retry:false keeps
-// withDriveRetry the single retry layer).
+// (gaxios-7 timeout = GaxiosError with cause.name "AbortError", classified by
+// isDriveTimeoutShape to 504; retry:false keeps withDriveRetry the single
+// retry layer).
 export async function defaultRetryEmbeddedRevisionAvailability(
   spreadsheetId: string,
   deps: { drive?: drive_v3.Drive; retry?: DriveRetryOptions; timeoutMs?: number } = {},

@@ -1,6 +1,9 @@
 import type { drive_v3 } from "googleapis";
 import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";
-import { driveErrorStatus as driveErrorStatusShape } from "@/lib/drive/errorStatus";
+import {
+  driveErrorStatus as driveErrorStatusShape,
+  isDriveTimeoutShape,
+} from "@/lib/drive/errorStatus";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import {
   synthesizeMarkdownFromXlsx,
@@ -154,17 +157,17 @@ export function driveErrorStatus(error: unknown): number | null {
   if (error instanceof DriveFetchError) {
     return typeof error.status === "number" ? error.status : null;
   }
-  // A gaxios-7 request timeout (per-call `timeout` -> AbortSignal.timeout) throws
-  // a GaxiosError with `code === "TimeoutError"` (string) and NO numeric status.
-  // Treat that — plus the low-level socket-timeout codes, defensively — as a
-  // transient 504 so withDriveRetry retries a stalled files.get instead of
-  // failing it on the first attempt. (gaxios 7 is the native-fetch rewrite, so
-  // its own per-call-timeout path ALWAYS yields "TimeoutError";
-  // ECONNABORTED/ETIMEDOUT are the older gaxios-6/axios shapes, retained only for
-  // a low-level undici/socket cause whose .code gaxios copies through — never
-  // from gaxios-7's timeout path itself.)
-  const code = (error as { code?: unknown })?.code;
-  if (code === "TimeoutError" || code === "ETIMEDOUT" || code === "ECONNABORTED") {
+  // A gaxios-7 per-call timeout (per-call `timeout` under its node-fetch
+  // adapter) throws a GaxiosError with NO `code`, `name === "Error"`, and the
+  // signature on `cause.name === "AbortError"` — live-probed 2026-07-31 against
+  // the installed gaxios@7.1.4 (drive-timeout-cluster spec 1.3; the earlier
+  // `code === "TimeoutError"` claim never fired on this path). Classify by
+  // SHAPE via the leaf reader — top-level TimeoutError/ETIMEDOUT/ECONNABORTED
+  // names and codes are retained inside it for native-fetch
+  // (AbortSignal.timeout) and socket-level variants — and map to a transient
+  // 504 so withDriveRetry retries a stalled files.get instead of failing it on
+  // the first attempt.
+  if (isDriveTimeoutShape(error)) {
     return 504;
   }
   // gaxios / googleapis error shapes: response.status, status, or numeric code.

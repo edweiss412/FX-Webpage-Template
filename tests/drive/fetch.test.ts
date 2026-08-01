@@ -967,6 +967,26 @@ describe("Drive files.get stall-guard timeout (DXT-1 C — onboarding hot-path m
     });
   });
 
+  test("retries the PROBED gaxios-7 timeout shape (cause.name AbortError, code absent), then succeeds", async () => {
+    // Live-probed 2026-07-31 against gaxios@7.1.4 + node-fetch: a per-call
+    // timeout is a GaxiosError with NO code, name "Error", and
+    // cause.name === "AbortError". The old code-string check never fired for
+    // this shape, so a real timeout was not retried (spec 1.3 dead-code class).
+    const probedShape = Object.assign(new Error("The operation was aborted."), {
+      cause: Object.assign(new Error("aborted"), { name: "AbortError" }),
+    });
+    const filesGet = vi.fn().mockRejectedValueOnce(probedShape).mockResolvedValue(META);
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    const meta = await fetchDriveFileMetadata("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      retry: fastRetry,
+    });
+
+    expect(meta.driveFileId).toBe("sheet-1");
+    expect(filesGet).toHaveBeenCalledTimes(2);
+  });
+
   test.each(["TimeoutError", "ETIMEDOUT", "ECONNABORTED"])(
     "retries a gaxios %s files.get (classified transient 504), then succeeds",
     async (code) => {

@@ -14,10 +14,11 @@
  * SAME onboarding hot path (DXT-1 part C). Healthy gets are 165-255ms, so 8s is
  * ~30x headroom while still bounding a stall.
  *
- * A gaxios-7 per-call timeout fires via `AbortSignal.timeout`, throwing a
- * `GaxiosError` with `code === "TimeoutError"` (a string, not the gaxios-6/axios
- * `ECONNABORTED`/`ETIMEDOUT` shape). `driveErrorStatus` maps that — and the
- * low-level socket-timeout codes, defensively — to a transient 504 so the
+ * A gaxios-7 per-call timeout rejects with a `GaxiosError` carrying its
+ * signature on `cause.name === "AbortError"` (probed 2026-07-31 against the
+ * installed gaxios@7.1.4; no `code` is set on this path). `driveErrorStatus`
+ * classifies that shape via `isDriveTimeoutShape` — plus the low-level
+ * socket-timeout codes, defensively — to a transient 504 so the
  * already-wrapping `withDriveRetry` retries with a fresh budget, then throws a
  * typed error after the bounded retries (same bounded contract as the export
  * guard, not an indefinite hang). The gaxios call passes `retry: false` so

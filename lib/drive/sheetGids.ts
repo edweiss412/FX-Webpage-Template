@@ -15,8 +15,9 @@ import { DRIVE_FILES_GET_TIMEOUT_MS, withDriveRetry } from "@/lib/drive/fetch";
 export async function fetchSheetTitleToGid(spreadsheetId: string): Promise<Map<string, number>> {
   const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
   // DXT-3: bound this onboarding-scan-path Sheets metadata read with a per-call
-  // gaxios timeout under withDriveRetry (gaxios-7 "TimeoutError" → driveErrorStatus
-  // 504; retry:false keeps withDriveRetry the single retry layer).
+  // gaxios timeout under withDriveRetry (gaxios-7 timeout = GaxiosError with
+  // cause.name "AbortError", classified by isDriveTimeoutShape to 504;
+  // retry:false keeps withDriveRetry the single retry layer).
   const response = await withDriveRetry(() =>
     sheetsClient.spreadsheets.get(
       { spreadsheetId, fields: "sheets(properties(sheetId,title))" },

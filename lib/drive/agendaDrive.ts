@@ -61,10 +61,20 @@ function driveErrorStatus(error: unknown): number | null {
 
 /** Returns true for errors that are worth retrying (5xx, network). */
 function isTransientDriveError(error: unknown): boolean {
-  // Abort/deadline signals are not retryable.
-  if (error instanceof Error) {
-    const n = error.name;
+  // Abort/deadline signals are not retryable. The gaxios-7 per-call timeout
+  // carries its signature on `cause.name === "AbortError"` with a top-level
+  // name of "Error" (probed 2026-07-31, drive-timeout-cluster spec 1.3), so
+  // walk the bounded cause chain for the abort names — deliberately ONLY these
+  // two, not the ETIMEDOUT/ECONNABORTED socket shapes, which stay with the
+  // transient classification below.
+  for (
+    let node: unknown = error, depth = 0;
+    node instanceof Error && depth <= 4;
+    node = node.cause, depth += 1
+  ) {
+    const n = node.name;
     if (n === "AbortError" || n === "TimeoutError") return false;
+    if (node.cause === node) break; // cycle guard
   }
   const status = driveErrorStatus(error);
   if (status !== null) return status >= 500;

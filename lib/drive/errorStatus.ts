@@ -10,11 +10,13 @@
  *
  * This module has NO imports, by contract.
  *
- * What deliberately does NOT live here, because all three are retry POLICY for
- * `withDriveRetry` rather than status reading: the `DriveFetchError` special
- * case, the gaxios-7 timeout codes mapped to a transient 504, and the undici
- * `.cause`-chain walk mapped to 503. `lib/drive/fetch.ts` keeps those and
- * delegates the shape reading here.
+ * SHAPE reading lives here — both the status reader below and the
+ * timeout/abort-signature reader `isDriveTimeoutShape`. What deliberately does
+ * NOT live here, because it is retry POLICY for `withDriveRetry` rather than
+ * shape reading: the `DriveFetchError` special case, the decision that a
+ * timeout shape maps to a transient 504, and the undici `.cause`-chain walk
+ * mapped to 503. `lib/drive/fetch.ts` keeps those and delegates the shape
+ * reading here.
  */
 export function driveErrorStatus(error: unknown): number | null {
   if (!error || typeof error !== "object") return null;
@@ -27,4 +29,28 @@ export function driveErrorStatus(error: unknown): number | null {
   if (typeof candidate.status === "number") return candidate.status;
   if (typeof candidate.code === "number") return candidate.code;
   return null;
+}
+
+const TIMEOUT_SIGNATURES = new Set(["TimeoutError", "AbortError", "ETIMEDOUT", "ECONNABORTED"]);
+
+/**
+ * True iff the error or its bounded `.cause` chain (depth <= 4, cycle-guarded)
+ * carries a timeout/abort signature on `name` or `code`. Probed 2026-07-31
+ * against gaxios@7.1.4 + node-fetch: a per-call timeout is a GaxiosError with
+ * NO `code`, `name === "Error"`, and `cause.name === "AbortError"` (the
+ * drive-timeout-cluster spec 1.3 transcript). Top-level "TimeoutError" /
+ * "ETIMEDOUT" / "ECONNABORTED" are retained for native-fetch
+ * (`AbortSignal.timeout`) and socket-level shapes.
+ */
+export function isDriveTimeoutShape(error: unknown): boolean {
+  let node: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth <= 4 && node && typeof node === "object" && !seen.has(node); depth++) {
+    seen.add(node);
+    const { name, code } = node as { name?: unknown; code?: unknown };
+    if (typeof name === "string" && TIMEOUT_SIGNATURES.has(name)) return true;
+    if (typeof code === "string" && TIMEOUT_SIGNATURES.has(code)) return true;
+    node = (node as { cause?: unknown }).cause;
+  }
+  return false;
 }

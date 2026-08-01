@@ -276,6 +276,22 @@ describe("getAgendaChips — grid-order chip recovery", () => {
     expect(sheetsSpreadsheetsGet).not.toHaveBeenCalled();
   });
 
+  test("gaxios per-call timeout (cause.name AbortError, no top-level name/code) → NOT retried", async () => {
+    // The real gaxios-7 timeout shape carries its signature on cause.name only
+    // (probed 2026-07-31; top-level name is "Error"). Before the cause-chain
+    // walk, isTransientDriveError missed it: status=null → treated as a
+    // transient network error → retried, though abort/deadline signals are the
+    // exact class the name check exists to exclude.
+    sheetsSpreadsheetsGet.mockRejectedValue(
+      Object.assign(new Error("The operation was aborted."), {
+        cause: Object.assign(new Error("aborted"), { name: "AbortError" }),
+      }),
+    );
+    const result = await getAgendaChips("sheet-gaxios-timeout");
+    expect(result).toEqual({ kind: "infra_error" });
+    expect(sheetsSpreadsheetsGet).toHaveBeenCalledTimes(1);
+  });
+
   test("transient 5xx → ONE retry → success on retry", async () => {
     // First call: transient 5xx; second call: success
     sheetsSpreadsheetsGet
