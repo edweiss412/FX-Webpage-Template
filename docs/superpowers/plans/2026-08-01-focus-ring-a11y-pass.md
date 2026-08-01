@@ -54,17 +54,53 @@ export const FOCUS_BACKDROP_ALLOWLIST = [
 export type FocusBackdrop = (typeof FOCUS_BACKDROP_ALLOWLIST)[number];
 ```
 
-tests/styles/focusRingContrast.test.ts — copy the module-local helpers from `tests/styles/status-token-contrast.test.ts` with their exact names and signatures: `relLuminance(hex)` (:22-27), `contrast(a, b)` (:29-35), `blend(fg, alpha, bg)` (:181-191), `tokenIn(block, token)` (:39-44), `block(selectorStart)` (:46-60); parse the same three blocks it parses (`:root {`, the explicit dark runtime block, the `@media (prefers-color-scheme: dark)` block).
+tests/styles/focusRingContrast.test.ts — full body (helpers are self-contained; where a helper duplicates one in `tests/styles/status-token-contrast.test.ts`, keeping the donor's exact implementation is equally acceptable — same names, same math):
 
 ```ts
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FOCUS_BACKDROP_ALLOWLIST } from "./_focusBackdropAllowlist";
-// relLuminance / contrast / blend / tokenIn / block copied per above.
 
 const css = readFileSync("app/globals.css", "utf8");
-const lightBlock = block(":root {");
-const darkBlock = block(':root:not([data-theme="light"]) {');
+
+function channel(hexPair: string): number {
+  const v = parseInt(hexPair, 16) / 255;
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+function relLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  return 0.2126 * channel(h.slice(0, 2)) + 0.7152 * channel(h.slice(2, 4)) + 0.0722 * channel(h.slice(4, 6));
+}
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
+function blend(fg: string, alpha: number, bg: string): string {
+  const f = fg.replace("#", ""); const g = bg.replace("#", "");
+  const mix = (i: number): string =>
+    Math.round(parseInt(f.slice(i, i + 2), 16) * alpha + parseInt(g.slice(i, i + 2), 16) * (1 - alpha))
+      .toString(16).padStart(2, "0");
+  return `#${mix(0)}${mix(2)}${mix(4)}`;
+}
+function blockOf(selectorStart: string): string {
+  const start = css.indexOf(selectorStart);
+  if (start < 0) throw new Error(`selector not found: ${selectorStart}`);
+  let depth = 0;
+  for (let i = css.indexOf("{", start); i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    if (css[i] === "}" && --depth === 0) return css.slice(start, i + 1);
+  }
+  throw new Error(`unclosed block: ${selectorStart}`);
+}
+function tokenIn(block: string, token: string): string {
+  const m = new RegExp(`${token}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(block);
+  if (m === null || m[1] === undefined) throw new Error(`token not found: ${token}`);
+  return m[1];
+}
+
+const lightBlock = blockOf(":root {");
+const explicitDark = blockOf(':root:not([data-theme="light"]) {');
+const mediaDark = blockOf("@media (prefers-color-scheme: dark)");
 
 const ringDecls = [...css.matchAll(/--color-focus-ring-runtime:\s*([^;]+);/g)]
   .map((m) => (m[1] ?? "").trim());
@@ -77,19 +113,23 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
     expect(ringDecls[1]).toBe(ringDecls[2]);             // oracle 2: dark-pair identity
   });
   for (const token of FOCUS_BACKDROP_ALLOWLIST) {
-    it(`ring >= 3.0 on --color-${token} in both modes`, () => {
+    it(`ring >= 3.0 on --color-${token} in both modes (both dark blocks)`, () => {
       const light = tokenIn(lightBlock, `--color-${token}-runtime`);
-      const dark = tokenIn(darkBlock, `--color-${token}-runtime`);
+      const darkA = tokenIn(explicitDark, `--color-${token}-runtime`);
+      const darkB = tokenIn(mediaDark, `--color-${token}-runtime`);
+      expect(darkA).toBe(darkB); // backdrop dark-pair identity: media block cannot drift alone
       expect(contrast("#E06000", light)).toBeGreaterThanOrEqual(3.0); // oracle 3
       if (darkRing === null) throw new Error("dark ring is not rgba()");
       const hex =
         "#" + [darkRing[1], darkRing[2], darkRing[3]]
           .map((c) => Number(c ?? "0").toString(16).padStart(2, "0")).join("");
-      expect(contrast(blend(hex, Number(darkRing[4] ?? "1"), dark), dark)).toBeGreaterThanOrEqual(3.0);
+      expect(contrast(blend(hex, Number(darkRing[4] ?? "1"), darkA), darkA)).toBeGreaterThanOrEqual(3.0);
     });
   }
 });
 ```
+
+(If a `--color-<token>-runtime` is declared only once for dark — verify at implementation — relax the `darkA === darkB` line to tokens present in both blocks, and say so in a comment.)
 
 - [ ] **Step 2: Run — verify RED.** `pnpm vitest run tests/styles/focusRingContrast.test.ts`. Expected failures: oracle 1 (light is `rgba(255, 140, 26, 0.55)`) AND the `info-bg` light floor (2.9976 < 3.0).
 - [ ] **Step 3: Edit `app/globals.css`:** light `--color-focus-ring-runtime: #E06000;`, light `--color-info-bg-runtime: #f1ede7;` (both dark declarations untouched).
@@ -102,9 +142,10 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
 **Files:**
 - Modify: `app/globals.css` `@theme` (~:234, beside the `--transition-duration-*` aliases)
 - Modify: `tests/design/durationTokenEmission.test.ts`
+- Modify: `tests/design/fixtures/duration-probe.html` (the compile fixture — add a bare-transition element)
 
-- [ ] **Step 1: Extend the compiler-output test** (reuse its existing compile helper): compile fixture markup `<div class="transition-colors">` (no duration class) and assert (a) the emitted `.transition-colors` rule takes `transition-duration` through `var(--default-transition-duration)`, (b) the emitted theme layer sets `--default-transition-duration: var(--duration-fast)`.
-- [ ] **Step 2: Run — verify RED, corrected red-state (plan R1):** Tailwind ALREADY emits through `var(--default-transition-duration)` with default `150ms`, so assertion (a) is green from day one (it is the future-Tailwind regression net) and ONLY assertion (b) fails today.
+- [ ] **Step 1: Extend the fixture + compiler-output test.** Add `<div class="transition-colors"></div>` (NO duration class) to `tests/design/fixtures/duration-probe.html` — the current fixture has no `transition-colors`, so without this the compiled output contains no `.transition-colors` rule at all (plan R2 probe). Then, reusing the file's existing compile helper, assert (a) the emitted `.transition-colors` rule takes `transition-duration` through `var(--default-transition-duration)`, (b) the emitted theme layer sets `--default-transition-duration: var(--duration-fast)`.
+- [ ] **Step 2: Run — verify RED:** with the fixture extended, assertion (a) is green (Tailwind already emits through the var, default `150ms`; it stays as the future-Tailwind regression net) and ONLY assertion (b) fails today.
 - [ ] **Step 3: Add** `--default-transition-duration: var(--duration-fast);` to `@theme` with a comment in the alias-block style.
 - [ ] **Step 4: Run — GREEN.** Reduced-motion collapse propagates via the existing `--duration-*` zeroing (already covered in that file).
 - [ ] **Step 5: Commit** — `fix(crew-page): alias --default-transition-duration to duration-fast`
@@ -119,9 +160,10 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
 
 **Interfaces — Consumes:** `FOCUS_BACKDROP_ALLOWLIST` (Task 1).
 
-- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the row control carries keyboard-visible focus, then read inside ONE evaluate):
+- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the control carries keyboard-visible focus, then read inside ONE evaluate). The claimed-row control is the row's sign-in link (a GET to `/auth/sign-in` — `_PickerInterstitial.tsx` claimed-row anchor, the sweep-table's line-176 site):
 
 ```ts
+const row = page.locator('a[href*="/auth/sign-in"]').first(); // claimed-row sign-in control
 const probe = await row.evaluate((el) => {
   const cs = getComputedStyle(el);
   return {
@@ -132,7 +174,7 @@ const probe = await row.evaluate((el) => {
 expect(probe.offsetColor).toBe(probe.expected); // exact match; sweep-table row says bg (dark #0f1014)
 ```
 
-- [ ] **Step 2: Write probe B (regression pin; may already be GREEN).** In the gallery spec under `gotoScenario(page, "t2-ignored-warnings")`, Tab-focus a `DataQualityWarningControls` confirm-go control and assert its `--tw-ring-offset-color` equals the document's computed `--color-surface` with `data-theme="dark"` — pins a REGISTRY-lane site's rendered value (the guard trusts the file; this proves the compile).
+- [ ] **Step 2: Write probe B (regression pin; may already be GREEN — record its Step-3 state).** In the gallery spec under `gotoScenario(page, "t2-ignored-warnings")`: expand the Ignored (N) disclosure (`[data-testid^="section-ignored-summary-"]`), Tab-focus the **Un-ignore** control inside it (a `DataQualityWarningControls` REGISTRY-lane control whose `RING_OFFSET[mode]` resolves `surface-sunken` for the ignored mode — its painted ancestor is the `surface-sunken` CompactAlertCard body, plan R2 probe), and assert its `--tw-ring-offset-color` equals the document's computed `--color-surface-sunken` under `data-theme="dark"`. This pins a REGISTRY-lane site's rendered value (the guard trusts the file; this proves the compile).
 - [ ] **Step 3: Run probe A — RED** (bare offset resolves `#fff`). Run probe B — record its state in the commit body.
 - [ ] **Step 4: Write the guard** — full body (structure the per-line check as an exported `lineViolations(rel, text)` so the walker AND the fixture cases share one predicate):
 
@@ -221,7 +263,7 @@ describe("no bare ring-offset-2 / no focus outline-accent (spec 4.3)", () => {
 });
 ```
 
-- [ ] **Step 5: Run guard — RED**; diff the printed sites against the sweep table below. Mismatch = investigate before editing.
+- [ ] **Step 5: Run guard — RED**; expected output is exactly **79 sites**: the table's 76 non-REGISTRY offset rows (REGISTRY rows are exempt and never print) PLUS the three SwitcherControls `outline-accent` sites (which the table lists in Step 6's special rows, not as offset rows). Any site outside that 79 = investigate before editing.
 - [ ] **Step 6: Execute the sweep table.** Every non-REGISTRY row gets its same-chain companion literal appended. Special rows: `Step3SheetCard.tsx:122` → `peer-focus-visible:ring-offset-surface`; ReSyncButton — remove the offset-color leg from `DISMISS_BUTTON` (:165); its TWO consumers get per-site legs: warning error overlay (~:375) `focus-visible:ring-offset-warning-bg`, info success overlay (~:455) `focus-visible:ring-offset-info-bg`; SwitcherControls — three `focus-visible:outline-accent` (:28, :100, :120) → `focus-visible:outline-focus-ring`.
 - [ ] **Step 7: Run guard — GREEN; probes A and B — GREEN.** Update component-test literals in the same commit.
 - [ ] **Step 8: Commit** — `fix(crew-page): container-matched ring-offset colors tree-wide + structural guard (spec 4.2/4.3)` — body carries the six CALLER-UNKNOWN sites (spec §10 enumeration) and probe B's Step-3 state.
@@ -347,17 +389,17 @@ Failure mode caught: token drift or a competing rule — invisible to a class-st
 - Modify: `components/admin/dev/SwitcherControls.tsx`
 - Test: `tests/e2e/attention-modal-gallery.spec.ts`
 
-**Plan-time mechanism decision (spec §7.1 requires it recorded here):** SINGLE ROW retained — the host spec already asserts the collapsed bar is single-row and ≤64px tall, so `flex-wrap` is off the table. Classes: counter span gains `shrink-0 tabular-nums`; scenario label keeps `truncate` and gains `min-w-12` (48px floor); the group keeps `min-w-0 flex-1`. The existing single-row/height and modal-overlap assertions stay untouched and must not regress.
+**Plan-time mechanism decision (spec §7.1 requires it recorded here):** SINGLE ROW retained — the host spec already asserts the collapsed bar is single-row and ≤64px tall, so `flex-wrap` is off the table. The deciding class is a **`min-w-12` (48px) floor on the scenario label** (it keeps `truncate`); the group keeps `min-w-0 flex-1`; the counter's existing `shrink-0 tabular-nums` is retained UNCHANGED (plan R2: it already carries them — no no-op edits). If the geometric red-run in Step 3 shows the counter also collapsing despite `shrink-0`, add `min-w-fit` to the counter and record it in the commit body. The pre-existing single-row/height and modal-overlap assertions stay untouched and must not regress.
 
-- [ ] **Step 1: Add missing hooks** — `data-testid="attention-switcher-counter"` (counter span), `"attention-switcher-label"` (scenario label), `"attention-switcher-prev"` / `"attention-switcher-next"` (the STEP_BTN pair). Existing: `attention-switcher-controls`, `-group-select`, `-excluded-toggle`.
-- [ ] **Step 2: Failing 390×844 assertions** (exclusions present so all six clusters render):
+- [ ] **Step 1: Failing test FIRST** (test-before-hooks: it goes red immediately because five of the seven testids do not exist yet; after Step 2 lands the hooks, the surviving red is the geometric one — both red states get recorded). All six documented clusters are covered: Prev, Next, live group (asserted via its counter + label members), jump select, tier control, excluded toggle:
 
 ```ts
 await page.setViewportSize({ width: 390, height: 844 });
 const bar = page.locator('[data-testid="attention-switcher-controls"]');
 expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true); // no overflow
 const ids = ["attention-switcher-prev", "attention-switcher-next", "attention-switcher-counter",
-  "attention-switcher-label", "attention-switcher-group-select", "attention-switcher-excluded-toggle"];
+  "attention-switcher-label", "attention-switcher-tier",
+  "attention-switcher-group-select", "attention-switcher-excluded-toggle"];
 for (const id of ids) {
   const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
   if (box === null) throw new Error(`${id} not rendered`);
@@ -370,7 +412,7 @@ expect(await counter.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(tr
 const label = await page.locator('[data-testid="attention-switcher-label"]').boundingBox();
 if (label === null) throw new Error("label not rendered");
 expect(label.width).toBeGreaterThanOrEqual(48);
-for (const id of ["attention-switcher-prev", "attention-switcher-next",
+for (const id of ["attention-switcher-prev", "attention-switcher-next", "attention-switcher-tier",
   "attention-switcher-group-select", "attention-switcher-excluded-toggle"]) {
   const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
   if (box === null) throw new Error(`${id} not rendered`);
@@ -378,8 +420,9 @@ for (const id of ["attention-switcher-prev", "attention-switcher-next",
 }
 ```
 
-- [ ] **Step 3: Run — RED** (counter/label measure 0 today).
-- [ ] **Step 4: Apply the decided classes** (`shrink-0 tabular-nums` counter, `min-w-12` label; hooks from Step 1).
+- [ ] **Step 2: Run — RED (missing hooks).** Then add the five hooks: `data-testid="attention-switcher-prev"` / `-next` (STEP_BTN pair), `-counter` (counter span), `-label` (scenario label), `-tier` (tier control). Existing: `attention-switcher-controls`, `-group-select`, `-excluded-toggle`.
+- [ ] **Step 3: Run — RED (geometric):** hooks resolve; the label-width floor (and possibly cluster-width) assertions fail — this is the meaningful red for the backlog defect. Record which assertions fail.
+- [ ] **Step 4: Apply the decided class** — `min-w-12` on the label (plus `min-w-fit` on the counter ONLY if Step 3 showed it collapsing).
 - [ ] **Step 5: Run — GREEN**, including the pre-existing single-row/64px and modal-overlap assertions and a desktop-viewport case.
 - [ ] **Step 6: Commit** — `fix(admin): switcher counter/label keep readable width at 390px`
 
