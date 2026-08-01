@@ -1,6 +1,6 @@
 # Announcement a11y pass — arm-expiry + remote-rotation live regions
 
-**Date:** 2026-08-01 · **Status:** DRAFT · **Charter:** BACKLOG.md `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` + `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` (the two rows the 2026-08-01 focus-ring pass left OPEN for this follow-up spec).
+**Date:** 2026-08-01 · **Status:** APPROVED (Codex adversarial review R5, 2026-08-01) · **Charter:** BACKLOG.md `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` + `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` (the two rows the 2026-08-01 focus-ring pass left OPEN for this follow-up spec).
 
 ## 1. Scope
 
