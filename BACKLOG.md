@@ -110,6 +110,16 @@ R12 closed the WITHIN-run-block shell-state class in both guard layers (the invo
 
 **Status:** OPEN.
 
+## BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec
+
+**Filed:** 2026-08-01 (R1 adversarial review of the cross-step-env-guard spec, `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` §5 L3). **Class:** CI guard soundness. **Effort:** S–M.
+
+Static env injection is a FAIL-OPEN residual of `tests/ci/_workflowCoverageScan.ts`: a job-level `env:\n  PATH: fixtures/fake:/usr/bin:/bin` followed by a textually clean `pnpm exec playwright test …` step yields `covered` containing the spec and `rejected: []` (R1 probe, 2026-08-01). Unlike the cross-step GITHUB_ENV/GITHUB_PATH class (closed by that spec), there is no step ordering to thread — the vector is a static key the scanner simply does not model. Existing partial mitigations: `standalone-e2e.yml` pins no-`env:` at every level (workflow, job, step) for the reporter-path surface, and the `PLAYWRIGHT_` raw-text sweep covers that env-var family; the general scanner and the census have no such pin. Zero live workflows carry an `env:` PATH override today.
+
+**Work:** decide the modeling posture (reject-on-`env:`-anywhere is the scanner's `UNMODELLED_RE` pattern and probably right; an allowlist of known-benign env keys is the alternative), apply it to both guard layers, and pin with synthetic fixtures per the finding-admissibility contract.
+
+**Status:** OPEN.
+
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
