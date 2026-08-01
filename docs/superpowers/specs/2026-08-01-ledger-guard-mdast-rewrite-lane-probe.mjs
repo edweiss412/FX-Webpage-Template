@@ -48,11 +48,14 @@ function flattenLines(nodes, mode = "claim") {
         const startLine = lines.length - 1;
         const start = cur().text.length;
         for (const c of n.children ?? []) walk(c);
-        // span per strong NODE; if a newline split it, close at each line end
-        if (lines.length - 1 === startLine) cur().strongSpans.push([start, cur().text.length]);
-        else {
-          lines[startLine].strongSpans.push([start, lines[startLine].text.length]);
-          cur().strongSpans.push([0, cur().text.length]);
+        // ONE span per strong NODE per touched line: start line from its
+        // offset, EVERY interior line full-width, last line to its end
+        // (r6 — interior lines previously lost emphasis provenance).
+        const endLine = lines.length - 1;
+        for (let li = startLine; li <= endLine; li++) {
+          const a = li === startLine ? start : 0;
+          const b = li === endLine ? lines[li].text.length : lines[li].text.length;
+          if (b > a || li === startLine) lines[li].strongSpans.push([a, b]);
         }
         return;
       }
@@ -312,4 +315,8 @@ shape("edge-split bold-nonlabel prefix", "**Status:** open, re-**CLOSED** discus
 shape("edge-split bold-nonlabel suffix", "**Status:** open, **CLOSED**2 discussion", false);
 shape("edge-split field-label", "**Status**2: CLOSED discussion", false);
 shape("intact bold label still caught", "x **Closed:** 2026", true);
+// r6-review shapes: multiline strong interior lines keep provenance
+shape("multiline strong middle-line label", "**preamble\nCLOSED:\ntail**", true);
+shape("multiline strong last-line label control", "**preamble\nCLOSED:**", true);
+shape("multiline strong middle-line bold-nonlabel", "**Status: OPEN, CLOSED discussion\ntail line\nend**", true);
 console.log(fails === 0 ? "ALL SHAPES OK" : `${fails} MISMATCHES`);
