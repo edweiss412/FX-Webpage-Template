@@ -16,3 +16,13 @@
  * docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md.
  */
 export const ARM_REVERT_MS = 4_000;
+
+/**
+ * Announced (sr-only, role="status") when an armed two-tap confirm auto-reverts.
+ * Explicit disarms (second-tap confirm, Cancel, Escape, sibling action) stay
+ * silent; their own outcome announcements cover them. Set ONLY in the arm
+ * timer's callback, cleared at arm and at every action-dispatch entry (spec
+ * 2026-08-01-announce-a11y-pass §3.3). Value pinned by T5; declaration
+ * uniqueness by T4a (tests/styles/_metaDestructiveConfirm.test.ts).
+ */
+export const ARM_EXPIRED_ANNOUNCEMENT = "Confirm window closed. Nothing was changed.";

@@ -28,8 +28,10 @@
 // closeout for an arbitrary plan, and any registry-based version is an opt-in
 // list rather than a default-deny guard. Enforcing it properly means first
 // establishing that convention across ~300 documents, which is its own change.
-// Filed as BL-INVARIANT8-CLOSEOUT-ENFORCEMENT in BACKLOG.md with the
-// measurements. What remains here is enforceable and true.
+// Filed as BL-INVARIANT8-CLOSEOUT-ENFORCEMENT and graduated 2026-08-01 via
+// test/invariant8-closeout-enforcement: the assertion returned as its own
+// guard, tests/docs/_metaInvariant8Closeout.test.ts (sound discovery +
+// marker grammar). What remains HERE is the ledger half, enforceable and true.
 //
 // Spec: docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md §9 T8.
 import { readFileSync } from "node:fs";
@@ -90,6 +92,20 @@ const BACKLOG_GRADUATED = [
   // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
   // splice + scanner per-job poison flag, closure families F1-F8).
   { id: "BL-CI-GITHUB-ENV-CROSS-STEP-STATE", provenance: "test/ci-cross-step-env-guard" },
+  // test/invariant8-closeout-enforcement (2026-08-01): the closeout assertion
+  // removed in a20b94457 returns as its own guard —
+  // tests/docs/_metaInvariant8Closeout.test.ts (sound discovery, marker
+  // grammar, frozen debt ledger).
+  { id: "BL-INVARIANT8-CLOSEOUT-ENFORCEMENT", provenance: "test/invariant8-closeout-enforcement" },
+  // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
+  // probes for the pg-cron vacuity guard — an inert-case mutant must red the
+  // suite by name (attribution) and via the aggregate branch (backstop).
+  { id: "BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION", provenance: "test/pg-cron-mechanism-sabotage-probe" },
+  // fix/announce-a11y-pass (2026-08-01): arm-expiry announcements on the 11
+  // ARM_REVERT_MS surfaces (+ StagedReviewCard Apply disarm fix) and the
+  // ShareHub remote-rotation live region.
+  { id: "BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS", provenance: "fix/announce-a11y-pass" },
+  { id: "BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE", provenance: "fix/announce-a11y-pass" },
   // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
   // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
   // hardening restored, the r41 findings closed by probe. The walker

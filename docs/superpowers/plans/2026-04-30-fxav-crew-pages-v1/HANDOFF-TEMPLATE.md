@@ -189,7 +189,13 @@ If "None," say so explicitly.
 
 ## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
 
-**Required only when the milestone ships any UI surface** (any file under `app/` except `app/api/**`, any file under `components/`, any new `app/globals.css` `@theme` block, any change to `DESIGN.md` or `tailwind.config.*`). For backend-only milestones, mark this section "N/A — no UI surface" and skip.
+**Required only when the milestone ships any UI surface** (any file under `app/` except `app/api/**`, any file under `components/`, any new `app/globals.css` `@theme` block, any change to `DESIGN.md` or `tailwind.config.*`). For backend-only milestones, replace the fill-in marker below with the single line `impeccable-gate: N/A — no UI surface` and skip the rest of this section.
+
+Machine marker (REQUIRED; the guard `tests/docs/_metaInvariant8Closeout.test.ts` fails the unit without it). Fill in the placeholders — the line below is the TEMPLATE form and is valid only inside this template file:
+
+impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
+
+Marker placement (style, not guard-enforced): directory units carry it in `closeout.md`/`CLOSEOUT.md` or the handoff doc's §12; flat plan units in an in-plan `## 12` section or a stem-named sibling closeout file.
 
 The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) → register reference read (`brand.md` or `product.md`). (Skill ≥3.9 dropped the `IMPECCABLE_PREFLIGHT` structured signal and renamed `load-context.mjs` to `context.mjs`.) Each surface reviewed:
 
