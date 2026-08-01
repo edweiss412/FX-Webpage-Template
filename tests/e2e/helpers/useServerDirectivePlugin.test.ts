@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyzeModule, useServerDirectivePlugin } from "./useServerDirectivePlugin.mjs";
+import { bundleLiveEntry } from "./liveEntryToolchain";
 
 const REPO_ROOT = resolve(__dirname, "..", "..", "..");
 
@@ -157,6 +158,41 @@ describe("step3 bundler consumes the shared plugin (C3 behavioral pin)", () => {
     expect(bundle).toContain("server action export f is not callable");
     expect(bundle).not.toContain("ESC_BODY_SENTINEL");
   }, 120_000);
+});
+
+describe("import-graph reality check through the shipped channel (AC-4 / C4)", () => {
+  it("packlist live entry bundles with NO server library in the graph, via bundleLiveEntry + metafile", () => {
+    // The executable, permanent form of C1 Step 5: bundle the packlist live entry
+    // through the SHIPPED bundleLiveEntry (which routes through the directive
+    // plugin), emit a real metafile, and prove no googleapis / postgres /
+    // google-auth-library input reached the browser graph — with >500 total
+    // inputs and a react input, so a fabricated/truncated metafile fails too.
+    const work = mkdtempSync(join(tmpdir(), "directive-realitycheck-"));
+    const outFile = join(work, "bundle.js");
+    const metafilePath = join(work, "meta.json");
+    bundleLiveEntry({
+      entry: join(REPO_ROOT, "tests/e2e/_packListRescanLiveEntry.tsx"),
+      outFile,
+      aliases: { "node:crypto": join(REPO_ROOT, "tests/e2e/_nodeCryptoStub.ts") },
+      metafilePath,
+    });
+    const meta = JSON.parse(readFileSync(metafilePath, "utf8")) as {
+      inputs: Record<string, unknown>;
+    };
+    const inputs = Object.keys(meta.inputs);
+    const offending = inputs.filter((p) =>
+      /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(googleapis|postgres|google-auth-library)\//.test(
+        p,
+      ),
+    );
+    expect(offending, `server libs leaked into the browser graph: ${offending.join(", ")}`).toEqual(
+      [],
+    );
+    expect(inputs.length).toBeGreaterThan(500);
+    expect(
+      inputs.some((p) => /node_modules\/.*\/react\//.test(p) || /node_modules\/react\//.test(p)),
+    ).toBe(true);
+  }, 60_000);
 });
 
 describe("analyzeModule — pure core classification (spec §5.1-§5.2)", () => {
