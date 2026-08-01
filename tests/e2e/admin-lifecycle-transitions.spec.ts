@@ -8,12 +8,13 @@
  * asserts each behaves as spec §3.4 specifies — which for B2 is "instant" for
  * EVERY pair (no crossfade / height-morph / opacity tween).
  *
- * It NO LONGER exercises the compound transition the plan calls out
- * (Archive-confirm armed WHILE a router.refresh() from another action is in
- * flight). That case was retired 2026-07-26: the ShareHub popover's backdrop
- * makes the two states mutually exclusive, so the scenario is unreachable
- * through the UI. See the removal note below and
- * BL-ARCHIVE-ARMED-CONCURRENT-REFRESH.
+ * The compound case (Archive-confirm armed WHILE a refresh from another source
+ * lands) is RESTORED as of the race-cluster feature (2026-07-31): the 2026-07-26
+ * removal reasoned only about a second USER GESTURE, which the popover backdrop
+ * makes unreachable — but a realtime-driven router.refresh() needs no gesture
+ * and races the armed control from another tab. The restored case drives that
+ * vector cross-tab and asserts the §4 close with a paint-level rAF sampler
+ * (race-cluster spec §5/§6.4; closes BL-ARCHIVE-ARMED-CONCURRENT-REFRESH).
  *
  * Spec §3.4 Transition inventory (verbatim) — every pair is instant:
  *   | Active segment ↔ Archived segment | instant content swap on URL-param
@@ -37,14 +38,15 @@
  *       not a state animation). This is the structural guard that every §3.4
  *       pair stays "instant".
  *   (B) REAL-BROWSER BEHAVIOR — the resting↔armed morph appears/reverts
- *       instantly with the fixed box; and Cancel reverts it. (The compound
- *       confirm-during-refresh claim was removed with its case — see above.)
+ *       instantly with the fixed box; Cancel reverts it; and the restored
+ *       compound case drives a cross-tab realtime refresh against an armed
+ *       control with a paint-level sampler (see header note above).
  *
  * Requires the e2e env (dev server on :3000 + Supabase). Auth: ADMIN_FIXTURE.
  * A Held show is seeded via `_b2Helpers` (it renders both Publish + Archive).
- * That combination no longer makes the compound "another action refreshes while
- * Archive is armed" reachable — the popover backdrop covers every control
- * outside it while the armed control is mounted.
+ * The backdrop only blocks a second USER GESTURE in the same tab; the restored
+ * compound case reaches the armed-during-refresh state via the cross-tab
+ * realtime vector instead.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -52,6 +54,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedHeldShow, readShow, sqlClient, type SeededShow } from "../db/_b2Helpers";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 
 const REPO_ROOT = resolve(__dirname, "../..");
@@ -196,9 +199,14 @@ const CHANGED_COMPONENTS = [
 ];
 
 let held: SeededShow & { slug: string };
+let restoreDashboardState: (() => Promise<void>) | undefined;
 
 test.describe("admin lifecycle transition audit (§3.4)", () => {
   test.beforeAll(async () => {
+    // The shared local DB can sit in wizard mode (watched_folder_id NULL); /admin
+    // then renders the onboarding wizard instead of the dashboard and no modal
+    // ever mounts (probe-measured). Settle it and restore in afterAll.
+    restoreDashboardState = await settleDashboardAdminState();
     const h = await seedHeldShow();
     const row = await readShow(h.showId);
     held = { ...h, slug: row.slug as string };
@@ -212,6 +220,7 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     if (held) {
       await sqlClient`delete from public.shows where id = ${held.showId}::uuid`;
     }
+    await restoreDashboardState?.();
   });
 
   test.beforeEach(async ({ page }) => {
@@ -485,5 +494,188 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     } finally {
       await deleteSeededShow(seeded.driveFileId);
     }
+  });
+});
+
+// ── RESTORED compound case (race-cluster spec §5/§6.4; closes
+// BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE coverage debt + BL-ARCHIVE-ARMED-CONCURRENT-REFRESH).
+// SELF-CONTAINED: own seed + dashboard settle (the sibling describe's beforeAll is out of
+// scope here, and -g filtered runs must work), own cleanup; archives only its own show.
+test.describe("compound: armed Archive while a realtime refresh lands (cross-tab)", () => {
+  let compoundShow: SeededShow & { slug: string };
+  let restoreCompoundDashboard: (() => Promise<void>) | undefined;
+
+  test.beforeAll(async () => {
+    restoreCompoundDashboard = await settleDashboardAdminState();
+    const h = await seedHeldShow();
+    const row = await readShow(h.showId);
+    compoundShow = { ...h, slug: row.slug as string };
+  });
+
+  test.afterAll(async () => {
+    if (compoundShow) {
+      await sqlClient`delete from public.shows where id = ${compoundShow.showId}::uuid`;
+    }
+    await restoreCompoundDashboard?.();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  test("§4 close fires; no painted frame shows an enabled replacement control inside the open popover", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+
+    // Tab B: armed, NOT pending. Nav retries on the local is_session_live infra
+    // flake (probe-measured; admin-layout-infra-error page instead of dashboard).
+    const pageB = await page.context().newPage();
+    await signInAs(pageB, ADMIN_FIXTURE);
+    const modalB = pageB.locator(LOADED_REVIEW_MODAL);
+    await expect(async () => {
+      await pageB.goto(`/admin?show=${compoundShow.slug}`);
+      if ((await pageB.getByTestId("admin-layout-infra-error").count()) > 0) {
+        throw new Error("admin infra error page; retrying nav");
+      }
+      await expect(modalB).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+    await waitForHydration(modalB);
+    await openShowActions(modalB);
+    await modalB.getByTestId("archive-show-button").click();
+    await expect(modalB.getByTestId("archive-show-confirm-button")).toBeVisible();
+
+    // Paint-aligned sampler (page context, plain DOM reads — detach-safe). One
+    // sample per animation frame until __stopSampler; drained via one evaluate.
+    await pageB.evaluate(() => {
+      const w = window as unknown as {
+        __frames: {
+          t: number;
+          modal: boolean;
+          popoverOpen: boolean;
+          armed: boolean;
+          enabledUnarchInsidePopover: boolean;
+        }[];
+        __stopSampler?: boolean;
+      };
+      w.__frames = [];
+      const sample = () => {
+        const popover = document.querySelector('[data-testid="share-hub-popover"]');
+        const unarch = document.querySelector<HTMLButtonElement>(
+          '[data-testid^="unarchive-show-button-"]',
+        );
+        // LOADED modal only. Skeleton and loaded roots share the testid and can
+        // transiently COEXIST (see LOADED_REVIEW_MODAL above), so scan ALL roots
+        // for the one holding the title marker: first-match querySelector can
+        // land on the skeleton sibling and report a false negative.
+        const modal =
+          Array.from(
+            document.querySelectorAll('[data-testid="published-show-review-modal"]'),
+          ).find(
+            (r) => r.querySelector('[data-testid="published-show-review-title"]') !== null,
+          ) ?? null;
+        const armed = document.querySelector('[data-testid="archive-show-confirm-button"]');
+        w.__frames.push({
+          t: performance.now(),
+          modal: modal !== null,
+          popoverOpen: popover !== null,
+          armed: armed !== null,
+          enabledUnarchInsidePopover:
+            unarch !== null && !unarch.disabled && popover !== null && popover.contains(unarch),
+        });
+        if (!w.__stopSampler) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+
+    // Baseline BEFORE tab A confirms: the suite has no per-case app_events
+    // cleanup, so the settle poll must be scoped to THIS show AND this run.
+    const countArchivedEvents = async (): Promise<number> => {
+      const rows = await sqlClient`
+        select count(*)::int as n from public.app_events
+         where message = 'SHOW_ARCHIVED' and show_id = ${compoundShow.showId}::uuid`;
+      return (rows[0] as { n: number }).n;
+    };
+    const baseline = await countArchivedEvents();
+
+    // Tab A: archive the same show through its own modal.
+    const modalA = page.locator(LOADED_REVIEW_MODAL);
+    await expect(async () => {
+      await page.goto(`/admin?show=${compoundShow.slug}`);
+      if ((await page.getByTestId("admin-layout-infra-error").count()) > 0) {
+        throw new Error("admin infra error page; retrying nav");
+      }
+      await expect(modalA).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+    await waitForHydration(modalA);
+    await openShowActions(modalA);
+    await modalA.getByTestId("archive-show-button").click();
+    await expect(modalA.getByTestId("archive-show-confirm-button")).toBeVisible();
+    await modalA.getByTestId("archive-show-confirm-button").click();
+
+    // Settle signal: the action's telemetry emit is awaited before it returns,
+    // so a new scoped row means tab A's archive committed AND finished emitting.
+    await expect(async () => {
+      expect(await countArchivedEvents()).toBeGreaterThan(baseline);
+    }).toPass({ timeout: 20_000 });
+
+    // Terminal signal for TAB B (the telemetry row only proves tab A): wait for
+    // tab B's realtime refresh to close the popover before draining.
+    await pageB.waitForFunction(
+      () => {
+        const w = window as unknown as { __frames: { popoverOpen: boolean }[] };
+        return w.__frames.length > 0 && !w.__frames[w.__frames.length - 1]!.popoverOpen;
+      },
+      undefined,
+      { timeout: 15_000 },
+    );
+
+    // Drain.
+    const frames = await pageB.evaluate(() => {
+      const w = window as unknown as {
+        __frames: {
+          t: number;
+          modal: boolean;
+          popoverOpen: boolean;
+          armed: boolean;
+          enabledUnarchInsidePopover: boolean;
+        }[];
+        __stopSampler?: boolean;
+      };
+      w.__stopSampler = true;
+      return w.__frames;
+    });
+
+    // Sampler health: a broken/never-started sampler must not vacuously pass
+    // (plan-R1 finding 3). >30 frames ≈ >0.5s of real sampling at 60Hz.
+    expect(frames.length).toBeGreaterThan(30);
+    expect(
+      frames.some((f) => f.popoverOpen && f.armed && f.modal),
+      "sampler recorded the pre-archive armed state",
+    ).toBe(true);
+
+    // Positive terminal: popover closed while the LOADED modal stayed mounted —
+    // wholesale modal detachment (or a lingering skeleton) fails this.
+    const last = frames[frames.length - 1]!;
+    expect(last.modal, "loaded modal still mounted at drain").toBe(true);
+    expect(last.popoverOpen, "popover closed by the §4 lifecycle-close").toBe(false);
+    expect(last.armed, "no armed-confirm remnant").toBe(false);
+
+    // Paint invariant (race-cluster spec §5): NO painted frame may show an
+    // enabled replacement lifecycle control inside the still-open popover.
+    // Catches regression of the useLayoutEffect close (probe measured a 6ms
+    // painted frame on the useEffect version, Cases A and D).
+    const offending = frames.filter((f) => f.enabledUnarchInsidePopover);
+    expect(
+      offending.length,
+      `painted frame(s) with enabled Unarchive inside the open popover: ${JSON.stringify(offending)}`,
+    ).toBe(0);
+
+    // No torn state: neither error banner mounted on tab B.
+    await expect(pageB.getByTestId("archive-show-error")).toHaveCount(0);
+    await expect(pageB.locator('[data-testid^="unarchive-show-error-"]')).toHaveCount(0);
+
+    await pageB.close();
   });
 });
