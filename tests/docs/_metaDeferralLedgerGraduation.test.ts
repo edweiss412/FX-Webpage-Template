@@ -227,6 +227,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/judgment-chip-newtab-suffix (2026-08-01, PR #640): judgment chip border-strong
+  // outline; stripNewTabSuffix dedup at the three interpolated new-tab labels.
+  { id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" },
+  { id: "BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA", provenance: "fix/judgment-chip-newtab-suffix" },
   // 2026-07-27 reconciliation: three shipped entries were annotated terminal
   // in place rather than moved — one as "CLOSED" in the heading, one as
   // "RESOLVED" in the heading, one as a SHIPPED status line. All three shapes
