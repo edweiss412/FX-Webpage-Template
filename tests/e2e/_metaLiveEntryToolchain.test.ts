@@ -35,7 +35,17 @@ const E2E = join(ROOT, "tests/e2e");
  * an unreasoned exemption is how a second owner goes invisible.
  */
 const EXEMPT = new Map<string, string>([
-  ["helpers/liveEntryToolchain.ts", "the permitted invocation point"],
+  [
+    "helpers/liveEntryToolchain.ts",
+    "the permitted invocation point; bundleLiveEntry now spawns the " +
+      "_bundleLiveEntryChild.mjs node child (which imports esbuild) so the " +
+      "directive resolver plugin can run — the CSS half still names tailwindcss here",
+  ],
+  [
+    "helpers/_bundleLiveEntryChild.mjs",
+    "the plugin-capable bundler child (C2): imports esbuild by name because a CLI " +
+      "cannot express a resolver plugin; bundleLiveEntry routes through it",
+  ],
   ["_metaLiveEntryToolchain.test.ts", "this guard; its fixtures name the binaries"],
   [
     "_step3ReviewModalBundle.mjs",

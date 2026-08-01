@@ -44,6 +44,12 @@ export interface BundleOptions {
   aliases?: Record<string, string>;
   /** Extra `--external:` entries. `node:fs` is always included. */
   externals?: string[];
+  /**
+   * When set, esbuild writes its build metafile (JSON) to this absolute path.
+   * C4's import-graph reality check consumes it to prove no server library
+   * (googleapis / postgres / google-auth-library) reached the browser graph.
+   */
+  metafilePath?: string;
 }
 
 /**
@@ -58,6 +64,7 @@ export function bundleLiveEntry({
   outFile,
   aliases = {},
   externals = [],
+  metafilePath,
 }: BundleOptions): void {
   if (!existsSync(entry)) {
     throw new Error(`bundleLiveEntry: entry does not exist: ${entry}`);
@@ -66,22 +73,21 @@ export function bundleLiveEntry({
     throw new Error(`bundleLiveEntry: output directory does not exist: ${dirname(outFile)}`);
   }
 
+  // Spawns a `node` child (not `pnpm exec esbuild`) because the harness now
+  // needs an esbuild resolver PLUGIN (useServerDirectivePlugin) that a CLI
+  // invocation cannot express. The child mirrors the CLI flag set exactly, so
+  // no call site changes; aliases still apply before plugins. See
+  // _bundleLiveEntryChild.mjs.
   execFileSync(
-    "pnpm",
+    "node",
     [
-      "exec",
-      "esbuild",
+      join(__dirname, "_bundleLiveEntryChild.mjs"),
       entry,
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      ...["node:fs", ...externals].map((e) => `--external:${e}`),
-      ...Object.entries(aliases).map(([specifier, target]) => `--alias:${specifier}=${target}`),
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${outFile}`,
+      outFile,
+      join(REPO_ROOT, "tsconfig.json"),
+      JSON.stringify(aliases),
+      JSON.stringify(["node:fs", ...externals]),
+      ...(metafilePath ? ["--metafile", metafilePath] : []),
     ],
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
   );
