@@ -96,7 +96,7 @@ Static-label sites (`SheetIconLink.tsx:95` fallback, `VenueMapTile.tsx:138`, `So
 ### 3.3 Tests (TDD, red-first)
 
 - Helper unit tests (new file beside the a11y suite): trailing occurrence stripped; repeated trailing occurrences stripped; mid-string occurrence untouched; internal whitespace variants (`"X (opens in a new tab)"`, `"X (opens in a new tab) "`, `"X (opens in a new tab) (opens in a new tab)"`); exact-phrase only (near-miss `"(opens in new tab)"` untouched); empty input.
-- `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`: for each of the three sites, render with a pathological value ending in the phrase and assert the **computed accessible name** contains the phrase exactly once (the suite already measures computed names — its charter); plus the `Step3SheetCard` empty-after-strip fallback name.
+- `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`: for each of the three sites, render with a pathological value whose TRAILING text is the phrase (e.g. `Summit (opens in a new tab)`) and assert the **computed accessible name** contains the phrase exactly once; a mid-string case (e.g. `Summit (opens in a new tab) Tour`) asserts exactly two occurrences — the preserved user text plus the single appended suffix (§6) (the suite already measures computed names — its charter); plus the `Step3SheetCard` empty-after-strip fallback name.
 - `tests/styles/_metaNewTabAnnouncement.test.ts`: no changes; its census and per-branch scans must stay green as-is (proof the helper approach is guard-neutral).
 
 Failure modes each test catches: label-builder regression (guard would also catch), strip-anywhere over-reach (mid-string case), dangling-"for" (fallback case), copy drift (helper and JSX share one constant).
@@ -111,7 +111,7 @@ Failure modes each test catches: label-builder regression (guard would also catc
 ## 5. Acceptance
 
 1. Judgment chip renders `border-border-strong` in both modes; clean and flagged bit-identical to today except the regenerated visual baselines' judgment cells.
-2. The three interpolated labels announce the phrase exactly once for any input; static sites unchanged; `_metaNewTabAnnouncement` suite green without modification.
+2. For any input, the three interpolated labels end with exactly one appended suffix occurrence — trailing occurrences in the value never stack with the template's suffix. Mid-string occurrences inside user text are preserved by ratified limit (§6), so the total phrase count can legitimately exceed one; the invariant is on the suffix, not the whole string. Static sites unchanged; `_metaNewTabAnnouncement` suite green without modification.
 3. `modalSectionChromeClasses`, layout spec, visual spec (regenerated baselines), full unit suite, impeccable dual-gate, Codex whole-diff review, real CI — all green.
 
 ## 6. Documented limits
