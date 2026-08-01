@@ -262,4 +262,34 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     const mod = await import("@/lib/admin/destructiveConfirm");
     expect(mod.ARM_REVERT_MS, "4s ratified 2026-07-17, DEFERRED-archive.md:1228").toBe(4_000);
   });
+
+  /* T4a — same uniqueness contract for the expiry copy constant (spec
+   * 2026-08-01-announce-a11y-pass §3.1/§5.2): declared exactly once, in the
+   * shared module, so no surface can drift the announced copy locally. */
+  const EXPIRY_DECL =
+    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_EXPIRED_ANNOUNCEMENT\s*[=:]|\{[^}]*\bARM_EXPIRED_ANNOUNCEMENT\b[^}]*\}\s*=)/;
+
+  it("T4a: exactly one file declares ARM_EXPIRED_ANNOUNCEMENT, and it is the shared module", () => {
+    const declaring: string[] = [];
+    for (const root of ["components", "app", "lib"]) {
+      for (const file of walk(root)) {
+        if (EXPIRY_DECL.test(stripCommentsForFile(readFileSync(file, "utf8"), file))) {
+          declaring.push(file);
+        }
+      }
+    }
+    expect(declaring).toEqual([CONST_MODULE]);
+  });
+
+  it("T4a self-check: the matcher finds a declaration and ignores a mere reference", () => {
+    expect(EXPIRY_DECL.test('const ARM_EXPIRED_ANNOUNCEMENT = "x";')).toBe(true);
+    expect(EXPIRY_DECL.test("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;")).toBe(false);
+  });
+
+  it("T5: the expiry copy is the ratified string", async () => {
+    const mod = await import("@/lib/admin/destructiveConfirm");
+    expect(mod.ARM_EXPIRED_ANNOUNCEMENT, "spec 2026-08-01-announce-a11y-pass §3.1").toBe(
+      "Confirm window closed. Nothing was changed.",
+    );
+  });
 });
