@@ -54,7 +54,6 @@ Computed (WCAG relative luminance; dark rows alpha-composite `rgba(255,160,71,0.
 | `--color-stale-tint` | `#F4ECE0` | 3.07:1 | `#26221B` | 4.12:1 |
 | `--color-accent-tint` | `#FEEEDE` | 3.17:1 | `#2A1E10` | 4.21:1 |
 | `--color-danger-bg` | `#FBEAE8` | 3.09:1 | `#3A1E1C` | 4.05:1 |
-
 | `--color-info-bg` | `#F1EDE7` (nudged, §3.1) | 3.08:1 | `#1F1E22` | 4.25:1 |
 
 The §4.3 allowlist and this matrix are THE SAME set by construction: the meta-test derives its backdrop families by importing the guard's exported allowlist constant, so the two cannot diverge.
@@ -63,7 +62,7 @@ The §4.3 allowlist and this matrix are THE SAME set by construction: the meta-t
 
 Round 3 measured light info-bg `#EEEAE3` at 2.9976:1 against `#E06000` — under the unrounded floor — and the spec briefly excluded the token on the premise that no offset control sits on an info-bg backdrop. Round 4 disproved the premise with a live site: `components/admin/ReSyncButton.tsx` renders its success overlay on `bg-info-bg` (the OVERLAY_PANEL at the success branch) whose dismiss control uses the shared DISMISS_BUTTON constant carrying `focus-visible:ring-offset-warning-bg` — an allowlisted-but-mismatched companion the guard cannot see.
 
-Resolution (ratified here): **nudge the light info-bg token**, `#EEEAE3` → `#F1EDE7` (3.08:1 vs the ring, headroom in line with the stale-tint row). The shift is imperceptible (a 1-2 luminance-point lightening of a neutral notice tint) and strictly improves every existing info-bg text pairing (`--color-text-strong` on info-bg rises 14.35:1 → 14.75:1; the help-prose contrast test keeps passing in the same direction). Dark info-bg is untouched (4.25:1 composite already passes). Consumers verified 2026-08-01: help Callouts, TipFromSheets, ChangeFeedBadge, the ReSync success overlay — all text-on-tint pairings move in the passing direction.
+Resolution (ratified here): **nudge the light info-bg token**, `#EEEAE3` → `#F1EDE7` (3.08:1 vs the ring, headroom in line with the stale-tint row). The shift is imperceptible (a 1-2 luminance-point lightening of a neutral notice tint) and strictly improves every existing info-bg text pairing (`--color-text` on info-bg rises 14.35:1 → 14.75:1, `--color-text-strong` 15.98:1 → 16.43:1; the help-prose contrast test keeps passing in the same direction). Dark info-bg is untouched (4.25:1 composite already passes). Consumers verified 2026-08-01: help Callouts, TipFromSheets, ChangeFeedBadge, the ReSync success overlay — all text-on-tint pairings move in the passing direction.
 
 With the token nudged, `info-bg` JOINS the matrix and the allowlist, and the sweep fixes the mismatch: DISMISS_BUTTON's offset-color leg moves from the shared constant to the two call sites — the warning overlays keep `ring-offset-warning-bg`, the info overlay takes `ring-offset-info-bg`. Not an offset add/remove; a color correction squarely inside this pass's charter.
 
