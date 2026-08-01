@@ -1232,6 +1232,33 @@ supersession note.
 
 Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/globals.css` defines `--duration-fast` / `--duration-normal`. Verified empirically: compiling the token CSS emits **no rule** for `duration-fast`. So all **276 `duration-fast` + 42 `duration-normal` usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables never applies to any Tailwind transition** — which is the part that matters. **Fix:** rename the custom properties to `--transition-duration-fast` / `--transition-duration-normal` in the `@theme` block, then re-verify the reduced-motion path actually zeroes a real transition. **Trigger:** next motion or token pass; treat as an a11y fix, not a cosmetic one.
 
+---
+
+## BL-HEADER-JUDGMENT-CHIP-CONTRAST — the judgment icon chip is near-invisible, and the sm+ row made it load-bearing — ✅ RESOLVED (2026-08-01)
+
+**Resolved by `fix/judgment-chip-newtab-suffix` (PR #640, 2026-08-01).**
+
+**Filed:** 2026-07-26 (late-arriving impeccable Assessment A on PR #612 — the dispatched sub-agents' results landed post-merge; the inline degraded run had missed all three findings below).
+
+`bg-info-bg` (#eeeae3, `app/globals.css:295`) against the clean chip's `bg-surface-sunken` (#f4f3f1, `app/globals.css:278`) is ~1.06:1 in light mode; at 28px the two chips differ only by a hairline `border-border`. Below `sm` this barely mattered — the "Parsed with judgment" pill sat directly under the name. At `sm`+ (PR #612) the pill migrates to the row's far edge (up to ~600px away at the 744px cap), so the only cue NEXT TO the name for the judgment state is a chip that reads as clean. Flagged is unaffected (amber is distinct). Fix candidates that do not touch the ratified pill placement: `border-border-strong` on the judgment chip, or an info fill separable from `surface-sunken`. Contrast-pin any new/repurposed token per the pre-code mechanical UI gate.
+
+---
+
+## BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA — user-supplied text containing the announcement gets it twice — ✅ RESOLVED (2026-08-01)
+
+**Resolved by `fix/judgment-chip-newtab-suffix` (PR #640, 2026-08-01).**
+
+**Filed:** 2026-07-26 (branch `fix/newtab-announcement-family`, PR #592 close-out review round 2, LOW). **Class:** a11y polish. **Effort:** S.
+
+Three `aria-label`s interpolate user-supplied text and then append the canonical `(opens in a new tab)` suffix unconditionally. When the interpolated value already contains that phrase, the name announces it twice:
+
+- `components/admin/wizard/Step3ReviewModal.tsx:410` and `components/admin/showpage/PublishedReviewModal.tsx:722` interpolate a show title. A show titled `Summit (opens in a new tab)` announces as "Open the source sheet for Summit (opens in a new tab) in Google Sheets (opens in a new tab)".
+- `components/admin/wizard/step3ReviewSections.tsx:3585` interpolates a diagram's `alt`, with the same result.
+
+Titles and alt text come from admin-entered Google Sheet cells, so the input is reachable but pathological — nobody has typed it, and the degraded name is verbose rather than wrong (it still announces, and still names the destination). Recorded rather than fixed at close-out because the fix wants **one shared helper** that appends the suffix only when it is absent, not three inline conditionals: the copy already lives in exactly one place (`components/shared/NewTabHint.tsx`) for the visually-hidden span, and the label path should get the same treatment rather than a second copy of the rule. Doing that properly means a helper, its tests, and a sweep of every label that appends the phrase (currently 6 Group B anchors), which is more than a close-out patch.
+
+Cheap partial if it ever bites in practice: strip a trailing occurrence from the interpolated value before appending.
+
 ## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — REFUTED BY PROBE 2026-07-31 (race-cluster feature)
 
 **Status:** CLOSED-REFUTED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** The mandated empirical probe (5 Playwright cases, spec §2 of `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md`) refuted the inferred mechanism: with the archive action's POST response HELD 3s after the server fully processed it (RPC committed, broadcast published), the same-tab UI recorded ZERO state changes during the hold — Next's app-router action queue serializes router.refresh() behind the in-flight action, so the "realtime invalidation swaps Archive→Unarchive while useFormStatus is pending" scenario cannot occur same-tab. 8/8 unforced runs settled first. The measured residue was a 6ms post-settle painted frame (enabled Unarchive inside the still-open popover, one commit before the §4 close; unclickable even by Playwright actionability), eliminated by switching the ShareHub §4 lifecycle-close effect to useLayoutEffect (close commits pre-paint). Cross-tab (armed, not pending) the §4 close behaves as designed, same 6ms frame, same fix; covered by the restored compound e2e case. Original entry below for provenance.

@@ -227,6 +227,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/judgment-chip-newtab-suffix (2026-08-01, PR #640): judgment chip border-strong
+  // outline; stripNewTabSuffix dedup at the three interpolated new-tab labels.
+  { id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" },
+  { id: "BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA", provenance: "fix/judgment-chip-newtab-suffix" },
   // feat/ci-dark-directive-resolver (2026-07-31): PR-C of the ci-dark descoped
   // close-out — the shared "use server" directive plugin (a parse-based, throw-on-
   // call resolver) closed the resolver-soundness item, and packlist-rescan-recovery
