@@ -1473,3 +1473,50 @@ modules at module scope.
 > **Fix direction:** ensure the component under test is unmounted and any pending scheduler work flushed before the test completes — e.g. an explicit `cleanup()`/`unmount()` in a teardown hook, and awaiting pending timers/microtasks rather than letting the file end with work in flight. Reproducing reliably will likely need either a fast machine or artificially delayed teardown.
 >
 > **Provenance:** lifted to `main` 2026-08-01 from `chore/ci-namespace-runner-trial`, which was never opened as a PR; the branch remains the source of the underlying spec.
+## BL-PICKER-ROW-RING-OFFSET-BACKDROP — claimed/active roster rows use a bare ring-offset-2 — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved by the tree-wide bare-offset sweep (plan Task 3): the claimed/active roster rows gained `focus-visible:ring-offset-bg` (the rows sit on the picker `<main class="bg-bg">` ground, not their own fill); the dark-mode probe asserts the rendered offset color equals the computed `--color-bg`. The no-new-bare guard (tests/styles/noBareRingOffset.test.ts) prevents recurrence.
+
+Original entry (provenance):
+
+**Status:** OPEN · **Severity:** low (dark-mode focus-ring seam) · **Surfaced:** impeccable critique + audit of `fix/picker-flow-app-bugs` (2026-07-25), both flagged it as pre-existing and out of that diff's scope
+
+`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:138` sets `focus-visible:ring-offset-2` with no `ring-offset-<backdrop>` companion, so the offset resolves to Tailwind's default `--tw-ring-offset-color: #fff` (measured in a real browser during the audit). `DESIGN.md` §1.1 names exactly that as a dark-mode defect: a white gap between the control and its ring on a dark surface. Introduced in commit `4536d6b5a`, well before this branch.
+
+**Fix (when prioritized):** add the matching `ring-offset-<token>` for the row's backdrop, and sweep the other crew-surface focus rings for the same bare-offset shape — `2026-07-23-sharehub-focus-pass` §2 established the two-tier recipe and the no-bare-offset rule, so this is a straggler from before that pass rather than a new decision. Trigger: next focus-ring or dark-mode pass.
+
+## BL-BARE-TRANSITION-NO-DURATION-CLASS — bare `transition-*` sites sit outside the duration-token system — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved at the token layer: `@theme` gained `--default-transition-duration: var(--duration-fast)`, so every bare `transition-*` site (150ms default, outside the reduced-motion collapse) now resolves 120ms through the duration-token chain and collapses to 0ms under prefers-reduced-motion. Compiler-output proof extends tests/design/durationTokenEmission.test.ts (bare `transition-colors` fixture element).
+
+Original entry (provenance):
+
+**Status:** OPEN (2026-07-27, filed by `fix/duration-tokens-emit-no-css` spec §5) · **Severity:** LOW · **Class:** A11Y / DESIGN TOKEN WIRING
+
+The `@theme` `--transition-duration-*` aliases (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) made every _named_ `duration-<name>` utility real and reduced-motion-safe. Elements carrying a bare `transition-*` utility with NO named duration class still fall back to Tailwind's 150ms default and sit OUTSIDE the `prefers-reduced-motion` collapse (which zeroes only the `--duration-*` chain). Exemplars: `app/me/page.tsx:246` (`transition-transform`), `components/shared/CardReportTrigger.tsx:90` and `components/crew/primitives/SourceLink.tsx:72` (`transition-colors`). No site count stated — counts of this class are grep-flavour dependent (see the agenda-fold §5.2 precedent). **Fix (when prioritized):** per-site judgement — add the appropriate `duration-<name>` class, or explicitly accept the default for that surface. Likely cheaper class fix (impeccable critique 2026-07-27 P3): alias Tailwind's `--default-transition-duration` to a token so even bare sites inherit the system + reduced-motion collapse — evaluate side effects before choosing. **Trigger:** next motion or a11y pass.
+
+## BL-FOCUS-RING-CONTRAST — compute + meta-test `--color-focus-ring` contrast against every backdrop family — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved: light `--color-focus-ring` went opaque `#E06000` (owner-ratified Option B from a rendered three-option mockup; old translucent orange measured 1.60:1 on white). Light `--color-info-bg` nudged `#EEEAE3`->`#F1EDE7` so info fills clear the floor (spec 3.1). tests/styles/focusRingContrast.test.ts pins the exact light value, dark-pair identity, and the computed nine-family matrix floor (light 3.07-3.59:1, dark composites 3.69-4.56:1). The ~90 bare `ring-offset-2` usages this row tracked were swept with container-matched companions (actual walker count 86 sites incl. an rg-invisible NUL-byte file; three `focus-visible:outline-accent` sites migrated to `outline-focus-ring`), enforced by tests/styles/noBareRingOffset.test.ts.
+
+Original entry (provenance):
+
+From the impeccable critique of `feat/sharehub-focus-pass` (Assessment A P2, 2026-07-23). `--color-focus-ring` is translucent orange (`rgba(255,140,26,0.55)` light / `rgba(255,160,71,0.65)` dark, DESIGN.md token table). Naive alpha-blend puts the light-mode ring around ~1.6:1 against white `--color-surface` — under the WCAG 2.2 SC 2.4.13 Focus Appearance ≥3:1 expectation — while dark mode lands ~4.5:1. Pre-existing and app-wide (every `focus-visible:ring-focus-ring` control), NOT introduced by the focus pass; the pass actually improved perceptibility where the offset gap now separates ring from fill. Work: compute real ratios per backdrop family (surface, surface-sunken, warning-text fill, accent fill), decide whether the light token needs a darker/opaque variant, and pin the outcome with a contrast meta-test (the `status-token-contrast` pattern). Owner decision needed on token change vs accepted-as-brand. **Measured 2026-07-25** (destruct-thumb-order audit, from rendered `getComputedStyle` rather than a naive blend): light composites to ≈`#FFC075` for **1.60:1**, dark **4.40:1** — confirming the earlier estimate. The same audit measured a bare `ring-offset-2` white halo at **17.90:1** against `bg-surface` in dark mode, which is the concrete cost of the ~90 pre-existing bare usages this row already tracks. Same sweep should reconcile the ~90 pre-existing BARE `ring-offset-2` usages (no color companion) outside the share-hub components with the DESIGN.md token-table rule the focus pass added ("never bare ring-offset-2") — each is a latent dark-mode white halo.
+
+## BL-DEV-SWITCHER-BAR-MOBILE-WIDTH — attention-gallery switcher bar counter/description collapse to zero width on mobile — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved: scenario label got a `min-w-12` floor (measured 0px at 390 before), counter keeps `shrink-0 tabular-nums`; five new data-testid hooks; the gallery e2e asserts the full 390x844 contract (no overflow, per-cluster containment, counter untruncated, label >= 48px, interactive controls >= 44px).
+
+Original entry (provenance):
+
+**Status:** OPEN · **Severity:** LOW (developer-only surface) · **Class:** responsive layout — surfaced by the modal-state-coverage impeccable critique (2026-07-22)
+
+At the 390px mobile viewport the switcher bar's counter ("52 / 116") and scenario-description block measure clientWidth 0 (flex siblings squeeze them out), so the operator cannot tell which scenario is active on mobile. Desktop is unaffected. Pre-existing at origin/main 76288ca62 (section jump select landed with the bar); NOT introduced by the modal-state-coverage branch (zero layout-class hunks touch the bar in that diff). **Fix (when prioritized):** give the counter/description block a min-width floor (or wrap the bar) in components/admin/dev/AttentionModalSwitcher.tsx and add a 390px real-browser assertion to the gallery e2e.
+
+## BL-IGNORED-SUMMARY-TAP-TARGET — Ignored (N) disclosure summary is under the 44px tap floor — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved: the summary gained `min-h-tap-min inline-flex items-center` (the wizard summary recipe); browser measurement in the gallery e2e (expect.poll over getBoundingClientRect >= 44), red-proofed against the un-fixed component.
+
+Original entry (provenance):
+
+From the impeccable audit of `feat/crew-warning-attachment` (2026-07-23), pre-existing: the `Ignored (N)` `<summary>` in `components/admin/showpage/sectionWarningExtras.tsx` is a `text-xs` row with no `min-h-tap-min`, under the 44px floor, while `CrewUnderRowStack`'s equivalent "N more" summary carries it. Add `min-h-tap-min` + flex alignment to match.
