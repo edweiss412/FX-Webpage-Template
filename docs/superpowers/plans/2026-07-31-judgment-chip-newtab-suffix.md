@@ -42,6 +42,7 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     expect(classes).toContain("bg-info-bg");
     expect(classes).toContain("text-text");
     expect(classes).not.toContain("border-border");
+    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
   });
 
   test("clean chip stays borderless and sunken", () => {
@@ -52,6 +53,7 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     expect(classes).toContain("text-text-subtle");
     expect(classes).not.toContain("border");
     expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
+    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
   });
 
   test("flagged chip stays amber and borderless", () => {
@@ -62,11 +64,12 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     expect(classes).toContain("text-warning-text");
     expect(classes).not.toContain("border");
     expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
+    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
   });
 });
 ```
 
-Failure mode caught: a silent revert of the judgment outline, or the fix bleeding into the clean/flagged branches. Exact-token matching (split on whitespace) pins the bare `border` WIDTH token on judgment (color without width renders no outline — plan r11 finding 1), its ABSENCE on clean/flagged, that the hairline `border-border` is GONE, and that the strong token is EXACTLY `border-border-strong` — a substring check would pass on a nonexistent `border-border-stronger` utility that renders no outline (plan r1 finding 5).
+Failure mode caught: a silent revert of the judgment outline, or the fix bleeding into the clean/flagged branches. Exact-token matching (split on whitespace) pins the bare `border` WIDTH token on judgment (color without width renders no outline — plan r11 finding 1), its ABSENCE on clean/flagged, that the hairline `border-border` is GONE, and that the strong token is EXACTLY `border-border-strong` — a substring check would pass on a nonexistent `border-border-stronger` utility that renders no outline (plan r1 finding 5). The variant ban (`c.includes(":") && c.includes("border")` = false, all three states) kills `hover:border-*`-class mutants that would restyle the outline on interaction — the exact start-anchored-check escape the repo already documents at `tests/components/admin/showpage/_rowAssertions.ts:43-49`, and one the visual gate cannot catch (idle composites never hover the chip).
 
 - [ ] **Step 2: Run to verify the judgment case fails** — `pnpm exec vitest run tests/components/admin/wizard/modalSectionChromeClasses.test.tsx` → judgment test FAILS (`border-border-strong` absent today); clean/flagged tests PASS (they pin current behavior).
 - [ ] **Step 3: Minimal implementation** — in the chip ternary's judgment branch replace `"border border-border bg-info-bg text-text"` with `"border border-border-strong bg-info-bg text-text"`. No other branch changes.
