@@ -236,7 +236,12 @@ function headingId(heading: Heading): string | null {
   for (const c of heading.children) pwalk(c, "plain");
   const flat = flatChars.join("");
   const prefix = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);
-  const idStart = prefix?.[0].length ?? 0;
+  let idStart = prefix?.[0].length ?? 0;
+  // Legacy `~{0,2}`: an UNPAIRED tilde run stays literal text in mdast
+  // (`## ~BL-X` has no delete node) but the raw matcher consumed it —
+  // consume up to two plain-provenance tildes (whole-diff r6).
+  const tildes = /^~{1,2}/.exec(flat.slice(idStart));
+  if (tildes !== null && prov[idStart] === "plain") idStart += tildes[0].length;
   const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
   if (!m) return null;
   const token = m[1]!;
@@ -452,7 +457,11 @@ export function openingVerdicts(line: FlatLine | undefined): string[] {
   const first = lineTokens(line.text)[0];
   if (first === undefined || !TERMINAL.test(first.t)) return [];
   if (line.text.slice(0, first.i).trim() !== "") return [];
-  const inStrong = overlaps(line.strongSpans, first.i, first.i + first.t.length);
+  // WHOLLY contained, not merely overlapping (whole-diff r6): a token
+  // straddling a strong edge (`**Res**olved …`) is not a bold claim.
+  const inStrong = line.strongSpans.some(
+    ([a, b]) => first.i >= a && first.i + first.t.length <= b,
+  );
   const allCaps = first.t === first.t.toUpperCase();
   if ((inStrong || allCaps) && !vetoed(line.text, first.i)) return [`opening:${first.t}`];
   return [];

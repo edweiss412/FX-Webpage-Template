@@ -58,6 +58,10 @@ Reference sweep RUN 2026-08-01, exact command `rg -n "BL-LEDGER-GUARD-MDAST-REWR
 ### T6 Close-out
 Full `pnpm test`; `tsc` both configs; eslint; `format:check`. Whole-diff cross-model review (fresh-eyes brief, split-scope if needed); push; CI green; merge; ff-sync main; delete `test/guard-hardening-followup`; CronDelete nudge + clear pane.
 
+## Recorded execution deviation (whole-diff r6 F1 disposition — do not relitigate)
+
+T1's GREEN implementation shipped the walker as ONE module including the lane evaluators, while T1's RED test covers extraction/flatten only and the lane-exercising tests arrived in T2/T3 — a task-packaging deviation from the letter of TDD-per-task for the lane code specifically. The compensating red evidence is the plan's own §1.1.14-ratified mutation protocol, executed and recorded: per-lane wiring-deletion mutants red their plants (measured matrix heading 4 / opening 4 / terminal-label 4 / field-label 3 / leading 2 / bold-nonlabel 3 / bare-field 3 failures; restore greens), which is the fixture-task RED form this plan ratifies for T3. History is not rewritten; the deviation and its evidence are recorded here and in the T2/T3 commit bodies.
+
 ## Snippet typecheck note
 
 Task bodies above carry no pasted TS snippets (shapes are named, not inlined) — the T1/T2/T3 test bodies are authored in-branch under the repo's strict tsconfig at implementation time, which is where the typecheck-pasted-snippets rule lands.

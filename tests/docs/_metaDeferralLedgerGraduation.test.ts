@@ -378,6 +378,13 @@ describe("backlog ledger graduation", () => {
     expect(openingHit("**_RESOLVED_** by the popover migration.")).toBe(true);
     expect(openingHit("_RESOLVED_ by the popover migration.")).toBe(true);
     expect(openingHit("Resolved only as part of BL-OTHER.")).toBe(false);
+    // whole-diff r6 — a token straddling a strong edge is not a bold
+    // opening claim in ANY split position:
+    expect(openingHit("**Res**olved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("Re**sol**ved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("Res**olved** only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("***Res***olved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("**Resolved** by the popover migration.")).toBe(true);
     // r16 — the colon rides either side of the closing emphasis:
     expect(fieldHit("**Status**: RESOLVED")).toBe(true);
     expect(fieldHit("**Filed**: CLOSED 2026-07-24")).toBe(true);

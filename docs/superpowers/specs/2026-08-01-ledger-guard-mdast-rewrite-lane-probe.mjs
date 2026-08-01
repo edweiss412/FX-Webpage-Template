@@ -206,7 +206,7 @@ function openingVerdict(line) {
   const hits = [];
   const first = tokens(line.text)[0];
   if (first && TERMINAL.test(first.t) && line.text.slice(0, first.i).trim() === "") {
-    const inStrong = overlaps(line.strongSpans, first.i, first.i + first.t.length);
+    const inStrong = line.strongSpans.some(([a, b]) => first.i >= a && first.i + first.t.length <= b);
     const allCaps = first.t === first.t.toUpperCase();
     if ((inStrong || allCaps) && !vetoed(line.text, first.i)) hits.push(`opening:${first.t}`);
   }
@@ -255,7 +255,9 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
     })(n, "plain");
     const flat = flatChars.join("");
     const pm = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);
-    const idStart = pm[0].length;
+    let idStart = pm[0].length;
+    const tildes = /^~{1,2}/.exec(flat.slice(idStart));
+    if (tildes !== null && prov[idStart] === "plain") idStart += tildes[0].length;
     const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
     if (!m || /[a-z]/.test(m[1])) return;
     // whole id token must be plain- or delete-sourced (r10 ratification)
