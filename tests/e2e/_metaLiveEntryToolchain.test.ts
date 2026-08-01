@@ -43,6 +43,11 @@ const EXEMPT = new Map<string, string>([
       "Next's `use server` elision — a CLI invocation cannot express a resolver plugin, " +
       "so this cannot route through the helper. See its own header for the rationale.",
   ],
+  [
+    "helpers/useServerDirectivePlugin.test.ts",
+    "the plugin contract test builds fixtures through the real esbuild API — the " +
+      "build boundary IS the contract, so it imports esbuild by name (PR-C / C1).",
+  ],
 ]);
 
 /** Binary names that mean "the harness toolchain", however they are spelled. */
