@@ -49,6 +49,13 @@ fixtures/shows/
 # special-cases several of these dirs; mirror that for prettier.
 tests/cross-cutting/fixtures/
 
+# Directive-resolver contract fixtures (PR-C): several are UNPARSEABLE by design
+# (octal-escape directive, trailing garbage) so prettier errors on them, and the
+# single-quote directive fixture must keep its exact quotes (prettier would
+# rewrite 'use server' -> "use server" and destroy the case-e distinction). Same
+# posture as tsconfig + eslint.config.mjs, which already exclude this dir.
+tests/e2e/helpers/__fixtures__/directive/
+
 # Prose docs (plans, specs, handoffs, project docs). Prettier's markdown table +
 # emphasis normalization is the same hazard that exempts the master spec above;
 # several are asserted on by doc-guard tests and actively edited (merge-conflict

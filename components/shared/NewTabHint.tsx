@@ -26,6 +26,23 @@ import type { JSX } from "react";
  * call sites. Keep it out of this comment: the structural guard's census counts
  * occurrences in source.
  */
+const PHRASE = "(opens in a new tab)";
+
+/**
+ * Strips TRAILING occurrences of the canonical new-tab phrase from a value
+ * that is about to be interpolated into an aria-label whose template appends
+ * the phrase itself, so the appended suffix never stacks (spec
+ * 2026-07-31-judgment-chip-newtab-suffix-design.md §3.2). Mid-string
+ * occurrences are user content and survive (§6). Exact spelling only.
+ */
+export function stripNewTabSuffix(value: string): string {
+  let out = value.trimEnd();
+  while (out.endsWith(PHRASE)) {
+    out = out.slice(0, -PHRASE.length).trimEnd();
+  }
+  return out;
+}
+
 export function NewTabHint(): JSX.Element {
-  return <span className="sr-only">(opens in a new tab)</span>;
+  return <span className="sr-only">{PHRASE}</span>;
 }

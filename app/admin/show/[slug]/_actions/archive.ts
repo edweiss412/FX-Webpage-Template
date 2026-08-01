@@ -36,15 +36,19 @@ export async function archiveShowAction(slug: string): Promise<LifecycleResult> 
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
-    // Durable forensic telemetry: emitted ONLY on the committed-success branch (post-RPC-commit),
-    // never on a refusal/no-op. `await` is load-bearing — the record must persist before the
-    // action returns. The code literal rides the logAdminOutcome(...) call (stripped → not a §12.4 producer).
-    await logAdminOutcome({
-      code: "SHOW_ARCHIVED",
-      source: "admin.show.archive",
-      actorEmail: email,
-      showId: resolved.show.id,
-    });
+    // Durable forensic telemetry: emitted ONLY on a PERFORMED transition (post-RPC-commit) —
+    // the RPC's discriminator is false on the idempotent no-op arm (stale-tab repeat submit),
+    // which previously duplicated this event (race-cluster spec §4, probe Case C). `await` is
+    // load-bearing — the record must persist before the action returns. The code literal rides
+    // the logAdminOutcome(...) call (stripped → not a §12.4 producer).
+    if (result.performed) {
+      await logAdminOutcome({
+        code: "SHOW_ARCHIVED",
+        source: "admin.show.archive",
+        actorEmail: email,
+        showId: resolved.show.id,
+      });
+    }
   }
   return result;
 }

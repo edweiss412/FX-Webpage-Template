@@ -45,12 +45,16 @@ const PHRASE = "Open the source sheet";
 
 const EXPECTED: Record<string, number> = {
   "components/admin/SheetIconLink.tsx": 2,
-  "components/admin/wizard/Step3SheetCard.tsx": 1,
+  // 1 -> 2 (2026-07-31, same plan Task 3): SheetTitleLink gained the no-subject fallback
+  // branch (the no-subject source-sheet label; the #592 no-dangling-"for" shape).
+  "components/admin/wizard/Step3SheetCard.tsx": 2,
   "components/admin/wizard/step3ReviewSections.tsx": 1,
   // Test files quoting the phrase as assertion material (r9 — the walk now
   // covers the whole repository, so these pin like everything else; a new
   // assertion legitimately bumps its row here).
-  "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 2,
+  // 2 -> 6 (2026-07-31, plan docs/superpowers/plans/2026-07-31-judgment-chip-newtab-suffix.md
+  // Task 3): four exact-computed-name assertions for the suffix-dedup cases carry the phrase.
+  "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 6,
   "tests/components/admin/sheetIconLink.test.tsx": 4,
   // 3 since r11: two label-context mentions plus the verbatim-phrase negative
   // plant for hiddenPhraseCount.

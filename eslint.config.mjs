@@ -36,6 +36,11 @@ const eslintConfig = defineConfig([
     "tests/cross-cutting/fixtures/no-global-cursor/**",
     "tests/cross-cutting/fixtures/no-global-cursor-semantic/**",
     "tests/cross-cutting/fixtures/email-canonicalization/**",
+    // Directive-resolver contract fixtures (PR-C / C1): several are broken BY
+    // DESIGN (octal-escape directive, trailing garbage, sync/class exports) so
+    // the plugin's build boundary can prove it refuses them. They are consumed
+    // only through esbuild at runtime, never imported/typechecked/linted.
+    "tests/e2e/helpers/__fixtures__/directive/**",
   ]),
   // ── Tailwind v4 canonical-class enforcement ─────────────────────────────
   // Implements the Tailwind PR-19059 canonical-class suggestions (same logic

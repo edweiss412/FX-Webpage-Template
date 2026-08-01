@@ -59,6 +59,7 @@
     "test:e2e:ui": "playwright test --ui",
     "verify-resync-scheduletimes": "tsx scripts/verify-resync-scheduletimes.ts",
     "worktree:link-env": "bash scripts/worktree-link-env.sh",
+    "run-excluded": "node scripts/run-excluded-test.mjs",
     "preflight": "node scripts/preflight-env.mjs",
     "db:reset-pool": "node scripts/db-reset-pool.mjs",
     "test:e2e:bulk-ignore-eyebrow": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts",

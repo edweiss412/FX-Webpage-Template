@@ -22,9 +22,13 @@
 //
 // Both are esbuild-vs-Next-bundler-semantics gaps, NOT real client-bundle leaks.
 // This build closes them structurally (by class, not by naming individual paths):
-//   1. useServerElision  — replicate Next's elision: any module whose first
-//      statement is a `"use server"` directive is replaced by no-op exports, so
-//      its server-only dep subtree drops out entirely.
+//   1. useServerDirectivePlugin — the SHARED "use server" resolver (PR-C / C3):
+//      any module whose directive prologue cooks to `"use server"` is replaced by
+//      a throwing stub, so its server-only dep subtree drops out entirely. This
+//      supersedes the local regex `useServerElision` this file used to carry — a
+//      TypeScript-parse decision, contract-tested at the build boundary in
+//      helpers/useServerDirectivePlugin.test.ts. The stubbed actions are never
+//      invoked by the interaction harness (scroll / nav / drag only).
 //   2. emptyNodeBuiltins — resolve node builtins (and the harness's never-run
 //      main-guard `require("node:fs")`) to an empty CJS module. CJS interop lets
 //      `import { createHash } from "node:crypto"` bind to `undefined` (never
@@ -34,51 +38,15 @@
 // Pinned esbuild devDep (package.json) — matches the version the tailwind CLI step
 // still pins via `pnpm dlx`.
 
-import { readFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import * as esbuild from "esbuild";
+import { useServerDirectivePlugin } from "./helpers/useServerDirectivePlugin.mjs";
 
 const [, , entry, outfile, tsconfig] = process.argv;
 if (!entry || !outfile || !tsconfig) {
   console.error("usage: node _step3ReviewModalBundle.mjs <entry> <outfile> <tsconfig>");
   process.exit(2);
 }
-
-// Strip a leading BOM + any run of block/line comments so the `"use server"`
-// directive (which must be the module's first STATEMENT, but may follow a file
-// JSDoc — e.g. useRaw.ts's is ~1.3kB in) is exposed. Runs on the full source,
-// never a fixed-length prefix, so a long header comment can't hide the directive.
-const LEADING_NONCODE = /^﻿?(?:\s*\/\*[\s\S]*?\*\/|\s*\/\/[^\n]*)*\s*/;
-
-/**
- * Replicate Next's `"use server"` elision: a module that starts with a
- * `"use server"` directive becomes no-op exports, so its server-only dependency
- * subtree never reaches the browser bundle. The stubbed actions are never invoked
- * by the interaction harness (which drives scroll / nav / drag only); if one were
- * ever called it throws a clear harness-only error rather than silently no-op'ing.
- */
-const useServerElision = {
-  name: "use-server-elision",
-  setup(build) {
-    build.onLoad({ filter: /\.(?:[cm]?tsx?|[cm]?jsx?)$/ }, async (args) => {
-      const src = await readFile(args.path, "utf8");
-      const head = src.replace(LEADING_NONCODE, "");
-      if (!/^["']use server["']/.test(head)) return null;
-      const names = new Set();
-      for (const m of src.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)/g))
-        names.add(m[1]);
-      for (const m of src.matchAll(/export\s+const\s+([A-Za-z0-9_$]+)/g)) names.add(m[1]);
-      const stub =
-        [...names]
-          .map(
-            (n) =>
-              `export const ${n} = async () => { throw new Error("server action ${n} is not callable in the browser harness"); };`,
-          )
-          .join("\n") || "export {};";
-      return { contents: stub, loader: "js" };
-    });
-  },
-};
 
 // Any Node core module that survives into the resolve pass — node:crypto on the
 // pure-client parser path (lib/parser/warnings → useRawContentHash's isContentHash),
@@ -112,7 +80,10 @@ const result = await esbuild.build({
   tsconfig,
   // Shim `process` for Next client-runtime env reads beyond NODE_ENV.
   banner: { js: 'window.process=window.process||{env:{NODE_ENV:"production"}};' },
-  plugins: [useServerElision, emptyNodeBuiltins],
+  // Not a React hook — an esbuild plugin factory the spec/plan names
+  // useServerDirectivePlugin; the "use" prefix trips react-hooks/rules-of-hooks.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  plugins: [useServerDirectivePlugin(), emptyNodeBuiltins],
   outfile,
   logLevel: "warning",
 });

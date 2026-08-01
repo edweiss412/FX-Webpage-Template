@@ -12,12 +12,17 @@
  * `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.4 has
  * the census and §3 the rationale.
  *
- * DELIBERATELY NOT a resolver policy. An earlier design gave this module a
- * rule-based esbuild plugin that decided which modules were server-only and
- * stubbed them. It was built, measured, and descoped because its safety
- * guarantee could not be made sound — see `BL-HARNESS-RESOLVER-POLICY` in
- * BACKLOG.md. Aliases stay EXPLICIT at each call site: a caller says which
- * specifiers it stubs and with what, and nothing here second-guesses it.
+ * RESOLVER POLICY: the DIRECTIVE rule (PR-C; spec ci-dark-descoped-closeout §5.1
+ * row 3). bundleLiveEntry routes through _bundleLiveEntryChild.mjs, which installs
+ * the shared useServerDirectivePlugin: a module is stubbed iff its own directive
+ * prologue cooks to `"use server"` — the authoritative Next signal, decided by a
+ * real TypeScript parse, not a path heuristic or graph-derivation. The stub
+ * THROWS on any call (contract-tested at the build boundary in
+ * helpers/useServerDirectivePlugin.test.ts), so a consumed-but-uninvoked proxy
+ * cannot silently alter behaviour — the unsoundness that descoped the earlier
+ * rule-based attempt (BL-HARNESS-RESOLVER-POLICY, now graduated). Aliases stay
+ * EXPLICIT and per-call-site (esbuild applies them BEFORE the plugin), so a
+ * caller still says which non-directive specifiers it stubs and with what.
  *
  * `tests/e2e/_metaLiveEntryToolchain.test.ts` enforces that no other file
  * under `tests/e2e/**` names a toolchain binary.
@@ -44,6 +49,12 @@ export interface BundleOptions {
   aliases?: Record<string, string>;
   /** Extra `--external:` entries. `node:fs` is always included. */
   externals?: string[];
+  /**
+   * When set, esbuild writes its build metafile (JSON) to this absolute path.
+   * C4's import-graph reality check consumes it to prove no server library
+   * (googleapis / postgres / google-auth-library) reached the browser graph.
+   */
+  metafilePath?: string;
 }
 
 /**
@@ -58,6 +69,7 @@ export function bundleLiveEntry({
   outFile,
   aliases = {},
   externals = [],
+  metafilePath,
 }: BundleOptions): void {
   if (!existsSync(entry)) {
     throw new Error(`bundleLiveEntry: entry does not exist: ${entry}`);
@@ -66,22 +78,21 @@ export function bundleLiveEntry({
     throw new Error(`bundleLiveEntry: output directory does not exist: ${dirname(outFile)}`);
   }
 
+  // Spawns a `node` child (not `pnpm exec esbuild`) because the harness now
+  // needs an esbuild resolver PLUGIN (useServerDirectivePlugin) that a CLI
+  // invocation cannot express. The child mirrors the CLI flag set exactly, so
+  // no call site changes; aliases still apply before plugins. See
+  // _bundleLiveEntryChild.mjs.
   execFileSync(
-    "pnpm",
+    "node",
     [
-      "exec",
-      "esbuild",
+      join(__dirname, "_bundleLiveEntryChild.mjs"),
       entry,
-      "--bundle",
-      "--format=iife",
-      "--jsx=automatic",
-      "--loader:.tsx=tsx",
-      '--define:process.env.NODE_ENV="production"',
-      ...["node:fs", ...externals].map((e) => `--external:${e}`),
-      ...Object.entries(aliases).map(([specifier, target]) => `--alias:${specifier}=${target}`),
-      `--tsconfig=${join(REPO_ROOT, "tsconfig.json")}`,
-      '--banner:js=window.process=window.process||{env:{NODE_ENV:"production"}};',
-      `--outfile=${outFile}`,
+      outFile,
+      join(REPO_ROOT, "tsconfig.json"),
+      JSON.stringify(aliases),
+      JSON.stringify(["node:fs", ...externals]),
+      ...(metafilePath ? ["--metafile", metafilePath] : []),
     ],
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
   );

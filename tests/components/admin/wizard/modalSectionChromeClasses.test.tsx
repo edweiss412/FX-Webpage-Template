@@ -66,3 +66,34 @@ describe("ModalSectionChrome sm+ classes", () => {
     expect(pillWrapper?.className).toMatch(/sm:contents/);
   });
 });
+
+describe("chip status classes (spec 2026-07-31 §2.2)", () => {
+  // EXACT class-set equality per state. Membership checks lost three review
+  // rounds to escaping mutants (hover:border-*, border-transparent, border-2);
+  // set equality admits none of them by construction (plan r13).
+  const chipClasses = (container: HTMLElement) =>
+    (container.querySelector('span[aria-hidden="true"]')?.className ?? "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .sort();
+  const BASE = ["grid", "size-7", "shrink-0", "place-items-center", "rounded-sm"];
+
+  test("judgment chip: exactly the strong outline over the info fill", () => {
+    const { container } = renderChrome({ judgment: true });
+    expect(chipClasses(container)).toEqual(
+      [...BASE, "border", "border-border-strong", "bg-info-bg", "text-text"].sort(),
+    );
+  });
+
+  test("clean chip: exactly borderless sunken", () => {
+    const { container } = renderChrome({});
+    expect(chipClasses(container)).toEqual(
+      [...BASE, "bg-surface-sunken", "text-text-subtle"].sort(),
+    );
+  });
+
+  test("flagged chip: exactly amber, borderless", () => {
+    const { container } = renderChrome({ flagged: true });
+    expect(chipClasses(container)).toEqual([...BASE, "bg-warning-bg", "text-warning-text"].sort());
+  });
+});

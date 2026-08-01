@@ -62,6 +62,7 @@ import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
+import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
@@ -138,8 +139,9 @@ export function PublishCheckbox({
  * opens in a new tab. Falls back to plain text only if the deep link can't be
  * built (a missing driveFileId — not expected for a real row).
  */
-function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
+export function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
   const href = buildSheetDeepLink(dfid);
+  const strippedTitle = stripNewTabSuffix(title);
   if (!href) {
     return <p className="wrap-break-word text-base font-semibold text-text-strong">{title}</p>;
   }
@@ -149,7 +151,11 @@ function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`Open the source sheet for ${title} in Google Sheets (opens in a new tab)`}
+      aria-label={
+        strippedTitle
+          ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
+          : "Open the source sheet in Google Sheets (opens in a new tab)"
+      }
       className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
       {title}

@@ -149,7 +149,7 @@ import {
   PublishedArchivedTabIncludedNote,
 } from "@/components/admin/review/PublishedArchivedTabOffer";
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
-import { NewTabHint } from "@/components/shared/NewTabHint";
+import { NewTabHint, stripNewTabSuffix } from "@/components/shared/NewTabHint";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
@@ -949,7 +949,7 @@ export function ModalSectionChrome({
               flagged
                 ? "bg-warning-bg text-warning-text"
                 : judgment
-                  ? "border border-border bg-info-bg text-text"
+                  ? "border border-border-strong bg-info-bg text-text"
                   : "bg-surface-sunken text-text-subtle"
             }`}
           >
@@ -3641,7 +3641,7 @@ export const DIAGRAM_TILE_CAP = 12;
 /** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
  *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
  *  documented revert — next/image drops cookies). */
-function DiagramTile({
+export function DiagramTile({
   src,
   alt,
   testId,
@@ -3653,6 +3653,7 @@ function DiagramTile({
   hasPreviewSource: boolean;
 }) {
   const [failed, setFailed] = useState(!hasPreviewSource);
+  const strippedAlt = stripNewTabSuffix(alt);
   if (failed) {
     return (
       <span
@@ -3672,7 +3673,9 @@ function DiagramTile({
       href={src}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={alt ? `${alt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"}
+      aria-label={
+        strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
+      }
       data-testid={testId}
       className="block"
     >
