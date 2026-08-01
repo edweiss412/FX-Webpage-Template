@@ -12,6 +12,7 @@
  * recipe is review-time territory (spec §3 + DESIGN.md destructive actions).
  */
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { walk, stripCommentsForFile, tokensOf } from "./_classScanUtils";
 
@@ -224,40 +225,73 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
  */
 describe("META arm-revert timing contract (spec §5.2)", () => {
   const CONST_MODULE = "lib/admin/destructiveConfirm.ts";
-  /* R17 F1: a single-line `const` pattern was fail-open — `let`/`var`, a declaration
-   * split across lines, and a destructured binding all define ARM_REVERT_MS while
-   * matching nothing, so "exactly one declaration" could be false and still pass.
-   * Comment LINES are dropped first (whole-file comment stripping misparses TSX — see
-   * R15 F1), then the surviving code is joined so a multi-line declaration is still one
-   * subject. */
-  const DECL =
-    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_REVERT_MS\s*[=:]|\{[^}]*\bARM_REVERT_MS\b[^}]*\}\s*=|\[[^\]]*\bARM_REVERT_MS\b[^\]]*\]\s*=)/;
-  /* R16 F2: this used stripComments() on whole-file source. Regex comment stripping
-   * misparses TS/TSX — a "/*" inside a STRING opens a span that a later "*\/" string
-   * closes, deleting the live code between them from inspection, so a real duplicate
-   * declaration could go unseen. Measured on this repo: app/admin/layout.tsx has 3
-   * comment opens and 1 close before its own className. Judge each line instead; a
-   * declaration is a single line here, so nothing is lost by not spanning. */
-  const declaresArmRevert = (source: string, filePath: string) =>
-    DECL.test(stripCommentsForFile(source, filePath));
+  /* Declaration detection is AST-based (whole-diff A R1/B R2): the regex
+   * lineage (R17 F1 direct/object forms, then A1's array-destructure escape,
+   * then B2's nested-binding escape AND a default-value false positive
+   * `const [x = ARM_REVERT_MS] = v`) is the same open-ended-grammar wall the
+   * ledger guard hit — grammar questions go to the parser, not to regexes.
+   * A "declaration" is the identifier appearing as a BINDING NAME in any
+   * VariableDeclaration (direct, object/array destructure, arbitrarily
+   * nested); an initializer or default-value reference is NOT a binding.
+   * Comments fall out of the AST for free. Files without the identifier
+   * substring are skipped before parsing (cheap pre-filter). */
+  const declaresBinding = (source: string, filePath: string, name: string): boolean => {
+    if (!source.includes(name)) return false;
+    const sf = ts.createSourceFile(
+      filePath,
+      source,
+      ts.ScriptTarget.Latest,
+      false,
+      ts.ScriptKind.TSX,
+    );
+    let found = false;
+    const visitBindingName = (n: ts.BindingName): void => {
+      if (found) return;
+      if (ts.isIdentifier(n)) {
+        if (n.text === name) found = true;
+        return;
+      }
+      for (const el of n.elements) {
+        if (ts.isBindingElement(el)) visitBindingName(el.name);
+      }
+    };
+    const visit = (node: ts.Node): void => {
+      if (found) return;
+      if (ts.isVariableDeclaration(node)) visitBindingName(node.name);
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return found;
+  };
 
   it("T1: exactly one file declares ARM_REVERT_MS, and it is the shared module", () => {
     const declaring: string[] = [];
     for (const root of ["components", "app", "lib"]) {
       for (const file of walk(root)) {
-        if (declaresArmRevert(readFileSync(file, "utf8"), file)) declaring.push(file);
+        if (declaresBinding(readFileSync(file, "utf8"), file, "ARM_REVERT_MS")) {
+          declaring.push(file);
+        }
       }
     }
     // Equality, not "at most one": `<= 1` would pass on zero, proving nothing.
     expect(declaring).toEqual([CONST_MODULE]);
   });
 
-  it("T1 self-check: the matcher finds a declaration and ignores a mere reference", () => {
-    expect(DECL.test("const ARM_REVERT_MS = 4_000;")).toBe(true);
-    expect(DECL.test("export const ARM_REVERT_MS = 4_000;")).toBe(true);
-    expect(DECL.test("setTimeout(cb, ARM_REVERT_MS);")).toBe(false);
-    // Whole-diff A1 mutant: an ARRAY-destructured binding is a declaration too.
-    expect(DECL.test("const [ARM_REVERT_MS] = [1];")).toBe(true);
+  it("T1 self-check: binding forms are declarations; references and defaults are not", () => {
+    const d = (src: string) => declaresBinding(src, "a.tsx", "ARM_REVERT_MS");
+    expect(d("const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(d("export const ARM_REVERT_MS = 4_000;")).toBe(true);
+    expect(d("let ARM_REVERT_MS;")).toBe(true);
+    expect(d("const { ARM_REVERT_MS } = mod;")).toBe(true);
+    // Whole-diff A1 mutant: array-destructured binding.
+    expect(d("const [ARM_REVERT_MS] = [1];")).toBe(true);
+    // Whole-diff B2 mutant: NESTED binding.
+    expect(d("const [[ARM_REVERT_MS]] = [[1]];")).toBe(true);
+    expect(d("const { a: { ARM_REVERT_MS } } = mod;")).toBe(true);
+    // References are NOT declarations (B2's false-positive class).
+    expect(d("setTimeout(cb, ARM_REVERT_MS);")).toBe(false);
+    expect(d("const [timeout = ARM_REVERT_MS] = values;")).toBe(false);
+    expect(d("// ARM_REVERT_MS in a comment only")).toBe(false);
   });
 
   it("T3: the shared value is the ratified 4s", async () => {
@@ -267,15 +301,13 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
 
   /* T4a — same uniqueness contract for the expiry copy constant (spec
    * 2026-08-01-announce-a11y-pass §3.1/§5.2): declared exactly once, in the
-   * shared module, so no surface can drift the announced copy locally. */
-  const EXPIRY_DECL =
-    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_EXPIRED_ANNOUNCEMENT\s*[=:]|\{[^}]*\bARM_EXPIRED_ANNOUNCEMENT\b[^}]*\}\s*=|\[[^\]]*\bARM_EXPIRED_ANNOUNCEMENT\b[^\]]*\]\s*=)/;
-
+   * shared module, so no surface can drift the announced copy locally. Shares
+   * the AST binding detector above (same closure over binding grammar). */
   it("T4a: exactly one file declares ARM_EXPIRED_ANNOUNCEMENT, and it is the shared module", () => {
     const declaring: string[] = [];
     for (const root of ["components", "app", "lib"]) {
       for (const file of walk(root)) {
-        if (EXPIRY_DECL.test(stripCommentsForFile(readFileSync(file, "utf8"), file))) {
+        if (declaresBinding(readFileSync(file, "utf8"), file, "ARM_EXPIRED_ANNOUNCEMENT")) {
           declaring.push(file);
         }
       }
@@ -283,11 +315,14 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(declaring).toEqual([CONST_MODULE]);
   });
 
-  it("T4a self-check: the matcher finds a declaration and ignores a mere reference", () => {
-    expect(EXPIRY_DECL.test('const ARM_EXPIRED_ANNOUNCEMENT = "x";')).toBe(true);
-    expect(EXPIRY_DECL.test("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;")).toBe(false);
-    // Whole-diff A1 mutant: an ARRAY-destructured binding is a declaration too.
-    expect(EXPIRY_DECL.test('const [ARM_EXPIRED_ANNOUNCEMENT] = ["wrong"];')).toBe(true);
+  it("T4a self-check: binding forms are declarations; references are not", () => {
+    const d = (src: string) => declaresBinding(src, "a.tsx", "ARM_EXPIRED_ANNOUNCEMENT");
+    expect(d('const ARM_EXPIRED_ANNOUNCEMENT = "x";')).toBe(true);
+    expect(d("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;")).toBe(false);
+    // Whole-diff A1 + B2 mutants: array and NESTED bindings.
+    expect(d('const [ARM_EXPIRED_ANNOUNCEMENT] = ["wrong"];')).toBe(true);
+    expect(d('const [[ARM_EXPIRED_ANNOUNCEMENT]] = [["wrong"]];')).toBe(true);
+    expect(d("const [msg = ARM_EXPIRED_ANNOUNCEMENT] = v;")).toBe(false);
   });
 
   /* T4 — expiry-wiring co-presence (spec 2026-08-01-announce-a11y-pass §5.2):

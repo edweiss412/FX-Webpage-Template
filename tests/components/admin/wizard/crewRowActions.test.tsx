@@ -454,11 +454,17 @@ describe("arm-expiry announcement — CrewRowActions", () => {
     renderCrew();
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+    // Advance while the request is STILL PENDING (whole-diff B2 round 2): a
+    // settled request closes via closeFully, which clears the timer on its
+    // own — only the pending window proves the DISPATCH-ENTRY clear.
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
     await act(async () => {
       settle({ ok: true });
       await Promise.resolve();
     });
-    act(() => vi.advanceTimersByTime(4_100));
     for (const el of screen.getAllByTestId("arm-expiry-announce")) {
       expect(el.textContent).not.toBe(EXPIRY);
     }
