@@ -138,13 +138,20 @@ perl -0pi -e 's/makeLiveCaseCounter\(liveDbTest, \(\) => queryCount\)/makeLiveCa
 Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
 Expected: probe A FAILS — the child reds via the AGGREGATE message, so the named-message `toMatch` misses.
 
-Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; verify `git status --porcelain` clean.
+Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; verify `git status --porcelain` shows ONLY ` M tests/cross-cutting/pgCronCiVacuity.test.ts` (the in-progress task edit — it is uncommitted until Step 5) and NO `pg-cron-coverage.test.ts` line.
 
-- [ ] **Step 5: Re-run healthy GREEN, commit** (record both red transcript excerpts in the commit body).
+- [ ] **Step 5: Re-run healthy GREEN, commit.** The two `[observed: …]` lines are runtime-evidence slots: replace each with the actual assertion-failure line from the corresponding red run's output.
 
 ```bash
 git add tests/cross-cutting/pgCronCiVacuity.test.ts
-git commit -m "test(ci): probe that per-case query attribution is wired in the pg-cron suite"
+git commit -F- <<'EOF'
+test(ci): probe that per-case query attribution is wired in the pg-cron suite
+
+Red demonstrations against the live suite:
+MF-1 (mechanism deleted): [observed: probe A failure line]
+MF-2 (observe arg dropped): [observed: probe A failure line]
+Healthy tree: all 4 guard probes green.
+EOF
 ```
 
 ### Task 2: Probe B (aggregate afterAll backstop)
@@ -191,7 +198,7 @@ Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`
 Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
 Expected: probe B FAILS with the `writeMutant` refuse-to-cover throw ("suite refactored; update the probe anchors" naming `OBSERVE_ANCHOR`); probe A also FAILS (child exits 0). No stray mutant file (`ls tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` → not found).
 
-Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` clean.
+Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` shows ONLY ` M tests/cross-cutting/pgCronCiVacuity.test.ts` and NO `pg-cron-coverage.test.ts` line.
 
 - [ ] **Step 4b: RED under MF-2** (anchor miss — completes the spec §5.2 matrix cell MF-2 × probe B). Apply only the observe-arg drop:
 
@@ -202,13 +209,22 @@ perl -0pi -e 's/makeLiveCaseCounter\(liveDbTest, \(\) => queryCount\)/makeLiveCa
 Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
 Expected: probe B FAILS via the refuse-to-cover throw (`OBSERVE_ANCHOR` occurs 0x); probe A also FAILS (aggregate message, named match misses — same as Task 1 Step 4).
 
-Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` clean.
+Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` shows ONLY ` M tests/cross-cutting/pgCronCiVacuity.test.ts` and NO `pg-cron-coverage.test.ts` line.
 
-- [ ] **Step 5: Healthy GREEN re-run, commit.** The commit body records the COMPLETED closure matrix with each cell's observed red: MF-1 → probe A red (child green) + probe B red (anchor miss); MF-2 → probe A red (aggregate message) + probe B red (anchor miss); MF-4 → probe B red (child green); MF-3 → existing probe 3 (measured at spec time).
+- [ ] **Step 5: Healthy GREEN re-run, commit.** The commit body records the COMPLETED closure matrix; the `[observed: …]` entries are runtime-evidence slots — replace each with the actual failure line from that red run.
 
 ```bash
 git add tests/cross-cutting/pgCronCiVacuity.test.ts
-git commit -m "test(ci): probe that the aggregate query-count backstop survives attribution loss"
+git commit -F- <<'EOF'
+test(ci): probe that the aggregate query-count backstop survives attribution loss
+
+Closure matrix (spec §3/§5.2), each cell demonstrated live:
+MF-1 -> probe A red: [observed] ; probe B red (anchor miss): [observed]
+MF-2 -> probe A red (aggregate msg): [observed] ; probe B red (anchor miss): [observed]
+MF-4 -> probe B red: [observed]
+MF-3 -> existing probe 3 (measured at spec time, every case throws by name)
+Healthy tree: all 5 guard probes green.
+EOF
 ```
 
 ### Task 3: BACKLOG graduation + registry row
@@ -218,7 +234,19 @@ git commit -m "test(ci): probe that the aggregate query-count backstop survives 
 - Modify: `BACKLOG-archive.md` (add resolved entry, house style)
 - Modify: `tests/docs/_metaDeferralLedgerGraduation.test.ts` (ONE `BACKLOG_GRADUATED` row)
 
-- [ ] **Step 1: Move the entry + fix the section preamble.** Cut the whole `### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION …` section from `BACKLOG.md` (it runs from that heading to just before `### BL-CI-STALE-BRANCH-PROTECTION-COMMENT`). In the SAME file, the "Descoped from the CI-dark coverage cluster" preamble ends "…the two below remain open." — with this graduation only ONE remains. Replace that clause (layering house style, keep the existing shipped-item chain) with:
+- [ ] **Step 1: Failing test FIRST — registry row before the move.** In `tests/docs/_metaDeferralLedgerGraduation.test.ts`, add at the top of `BACKLOG_GRADUATED`:
+
+```ts
+  // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
+  // probes for the pg-cron vacuity guard — an inert-case mutant must red the
+  // suite by name (attribution) and via the aggregate branch (backstop).
+  { id: "BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION", provenance: "test/pg-cron-mechanism-sabotage-probe" },
+```
+
+Run: `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`
+Expected: FAIL — "every graduated id is archive-only" reds with `BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION missing from BACKLOG-archive.md` (and the id still present in BACKLOG.md).
+
+- [ ] **Step 2: Move the entry + fix the section preamble.** Cut the whole `### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION …` section from `BACKLOG.md` (it runs from that heading to just before `### BL-CI-STALE-BRANCH-PROTECTION-COMMENT`). In the SAME file, the "Descoped from the CI-dark coverage cluster" preamble ends "…the two below remain open." — with this graduation only ONE remains. Replace that clause (layering house style, keep the existing shipped-item chain) with:
 
 ```markdown
 followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry) and `BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION` on `test/pg-cron-mechanism-sabotage-probe` (2026-08-01, mechanism-sabotage probes); the one below remains open.
@@ -252,19 +280,10 @@ In `BACKLOG-archive.md`, insert after the ledger preamble (before the first exis
 
 (The `### …` block above is the original entry, embedded verbatim; the heading demotes from `###` to stay under the new `##` archive heading, matching the archive's nested-provenance house style.)
 
-- [ ] **Step 2: Registry row** in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, top of `BACKLOG_GRADUATED`:
-
-```ts
-  // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
-  // probes for the pg-cron vacuity guard — an inert-case mutant must red the
-  // suite by name (attribution) and via the aggregate branch (backstop).
-  { id: "BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION", provenance: "test/pg-cron-mechanism-sabotage-probe" },
-```
-
-- [ ] **Step 3: Verify + commit.**
+- [ ] **Step 3: Verify GREEN + commit.**
 
 Run: `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`
-Expected: PASS.
+Expected: PASS (the Step-1 red flips green: id archive-only, provenance named in the section).
 
 ```bash
 git add BACKLOG.md BACKLOG-archive.md tests/docs/_metaDeferralLedgerGraduation.test.ts
