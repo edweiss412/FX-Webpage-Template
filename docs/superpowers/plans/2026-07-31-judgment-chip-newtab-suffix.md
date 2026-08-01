@@ -224,15 +224,16 @@ Note: `SheetTitleLink` renders the title link only when `buildSheetDeepLink` yie
 - [ ] **Step 1:** `pnpm exec tsc --noEmit && pnpm exec eslint components/shared/NewTabHint.tsx components/admin/SheetIconLink.tsx components/admin/wizard/Step3SheetCard.tsx components/admin/wizard/step3ReviewSections.tsx tests/components/a11y tests/components/admin/wizard/modalSectionChromeClasses.test.tsx && pnpm exec prettier --check .` → clean.
 - [ ] **Step 2:** Full unit suite `pnpm test` (or the repo's serial+parallel invocation) → green.
 - [ ] **Step 3:** Push branch; `gh workflow run section-header-visual-regen.yml --ref fix/judgment-chip-newtab-suffix`; await the bot commit (precedent `64bdc34d3` message shape); `git pull` it into the worktree.
-- [ ] **Step 4:** Push a validating commit if the workflow requires one (per `64bdc34d3` body: "Push a validating commit to run the gate on these baselines") — the Task 5 BACKLOG graduation commit serves.
+- [ ] **Step 4:** A validating commit must land on top of the bot baseline commit so the gate runs on the new baselines (per `64bdc34d3` body) — Task 5 Step 3's graduation push serves.
 
-### Task 5: BACKLOG graduation + close-out gates
+### Task 5: PR, BACKLOG graduation + close-out gates
 
 **Files:**
-- Modify: `BACKLOG.md` (remove both entries), `BACKLOG-archive.md` (append both with provenance + PR ref), spec close-out section.
+- Modify: `BACKLOG.md` (remove both entries), `BACKLOG-archive.md` (append both with provenance + PR ref), this plan document (close-out section).
 
-- [ ] **Step 1:** Move `BL-HEADER-JUDGMENT-CHIP-CONTRAST` and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` whole-entry to `BACKLOG-archive.md`; run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` → green (no id both active and archived).
-- [ ] **Step 2:** Commit — `git add -A && git commit -m "docs: graduate BL-HEADER-JUDGMENT-CHIP-CONTRAST + BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA"`.
-- [ ] **Step 3:** Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff (invariant 8; canonical v3 setup gates); fix or defer P0/P1 with dispositions recorded in the spec's close-out section (§12-style).
-- [ ] **Step 4:** Whole-diff Codex review via codex-guard (REVIEWER ONLY, fresh-eyes, do-not-relitigate from spec §1.1) to APPROVE.
-- [ ] **Step 5:** PR → real CI green → `gh pr merge --merge` → `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only` → verify `git rev-list --left-right --count main...origin/main` = `0  0` → CronDelete the nudge, clear pane label.
+- [ ] **Step 1: Open the PR first** — `gh pr create` with a body summarizing the two BACKLOG closures (concurrent-CI precedent: PR #631 was opened while its review train was still running). Real CI starts now; record the PR number.
+- [ ] **Step 2: Graduate** — move `BL-HEADER-JUDGMENT-CHIP-CONTRAST` and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` whole-entry to `BACKLOG-archive.md`, each citing branch + the Step 1 PR number; run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` → green (no id both active and archived).
+- [ ] **Step 3: Commit** — `git add -A && git commit -m "docs: graduate BL-HEADER-JUDGMENT-CHIP-CONTRAST + BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA"` and push (this is also the validating commit Task 4 Step 4 needs on top of the bot baseline commit).
+- [ ] **Step 4: Impeccable dual-gate** — `/impeccable critique` + `/impeccable audit` on the diff (invariant 8; canonical v3 setup gates). **Disposition sink (defined):** append a `## Close-out (§12)` section to THIS plan document recording every P0-P3 finding + disposition (fixed / deferred with DEFERRED.md entry), and summarize in the PR body — the plan-§12 shape invariant 8 expects when a feature ships without a handoff doc.
+- [ ] **Step 5: Whole-diff Codex review** via codex-guard (REVIEWER ONLY, fresh-eyes, do-not-relitigate from spec §1.1) to APPROVE.
+- [ ] **Step 6: Merge** — real CI green → `gh pr merge --merge` → `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only` → verify `git rev-list --left-right --count main...origin/main` = `0  0` → CronDelete the nudge, clear pane label.
