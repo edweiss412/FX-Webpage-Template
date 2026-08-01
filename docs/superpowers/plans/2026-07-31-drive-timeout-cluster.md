@@ -79,14 +79,14 @@ describe("lib/drive/timeouts", () => {
 Failure mode caught: constant moved back behind the xlsx-bearing module, or value drift.
 
 - [ ] **Step 2: Run** `pnpm exec vitest run tests/drive/timeouts.test.ts` — FAIL (module not found).
-- [ ] **Step 3: Implement.** Create lib/drive/timeouts.ts: move the `DRIVE_FILES_GET_TIMEOUT_MS` export and its full doc comment verbatim from `lib/drive/fetch.ts:110` region (no-imports module, header comment: "Lean timeout constants importable from request routes without pulling lib/drive/fetch.ts's xlsx dependency; see lib/drive/errorStatus.ts's header for the cost rationale"). In `lib/drive/fetch.ts`, delete the moved block and add `export { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";`.
+- [ ] **Step 3: Implement.** Create lib/drive/timeouts.ts: move the `DRIVE_FILES_GET_TIMEOUT_MS` export and its full doc comment verbatim from `lib/drive/fetch.ts:110` region (no-imports module, header comment: "Lean timeout constants importable from request routes without pulling lib/drive/fetch.ts's xlsx dependency; see lib/drive/errorStatus.ts's header for the cost rationale"). In `lib/drive/fetch.ts`, delete the moved block, add `import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";` (fetch.ts's own references at line 337 and elsewhere keep compiling) plus a separate `export { DRIVE_FILES_GET_TIMEOUT_MS };` re-export for existing importers (plan-review r1 F1: a bare `export ... from` re-export alone leaves no local binding and fetch.ts stops compiling).
 - [ ] **Step 4: Run** the test (PASS) + `pnpm typecheck`.
 - [ ] **Step 5: Commit** `refactor(sync): move DRIVE_FILES_GET_TIMEOUT_MS to lean lib/drive/timeouts module`
 
 ### Task 2: Timeout-shape classifier + comment sweep
 
 **Files:**
-- Modify: `lib/drive/errorStatus.ts` (new export), `lib/drive/fetch.ts` (delegate at line 190 region + rewrite comments line 92/line 181-185), comment-only: `lib/drive/list.ts:15`, `lib/drive/sheetGids.ts:18`, `lib/sync/verifyReelOnApply.ts:64`, `lib/sync/applyStaged.ts:993`, `lib/sync/runScheduledCronSync.ts:2103`
+- Modify: `package.json` (add `"gaxios": "^7.1.4"` to dependencies + `pnpm install` — moved here from Task 3 because THIS task's live-socket test imports `gaxios` first; plan-review r1 F2. Lockfile must not fork the version — verify `pnpm why gaxios` shows the single 7.1.4), `lib/drive/errorStatus.ts` (new export + header sentence updated: the header's "what deliberately does NOT live here" list keeps retry POLICY out but now names the SHAPE-level `isDriveTimeoutShape` as in-scope, plan-review r1 F3), `lib/drive/fetch.ts` (delegate at line 190 region + rewrite comments line 92/line 181-185), comment-only: `lib/drive/list.ts:15`, `lib/drive/sheetGids.ts:18`, `lib/sync/verifyReelOnApply.ts:64`, `lib/sync/applyStaged.ts:993`, `lib/sync/runScheduledCronSync.ts:2103`
 - Test: tests/drive/errorStatus.test.ts (extend or create), `tests/drive/fetch.test.ts` (extend)
 
 **Interfaces:**
@@ -171,8 +171,8 @@ In `lib/drive/fetch.ts`: replace the `code === "TimeoutError" || code === "ETIME
 ### Task 3: TokenBoundGaxios + token bound + watch comment corrections
 
 **Files:**
-- Modify: `package.json` (add `"gaxios": "^7.1.4"` to dependencies; run `pnpm install` — lockfile must not fork the version), `lib/drive/client.ts`, comment-only: `lib/drive/watchErrors.ts:86` region, `lib/drive/watch.ts:310` + line 484 regions
-- Test: tests/drive/clientAuthTimeout.test.ts (NEW)
+- Modify: `lib/drive/client.ts` (gaxios direct dep already added in Task 2), comment-only: `lib/drive/watchErrors.ts:86` region, `lib/drive/watch.ts:310` + line 484 regions
+- Test: tests/drive/clientAuthTimeout.test.ts (NEW), `tests/drive/client.test.ts` (UPDATE — the exact-argument assertions at `tests/drive/client.test.ts:48` and `tests/drive/client.test.ts:86` expect `GoogleAuth` to receive exactly `{credentials, scopes}`; they gain the `clientOptions: { transporter: expect.any(TokenBoundGaxios) }` shape, plan-review r1 F5, and the suite runs in this task's green command)
 
 **Interfaces:**
 - Produces: `TokenBoundGaxios` (exported class, constructor `(tokenTimeoutMs: number, tokenHost?: string)`), `GOOGLE_AUTH_TOKEN_TIMEOUT_MS = 10_000`, `getDriveAuth()` unchanged signature (wires the transporter).
@@ -243,8 +243,8 @@ describe("getDriveAuth wiring", () => {
 Failure mode caught: flat-default regression (arm 2 fails if a default timeout leaks to non-token hosts); token bound not firing on a real socket; wiring dropped.
 
 - [ ] **Step 2: Run** — FAIL (no `TokenBoundGaxios` export).
-- [ ] **Step 3: Implement** in `lib/drive/client.ts` per spec §3.3: add `gaxios` import, `GOOGLE_AUTH_TOKEN_TIMEOUT_MS = 10_000` (doc comment: bounds ONLY the gtoken token POST; probe transcript reference to the spec §1.3/§3.3), `TokenBoundGaxios extends Gaxios` with `readonly tokenTimeoutMs` and `readonly tokenHost = "oauth2.googleapis.com"`, `request()` override: parse `opts.url` with `try { new URL(String(opts.url ?? "")) } catch`, inject `timeout: this.tokenTimeoutMs` only when `url.host === this.tokenHost && opts.timeout == null`, else pass through. Wire `clientOptions: { transporter: new TokenBoundGaxios(GOOGLE_AUTH_TOKEN_TIMEOUT_MS) }` in `getDriveAuth()`. Correct the three watch comments (state the token POST is now bounded by `GOOGLE_AUTH_TOKEN_TIMEOUT_MS`, pointing at the spec).
-- [ ] **Step 4: Run** the new file + `tests/drive/watch.test.ts` + `pnpm typecheck` — PASS.
+- [ ] **Step 3: Implement** in `lib/drive/client.ts` per spec §3.3: add `gaxios` import, `GOOGLE_AUTH_TOKEN_TIMEOUT_MS = 10_000` (doc comment: bounds ONLY the gtoken token POST; probe transcript reference to the spec §1.3/§3.3), `TokenBoundGaxios extends Gaxios` with `readonly tokenTimeoutMs` and `readonly tokenHost = "oauth2.googleapis.com"`; the override signature is `override async request<T = unknown>(opts: GaxiosOptions = {})` (default parameter — gaxios declares `request(opts?: GaxiosOptions)`, so bare `opts.url` fails strict null checks; plan-review r1 F4; this exact shape passed the plan's standalone strict typecheck): parse with `try { new URL(String(opts.url ?? "")) } catch`, inject `timeout: this.tokenTimeoutMs` only when `url.host === this.tokenHost && opts.timeout == null`, else pass through. Wire `clientOptions: { transporter: new TokenBoundGaxios(GOOGLE_AUTH_TOKEN_TIMEOUT_MS) }` in `getDriveAuth()`. Correct the three watch comments (state the token POST is now bounded by `GOOGLE_AUTH_TOKEN_TIMEOUT_MS`, pointing at the spec).
+- [ ] **Step 4: Run** the new file + `tests/drive/client.test.ts` + `tests/drive/watch.test.ts` + `pnpm typecheck` — PASS.
 - [ ] **Step 5: Commit** `fix(sync): bound GoogleAuth token POST via URL-scoped TokenBoundGaxios transporter (10s)`
 
 ### Task 4: Agenda route bounds (S1, S2, S3)
@@ -259,16 +259,28 @@ Failure mode caught: flat-default regression (arm 2 fails if a default timeout l
 - [ ] **Step 1: Write failing tests.** In `tests/api/agenda-asset-route.test.ts`, extend the drive mock (line 175 region) so each `files.get` records its SECOND argument into a shared `capturedOptions: unknown[]`. Add:
 
 ```ts
-it("bounds both metadata gets with {timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}", async () => {
-  // drive stub resolves normally; then:
-  expect(capturedMetadataOptions).toEqual(
-    expect.arrayContaining([expect.objectContaining({ timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false })]),
-  );
+it("bounds BOTH metadata gets with {timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}", async () => {
+  // drive stub resolves normally; capturedMetadataOptions collects the 2nd arg of EVERY files.get
+  // without alt:"media". Per-site strictness (plan-review r1 F7: arrayContaining alone passes
+  // when only one of S1/S2 is bounded):
+  expect(capturedMetadataOptions).toHaveLength(2);
+  for (const opts of capturedMetadataOptions) {
+    expect(opts).toMatchObject({ timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false });
+  }
 });
 it("passes an AbortSignal to the stream call and leaves no armed timer on success", async () => {
   vi.useFakeTimers();
   // stream stub captures options; assert options.signal instanceof AbortSignal
   // run handler to success; expect(vi.getTimerCount()).toBe(baselineCount), guard cleared
+});
+it("aborts a stalled stream-open at DRIVE_ASSET_STALL_TIMEOUT_MS (runtime expiry proof)", async () => {
+  vi.useFakeTimers();
+  // stream stub returns a promise that resolves ONLY when its received signal aborts
+  // (then rejects with an AbortError-caused error, mirroring gaxios abort semantics).
+  // Drive the handler; vi.advanceTimersByTime(DRIVE_ASSET_STALL_TIMEOUT_MS);
+  // assert the captured signal.aborted === true AND the response is the infra-error JSON.
+  // Plan-review r1 F6: this is the case that fails on a never-firing guard; signal
+  // presence alone (previous test) is shape, THIS is the behavioral bound.
 });
 it("maps a probed-shape timeout rejection to the existing infra error (regression pin)", async () => {
   // metadata stub rejects new Error("aborted", {cause: Object.assign(new Error("x"), {name: "AbortError"})})
@@ -281,7 +293,7 @@ it("maps a probed-shape timeout rejection to the existing infra error (regressio
 Failure mode caught: bound dropped; timeout misread as asset-gone (cache-poisoning); guard timer leak.
 
 - [ ] **Step 2: Run** the file — new tests FAIL (no options captured / no signal).
-- [ ] **Step 3: Implement** per spec §3.1/§3.2: S1/S2 add `{ timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false }`; S3 wraps with `createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)`, `signal: guard.signal` in the options, `guard.clear()` after the await and in the catch; widen the route's structural client option types (`timeout?: number; retry?: boolean; signal?: AbortSignal`).
+- [ ] **Step 3: Implement** per spec §3.1/§3.2: S1/S2 add `{ timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false }`; S3 wraps with `createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)`, `signal: guard.signal` in the options, `guard.clear()` after the await and in the catch. Structural option types: the route's local option declarations currently REQUIRE `responseType: "stream"` (`app/api/asset/agenda/[show]/[id]/route.ts:304` and line 466 region), so `{timeout, retry:false}` alone would not compile (plan-review r1 F8) — make `responseType` optional (`responseType?: "stream"`) and add `timeout?: number; retry?: boolean; signal?: AbortSignal` to each local options shape (or split a metadata-options type; pick whichever keeps the existing stream call sites untouched).
 - [ ] **Step 4: Run** the whole file — PASS (all pre-existing tests too).
 - [ ] **Step 5: Commit** `fix(assets): bound agenda route Drive calls — 8s metadata timeout, 30s stream-open stall guard`
 
@@ -291,7 +303,7 @@ Failure mode caught: bound dropped; timeout misread as asset-gone (cache-poisoni
 - Modify: `app/api/asset/reel/[show]/route.ts` (line 397, line 527, line 568, line 661 + `ReelDriveClient` options types)
 - Test: `tests/api/reel-asset-route.test.ts` (extend)
 
-Same shape as Task 4 with one addition (spec T4): a test where the S6 `revisions.get` rejects with a revision-fallback-eligible error and the S7 fallback `files.get` stub asserts it ALSO received an `AbortSignal` (fallback not exempt — its own guard, armed after S6's cleared).
+Same shape as Task 4 — including the per-site strict metadata assertion (both of S4/S5, F7), the stalled-stream runtime-expiry case (advance fake timers by `DRIVE_ASSET_STALL_TIMEOUT_MS`, assert `signal.aborted` and the infra JSON — F6), and the `ReelDriveOptions` widening (`responseType` becomes optional; `app/api/asset/reel/[show]/route.ts:56` currently requires it — F8) — with one addition (spec T4): a test where the S6 `revisions.get` rejects with a revision-fallback-eligible error and the S7 fallback `files.get` stub asserts it ALSO received an `AbortSignal` (fallback not exempt — its own guard, armed after S6's cleared).
 
 - [ ] **Step 1: Write failing tests** (options-capture on line 397/line 527; signal-presence on line 568/line 661; fallback-signal case; probed-shape rejection → `REEL_ASSET_LOOKUP_FAILED` regression pin).
 - [ ] **Step 2: Run** — FAIL.
@@ -303,15 +315,15 @@ Same shape as Task 4 with one addition (spec T4): a test where the S6 `revisions
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 new row; and the §~6 watch-create clause "Still unbounded" amendment — spec D9), `lib/messages/__generated__/spec-codes.ts` (via `pnpm gen:spec-codes`), `lib/messages/catalog.ts` (new row), `app/api/admin/onboarding/scan/route.ts` (`defaultVerifyFolder` timeout branch + `FolderVerificationResult` widening line 28-39 + S8 options arg line 109), `components/admin/wizard/Step2Verify.tsx:52` (`RECOGNIZED_CODES` + the new code)
-- Test: scan-route suite under `tests/api/admin/onboarding/` (extend), `tests/components/admin/wizard/Step2Verify.test.tsx` (extend)
+- Test: tests/onboarding/defaultVerifyFolder.test.ts (NEW), `tests/onboarding/scanRoute.test.ts` (extend), `tests/components/admin/wizard/Step2Verify.test.tsx` (extend)
 
 **Interfaces:**
 - Consumes: `isDriveTimeoutShape` (Task 2), `DRIVE_FILES_GET_TIMEOUT_MS` (Task 1).
 - Produces: catalog code `ONBOARDING_FOLDER_VERIFY_UNAVAILABLE` (504). Copy (catalog `dougFacing`, exact): "Google Drive didn't respond while we checked the folder. Nothing was scanned. Wait a moment and try again." — §12.4 row mirrors it; `helpHref: "/help/errors#ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"`; no action link; `resolution` posture matching sibling ONBOARDING_FOLDER_* rows (copy adjustments allowed to match §12.4 house style, but route/UI/tests must all read the final catalog text via `messageFor`, never a duplicate literal).
 
-- [ ] **Step 1: Write failing tests.** (a) Scan route: options-arg assertion on S8 (`{timeout, retry:false}`); probed-shape rejection from the drive stub → response `{status: 504, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"}`; plain status-less error still → 400 `OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA` (regression pin). (b) Step2Verify component test cloning the `ONBOARDING_SCAN_FAILED` recognized-copy test at `tests/components/admin/wizard/Step2Verify.test.tsx:494-523`: terminal `{ok:false, code:"ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"}` renders `messageFor("ONBOARDING_FOLDER_VERIFY_UNAVAILABLE").dougFacing`, NOT the generic fallback.
+- [ ] **Step 1: Write failing tests.** Test seams (plan-review r1 F10 — the scan suite is `tests/onboarding/scanRoute.test.ts`, NOT tests/api/admin/onboarding/, and its `deps()` harness always injects `verifyFolder`, bypassing `defaultVerifyFolder`): (a) NEW file tests/onboarding/defaultVerifyFolder.test.ts targeting the EXPORTED `defaultVerifyFolder` (`app/api/admin/onboarding/scan/route.ts:106`) directly, with `vi.mock("@/lib/drive/client")` supplying a `files.get` stub — options-arg assertion (`{timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}`); probed-shape rejection → `{ok:false, status:504, code:"ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"}`; plain status-less error → the existing 400 `OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA` (regression pin); 403/404 statuses keep their branches (regression pins). (b) In `tests/onboarding/scanRoute.test.ts`, one handler-level case: injected `verifyFolder` returns the new `{ok:false, status:504, code:"ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"}` shape → response body carries the code and status (pass-through proof against the widened type). (c) Step2Verify component test cloning the `ONBOARDING_SCAN_FAILED` recognized-copy test at `tests/components/admin/wizard/Step2Verify.test.tsx:494-523`: terminal `{ok:false, code:"ONBOARDING_FOLDER_VERIFY_UNAVAILABLE"}` renders `messageFor("ONBOARDING_FOLDER_VERIFY_UNAVAILABLE").dougFacing`, NOT the generic fallback.
 - [ ] **Step 2: Run** — FAIL (unknown code fails the catalog lookup/x1 parity; route lacks the branch).
-- [ ] **Step 3: Implement, one commit:** §12.4 row (+ the D9 watch-clause amendment in the same master-spec edit); `pnpm gen:spec-codes`; catalog row; route: S8 options arg, `isDriveTimeoutShape` branch in `defaultVerifyFolder` returning `{ ok: false, status: 504, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" }` BEFORE the status-less tail, `FolderVerificationResult` failure union widened (`status: 400 | 403 | 404 | 504`, code union + the new code); Step2Verify `RECOGNIZED_CODES` addition.
+- [ ] **Step 3: Implement, one commit:** §12.4 row AND its helpfulContext appendix YAML entry — the generator hard-fails any non-null-dougFacing code without one (`scripts/extract-spec-codes.ts:389-394`, plan-review r1 F9) — (+ the D9 watch-clause amendment in the same master-spec edit); `pnpm gen:spec-codes`; catalog row; route: S8 options arg, `isDriveTimeoutShape` branch in `defaultVerifyFolder` returning `{ ok: false, status: 504, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" }` BEFORE the status-less tail, `FolderVerificationResult` failure union widened (`status: 400 | 403 | 404 | 504`, code union + the new code); Step2Verify `RECOGNIZED_CODES` addition.
 - [ ] **Step 4: Run** scan suites + Step2Verify suite + `pnpm exec vitest run tests/cross-cutting/codes.test.ts` (x1 parity) — PASS.
 - [ ] **Step 5: Commit** `feat(onboarding): 504 ONBOARDING_FOLDER_VERIFY_UNAVAILABLE for pre-scan Drive stalls (S8 bound + §12.4 lockstep + wizard copy)`
 
@@ -348,12 +360,12 @@ Module header states the MF5/MF7 honest ceiling verbatim from spec §2.1.
 
 - [ ] **Step 1 (failing-first):** add registry rows `{ id: "BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES", provenance: "fix/drive-api-call-timeouts" }`, `{ id: "BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED", provenance: "fix/drive-api-call-timeouts" }`, `{ id: "BL-WATCH-DRIVE-CALL-TIMEOUT", provenance: "fix/drive-api-call-timeouts" }` following the file's row format (line 229-319). Run the test — FAIL (entries still in BACKLOG.md).
 - [ ] **Step 2:** Move the three whole entries to `BACKLOG-archive.md` with a provenance line each (branch + spec path + one-line disposition; `BL-WATCH-DRIVE-CALL-TIMEOUT`'s notes that the watch-renewal PR closed the API-call half and this diff the credential half).
-- [ ] **Step 3: Run** `pnpm exec vitest run tests/docs/` + `pnpm spec:lint docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md docs/superpowers/plans/2026-07-31-drive-timeout-cluster.md` — PASS/0 hard.
+- [ ] **Step 3: Run** `pnpm exec vitest run tests/docs/`, then `pnpm spec:lint docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`, then `pnpm spec:lint docs/superpowers/plans/2026-07-31-drive-timeout-cluster.md` (one document per invocation — the CLI rejects two positionals; plan-review r1 F11) — PASS/0 hard each.
 - [ ] **Step 4: Commit** `docs(plan): graduate the three drive-timeout backlog entries with registry coverage`
 
 ### Task 9: Gates (no new code)
 
-- [ ] Invariant-8 dual-gate on the UI diff (Step2Verify one-liner): `/impeccable critique` + `/impeccable audit` scoped to the affected diff, with the canonical v3 setup gates; P0/P1 fixed or DEFERRED.md'd. Findings + dispositions recorded for the PR body.
+- [ ] Invariant-8 dual-gate on the UI diff (Step2Verify one-liner): `/impeccable critique` + `/impeccable audit` scoped to the affected diff, with the canonical v3 setup gates; P0/P1 fixed or DEFERRED.md'd. Findings + dispositions recorded in a `## 12. Invariant-8 close-out` section APPENDED TO THIS PLAN DOCUMENT (the durable handoff artifact for this non-milestone branch — AGENTS.md requires a §12 in the milestone's handoff doc, and this plan is that doc here; plan-review r1 F12), and summarized in the PR body.
 - [ ] Full local suite: `pnpm typecheck && pnpm lint && pnpm exec vitest run` (both default projects) — green before push.
 - [ ] Snippet-typecheck note: plan snippets for Tasks 2/3/7 were compile-checked standalone against `--strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes` during plan authoring; route-test snippets are contracts to be adapted to each file's existing harness idioms (stated inline).
 
