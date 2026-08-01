@@ -318,7 +318,8 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
       }
     }
     for (const row of T4_EXEMPTIONS) {
-      if (!isValidExemption(row)) problems.push(`INVALID EXEMPTION (reason too short): ${row.file}`);
+      if (!isValidExemption(row))
+        problems.push(`INVALID EXEMPTION (reason too short): ${row.file}`);
       if (!seen.has(row.file)) problems.push(`STALE EXEMPTION: ${row.file}`);
     }
     expect(problems).toEqual([]);

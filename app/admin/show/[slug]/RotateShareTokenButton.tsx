@@ -344,38 +344,37 @@ export function RotateShareTokenButton({
         </div>
       );
   } else {
-
-  const warningP = (
-    <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
-      The existing show URL will stop working. Every crew member will need the new URL and will have
-      to re-pick their name.
-    </p>
-  );
-  const confirmCancelButtons = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <button
-        type="button"
-        onClick={onConfirmClick}
-        disabled={isResolving}
-        aria-busy={isResolving}
-        aria-describedby="admin-rotate-share-token-warning"
-        data-testid="admin-rotate-share-token-confirm-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isResolving ? "Rotating…" : "Confirm rotate"}
-      </button>
-      <button
-        type="button"
-        ref={cancelRef}
-        onClick={onCancelClick}
-        disabled={isResolving}
-        data-testid="admin-rotate-share-token-cancel-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        Cancel
-      </button>
-    </div>
-  );
+    const warningP = (
+      <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
+        The existing show URL will stop working. Every crew member will need the new URL and will
+        have to re-pick their name.
+      </p>
+    );
+    const confirmCancelButtons = (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onConfirmClick}
+          disabled={isResolving}
+          aria-busy={isResolving}
+          aria-describedby="admin-rotate-share-token-warning"
+          data-testid="admin-rotate-share-token-confirm-button"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isResolving ? "Rotating…" : "Confirm rotate"}
+        </button>
+        <button
+          type="button"
+          ref={cancelRef}
+          onClick={onCancelClick}
+          disabled={isResolving}
+          data-testid="admin-rotate-share-token-cancel-button"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Cancel
+        </button>
+      </div>
+    );
 
     branch =
       compact && rowLabel ? (

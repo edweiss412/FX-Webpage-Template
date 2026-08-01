@@ -317,77 +317,77 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   } else {
     const isResolving = ui === "resolving" || isPending;
     branch = (
-    <div className="flex flex-col items-end gap-2">
-      <form action={formAction}>
-        <input type="hidden" name="email" value={email} />
-        <div
-          ref={confirmRowRef}
-          data-testid="admin-allowlist-revoke-confirm-row"
-          className="flex flex-wrap items-center gap-3"
-        >
-          <button
-            type="submit"
-            data-testid="admin-allowlist-revoke-confirm-button"
-            onClick={onConfirmClick}
-            // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
-            // NOT be disabled by the synchronous setUi("resolving") in its own
-            // onClick — a discrete-event re-render would disable it BEFORE the
-            // native submit event fires, cancelling the dispatch and stranding
-            // the button on "Revoking…" with zero POSTs (the misdiagnosed
-            // "server hang"). Disable on isPending, which useActionState sets
-            // AFTER React dispatches the action, so the submit always fires and
-            // double-submit is still prevented (isPending true within the same
-            // tick). Visual feedback stays keyed on isResolving below.
-            disabled={isPending}
-            aria-busy={isResolving}
-            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+      <div className="flex flex-col items-end gap-2">
+        <form action={formAction}>
+          <input type="hidden" name="email" value={email} />
+          <div
+            ref={confirmRowRef}
+            data-testid="admin-allowlist-revoke-confirm-row"
+            className="flex flex-wrap items-center gap-3"
           >
-            {isResolving ? "Revoking…" : "Confirm revoke"}
-          </button>
-          <button
-            type="button"
-            ref={cancelRef}
-            onClick={onCancelClick}
-            disabled={isResolving}
-            data-testid="admin-allowlist-revoke-cancel-button"
-            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+            <button
+              type="submit"
+              data-testid="admin-allowlist-revoke-confirm-button"
+              onClick={onConfirmClick}
+              // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
+              // NOT be disabled by the synchronous setUi("resolving") in its own
+              // onClick — a discrete-event re-render would disable it BEFORE the
+              // native submit event fires, cancelling the dispatch and stranding
+              // the button on "Revoking…" with zero POSTs (the misdiagnosed
+              // "server hang"). Disable on isPending, which useActionState sets
+              // AFTER React dispatches the action, so the submit always fires and
+              // double-submit is still prevented (isPending true within the same
+              // tick). Visual feedback stays keyed on isResolving below.
+              disabled={isPending}
+              aria-busy={isResolving}
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isResolving ? "Revoking…" : "Confirm revoke"}
+            </button>
+            <button
+              type="button"
+              ref={cancelRef}
+              onClick={onCancelClick}
+              disabled={isResolving}
+              data-testid="admin-allowlist-revoke-cancel-button"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+        {lockoutMessage && (
+          <p
+            data-testid="admin-allowlist-lockout-error"
+            role="alert"
+            // P1 fix: was max-w-xs text-right text-xs — easy to miss
+            // after refusal on Doug's phone. Now full container width,
+            // left-aligned, text-sm with a subtle error wash so the
+            // refusal anchors visually next to the disabled control.
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
-            Cancel
-          </button>
-        </div>
-      </form>
-      {lockoutMessage && (
-        <p
-          data-testid="admin-allowlist-lockout-error"
-          role="alert"
-          // P1 fix: was max-w-xs text-right text-xs — easy to miss
-          // after refusal on Doug's phone. Now full container width,
-          // left-aligned, text-sm with a subtle error wash so the
-          // refusal anchors visually next to the disabled control.
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {lockoutMessage}
-        </p>
-      )}
-      {selfRevokeMessage && (
-        <p
-          data-testid="admin-allowlist-self-revoke-error"
-          role="alert"
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {selfRevokeMessage}
-        </p>
-      )}
-      {writeFailMessage && (
-        <p
-          data-testid="admin-allowlist-error-write-failed"
-          role="alert"
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {writeFailMessage}
-        </p>
-      )}
-    </div>
+            {lockoutMessage}
+          </p>
+        )}
+        {selfRevokeMessage && (
+          <p
+            data-testid="admin-allowlist-self-revoke-error"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {selfRevokeMessage}
+          </p>
+        )}
+        {writeFailMessage && (
+          <p
+            data-testid="admin-allowlist-error-write-failed"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {writeFailMessage}
+          </p>
+        )}
+      </div>
     );
   }
 
