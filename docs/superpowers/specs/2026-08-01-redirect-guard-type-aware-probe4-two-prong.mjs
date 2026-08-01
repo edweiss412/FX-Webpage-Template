@@ -15,7 +15,7 @@
  * At origin/main 0fb6f9efb: ALL CLOSED; tree = 1 call finding (the allowlisted
  * OAuth site), 0 reference findings, ~13s idle / ~23s loaded machine.
  */
-import { Node, Project, SyntaxKind } from "ts-morph";
+import { Node, Project, SyntaxKind, ts } from "ts-morph";
 
 const project = new Project({ tsConfigFilePath: "tsconfig.json", skipAddingFilesFromTsConfig: true });
 
@@ -55,6 +55,47 @@ function typeCarries(t) {
   return t.getCallSignatures().some((s) => isBannedDecl(s.getDeclaration()));
 }
 
+// Raw-side twins (vendored compiler via ts-morph's exported `ts` — same nominal
+// world, no standalone-typescript mixing) for the assignment-pattern prong.
+function rawContainerName(decl) {
+  let parent = decl.parent;
+  while (parent !== undefined) {
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) return parent.name?.getText() ?? null;
+    if (ts.isTypeLiteralNode(parent)) {
+      const holder = parent.parent;
+      return ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name) ? holder.name.text : null;
+    }
+    parent = parent.parent;
+  }
+  return null;
+}
+function rawDeclaredName(decl) {
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) return decl.name.getText();
+  if (ts.isFunctionTypeNode(decl)) {
+    const holder = decl.parent;
+    if (ts.isPropertySignature(holder) || ts.isPropertyDeclaration(holder)) return holder.name.getText();
+    return null;
+  }
+  return null;
+}
+function rawIsBannedDecl(decl) {
+  if (decl === undefined) return false;
+  if (rawDeclaredName(decl) !== "redirect") return false;
+  const c = rawContainerName(decl);
+  return c === "NextResponse" || c === "Response";
+}
+function rawTypeCarries(checker, t) {
+  return checker.getSignaturesOfType(t, ts.SignatureKind.Call).some((s) => rawIsBannedDecl(s.getDeclaration()));
+}
+function memberPropName(checker, name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const t = checker.getTypeAtLocation(name.expression);
+    if (t.isStringLiteral()) return t.value;
+  }
+  return null;
+}
+
 function audit(sf) {
   const checker = sf.getProject().getTypeChecker();
   const hits = [];
@@ -77,6 +118,28 @@ function audit(sf) {
     if (inCalleePosition && bannedCalls.has(parent)) continue; // prong 1 owns it
     if (typeCarries(node.getType())) {
       hits.push({ line: node.getStartLineNumber(), kind: "reference", text: node.getText().split("\n")[0] ?? "" });
+    }
+  }
+  // Assignment-pattern object members (R3/F1): source type via getTypeOfAssignmentPattern.
+  const raw = checker.compilerObject;
+  for (const kind of [SyntaxKind.PropertyAssignment, SyntaxKind.ShorthandPropertyAssignment]) {
+    for (const member of sf.getDescendantsOfKind(kind)) {
+      const holder = member.getParent();
+      if (holder === undefined || !Node.isObjectLiteralExpression(holder)) continue;
+      let srcType;
+      try {
+        srcType = raw.getTypeOfAssignmentPattern(holder.compilerNode);
+      } catch {
+        continue; // value-position object literal, not a pattern
+      }
+      if (srcType === undefined) continue;
+      const propName = memberPropName(raw, member.compilerNode.name);
+      if (propName === null) continue;
+      const prop = srcType.getProperty(propName);
+      if (prop === undefined) continue;
+      if (rawTypeCarries(raw, raw.getTypeOfSymbolAtLocation(prop, member.compilerNode))) {
+        hits.push({ line: member.getStartLineNumber(), kind: "reference", text: member.getText().split("\n")[0] ?? "" });
+      }
     }
   }
   return hits;
@@ -112,8 +175,19 @@ const MUTANTS = [
   ["R47 satisfies access", PRE + `const f = NextResponse["redirect" satisfies string];\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
   ["R48 union-typed-key call", PRE + `declare const u: "redirect" | "json";\nexport function GET() { return (NextResponse as typeof NextResponse)[u as "redirect"](new URL("/x", request.url)); }`, "flag"],
   ["R49 union-typed-key extraction", PRE + `declare const u2: "redirect" | "json";\nconst g = NextResponse[u2 as "redirect"];\nexport function GET() { return g(new URL("/x", request.url)); }`, "flag"],
+  // --- destructuring-assignment extraction (R3/F1, probe 6c) ---
+  ["R50 assignment rename", PRE + `let f: RedirectFn;\n({ redirect: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R51 assignment shorthand", PRE + `let redirect: RedirectFn;\n({ redirect } = NextResponse);\nexport function GET() { return redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R52 assignment string-literal key", PRE + `let f: RedirectFn;\n({ ["redirect"]: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R53 assignment computed literal-typed key", PRE + `let f: RedirectFn;\nconst kc = "redirect" as const;\n({ [kc]: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R54 assignment with default", PRE + `const safe = (u: string | URL) => new Response(String(u));\nlet f: RedirectFn;\n({ redirect: f = safe } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R55 assignment Response twin", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet f: RedirectFn;\n({ redirect: f } = Response);\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R56 array-nested assignment pattern", PRE + `let f: RedirectFn;\n[{ redirect: f }] = [NextResponse];\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
+  ["R57 for-of assignment-pattern head", PRE + `let f: RedirectFn;\nfor ({ redirect: f } of [NextResponse]) { break; }\nexport function GET() { return f(new URL("/x", request.url)); }`, "flag"],
   // --- negatives ---
   ["NEG next/navigation call+extraction", `import { redirect } from "next/navigation";\nconst r = redirect;\nexport function GET() { return r("/x"); }`, "clean"],
+  ["NEG benign assignment destructure (N7)", `const src = { redirect: (u: string) => u };\nlet g: (u: string) => string;\n({ redirect: g } = src);\nexport function GET() { return g("/x"); }`, "clean"],
+  ["NEG value-position object literal (N7)", PRE + `const safe = (u: string | URL) => new Response(String(u));\nconst o = { redirect: safe };\nexport function GET() { return o.redirect(new URL("/x", request.url)); }`, "clean"],
   ["NEG unrelated container method + .call + element access", `class Router { redirect(u: string) { return u; } }\nconst rt = new Router();\nconst m = rt["redirect"];\nexport function GET() { return m.call(rt, "/x"); }`, "clean"],
   ["NEG ordinary array/element access + destructuring", `declare const xs: string[];\ndeclare const i: number;\nconst { length } = xs;\nexport function GET() { return xs[i] ?? String(length); }`, "clean"],
   ["NEG direct call = exactly one finding", PRE + `export function GET() { return NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],

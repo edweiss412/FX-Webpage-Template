@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R3 — round-2 findings repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R4 — round-3 finding repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**R3 disposition (2026-08-01):** NEEDS-ATTENTION, 1 finding (F-R3-1: destructuring-ASSIGNMENT patterns — `({ redirect: f } = NextResponse)` and four sibling forms — use PropertyAssignment/ShorthandPropertyAssignment nodes, invisible to all three prong-2 candidate kinds; target-side types are structurally erased so no target-node query works). Repair: a third candidate class — object-literal members answering the vendored compiler's `getTypeOfAssignmentPattern` — decided by the SOURCE property-symbol's type (probe 6c: all five R3 forms + `Response` twin + array-nested + for-of variants caught; benign assignment destructure and value-position object literals stay clean; regressions hold). R2 repairs were verified by the R3 reviewer.
 
 **R2 disposition (2026-08-01):** NEEDS-ATTENTION, 3 findings, all accepted. F-R2-1 (literal-TYPED computed keys escape a literal-NODE prefilter; 10 zero-diagnostic shapes enumerated) → prong 2 is now TYPE-DECIDED over every non-callee candidate with no syntactic key prefilter, and callee-position candidates are skipped only when prong 1 already flagged the call — closing union-typed-key calls as well (probe 5: all 10 shapes + union-key call/extraction caught; regressions, negatives, E-pins hold; prefilter removal costs ~1.4s). F-R2-2 (redeclared-container claim overbroad) → claim rescoped: the delegator/hand-roller dichotomy replaces the blanket sentence (§5.1). F-R2-3 (committed probe 4 lacked its advertised tree section) → probe rewritten to the final construction with the tree scan included.
 
@@ -101,6 +103,16 @@ tree scan prefilter=true:  1 finding(s), 11601ms
 tree scan prefilter=false: 1 finding(s), 12976ms   <- shipped construction (no prefilter)
 ```
 
+**Probe 6 — assignment-pattern extraction closed via `getTypeOfAssignmentPattern` (round-3 repair).** R3 demonstrated five zero-diagnostic destructuring-ASSIGNMENT escapes (rename, shorthand, string-literal key, computed literal-typed key, default-valued). Target-side type queries dead-end: name node, initializer, and member node all report the annotated TARGET type (probe 6b transcript — `RedirectFn`, not the method type), so the repair resolves the SOURCE: for any object-literal member whose parent answers the vendored compiler's `getTypeOfAssignmentPattern`, look up the member's property symbol on that source type (computed keys resolved by their literal TYPE value) and check that symbol's type for a banned call signature. Raw-side twin predicates use ts-morph's exported `ts` namespace — the same vendored compiler world, so the F3 nominal-mixing hazard does not recur.
+
+```
+OK  X1 rename / X2 shorthand / X3 string-literal key / X4 computed literal-typed key / X5 default
+OK  X6 Response twin / X7 nested in array assignment pattern     (+ for-of variant, probe 6d)
+NEG ordinary value-position object literal; benign assignment destructure   clean
+reg F1k declaration destructure, direct-call exactly-one                    hold
+ALL CLOSED
+```
+
 **Probe — no plain-JS modules under walked roots (R1/F6).** `find app lib -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs"` (node_modules excluded) → 0 files. tsconfig `include` covers only `**/*.ts`/`**/*.tsx`, `checkJs` off — so the typecheck gate does NOT discharge import resolution for standalone JS; the sentinel in §5.5 fences the class instead.
 
 ## 3. Consequence bound (acceptance criterion)
@@ -149,7 +161,7 @@ function isBannedDecl(decl: Node | undefined): boolean {
 
 **Prong 1 — calls:** flag every `CallExpression` where `isBannedDecl(getResolvedSignature(call)?.getDeclaration())`.
 
-**Prong 2 — references (R1/F1 closure; TYPE-DECIDED per R2/F1):** candidate nodes are **every** `PropertyAccessExpression`, `ElementAccessExpression`, and `BindingElement` — no syntactic key/name prefilter (R2 showed a literal-NODE filter misses literal-TYPED keys: identifier keys, template keys, const-object keys, enum keys, computed destructuring, `as const`/`satisfies`/parenthesized accesses). A candidate in direct-callee position is skipped ONLY when prong 1 already flagged that call (dedupe); otherwise it is checked too, which closes union-typed-key calls that defeat signature resolution. Flag when the node's TYPE carries a banned call signature: `node.getType().getCallSignatures().some(s => isBannedDecl(s.getDeclaration()))`. Rationale: every way to move the method into differently-typed storage yields, at the extraction site, an expression whose type still carries the banned declaration — probe 4 (twelve R1 mutants) and probe 5 (twelve R2 shapes) both close there, and the real tree has zero such references. Extraction findings are unconditionally banned: no allowlist row can cover them (a reference's `argument` is `""`, which never matches a row's pinned argument, and no legitimate external-redirect use needs to extract the method).
+**Prong 2 — references (R1/F1 closure; TYPE-DECIDED per R2/F1; assignment patterns per R3/F1):** candidate nodes are **every** `PropertyAccessExpression`, `ElementAccessExpression`, and `BindingElement` — no syntactic key/name prefilter (R2 showed a literal-NODE filter misses literal-TYPED keys: identifier keys, template keys, const-object keys, enum keys, computed destructuring, `as const`/`satisfies`/parenthesized accesses) — **plus every object-literal member (`PropertyAssignment`/`ShorthandPropertyAssignment`) whose parent object literal is an assignment pattern** (detected by the vendored compiler's `getTypeOfAssignmentPattern` answering; covers plain assignments, array-nested patterns, and for-of heads). For the first three kinds, a candidate in direct-callee position is skipped ONLY when prong 1 already flagged that call (dedupe); otherwise it is checked too, which closes union-typed-key calls that defeat signature resolution. The first three kinds flag when the node's TYPE carries a banned call signature: `node.getType().getCallSignatures().some(s => isBannedDecl(s.getDeclaration()))`. Assignment-pattern members flag on the SOURCE property-symbol's type — target-side queries see only the annotated target type (probe 6b) — with computed keys resolved by their literal TYPE value; the raw-side predicates are twins written against ts-morph's exported `ts` namespace (same vendored compiler world; no nominal mixing). Rationale: every way to move the method into differently-typed storage yields, at the extraction site, an expression whose type still carries the banned declaration — probe 4 (twelve R1 mutants) and probe 5 (twelve R2 shapes) both close there, and the real tree has zero such references. Extraction findings are unconditionally banned: no allowlist row can cover them (a reference's `argument` is `""`, which never matches a row's pinned argument, and no legitimate external-redirect use needs to extract the method).
 
 **Container matching scope (rescoped per R2/F2):** name-based container matching (class/interface named `NextResponse`/`Response`, or a type literal owned by a variable of that name) covers the genuine `next/server`/lib.dom declarations and vendored/copied declaration-file-style redeclarations of the same shape. It does NOT chase local runtime mimics — an object literal, namespace, type alias, or anonymous class locally named `NextResponse` with its own `redirect` implementation. That space is unbounded and not load-bearing: a mimic either DELEGATES to the real method (its internal call/reference is in a walked file and flags there) or HAND-ROLLS an absolute Location without the banned method (§7 limit 5, outside this guard's claim, same as today). Fenced both directions: extending container matching to mimic shapes is out of scope, and a reviewer claim that a mimic escapes must show it producing the host flip WITHOUT touching the banned method or hand-rolling.
 
@@ -180,7 +192,7 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R49 (§6.1).
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R57 (§6.1).
 - Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`, ordinary element access/destructuring (N6 — pins the no-prefilter widening quiet on normal code).
 - Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
 - Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
@@ -225,6 +237,10 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R38–R47 | Literal-typed computed extraction, ten shapes (R2/F1, probe 5 a–j) | identifier `as const` key; template key; const-object key; enum key; computed destructuring; string-literal binding; computed-string binding; parenthesized literal access; `as const` access; `satisfies` access — each extracting the method into a `RedirectFn`-typed value |
 | R48 | Union-typed-key call (probe 5 k) | `NextResponse[u as "redirect"](…)` — callee checked by prong 2 when prong 1's signature resolution fails |
 | R49 | Union-typed-key extraction (probe 5 l) | `const g = NextResponse[u2 as "redirect"]; g(…)` |
+| R50–R54 | Destructuring-assignment extraction, five forms (R3/F1, probe 6c X1–X5) | `({ redirect: f } = NextResponse)`; shorthand; string-literal key; computed literal-typed key; default-valued |
+| R55 | Assignment-pattern `Response` twin (X6) | `({ redirect: f } = Response)` |
+| R56 | Array-nested assignment pattern (X7) | `[{ redirect: f }] = [NextResponse]` |
+| R57 | for-of assignment-pattern head (probe 6d) | `for ({ redirect: f } of [NextResponse]) …` |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -236,6 +252,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N4 | `new NextResponse(null, { status, headers: { Location } })` | constructor, not a `redirect` signature — this is `hostRelativeRedirect`'s own mechanism |
 | N5 | Direct banned call produces exactly ONE finding | prong 2 skips a callee only when prong 1 flagged that call — no double count (probes 4/5 NEG) |
 | N6 | Ordinary element access / destructuring (`xs[i]`, `const { length } = xs`) | type carries no banned signature (probe 5 NEG — the no-prefilter widening stays quiet on normal code; real tree: 0 reference findings) |
+| N7 | Benign assignment destructure and value-position object literals (`({ redirect: g } = src)`; `const o = { redirect: safe }`) | source property type carries no banned signature; value-position literals never answer `getTypeOfAssignmentPattern` (probe 6c NEG) |
 
 ### 6.3 Documented-escape pins (limits asserted as behavior; boundary probed, 4c)
 
@@ -255,7 +272,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R49, N1–N6, E1–E2; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R57, N1–N7, E1–E2; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
