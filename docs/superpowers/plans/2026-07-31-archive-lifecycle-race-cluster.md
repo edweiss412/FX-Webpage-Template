@@ -63,7 +63,7 @@ notify pgrst, 'reload schema';
 commit;
 ```
 
-`unarchive_show`: untouched (spec §1.1 row 8). **Apply to the LOCAL DB before the GREEN run** (plan-R2 finding 1 — writing the file changes nothing; the db tests hit the live local instance per `tests/db/_b2Helpers.ts:25`): `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<file>.sql`. GREEN: same vitest command. Then apply-twice idempotency: run the same `psql -f` a second time; clean. `pnpm gen:schema-manifest`; commit manifest with migration + tests + helpers.
+`unarchive_show`: untouched (spec §1.1 row 8). **Apply to the LOCAL DB before the GREEN run** (plan-R2 finding 1 — writing the file changes nothing; the db tests hit the live local instance per `tests/db/_b2Helpers.ts:25`): `psql -v ON_ERROR_STOP=1 "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<file>.sql` (plan-R3 finding 1: without `ON_ERROR_STOP` psql continues past SQL errors and exits 0 — the M12.1 handoff documents this exact false-green). GREEN: same vitest command. Then apply-twice idempotency: run the same `psql -v ON_ERROR_STOP=1 -f` a second time; clean exit. `pnpm gen:schema-manifest`; commit manifest with migration + tests + helpers.
 
 Commit: `feat(db): lifecycle RPCs return performed discriminator (archive/publish/unpublish)`
 
@@ -123,14 +123,13 @@ Sampler (page context, install/drain via `page.evaluate`), with health assertion
 const sample = () => {
   const popover = document.querySelector('[data-testid="share-hub-popover"]');
   const unarch = document.querySelector<HTMLButtonElement>('[data-testid^="unarchive-show-button-"]');
-  const modalRoot = document.querySelector('[data-testid="published-show-review-modal"]');
-  // LOADED modal only: the Suspense skeleton shares the root testid; the title marker discriminates
-  // (LOADED_REVIEW_MODAL idiom, tests/e2e/admin-lifecycle-transitions.spec.ts:59-64). plan-R2 finding 4.
-  const modal =
-    modalRoot !== null &&
-    modalRoot.querySelector('[data-testid="published-show-review-title"]') !== null
-      ? modalRoot
-      : null;
+  // LOADED modal only. Skeleton and loaded roots share the testid and can transiently COEXIST
+  // (tests/e2e/admin-lifecycle-transitions.spec.ts:59-64), so scan ALL roots for the one holding
+  // the title marker: first-match querySelector can land on the skeleton sibling and report
+  // modal:false while a loaded root exists (plan-R2 finding 4 + plan-R3 finding 2).
+  const modal = Array.from(
+    document.querySelectorAll('[data-testid="published-show-review-modal"]'),
+  ).find((r) => r.querySelector('[data-testid="published-show-review-title"]') !== null) ?? null;
   const armed = document.querySelector('[data-testid="archive-show-confirm-button"]');
   (window as any).__frames.push({
     t: performance.now(),
@@ -162,7 +161,7 @@ Commit: `fix(admin): close ShareHub pre-paint on lifecycle flip; restore armed-v
 
 ### T5 — validation apply + backlog graduation (spec §3, §8)
 
-1. Surgical validation apply: `psql "$TEST_DATABASE_URL" -f supabase/migrations/<file>.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"` (file is transaction-wrapped; single atomic apply).
+1. Surgical validation apply: `psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f supabase/migrations/<file>.sql` then `psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"` (plan-R3 finding 1) (file is transaction-wrapped; single atomic apply).
 2. Parity pre-check: `pnpm vitest run tests/db/validation-schema-parity.test.ts` (asserts validation ⊇ committed manifest).
 3. `BACKLOG.md`: rewrite + graduate the three entries to `BACKLOG-archive.md` per spec §8. Sweep for other references first: `rg -n "BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE|BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP|BL-ARCHIVE-ARMED-CONCURRENT-REFRESH" BACKLOG.md BACKLOG-archive.md docs/` and disposition every hit (the transitions-spec header reference is retired by T4; any CI-dark umbrella cross-reference gets its line updated).
 4. Delete the untracked probe spec file from the worktree.
