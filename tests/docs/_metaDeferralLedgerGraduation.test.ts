@@ -85,6 +85,11 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
+  // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
+  // hardening restored, the r41 findings closed by probe. The walker
+  // validates this very row (the guard polices its own graduation).
+  { id: "BL-LEDGER-GUARD-MDAST-REWRITE", provenance: "test/ledger-guard-mdast-rewrite" },
   // fix/judgment-chip-newtab-suffix (2026-08-01, PR #640): judgment chip border-strong
   // outline; stripNewTabSuffix dedup at the three interpolated new-tab labels.
   { id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" },
