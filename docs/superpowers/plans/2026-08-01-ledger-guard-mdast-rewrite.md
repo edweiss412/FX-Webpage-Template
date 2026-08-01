@@ -31,14 +31,10 @@ A reviewer-proposed NEW family is admissible only with a live escaping mutant ag
 
 ## Tasks (TDD; conventional commit per task)
 
-<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-
 ### T1 `test(docs): mdast walker helper — parseLedger/extractEntries/flattenLines (+ remark devDependency)`
 The remark dep (`pnpm add -D remark@^15`; package.json + pnpm-lock.yaml sit MODIFIED-unstaged in the worktree — stage both here) lands INSIDE this TDD commit — the RED test is its first consumer (spec §9, r4 P0: no testless standalone dep commit).
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 RED: new `tests/docs/_ledgerMdast.walker.test.ts` asserting, from fixture strings: entry extraction (top-level only, SHOUTY rules, struck ids, arbitrary-bracket prefixes, no-terminator parity, BL- prefix filter, 2|3 levels, id-heading-to-id-heading partition incl. the nested-H3 shape), flatten semantics per the spec §2 disposition table (all node types, strong spans, code-contributed spans, `\n`-splitting of text values, container descent, footnoteDefinition NON-descent). GREEN: implement `tests/docs/_ledgerMdast.ts` — the committed spec sibling `2026-08-01-ledger-guard-mdast-rewrite-lane-probe.mjs` is the working prototype to port. Failure mode caught: a walker that reads rendered text where it should read structure (e.g. keeps link text) turns a silent plant into a hit — asserted directly.
-
-<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 ### T2 `test(docs): port the ledger guard onto the walker`
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
