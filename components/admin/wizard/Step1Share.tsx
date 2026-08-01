@@ -91,7 +91,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
               <a
                 href="/help/admin/onboarding-wizard#service-account"
                 aria-label="Learn more about sharing your show folder"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 Learn more →
               </a>
@@ -119,7 +119,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             </span>
           </div>
           <details data-testid="wizard-step1-no-folder" className="group ml-9">
-            <summary className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg [&::-webkit-details-marker]:hidden">
               Don&rsquo;t have a folder yet?
               <ChevronDown
                 aria-hidden="true"
@@ -177,7 +177,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
                 data-testid="wizard-step1-copy-email-button"
                 onClick={handleCopy}
                 aria-label={`Copy ${serviceAccountEmail} to clipboard`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -193,7 +193,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             <details data-testid="wizard-step1-explainer" className="group">
               <summary
                 data-testid="wizard-step1-explainer-summary"
-                className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+                className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg [&::-webkit-details-marker]:hidden"
               >
                 <ChevronDown
                   aria-hidden="true"
@@ -229,7 +229,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <Link
             data-testid="wizard-step1-advance"
             href="/admin?step=2"
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             I&rsquo;ve shared the folder
           </Link>

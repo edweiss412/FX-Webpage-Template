@@ -594,6 +594,42 @@ test.describe("attention modal switcher gallery", () => {
     await expect(dialog.getByRole("button", { name: /un-ignore/i }).first()).toBeVisible();
   });
 
+  // Focus-ring offset probe (spec 2026-08-01-focus-ring-a11y-pass §8 row 4, plan
+  // Task 3 probe B): a REGISTRY-lane control (DataQualityWarningControls
+  // RING_OFFSET[mode], ignored mode -> surface-sunken) must render its offset
+  // gap as the computed --color-surface-sunken in dark mode. Regression pin:
+  // proves the registry file's map actually compiles, which the static guard
+  // trusts without proof.
+  test("un-ignore control focus offset equals surface-sunken in dark mode (registry-lane pin)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      document.documentElement.setAttribute("data-theme", "dark");
+    });
+    const disclosure = dialog.locator('[data-testid^="section-ignored-summary-"]');
+    await disclosure.click();
+    const control = dialog.getByRole("button", { name: /un-ignore/i }).first();
+    await expect(control).toBeVisible();
+    let guard = 0;
+    while (!(await control.evaluate((el) => el === document.activeElement))) {
+      await page.keyboard.press("Tab");
+      if (++guard > 80) throw new Error("Tab never reached the un-ignore control");
+    }
+    const probe = await control.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        offsetColor: cs.getPropertyValue("--tw-ring-offset-color").trim(),
+        expected: getComputedStyle(document.documentElement)
+          .getPropertyValue("--color-surface-sunken")
+          .trim(),
+      };
+    });
+    expect(probe.offsetColor).toBe(probe.expected);
+  });
+
   test("modal-state: share batches show the multi-email note (§3.6)", async ({ page }) => {
     await gotoScenario(page, "t2-share-batches");
     const dialog = page.locator(DIALOG);

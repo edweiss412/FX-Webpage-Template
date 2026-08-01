@@ -91,7 +91,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
               <a
                 data-testid="sign-in-or-skip-gate-sign-in-cta"
                 href={`/api/auth/google/start?next=${encodedNext}`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Sign in with a different account
               </a>
@@ -103,7 +103,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
                 <button
                   type="submit"
                   data-testid="sign-in-or-skip-gate-continue-as-guest-cta"
-                  className="inline-flex min-h-tap-min w-full items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  className="inline-flex min-h-tap-min w-full items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
                   Continue as guest
                 </button>
@@ -114,14 +114,14 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
               <a
                 data-testid="sign-in-or-skip-gate-skip-cta"
                 href={skipUrl}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Skip and pick your name
               </a>
               <a
                 data-testid="sign-in-or-skip-gate-sign-in-cta"
                 href={`/auth/sign-in?next=${encodedNext}`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Sign in with Google
               </a>

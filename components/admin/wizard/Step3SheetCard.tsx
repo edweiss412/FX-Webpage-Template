@@ -119,7 +119,7 @@ export function PublishCheckbox({
       <span
         aria-hidden="true"
         data-testid={`wizard-step3-card-${driveFileId}-checkbox-box`}
-        className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
+        className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
           checked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
         }`}
       >
@@ -156,7 +156,7 @@ export function SheetTitleLink({ dfid, title }: { dfid: string; title: string })
           ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
           : "Open the source sheet in Google Sheets (opens in a new tab)"
       }
-      className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {title}
       {/* Persistent (non-hover) "opens the source sheet" cue, mirroring the
@@ -575,7 +575,7 @@ export function Step3SheetCard({
       aria-haspopup="dialog"
       onClick={() => setDetailsOpen(true)}
       className={[
-        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
         // Review = outline + strong text (the primary needs-a-look action); View =
         // subtler ghost (a clean row needs no urging), so the two read distinctly.
         label === "Review"

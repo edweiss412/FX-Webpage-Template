@@ -33,7 +33,7 @@ type Props = {
 // the original px-4/p-1. The 44px min-height (min-h-tap-min) is the DESIGN tap
 // target floor and stays — only the visual bulk (width + inset) shrinks.
 const SEG_BASE =
-  "inline-flex h-full min-h-tap-min items-center justify-center rounded-sm px-3 py-1 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex h-full min-h-tap-min items-center justify-center rounded-sm px-3 py-1 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken";
 
 function segClass(selected: boolean): string {
   return selected
