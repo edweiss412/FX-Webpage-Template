@@ -266,7 +266,7 @@ describe("StagedReviewCard", () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    test("persistent sr-only status region announces arming and clears on auto-revert", () => {
+    test("persistent sr-only status region announces arming and the auto-revert close", () => {
       vi.useFakeTimers();
       const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
       const btn = getByTestId("staged-review-discard-ignore");
@@ -280,9 +280,97 @@ describe("StagedReviewCard", () => {
       act(() => {
         vi.advanceTimersByTime(4_000);
       });
-      // Same persistently-mounted element, emptied — never unmounted.
+      // Same persistently-mounted element — never unmounted. Silent empty
+      // superseded by spec 2026-08-01-announce-a11y-pass §3.3: the close is announced.
       expect(btn.nextElementSibling).toBe(region);
-      expect(region.textContent).toBe("");
+      expect(region.textContent).toBe("Confirm window closed. Nothing was changed.");
+    });
+
+    const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+    function ignoreRegion(getByTestId: (id: string) => HTMLElement): HTMLElement {
+      return getByTestId("staged-review-discard-ignore").nextElementSibling as HTMLElement;
+    }
+
+    test("confirm never announces expiry, even past the timer horizon", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const btn = getByTestId("staged-review-discard-ignore");
+      fireEvent.click(btn); // arm
+      await act(async () => {
+        fireEvent.click(btn); // confirm
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(4_100);
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+    });
+
+    test("Apply while armed disarms and never announces expiry (spec R1 F1 fix)", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockImplementation(() => new Promise(() => {}) as unknown as Promise<Response>);
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
+      await act(async () => {
+        fireEvent.click(getByTestId("staged-review-apply")); // sibling mutation
+      });
+      // The arm timer must be dead: an Apply outlasting 4s cannot fire "Nothing
+      // was changed" mid-mutation.
+      await act(async () => {
+        vi.advanceTimersByTime(4_100);
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    test("post-expiry Apply clears the expiry copy at dispatch and it never returns", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
+      act(() => {
+        vi.advanceTimersByTime(4_000); // expire
+      });
+      expect(ignoreRegion(getByTestId).textContent).toBe(EXPIRY);
+      await act(async () => {
+        fireEvent.click(getByTestId("staged-review-apply")); // dispatch
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+    });
+
+    test("post-expiry discard (Retry) clears the expiry copy at dispatch and it never returns", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
+      act(() => {
+        vi.advanceTimersByTime(4_000); // expire
+      });
+      expect(ignoreRegion(getByTestId).textContent).toBe(EXPIRY);
+      await act(async () => {
+        fireEvent.click(getByTestId("staged-review-discard-try-again")); // distinct dispatch entry
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+    });
+
+    test("re-arm after expiry is audible both ways (same region node)", () => {
+      vi.useFakeTimers();
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      const btn = getByTestId("staged-review-discard-ignore");
+      const region = ignoreRegion(getByTestId);
+      fireEvent.click(btn);
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      expect(ignoreRegion(getByTestId)).toBe(region);
+      expect(region.textContent).toBe(EXPIRY);
+      fireEvent.click(btn); // re-arm
+      expect(region.textContent).toBe("Tap again to confirm.");
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+      expect(region.textContent).toBe(EXPIRY);
     });
   });
 
