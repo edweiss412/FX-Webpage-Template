@@ -31,7 +31,7 @@ Extend `tests/cross-cutting/pgCronCiVacuity.test.ts` (serial project — `tests/
 
 ### 2.1 Injection helper
 
-`writeMutant(edits)`: read `tests/cross-cutting/pg-cron-coverage.test.ts` source; for each edit, assert its anchor occurs EXACTLY once in the source and apply it, THROWING with a "suite refactored; update the probe anchors" message otherwise (refuse-to-cover: an anchor miss must red the probe, never skip it); write the result to a transient sibling file in the same directory, basename "pg-cron-coverage.mechanism-probe-mutant.test.ts" (never tracked by git); return the path. Each probe wraps its run in `try/finally` and unlinks the mutant file.
+`writeMutant(edits)`: read `tests/cross-cutting/pg-cron-coverage.test.ts` source; for each edit, assert its anchor occurs EXACTLY once in the source and apply it, THROWING with a "suite refactored; update the probe anchors" message otherwise (refuse-to-cover: an anchor miss must red the probe, never skip it); write the result to a transient sibling file in the same directory, basename "pg-cron-coverage.mechanism-probe-mutant.test.ts" (never tracked by git). The probes reference the module-scope path constants directly — the repo-relative one as the child vitest filter, the absolute one for cleanup — so the helper returns nothing (plan R1 F4 alignment). Each probe wraps its run in `try/finally` and unlinks the mutant file.
 
 Anchors (both verified unique on the current tree):
 

@@ -193,7 +193,18 @@ Expected: probe B FAILS with the `writeMutant` refuse-to-cover throw ("suite ref
 
 Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` clean.
 
-- [ ] **Step 5: Healthy GREEN re-run, commit.**
+- [ ] **Step 4b: RED under MF-2** (anchor miss — completes the spec §5.2 matrix cell MF-2 × probe B). Apply only the observe-arg drop:
+
+```bash
+perl -0pi -e 's/makeLiveCaseCounter\(liveDbTest, \(\) => queryCount\)/makeLiveCaseCounter(liveDbTest)/' tests/cross-cutting/pg-cron-coverage.test.ts
+```
+
+Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
+Expected: probe B FAILS via the refuse-to-cover throw (`OBSERVE_ANCHOR` occurs 0x); probe A also FAILS (aggregate message, named match misses — same as Task 1 Step 4).
+
+Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` clean.
+
+- [ ] **Step 5: Healthy GREEN re-run, commit.** The commit body records the COMPLETED closure matrix with each cell's observed red: MF-1 → probe A red (child green) + probe B red (anchor miss); MF-2 → probe A red (aggregate message) + probe B red (anchor miss); MF-4 → probe B red (child green); MF-3 → existing probe 3 (measured at spec time).
 
 ```bash
 git add tests/cross-cutting/pgCronCiVacuity.test.ts
@@ -207,15 +218,39 @@ git commit -m "test(ci): probe that the aggregate query-count backstop survives 
 - Modify: `BACKLOG-archive.md` (add resolved entry, house style)
 - Modify: `tests/docs/_metaDeferralLedgerGraduation.test.ts` (ONE `BACKLOG_GRADUATED` row)
 
-- [ ] **Step 1: Move the entry.** Cut the whole `### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION …` section from `BACKLOG.md`. In `BACKLOG-archive.md`, insert after the ledger preamble (before the first existing `##` entry):
+- [ ] **Step 1: Move the entry + fix the section preamble.** Cut the whole `### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION …` section from `BACKLOG.md` (it runs from that heading to just before `### BL-CI-STALE-BRANCH-PROTECTION-COMMENT`). In the SAME file, the "Descoped from the CI-dark coverage cluster" preamble ends "…the two below remain open." — with this graduation only ONE remains. Replace that clause (layering house style, keep the existing shipped-item chain) with:
+
+```markdown
+followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry) and `BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION` on `test/pg-cron-mechanism-sabotage-probe` (2026-08-01, mechanism-sabotage probes); the one below remains open.
+```
+
+In `BACKLOG-archive.md`, insert after the ledger preamble (before the first existing `##` entry):
 
 ```markdown
 ## BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — ✅ RESOLVED (2026-08-01, `test/pg-cron-mechanism-sabotage-probe`)
 
 **Resolution:** the remaining sound direction from the entry — a probe that sabotages the query-count mechanism and asserts the guard notices — shipped as two execute-the-suite probes in `tests/cross-cutting/pgCronCiVacuity.test.ts`: an injected inert live case must red the mutant suite BY NAME (per-case attribution wired), and with the observe argument stripped it must red via the aggregate afterAll message (backstop present). Mutation-family closure measured live: MF-1 whole-mechanism deletion (the `1c1ae148e` state), MF-2 observe-arg drop, and MF-4 aggregate-branch deletion all escaped every prior guard and are now each caught; MF-3 increment-drop was already caught by the existing reachable-DB probe. The meaningfulness proxy stays fenced OFF (a `psql("SELECT 1")` body still passes — reviewer territory by four-round ratification). Spec: `docs/superpowers/specs/ci/2026-08-01-pg-cron-mechanism-sabotage-probe-design.md`. Original entry below.
 
-[original entry text, verbatim]
+### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+
+**Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; measurements below.
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` refuses a CI run where fewer live queries were issued than live cases ran. That closes the MEASURED defect — the suite previously reported exit 0 with "2 passed | 6 skipped", asserting nothing — and it catches an emptied case body (verified: emptying one body while keeping its name yields "6 live cases ran but only 5 database queries were issued").
+
+**Per-case attribution SHIPPED in the same round.** The counter is snapshotted around each case, and a case issuing no query throws by name. Verified against R4's exact reproduction — six queries in one case with the next one empty now reds, naming the empty case — so the first of its two reproductions is closed.
+
+**The gap that remains:** replacing every body with `psql("SELECT 1")` satisfies attribution while asserting nothing about pg_cron.
+
+**Why THAT is not patched:** each round defeated the next proxy — source patterns (rewrite the predicate), case names (keep names, empty bodies), aggregate queries (front-load one case). Proving assertions are _meaningful_ is equivalent to reviewing them, which is a reviewer's job, not a meta-guard's. A fifth proxy would be the same shape.
+
+**Also open (same round):** the executable vacuity guard does not protect the query-count mechanism itself — deleting `queryCount` and its `afterAll` branch leaves all three probe cases green. Exactly demonstrated by commit `1c1ae148e`, which had the executable guard without query counting and was green.
+
+**If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
 ```
+
+(The `### …` block above is the original entry, embedded verbatim; the heading demotes from `###` to stay under the new `##` archive heading, matching the archive's nested-provenance house style.)
 
 - [ ] **Step 2: Registry row** in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, top of `BACKLOG_GRADUATED`:
 
