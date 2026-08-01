@@ -54,7 +54,7 @@ descoped after four cross-model review rounds (37 accepted findings, none disput
 iterating. One of the four, `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC`, shipped 2026-07-27 on
 `feat/ci-dark-descoped-guards` (with the separately-filed ceiling item
 `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`) and graduated to
-[BACKLOG-archive.md](./BACKLOG-archive.md), followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry); the two below remain open.
+[BACKLOG-archive.md](./BACKLOG-archive.md), followed by `BL-CI-VITEST-EXCLUSION-COVERAGE` on `feat/ci-dark-vitest-exclusion` (2026-07-31, PR-B: the runner-as-oracle registry) and `BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION` on `test/pg-cron-mechanism-sabotage-probe` (2026-08-01, mechanism-sabotage probes); the one below remains open.
 
 **Do not re-derive this analysis.** Each entry records what was tried and the measurement that
 killed it. The reason each is open is that the obvious approach was implemented and shown not to
@@ -70,24 +70,6 @@ sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
 **User-visible shape if it bites in production:** an admin flips Published on mobile Safari, the switch greys out and spins forever; the mutation HAS committed (crew link state is already flipped). A reload shows truth. All observations so far are Playwright WebKit under CI; not yet reproduced in desktop Chromium or a real handheld Safari — quantifying that is the first step if this is picked up.
 
 **Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
-
-### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
-
-**Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
-
-**Do not re-derive this analysis.** Four adversarial rounds converged here; measurements below.
-
-`tests/cross-cutting/pg-cron-coverage.test.ts` refuses a CI run where fewer live queries were issued than live cases ran. That closes the MEASURED defect — the suite previously reported exit 0 with "2 passed | 6 skipped", asserting nothing — and it catches an emptied case body (verified: emptying one body while keeping its name yields "6 live cases ran but only 5 database queries were issued").
-
-**Per-case attribution SHIPPED in the same round.** The counter is snapshotted around each case, and a case issuing no query throws by name. Verified against R4's exact reproduction — six queries in one case with the next one empty now reds, naming the empty case — so the first of its two reproductions is closed.
-
-**The gap that remains:** replacing every body with `psql("SELECT 1")` satisfies attribution while asserting nothing about pg_cron.
-
-**Why THAT is not patched:** each round defeated the next proxy — source patterns (rewrite the predicate), case names (keep names, empty bodies), aggregate queries (front-load one case). Proving assertions are _meaningful_ is equivalent to reviewing them, which is a reviewer's job, not a meta-guard's. A fifth proxy would be the same shape.
-
-**Also open (same round):** the executable vacuity guard does not protect the query-count mechanism itself — deleting `queryCount` and its `afterAll` branch leaves all three probe cases green. Exactly demonstrated by commit `1c1ae148e`, which had the executable guard without query counting and was green.
-
-**If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
 
 ### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
 

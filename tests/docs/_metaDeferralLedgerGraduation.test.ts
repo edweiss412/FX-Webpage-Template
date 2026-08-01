@@ -86,6 +86,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
+  // probes for the pg-cron vacuity guard — an inert-case mutant must red the
+  // suite by name (attribution) and via the aggregate branch (backstop).
+  { id: "BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION", provenance: "test/pg-cron-mechanism-sabotage-probe" },
   // fix/announce-a11y-pass (2026-08-01): arm-expiry announcements on the 11
   // ARM_REVERT_MS surfaces (+ StagedReviewCard Apply disarm fix) and the
   // ShareHub remote-rotation live region.
