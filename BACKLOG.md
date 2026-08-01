@@ -8,18 +8,6 @@ Last reconciled: 2026-08-01 — `fix/judgment-chip-newtab-suffix` (PR #640) grad
 
 ---
 
-## BL-TEST-FLOW8REPICK-ASYNC-LEAK — React scheduler callback fires after teardown
-
-**Status:** OPEN, surfaced 2026-07-20 by the Namespace runner trial (PR #514, run 29754822376 attempt 1).
-
-`tests/show/flow8Repick.test.tsx` leaks an async React scheduler callback past the end of the test file. On a fast enough runner the callback lands after the test environment is torn down and throws `ReferenceError: window is not defined` inside `scheduler.performWorkUntilDeadline`. Vitest reports it as an unhandled error and exits non-zero **even though every assertion passes** — the failing run showed `187 passed | 2 skipped` / `1906 passed | 3 skipped` alongside `Errors 2 errors`.
-
-**Why it matters:** `unit-suite` is a REQUIRED merge gate, so this fails PRs for reasons unrelated to the change under review, and the symptom (green tests, red job) is confusing to diagnose. It is timing-dependent, so it can occur on GitHub-hosted runners too — just less often, since the trial's faster CPUs made it reproduce within three runs.
-
-**Fix direction:** ensure the component under test is unmounted and any pending scheduler work flushed before the test completes — e.g. an explicit `cleanup()`/`unmount()` in a teardown hook, and awaiting pending timers/microtasks rather than letting the file end with work in flight. Reproducing reliably will likely need either a fast machine or artificially delayed teardown.
-
-**Provenance:** lifted to `main` 2026-08-01 from `chore/ci-namespace-runner-trial`, which was never opened as a PR; the branch remains the source of the underlying spec.
-
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (specced, not built)
 
 **Status:** OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
@@ -760,12 +748,6 @@ From the impeccable critique of `feat/sharehub-focus-pass` (Assessment A P2, 202
 **Status:** OPEN · **Severity:** LOW (developer-only surface) · **Class:** responsive layout — surfaced by the modal-state-coverage impeccable critique (2026-07-22)
 
 At the 390px mobile viewport the switcher bar's counter ("52 / 116") and scenario-description block measure clientWidth 0 (flex siblings squeeze them out), so the operator cannot tell which scenario is active on mobile. Desktop is unaffected. Pre-existing at origin/main 76288ca62 (section jump select landed with the bar); NOT introduced by the modal-state-coverage branch (zero layout-class hunks touch the bar in that diff). **Fix (when prioritized):** give the counter/description block a min-width floor (or wrap the bar) in components/admin/dev/AttentionModalSwitcher.tsx and add a 390px real-browser assertion to the gallery e2e.
-
-## BL-FLOW8REPICK-TEARDOWN-FLAKE — flow8Repick uncaught `window is not defined` after env teardown (CI shard flake)
-
-**Status:** OPEN · **Severity:** LOW (flake; 0 test failures) · **Class:** jsdom teardown race — surfaced on PR #558's `unit-suite-db (5)` (2026-07-23), rerun green, main green at the same code.
-
-`tests/show/flow8Repick.test.tsx` renders React trees with no `afterEach(cleanup)`; mounted components leave scheduler work (`Immediate performWorkUntilDeadline`) that can tick AFTER the jsdom environment is torn down → `ReferenceError: window is not defined` as an **uncaught error** — vitest reports every test passing (879/879 on the shard) yet exits 1 via the separate `Errors` summary line (the known `feedback_vitest_exits_1_on_uncaught_errors_all_tests_pass` class). Eruption is shard-composition-dependent: adding/removing test files reshuffles the serial shards, changing neighbors/timing — PR #558 added two test files and hit it; a `--failed` rerun passed. **Fix (when prioritized):** add `afterEach(cleanup)` to flow8Repick (and sweep `tests/show/` for sibling render-without-cleanup files); assert no `Errors` line in the CI gate wrapper if this class recurs.
 
 ## BL-IGNORED-SUMMARY-TAP-TARGET — Ignored (N) disclosure summary is under the 44px tap floor
 

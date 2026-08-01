@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 import * as logModule from "@/lib/log";
 
 // lib/log default-sink teardown-safety (Phase 4 console.* → lib/log migration).
@@ -93,6 +93,23 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
       removeListener: () => {},
       dispatchEvent: () => false,
     }) as unknown as MediaQueryList;
+}
+
+// React Testing Library's auto-cleanup registers itself only when a GLOBAL
+// `afterEach` exists. This suite runs with `globals: false` (vitest.config.ts:69),
+// so it never registers: every `render()` leaves its tree mounted for the rest of
+// the file. A mounted tree can still hold scheduled React work, and on a fast
+// enough runner that callback fires after the jsdom environment is torn down,
+// throwing `ReferenceError: window is not defined` inside
+// `scheduler.performWorkUntilDeadline` — vitest reports an unhandled error and
+// fails the job while every assertion passes (BL-TEST-FLOW8REPICK-ASYNC-LEAK).
+// Registering cleanup here fixes the whole class rather than one file. Guarded on
+// `window` so the node-environment default (vitest.config.ts:68) never loads RTL.
+if (typeof window !== "undefined") {
+  const { cleanup } = await import("@testing-library/react");
+  afterEach(() => {
+    cleanup();
+  });
 }
 
 export {};

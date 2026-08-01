@@ -1441,3 +1441,35 @@ boundary is **not** enough: ten distinct `lib/sync/*` modules still pull `postgr
 alias list leaves 78 errors. **Fix direction:** `BL-HARNESS-RESOLVER-POLICY`, or trim
 `step3ReviewSections.tsx`'s import graph so a client component stops importing Server Action
 modules at module scope.
+
+## BL-FLOW8REPICK-TEARDOWN-FLAKE — ✅ RESOLVED (2026-08-01, branch `fix/flow8repick-scheduler-leak`)
+
+**Graduated:** 2026-08-01 — filed 2026-07-23 off PR #558's `unit-suite-db (5)` shard. This is the PRIMARY id for the flake; `BL-TEST-FLOW8REPICK-ASYNC-LEAK` below is a duplicate of it, and both graduate on the same fix.
+
+**Root cause (proven, not inferred).** React Testing Library registers its auto-cleanup only when a GLOBAL `afterEach` exists. This suite runs `globals: false` (`vitest.config.ts:69`) and `tests/setup.ts` never registered one, so RTL's cleanup silently no-opped for **every** RTL test in the repo — 412 files imported RTL and not one registered cleanup itself. Each `render()` therefore left its tree mounted for the rest of the file, and a mounted tree can still hold scheduled React work; on a fast enough runner that callback lands after the jsdom environment is torn down, throwing `ReferenceError: window is not defined` inside `scheduler.performWorkUntilDeadline`. Demonstrated directly: before the fix a two-test probe saw `document.body.childElementCount === 1` at the start of the second test.
+
+**Resolution.** A `window`-guarded `afterEach(cleanup)` in `tests/setup.ts` — the guard keeps the node-environment default (`vitest.config.ts:68`) from loading RTL. This resolves the whole class rather than the named file: `tests/show/flow8Repick.test.tsx` was one of 412 instances and was never special, so the `BL-FLOW8REPICK-TEARDOWN-FLAKE` fix note ("add `afterEach(cleanup)` to flow8Repick, and sweep `tests/show/` for siblings") was correct in direction but scoped two levels too narrow — the sweep is the entire `tests/` tree. Pinned by `tests/cross-cutting/rtlAutoCleanup.test.tsx`, which asserts against `document.body` rather than spying on `cleanup`, and fails if the setup block is deleted.
+
+**Blast radius measured before landing:** all 412 RTL files (410 test files / 4510 tests) green, then the full suite — 1691 files / 19397 tests — green. No test depended on DOM accumulating across tests.
+
+**Original entry, verbatim:**
+
+> **Status:** OPEN · **Severity:** LOW (flake; 0 test failures) · **Class:** jsdom teardown race — surfaced on PR #558's `unit-suite-db (5)` (2026-07-23), rerun green, main green at the same code.
+>
+> `tests/show/flow8Repick.test.tsx` renders React trees with no `afterEach(cleanup)`; mounted components leave scheduler work (`Immediate performWorkUntilDeadline`) that can tick AFTER the jsdom environment is torn down → `ReferenceError: window is not defined` as an **uncaught error** — vitest reports every test passing (879/879 on the shard) yet exits 1 via the separate `Errors` summary line (the known `feedback_vitest_exits_1_on_uncaught_errors_all_tests_pass` class). Eruption is shard-composition-dependent: adding/removing test files reshuffles the serial shards, changing neighbors/timing — PR #558 added two test files and hit it; a `--failed` rerun passed. **Fix (when prioritized):** add `afterEach(cleanup)` to flow8Repick (and sweep `tests/show/` for sibling render-without-cleanup files); assert no `Errors` line in the CI gate wrapper if this class recurs.
+
+## BL-TEST-FLOW8REPICK-ASYNC-LEAK — ✅ RESOLVED (2026-08-01) — duplicate of `BL-FLOW8REPICK-TEARDOWN-FLAKE`
+
+**Graduated:** 2026-08-01, same fix as the entry above. **This id should never have existed.** It was filed 2026-07-20 on the never-PR'd `chore/ci-namespace-runner-trial` — three days BEFORE `BL-FLOW8REPICK-TEARDOWN-FLAKE` was filed on `main` for the same bug — and was lifted to `main` 2026-08-01 by PR #642 without noticing the id already had a mainline twin. The duplicate-check there grepped the exact id string, which cannot see a differently-named entry describing the same defect. Kept verbatim rather than deleted, per this file's id-preservation rule, so the PR #642 reference still resolves. Its independent contribution: the Namespace-runner reproduction (PR #514, run 29754822376) and the observation that `unit-suite` is a required gate, so the green-tests/red-job symptom can fail unrelated PRs.
+
+**Original entry, verbatim:**
+
+> **Status:** OPEN, surfaced 2026-07-20 by the Namespace runner trial (PR #514, run 29754822376 attempt 1).
+>
+> `tests/show/flow8Repick.test.tsx` leaks an async React scheduler callback past the end of the test file. On a fast enough runner the callback lands after the test environment is torn down and throws `ReferenceError: window is not defined` inside `scheduler.performWorkUntilDeadline`. Vitest reports it as an unhandled error and exits non-zero **even though every assertion passes** — the failing run showed `187 passed | 2 skipped` / `1906 passed | 3 skipped` alongside `Errors 2 errors`.
+>
+> **Why it matters:** `unit-suite` is a REQUIRED merge gate, so this fails PRs for reasons unrelated to the change under review, and the symptom (green tests, red job) is confusing to diagnose. It is timing-dependent, so it can occur on GitHub-hosted runners too — just less often, since the trial's faster CPUs made it reproduce within three runs.
+>
+> **Fix direction:** ensure the component under test is unmounted and any pending scheduler work flushed before the test completes — e.g. an explicit `cleanup()`/`unmount()` in a teardown hook, and awaiting pending timers/microtasks rather than letting the file end with work in flight. Reproducing reliably will likely need either a fast machine or artificially delayed teardown.
+>
+> **Provenance:** lifted to `main` 2026-08-01 from `chore/ci-namespace-runner-trial`, which was never opened as a PR; the branch remains the source of the underlying spec.
