@@ -119,7 +119,7 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
 
 **Interfaces — Consumes:** `FOCUS_BACKDROP_ALLOWLIST` (Task 1).
 
-- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the row control matches `:focus-visible`, then read inside ONE evaluate):
+- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the row control carries keyboard-visible focus, then read inside ONE evaluate):
 
 ```ts
 const probe = await row.evaluate((el) => {
