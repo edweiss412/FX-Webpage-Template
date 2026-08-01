@@ -10,9 +10,10 @@
 // stream they chased is open-ended, and the r30 ratification placed the whole
 // grammar class with a remark/mdast port. tests/docs/_ledgerMdast.ts is that
 // port: parsing, flattening, id extraction, and every terminal-claim lane live
-// there behind one entry evaluator, so code blocks, inline code, HTML
-// comments, links, and tables fall out of the tree instead of being chased
-// per-spelling. The walker file's header carries the ratified-scope text
+// there behind one entry evaluator, so code blocks, HTML comments, links,
+// and tables fall out of the tree instead of being chased per-spelling
+// (inline-code TEXT is retained — the r15 backticked-value catch — with
+// label recognition provenance-gated instead). The walker file's header carries the ratified-scope text
 // (render-equivalent OBFUSCATION is review's failure class, not this
 // tripwire's); the spec at
 // docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md is
@@ -558,6 +559,11 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(entryHit("**Status:** C&#76;OSED")).toBe(true);
     // lazy-continuation field value stays unscanned (line discipline, §7):
     expect(entryHit("> **Status:**\nCLOSED")).toBe(false);
+    // whole-diff r5 — a multiline dropped node still ENDS its source line:
+    // the next line's leading claim is caught, and a same-line bold claim
+    // is not manufactured across the gap:
+    expect(entryHit("prose [a\nb](https://x.test)\nStatus: CLOSED")).toBe(true);
+    expect(entryHit("Status: OPEN [a\nb](https://x.test) **REFUTED** discussion")).toBe(false);
   });
 
   it("M5 — field-lane input domains: reordered rows caught, prose rows inert", () => {
@@ -749,6 +755,14 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(extractEntries("## ~~<b>BL-M9X</b>~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     expect(extractEntries("## ~~BL-**M9Y**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     expect(extractEntries("## ~~\`BL-M9Z\`~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // whole-diff r5 — zero-prose nodes occupy raw position (sentinel): a
+    // dropped image/link/footnote-ref/whitespace-code at the heading start
+    // never lets later plain text read as source-leading:
+    expect(extractEntries("## ![x](https://y) BL-IMG — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## [](https://y) BL-EMPTY — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## \` \` BL-CODE — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## [P2] [^1] BL-FOOT — CLOSED\n\nbody\n\n[^1]: note\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## **![x](https://y)** BL-SW — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     // CommonMark heading surface the ^-anchored era missed (r30 gain set):
     expect(idsOf("   ## BL-INDENTED-ID — text\n\nbody\n")).toEqual(["BL-INDENTED-ID"]);
     expect(idsOf("##\tBL-TABBED-ID — text\n\nbody\n")).toEqual(["BL-TABBED-ID"]);

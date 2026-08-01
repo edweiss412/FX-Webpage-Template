@@ -104,10 +104,15 @@ export function flattenLines(nodes: readonly RootContent[], mode: "claim" | "id"
         return;
       }
       case "inlineCode": {
+        // Split on newlines like text (whole-diff r5): a multiline code
+        // span must not glue two source lines into one FlatLine.
         const value = String((n as InlineCode).value);
-        const start = cur().text.length;
-        push(value);
-        cur().codeSpans.push([start, start + value.length]);
+        value.split("\n").forEach((part, i) => {
+          if (i > 0) newline();
+          const start = cur().text.length;
+          push(part);
+          cur().codeSpans.push([start, start + part.length]);
+        });
         return;
       }
       case "strong": {
@@ -130,6 +135,10 @@ export function flattenLines(nodes: readonly RootContent[], mode: "claim" | "id"
       }
       case "delete": {
         if (mode === "id" && isParent(n)) for (const c of n.children) walk(c);
+        if (mode === "claim") {
+          const pos = n.position;
+          if (pos !== undefined && pos.end.line > pos.start.line) newline();
+        }
         return;
       }
       // Dropped whole (spec §2 table): code blocks and inline HTML TAG
@@ -147,8 +156,15 @@ export function flattenLines(nodes: readonly RootContent[], mode: "claim" | "id"
       case "footnoteReference":
       case "definition":
       case "thematicBreak":
-      case "yaml":
+      case "yaml": {
+        // A dropped node whose SOURCE spans lines still ends the line it
+        // started on (whole-diff r5): gluing its neighbors would hide a
+        // next-line leading claim and manufacture same-line false
+        // positives. mdast position data is present under remark defaults.
+        const pos = n.position;
+        if (pos !== undefined && pos.end.line > pos.start.line) newline();
         return;
+      }
       case "break":
         newline();
         return;
@@ -191,6 +207,16 @@ function headingId(heading: Heading): string | null {
       }
       return;
     }
+    // Every non-text node except DELETE occupies raw position with a
+    // delimiter (backtick, bracket, bang, tag, tilde-pair's inner wrapper),
+    // so it emits one zero-width fmt sentinel FIRST (whole-diff r4/r5 —
+    // without it, a zero-prose node at the heading start lets later plain
+    // text masquerade as source-leading: `## ![x](y) BL-IMG` never minted).
+    // DELETE alone is the ratified transparent wrapper (`~~BL-X~~` mints).
+    if (node.type !== "delete") {
+      flatChars.push("\u0000");
+      prov.push("fmt");
+    }
     if (node.type === "inlineCode") {
       const value = String((node as InlineCode).value);
       for (let i = 0; i < value.length; i++) {
@@ -203,15 +229,6 @@ function headingId(heading: Heading): string | null {
     // over plain text — the moment any OTHER formatting wrapper appears on
     // the path, provenance is fmt and STAYS fmt (legacy raw parity:
     // `~~**BL-X**~~` starts with `*` after the tildes and never minted).
-    // An html TAG node contributes no prose but occupies raw position —
-    // emit one zero-width fmt sentinel so `~~<b>ID</b>~~` cannot read as
-    // tag-adjacent plain text while `[<b>P2</b>] BL-X` still mints (the
-    // sentinel rides inside the bracket prefix, which is formatting-blind).
-    if (node.type === "html") {
-      flatChars.push("\u0000");
-      prov.push("fmt");
-      return;
-    }
     const next: Provenance =
       node.type === "delete" ? (kind === "plain" ? "delete" : kind) : kind === "code" ? kind : "fmt";
     if (isParent(node)) for (const c of node.children) pwalk(c, next);
@@ -228,6 +245,10 @@ function headingId(heading: Heading): string | null {
     const p = prov[ci];
     if (p !== "plain" && p !== "delete") return null;
   }
+  // A token cut short by a formatting SENTINEL is a partially-formatted id
+  // (`~~BL-**X**~~` truncating to `BL-`) — mints nothing, the ratified
+  // conservative direction (§1.1.18).
+  if (flat[idStart + token.length] === "\u0000") return null;
   return token;
 }
 

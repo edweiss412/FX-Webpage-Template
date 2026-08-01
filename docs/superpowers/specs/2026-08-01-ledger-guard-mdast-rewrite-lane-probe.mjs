@@ -39,9 +39,12 @@ function flattenLines(nodes, mode = "claim") {
         return;
       }
       case "inlineCode": {
-        const start = cur().text.length;
-        push(String(n.value));
-        cur().codeSpans.push([start, start + String(n.value).length]);
+        String(n.value).split("\n").forEach((part, i) => {
+          if (i > 0) newline();
+          const start = cur().text.length;
+          push(part);
+          cur().codeSpans.push([start, start + part.length]);
+        });
         return;
       }
       case "strong": {
@@ -63,7 +66,8 @@ function flattenLines(nodes, mode = "claim") {
         for (const c of n.children ?? []) walk(c);
         return;
       case "delete":
-        if (mode === "id") for (const c of n.children ?? []) walk(c);
+        if (mode === "id") { for (const c of n.children ?? []) walk(c); return; }
+        if (n.position !== undefined && n.position.end.line > n.position.start.line) newline();
         return;
       case "code":
       case "html":
@@ -77,6 +81,7 @@ function flattenLines(nodes, mode = "claim") {
       case "definition":
       case "thematicBreak":
       case "yaml":
+        if (n.position !== undefined && n.position.end.line > n.position.start.line) newline();
         return;
       case "break":
         newline();
@@ -238,7 +243,8 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
         for (let i = 0; i < v.length; i++) { flatChars.push(v[i]); prov.push("code"); }
         return;
       }
-      if (node.type === "html") { flatChars.push("\u0000"); prov.push("fmt"); return; }
+      if (node.type !== "delete" && node.type !== "heading") { flatChars.push("\u0000"); prov.push("fmt"); }
+      if (node.type === "html") return;
       const k =
         node.type === "heading"
           ? "plain"
@@ -257,6 +263,7 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
     for (let ci = idStart; ci < idStart + m[1].length; ci++)
       if (prov[ci] !== "plain" && prov[ci] !== "delete") plainOk = false;
     if (!plainOk) return;
+    if (flat[idStart + m[1].length] === "\u0000") return;
     if (requirePrefix && !m[1].startsWith(requirePrefix)) return;
     // id END in the CLAIM-flattened heading (id may be delete-wrapped there:
     // find the id text if present, else scan from 0 — a struck id vanishes
