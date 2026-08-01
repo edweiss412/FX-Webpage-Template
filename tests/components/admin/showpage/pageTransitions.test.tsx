@@ -20,7 +20,7 @@
  * | Pair | Treatment | Where proven |
  * |------|-----------|--------------|
  * | A rail-highlight moves (scroll-spy/click) | instant highlight swap — no animation | §9-A + C×A below (aria-current is a plain swap; page components import no motion lib). The rail lives in ShowReviewSurface; its conditional topology (14 sites, 1 animated = the sliding indicator) is owned by the §11 source-marker audit and is NOT re-pinned here. |
- * | C disclosure open↔closed | existing native <details> treatment — unchanged | §9-C: sectionWarningExtras renders a native `<details>` whose body is unconditional (CSS-only reveal, instant) and whose chevron carries `transition-transform group-open:rotate-90` (the inherited disclosure affordance). |
+ * | C disclosure open↔closed | existing native <details> treatment — unchanged | §9-C: sectionWarningExtras renders a native `<details>` whose body is unconditional (CSS-only reveal, instant) and whose chevron carries `transition-transform duration-normal group-open:rotate-90` (the inherited disclosure affordance). |
  * | D modal-over-page open↔closed | modal shell entrance/exit hooks — unchanged | Compound D×scroll below (the shared Step3ReviewModal shell's body-scroll lock). The scrim/panel keyframes live in app/globals.css and are pinned by the §11 T1/T2 suite. |
  * | E publish-toggle idle↔pending↔settled | existing PublishedToggle treatment — unchanged | §9-E: StatusStrip wraps <PublishedToggle> verbatim; the toggle's disabled/label swaps are instant (no motion lib). Compound E×D freeze below. |
  * | F side-rail item rest↔hover | `transition-colors duration-fast` colour-fade | §9-F: the Overview/Changes side-rail buttons carry the class string (behavioral). |
@@ -232,7 +232,7 @@ describe("§9 source enumeration — every conditional in the new page component
   it("§9-C: the Ignored disclosure is a native <details> with an instant CSS-only body + inherited chevron", () => {
     const s = src("components/admin/showpage/sectionWarningExtras.tsx");
     expect(s).toMatch(/<details data-testid=\{`section-ignored-warnings-\$\{id\}`\}/);
-    expect(s).toMatch(/transition-transform group-open:rotate-90/);
+    expect(s).toMatch(/transition-transform duration-normal group-open:rotate-90/);
   });
 });
 

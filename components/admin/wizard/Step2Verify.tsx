@@ -116,12 +116,12 @@ function copyForCode(code: string | null): string {
 
 // Primary CTA — the single accent fill allowed per card (DESIGN.md ≤10% accent).
 const PRIMARY_BUTTON =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 // Secondary CTA (re-scan in resume mode). A recessed `surface-sunken` fill +
 // strong text keeps it reading as a BUTTON, distinct from the `bg-bg` folder
 // input directly above it (which shares the same border token).
 const SECONDARY_BUTTON =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
 export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) {
   const router = useRouter();
@@ -363,7 +363,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               <a
                 href="/help/admin/onboarding-wizard#step-2"
                 aria-label="Learn more about verifying your folder"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 Learn more →
               </a>
@@ -399,7 +399,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           spellCheck={false}
           disabled={isSubmitting}
           aria-describedby={matchesScanned ? "wizard-step2-scanned-note" : undefined}
-          className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         />
 
         {matchesScanned && priorScan ? (
@@ -506,7 +506,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       href={driveFolderUrl(state.result.folderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
                     >
                       Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
@@ -556,7 +556,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                       href={driveFolderUrl(state.result.folderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
                     >
                       Open the folder<span aria-hidden="true">&nbsp;→</span> <NewTabHint />
                     </a>
@@ -574,13 +574,13 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 type="submit"
                 data-testid="wizard-step2-submit"
                 disabled={submitDisabled}
-                className={
+                className={`${
                   state.kind === "success"
                     ? SECONDARY_BUTTON
                     : submitIsPrimary
                       ? PRIMARY_BUTTON
                       : SECONDARY_BUTTON
-                }
+                } focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
               >
                 {submitLabel}
               </button>
@@ -595,7 +595,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           <Link
             href="/admin?step=1"
             data-testid="wizard-step2-back"
-            className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
             Back
@@ -606,7 +606,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
             <Link
               href="/admin?step=3"
               data-testid="wizard-step2-advance"
-              className={continueIsPrimary ? PRIMARY_BUTTON : SECONDARY_BUTTON}
+              className={`${continueIsPrimary ? PRIMARY_BUTTON : SECONDARY_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-bg`}
             >
               Continue to Step 3
             </Link>

@@ -173,7 +173,7 @@ export function PickerInterstitial({
               const rowClasses = [
                 "w-full min-h-tap-min flex items-center justify-between gap-3 rounded-md border border-border px-4",
                 "transition-colors duration-fast",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
                 isClaimed
                   ? "bg-surface-sunken text-text-subtle cursor-pointer hover:bg-surface"
                   : "bg-surface text-text hover:bg-surface-sunken",

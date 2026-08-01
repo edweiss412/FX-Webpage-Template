@@ -467,7 +467,7 @@ export function StagedReviewCard({
               <a
                 href="/help/admin/review-queues#first-seen"
                 aria-label="Learn more about first-seen staged review"
-                className="mt-2 inline-flex w-fit min-h-tap-min items-center text-sm font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="mt-2 inline-flex w-fit min-h-tap-min items-center text-sm font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
               >
                 Learn more →
               </a>

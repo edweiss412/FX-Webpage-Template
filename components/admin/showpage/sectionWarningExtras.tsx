@@ -271,12 +271,12 @@ export function buildSectionWarningExtras(args: {
           <details data-testid={`section-ignored-warnings-${id}`} className="group">
             <summary
               data-testid={`section-ignored-summary-${id}`}
-              className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+              className="min-h-tap-min inline-flex items-center cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
             >
               Ignored ({ignoredWarnings.length}){" "}
               <ChevronRight
                 aria-hidden="true"
-                className="ml-1 inline-block size-4 shrink-0 align-text-bottom transition-transform group-open:rotate-90"
+                className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
               />
             </summary>
             <div className="mt-3" data-testid={`section-ignored-list-${id}`}>

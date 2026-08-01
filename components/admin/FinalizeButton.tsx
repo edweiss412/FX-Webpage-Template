@@ -783,7 +783,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
           data-testid="wizard-finalize-blocker-dismiss"
           aria-label={dismissLabel}
           onClick={handleDismiss}
-          className="absolute right-1 top-1 z-10 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="absolute right-1 top-1 z-10 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           <span aria-hidden="true" className="text-xl leading-none">
             ×
@@ -812,7 +812,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
                   <Link
                     data-testid={`wizard-finalize-reapply-${failure.drive_file_id}`}
                     href={failure.re_apply_url}
-                    className="inline-flex min-h-tap-min items-center self-start text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                    className="inline-flex min-h-tap-min items-center self-start text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                   >
                     Review and re-apply
                   </Link>
@@ -934,7 +934,7 @@ const ProgressPanel = forwardRef<
       role="group"
       aria-label="Publish progress"
       data-testid="wizard-finalize-progress"
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {state.phase === "batch" ? (
         <>
@@ -1112,7 +1112,7 @@ function FinalizeSoftConfirm({
           type="button"
           data-testid="wizard-finalize-confirm-cancel"
           onClick={onCancel}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
         >
           Go back
         </button>

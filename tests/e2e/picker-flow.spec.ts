@@ -426,3 +426,54 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     await ctx.close();
   }
 });
+
+// Focus-ring offset probe (spec 2026-08-01-focus-ring-a11y-pass §8 row 4,
+// plan Task 3 probe A): in dark mode, the claimed row's focus offset gap must
+// paint the row's actual backdrop (--color-bg), not Tailwind's #fff default.
+// Donor pattern: section-header-layout.layout.spec.ts corner-link probe.
+test("claimed-row focus offset color equals the page backdrop in dark mode", async ({
+  browser,
+}) => {
+  const show = track(
+    await seedShowWithCrew({
+      crew: [
+        { name: "Alice Cooper", role: "A1", email: "alice@fxav.test" },
+        { name: "Bob Marley", role: "A2", email: "bob@fxav.test" },
+      ],
+    }),
+  );
+  const alice = show.crew.find((c) => c.name === "Alice Cooper")!;
+  await claimStamp(alice.id);
+
+  const ctx = await browser.newContext({ baseURL: BASE_URL });
+  try {
+    const page = await ctx.newPage();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/show/${show.slug}/${show.shareToken}?gate=skip`, {
+      waitUntil: "networkidle",
+    });
+    await expect(page.getByTestId("picker-interstitial-root")).toBeVisible();
+    await page.evaluate(() => {
+      document.documentElement.setAttribute("data-theme", "dark");
+    });
+
+    const control = page.locator('form[action*="/auth/sign-in"] button[type="submit"]').first();
+    await expect(control).toBeVisible();
+    // Keyboard focus so :focus-visible applies (mouse focus would not).
+    let guard = 0;
+    while (!(await control.evaluate((el) => el === document.activeElement))) {
+      await page.keyboard.press("Tab");
+      if (++guard > 40) throw new Error("Tab never reached the claimed-row control");
+    }
+    const probe = await control.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        offsetColor: cs.getPropertyValue("--tw-ring-offset-color").trim(),
+        expected: getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim(),
+      };
+    });
+    expect(probe.offsetColor).toBe(probe.expected);
+  } finally {
+    await ctx.close();
+  }
+});

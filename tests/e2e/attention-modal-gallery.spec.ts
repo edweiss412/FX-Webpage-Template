@@ -551,7 +551,17 @@ test.describe("attention modal switcher gallery", () => {
   }) => {
     await gotoScenario(page, "t2-archived");
     const dialog = page.locator(DIALOG);
-    await expect(dialog.getByText(/archived/i).first()).toBeVisible();
+    // .first() used to land on a VISIBLE match; the mobile strip-state badge
+    // (hidden at this viewport) now precedes it in DOM order, so filter to
+    // visible matches. Pre-existing failure on origin/main (verified on a
+    // clean worktree 2026-08-01) — dev-gate is schedule-only, so it rotted
+    // dark (the BL-DEV-GATE-GALLERY-SPEC-ROT class).
+    await expect(
+      dialog
+        .getByText(/archived/i)
+        .locator("visible=true")
+        .first(),
+    ).toBeVisible();
     await expect(dialog.getByRole("switch")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: /re-sync/i })).toHaveCount(0);
   });
@@ -592,6 +602,106 @@ test.describe("attention modal switcher gallery", () => {
     const disclosure = dialog.locator('[data-testid^="section-ignored-summary-"]');
     await disclosure.click();
     await expect(dialog.getByRole("button", { name: /un-ignore/i }).first()).toBeVisible();
+  });
+
+  // Tap-floor measurement (spec 2026-08-01-focus-ring-a11y-pass §6, plan Task
+  // 4): the rendered Ignored (N) summary must meet the 44px floor. A class
+  // assertion cannot catch token drift or a winning competing rule; only the
+  // measured box can.
+  test("Ignored (N) summary meets the 44px tap floor (§6)", async ({ page }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    const summary = dialog.locator('[data-testid^="section-ignored-summary-"]').first();
+    await expect(summary).toBeVisible();
+    // The modal re-renders shortly after gotoScenario, detaching early nodes;
+    // poll the re-resolved locator so the measurement lands on the settled
+    // tree (detach-safe: fresh single evaluate per attempt).
+    await expect
+      .poll(() => summary.evaluate((el) => el.getBoundingClientRect().height).catch(() => -1), {
+        timeout: 10_000,
+      })
+      .toBeGreaterThanOrEqual(44);
+  });
+
+  // 390px switcher-bar layout contract (spec 2026-08-01-focus-ring-a11y-pass
+  // §7.1, plan Task 5): containment + no overflow + counter untruncated +
+  // label readable floor + interactive controls at the tap floor. The tier
+  // badge is a non-interactive span: containment only, no 44px requirement.
+  test("switcher bar keeps all six clusters visible and readable at 390px (§7.1)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const bar = page.locator('[data-testid="attention-switcher-controls"]');
+    await expect(bar).toBeVisible();
+    expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const ids = [
+      "attention-switcher-prev",
+      "attention-switcher-next",
+      "attention-switcher-counter",
+      "attention-switcher-label",
+      "attention-switcher-tier",
+      "attention-switcher-group-select",
+      "attention-switcher-excluded-toggle",
+    ];
+    for (const id of ids) {
+      const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
+      if (box === null) throw new Error(`${id} not rendered`);
+      expect(box.x, id).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, id).toBeLessThanOrEqual(390);
+      expect(box.width, id).toBeGreaterThan(0);
+    }
+    const counter = page.locator('[data-testid="attention-switcher-counter"]');
+    expect(await counter.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const label = await page.locator('[data-testid="attention-switcher-label"]').boundingBox();
+    if (label === null) throw new Error("label not rendered");
+    expect(label.width).toBeGreaterThanOrEqual(48);
+    for (const id of [
+      "attention-switcher-prev",
+      "attention-switcher-next",
+      "attention-switcher-group-select",
+      "attention-switcher-excluded-toggle",
+    ]) {
+      const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
+      if (box === null) throw new Error(`${id} not rendered`);
+      expect(box.height, id).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  // Focus-ring offset probe (spec 2026-08-01-focus-ring-a11y-pass §8 row 4, plan
+  // Task 3 probe B): a REGISTRY-lane control (DataQualityWarningControls
+  // RING_OFFSET[mode], ignored mode -> surface-sunken) must render its offset
+  // gap as the computed --color-surface-sunken in dark mode. Regression pin:
+  // proves the registry file's map actually compiles, which the static guard
+  // trusts without proof.
+  test("un-ignore control focus offset equals surface-sunken in dark mode (registry-lane pin)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    const dialog = page.locator(DIALOG);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      document.documentElement.setAttribute("data-theme", "dark");
+    });
+    const disclosure = dialog.locator('[data-testid^="section-ignored-summary-"]');
+    await disclosure.click();
+    const control = dialog.getByRole("button", { name: /un-ignore/i }).first();
+    await expect(control).toBeVisible();
+    let guard = 0;
+    while (!(await control.evaluate((el) => el === document.activeElement))) {
+      await page.keyboard.press("Tab");
+      if (++guard > 80) throw new Error("Tab never reached the un-ignore control");
+    }
+    const probe = await control.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        offsetColor: cs.getPropertyValue("--tw-ring-offset-color").trim(),
+        expected: getComputedStyle(document.documentElement)
+          .getPropertyValue("--color-surface-sunken")
+          .trim(),
+      };
+    });
+    expect(probe.offsetColor).toBe(probe.expected);
   });
 
   test("modal-state: share batches show the multi-email note (§3.6)", async ({ page }) => {

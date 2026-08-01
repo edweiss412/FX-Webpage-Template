@@ -65,7 +65,7 @@ export function IgnoredSheetsDisclosure({
             // aria-controls resolves unconditionally.
             aria-controls="ignored-sheets-panel"
             onClick={() => setOpen((v) => !v)}
-            className="group flex min-h-tap-min min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="group flex min-h-tap-min min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             <ChevronRight
               aria-hidden="true"

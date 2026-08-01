@@ -106,7 +106,7 @@ export function AutoRefreshControl() {
           className={`relative inline-flex h-5 w-[34px] items-center rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`}
         >
           <span
-            className={`absolute size-4 rounded-full bg-surface shadow-tile transition-transform ${on ? "translate-x-[16px]" : "translate-x-[2px]"}`}
+            className={`absolute size-4 rounded-full bg-surface shadow-tile transition-transform duration-normal ${on ? "translate-x-[16px]" : "translate-x-[2px]"}`}
           />
         </span>
       </button>

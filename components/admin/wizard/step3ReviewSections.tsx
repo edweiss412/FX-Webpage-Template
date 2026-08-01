@@ -762,7 +762,7 @@ export function pointerSentenceParts(
  *  panel's only body content, so nothing interactive sits inside the raised
  *  zone (e2e disjointness proof). */
 const POINTER_INLINE_BUTTON_CLASS =
-  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none";
+  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none";
 
 /**
  * The published panel's "warnings are elsewhere" sentence (announcer spec
@@ -1581,7 +1581,7 @@ export function CrewUnderRowStack({ nodes, ckey }: { nodes: React.ReactNode[]; c
             {hidden.length} more
             <ChevronRight
               aria-hidden="true"
-              className="ml-1 inline-block size-4 shrink-0 transition-transform group-open:rotate-90"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
             />
           </summary>
           <div className="mt-2 flex flex-col items-stretch gap-2">{hidden}</div>
@@ -1919,7 +1919,7 @@ export function ScheduleDayRow({
           type="button"
           data-testid={`wizard-step3-card-${dfid}-sched-expand-${iso}`}
           onClick={() => setShowAll(true)}
-          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           {`Show all ${agenda.length} times`}
         </button>
@@ -3061,7 +3061,7 @@ export function WarningsBreakdown({
                             href={href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                            className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                           >
                             Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
                           </a>
@@ -3263,7 +3263,7 @@ function AgendaItemRow({
               data-testid="agenda-show-all"
               aria-expanded={expanded}
               onClick={() => setShowAll((v) => !v)}
-              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               {expanded ? "Show less" : "Show all"}
             </button>
@@ -3285,7 +3285,7 @@ function AgendaItemRow({
           href={item.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           Open PDF <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
@@ -3483,7 +3483,7 @@ export function AgendaBreakdown({
           href={sourceHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           Open the source sheet <span aria-hidden="true">↗</span> <NewTabHint />
         </a>
