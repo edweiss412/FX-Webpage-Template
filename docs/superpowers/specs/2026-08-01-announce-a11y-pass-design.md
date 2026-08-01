@@ -9,7 +9,7 @@ Two screen-reader gaps, one PR:
 1. **Silent arm expiry** (BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS). Every two-tap destructive confirm auto-reverts after `ARM_REVERT_MS` (4s). At revert the armed live region empties or the confirm panel unmounts; emptying a live region announces nothing, so a screen-reader user believes they are still armed. This spec announces the close.
 2. **Silent remote rotation** (BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE). Another admin's share-token rotation reaches this browser through `router.refresh()`; the visual flash cue is `animation: none` under reduced motion (app/globals.css, `[data-share-link-flash]` reduced-motion block) and no banner mounts (the rotate success banner renders off `result`, local state written only by this browser's own action). This spec adds a ShareHub-owned live region mirroring the visual cue.
 
-Not a timing change: `ARM_REVERT_MS` stays 4s (ratified below).
+Not a timing change: `ARM_REVERT_MS` stays 4s (ratified below). One in-scope disarm fix rides along: StagedReviewCard's `handleApply` leaves the arm timer live across the Apply mutation (§3.3, found R1) — without it, the new expiry announcement could fire mid-mutation.
 
 ## 1.1 Resolved scope — do not relitigate
 
@@ -60,7 +60,7 @@ Eleven importers of `ARM_REVERT_MS` (T1's walk; none of the eleven files contain
 | 4 | components/admin/PendingPanelDiscardButtons.tsx | morph | `setArmed(false)` (onGuardedIgnoreClick) | sr-only region "Tap again to stop tracking this sheet permanently." / "Working…" | region gains expired state | tests/components/admin/pendingIngestionActions.test.tsx |
 | 5 | components/admin/ResolveAlertButton.tsx | panel | `closeConfirm()` (onResolveClick) | focus move to cancel (C3) | NEW persistent sr-only region, expiry only | tests/components/ResolveAlertButton.test.tsx |
 | 6 | components/admin/ArchiveShowButton.tsx | morph (compact/full) + row panel | `setArmed(prev => prev ? false : prev)`; row branch has NO timer (`if (asRow) return` before the setTimeout) | NOTHING on the morph branches (label swap only; morph focus exemption means no focus move either) | NEW persistent sr-only region on the morph branches carrying BOTH the arm prompt ("Tap again to confirm.") and expiry. Row branch: exempt, no timer (§1.1 carve-out) | tests/components/admin/ArchiveShowButton.test.tsx |
-| 7 | components/admin/StagedReviewCard.tsx | morph | `setIgnoreArmed(false)` (onGuardedIgnoreClick) | sr-only region "Tap again to confirm." | region gains expired state | tests/components/StagedReviewCard.test.tsx |
+| 7 | components/admin/StagedReviewCard.tsx | morph | `setIgnoreArmed(false)` (onGuardedIgnoreClick) | sr-only region "Tap again to confirm." | region gains expired state; PLUS in-scope fix: `handleApply` gains disarm + timer clear (§3.3, R1 F1) | tests/components/StagedReviewCard.test.tsx |
 | 8 | app/admin/show/[slug]/PickerResetControl.tsx | panel | `closeConfirm()` (enterConfirm) | focus move (C3); persistent success region already exists (`outcome ok` text) | existing persistent region multiplexes: expiry state added | tests/admin/pickerResetControl.test.tsx |
 | 9 | app/admin/show/[slug]/ResetPickerEpochButton.tsx | panel | `closeConfirm()` (onResetClick arm handler) | focus move (C3); persistent success region already exists (`okMessage`) | existing persistent region multiplexes: expiry state added | tests/components/ResetPickerEpochButton.test.tsx |
 | 10 | app/admin/show/[slug]/RotateShareTokenButton.tsx | panel row (explicit Cancel AND a live 4s timer — see the DESIGN.md correction below) | `closeConfirm()` (onRotateClick) | focus move (C3); success banners are conditional, not persistent | NEW persistent sr-only region, expiry only | tests/components/RotateShareTokenButton.test.tsx |
@@ -80,9 +80,18 @@ The expiry announcement is set in EXACTLY ONE place per surface: the `ARM_REVERT
 - Explicit Cancel / Escape (panel idiom): user-initiated; announcing "nothing was changed" for a deliberate cancel is noise.
 - Sibling-action disarm (e.g. PendingPanelDiscardButtons: any discard starting disarms the pending permanent-ignore): the sibling's own announcements cover it.
 
-Lifecycle of the expiry text: it replaces the region's content at timer fire and PERSISTS until the next state change of the same region (next arm replaces it with the arm prompt; a subsequent action replaces it with running/outcome text). No auto-clear timer — a lingering sr-only string re-announces nothing and adds no visual.
+Region lifecycle (R1 F2 repair — one rule, both idioms): **arming writes the region; the timer callback writes the region; nothing else writes it.** Concretely:
 
-Guard conditions: the timer callback only exists while armed (every surface clears the timer on confirm/cancel/sibling paths today — §3.2 anchors), so the expiry text can never overwrite an in-flight "Working…" or a success message.
+- On ARM: morph rows replace the content with the arm prompt; panel rows (whose arm is focus-announced) and multiplex rows CLEAR the expiry text (multiplex rows already clear their outcome on re-arm today, e.g. PickerResetControl's `setOutcome(null)` in `enterConfirm`). Either way the region's content CHANGES on arm.
+- On timer fire: the region gets `ARM_EXPIRED_ANNOUNCEMENT`.
+
+Because every arm changes the content, the sequence expire → re-arm → expire is two distinct content transitions and the second expiry always announces (an unchanged live-region rewrite may be skipped by screen readers; this rule makes the unchanged rewrite unreachable on the destructive surfaces). No auto-clear timer — a lingering sr-only string re-announces nothing and adds no visual.
+
+**In-scope code fix (R1 F1): StagedReviewCard `handleApply` does not disarm.** Unlike `handleDiscard` (which clears the arm timer) and unlike PendingPanelDiscardButtons (where ANY discard starting disarms the pending confirm — its own R2 rule), `handleApply` neither clears `ignoreArmTimerRef` nor resets `ignoreArmed`. An Apply taking longer than 4s would let the timer fire mid-mutation — under this spec, announcing "Nothing was changed" during a mutation that IS changing things. Fix in this pass: `handleApply` clears the timer and disarms on entry, mirroring `handleDiscard`; behavioral test in §5.1. Class-sweep result (all 11 surfaces): this is the ONLY sibling-mutation path that leaves the arm timer live — BulkIgnoreControls clears before `ignoreGroup`, PendingPanelDiscardButtons clears in `handleClick`, BlockedRowResolver disarms on an external `disabled` flip (its compound-transition effect), and the panel surfaces have no sibling mutations reachable while armed.
+
+Guard conditions: with the F1 fix, the timer is cleared on every confirm/cancel/sibling path, so the expiry text can never overwrite an in-flight "Working…" or an outcome message. §5.1's stale-timer assertions prove this per surface by advancing past `ARM_REVERT_MS` AFTER each disarm path.
+
+Per-group keying on BulkIgnoreControls (R1 F3): the component renders one persistent region per group while `armedCode` and the timer are component-global. The expiry state is therefore a code-keyed `expiredCode` (set to the arming group's code in the timer callback, cleared on any arm); each group's region renders the expiry copy only when `expiredCode` equals its own code. Exactly one region may ever carry the copy — §5.1 asserts the announcing region AND that every sibling group's region is simultaneously empty.
 
 ### 3.4 Focus interplay
 
@@ -125,10 +134,18 @@ Deliberately does not say WHO rotated (the client cannot know) and does not repe
 
 ### 5.1 Per-surface behavioral tests (part 1)
 
-For each matrix row with a timer: a component test (vitest + RTL + `vi.useFakeTimers`) proving
-- arm, then `advanceTimersByTime(ARM_REVERT_MS)` → the surface's sr-only `role="status"` region renders `ARM_EXPIRED_ANNOUNCEMENT`;
-- arm, then second-tap confirm → region never renders the expiry copy (it renders the running/outcome copy instead);
-- where a sibling-disarm path exists (matrix column), that path also never renders the expiry copy.
+For each matrix row with a timer, extend the surface's existing auto-revert tests (every one of the 11 files already runs `vi.useFakeTimers` + a 4s advance around the revert) with:
+
+- **Expiry announces:** arm, advance past `ARM_REVERT_MS` → the sr-only `role="status"` region's text equals the LITERAL string "Confirm window closed. Nothing was changed." written in the test, NOT the imported constant (R1 F6 anti-tautology: comparing rendered output to the same import would pass if the constant were edited to anything, including empty).
+- **Every explicit disarm path is silent, including after the timer horizon** (R1 F4): for EACH path below — disarm, then advance past `ARM_REVERT_MS`, then assert the region never contained the expiry copy (the advance catches a stale timer that a same-tick assertion would miss). Paths per surface:
+  - second-tap confirm (all timered rows);
+  - Cancel: rows 5, 8, 9, 10, 11; Cancel + Escape + parent-driven close: row 2;
+  - sibling actions: row 4 (defer discard), row 7 (Apply — proves the F1 fix — and discard);
+  - external `disabled` flip while armed: row 3;
+  - arming a DIFFERENT group while one is armed: row 1 (re-arm switches groups; old group's region stays empty).
+- **Re-arm audibility (R1 F2):** expire → re-arm → expire; assert the region content changed on the arm (arm prompt on morph rows, cleared on panel/multiplex rows) and carries the expiry copy again after the second advance.
+- **Row 1 exclusivity (R1 F3):** with ≥2 groups rendered, expire one group → its region carries the copy and every sibling group's region is empty.
+- **Row 6 row-branch negative:** the `asRow` archive variant never renders the expiry copy at any timer advance (no timer exists).
 
 Assertions read the region's text content, scoped to the sr-only status element — not a container that also renders visible banners (anti-tautology rule). Existing per-surface test files (matrix column) are extended rather than duplicated.
 
@@ -136,14 +153,19 @@ Assertions read the region's text content, scoped to the sr-only status element 
 
 Extend tests/styles/_metaDestructiveConfirm.test.ts with T4: walk `components/` + `app/` + `lib/`; every file whose stripped source references `ARM_REVERT_MS` (the existing T1 walker + comment-stripping infrastructure) must also reference `ARM_EXPIRED_ANNOUNCEMENT`, or appear in an inline exemption list with a reason (the declaration module itself is trivially both). Lexical presence only — "no known spelling is absent" honesty posture (§1.1). Self-check cases pin the predicate (reference-in-comment does not count; type-only mention counts as reference — documented limit, same trust level as the T1 matcher).
 
+And T5 (R1 F6): the constant's VALUE is pinned exactly — `expect(mod.ARM_EXPIRED_ANNOUNCEMENT).toBe("Confirm window closed. Nothing was changed.")` — the same shape as T3's 4s pin, so editing the copy (or emptying it) fails a test that does not import the constant as its own expectation. §5.1's literal-string assertions are the per-surface twin of this pin.
+
 ### 5.3 ShareHub tests (part 2)
 
 Extend the tests/components/admin/showpage/shareHubFlashState.test.tsx harness (it already drives both paths: `reseed(nextToken, nextEpoch)` = server seed, and a probe child calling `applyRotated` = local):
 
-- remote accepted change, popover open + link active → region text equals §4.3 copy;
+- remote accepted change, popover open + link active → region text equals the LITERAL §4.3 string written in the test (same anti-tautology rule as §5.1);
 - same change with popover closed → region absent/empty, and reopening does NOT announce retroactively;
+- qualifying counter bump while `open && !linkActive` (R1 F5a — the inactive-own-rotate edge from §4.1) → no announce, and no retroactive announce when `linkActive` later becomes true;
+- `linkActive` dropping false while the popover STAYS open (R1 F5b — reachable via the existing busy-held unpublish path in the harness) → announced text cleared; a clear keyed only to `!open` fails this;
 - local `applyRotated` change (+ its equal-token follow-up seed) → region stays empty;
 - stale seed (lower epoch, rejected) → no bump, region empty;
+- SAME token at a HIGHER epoch (R1 F5c — the real `reset_picker_epoch_atomic` sequence: epoch advances, token unchanged) → no bump, region empty; a counter keyed to epoch advance instead of token change fails this;
 - null-involved transitions (token→null, null→token) → no bump;
 - clear predicate: announce, then close popover → cleared.
 
@@ -155,7 +177,7 @@ UI files under `components/` + `app/` change → invariant-8 impeccable dual-gat
 
 ## 6. Documented limits
 
-- **Identical consecutive announcement may be swallowed.** Two remote rotations in quick succession set the same string twice; some screen readers skip an unchanged live-region rewrite. Worst case: the second of two back-to-back remote rotations goes unannounced while the first was announced seconds earlier — conservative, surfaced-once, files here rather than buying a re-announce nonce.
+- **Identical consecutive ShareHub announcement may be swallowed.** Two remote rotations in quick succession set the same string twice; some screen readers skip an unchanged live-region rewrite. Worst case: the second of two back-to-back remote rotations goes unannounced while the first was announced seconds earlier — conservative, surfaced-once, files here rather than buying a re-announce nonce. (On the destructive surfaces this class is UNREACHABLE by construction: §3.3's arm-writes-the-region rule guarantees a content change between consecutive expiries.)
 - **T4 is lexical.** A surface could import both constants and wire the announcement to the wrong path; the per-surface behavioral tests are the real proof, T4 only prevents silent omission on NEW surfaces. Same honesty posture as T1 (tests/styles/_metaDestructiveConfirm.test.ts header).
 - **Panel-idiom arm remains focus-announced, not region-announced.** This pass adds the expiry announcement everywhere a timer exists but does not convert panel arms to live-region arms — the focus contract already announces the safe control on open (DESIGN.md §15).
 
