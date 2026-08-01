@@ -99,7 +99,7 @@ function tokenIn(block: string, token: string): string {
 }
 
 const lightBlock = blockOf(":root {");
-const explicitDark = blockOf(':root:not([data-theme="light"]) {');
+const explicitDark = blockOf('[data-theme="dark"]'); // ~:380, NOT the :root:not(...) selector, which lives INSIDE the media query (~:336)
 const mediaDark = blockOf("@media (prefers-color-scheme: dark)");
 
 const ringDecls = [...css.matchAll(/--color-focus-ring-runtime:\s*([^;]+);/g)]
@@ -155,15 +155,15 @@ describe("focus ring contrast (spec 2026-08-01 §3)", () => {
 **Files:**
 - Modify: `tests/e2e/picker-flow.spec.ts` (probe A), `tests/e2e/attention-modal-gallery.spec.ts` (probe B)
 - Create: tests/styles/noBareRingOffset.test.ts
-- Modify: the 76 non-REGISTRY rows of the sweep table below (incl. `components/admin/ReSyncButton.tsx` DISMISS_BUTTON split and `components/admin/dev/SwitcherControls.tsx` outline migration)
+- Modify: the 83 non-REGISTRY rows of the sweep table below (incl. `components/admin/ReSyncButton.tsx` DISMISS_BUTTON split and `components/admin/dev/SwitcherControls.tsx` outline migration)
 - Modify: component tests asserting old literals (grep each touched file's tests for `ring-offset-2`; update in the same commit)
 
 **Interfaces — Consumes:** `FOCUS_BACKDROP_ALLOWLIST` (Task 1).
 
-- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the control carries keyboard-visible focus, then read inside ONE evaluate). The claimed-row control is the row's sign-in link (a GET to `/auth/sign-in` — `_PickerInterstitial.tsx` claimed-row anchor, the sweep-table's line-176 site):
+- [ ] **Step 1: Write probe A (RED).** In `tests/e2e/picker-flow.spec.ts`, where the claimed roster row renders, following the donor pattern at `tests/e2e/section-header-layout.layout.spec.ts:1455` (`emulateMedia({ reducedMotion: "reduce" })`, set `data-theme="dark"` via `evaluate`, `keyboard.press("Tab")` until the control carries keyboard-visible focus, then read inside ONE evaluate). The claimed-row control is a `<button type="submit">` inside a `<form action="/auth/sign-in" method="GET">` (`_PickerInterstitial.tsx` ~:194; the offset literal is the sweep-table's line-176 site):
 
 ```ts
-const row = page.locator('a[href*="/auth/sign-in"]').first(); // claimed-row sign-in control
+const row = page.locator('form[action*="/auth/sign-in"] button[type="submit"]').first();
 const probe = await row.evaluate((el) => {
   const cs = getComputedStyle(el);
   return {
@@ -263,15 +263,22 @@ describe("no bare ring-offset-2 / no focus outline-accent (spec 4.3)", () => {
 });
 ```
 
-- [ ] **Step 5: Run guard — RED**; expected output is exactly **79 sites**: the table's 76 non-REGISTRY offset rows (REGISTRY rows are exempt and never print) PLUS the three SwitcherControls `outline-accent` sites (which the table lists in Step 6's special rows, not as offset rows). Any site outside that 79 = investigate before editing.
+- [ ] **Step 5: Run guard — RED**; expected output is exactly **86 sites**: the table's 83 non-REGISTRY offset rows (REGISTRY rows are exempt and never print) PLUS the three SwitcherControls `outline-accent` sites (Step 6's special rows, not offset rows). Any site outside that 86 = investigate before editing. **Why plan-time rg said 84 lines and the guard says more: `components/admin/wizard/Step3Review.tsx` contains a NUL byte, so `rg`/`grep` skip it as binary while the guard's Node walker reads it — the definitive instance of the grep-flavour caveat (spec §1.1). Do not "fix" the NUL byte in this pass; edit the seven sites textually and leave the byte alone.**
 - [ ] **Step 6: Execute the sweep table.** Every non-REGISTRY row gets its same-chain companion literal appended. Special rows: `Step3SheetCard.tsx:122` → `peer-focus-visible:ring-offset-surface`; ReSyncButton — remove the offset-color leg from `DISMISS_BUTTON` (:165); its TWO consumers get per-site legs: warning error overlay (~:375) `focus-visible:ring-offset-warning-bg`, info success overlay (~:455) `focus-visible:ring-offset-info-bg`; SwitcherControls — three `focus-visible:outline-accent` (:28, :100, :120) → `focus-visible:outline-focus-ring`.
 - [ ] **Step 7: Run guard — GREEN; probes A and B — GREEN.** Update component-test literals in the same commit.
 - [ ] **Step 8: Commit** — `fix(crew-page): container-matched ring-offset colors tree-wide + structural guard (spec 4.2/4.3)` — body carries the six CALLER-UNKNOWN sites (spec §10 enumeration) and probe B's Step-3 state.
 
-**Sweep table (authoritative worklist, decided at plan time; 84 rows; counts: surface 29, bg 24, warning-bg 7, surface-sunken 6, CALLER-UNKNOWN→surface 6, surface-raised 4, REGISTRY 8, info-bg 0):**
+**Sweep table (authoritative worklist, decided at plan time; 91 rows; counts: surface 30, bg 29, warning-bg 7, surface-sunken 7, CALLER-UNKNOWN→surface 6, surface-raised 4, REGISTRY 8, info-bg 0):**
 
 | file:line | chain | token |
 |---|---|---|
+| components/admin/wizard/Step3Review.tsx:354 | focus-visible: | bg (bg-bg buttons on the wizard ground via Step3ReviewWithFinalize:128 mount; re-verify painted ancestor at Step 6 — file is rg-invisible, see Step 5 note) |
+| components/admin/wizard/Step3Review.tsx:363 | focus-visible: | bg (same button trio) |
+| components/admin/wizard/Step3Review.tsx:372 | focus-visible: | bg (same button trio) |
+| components/admin/wizard/Step3Review.tsx:400 | focus-visible: | surface-sunken (nearest painted ancestor in its block; re-verify at Step 6) |
+| components/admin/wizard/Step3Review.tsx:465 | focus-visible: | bg (same style family as the :354 trio) |
+| components/admin/wizard/Step3Review.tsx:710 | peer-focus-visible: | surface (size-5 checkbox proxy, mirror of Step3SheetCard:122) |
+| components/admin/wizard/Step3Review.tsx:1321 | focus-visible: | bg (no painted ancestor within its subtree; wizard ground) |
 | app/admin/show/staged/[stagedId]/page.tsx:260 | focus-visible: | bg |
 | app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:176 | focus-visible: | bg |
 | app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:94 | focus-visible: | bg |
@@ -412,7 +419,10 @@ expect(await counter.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(tr
 const label = await page.locator('[data-testid="attention-switcher-label"]').boundingBox();
 if (label === null) throw new Error("label not rendered");
 expect(label.width).toBeGreaterThanOrEqual(48);
-for (const id of ["attention-switcher-prev", "attention-switcher-next", "attention-switcher-tier",
+// 44px floor applies to INTERACTIVE controls only; the tier badge is a
+// non-interactive font-mono span (SwitcherControls ~:112) and is asserted for
+// containment above but exempt here.
+for (const id of ["attention-switcher-prev", "attention-switcher-next",
   "attention-switcher-group-select", "attention-switcher-excluded-toggle"]) {
   const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
   if (box === null) throw new Error(`${id} not rendered`);
