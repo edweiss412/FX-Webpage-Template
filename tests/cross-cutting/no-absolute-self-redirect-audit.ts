@@ -1,50 +1,81 @@
 /**
  * tests/cross-cutting/no-absolute-self-redirect-audit.ts
  *
- * Bans `NextResponse.redirect(...)` under `app/`, allow-listing the handful of
- * sites that legitimately redirect to an EXTERNAL absolute URL. Everything else
- * must go through `hostRelativeRedirect` (lib/http), whose Location is
+ * Bans `NextResponse.redirect(...)` and the Web API `Response.redirect` under
+ * the walked roots (app/**, lib/**, root middleware), allow-listing the handful
+ * of sites that legitimately redirect to an EXTERNAL absolute URL. Everything
+ * else must go through `hostRelativeRedirect` (lib/http), whose Location is
  * host-relative and therefore cannot flip the host and drop host-scoped cookies.
- * See docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md section 3.
+ * See docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md
+ * (which supersedes the syntactic construction from
+ * 2026-07-24-picker-flow-app-bugs.md §3).
  *
- * WHAT THIS IS, STATED HONESTLY: a tripwire for the spellings anyone has actually
- * written, NOT a sound analysis. Four review rounds each found another way to
- * spell the same call, which is the nature of the problem rather than a series of
- * oversights — any expression can produce a function, so no syntactic matcher can
- * be complete. The rounds went: text match, then a name-keyed initializer map,
- * then scope-aware resolution, then default-deny on a literal `NextResponse`
- * receiver. Each closed real bypasses; none was the last one.
+ * WHAT THIS IS, STATED HONESTLY: TWO-PRONG resolved-identity matching through
+ * the TypeScript type checker — not a spelling matcher. The previous version
+ * recognized 19 hand-collected spellings, each added after a review probe
+ * defeated the prior round; that list is now only a regression floor pinned by
+ * fixtures in the companion test. The prongs:
  *
- * So the claim is bounded. This guard catches the 19 forms below, and the tree is
- * clean of them:
- *   - `NextResponse.redirect(new URL(p, request.url))` and the `req.url` spelling
- *   - the value assigned to a variable, aliased through another, or captured base
- *   - a declaration inside a nested block
- *   - a parenthesized or type-asserted argument
- *   - `request.nextUrl`, including `.clone()` with a mutated pathname
- *   - an aliased import (`import { NextResponse as NR }`)
- *   - element access (`NextResponse["redirect"]`)
- *   - a parenthesized receiver
- *   - a destructured method (`const { redirect } = NextResponse`)
- *   - a namespace import (`import * as NS`, then `NS.NextResponse.redirect`)
- *   - a const-aliased receiver (`const NR = NextResponse`)
- *   - an extracted method (`const go = NextResponse.redirect`)
- *   - the Web API `Response.redirect`
+ *   1. CALLS — every call expression whose resolved signature's declaration is
+ *      `redirect` on a container named `NextResponse` or `Response`, however
+ *      the callee value flowed there (aliases, helper returns, class fields,
+ *      re-exports, typed dispatch tables, literal-typed computed keys).
+ *   2. REFERENCES — every OTHER reference to that method: property/element
+ *      access, binding elements, and destructuring-assignment members whose
+ *      type (or source property-symbol type, for assignment patterns) carries
+ *      a call signature declared by the banned method. Extracting, storing,
+ *      passing, or adapting the method is a finding at the site where the
+ *      member name is spelled, and is NEVER allow-listable.
  *
- * KNOWN RESIDUAL, filed as BL-SOUND-REDIRECT-GUARD: a value that reaches the call
- * through a helper's return, a class field, a re-export, or dynamic dispatch is not
- * resolved. Nothing in the tree does that today, and such a diff would be visible
- * in review, but the guard does not prove their absence. Treat a green run as "no
- * KNOWN spelling is present", not "the class is impossible".
+ * The claim is conditional on the program resolving its imports: for
+ * TypeScript files the `typecheck` merge gate (`tsc --noEmit`,
+ * .github/workflows/quality.yml) enforces that tree-wide; plain-JS modules
+ * have NO such backstop (tsconfig `include` is TS-only, `checkJs` off), which
+ * is why the companion test's sentinel keeps the walked roots free of them.
+ *
+ * KNOWN RESIDUAL (spec §7, pinned as behavior by the E1/E2 fixtures): a
+ * receiver laundered BEFORE the member access (`(NextResponse as any).redirect`),
+ * a computed key widened past a literal type, and reflection/eval are invisible
+ * to any static analysis — each requires a deliberate, review-loud cast on the
+ * NextResponse/Response receiver itself. Local runtime mimics named
+ * `NextResponse` either delegate to the real method (their internal reference
+ * is in a walked file and flags there) or hand-roll a Location header without
+ * it (outside this guard's claim). `node_modules` wrappers are outside the
+ * walked roots. Treat a green run as "no call or reference resolving to the
+ * banned method exists outside the allowlist", not "the dynamic class is
+ * impossible".
  */
-import ts from "typescript";
+import {
+  Node,
+  Project,
+  SyntaxKind,
+  ts,
+  type CallExpression,
+  type SourceFile,
+  type Type,
+} from "ts-morph";
 
 export type SelfRedirectFinding = {
-  /** 1-based line of the `NextResponse.redirect(...)` call. */
+  /** 1-based line of the call or reference. */
   line: number;
   text: string;
-  /** Exact source text of the first argument, for the allow-list's argument pin. */
+  /**
+   * Exact source text of the first argument (calls only; "" for references —
+   * which therefore never match an allow-list row's argument pin).
+   */
   argument: string;
+  kind: "call" | "reference";
+};
+
+export type TreeAudit = {
+  /** Repo-relative path → findings. Every audited file is present, [] when clean. */
+  findingsByFile: Map<string, SelfRedirectFinding[]>;
+  /** Audited (non-node_modules) files under app/. */
+  visitedAppFiles: number;
+  /** Audited files under lib/. */
+  visitedLibFiles: number;
+  /** Audited files with plain-JS extensions — the companion test pins this []. */
+  plainJsFiles: string[];
 };
 
 /**
@@ -70,188 +101,280 @@ export const EXTERNAL_REDIRECT_ALLOWLIST: Readonly<
   },
 };
 
-export function parseSource(fileName: string, source: string): ts.SourceFile {
-  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-}
-
-/**
- * Resolve which local names refer to `NextResponse` and to a bare `redirect`
- * destructured off it.
- *
- * Matching the literal text `NextResponse.redirect` was not default-deny: review
- * bypassed it with an aliased import (`import { NextResponse as NR }` then
- * `NR.redirect(...)`), element access (`NextResponse["redirect"](...)`), a
- * parenthesized receiver, and a destructured method
- * (`const { redirect } = NextResponse`). Each recreates the host flip. So the
- * receiver is resolved from the IMPORT rather than assumed, and the destructured
- * form is tracked too.
- */
-function resolveBindings(sf: ts.SourceFile): { receivers: Set<string>; bare: Set<string> } {
-  const receivers = new Set<string>();
-  const bare = new Set<string>();
-
-  const namespaces = new Set<string>();
-  const visitImports = (node: ts.Node): void => {
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text.startsWith("next/") &&
-      node.importClause?.namedBindings !== undefined
-    ) {
-      const bindings = node.importClause.namedBindings;
-      if (ts.isNamedImports(bindings)) {
-        for (const el of bindings.elements) {
-          if ((el.propertyName ?? el.name).text === "NextResponse") receivers.add(el.name.text);
-        }
-      }
-      // `import * as NS from "next/server"` → `NS.NextResponse.redirect(...)`
-      if (ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+/** Name of the class/interface/type-literal-variable enclosing a declaration. */
+function containerName(decl: Node): string | null {
+  let parent = decl.getParent();
+  while (parent !== undefined) {
+    if (Node.isClassDeclaration(parent) || Node.isInterfaceDeclaration(parent)) {
+      return parent.getName() ?? null;
     }
-    ts.forEachChild(node, visitImports);
-  };
-  ts.forEachChild(sf, visitImports);
-  // Fixtures and files without the import still name it directly. `Response` is
-  // the Web API twin, whose redirect is absolute in exactly the same way.
-  receivers.add("NextResponse");
-  receivers.add("Response");
-  for (const ns of namespaces) receivers.add(`${ns}.NextResponse`);
-
-  const visitAliases = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined
-    ) {
-      const init = unwrap(node.initializer);
-      // `const NR = NextResponse`
-      if (ts.isIdentifier(init) && receivers.has(init.text)) receivers.add(node.name.text);
-      // `const go = NextResponse.redirect`
-      if (
-        ts.isPropertyAccessExpression(init) &&
-        init.name.text === "redirect" &&
-        receiverText(init.expression) !== null &&
-        receivers.has(receiverText(init.expression)!)
-      ) {
-        bare.add(node.name.text);
-      }
+    if (Node.isTypeLiteral(parent)) {
+      // `var Response: { redirect(...): Response }` — the name is on the variable.
+      const holder = parent.getParent();
+      return Node.isVariableDeclaration(holder) ? holder.getName() : null;
     }
-    ts.forEachChild(node, visitAliases);
-  };
-  ts.forEachChild(sf, visitAliases);
-
-  const visitDestructures = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isObjectBindingPattern(node.name) &&
-      node.initializer !== undefined &&
-      ts.isIdentifier(unwrap(node.initializer)) &&
-      receivers.has((unwrap(node.initializer) as ts.Identifier).text)
-    ) {
-      for (const el of node.name.elements) {
-        if ((el.propertyName ?? el.name).getText(sf) === "redirect" && ts.isIdentifier(el.name)) {
-          bare.add(el.name.text);
-        }
-      }
-    }
-    ts.forEachChild(node, visitDestructures);
-  };
-  ts.forEachChild(sf, visitDestructures);
-
-  return { receivers, bare };
-}
-
-/** Dotted receiver name (`NextResponse`, `NS.NextResponse`), or null. */
-function receiverText(expr: ts.Expression): string | null {
-  const r = unwrap(expr);
-  if (ts.isIdentifier(r)) return r.text;
-  if (ts.isPropertyAccessExpression(r)) {
-    const left = receiverText(r.expression);
-    return left === null ? null : `${left}.${r.name.text}`;
+    parent = parent.getParent();
   }
   return null;
 }
 
-/** Strip parentheses and type assertions so a wrapped receiver still resolves. */
-function unwrap(expr: ts.Expression): ts.Expression {
-  let cur = expr;
-  while (
-    ts.isParenthesizedExpression(cur) ||
-    ts.isAsExpression(cur) ||
-    ts.isTypeAssertionExpression(cur) ||
-    ts.isNonNullExpression(cur)
-  ) {
-    cur = cur.expression;
-  }
-  return cur;
-}
-
-/** A call to `redirect` on the NextResponse binding, however it is spelled. */
-function isRedirectCall(
-  expr: ts.Expression,
-  bindings: { receivers: Set<string>; bare: Set<string> },
-): boolean {
-  const callee = unwrap(expr);
-  // Destructured: `const { redirect } = NextResponse; redirect(...)`
-  if (ts.isIdentifier(callee) && bindings.bare.has(callee.text)) return true;
-
-  const receiverIs = (recv: ts.Expression): boolean => {
-    const text = receiverText(recv);
-    return text !== null && bindings.receivers.has(text);
-  };
-  // `X.redirect(...)`
-  if (
-    ts.isPropertyAccessExpression(callee) &&
-    callee.name.text === "redirect" &&
-    receiverIs(callee.expression)
-  ) {
-    return true;
-  }
-  // `X["redirect"](...)`
-  if (
-    ts.isElementAccessExpression(callee) &&
-    callee.argumentExpression !== undefined &&
-    ts.isStringLiteralLike(callee.argumentExpression) &&
-    callee.argumentExpression.text === "redirect" &&
-    receiverIs(callee.expression)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-export function findSelfRedirects(sf: ts.SourceFile): SelfRedirectFinding[] {
-  const bindings = resolveBindings(sf);
-  const findings: SelfRedirectFinding[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && isRedirectCall(node.expression, bindings)) {
-      const firstArg = node.arguments[0];
-      findings.push({
-        line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
-        text: node.getText(sf).split("\n")[0]!.trim(),
-        argument: firstArg === undefined ? "" : firstArg.getText(sf).trim(),
-      });
+/**
+ * Name a signature declaration answers to. Function-typed properties resolve to
+ * the nameless FunctionTypeNode; the name lives on the enclosing property.
+ * FunctionDeclarations (e.g. next/navigation's `redirect`) are never banned.
+ */
+function declaredName(decl: Node): string | null {
+  if (Node.isMethodDeclaration(decl) || Node.isMethodSignature(decl)) return decl.getName();
+  if (Node.isFunctionTypeNode(decl)) {
+    const holder = decl.getParent();
+    if (Node.isPropertySignature(holder) || Node.isPropertyDeclaration(holder)) {
+      return holder.getName();
     }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(sf, visit);
-  return findings;
+    return null;
+  }
+  return null;
 }
 
-export function auditSource(fileName: string, source: string): SelfRedirectFinding[] {
-  return findSelfRedirects(parseSource(fileName, source));
+function isBannedDecl(decl: Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (declaredName(decl) !== "redirect") return false;
+  const container = containerName(decl);
+  return container === "NextResponse" || container === "Response";
+}
+
+function typeCarriesBannedSignature(t: Type): boolean {
+  return t.getCallSignatures().some((s) => isBannedDecl(s.getDeclaration()));
+}
+
+// Raw-side twins for the assignment-pattern prong. These run against nodes and
+// types from `checker.compilerObject`, so they are written against ts-morph's
+// exported `ts` namespace — the SAME vendored compiler world (mixing the
+// standalone `typescript` package's types with compilerObject values does not
+// survive strict tsc; see the spec's R1/F3 record).
+function rawContainerName(decl: ts.Node): string | null {
+  let parent: ts.Node | undefined = decl.parent;
+  while (parent !== undefined) {
+    if (ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)) {
+      return parent.name?.getText() ?? null;
+    }
+    if (ts.isTypeLiteralNode(parent)) {
+      const holder: ts.Node = parent.parent;
+      return ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)
+        ? holder.name.text
+        : null;
+    }
+    parent = parent.parent;
+  }
+  return null;
+}
+
+function rawDeclaredName(decl: ts.Node): string | null {
+  if (ts.isMethodDeclaration(decl) || ts.isMethodSignature(decl)) return decl.name.getText();
+  if (ts.isFunctionTypeNode(decl)) {
+    const holder: ts.Node = decl.parent;
+    if (ts.isPropertySignature(holder) || ts.isPropertyDeclaration(holder)) {
+      return holder.name.getText();
+    }
+    return null;
+  }
+  return null;
+}
+
+function rawIsBannedDecl(decl: ts.Node | undefined): boolean {
+  if (decl === undefined) return false;
+  if (rawDeclaredName(decl) !== "redirect") return false;
+  const container = rawContainerName(decl);
+  return container === "NextResponse" || container === "Response";
+}
+
+function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boolean {
+  return checker
+    .getSignaturesOfType(t, ts.SignatureKind.Call)
+    .some((s) => rawIsBannedDecl(s.getDeclaration()));
+}
+
+/** Property name of an assignment-pattern member; literal-TYPED computed keys resolve too. */
+function memberPropName(checker: ts.TypeChecker, name: ts.PropertyName): string | null {
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNoSubstitutionTemplateLiteral(name)
+  ) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    const t = checker.getTypeAtLocation(name.expression);
+    if (t.isStringLiteral()) return t.value;
+  }
+  return null;
+}
+
+function findingFor(node: Node, kind: "call" | "reference", argument: string): SelfRedirectFinding {
+  return {
+    line: node.getStartLineNumber(),
+    text: (node.getText().split("\n")[0] ?? "").trim(),
+    argument,
+    kind,
+  };
+}
+
+/** Both prongs over one source file. */
+function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
+  const checker = sf.getProject().getTypeChecker();
+  const raw = checker.compilerObject;
+  const findings: SelfRedirectFinding[] = [];
+
+  // Prong 1 — calls, by resolved-signature identity.
+  const bannedCalls = new Set<CallExpression>();
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (isBannedDecl(checker.getResolvedSignature(call)?.getDeclaration())) {
+      bannedCalls.add(call);
+      const firstArg = call.getArguments()[0];
+      findings.push(
+        findingFor(call, "call", firstArg === undefined ? "" : firstArg.getText().trim()),
+      );
+    }
+  }
+
+  // Prong 2 — references, type-decided over EVERY candidate (no syntactic key
+  // or name prefilter: literal-TYPED keys defeat literal-NODE filters). A
+  // candidate in direct-callee position is skipped only when prong 1 already
+  // flagged that call — otherwise it is checked too, which closes union-typed
+  // keys that defeat signature resolution.
+  const candidates: Node[] = [
+    ...sf.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression),
+    ...sf.getDescendantsOfKind(SyntaxKind.ElementAccessExpression),
+    ...sf.getDescendantsOfKind(SyntaxKind.BindingElement),
+  ];
+  for (const node of candidates) {
+    const parent = node.getParent();
+    const inCalleePosition =
+      parent !== undefined && Node.isCallExpression(parent) && parent.getExpression() === node;
+    if (inCalleePosition && bannedCalls.has(parent)) continue;
+    if (typeCarriesBannedSignature(node.getType())) {
+      findings.push(findingFor(node, "reference", ""));
+    }
+  }
+
+  // Destructuring-ASSIGNMENT members (`({ redirect: f } = NextResponse)`) are
+  // Property/ShorthandPropertyAssignment nodes, not BindingElements, and every
+  // target-side type query reports the annotated TARGET type — so the flag is
+  // decided on the SOURCE property-symbol's type, resolved through the vendored
+  // compiler's getTypeOfAssignmentPattern (covers plain assignments,
+  // array-nested patterns, and for-of heads).
+  for (const kind of [SyntaxKind.PropertyAssignment, SyntaxKind.ShorthandPropertyAssignment]) {
+    for (const member of sf.getDescendantsOfKind(kind)) {
+      const holder = member.getParent();
+      if (!Node.isObjectLiteralExpression(holder)) continue;
+      let srcType: ts.Type | undefined;
+      try {
+        srcType = raw.getTypeOfAssignmentPattern(holder.compilerNode);
+      } catch {
+        continue; // value-position object literal, not an assignment pattern
+      }
+      if (srcType === undefined) continue;
+      const nameNode = (
+        member.compilerNode as ts.PropertyAssignment | ts.ShorthandPropertyAssignment
+      ).name;
+      const propName = memberPropName(raw, nameNode);
+      if (propName === null) continue;
+      const prop = srcType.getProperty(propName);
+      if (prop === undefined) continue;
+      if (
+        rawTypeCarriesBannedSignature(raw, raw.getTypeOfSymbolAtLocation(prop, member.compilerNode))
+      ) {
+        findings.push(findingFor(member, "reference", ""));
+      }
+    }
+  }
+
+  return findings.sort((a, b) => a.line - b.line);
+}
+
+const AUDIT_PROJECT_OPTIONS = {
+  tsConfigFilePath: "tsconfig.json",
+  skipAddingFilesFromTsConfig: true,
+} as const;
+
+/**
+ * Shared project for fixture sources. tsconfig-hosted so `next/server` and
+ * `@/lib/**` resolve from the real filesystem; fixture paths live under an
+ * `__audit_fixture__/` segment that the companion test asserts does not exist
+ * on disk. A SEPARATE project instance from auditTree's, so fixtures can never
+ * leak into the tree audit.
+ */
+let fixtureProject: Project | undefined;
+function getFixtureProject(): Project {
+  fixtureProject ??= new Project(AUDIT_PROJECT_OPTIONS);
+  return fixtureProject;
+}
+
+const ALLOWLISTED_PATHS = new Set(
+  Object.keys(EXTERNAL_REDIRECT_ALLOWLIST).map((key) => key.slice(0, key.lastIndexOf(":"))),
+);
+
+function assertFixturePath(repoRelativePath: string): void {
+  // Allow-list tests may mirror an allowlisted route path (the argument-pin
+  // fixture must land on the row's exact path:line); everything else stays in
+  // the __audit_fixture__ namespace so fixtures can never shadow real files.
+  if (repoRelativePath.includes("__audit_fixture__")) return;
+  if (ALLOWLISTED_PATHS.has(repoRelativePath)) return;
+  throw new Error(
+    `fixture path ${repoRelativePath} must sit under an __audit_fixture__/ segment ` +
+      `(or mirror an EXTERNAL_REDIRECT_ALLOWLIST path for allow-list tests)`,
+  );
+}
+
+/** Add a sibling module to the fixture project (multi-file fixtures, e.g. re-exports). */
+export function addFixtureModule(repoRelativePath: string, source: string): void {
+  assertFixturePath(repoRelativePath);
+  getFixtureProject().createSourceFile(repoRelativePath, source, { overwrite: true });
+}
+
+/** Audit a single fixture source. */
+export function auditSource(repoRelativePath: string, source: string): SelfRedirectFinding[] {
+  assertFixturePath(repoRelativePath);
+  const sf = getFixtureProject().createSourceFile(repoRelativePath, source, { overwrite: true });
+  return findSelfRedirects(sf);
+}
+
+/** Audit the real tree once; the companion test memoizes the result. */
+export function auditTree(): TreeAudit {
+  const project = new Project(AUDIT_PROJECT_OPTIONS);
+  project.addSourceFilesAtPaths([
+    "app/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+    "lib/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+    "middleware.{ts,tsx}",
+  ]);
+  const findingsByFile = new Map<string, SelfRedirectFinding[]>();
+  let visitedAppFiles = 0;
+  let visitedLibFiles = 0;
+  const plainJsFiles: string[] = [];
+  const root = `${process.cwd()}/`;
+  for (const sf of project.getSourceFiles()) {
+    const abs = sf.getFilePath();
+    if (abs.includes("node_modules")) continue;
+    const rel = abs.startsWith(root) ? abs.slice(root.length) : abs;
+    if (rel.startsWith("app/")) visitedAppFiles++;
+    if (rel.startsWith("lib/")) visitedLibFiles++;
+    if (/\.(jsx?|mjs|cjs)$/.test(rel)) plainJsFiles.push(rel);
+    findingsByFile.set(rel, findSelfRedirects(sf));
+  }
+  return { findingsByFile, visitedAppFiles, visitedLibFiles, plainJsFiles };
 }
 
 /** Findings with no allow-list row, keyed `path:line`. */
 export function unallowedRedirects(
   repoRelativePath: string,
-  source: string,
+  findings: readonly SelfRedirectFinding[],
 ): SelfRedirectFinding[] {
-  return auditSource(repoRelativePath, source).filter((f) => {
+  return findings.filter((f) => {
     const row = EXTERNAL_REDIRECT_ALLOWLIST[`${repoRelativePath}:${f.line}`];
     // EXACT argument match, not a substring of the line. Review showed the
     // substring form still exempting `metadata.url`, a conditional that merely
     // mentions `data.url`, or an internal URL trailed by a `/* data.url */`
     // comment — which defeats the point of pinning the argument at all.
+    // Reference findings carry argument "" and therefore never match a row.
     return row === undefined || f.argument !== row.argument;
   });
 }

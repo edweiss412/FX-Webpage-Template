@@ -1,129 +1,410 @@
 /**
  * tests/cross-cutting/no-absolute-self-redirect.test.ts
  *
- * `NextResponse.redirect(...)` is banned under `app/` except for allow-listed
- * external targets. It emits an absolute `Location`, and when that URL is built
- * from `request.url` the host is whatever Next reports rather than what the client
- * typed — which drops host-scoped cookies and silently unauthenticates the next
- * request. `hostRelativeRedirect` (lib/http) is the replacement.
+ * `NextResponse.redirect(...)` (and Web API `Response.redirect`) is banned under
+ * the walked roots except for allow-listed external targets. It emits an
+ * absolute `Location`, and when that URL is built from `request.url` the host is
+ * whatever Next reports rather than what the client typed — which drops
+ * host-scoped cookies and silently unauthenticates the next request.
+ * `hostRelativeRedirect` (lib/http) is the replacement.
  *
- * Keyed on the CALL rather than its argument, after three rounds of argument-shape
- * matching were each defeated by another spelling. That is a much smaller target,
- * but NOT a closed one: the receiver itself can be spelled many ways (see the
- * fixtures below, and the audit module's header for what is and is not resolved).
- * A green run means no KNOWN spelling is present.
+ * The guard is TWO-PRONG and type-decided (see the audit module header): calls
+ * are matched by resolved-signature identity, and every other reference to the
+ * banned method — extraction, storage, passing, adaptation — is itself a
+ * finding at the site where the member name is spelled. The fixture tables
+ * below are the mutation-family closure set from the spec
+ * (docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md §6):
+ * R1–R19 legacy spellings (regression floor), R20–R57 families that defeated
+ * syntactic resolution, N1–N7 negatives, E1–E2 documented-escape pins.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
+  addFixtureModule,
   auditSource,
+  auditTree,
   EXTERNAL_REDIRECT_ALLOWLIST,
   unallowedRedirects,
+  type TreeAudit,
 } from "./no-absolute-self-redirect-audit";
 
-const ROOT = process.cwd();
-const APP = join(ROOT, "app");
+/**
+ * Type resolution requires resolvable identifiers, so every fixture is a whole
+ * compilable module: the body-only legacy rows get this preamble; the rest
+ * carry their own imports/declares.
+ */
+const PREAMBLE = `import { NextResponse, NextRequest } from "next/server";
+declare const request: NextRequest;
+declare const req: NextRequest;
+declare const nextRequest: NextRequest;
+declare const cond: boolean;
+declare const p: string;
+export function handler() {
+`;
+const POSTAMBLE = `\n}`;
+const wrap = (body: string): string => PREAMBLE + body + POSTAMBLE;
+
+/** Shared preamble for the R25+ mutant families (spec §6.1). */
+const PRE = `import { NextResponse } from "next/server";
+declare const request: Request;
+type RedirectFn = (url: string | URL, status?: number) => Response;
+`;
 
 /**
- * Spellings that all recreate the host flip. Each defeated a previous
- * argument-shape matcher; under default-deny they are flagged identically,
- * because the guard never inspects the argument.
+ * R1–R19: the 19 legacy spellings, call-shape text preserved verbatim. Each
+ * silently reintroduces the host flip if it stops being flagged.
  */
 const FLAGGED_SPELLINGS: Array<[string, string]> = [
-  ["inline new URL", `return NextResponse.redirect(new URL(p, request.url));`],
-  ["req.url spelling", `return NextResponse.redirect(new URL(p, req.url));`],
-  ["variable-assigned", `const url = new URL(p, request.url);\nreturn NextResponse.redirect(url);`],
+  ["inline new URL", wrap(`return NextResponse.redirect(new URL(p, request.url));`)],
+  ["req.url spelling", wrap(`return NextResponse.redirect(new URL(p, req.url));`)],
+  [
+    "variable-assigned",
+    wrap(`const url = new URL(p, request.url);\nreturn NextResponse.redirect(url);`),
+  ],
   [
     "alias chain",
-    `const a = new URL(p, request.url);\nconst b = a;\nreturn NextResponse.redirect(b);`,
+    wrap(`const a = new URL(p, request.url);\nconst b = a;\nreturn NextResponse.redirect(b);`),
   ],
-  ["captured base", `const base = request.url;\nreturn NextResponse.redirect(new URL(p, base));`],
-  ["type-asserted", `return NextResponse.redirect(new URL(p, request.url) as URL);`],
-  ["oddly named request param", `return NextResponse.redirect(new URL(p, nextRequest.url));`],
-  ["destructured url", `const { url } = request;\nreturn NextResponse.redirect(new URL(p, url));`],
-  ["bare nextUrl", `return NextResponse.redirect(request.nextUrl);`],
+  [
+    "captured base",
+    wrap(`const base = request.url;\nreturn NextResponse.redirect(new URL(p, base));`),
+  ],
+  ["type-asserted", wrap(`return NextResponse.redirect(new URL(p, request.url) as URL);`)],
+  ["oddly named request param", wrap(`return NextResponse.redirect(new URL(p, nextRequest.url));`)],
+  [
+    "destructured url",
+    wrap(`const { url } = request;\nreturn NextResponse.redirect(new URL(p, url));`),
+  ],
+  ["bare nextUrl", wrap(`return NextResponse.redirect(request.nextUrl);`)],
   [
     "cloned nextUrl with a mutated pathname",
-    `const u = request.nextUrl.clone();\nu.pathname = p;\nreturn NextResponse.redirect(u);`,
+    wrap(`const u = request.nextUrl.clone();\nu.pathname = p;\nreturn NextResponse.redirect(u);`),
   ],
   [
-    // Receiver spellings review used to bypass a literal `NextResponse.redirect`
-    // text match. Each recreates the host flip.
     "aliased import",
-    `import { NextResponse as NR } from "next/server";\nreturn NR.redirect(new URL(p, request.url));`,
+    `import { NextResponse as NR } from "next/server";\ndeclare const request: Request;\ndeclare const p: string;\nexport function handler() {\n  return NR.redirect(new URL(p, request.url));\n}`,
   ],
-  ["element access", `return NextResponse["redirect"](new URL(p, request.url));`],
-  ["parenthesized receiver", `return (NextResponse).redirect(new URL(p, request.url));`],
+  ["element access", wrap(`return NextResponse["redirect"](new URL(p, request.url));`)],
+  ["parenthesized receiver", wrap(`return (NextResponse).redirect(new URL(p, request.url));`)],
   [
     "destructured method",
-    `const { redirect } = NextResponse;\nreturn redirect(new URL(p, request.url));`,
+    wrap(`const { redirect } = NextResponse;\nreturn redirect(new URL(p, request.url));`),
   ],
   [
     "namespace import",
-    `import * as NS from "next/server";\nreturn NS.NextResponse.redirect(new URL(p, request.url));`,
+    `import * as NS from "next/server";\ndeclare const request: Request;\ndeclare const p: string;\nexport function handler() {\n  return NS.NextResponse.redirect(new URL(p, request.url));\n}`,
   ],
   [
     "const-aliased receiver",
-    `const NR = NextResponse;\nreturn NR.redirect(new URL(p, request.url));`,
+    wrap(`const NR = NextResponse;\nreturn NR.redirect(new URL(p, request.url));`),
   ],
-  ["extracted method", `const go = NextResponse.redirect;\nreturn go(new URL(p, request.url));`],
-  ["the Web API Response.redirect", `return Response.redirect(new URL(p, request.url));`],
+  [
+    "extracted method",
+    wrap(`const go = NextResponse.redirect;\nreturn go(new URL(p, request.url));`),
+  ],
+  ["the Web API Response.redirect", wrap(`return Response.redirect(new URL(p, request.url));`)],
   [
     "declared inside a nested block",
-    `if (cond) {\n  const url = new URL(p, request.url);\n  return NextResponse.redirect(url);\n}`,
+    wrap(
+      `if (cond) {\n  const url = new URL(p, request.url);\n  return NextResponse.redirect(url);\n}`,
+    ),
   ],
 ];
 
-function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full, out);
-    // .js/.jsx/.mjs/.cjs too: tsconfig.json enables allowJs, so a route.js is a
-    // real possibility and was invisible to a TypeScript-only walk.
-    else if (/\.(tsx?|jsx?|mjs|cjs)$/.test(full)) out.push(full);
-  }
-  return out;
-}
+/**
+ * R20–R57 (minus the separately-asserted R22/R24): every family that defeated
+ * syntactic resolution (spec §6.1). Old-guard verdicts per the Task-1 RED
+ * harness: 0 findings for every row except R24/R36, which the old guard
+ * already caught (regression floor).
+ */
+const NEW_FAMILY_ROWS: Array<[string, string]> = [
+  [
+    "R20 helper return",
+    `import { NextResponse } from "next/server";\nfunction pick() { return NextResponse.redirect; }\nexport function GET(request: Request) {\n  return pick()(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R21 class field holding the method",
+    `import { NextResponse } from "next/server";\nclass R { go = NextResponse.redirect; }\nexport function GET(request: Request) {\n  return new R().go(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R23 dynamic dispatch (typed)",
+    `import { NextResponse } from "next/server";\nconst table = { go: NextResponse.redirect };\nexport function GET(request: Request) {\n  const k = "go" as const;\n  return table[k](new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R25 callback parameter",
+    PRE +
+      `function invoke(fn: RedirectFn, url: URL) { return fn(url); }\nexport function GET() { return invoke(NextResponse.redirect, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R26 structural type-literal property",
+    PRE +
+      `const impl: { redirect: RedirectFn } = { redirect: NextResponse.redirect };\nexport function GET() { return impl.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R27 structural interface property",
+    PRE +
+      `interface Redirish { redirect: RedirectFn }\nconst impl: Redirish = { redirect: NextResponse.redirect };\nexport function GET() { return impl.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R28 structural class-field property",
+    PRE +
+      `class Impl { redirect: RedirectFn = NextResponse.redirect; }\nexport function GET() { return new Impl().redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R29 conditional composite",
+    PRE +
+      `declare const cond: boolean;\nconst safe = (u: string | URL) => new Response(String(u));\nexport function GET() { return (cond ? NextResponse.redirect : safe)(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R30 tuple composite",
+    PRE +
+      `declare const i: number;\nconst safe = (u: string | URL) => new Response(String(u));\nconst tuple = [safe, NextResponse.redirect] as const;\nexport function GET() { return tuple[i]!(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R31 object-union composite",
+    PRE +
+      `declare const cond: boolean;\nconst safe = (u: string | URL) => new Response(String(u));\nconst obj = cond ? { go: safe } : { go: NextResponse.redirect };\nexport function GET() { return obj.go(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R32 .call adapter",
+    PRE +
+      `export function GET() { return NextResponse.redirect.call(NextResponse, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R33 .apply adapter",
+    PRE +
+      `export function GET() { return NextResponse.redirect.apply(NextResponse, [new URL("/x", request.url)]); }`,
+  ],
+  [
+    "R34 Web API adapter",
+    `declare const request: Request;\nexport function GET() { return Response.redirect.call(Response, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R35 renamed destructure extraction",
+    PRE +
+      `function invoke(fn: RedirectFn, url: URL) { return fn(url); }\nconst { redirect: r } = NextResponse;\nexport function GET() { return invoke(r, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R36 as-any VALUE laundering",
+    PRE +
+      `const f = NextResponse.redirect as any;\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R37 const-literal computed key call",
+    PRE +
+      `const k = "redirect";\nexport function GET() { return NextResponse[k](new URL("/x", request.url)); }`,
+  ],
+  [
+    "R38 identifier literal-key extraction",
+    PRE +
+      `const k = "redirect" as const;\nconst f: RedirectFn = NextResponse[k];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R39 template-key extraction",
+    PRE +
+      'const f = NextResponse[`redirect`];\nexport function GET() { return f(new URL("/x", request.url)); }',
+  ],
+  [
+    "R40 const-object-key extraction",
+    PRE +
+      `const K = { r: "redirect" } as const;\nconst f = NextResponse[K.r];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R41 enum-key extraction",
+    PRE +
+      `enum E { R = "redirect" }\nconst f = NextResponse[E.R];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R42 computed destructuring",
+    PRE +
+      `const k = "redirect" as const;\nconst { [k]: f } = NextResponse;\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R43 string-literal binding",
+    PRE +
+      `const { ["redirect"]: f } = NextResponse;\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R44 computed-string binding",
+    PRE +
+      `const kk = "redirect";\nconst { [kk]: f } = NextResponse;\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R45 parenthesized literal access",
+    PRE +
+      `const f = NextResponse[("redirect")];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R46 as-const access",
+    PRE +
+      `const f = NextResponse["redirect" as const];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R47 satisfies access",
+    PRE +
+      `const f = NextResponse["redirect" satisfies string];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R48 union-typed-key call",
+    PRE +
+      `declare const u: "redirect" | "json";\nexport function GET() { return (NextResponse as typeof NextResponse)[u as "redirect"](new URL("/x", request.url)); }`,
+  ],
+  [
+    "R49 union-typed-key extraction",
+    PRE +
+      `declare const u2: "redirect" | "json";\nconst g = NextResponse[u2 as "redirect"];\nexport function GET() { return g(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R50 assignment rename",
+    PRE +
+      `let f: RedirectFn;\n({ redirect: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R51 assignment shorthand",
+    PRE +
+      `let redirect: RedirectFn;\n({ redirect } = NextResponse);\nexport function GET() { return redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R52 assignment string-literal key",
+    PRE +
+      `let f: RedirectFn;\n({ ["redirect"]: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R53 assignment computed literal-typed key",
+    PRE +
+      `let f: RedirectFn;\nconst kc = "redirect" as const;\n({ [kc]: f } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R54 assignment with default",
+    PRE +
+      `const safe = (u: string | URL) => new Response(String(u));\nlet f: RedirectFn;\n({ redirect: f = safe } = NextResponse);\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R55 assignment Response twin",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet f: RedirectFn;\n({ redirect: f } = Response);\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R56 array-nested assignment pattern",
+    PRE +
+      `let f: RedirectFn;\n[{ redirect: f }] = [NextResponse];\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R57 for-of assignment-pattern head",
+    PRE +
+      `let f: RedirectFn;\nfor ({ redirect: f } of [NextResponse]) { break; }\nexport function GET() { return f(new URL("/x", request.url)); }`,
+  ],
+];
 
-describe("no absolute self-redirect under app/", () => {
-  it.each(FLAGGED_SPELLINGS)("flags %s", (_label, body) => {
-    expect(auditSource("fixture.ts", body)).toHaveLength(1);
+/** N-rows (spec §6.2): constructions that must stay quiet. */
+const NEGATIVE_ROWS: Array<[string, string]> = [
+  [
+    "N1 hostRelativeRedirect, the sanctioned replacement",
+    `import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";\nexport function GET() { return hostRelativeRedirect("/x", 302); }`,
+  ],
+  [
+    "N2 next/navigation redirect — call and extraction",
+    `import { redirect } from "next/navigation";\nconst r = redirect;\nexport function GET() { return r("/x"); }`,
+  ],
+  [
+    "N3 unrelated container method — extraction, .call adapter, element access",
+    `class Router { redirect(u: string) { return u; } }\nconst rt = new Router();\nconst m = rt["redirect"];\nexport function GET() { return m.call(rt, "/x"); }`,
+  ],
+  [
+    "N4 NextResponse constructor with a relative Location (hostRelativeRedirect's own mechanism)",
+    `import { NextResponse } from "next/server";\nexport function GET() { return new NextResponse(null, { status: 302, headers: { Location: "/x" } }); }`,
+  ],
+  [
+    "N6 ordinary element access and destructuring",
+    `declare const xs: string[];\ndeclare const i: number;\nconst { length } = xs;\nexport function GET() { return xs[i] ?? String(length); }`,
+  ],
+  [
+    "N7 benign assignment destructure",
+    `const src = { redirect: (u: string) => u };\nlet g: (u: string) => string;\n({ redirect: g } = src);\nexport function GET() { return g("/x"); }`,
+  ],
+  [
+    "N7 value-position object literal",
+    PRE +
+      `const safe = (u: string | URL) => new Response(String(u));\nconst o = { redirect: safe };\nexport function GET() { return o.redirect(new URL("/x", request.url)); }`,
+  ],
+];
+
+/**
+ * E-pins (spec §6.3 / §7 limit 1): the documented limits asserted AS BEHAVIOR,
+ * so a change to the boundary trips a test and updates the header deliberately.
+ */
+const ESCAPE_PINS: Array<[string, string]> = [
+  [
+    "E1 receiver-as-any laundering",
+    PRE +
+      `export function GET() { return (NextResponse as any).redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "E2 widened computed key",
+    PRE +
+      `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`,
+  ],
+];
+
+describe("no absolute self-redirect under the walked roots", () => {
+  let fixtureIndex = 0;
+  const fixturePath = (): string => `app/__audit_fixture__/f${fixtureIndex++}.ts`;
+
+  it.each(FLAGGED_SPELLINGS)("flags legacy spelling: %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
-  it("does not flag hostRelativeRedirect, the sanctioned replacement", () => {
-    expect(auditSource("fixture.ts", `return hostRelativeRedirect(p, 302);`)).toEqual([]);
+  it.each(NEW_FAMILY_ROWS)("flags %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
-  it("every NextResponse.redirect under app/ is allow-listed with a reason", () => {
-    const offenders = walk(APP).flatMap((file) => {
-      const rel = relative(ROOT, file);
-      return unallowedRedirects(rel, readFileSync(file, "utf8")).map(
-        (f) => `${rel}:${f.line} ${f.text}`,
-      );
-    });
-    expect(
-      offenders,
-      "NextResponse.redirect emits an ABSOLUTE Location; built from the request it can flip the " +
-        "host and drop host-scoped cookies. Use hostRelativeRedirect from " +
-        "lib/http/hostRelativeRedirect.ts, or — only for a genuinely external target — add a " +
-        "reasoned row to EXTERNAL_REDIRECT_ALLOWLIST.",
-    ).toEqual([]);
-  });
-
-  it("the allow-list carries no stale rows", () => {
-    // A moved or deleted call must re-surface for review rather than leaving a row
-    // that silently exempts whatever now occupies that line.
-    const live = new Set(
-      walk(APP).flatMap((file) => {
-        const rel = relative(ROOT, file);
-        return auditSource(rel, readFileSync(file, "utf8")).map((f) => `${rel}:${f.line}`);
-      }),
+  it("flags R22 re-export through a sibling module", () => {
+    addFixtureModule(
+      "app/__audit_fixture__/r22-helper.ts",
+      `export { NextResponse as Redirector } from "next/server";`,
     );
-    const stale = Object.keys(EXTERNAL_REDIRECT_ALLOWLIST).filter((k) => !live.has(k));
-    expect(stale, "allow-list rows pointing at no NextResponse.redirect call").toEqual([]);
+    const findings = auditSource(
+      "app/__audit_fixture__/r22.ts",
+      `import { Redirector } from "./r22-helper";\nexport function GET(request: Request) {\n  return Redirector.redirect(new URL("/x", request.url));\n}`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it("flags R24 direct call in a lib/ path (walked-roots extension)", () => {
+    const findings = auditSource(
+      "lib/__audit_fixture__/r24.ts",
+      PRE + `export function GET() { return NextResponse.redirect(new URL("/x", request.url)); }`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it.each(NEGATIVE_ROWS)("does not flag %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source)).toEqual([]);
+  });
+
+  it("N5: a direct banned call produces exactly ONE finding (no call+reference double count)", () => {
+    const findings = auditSource(
+      fixturePath(),
+      PRE + `export function GET() { return NextResponse.redirect(new URL("/x", request.url)); }`,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.kind).toBe("call");
+  });
+
+  it.each(ESCAPE_PINS)(
+    "documented limit stays a deliberate boundary: %s produces 0 findings",
+    (_label, source) => {
+      // Spec §7 limit 1: receiver laundering and widened computed keys erase the
+      // declaration before the member resolves. If this assertion starts
+      // failing, the guard got stronger — update the module header and spec.
+      expect(auditSource(fixturePath(), source)).toEqual([]);
+    },
+  );
+
+  it("fixture namespaces never shadow real files", () => {
+    expect(existsSync("app/__audit_fixture__")).toBe(false);
+    expect(existsSync("lib/__audit_fixture__")).toBe(false);
   });
 
   it("every allow-list row states a reason and pins the argument it was granted for", () => {
@@ -136,13 +417,69 @@ describe("no absolute self-redirect under app/", () => {
   });
 
   it("an allow-listed line stops being exempt if its argument changes", () => {
-    // Same file:line as the real row, but the argument the row was granted for is
-    // gone, so the call must be reported again.
-    const mutated = `${"\n".repeat(71)}    return NextResponse.redirect(new URL(p, request.url), { status: 302 });`;
-    expect(unallowedRedirects("app/api/auth/google/start/route.ts", mutated)).toHaveLength(1);
+    // Compilable module whose call sits exactly on the allowlisted line (72),
+    // with an argument the row was NOT granted for.
+    const padding = Array.from({ length: 67 }, (_, n) => `// pad ${n}`).join("\n");
+    const source = `${PRE}declare const p2: string;\n${padding}\nexport function GET() { return NextResponse.redirect(new URL(p2, request.url), { status: 302 }); }`;
+    const findings = auditSource("app/api/auth/google/start/route.ts", source);
+    const flagged = findings.filter((f) => f.kind === "call");
+    expect(flagged).toHaveLength(1);
+    // Padding honesty: the call must actually sit on the allowlisted line.
+    expect(flagged[0]!.line).toBe(72);
+    expect(unallowedRedirects("app/api/auth/google/start/route.ts", findings)).toHaveLength(1);
   });
 
-  it("visited enough files that a broken walk cannot pass vacuously", () => {
-    expect(walk(APP).length).toBeGreaterThan(50);
+  describe("the real tree", () => {
+    let tree: TreeAudit;
+
+    beforeAll(() => {
+      tree = auditTree();
+    }, 120_000);
+
+    it("every banned call or reference under the walked roots is allow-listed", () => {
+      const offenders: string[] = [];
+      for (const [path, findings] of tree.findingsByFile) {
+        for (const f of unallowedRedirects(path, findings)) {
+          offenders.push(`${path}:${f.line} [${f.kind}] ${f.text}`);
+        }
+      }
+      expect(
+        offenders,
+        "NextResponse.redirect emits an ABSOLUTE Location; built from the request it can flip " +
+          "the host and drop host-scoped cookies. Use hostRelativeRedirect from " +
+          "lib/http/hostRelativeRedirect.ts, or — only for a genuinely external target — add a " +
+          "reasoned row to EXTERNAL_REDIRECT_ALLOWLIST. Extraction references are never " +
+          "allow-listable.",
+      ).toEqual([]);
+    });
+
+    it("the allow-list carries no stale rows", () => {
+      // A moved or deleted call must re-surface for review rather than leaving a
+      // row that silently exempts whatever now occupies that line.
+      const live = new Set<string>();
+      for (const [path, findings] of tree.findingsByFile) {
+        for (const f of findings) {
+          if (f.kind === "call") live.add(`${path}:${f.line}`);
+        }
+      }
+      const stale = Object.keys(EXTERNAL_REDIRECT_ALLOWLIST).filter((k) => !live.has(k));
+      expect(stale, "allow-list rows pointing at no NextResponse.redirect call").toEqual([]);
+    });
+
+    it("visited enough files that a broken walk cannot pass vacuously", () => {
+      expect(tree.visitedAppFiles).toBeGreaterThan(50);
+      expect(tree.visitedLibFiles).toBeGreaterThanOrEqual(1);
+    });
+
+    it("the walked roots contain no plain-JS modules", () => {
+      expect(
+        tree.plainJsFiles,
+        "tsconfig's `include` covers only TS extensions and checkJs is off, so `tsc --noEmit` " +
+          "proves nothing about a standalone JS module — an unresolved NextResponse there would " +
+          "be invisible to this guard AND to the typecheck gate. A JS module under app/ or lib/ " +
+          "needs a deliberate extension of the guard's JS story (checkJs or include coverage) " +
+          "before this sentinel is relaxed.",
+      ).toEqual([]);
+    });
   });
 });
