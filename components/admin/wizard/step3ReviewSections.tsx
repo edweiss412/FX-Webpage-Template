@@ -949,7 +949,7 @@ export function ModalSectionChrome({
               flagged
                 ? "bg-warning-bg text-warning-text"
                 : judgment
-                  ? "border border-border bg-info-bg text-text"
+                  ? "border border-border-strong bg-info-bg text-text"
                   : "bg-surface-sunken text-text-subtle"
             }`}
           >
