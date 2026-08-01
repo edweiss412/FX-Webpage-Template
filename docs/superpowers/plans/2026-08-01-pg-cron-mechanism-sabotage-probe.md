@@ -140,7 +140,12 @@ Expected: probe A FAILS — the child reds via the AGGREGATE message, so the nam
 
 Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; verify `git status --porcelain` shows ONLY ` M tests/cross-cutting/pgCronCiVacuity.test.ts` (the in-progress task edit — it is uncommitted until Step 5) and NO `pg-cron-coverage.test.ts` line.
 
-- [ ] **Step 5: Re-run healthy GREEN, commit.** The two `[observed: …]` lines are runtime-evidence slots: replace each with the actual assertion-failure line from the corresponding red run's output.
+- [ ] **Step 5: Re-run healthy GREEN, commit.**
+
+Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
+Expected: PASS — 4 probes (3 existing + probe A) green on the restored tree.
+
+The two `[observed: …]` lines are runtime-evidence slots: replace each with the actual assertion-failure line from the corresponding red run's output.
 
 ```bash
 git add tests/cross-cutting/pgCronCiVacuity.test.ts
@@ -193,7 +198,7 @@ Expected: probe B FAILS with "an uncounted-inert-case run must red the suite" (c
 
 Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`
 
-- [ ] **Step 4: RED under MF-1** (anchor miss). Apply full MF-1 as in Task 1 Step 3.
+- [ ] **Step 4: RED under MF-1** (anchor miss). Apply the full MF-1 mutation to `tests/cross-cutting/pg-cron-coverage.test.ts`: delete the `let queryCount = 0;` line, delete the `queryCount += 1;` line inside `psql()`, change `makeLiveCaseCounter(liveDbTest, () => queryCount)` to `makeLiveCaseCounter(liveDbTest)`, and delete the 6-line `if (isCi && queryCount < liveCaseCount()) { … }` block in `afterAll` (keep the closing `});`).
 
 Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
 Expected: probe B FAILS with the `writeMutant` refuse-to-cover throw ("suite refactored; update the probe anchors" naming `OBSERVE_ANCHOR`); probe A also FAILS (child exits 0). No stray mutant file (`ls tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` → not found).
@@ -211,7 +216,12 @@ Expected: probe B FAILS via the refuse-to-cover throw (`OBSERVE_ANCHOR` occurs 0
 
 Restore: `git checkout -- tests/cross-cutting/pg-cron-coverage.test.ts`; `git status --porcelain` shows ONLY ` M tests/cross-cutting/pgCronCiVacuity.test.ts` and NO `pg-cron-coverage.test.ts` line.
 
-- [ ] **Step 5: Healthy GREEN re-run, commit.** The commit body records the COMPLETED closure matrix; the `[observed: …]` entries are runtime-evidence slots — replace each with the actual failure line from that red run.
+- [ ] **Step 5: Healthy GREEN re-run, commit.**
+
+Run: `pnpm exec vitest run tests/cross-cutting/pgCronCiVacuity.test.ts`
+Expected: PASS — all 5 probes (3 existing + A + B) green on the restored tree.
+
+The commit body records the COMPLETED closure matrix; the `[observed: …]` entries are runtime-evidence slots — replace each with the actual failure line from that red run.
 
 ```bash
 git add tests/cross-cutting/pgCronCiVacuity.test.ts
