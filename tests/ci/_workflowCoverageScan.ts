@@ -155,25 +155,63 @@ function runsBlockOf(text: string): string | null {
   return m ? m[2]! : null;
 }
 
+/**
+ * YAML spellings that re-key or re-shape a mapping so a line-anchored regex
+ * scan reads a DIFFERENT document than the YAML parser does (R3: quoted keys
+ * `"uses":`, flow-mapping steps `- {uses: x}`, anchored/aliased values
+ * `uses: &a ./x` / `uses: *a` — all parse to the same `uses` the typed
+ * census resolves, while a plain-spelling regex sees nothing). The doctrine
+ * is refuse-what-you-cannot-model: any of these in step METADATA or a job
+ * head rejects the step/job's claims and poisons the job env fail-closed.
+ * Applied to metadata only — the run VALUE is stripped first, so JSON
+ * payloads or prose inside run bodies (and the live single-line JSON `env:`
+ * values, which sit mid-line after a plain key) cannot false-dark a step.
+ * One mechanism closes the whole spelling class for every key the scanner
+ * reads (`uses`, `if`, `continue-on-error`, `run`, …).
+ */
+const UNMODELLED_SPELLING_RE =
+  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]/;
+
+/** A step chunk minus its run VALUE — the metadata the spelling refusal reads. */
+function stepMetaOf(chunk: string): string {
+  const runMatch = chunk.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+  return runMatch ? chunk.replace(runMatch[2]!, "") : chunk;
+}
+
+/**
+ * Strict `uses:` VALUE extraction (R3): the value must be a plain scalar —
+ * optionally quoted — that is either a local `./` ref, a `docker://` image,
+ * or a plain marketplace `owner/repo[@ref]` token. Anything else (empty →
+ * block/folded scalar on the next line, `&`/`*` → anchor/alias, stray
+ * tokens) is unprovable by a line scan and poisons fail-closed.
+ */
 function localActionPoisons(
   chunk: string,
   localActions: Record<string, string>,
   seen: ReadonlySet<string>,
 ): boolean {
-  for (const m of stripCommentLines(chunk).matchAll(
-    /(^|\n)\s*(?:-\s*)?uses\s*:\s*["']?([^\s"']+)/g,
-  )) {
-    const ref = m[2]!;
-    if (!ref.startsWith("./")) continue;
-    if (seen.has(ref)) return true;
-    const text = localActions[ref];
-    if (text === undefined) return true;
-    const runs = runsBlockOf(text);
-    if (runs === null || !/(^|\n)\s*using\s*:\s*["']?composite\b/.test(runs)) return true;
-    if (writesJobEnv(text)) return true;
-    // Child uses: are steps under runs: — recurse on the runs block only, so
-    // prose outside it can neither masquerade nor false-poison.
-    if (localActionPoisons(runs, localActions, new Set(seen).add(ref))) return true;
+  for (const m of stripCommentLines(chunk).matchAll(/(^|\n)\s*(?:-\s*)?uses\s*:([^\n]*)/g)) {
+    const rawValue = (m[2] ?? "").trim();
+    const unquoted = rawValue.replace(/^(["'])(.*)\1$/, "$2").trim();
+    if (unquoted.startsWith("./")) {
+      const ref = unquoted;
+      if (seen.has(ref)) return true;
+      const text = localActions[ref];
+      if (text === undefined) return true;
+      const runs = runsBlockOf(text);
+      if (runs === null || !/(^|\n)\s*using\s*:\s*["']?composite\b/.test(runs)) return true;
+      // A manifest using an unmodelled spelling inside runs: could hide a
+      // child uses from the recursion below — refuse it whole.
+      if (UNMODELLED_SPELLING_RE.test(stripCommentLines(runs))) return true;
+      if (writesJobEnv(text)) return true;
+      // Child uses: are steps under runs: — recurse on the runs block only,
+      // so prose outside it can neither masquerade nor false-poison.
+      if (localActionPoisons(runs, localActions, new Set(seen).add(ref))) return true;
+      continue;
+    }
+    if (/^docker:\/\/\S+$/.test(unquoted)) continue; // remote image — trusted (spec §5 L1)
+    if (/^[\w.-]+\/[\w./-]+(@[\w./-]+)?$/.test(unquoted)) continue; // marketplace — trusted
+    return true; // anchored, aliased, folded/block, empty, or otherwise unmodelable
   }
   return false;
 }
@@ -358,6 +396,9 @@ export function scanWorkflowCoverage({
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
       const jobCoe = hasContinueOnError(job.head);
+      // R3: a quoted-key/flow/anchor spelling in the job HEAD could hide an
+      // `if:`/`continue-on-error:` this scanner reads by plain spelling only.
+      const headSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(job.head));
       // Cross-step env state, threaded across ALL step chunks of this job in
       // order (uses: and other run-less steps included — bookkeeping must not
       // sit behind the run:-presence early-continue). Qualification runs
@@ -369,6 +410,11 @@ export function scanWorkflowCoverage({
       let envPoisoned = false;
       for (const step of job.steps) {
         const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+        // R3: spelling refusal reads step METADATA only (run value stripped),
+        // so JSON/prose inside a run body cannot false-dark the step. A bad
+        // spelling rejects this step's own claims AND poisons the job env —
+        // the unreadable metadata may hide a `uses:`/`run:` that mutates it.
+        const stepSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(stepMetaOf(step)));
         if (runMatch) {
           // Full-line YAML/shell comments never execute, and the step-splitter
           // glues BETWEEN-step comment lines onto the preceding step's chunk —
@@ -396,6 +442,8 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
+            else if (headSpelling || stepSpelling)
+              rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
             else if (envPoisoned)
               rejected.push({
                 file,
@@ -414,6 +462,7 @@ export function scanWorkflowCoverage({
             else covered.add(spec);
           }
         }
+        if (stepSpelling) envPoisoned = true;
         if (writesJobEnv(step)) envPoisoned = true;
         if (localActionPoisons(step, localActions, new Set())) envPoisoned = true;
       }

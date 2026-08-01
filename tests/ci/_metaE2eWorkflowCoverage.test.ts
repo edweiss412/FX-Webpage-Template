@@ -500,6 +500,78 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(r.rejected[0]!.reason).toBe(REASON);
   });
 
+  it("YAML-equivalent uses: spellings cannot bypass resolution (R3)", () => {
+    // Quoted key, anchored value, folded value, flow mapping — all parse to
+    // the same `uses` the typed census resolves; a plain-spelling regex saw
+    // none of them (R3 probe: false coverage at direct AND nested sites).
+    const writer = {
+      "./.github/actions/w":
+        'runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      shell: bash\n',
+    };
+    const SPELLING = "unmodelled YAML spelling";
+    // Quoted KEY: metadata spelling refusal rejects the step and poisons.
+    {
+      const r = S(two('"uses": ./.github/actions/w'), writer);
+      expect(r.covered.has(spec)).toBe(false);
+      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+    }
+    // Flow-mapping step.
+    {
+      const r = S(two("{ uses: ./.github/actions/w }"), writer);
+      expect(r.covered.has(spec)).toBe(false);
+      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+    }
+    // Anchored value.
+    {
+      const r = S(two("uses: &a ./.github/actions/w"), writer);
+      expect(r.covered.has(spec)).toBe(false);
+      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+    }
+    // Folded value (ref on the continuation line).
+    {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: >-\n          ./.github/actions/w\n      - ${INVOKE}\n`;
+      const r = S(w, writer);
+      expect(r.covered.has(spec)).toBe(false);
+      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+    }
+    // Alias value.
+    {
+      const r = S(two("uses: *w"), writer);
+      expect(r.covered.has(spec)).toBe(false);
+      expect([SPELLING, REASON]).toContain(r.rejected[0]!.reason);
+    }
+    // Nested site: a composite manifest hiding its child uses behind an
+    // unmodelled spelling is refused whole.
+    {
+      const parent = 'runs:\n  using: composite\n  steps:\n    - "uses": ./.github/actions/w\n';
+      const r = S(two("uses: ./.github/actions/p"), {
+        "./.github/actions/p": parent,
+        ...writer,
+      });
+      expect(r.covered.has(spec)).toBe(false);
+      expect(r.rejected[0]!.reason).toBe(REASON);
+    }
+  });
+
+  it("a quoted-key if: spelling cannot hide a condition (R3 class sweep)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        "if": github.event_name == 'push'\n        run: playwright test ${spec}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+  });
+
+  it("live metadata shapes stay covered: mid-line JSON env value, JSON in a run body", () => {
+    // The live workflows carry single-line JSON env: values (quoted keys sit
+    // MID-line after a plain key) and run bodies may embed JSON — neither is
+    // step-metadata spelling, so neither may false-dark a step.
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: seed\n        run: |\n          node -e 'x' <<'EOF'\n          {"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}\n          EOF\n      - ${INVOKE}\n`;
+    // (heredoc keeps the JSON inside the run VALUE; the metadata check must
+    // not see it — the step itself is refused by the census's heredoc rule
+    // at the census layer, but the scanner's spelling refusal must not fire.)
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(true);
+  });
+
   it("between-step comment prose mentioning GITHUB_ENV does not poison (F6 comment-glue)", () => {
     // The step-splitter glues BETWEEN-step comment lines onto the preceding
     // step's chunk; prose there must stay inert.
