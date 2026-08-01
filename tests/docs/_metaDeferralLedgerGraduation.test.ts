@@ -227,6 +227,12 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/ci-dark-directive-resolver (2026-07-31): PR-C of the ci-dark descoped
+  // close-out — the shared "use server" directive plugin (a parse-based, throw-on-
+  // call resolver) closed the resolver-soundness item, and packlist-rescan-recovery
+  // returned to the standalone config under it.
+  { id: "BL-HARNESS-RESOLVER-POLICY", provenance: "feat/ci-dark-directive-resolver" },
+  { id: "BL-HARNESS-PACKLIST-SERVER-GRAPH", provenance: "feat/ci-dark-directive-resolver" },
   // 2026-07-27 reconciliation: three shipped entries were annotated terminal
   // in place rather than moved — one as "CLOSED" in the heading, one as
   // "RESOLVED" in the heading, one as a SHIPPED status line. All three shapes

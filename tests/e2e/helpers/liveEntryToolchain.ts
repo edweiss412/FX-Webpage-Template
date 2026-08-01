@@ -12,12 +12,17 @@
  * `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.4 has
  * the census and §3 the rationale.
  *
- * DELIBERATELY NOT a resolver policy. An earlier design gave this module a
- * rule-based esbuild plugin that decided which modules were server-only and
- * stubbed them. It was built, measured, and descoped because its safety
- * guarantee could not be made sound — see `BL-HARNESS-RESOLVER-POLICY` in
- * BACKLOG.md. Aliases stay EXPLICIT at each call site: a caller says which
- * specifiers it stubs and with what, and nothing here second-guesses it.
+ * RESOLVER POLICY: the DIRECTIVE rule (PR-C; spec ci-dark-descoped-closeout §5.1
+ * row 3). bundleLiveEntry routes through _bundleLiveEntryChild.mjs, which installs
+ * the shared useServerDirectivePlugin: a module is stubbed iff its own directive
+ * prologue cooks to `"use server"` — the authoritative Next signal, decided by a
+ * real TypeScript parse, not a path heuristic or graph-derivation. The stub
+ * THROWS on any call (contract-tested at the build boundary in
+ * helpers/useServerDirectivePlugin.test.ts), so a consumed-but-uninvoked proxy
+ * cannot silently alter behaviour — the unsoundness that descoped the earlier
+ * rule-based attempt (BL-HARNESS-RESOLVER-POLICY, now graduated). Aliases stay
+ * EXPLICIT and per-call-site (esbuild applies them BEFORE the plugin), so a
+ * caller still says which non-directive specifiers it stubs and with what.
  *
  * `tests/e2e/_metaLiveEntryToolchain.test.ts` enforces that no other file
  * under `tests/e2e/**` names a toolchain binary.
