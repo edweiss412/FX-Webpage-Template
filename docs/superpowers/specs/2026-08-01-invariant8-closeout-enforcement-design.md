@@ -28,7 +28,7 @@ One structural guard (new test file + helper + frozen debt ledger), two write-pa
 
 - `docs/superpowers/plans/` holds **309 units** (see §3.1) plus **13 undated files** (11 README.md at two depths, `BACKLOG.md`, `coverage.md`).
 - **196 units declare both gate halves** — 118 flat files, 78 directories. The old guard's discovery shape (top-level dir with `plan.md`) saw at most a dozen.
-- Closeout artifacts today: ~10 units have a `*closeout*` file; 6 units have a `## 12`-headed section anywhere; naming spans `closeout.md`, `CLOSEOUT.md`, `01-closeout.md`, `06-corpus-closeout.md`, `08-closeout.md`, flat sibling closeout files named after the plan stem, `handoffs/Phase-*.md-closeout.md`, and one closeout directory (`2026-07-26-ci-dark-descoped-closeout`).
+- Closeout artifacts today (probe aggregates): 13 declaring units have a `*closeout*` file; 14 declaring units have a `## 12`-headed section somewhere; naming spans `closeout.md`, `CLOSEOUT.md`, `01-closeout.md`, `06-corpus-closeout.md`, `08-closeout.md`, flat sibling closeout files named after the plan stem, `handoffs/Phase-*.md-closeout.md`, and one closeout directory (`2026-07-26-ci-dark-descoped-closeout`).
 - Undated files declaring both halves: exactly one, `docs/superpowers/plans/BACKLOG.md` (an index quoting gate language, not a plan) — allowlisted in §4.4.
 - Hedge-word incidence in existing closeouts: 3 files (citations in §1.1.2) — all legitimate prose.
 
@@ -40,25 +40,27 @@ A unit is the topmost path segment under `docs/superpowers/plans/` matching /^\d
 
 ### 3.2 Declaration predicate
 
-A unit declares the invariant-8 gate iff any member file matches BOTH /impeccable critique/i and /impeccable audit/i. Single-half mentions do not trigger (a doc citing only the critique command is discussing, not declaring, the dual gate; the dual-gate pairing is the invariant's own definition per AGENTS.md invariant 8).
+A unit declares the invariant-8 gate iff, folding across ALL member files, some file matches /impeccable critique/i AND some file (the same or another) matches /impeccable audit/i — the unit-wide fold, exactly the census probe's semantics (r1 F3 ratification: the broader reading is the fail-safe direction per §1.1.4, and it is the semantics under which the 196-row ledger snapshot was generated; the same-file-BOTH reading was the ambiguity, refuted as narrower). Today the two readings coincide (probe: split-across-files count 0) but the fold is normative. Single-half units do not trigger (a doc citing only the critique command is discussing, not declaring, the dual gate).
 
 ### 3.3 Marker grammar
 
-A marker line is any line beginning `impeccable-gate:`. Two valid forms (exact, anchored, one line):
+A marker line is any line whose leading-whitespace-TRIMMED text begins `impeccable-gate:` (trimming first, so an indented typo'd marker is classified and rejected rather than silently invisible — grammar-probe indented cases). Three forms (exact, anchored on the trimmed line, one line):
 
 ```
-impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
-impeccable-gate: N/A — no UI surface
+impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>   (RAN form; RAN-DEGRADED also valid per half)
+impeccable-gate: N/A — no UI surface                                                       (N/A form)
+impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>   (TEMPLATE form — the literal placeholder line)
 ```
 
 Regexes (the implementation's authority):
 
-- RAN form: `/^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(\d+) p1=(\d+) dispositions=(recorded|none)$/`
+- RAN form: `/^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9]\d*) p1=(0|[1-9]\d*) dispositions=(recorded|none)$/` (integers reject leading zeros; `p0=00` is malformed — grammar-probe)
 - N/A form: `/^impeccable-gate: N\/A — no UI surface$/`
+- TEMPLATE form: the exact placeholder literal shown above (`critique=<RAN|RAN-DEGRADED> …`), matched verbatim. Valid ONLY inside a `MARKER_TEMPLATE_FILES` path (§4.5); anywhere else it is malformed. A TEMPLATE-form line NEVER confers conformance — it exists so `HANDOFF-TEMPLATE.md` can display the fill-in block without either conforming its unit or tripping the malformed-marker assertion (r1 F2).
 
 Cross-check on the RAN form: `p0 + p1 > 0` requires `dispositions=recorded`; `p0 + p1 = 0` requires `dispositions=none`. A `RAN-DEGRADED` value asserts the gate ran in a degraded configuration (e.g. the dev-row single-context run) — the degradation's nature belongs in adjacent prose, which the guard does not read.
 
-**Strictness rule:** EVERY line in a unit beginning `impeccable-gate:` must parse as one of the two forms and satisfy the cross-check. One valid marker conforms the unit; one malformed marker line anywhere in the unit reds it regardless of other valid markers (a typo'd marker must never silently not-count — that is exactly how "critique not run" passed the old substring check).
+**Strictness rule:** EVERY line in a unit whose trimmed text begins `impeccable-gate:` must parse as one of the three forms (TEMPLATE form only where §4.5 allows) and satisfy the cross-check. One valid marker conforms the unit; one malformed marker line anywhere in the unit reds it regardless of other valid markers (a typo'd marker must never silently not-count — that is exactly how "critique not run" passed the old substring check).
 
 ## 4 Guard architecture
 
@@ -68,8 +70,9 @@ Helper `tests/docs/_invariant8Closeout.ts` (pure functions over an in-memory fil
 
 Helper surface (names final):
 
+- `walkPlansTree(rootAbsPath: string): string[]` — the filesystem-acquisition step, its own exported function so plants exercise the fs layer against tmpdir fixture trees, not only in-memory path lists (r1 F1).
 - `partitionUnits(paths: string[]): { units: Map<string, string[]>; undated: string[] }` — §3.1.
-- `declaresGate(text: string): boolean` — §3.2 (per file; unit-level OR is the caller's fold).
+- `declaresGate(files: Map<string, string>): boolean` — §3.2 unit-wide fold (takes the unit's whole file map).
 - `parseMarkers(text: string): { valid: Marker[]; malformed: string[] }` — §3.3 incl. cross-check.
 - `unitVerdict(files: Map<path, text>): "conforms" | "no-marker" | "malformed-marker"` — strictness rule.
 
@@ -79,7 +82,8 @@ Helper surface (names final):
 2. No malformed marker line anywhere in the plans tree (including non-declaring units and undated files — a marker in a non-declaring unit is fine if valid, red if malformed).
 3. Ledger staleness (§4.3).
 4. Undated allowlist (§4.4).
-5. Live lower bound: declaring-unit count ≥ 196 (history is immutable; the count can only grow — a drop proves discovery or predicate narrowing against the live corpus, the mutation the fixture plants cannot see if the walk itself is bypassed).
+5. Canary set: the live walk's unit map contains four named immutable historical units, one per discovery shape — flat `docs/superpowers/plans/2026-07-18-alert-copy-full-sweep.md`, category-nested flat `docs/superpowers/plans/admin/2026-06-22-validation-reset-button.md`, category-nested directory `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation`, top-level directory `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1` (unit keys are plans-relative; full paths shown for citation). (Replaces r0's fixed `≥196` floor, which r1 F1 showed is both incompatible with §4.3(b)'s supported declaration removal and blind to acquisition-layer omission of NEW units; the acquisition layer is instead pinned by the M1 tmpdir plants, which include a novel declaring unit.)
+6. Template files (§4.5): every `MARKER_TEMPLATE_FILES` path exists, contains at least one TEMPLATE-form line, and contains NO valid RAN/N-A-form marker (a valid marker in the template would conform the mega-unit and silently invalidate its ledger row).
 
 ### 4.2 Debt ledger
 
@@ -95,27 +99,32 @@ A `PRE_GUARD_DEBT` row reds if its unit (a) no longer exists, (b) no longer decl
 
 Undated files must either not declare both halves or be in `UNDATED_DECLARING_ALLOWLIST` (ships with exactly one row: `BACKLOG.md`, reason: index quoting gate language). Same staleness rule: an allowlist row whose file stops declaring (or vanishes) reds.
 
+### 4.5 Template files
+
+`MARKER_TEMPLATE_FILES: ReadonlySet<string>` ships with exactly one row: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md`. Within these files the TEMPLATE form is valid and non-conferring (§3.3); valid RAN/N-A-form markers are forbidden there (§4.1.6). The mega-unit therefore keeps its `PRE_GUARD_DEBT` row after the §6 template edit — no contradiction between the write path, the frozen ledger, and staleness (r1 F2 resolution). The template's backend-only branch quotes the N/A form INLINE in prose (mid-line, inside backticks), which is invisible to the line-initial marker rule by construction.
+
 ## 5 Plants and mutation-family closure set
 
 Plants are fixture-tree cases in the test file, routed through the same helper functions the live assertions use. The review converges against THIS enumeration; a new family is admissible only with a live escaping mutant (AGENTS.md finding-admissibility (c)).
 
 | Family | Escaping mutant shape | Pinned by |
 | --- | --- | --- |
-| M1 discovery narrowing | partition misses flat files, nested dated dirs, category subdirs, or re-opens sub-units inside a dated dir | four fixture plants (one per shape) + live lower bound (§4.1.5) |
-| M2 predicate narrowing | both-halves regex weakened (case, spacing) or single-half made triggering | plants: critique-only (no trigger), audit-only (no trigger), both-halves mixed-case (trigger) |
-| M3 grammar widening | hedged/malformed text accepted | reject-table plants: "Critique skipped. Audit pending." (P-HEDGE, the entry's canonical string); `critique=SKIPPED`; missing `audit=`; `p0=1 … dispositions=none`; `N/A` with trailing text; prose paragraph containing the words critique/audit/PASS |
+| M1 discovery narrowing | partition OR filesystem acquisition misses flat files, nested dated dirs, category subdirs, novel units, or re-opens sub-units inside a dated dir | tmpdir fixture-TREE plants through `walkPlansTree` (one per shape PLUS a novel declaring unit absent from any registry, asserting red) + live canary set (§4.1.5) |
+| M2 predicate narrowing | both-halves regex weakened (case, spacing), single-half made triggering, or unit-wide fold dropped to same-file-BOTH | plants: critique-only (no trigger), audit-only (no trigger), both-halves mixed-case (trigger), split-across-files (critique in file A, audit in file B — trigger; pins the §3.2 fold) |
+| M3 grammar widening | hedged/malformed text accepted | reject-table plants: "Critique skipped. Audit pending." (P-HEDGE, the entry's canonical string); `critique=SKIPPED`; missing `audit=`; `p0=1 … dispositions=none`; `p0=00` (leading zero); indented malformed marker (trimmed-line classification); `N/A` with trailing text; TEMPLATE form outside a template file; prose paragraph containing the words critique/audit/PASS |
 | M4 ledger staleness tolerated | vanished / no-longer-declaring / now-conforming row survives | three fixture plants |
 | M5 ledger bypass | declaring unit with no marker and no row passes | fixture plant asserting red + message naming both remedies |
 | M6 undated leak | undated declaring file outside allowlist passes | fixture plant |
-| M7 malformed-marker tolerance | unit with one valid AND one malformed marker passes | fixture plant asserting red |
+| M7 malformed-marker tolerance | unit with one valid AND one malformed marker passes (incl. the malformed one indented) | two fixture plants asserting red |
+| M8 template-file leak | TEMPLATE form conferring conformance, TEMPLATE form accepted outside `MARKER_TEMPLATE_FILES`, or a valid marker tolerated inside a template file | three fixture plants (non-conferring; malformed-outside; template-file-with-valid-marker reds §4.1.6) |
 
-Live-clean criterion: against today's tree plus the ledger, the guard is green — and this arc's own plan document, which quotes the gate (making its unit declaring), conforms via `impeccable-gate: N/A — no UI surface`, so the guard polices its own shipping PR exactly as the mdast guard policed its graduation.
+Live-clean criterion: against today's tree plus the ledger, the guard is green — the mega-unit keeps its ledger row (TEMPLATE form is non-conferring, §4.5), and this arc's own plan document, which quotes the gate (making its unit declaring), conforms via `impeccable-gate: N/A — no UI surface`, so the guard polices its own shipping PR exactly as the mdast guard policed its graduation.
 
 ## 6 Write-path edits (so future plans conform by construction)
 
 <!-- spec-lint: ignore — files created by this arc; not yet tracked -->
 - **AGENTS.md invariant 8** gains one sentence: closeouts carry the machine marker line per this spec, enforced by `tests/docs/_metaInvariant8Closeout.test.ts`.
-- **HANDOFF-TEMPLATE.md §12** gains the marker line (RAN form as a fill-in template, N/A form in the backend-only branch) so every future handoff carries it by template.
+- **HANDOFF-TEMPLATE.md §12** gains the TEMPLATE-form placeholder line (displayed as the fill-in block) plus a backend-only-branch sentence quoting the N/A form inline in backticks (mid-line, so it is not a marker line) — every future handoff carries the marker by template without the template itself conforming its unit (§4.5).
 - Style recommendation recorded in both: marker lives in the closeout carrier — dir units: `closeout.md`/`CLOSEOUT.md` or the handoff doc's §12; flat units: a `## 12` section in the plan file or a sibling closeout file named after the plan stem. Not guard-enforced (§1.1.6).
 
 ## 7 Documented limits (honest ceiling — accepted, not findings)
@@ -129,7 +138,8 @@ Live-clean criterion: against today's tree plus the ledger, the guard is green �
 ## 8 Ship shape
 
 <!-- spec-lint: ignore — files created by this arc; not yet tracked -->
-- `tests/docs/_invariant8Closeout.ts` (helper, pure), `tests/docs/_metaInvariant8Closeout.test.ts` (live assertions + plants), `tests/docs/invariant8/preGuardDebt.ts` (frozen ledger + undated allowlist). All matched by the existing `tests/docs/**/*.test.{ts,tsx}` vitest project row (`vitest.projects.ts:126`); the helper and ledger are underscore/non-test files, not collected.
+- `tests/docs/_invariant8Closeout.ts` (helper, pure), `tests/docs/_metaInvariant8Closeout.test.ts` (live assertions + plants), `tests/docs/invariant8/preGuardDebt.ts` (frozen ledger + undated allowlist + `MARKER_TEMPLATE_FILES`). All matched by the existing `tests/docs/**/*.test.{ts,tsx}` vitest project row (`vitest.projects.ts:126`); the helper and ledger are underscore/non-test files, not collected.
 - Doc edits: AGENTS.md (one sentence), HANDOFF-TEMPLATE.md §12 (marker lines), this arc's plan document (its own N/A marker).
 - Graduation: `BACKLOG_GRADUATED` registry row (in `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the ONE edit to that file) + entry moved to `BACKLOG-archive.md`, provenance `test/invariant8-closeout-enforcement`; RED-first per the T5 pattern of PR #646.
+- Ledger generation timing: `PRE_GUARD_DEBT` is regenerated from the probe at implementation time and again at any merge-conflict resolution, NOT pasted from this spec's draft-time snapshot — three sibling Cluster B arcs are writing plan documents concurrently, and any of them merging first adds a declaring unit. A sibling plan landing AFTER this guard merges will red loudly in its own PR with a fail message naming both remedies (marker or row); the orchestrating session notifies sibling arcs of the N/A marker line once this spec APPROVEs.
 - Commits: TDD per task, conventional-commits, plan to follow (writing-plans).

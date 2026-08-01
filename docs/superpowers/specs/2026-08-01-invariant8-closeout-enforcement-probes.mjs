@@ -94,5 +94,41 @@ for (const r of rows) {
   );
 }
 console.log("");
+// Aggregates the spec cites directly (r1 F4) + fold-comparison (r1 F3) + canaries (r1 F1).
+const withCloseout = rows.filter((r) => r.closeouts.length > 0).length;
+const withS12 = rows.filter((r) => r.s12.length > 0).length;
+console.log(`declaring units with *closeout* file: ${withCloseout}`);
+console.log(`declaring units with ##12-bearing file: ${withS12}`);
+
+let sameFileBoth = 0;
+let splitOnly = 0;
+for (const [, u] of units) {
+  let anyC = false;
+  let anyA = false;
+  let both = false;
+  for (const rel of u.files) {
+    const text = readFileSync(join(ROOT, rel), "utf8");
+    const c = CRITIQUE.test(text);
+    const a = AUDIT.test(text);
+    anyC ||= c;
+    anyA ||= a;
+    both ||= c && a;
+  }
+  if (anyC && anyA) {
+    if (both) sameFileBoth += 1;
+    else splitOnly += 1;
+  }
+}
+console.log(`fold comparison — same-file-BOTH units: ${sameFileBoth}; split-across-files-only units: ${splitOnly}`);
+
+const CANARIES = [
+  "2026-07-18-alert-copy-full-sweep.md",
+  "admin/2026-06-22-validation-reset-button.md",
+  "v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation",
+  "2026-04-30-fxav-crew-pages-v1",
+];
+for (const c of CANARIES) console.log(`canary ${units.has(c) ? "OK" : "MISSING"}: ${c}`);
+
+console.log("");
 console.log("undated (outside any unit):");
 for (const f of undated) console.log(`  ${f}`);
