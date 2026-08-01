@@ -46,7 +46,7 @@ A unit declares the invariant-8 gate iff, folding across ALL member files, some 
 
 ### 3.3 Marker grammar
 
-A marker line is any line whose leading-whitespace-TRIMMED text begins `impeccable-gate:` (trimming first, so an indented typo'd marker is classified and rejected rather than silently invisible — grammar-probe indented cases). Three forms (exact, anchored on the trimmed line, one line):
+A marker line is any line whose text — after stripping a trailing carriage return (CRLF checkouts are honest inputs; whole-diff r1) and leading whitespace — begins `impeccable-gate:` (trimming first, so an indented typo'd marker is classified and rejected rather than silently invisible — grammar-probe indented cases). Three forms (exact, anchored on the trimmed line, one line):
 
 ```
 impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>   (RAN form; RAN-DEGRADED also valid per half)

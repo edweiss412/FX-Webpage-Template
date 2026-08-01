@@ -128,7 +128,9 @@ export function declaresGate(files: Map<string, string>): boolean {
 export function parseMarkers(text: string, opts: { template: boolean }): ParsedMarkers {
   const result: ParsedMarkers = { valid: [], template: 0, malformed: [] };
   for (const rawLine of text.split("\n")) {
-    const line = rawLine.trimStart();
+    // CRLF checkouts are honest inputs (whole-diff r1): strip the \r before
+    // classification so a Windows working tree cannot red every valid marker.
+    const line = rawLine.replace(/\r$/, "").trimStart();
     if (!line.startsWith(MARKER_PREFIX)) continue;
     const ran = RAN_FORM.exec(line);
     if (ran !== null) {

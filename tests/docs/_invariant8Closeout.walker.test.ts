@@ -167,6 +167,16 @@ describe("parseMarkers — grammar accept/reject table (M3, M8)", () => {
     expect(got).toBe(want);
   });
 
+  it("CRLF input parses identically to LF (whole-diff r1 plant)", () => {
+    const crlf = `${VALID_RAN}\r\n${VALID_NA}\r\n${TEMPLATE_LINE}\r\n`;
+    const r = parseMarkers(crlf, { template: false });
+    expect(r.valid).toHaveLength(2);
+    expect(r.malformed).toEqual([TEMPLATE_LINE]);
+    const tpl = parseMarkers(`${TEMPLATE_LINE}\r\n`, { template: true });
+    expect(tpl.template).toBe(1);
+    expect(tpl.malformed).toEqual([]);
+  });
+
   it("multi-line text yields one verdict per marker line", () => {
     const text = `prose\n${VALID_RAN}\nimpeccable-gate: broken\nmore prose`;
     const r = parseMarkers(text, { template: false });

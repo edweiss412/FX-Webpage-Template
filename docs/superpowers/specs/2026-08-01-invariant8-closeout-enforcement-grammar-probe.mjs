@@ -11,7 +11,7 @@ const TEMPLATE =
 
 // inTemplateFile: whether the containing file is in MARKER_TEMPLATE_FILES (§4.5).
 function verdict(rawLine, inTemplateFile) {
-  const line = rawLine.trimStart(); // §3.3: classify on the trimmed line
+  const line = rawLine.replace(/\r$/, "").trimStart(); // §3.3: strip CR (CRLF checkouts are honest inputs), then classify on the trimmed line
   if (!line.startsWith("impeccable-gate:")) return "not-marker";
   const m = RAN.exec(line);
   if (m) {
@@ -46,6 +46,8 @@ const cases = [
   ["impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>", true, "template"],
   ["impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>", false, "malformed"], // TEMPLATE outside template file
   ["impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none", true, "malformed"], // valid marker inside template file forbidden
+  ["impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none\r", false, "valid"], // CRLF (whole-diff r1)
+  ["impeccable-gate: N/A — no UI surface\r", false, "valid"], // CRLF
 ];
 
 let fail = 0;
