@@ -688,33 +688,6 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 
 **Trigger:** next milestone touching §12.4 alert rows, the attention surface, or `CompactAlertCard` affordances.
 
-## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
-
-Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
-review rounds on the same vector. The change shipped
-`tests/docs/_metaDeferralLedgerGraduation.test.ts`, whose ledger invariants (no id both
-active and archived; every graduated id archive-only) are enforceable and true. A third
-assertion — every plan declaring an invariant-8 (impeccable) gate carries a `## 12`
-closeout section — was removed, because it cannot be made both fail-by-default and
-honest against the tree as it stands.
-
-**Measured 2026-07-24.** `docs/superpowers/plans/` holds 33 flat `*.md` plans and 274
-nested files that mention invariant 8 or impeccable. Plan files are variously
-`plan.md`, `00-plan.md`, `PLAN.md`; closeouts are variously `closeout.md` inside a plan
-directory or a sibling `<name>-closeout.md`. Of the 13 plan DIRECTORIES that declare the
-gate, 12 have no `## 12` closeout section. There is therefore no rule that locates a
-closeout for an arbitrary plan, so a filesystem walk silently under-reports; and a
-registry-based version is an opt-in list, which is precisely the fail-by-default hole a
-structural guard exists to close.
-
-**Work when prioritized:** (1) ratify one closeout location convention; (2) migrate or
-explicitly debt-list the existing plans; (3) restore the assertion as a default-deny
-walk over that convention, requiring both gate halves named AND an affirmative P0/P1
-disposition (a lexical check must reject hedges — "skipped", "pending", "not run",
-"TBD" — since the earlier draft passed on "Critique skipped. Audit pending."). Note the
-honest ceiling: any text assertion verifies SHAPE, not that a human actually ran the
-gate.
-
 ## BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel
 
 **Status:** OPEN · **Severity:** UNVERIFIED (needs measurement before triage) · **Class:** same as `BL-SHAREHUB-ARM-VIEWPORT-REVEAL`, which graduated to `BACKLOG-archive.md` when it shipped.
