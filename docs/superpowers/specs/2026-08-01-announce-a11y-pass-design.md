@@ -1,0 +1,168 @@
+# Announcement a11y pass — arm-expiry + remote-rotation live regions
+
+**Date:** 2026-08-01 · **Status:** DRAFT · **Charter:** BACKLOG.md `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` + `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` (the two rows the 2026-08-01 focus-ring pass left OPEN for this follow-up spec).
+
+## 1. Scope
+
+Two screen-reader gaps, one PR:
+
+1. **Silent arm expiry** (BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS). Every two-tap destructive confirm auto-reverts after `ARM_REVERT_MS` (4s). At revert the armed live region empties or the confirm panel unmounts; emptying a live region announces nothing, so a screen-reader user believes they are still armed. This spec announces the close.
+2. **Silent remote rotation** (BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE). Another admin's share-token rotation reaches this browser through `router.refresh()`; the visual flash cue is `animation: none` under reduced motion (app/globals.css, `[data-share-link-flash]` reduced-motion block) and no banner mounts (the rotate success banner renders off `result`, local state written only by this browser's own action). This spec adds a ShareHub-owned live region mirroring the visual cue.
+
+Not a timing change: `ARM_REVERT_MS` stays 4s (ratified below).
+
+## 1.1 Resolved scope — do not relitigate
+
+- **Keep 4s + announce expiry.** Owner-ratified 2026-08-01 (AskUserQuestion, this pipeline): `ARM_REVERT_MS` stays `4_000` (lib/admin/destructiveConfirm.ts, `ARM_REVERT_MS`; T3 pin at tests/styles/_metaDestructiveConfirm.test.ts, "ratified 4s"). The 8s-raise and pause-while-focused alternatives were presented and declined. Do not propose window-length changes.
+- **Mirror the visual cue.** Owner-ratified 2026-08-01 (same AskUserQuestion): the ShareHub announcement fires under the SAME predicate as the visual flash (popover open + link active + accepted non-null-to-non-null token change) and NOT when the popover is closed. Do not propose closed-popover announcements.
+- **Local rotate stays silent in the hub region.** RotateShareTokenButton's own success banner (`role="status"`, data-testid `admin-rotate-share-token-ok`) already announces the local rotation; a second hub-region announcement would recreate the double-announce class BL-NEWTAB-DOUBLE-ANNOUNCE closed (PR #640). Suppression mechanism in §4.2.
+- **Guard posture is lexical presence, not semantics.** tests/styles/_metaDestructiveConfirm.test.ts carries a six-round history lesson (its own comment block, "WHAT IT DELIBERATELY DOES NOT COVER"): identifying "which call is the arm timer" by regex produced a bypass per round and then false positives. The §5.2 meta-test therefore pins only lexical co-presence (importer of `ARM_REVERT_MS` must also reference the shared expiry constant or hold an exemption row); whether the announcement actually fires on the timer path is proven per surface by behavioral tests (§5.1), not by the meta-test. Do not demand a semantic scanner.
+- **Row-idiom carve-out untouched.** DESIGN.md §15 (owner-ratified 2026-07-20): tier-2 controls rendered as titled rows inside a popover dismiss via explicit Cancel, not auto-revert (`ArchiveShowButton` row branch skips the timer: `if (asRow) return` before the `setTimeout`). No timer means nothing expires; those branches are exempt rows, not gaps.
+- **Rotate keeps its timer.** RotateShareTokenButton's 4s auto-revert is live code this pass announces, not removes; the DESIGN.md sentence claiming rotate never had a timeout is corrected as a docs fix (§3.2). Whether the rotate row should ADOPT the archive row's no-timer idiom is a separate owner decision, deliberately not taken here — do not propose it as a finding in either direction.
+- **No new §12.4 codes.** Expiry and remote-rotation copy are admin-facing inline sentences, the same posture as the `not-subject:M5-D8` precedent (components/admin/wizard/CrewRowActions.tsx, onConfirm outcome copy). No catalog rows, no `pnpm gen:spec-codes`.
+- **Copy is fixed by this spec** (§3.1, §4.3). Wording nits are P3 review territory, not blocking findings.
+
+## 2. Current state (citations)
+
+- `ARM_REVERT_MS = 4_000`, single declaration: lib/admin/destructiveConfirm.ts (T1 pins uniqueness; T3 pins the value — tests/styles/_metaDestructiveConfirm.test.ts).
+- Eleven importer surfaces (census in §3.2's matrix).
+- Existing arm live regions announce the ARM on the morph-idiom surfaces (e.g. components/admin/PendingPanelDiscardButtons.tsx, sr-only `role="status"` span rendering "Tap again to stop tracking this sheet permanently." when armed, "" when idle). Emptying to "" at revert is the silent close.
+- Panel-idiom surfaces announce the ARM via the focus contract (DESIGN.md §15 Focus rules: open focuses the safe control; auto-revert restores focus to the re-mounted trigger only when focus was inside). The restore announces the trigger's NAME but never says WHY the panel vanished.
+- ShareHub cue logic: components/admin/showpage/ShareHub.tsx — render-phase `prevToken`/`flash` pair (three-branch rule in the "Crew-URL change cue" block), clear predicate `(!open || !linkActive)`, `SHARE_LINK_FLASH_MS = 1600`.
+- Token cache: app/admin/show/[slug]/ShareTokenContext.tsx — `applyRotated` (local instant path, epoch-gated) and the render-phase server-seed reconcile block (accept iff `initialEpoch >= p.epoch`). A remote/lifecycle rotation reaches the held state ONLY through the seed path; a local rotate reaches it through `applyRotated` first, so the later seed carries an equal token and changes nothing.
+- reset_picker_epoch_atomic bumps `picker_epoch` only, never `share_token` (supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql) — a picker reset does not produce a token change, so it cannot trigger the new announcement.
+- Rotate success banners: app/admin/show/[slug]/RotateShareTokenButton.tsx (`admin-rotate-share-token-ok`, `-ok-inactive`, both `role="status" aria-live="polite"`).
+
+## 3. Part 1 — arm-expiry announcements
+
+### 3.1 Shared copy constant
+
+lib/admin/destructiveConfirm.ts gains, beside `ARM_REVERT_MS`:
+
+```ts
+/** Announced (sr-only, role="status") when an armed two-tap confirm auto-reverts.
+ *  Explicit disarms (second-tap confirm, Cancel, Escape, sibling action) stay
+ *  silent; their own outcome announcements cover them. */
+export const ARM_EXPIRED_ANNOUNCEMENT = "Confirm window closed. Nothing was changed.";
+```
+
+One string for all surfaces: the window closing means the same thing everywhere, and a shared constant is what the §5.2 meta-test can pin lexically.
+
+### 3.2 Per-surface matrix
+
+Eleven importers of `ARM_REVERT_MS` (T1's walk; none of the eleven files contains NUL bytes — plain rg/grep verification is valid here, unlike the focus-ring pass's Step3Review case). Idiom names follow DESIGN.md §15: **morph** = the trigger itself re-labels; **panel** = the trigger swaps for a confirm/cancel row.
+
+| # | Surface | Idiom | Timer callback today | Arm announced today by | Expiry change | Behavioral test lands in |
+|---|---------|-------|----------------------|------------------------|---------------|--------------------------|
+| 1 | components/admin/BulkIgnoreControls.tsx | morph (per-group chip) | `setArmedCode(null)` (onGuardedClick) | sr-only region "Tap again to confirm." (per chip) | region gains expired state | tests/components/admin/bulkIgnoreControls.test.tsx |
+| 2 | components/admin/wizard/CrewRowActions.tsx | panel (2-stop focus trap) | `closeFully(true)` (enterConfirm) | focus move into trap | NEW persistent sr-only region, expiry only | tests/components/admin/wizard/crewRowActions.test.tsx |
+| 3 | components/admin/BlockedRowResolver.tsx | morph | `setArmed(false)` | sr-only region "Tap again to confirm." | region gains expired state | tests/components/admin/BlockedRowResolver.test.tsx |
+| 4 | components/admin/PendingPanelDiscardButtons.tsx | morph | `setArmed(false)` (onGuardedIgnoreClick) | sr-only region "Tap again to stop tracking this sheet permanently." / "Working…" | region gains expired state | tests/components/admin/pendingIngestionActions.test.tsx |
+| 5 | components/admin/ResolveAlertButton.tsx | panel | `closeConfirm()` (onResolveClick) | focus move to cancel (C3) | NEW persistent sr-only region, expiry only | tests/components/ResolveAlertButton.test.tsx |
+| 6 | components/admin/ArchiveShowButton.tsx | morph (compact/full) + row panel | `setArmed(prev => prev ? false : prev)`; row branch has NO timer (`if (asRow) return` before the setTimeout) | NOTHING on the morph branches (label swap only; morph focus exemption means no focus move either) | NEW persistent sr-only region on the morph branches carrying BOTH the arm prompt ("Tap again to confirm.") and expiry. Row branch: exempt, no timer (§1.1 carve-out) | tests/components/admin/ArchiveShowButton.test.tsx |
+| 7 | components/admin/StagedReviewCard.tsx | morph | `setIgnoreArmed(false)` (onGuardedIgnoreClick) | sr-only region "Tap again to confirm." | region gains expired state | tests/components/StagedReviewCard.test.tsx |
+| 8 | app/admin/show/[slug]/PickerResetControl.tsx | panel | `closeConfirm()` (enterConfirm) | focus move (C3); persistent success region already exists (`outcome ok` text) | existing persistent region multiplexes: expiry state added | tests/admin/pickerResetControl.test.tsx |
+| 9 | app/admin/show/[slug]/ResetPickerEpochButton.tsx | panel | `closeConfirm()` (onResetClick arm handler) | focus move (C3); persistent success region already exists (`okMessage`) | existing persistent region multiplexes: expiry state added | tests/components/ResetPickerEpochButton.test.tsx |
+| 10 | app/admin/show/[slug]/RotateShareTokenButton.tsx | panel row (explicit Cancel AND a live 4s timer — see the DESIGN.md correction below) | `closeConfirm()` (onRotateClick) | focus move (C3); success banners are conditional, not persistent | NEW persistent sr-only region, expiry only | tests/components/RotateShareTokenButton.test.tsx |
+| 11 | app/admin/settings/admins/RevokeRowButton.tsx | panel | `closeConfirm()` (onRevokeClick) | focus move (C3) | NEW persistent sr-only region, expiry only | tests/components/RevokeRowButton.test.tsx |
+
+Arm-gap note on row 6: the backlog row charters the close, not the open — but ArchiveShowButton's morph branches are the one place in the family where the ARM is fully silent today (no region, no focus move). The new region needed for expiry carries the arm prompt too; announcing a window's close without ever announcing its open would be incoherent. This is the only arm-copy addition in the pass (matrix column 5 shows every other surface already announces the arm one way or the other).
+
+Panel-idiom implementation constraint: the timer callback and Cancel share `closeConfirm()` on every panel surface. The expiry text is set IN THE TIMER CALLBACK, alongside (not inside) `closeConfirm()`, so the Cancel path cannot announce. The new/extended region must be mounted across idle, confirm, and resolving states (text swaps into a pre-existing region — the Safari/VoiceOver rule already documented on the existing regions).
+
+**DESIGN.md correction (docs, same PR).** DESIGN.md §15's row-idiom carve-out sentence claims "the rotate row has always dismissed via `Cancel`, not a timeout" — inherited from the 2026-07-20 amendment (docs/superpowers/specs/admin/2026-07-16-destructive-confirm-pass.md, Amendment section). The claim is false: the same spec's F4 test section states "All five trigger-swap surfaces HAVE auto-revert timers (verified: RotateShareTokenButton.tsx …)", and the live code arms one (`onRotateClick` sets the `ARM_REVERT_MS` timeout). The carve-out DECISION (archive row drops the timer) is untouched; only the false factual aside about rotate is corrected while this pass adds its announcement paragraph to §15. No behavior change to rotate's timer — dropping it would be a separate owner decision, out of scope here.
+
+### 3.3 State machine (both idioms)
+
+The expiry announcement is set in EXACTLY ONE place per surface: the `ARM_REVERT_MS` timer callback. Every other disarm path stays silent:
+
+- Second-tap confirm: the action's own running/success/error announcements cover it.
+- Explicit Cancel / Escape (panel idiom): user-initiated; announcing "nothing was changed" for a deliberate cancel is noise.
+- Sibling-action disarm (e.g. PendingPanelDiscardButtons: any discard starting disarms the pending permanent-ignore): the sibling's own announcements cover it.
+
+Lifecycle of the expiry text: it replaces the region's content at timer fire and PERSISTS until the next state change of the same region (next arm replaces it with the arm prompt; a subsequent action replaces it with running/outcome text). No auto-clear timer — a lingering sr-only string re-announces nothing and adds no visual.
+
+Guard conditions: the timer callback only exists while armed (every surface clears the timer on confirm/cancel/sibling paths today — §3.2 anchors), so the expiry text can never overwrite an in-flight "Working…" or a success message.
+
+### 3.4 Focus interplay
+
+DESIGN.md §15 focus rules are UNCHANGED: auto-revert still restores focus to the re-mounted trigger when focus was inside, guarded so a timer firing while the user works elsewhere never steals focus. The announcement is additive — it explains the close that the focus restore only implies. No surface changes its focus behavior in this pass.
+
+## 4. Part 2 — ShareHub remote-rotation announcement
+
+### 4.1 Detection: the seed-diff bump
+
+app/admin/show/[slug]/ShareTokenContext.tsx gains a monotone counter, `remoteTokenChanges`, exposed on the context value. It increments ONLY inside the server-seed reconcile branch, when the accepted seed actually CHANGES the held token between two non-null values:
+
+- accept branch taken (`initialEpoch >= p.epoch`), and
+- `p.token !== null && initialToken !== null && initialToken !== p.token`.
+
+Why this is exactly "remote": a local rotate goes through `applyRotated` first (instant path), so by the time its own `router.refresh()` seed lands, the held token already equals the seed and the condition is false. A rotation this browser did NOT apply locally (another admin's rotate; an unarchive minting a new token while the popover context survives) can only enter through the seed, and does change the held token. Null transitions (token appearing/disappearing) are excluded to mirror the flash cue's both-non-null rule — they never represent "the link you had is now dead" (the cue's meaning).
+
+Known edge, accepted: this browser's OWN rotate on an INACTIVE crew link skips `applyRotated` (RotateShareTokenButton gates `onRotated` on `isCrewLinkActive`), so its seed WOULD bump the counter — but `linkActive` is false in that state, and §4.2's predicate suppresses the announcement. Same suppression as the visual cue's clear predicate.
+
+### 4.2 ShareHub live region
+
+ShareHub watches `remoteTokenChanges` with the same render-phase adjust-state pattern as `prevToken` and sets a local `remoteAnnounce: string | null` when ALL of:
+
+- the counter advanced since last render,
+- `open` is true,
+- `linkActive` is true.
+
+Cleared by the exact clear predicate the flash uses: `(!open || !linkActive)`. The region is a persistent sr-only `role="status"` element mounted at the popover root WHENEVER the popover is open, empty until the event — text swaps into a pre-existing region (the project's established Safari/VoiceOver-safe pattern, e.g. app/admin/show/[slug]/ResetPickerEpochButton.tsx liveRegion comment). A remote change while the popover is CLOSED announces nothing and leaves nothing behind (mirror-the-cue ratification, §1.1).
+
+Local rotate: `applyRotated` path never bumps the counter — the hub region stays empty and the rotate button's own banner announces (§1.1).
+
+### 4.3 Copy
+
+```
+Crew link changed. The earlier link no longer works.
+```
+
+Deliberately does not say WHO rotated (the client cannot know) and does not repeat the URL (the crew-link row beside it carries it; the flash cue highlights it visually).
+
+## 5. Testing
+
+### 5.1 Per-surface behavioral tests (part 1)
+
+For each matrix row with a timer: a component test (vitest + RTL + `vi.useFakeTimers`) proving
+- arm, then `advanceTimersByTime(ARM_REVERT_MS)` → the surface's sr-only `role="status"` region renders `ARM_EXPIRED_ANNOUNCEMENT`;
+- arm, then second-tap confirm → region never renders the expiry copy (it renders the running/outcome copy instead);
+- where a sibling-disarm path exists (matrix column), that path also never renders the expiry copy.
+
+Assertions read the region's text content, scoped to the sr-only status element — not a container that also renders visible banners (anti-tautology rule). Existing per-surface test files (matrix column) are extended rather than duplicated.
+
+### 5.2 Structural meta-test (part 1)
+
+Extend tests/styles/_metaDestructiveConfirm.test.ts with T4: walk `components/` + `app/` + `lib/`; every file whose stripped source references `ARM_REVERT_MS` (the existing T1 walker + comment-stripping infrastructure) must also reference `ARM_EXPIRED_ANNOUNCEMENT`, or appear in an inline exemption list with a reason (the declaration module itself is trivially both). Lexical presence only — "no known spelling is absent" honesty posture (§1.1). Self-check cases pin the predicate (reference-in-comment does not count; type-only mention counts as reference — documented limit, same trust level as the T1 matcher).
+
+### 5.3 ShareHub tests (part 2)
+
+Extend the tests/components/admin/showpage/shareHubFlashState.test.tsx harness (it already drives both paths: `reseed(nextToken, nextEpoch)` = server seed, and a probe child calling `applyRotated` = local):
+
+- remote accepted change, popover open + link active → region text equals §4.3 copy;
+- same change with popover closed → region absent/empty, and reopening does NOT announce retroactively;
+- local `applyRotated` change (+ its equal-token follow-up seed) → region stays empty;
+- stale seed (lower epoch, rejected) → no bump, region empty;
+- null-involved transitions (token→null, null→token) → no bump;
+- clear predicate: announce, then close popover → cleared.
+
+Context unit: `remoteTokenChanges` increments once per qualifying seed and never on `applyRotated` (extend the ShareTokenContext coverage in the same harness file).
+
+### 5.4 Gates
+
+UI files under `components/` + `app/` change → invariant-8 impeccable dual-gate (critique + audit) on the diff. No DB, no advisory-lock surfaces, no routes, no migrations (§2's migration citation is read-only evidence). No e2e needed: every assertion is live-region text or state, all jsdom-provable; the existing e2e flash spec (tests/e2e/share-link-flash.spec.ts) is untouched.
+
+## 6. Documented limits
+
+- **Identical consecutive announcement may be swallowed.** Two remote rotations in quick succession set the same string twice; some screen readers skip an unchanged live-region rewrite. Worst case: the second of two back-to-back remote rotations goes unannounced while the first was announced seconds earlier — conservative, surfaced-once, files here rather than buying a re-announce nonce.
+- **T4 is lexical.** A surface could import both constants and wire the announcement to the wrong path; the per-surface behavioral tests are the real proof, T4 only prevents silent omission on NEW surfaces. Same honesty posture as T1 (tests/styles/_metaDestructiveConfirm.test.ts header).
+- **Panel-idiom arm remains focus-announced, not region-announced.** This pass adds the expiry announcement everywhere a timer exists but does not convert panel arms to live-region arms — the focus contract already announces the safe control on open (DESIGN.md §15).
+
+## 7. Out of scope
+
+- Any change to `ARM_REVERT_MS`, the row-idiom carve-out, or focus behavior (§1.1).
+- Closed-popover rotation announcements (§1.1).
+- Arm-copy rewrites on surfaces that already announce the arm.
+- The visual flash cue and its e2e spec.
+- DESIGN.md §15 gains one paragraph documenting the expiry-announcement contract and the ShareHub region (docs task in the plan), nothing else in DESIGN.md moves.
