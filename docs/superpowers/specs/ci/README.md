@@ -17,3 +17,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-20-unit-suite-project-split.md`](./2026-07-20-unit-suite-project-split.md) | 2026-07-20 |
 | [`2026-07-26-ci-dark-coverage-design.md`](./2026-07-26-ci-dark-coverage-design.md) | 2026-07-26 |
 | [`2026-07-26-ci-dark-descoped-closeout-design.md`](./2026-07-26-ci-dark-descoped-closeout-design.md) | 2026-07-26 |
+| [`2026-08-01-ci-cross-step-env-guard-design.md`](./2026-08-01-ci-cross-step-env-guard-design.md) | 2026-08-01 |
