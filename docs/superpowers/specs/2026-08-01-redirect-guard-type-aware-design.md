@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R2 — round-1 findings repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R3 — round-2 findings repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**R2 disposition (2026-08-01):** NEEDS-ATTENTION, 3 findings, all accepted. F-R2-1 (literal-TYPED computed keys escape a literal-NODE prefilter; 10 zero-diagnostic shapes enumerated) → prong 2 is now TYPE-DECIDED over every non-callee candidate with no syntactic key prefilter, and callee-position candidates are skipped only when prong 1 already flagged the call — closing union-typed-key calls as well (probe 5: all 10 shapes + union-key call/extraction caught; regressions, negatives, E-pins hold; prefilter removal costs ~1.4s). F-R2-2 (redeclared-container claim overbroad) → claim rescoped: the delegator/hand-roller dichotomy replaces the blanket sentence (§5.1). F-R2-3 (committed probe 4 lacked its advertised tree section) → probe rewritten to the final construction with the tree scan included.
 
 **R1 disposition (2026-08-01):** NEEDS-ATTENTION, 7 findings, all accepted. F1 (typed value-flow escapes) is closed structurally by a second matching prong — every non-callee **reference** to the banned method is itself a finding (probe 4: all 12 mutants caught, incl. `as any` value extraction; negatives clean). F2/F3 (mechanism misstatements) fixed against probe-validated mechanics, pure ts-morph. F4 fixture-path contradiction resolved (`__audit_fixture__/` namespace under both roots). F5 `auditTree` contract specified. F6 typecheck overclaim replaced by a no-plain-JS sentinel (probe: zero JS modules under walked roots today). F7 probes now committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs`.
 
@@ -86,6 +88,19 @@ Real-tree run of the two-prong matcher: **0 non-callee `redirect`-named candidat
 
 **Probe 4c — escape pins.** `(NextResponse as any).redirect(u)` (receiver laundering): 0 findings — remains the documented limit. `const k = "redirect"; NextResponse[k](u)` (const-literal computed key): **caught** by the call prong (the checker resolves literal-typed keys). Widened key (`const k: string = "redirect"` through a `Record` cast): 0 findings — documented limit.
 
+**Probe 5 — type-decided prong 2 closes the R2 literal-typed-key class (round-2 repair).** R2 demonstrated ten zero-diagnostic extraction shapes whose keys are literal-TYPED but not literal NODES (identifier `as const` keys, template keys, const-object keys, enum keys, computed destructuring, string-literal and computed-string bindings, parenthesized/`as const`/`satisfies` element accesses) — all escaping a syntactic candidate filter. With candidates widened to every non-callee `PropertyAccess`/`ElementAccess`/`BindingElement` and the flag decided purely by the node's type:
+
+```
+OK  a–j (all ten R2 shapes)                caught (extraction reference)
+OK  k union-key CALL, l union-key extraction  caught (callee skipped only when prong 1 flagged)
+OK  probe-4 regressions (F1a, F1k, direct-call exactly-one)
+NEG hostRelativeRedirect / next-navigation extraction / unrelated-container element access / ordinary array access  clean
+E1 receiver-as-any, E2 widened key        still escape (documented limits hold)
+ALL CLOSED
+tree scan prefilter=true:  1 finding(s), 11601ms
+tree scan prefilter=false: 1 finding(s), 12976ms   <- shipped construction (no prefilter)
+```
+
 **Probe — no plain-JS modules under walked roots (R1/F6).** `find app lib -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs"` (node_modules excluded) → 0 files. tsconfig `include` covers only `**/*.ts`/`**/*.tsx`, `checkJs` off — so the typecheck gate does NOT discharge import resolution for standalone JS; the sentinel in §5.5 fences the class instead.
 
 ## 3. Consequence bound (acceptance criterion)
@@ -134,9 +149,9 @@ function isBannedDecl(decl: Node | undefined): boolean {
 
 **Prong 1 — calls:** flag every `CallExpression` where `isBannedDecl(getResolvedSignature(call)?.getDeclaration())`.
 
-**Prong 2 — references (R1/F1 closure):** candidate nodes are `PropertyAccessExpression`s named `redirect`, `ElementAccessExpression`s with string-literal argument `"redirect"`, and `BindingElement`s whose property name is `redirect`. Skip candidates in direct-callee position (prong 1 owns those; the allowlist keys on calls). Flag the rest when the node's TYPE carries a banned call signature: `node.getType().getCallSignatures().some(s => isBannedDecl(s.getDeclaration()))`. Rationale: every way to move the method into differently-typed storage must spell the member name once, at the extraction site — probe 4 shows all twelve R1 mutants caught there, including `as any` VALUE laundering, and the real tree has zero such references. Extraction findings are unconditionally banned: no allowlist row can cover them (a reference's `argument` is `""`, which never matches a row's pinned argument, and no legitimate external-redirect use needs to extract the method).
+**Prong 2 — references (R1/F1 closure; TYPE-DECIDED per R2/F1):** candidate nodes are **every** `PropertyAccessExpression`, `ElementAccessExpression`, and `BindingElement` — no syntactic key/name prefilter (R2 showed a literal-NODE filter misses literal-TYPED keys: identifier keys, template keys, const-object keys, enum keys, computed destructuring, `as const`/`satisfies`/parenthesized accesses). A candidate in direct-callee position is skipped ONLY when prong 1 already flagged that call (dedupe); otherwise it is checked too, which closes union-typed-key calls that defeat signature resolution. Flag when the node's TYPE carries a banned call signature: `node.getType().getCallSignatures().some(s => isBannedDecl(s.getDeclaration()))`. Rationale: every way to move the method into differently-typed storage yields, at the extraction site, an expression whose type still carries the banned declaration — probe 4 (twelve R1 mutants) and probe 5 (twelve R2 shapes) both close there, and the real tree has zero such references. Extraction findings are unconditionally banned: no allowlist row can cover them (a reference's `argument` is `""`, which never matches a row's pinned argument, and no legitimate external-redirect use needs to extract the method).
 
-Deliberately name-based container matching, not declaration-path-based: a vendored or re-declared `NextResponse`/`Response` with a `redirect` member still flags. Default-deny — a false positive on a hypothetical innocent class named `NextResponse` is a visible, allowlistable event, not a silent miss.
+**Container matching scope (rescoped per R2/F2):** name-based container matching (class/interface named `NextResponse`/`Response`, or a type literal owned by a variable of that name) covers the genuine `next/server`/lib.dom declarations and vendored/copied declaration-file-style redeclarations of the same shape. It does NOT chase local runtime mimics — an object literal, namespace, type alias, or anonymous class locally named `NextResponse` with its own `redirect` implementation. That space is unbounded and not load-bearing: a mimic either DELEGATES to the real method (its internal call/reference is in a walked file and flags there) or HAND-ROLLS an absolute Location without the banned method (§7 limit 5, outside this guard's claim, same as today). Fenced both directions: extending container matching to mimic shapes is out of scope, and a reviewer claim that a mimic escapes must show it producing the host flip WITHOUT touching the banned method or hand-rolling.
 
 ### 5.2 Entry points (contract per R1/F5)
 
@@ -165,8 +180,8 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R24 and R25–R37 (§6.1).
-- Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`.
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R49 (§6.1).
+- Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`, ordinary element access/destructuring (N6 — pins the no-prefilter widening quiet on normal code).
 - Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
 - Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
 - Escape-documentation tests (§6.3): receiver-laundering and widened-key fixtures asserted to produce **0 findings** — pinning each documented limit as behavior so a future change to the boundary trips a test and updates the header deliberately.
@@ -178,7 +193,7 @@ The module header's claim changes from "these 19 spellings" to: *two-prong resol
 
 ### 5.7 Performance budget
 
-Probe 3/4b: ~11.5s idle, ~23s under concurrent-session machine load, on this tree (633 files, 16k calls); the reference prong adds no measurable cost (0 candidates in the real tree). Accepted for a cross-cutting audit (the suite already carries whole-project ts-morph audits — `lib/audit/noGlobalCursor.ts` `projectSourceFiles` loads the full tsconfig). The 120s `beforeAll` timeout (§5.2) covers the loaded-machine tail. If tree growth pushes past it, the recorded fallback is root-file batching, not a return to syntactic matching.
+Probes 3/4b/5: ~11.5–13s idle (final no-prefilter construction: 12,976ms, probe 5), ~23s under concurrent-session machine load, on this tree (633 files, 16k calls); the type-decided reference prong costs ~1.4s over the call prong alone and produces 0 reference findings on the real tree. Accepted for a cross-cutting audit (the suite already carries whole-project ts-morph audits — `lib/audit/noGlobalCursor.ts` `projectSourceFiles` loads the full tsconfig). The 120s `beforeAll` timeout (§5.2) covers the loaded-machine tail. If tree growth pushes past it, the recorded fallback is root-file batching, not a return to syntactic matching.
 
 ## 6. Mutation-family closure set
 
@@ -207,6 +222,9 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R35 | Renamed destructure extraction (F1k) | `const { redirect: r } = NextResponse; invoke(r, …)` |
 | R36 | `as any` VALUE laundering (F1l) | `const f = NextResponse.redirect as any; f(…)` — caught at the extraction reference |
 | R37 | Const-literal computed key (probe 4c) | `const k = "redirect"; NextResponse[k](…)` — the checker resolves literal-typed keys |
+| R38–R47 | Literal-typed computed extraction, ten shapes (R2/F1, probe 5 a–j) | identifier `as const` key; template key; const-object key; enum key; computed destructuring; string-literal binding; computed-string binding; parenthesized literal access; `as const` access; `satisfies` access — each extracting the method into a `RedirectFn`-typed value |
+| R48 | Union-typed-key call (probe 5 k) | `NextResponse[u as "redirect"](…)` — callee checked by prong 2 when prong 1's signature resolution fails |
+| R49 | Union-typed-key extraction (probe 5 l) | `const g = NextResponse[u2 as "redirect"]; g(…)` |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -216,7 +234,8 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N2 | `next/navigation` `redirect("/x")` — call AND extraction (`const r = redirect; r("/x")`) | free function, no container; its type's call signatures carry no banned declaration (probe 4 NEG) |
 | N3 | Local `class Router { redirect(u) {} }` — call, extraction, AND `.call` adapter | container ≠ NextResponse/Response (probe 4 NEG) |
 | N4 | `new NextResponse(null, { status, headers: { Location } })` | constructor, not a `redirect` signature — this is `hostRelativeRedirect`'s own mechanism |
-| N5 | Direct banned call produces exactly ONE finding | callee-position skip in prong 2 — no double count (probe 4 NEG) |
+| N5 | Direct banned call produces exactly ONE finding | prong 2 skips a callee only when prong 1 flagged that call — no double count (probes 4/5 NEG) |
+| N6 | Ordinary element access / destructuring (`xs[i]`, `const { length } = xs`) | type carries no banned signature (probe 5 NEG — the no-prefilter widening stays quiet on normal code; real tree: 0 reference findings) |
 
 ### 6.3 Documented-escape pins (limits asserted as behavior; boundary probed, 4c)
 
@@ -236,7 +255,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R37, N1–N5, E1–E2; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R49, N1–N6, E1–E2; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
