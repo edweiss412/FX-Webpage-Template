@@ -4,7 +4,7 @@
 
 Every task: failing test → minimal implementation → passing test → one conventional commit (`test(ci): …`). No task touches UI, DB, locks, or mutation surfaces — invariants 2/3/5/8/9/10 are N/A; invariant 11 satisfied (this worktree).
 
-**Execution-order note (honesty):** T1 and T2 were implemented red-first during the spec-R1 review wait and repaired to the R1 verdict in the same pass (commits `ea9b0cb3e` census, `911662097` scanner); the spec's §7 triage records the R1 findings and dispositions. This plan therefore reads as a verify-against-built record for T1/T2 and a forward task list for T3; the plan review gates the merge exactly as it would have gated execution.
+**Execution-order note (honesty):** T1 and T2 were implemented red-first during the spec-R1 review wait and repaired to the R1 verdict in the same pass (commits `ea9b0cb3e` census, `911662097` scanner, `6d6d155d0` spec-R2 repairs); the spec's §7 triage records the R1 findings and dispositions. This plan therefore reads as a verify-against-built record for T1/T2 and a forward task list for T3; the plan review gates the merge exactly as it would have gated execution.
 
 ## Pre-draft verification (run 2026-08-01 in this worktree)
 
