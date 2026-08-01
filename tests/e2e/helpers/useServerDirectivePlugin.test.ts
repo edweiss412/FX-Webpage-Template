@@ -8,11 +8,14 @@
 // module with no directive must bundle its real body unchanged; an unsupported
 // export shape or a parse diagnostic in a directive module must FAIL the build.
 import { build } from "esbuild";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyzeModule, useServerDirectivePlugin } from "./useServerDirectivePlugin.mjs";
+
+const REPO_ROOT = resolve(__dirname, "..", "..", "..");
 
 const FIX = resolve(__dirname, "__fixtures__/directive");
 const fixture = (name: string) => join(FIX, `${name}.ts`);
@@ -125,6 +128,35 @@ describe("useServerDirectivePlugin — the positive assertions can fail (mutatio
     expect(output).toContain("NAMED_BODY_SENTINEL");
     expect(output).not.toContain("server action export f is not callable");
   });
+});
+
+describe("step3 bundler consumes the shared plugin (C3 behavioral pin)", () => {
+  it("the step3 child stubs an escape-spelled directive the OLD regex resolver missed", () => {
+    // The deleted regex resolver raw-matched /^["']use server["']/ and did NOT
+    // stub "use\\x20server"; the shared plugin cooks the escape and does. Running
+    // the ACTUAL step3 child (not the plugin in isolation) proves the swap landed
+    // — a behavioral pin, not an identifier pin that a rename would survive.
+    const work = mkdtempSync(join(tmpdir(), "step3-directive-"));
+    const entry = join(work, "entry.tsx");
+    writeFileSync(
+      entry,
+      `import * as m from ${JSON.stringify(fixture("escapedSpace"))};\nconsole.log(m);\n`,
+    );
+    const outFile = join(work, "bundle.js");
+    execFileSync(
+      "node",
+      [
+        join(REPO_ROOT, "tests/e2e/_step3ReviewModalBundle.mjs"),
+        entry,
+        outFile,
+        join(REPO_ROOT, "tsconfig.json"),
+      ],
+      { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
+    );
+    const bundle = readFileSync(outFile, "utf8");
+    expect(bundle).toContain("server action export f is not callable");
+    expect(bundle).not.toContain("ESC_BODY_SENTINEL");
+  }, 120_000);
 });
 
 describe("analyzeModule — pure core classification (spec §5.1-§5.2)", () => {

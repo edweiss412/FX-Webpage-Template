@@ -49,9 +49,9 @@ const EXEMPT = new Map<string, string>([
   ["_metaLiveEntryToolchain.test.ts", "this guard; its fixtures name the binaries"],
   [
     "_step3ReviewModalBundle.mjs",
-    "needs esbuild's PLUGIN API (useServerElision / emptyNodeBuiltins) to replicate " +
-      "Next's `use server` elision — a CLI invocation cannot express a resolver plugin, " +
-      "so this cannot route through the helper. See its own header for the rationale.",
+    "needs esbuild's PLUGIN API: it consumes the SHARED useServerDirectivePlugin " +
+      "(C3) plus its own emptyNodeBuiltins resolver — a CLI invocation cannot express " +
+      "a resolver plugin, so this cannot route through the helper. See its own header.",
   ],
   [
     "helpers/useServerDirectivePlugin.test.ts",
