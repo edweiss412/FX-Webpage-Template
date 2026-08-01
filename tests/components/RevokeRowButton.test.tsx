@@ -228,3 +228,56 @@ describe("RevokeRowButton — destructive recipe + focus-safe open/close (R5, F4
     expect(getByTestId("admin-allowlist-revoke-button")).not.toHaveFocus();
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 11,
+// §3.3/§5.1): auto-revert announces in a key-stable region across the
+// three-branch render (couldnt_confirm / idle / confirm); Cancel and confirm
+// stay silent past the timer horizon.
+describe("arm-expiry announcement — RevokeRowButton", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-revert announces expiry in the SAME region node", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    const before = getByTestId("arm-expiry-announce");
+    expect(before.textContent).toBe("");
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button")); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_001);
+    });
+    const after = getByTestId("arm-expiry-announce");
+    expect(after, "region node must survive the confirm-to-idle swap").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+  });
+
+  it("Cancel never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    fireEvent.click(getByTestId("admin-allowlist-revoke-cancel-button"));
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
+  it("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    act(() => {
+      vi.advanceTimersByTime(4_001);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button")); // re-arm clears
+    expect(getByTestId("arm-expiry-announce").textContent).toBe("");
+    act(() => {
+      vi.advanceTimersByTime(4_001);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+  });
+});

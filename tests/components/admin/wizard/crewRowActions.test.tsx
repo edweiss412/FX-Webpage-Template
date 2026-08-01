@@ -380,3 +380,81 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(screen.queryByTestId("crew-row-reset-ok")).toBeNull();
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 2,
+// §3.3/§5.1): the auto-revert close is announced; Cancel, Escape, the ARMED
+// backdrop click, and parent-driven close all stay silent past the horizon.
+describe("arm-expiry announcement — CrewRowActions", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+  const expiryRegion = () =>
+    screen.getAllByTestId("arm-expiry-announce").find((el) => el.textContent === EXPIRY) ??
+    screen.getAllByTestId("arm-expiry-announce")[0]!;
+
+  function openConfirm(id: string = ID_A) {
+    fireEvent.click(trigger(id));
+    fireEvent.click(screen.getByTestId(`crew-row-reset-item-${id}`));
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-revert announces expiry in the row's persistent region (same node)", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    const regions = screen.getAllByTestId("arm-expiry-announce");
+    const before = regions[0]!;
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(confirm(ID_A)).toBeNull(); // panel closed
+    expect(screen.getAllByTestId("arm-expiry-announce")[0]!).toBe(before);
+    expect(expiryRegion().textContent).toBe(EXPIRY);
+  });
+
+  it("Cancel never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId("crew-row-reset-cancel"));
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("Escape never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.keyDown(screen.getByTestId("crew-row-reset-cancel"), { key: "Escape" });
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("backdrop click on the ARMED confirm never announces expiry (closeFully(false) path)", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${ID_A}`));
+    expect(confirm(ID_A)).toBeNull(); // the distinct backdrop handler closed it
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("confirm dispatch never announces expiry, even past the timer horizon", async () => {
+    resetMock.mockResolvedValue({ ok: true });
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+    await vi.waitFor(() => expect(confirm(ID_A)).toBeNull());
+    vi.useFakeTimers();
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+});

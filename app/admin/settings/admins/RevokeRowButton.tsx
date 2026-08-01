@@ -27,13 +27,13 @@
  * Action is still authoritative — a forged submit goes through the
  * lockout predicate and surfaces LAST_ADMIN_LOCKOUT_REFUSED inline.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 
 import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -52,6 +52,9 @@ type UiState = "idle" | "confirm" | "resolving" | "couldnt_confirm";
 
 export function RevokeRowButton({ email, disabled }: { email: string; disabled: boolean }) {
   const [ui, setUi] = useState<UiState>("idle");
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [result, formAction, isPending] = useActionState<AdminEmailActionResult | null, FormData>(
@@ -139,8 +142,12 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
 
   const onRevokeClick = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -152,6 +159,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
 
   const onConfirmClick = () => {
     clearAutoRevert();
+    setExpired(false);
     clearWatchdog();
     setUi("resolving");
     // Start the no-response watchdog. If we're still resolving with no result
@@ -186,13 +194,28 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   const writeFailMessage =
     result?.kind === "infra_error" ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED") : null;
 
+  // Single return with a key-stable live-region sibling: the region node must
+  // survive branch swaps across couldnt_confirm / idle / confirm (spec
+  // 2026-08-01-announce-a11y-pass §3.3 persistent-region rule; plan R1 F1).
+  const liveRegion = (
+    <span
+      key="arm-expiry-region"
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="arm-expiry-announce"
+    >
+      {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+    </span>
+  );
+  let branch: ReactNode;
   if (effectiveUi === "couldnt_confirm") {
     // The revoke neither returned a result nor surfaced a catchable error
     // within WATCHDOG_MS. Stay conservative: never imply the revoke failed
     // (it may have committed late), never re-enable a submit (no double
     // revoke), and steer Doug to refresh, the §6.3 revalidatePath on the
     // refreshed render reconciles the row's true state.
-    return (
+    branch = (
       <div className="flex flex-col items-end gap-2">
         <div
           data-testid="admin-allowlist-revoke-confirm-row"
@@ -225,9 +248,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         </p>
       </div>
     );
-  }
-
-  if (effectiveUi === "idle") {
+  } else if (effectiveUi === "idle") {
     // Audit P3 fix: when the Revoke button is disabled because actor
     // is the only active admin, render the explanation as a visible
     // sibling hint (not a `title` tooltip — mobile devices don't
@@ -235,7 +256,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     // disabled buttons). aria-describedby ties the hint to the
     // button so AT users get the same context.
     const hintId = disabled ? `${email}-revoke-hint` : undefined;
-    return (
+    branch = (
       <div className="flex flex-col items-end gap-2">
         <form action={formAction}>
           <input type="hidden" name="email" value={email} />
@@ -293,10 +314,9 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         )}
       </div>
     );
-  }
-
-  const isResolving = ui === "resolving" || isPending;
-  return (
+  } else {
+    const isResolving = ui === "resolving" || isPending;
+    branch = (
     <div className="flex flex-col items-end gap-2">
       <form action={formAction}>
         <input type="hidden" name="email" value={email} />
@@ -368,5 +388,13 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         </p>
       )}
     </div>
+    );
+  }
+
+  return (
+    <>
+      {branch}
+      {liveRegion}
+    </>
   );
 }

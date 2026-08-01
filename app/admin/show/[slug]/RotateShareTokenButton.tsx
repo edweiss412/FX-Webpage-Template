@@ -21,11 +21,11 @@
 
 import { AlertTriangle, Check, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -79,6 +79,9 @@ export function RotateShareTokenButton({
   // Gallery-only override seam; undefined in production (provider never mounted).
   const overrideRotate = useDevActionOverride("rotateShareToken");
   const [ui, setUi] = useState<UiState>("idle");
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const [result, setResult] = useState<Result>(null);
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -139,8 +142,12 @@ export function RotateShareTokenButton({
     // Clear any prior result so a stale OK/refused banner doesn't reappear
     // when the user re-enters confirm from an idle-with-banner state.
     setResult(null);
+    setExpired(false);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -152,6 +159,7 @@ export function RotateShareTokenButton({
 
   const onConfirmClick = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("resolving");
     startTransition(async () => {
       try {
@@ -307,19 +315,35 @@ export function RotateShareTokenButton({
     </>
   );
 
+  // Single return with a key-stable live-region sibling: the region node must
+  // survive idle/confirm branch swaps (spec 2026-08-01-announce-a11y-pass §3.3
+  // persistent-region rule; plan R1 F1 restructure).
+  const liveRegion = (
+    <span
+      key="arm-expiry-region"
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="arm-expiry-announce"
+    >
+      {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+    </span>
+  );
+  let branch: ReactNode;
   if (ui === "idle") {
-    return compact && rowLabel ? (
-      <div className="flex w-full flex-col gap-2">
-        {rowButton}
-        {banners}
-      </div>
-    ) : (
-      <div className="flex flex-col items-end gap-2">
-        {idleButton}
-        {banners}
-      </div>
-    );
-  }
+    branch =
+      compact && rowLabel ? (
+        <div className="flex w-full flex-col gap-2">
+          {rowButton}
+          {banners}
+        </div>
+      ) : (
+        <div className="flex flex-col items-end gap-2">
+          {idleButton}
+          {banners}
+        </div>
+      );
+  } else {
 
   const warningP = (
     <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
@@ -353,28 +377,37 @@ export function RotateShareTokenButton({
     </div>
   );
 
-  return compact && rowLabel ? (
-    <div
-      ref={confirmRowRef}
-      data-testid="admin-rotate-share-token-confirm-row"
-      role="group"
-      aria-label="Confirm rotating the share-token for this show"
-      className="flex flex-col gap-2 py-3"
-    >
-      {labelHeader}
-      {warningP}
-      {confirmCancelButtons}
-    </div>
-  ) : (
-    <div
-      ref={confirmRowRef}
-      data-testid="admin-rotate-share-token-confirm-row"
-      role="group"
-      aria-label="Confirm rotating the share-token for this show"
-      className="flex flex-col items-end gap-2"
-    >
-      {warningP}
-      {confirmCancelButtons}
-    </div>
+    branch =
+      compact && rowLabel ? (
+        <div
+          ref={confirmRowRef}
+          data-testid="admin-rotate-share-token-confirm-row"
+          role="group"
+          aria-label="Confirm rotating the share-token for this show"
+          className="flex flex-col gap-2 py-3"
+        >
+          {labelHeader}
+          {warningP}
+          {confirmCancelButtons}
+        </div>
+      ) : (
+        <div
+          ref={confirmRowRef}
+          data-testid="admin-rotate-share-token-confirm-row"
+          role="group"
+          aria-label="Confirm rotating the share-token for this show"
+          className="flex flex-col items-end gap-2"
+        >
+          {warningP}
+          {confirmCancelButtons}
+        </div>
+      );
+  }
+
+  return (
+    <>
+      {branch}
+      {liveRegion}
+    </>
   );
 }
