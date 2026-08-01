@@ -11,3 +11,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-06-mutation-testing-harness.md`](./2026-07-06-mutation-testing-harness.md) | 2026-07-06 |
 | [`2026-07-19-ci-unit-suite-under-5min.md`](./2026-07-19-ci-unit-suite-under-5min.md) | 2026-07-19 |
 | [`2026-07-19-ci-unit-suite-phase2-serial-audit.md`](./2026-07-19-ci-unit-suite-phase2-serial-audit.md) | 2026-07-19 |
+| [`2026-07-20-namespace-runner-trial.md`](./2026-07-20-namespace-runner-trial.md) | 2026-07-20 |
+| [`2026-07-20-ci-overlap-boot-with-setup.md`](./2026-07-20-ci-overlap-boot-with-setup.md) | 2026-07-20 |
