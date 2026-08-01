@@ -107,7 +107,7 @@ Pattern (both): `const [expired, setExpired] = useState(false);` — timer callb
 
 Two changes: (a) region ternary gains expired arm (same pattern as Task 2, arm copy "Tap again to confirm."); (b) `handleApply` gains, at entry after the `pending` guard: `clearIgnoreArmTimer(); setIgnoreArmed(false); setExpired(false);` — mirroring `handleDiscard`.
 
-- [ ] Tests: expiry announces; confirm-tap silent; **Apply disarm** — arm ignore → click Apply (mock fetch pending) → advance 4s → NO expiry copy (this is the F1 regression test; it FAILS against current code); **post-expiry Apply** (spec §5.1 R3 F1 — armed-start tests cannot catch a stale flag): expire → click Apply → expiry copy gone at dispatch, absent after settle; discard sibling silent; re-arm audibility. Clears (`clearIgnoreArmTimer(); setIgnoreArmed(false); setExpired(false);`) sit at `handleApply`/`handleDiscard` ENTRY.
+- [ ] Tests: expiry announces; confirm-tap silent; **Apply disarm** — arm ignore → click Apply (mock fetch pending) → advance 4s → NO expiry copy (this is the F1 regression test; it FAILS against current code); **post-expiry Apply AND post-expiry discard** (spec §5.1 R3 F1 + R4 F1 — armed-start tests cannot catch a stale flag; `handleDiscard` is a distinct dispatch entry, one representative discard action suffices): expire → dispatch → expiry copy gone at dispatch, absent after settle; discard sibling silent; re-arm audibility. Clears (`clearIgnoreArmTimer(); setIgnoreArmed(false); setExpired(false);`) sit at `handleApply`/`handleDiscard` ENTRY.
 - [ ] RED → implement → GREEN → commit `fix(admin): staged-card Apply disarms the ignore confirm; announce arm expiry`.
 
 ### Task 5: ArchiveShowButton morph — new region (arm + expiry), row-branch negative
