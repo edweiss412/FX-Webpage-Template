@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { analyzeModule, useServerDirectivePlugin } from "./useServerDirectivePlugin.mjs";
 import { bundleLiveEntry } from "./liveEntryToolchain";
@@ -129,6 +130,33 @@ describe("useServerDirectivePlugin — the positive assertions can fail (mutatio
     expect(output).toContain("NAMED_BODY_SENTINEL");
     expect(output).not.toContain("server action export f is not callable");
   });
+});
+
+describe("the generated stub is a throwing ASYNC function (§5.2), executed", () => {
+  it("calling a stubbed export REJECTS a promise — it does not throw synchronously", async () => {
+    // Build namedDecl (a "use server" module) as ESM, import the real emitted
+    // stub, and invoke it. §5.2 requires an async throwing stub: `f()` must
+    // return a rejected Promise so `.catch(...)` / React's awaited form-action
+    // path see the failure. A synchronous throw (the pre-fix regression) would
+    // throw on the `mod.f()` call line and never reach the promise assertions.
+    const dir = mkdtempSync(join(tmpdir(), "directive-async-"));
+    const out = join(dir, "stub.mjs");
+    await build({
+      entryPoints: [fixture("namedDecl")],
+      bundle: true,
+      write: true,
+      outfile: out,
+      format: "esm",
+      logLevel: "silent",
+      plugins: [useServerDirectivePlugin()],
+    });
+    const mod = (await import(pathToFileURL(out).href)) as { f: () => unknown };
+    const returned = mod.f(); // must NOT throw synchronously
+    expect(returned).toBeInstanceOf(Promise);
+    await expect(returned as Promise<unknown>).rejects.toThrow(
+      "server action export f is not callable",
+    );
+  }, 60_000);
 });
 
 describe("step3 bundler consumes the shared plugin (C3 behavioral pin)", () => {

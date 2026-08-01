@@ -169,9 +169,12 @@ function classifyExports(sf) {
 
 /**
  * Generate the stub module that replaces a server module in the browser bundle:
- * each runtime export becomes a function that throws, naming the module and the
- * export. A type-only module yields an empty stub (`export {}`), which ships
- * neither a throw nor a body.
+ * each runtime export becomes a throwing ASYNC function, naming the module and
+ * the export. ASYNC is the §5.2 contract — server actions are async, so a call
+ * must produce a REJECTED PROMISE (e.g. `stub().catch(...)` and React's awaited
+ * form-action path both see the failure), never a synchronous throw that
+ * bypasses promise handling. A type-only module yields an empty stub
+ * (`export {}`), which ships neither a throw nor a body.
  * @param {string} path @param {string[]} names
  */
 function buildStub(path, names) {
@@ -180,8 +183,8 @@ function buildStub(path, names) {
     const msg = `[use server stub] ${path} — server action export ${name} is not callable in a browser bundle`;
     const lit = JSON.stringify(msg);
     return name === "default"
-      ? `export default function () { throw new Error(${lit}); }`
-      : `export const ${name} = function () { throw new Error(${lit}); };`;
+      ? `export default async function () { throw new Error(${lit}); }`
+      : `export const ${name} = async function () { throw new Error(${lit}); };`;
   });
   return `${lines.join("\n")}\n`;
 }
