@@ -8,7 +8,7 @@
  *
  *   - components/admin/SheetIconLink.tsx (2 — the subject and fallback label
  *     literals; every icon-only sheet link must delegate here)
- *   - components/admin/wizard/Step3SheetCard.tsx (1 — the ratified text-link
+ *   - components/admin/wizard/Step3SheetCard.tsx (2 since the PR #640 ternary split — the ratified text-link
  *     variant, spec §1.5: visible words carry the affordance)
  *   - components/admin/wizard/step3ReviewSections.tsx (1 — the agenda
  *     error-state text link, spec §1.11: visible words carry the affordance)

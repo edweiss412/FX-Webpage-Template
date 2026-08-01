@@ -637,6 +637,14 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(entryHit("**Class:** x · **Status:**-CLOSED")).toBe(false);
     // …while the whitespace-delimited ASCII dash stays a separator (r35):
     expect(entryHit("Status - CLOSED")).toBe(true);
+    // whole-diff r3 — one-SIDED dashes are not separators either:
+    expect(entryHit("**Class:** x · **Status:**- CLOSED")).toBe(false);
+    // (on a NON-field line — the one-sided dash must not mint a LABEL; a
+    // Filed-led line would still hit via the r13 per-occurrence bold scan,
+    // which is regex-era parity, asserted as the control below):
+    expect(entryHit("**Effort:** M. **Resolved** -by later work.")).toBe(false);
+    expect(entryHit("**Filed:** x. **Resolved** -by later work.")).toBe(true);
+    expect(entryHit("**Filed** - DONE")).toBe(true);
     // intact controls:
     expect(entryHit("x **Closed:** 2026")).toBe(true);
     expect(headingHit("## BL-M6C — CLOSED 2026")).toBe(true);

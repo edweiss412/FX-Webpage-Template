@@ -111,7 +111,7 @@ function labelSpans(line) {
     const inner = line.text.slice(s, e);
     const after = line.text.slice(e);
     const innerLabel = /:\s*$/.test(inner);
-    const external = /^\s*[:—–-]/.test(after);
+    const external = /^(?:\s*:|\s*[—–]|\s+-(?=\s))/.test(after);
     if (innerLabel || external) out.push({ s, e, inner: inner.replace(/:\s*$/, "") });
   }
   return out;
@@ -143,7 +143,7 @@ function lineVerdicts(line) {
   for (const L of labels) {
     const labelTokens = spanTokens(line, L.s, L.e);
     if (labelTokens.length !== 1 || !FIELD_LABELS.test(labelTokens[0].t)) continue;
-    let vs = L.e + /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
+    let vs = L.e + /^(?:\s*:|\s*[—–]|\s+-(?=\s))?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
     const tok = tokenAt(line.text, vs);
     if (TERMINAL.test(tok) && !vetoed(line.text, vs)) hits.push(`field-label:${tok}`);
   }
@@ -152,7 +152,7 @@ function lineVerdicts(line) {
   const leadField =
     lead !== null && !overlaps(line.codeSpans, leadStart, leadStart + lead[1].length);
   if (leadField) {
-    let i = lead[0].length + /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/.exec(line.text.slice(lead[0].length))[0].length;
+    let i = lead[0].length + /^(?:\s*:|\s*[—–]|\s+-(?=\s))?\s*✅?\s*/.exec(line.text.slice(lead[0].length))[0].length;
     const tok = tokenAt(line.text, i);
     if (TERMINAL.test(tok) && !vetoed(line.text, i)) hits.push(`leading:${tok}`);
     for (const [s, e] of line.strongSpans) {

@@ -290,7 +290,10 @@ function labelSpans(line: FlatLine): LabelSpan[] {
     if (overlaps(line.codeSpans, s, e)) continue;
     const inner = line.text.slice(s, e);
     const after = line.text.slice(e);
-    if (/:\s*$/.test(inner) || /^\s*[:—–-]/.test(after)) out.push({ s, e });
+    // External separators: colon/em-en dash may sit flush; an ASCII dash
+    // must be whitespace-delimited on BOTH sides (whole-diff r3 —
+    // `**Resolved** -by` is a compound, not a labeled claim).
+    if (/:\s*$/.test(inner) || /^(?:\s*:|\s*[—–]|\s+-(?=\s))/.test(after)) out.push({ s, e });
   }
   return out;
 }
@@ -312,7 +315,7 @@ function labelTerminal(line: FlatLine, label: LabelSpan): string | null {
 // delimited ASCII dash — never a bare hyphen, which would re-admit the
 // token-splitting class the maximal-token rule excludes (whole-diff r2:
 // `Status-CLOSED` and `**Status:**-CLOSED` are not field claims).
-const SEP_AFTER_LABEL = /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/;
+const SEP_AFTER_LABEL = /^(?:\s*:|\s*[—–]|\s+-(?=\s))?\s*✅?\s*/;
 
 /**
  * Every field-lane verdict for one flattened line. Returns `lane:WORD`
