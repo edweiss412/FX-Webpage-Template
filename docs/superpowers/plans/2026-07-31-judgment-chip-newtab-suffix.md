@@ -37,6 +37,7 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     const { container } = renderChrome({ judgment: true });
     const chip = container.querySelector('span[aria-hidden="true"]');
     const classes = (chip?.className ?? "").split(/\s+/);
+    expect(classes).toContain("border");
     expect(classes).toContain("border-border-strong");
     expect(classes).toContain("bg-info-bg");
     expect(classes).toContain("text-text");
@@ -49,6 +50,7 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     const classes = (chip?.className ?? "").split(/\s+/);
     expect(classes).toContain("bg-surface-sunken");
     expect(classes).toContain("text-text-subtle");
+    expect(classes).not.toContain("border");
     expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
   });
 
@@ -58,12 +60,13 @@ describe("chip status classes (spec 2026-07-31 §2.2)", () => {
     const classes = (chip?.className ?? "").split(/\s+/);
     expect(classes).toContain("bg-warning-bg");
     expect(classes).toContain("text-warning-text");
+    expect(classes).not.toContain("border");
     expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
   });
 });
 ```
 
-Failure mode caught: a silent revert of the judgment outline, or the fix bleeding into the clean/flagged branches. Exact-token matching (split on whitespace) pins that the hairline `border-border` is GONE and the strong token is EXACTLY `border-border-strong` — a substring check would pass on a nonexistent `border-border-stronger` utility that renders no outline (plan r1 finding 5).
+Failure mode caught: a silent revert of the judgment outline, or the fix bleeding into the clean/flagged branches. Exact-token matching (split on whitespace) pins the bare `border` WIDTH token on judgment (color without width renders no outline — plan r11 finding 1), its ABSENCE on clean/flagged, that the hairline `border-border` is GONE, and that the strong token is EXACTLY `border-border-strong` — a substring check would pass on a nonexistent `border-border-stronger` utility that renders no outline (plan r1 finding 5).
 
 - [ ] **Step 2: Run to verify the judgment case fails** — `pnpm exec vitest run tests/components/admin/wizard/modalSectionChromeClasses.test.tsx` → judgment test FAILS (`border-border-strong` absent today); clean/flagged tests PASS (they pin current behavior).
 - [ ] **Step 3: Minimal implementation** — in the chip ternary's judgment branch replace `"border border-border bg-info-bg text-text"` with `"border border-border-strong bg-info-bg text-text"`. No other branch changes.
@@ -74,7 +77,7 @@ Failure mode caught: a silent revert of the judgment outline, or the fix bleedin
 
 **Files:**
 - Modify: `components/shared/NewTabHint.tsx`
-- Test: Create tests/components/a11y/stripNewTabSuffix.test.ts (new file, no existing citation)
+- Test: Create tests/components/a11y/stripNewTabSuffix.test.ts (new file, no existing citation). CI discovery (writing-plans wiring rule): matched by the parallel project's `tests/components/**/*.test.{ts,tsx}` glob in `vitest.projects.ts:68` (BASE_INCLUDE at `vitest.projects.ts:34`), and `unit-suite.yml` runs that project unfiltered — no new testMatch entry or workflow wiring needed.
 
 **Interfaces:**
 - Produces: `export function stripNewTabSuffix(value: string): string` and internal single-source constant for the phrase, both in `components/shared/NewTabHint.tsx`. Task 3 imports `stripNewTabSuffix` at three call sites.
@@ -225,6 +228,7 @@ Note: `SheetTitleLink` renders the title link only when `buildSheetDeepLink` yie
 - [ ] **Step 2:** Full unit suite `pnpm test` (or the repo's serial+parallel invocation) → green.
 - [ ] **Step 3: Push + open the PR — observe the visual RED before touching baselines (plan r10 HIGH).** Push the branch; `gh pr create` with a body summarizing the two BACKLOG closures (concurrent-CI precedent: PR #631). The PR run of `section-header-visual` (`.github/workflows/section-header-visual.yml`, unfiltered PR gate) now compares the chip change against the OLD committed baselines → RED. Record the failing snapshot list in the PR (comment) and verify it is EXACTLY the judgment-state cells — a failure outside judgment cells means unintended pixel drift: stop and diagnose, do not regenerate over it. This is the visual surface's red state; regeneration before it would absorb any drift invisibly.
 - [ ] **Step 4: Regenerate** — only after the red is recorded: `gh workflow run section-header-visual-regen.yml --ref fix/judgment-chip-newtab-suffix`; await the bot commit (precedent `64bdc34d3` message shape); `git pull` it into the worktree.
+- [ ] **Step 4b: Confinement proof (filename lists cannot give it — the ten `idle-*` snapshots are 15-cell composites; plan r11 finding 2).** Two checks on the bot commit, recorded in the PR: (a) the 40 single-cell snapshots (all non-`idle-*` states, which capture only `G1-clean`) are BYTE-IDENTICAL to the old baselines (`git diff --name-only <bot>^ <bot> -- tests/e2e/section-header-visual.spec.ts-snapshots/` lists ONLY `idle-*` files) — any non-idle change is drift: stop and diagnose; (b) for each changed `idle-*` composite, a scratch node script using `pngjs` (resolvable in-repo, v7) diffs old vs new pixels and asserts every changed pixel's y-band falls within the judgment-cell rows of the harness grid (cell order and heights from `tests/e2e/_sectionHeaderCellHarness.tsx`) — changed pixels in clean/flagged rows are drift: stop and diagnose. Script is scratch tooling (scratchpad), not committed.
 - [ ] **Step 5:** A validating commit must land on top of the bot baseline commit so the gate re-runs GREEN on the new baselines (per `64bdc34d3` body) — Task 5's graduation push serves.
 
 ### Task 5: BACKLOG graduation + close-out gates (PR already open from Task 4 Step 3)
@@ -233,7 +237,7 @@ Note: `SheetTitleLink` renders the title link only when `buildSheetDeepLink` yie
 - Modify: `BACKLOG.md` (remove both entries), `BACKLOG-archive.md` (append both with provenance + PR ref), this plan document (close-out section).
 
 - [ ] **Step 1:** Confirm the Task 4 Step 3 PR number (already open; real CI already running).
-- [ ] **Step 2: Graduate (red-first — the registry IS the test).** The graduation meta-test asserts archive-presence + provenance ONLY for ids in its `BACKLOG_GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:229`; iterated at `tests/docs/_metaDeferralLedgerGraduation.test.ts:370` and `tests/docs/_metaDeferralLedgerGraduation.test.ts:376`) — an unregistered move has no red state and no protection (plan r8 HIGH). Sequence: (a) append `{ id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" }` and `{ id: "BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA", provenance: "fix/judgment-chip-newtab-suffix" }` to `BACKLOG_GRADUATED` with a dated comment citing the Step 1 PR; (b) run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` → RED (both ids registered but still active in `BACKLOG.md`, archive entries missing); (c) move both whole entries to `BACKLOG-archive.md`, each citing branch + the Step 1 PR number; (d) re-run → GREEN (registered, archive-only, provenance asserted). Failure mode the registration closes: a delete-without-archive or provenance-less move now reds instead of passing the bare no-overlap check.
+- [ ] **Step 2: Graduate (red-first — the registry IS the test).** The graduation meta-test asserts archive-presence + provenance ONLY for ids in its `BACKLOG_GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:229`; iterated at `tests/docs/_metaDeferralLedgerGraduation.test.ts:370` and `tests/docs/_metaDeferralLedgerGraduation.test.ts:376`) — an unregistered move has no red state and no protection (plan r8 HIGH). Sequence: (a) append `{ id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" }` and `{ id: "BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA", provenance: "fix/judgment-chip-newtab-suffix" }` to `BACKLOG_GRADUATED` with a dated comment citing the Step 1 PR; (b) run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` → RED (both ids registered but still active in `BACKLOG.md`, archive entries missing); (c) move both whole entries to `BACKLOG-archive.md`, each citing branch + the PR number, AND update the Last-reconciled line at the top of the root BACKLOG.md ledger (currently line 7) to record this branch's two graduations (plan r11 finding 3); (d) re-run → GREEN (registered, archive-only, provenance asserted). Failure mode the registration closes: a delete-without-archive or provenance-less move now reds instead of passing the bare no-overlap check.
 - [ ] **Step 3: Commit** — `git add -A && git commit -m "docs: graduate BL-HEADER-JUDGMENT-CHIP-CONTRAST + BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA"` and push (this is also the validating commit Task 4 Step 4 needs on top of the bot baseline commit).
 - [ ] **Steps 4-5: Gate convergence loop (fixed point on the head SHA).** Run to a fixed point, not once-through (plan r4b HIGH):
 
