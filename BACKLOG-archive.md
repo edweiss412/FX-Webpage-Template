@@ -1236,18 +1236,15 @@ Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/
 
 **Graduated:** 2026-08-01 — resolved by `fix/drive-api-call-timeouts` (the drive-timeout cluster; spec `docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`). The watch-renewal-lifecycle PR (2026-07-26) bounded the `files.watch`/`channels.stop` requests and NARROWED this entry to its credential-fetch residual; the drive-timeout cluster closed that residual — the GoogleAuth token POST is bounded by the URL-scoped `TokenBoundGaxios` transporter (`GOOGLE_AUTH_TOKEN_TIMEOUT_MS`, 10s), so a stalled credential call can no longer hold the renewal loop. The master spec's watch-create clause was amended in the same PR. Original entry below, kept as provenance.
 
-
 **Status:** NARROWED 2026-07-26 by the watch-renewal-lifecycle PR — NOT closed. `files.watch` and `channels.stop` now carry `{ timeout: 15s, retry: false }` and the renewal loop has a run budget, but the `GoogleAuth` credential fetch preceding each request is still unbounded, so a stalled credential call can hold the loop exactly as this entry describes. The remaining half is `BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`. See `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.
 
 `getDriveClient()` sets no global timeout and `files.watch` is called with no per-call options, so a stalled Drive request blocks the sequential renewal loop in `refreshWatchSubscriptions` for as long as the platform allows. The master spec claimed "time-boxed (default 15s)" for years; nothing implemented it, and that wording is now corrected rather than left as a false promise.
 
 This is why `2026-07-25-watch-lease-slack-design.md` claims **no** renewal-timing guarantee: every such claim would be parameterised by an execution budget nothing enforces. Adding a real per-call timeout (and a per-row deadline in the loop) is the prerequisite for making any timing guarantee defensible — including the deferred backoff work.
 
-
 ## BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED — ✅ RESOLVED (2026-08-01, drive-timeout cluster)
 
 **Graduated:** 2026-08-01 — resolved by `fix/drive-api-call-timeouts` (the drive-timeout cluster; spec `docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`). The auth client's transporter is now a `TokenBoundGaxios` (lib/drive/client.ts) that injects a 10s timeout ONLY on token-host requests — a flat transport default was rejected because the same transporter carries every authenticated API request and would have aborted healthy stream bodies (adversarial r1 finding 1; live probes in the spec). Proven over real stalled sockets in tests/drive/clientAuthTimeout.test.ts. Original entry below.
-
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec round 1
 
@@ -1257,11 +1254,9 @@ An outer race was designed and withdrawn — it could not cancel the fetch eithe
 
 **Scope note:** this is the residual named in `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.3.1a, filed rather than left implicit because the withdrawn design's error was claiming to have closed it.
 
-
 ## BL-DRIVE-API-CALLS-UNBOUNDED-APP-ROUTES — ✅ RESOLVED (2026-08-01, drive-timeout cluster)
 
-**Graduated:** 2026-08-01 — resolved by `fix/drive-api-call-timeouts` (the drive-timeout cluster; spec `docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`). All eight sites bounded: five metadata gets carry `{timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}`; the three stream-opens are bounded by stall guards on the await (body transfer deliberately unbounded — client cancellation + byte caps govern, spec §6). The scan route's pre-scan verify maps a Drive stall to the new 504 `ONBOARDING_FOLDER_VERIFY_UNAVAILABLE` instead of blaming the operator. A structural AST guard (tests/drive/_metaDriveCallBounds.test.ts) now fails any NEW unbounded Drive/Sheets call by default. Original entry below.
-
+**Graduated:** 2026-08-01 — resolved by `fix/drive-api-call-timeouts` (the drive-timeout cluster; spec `docs/superpowers/specs/2026-07-31-drive-timeout-cluster-design.md`). All eight sites bounded: five metadata gets carry `{timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}`; the three stream-opens are bounded by stall guards on the await (body transfer deliberately unbounded — client cancellation + byte caps govern, spec §6). The scan route's pre-scan verify maps a Drive stall to the new 504 `ONBOARDING_FOLDER_VERIFY_UNAVAILABLE` instead of blaming the operator. A structural AST guard (tests/drive/\_metaDriveCallBounds.test.ts) now fails any NEW unbounded Drive/Sheets call by default. Original entry below.
 
 **Status:** OPEN · **Severity:** low-medium · **Surfaced:** 2026-07-26, watch-renewal-lifecycle plan review
 
@@ -1273,8 +1268,7 @@ A sweep of every Drive/Sheets API call — `grep -rnE '\.(files|channels|revisio
 
 Each can stall its request indefinitely, the same class `BL-WATCH-DRIVE-CALL-TIMEOUT` closed for the watch surface. Out of scope there because they are route-level asset paths with their own budgets and no backlog entry claimed them.
 
-**Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
----
+## **Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
 
 ---
 

@@ -246,7 +246,10 @@ describe("Step2Verify", () => {
     // generic copy and the operator would be told to contact the developer for
     // a transient Drive stall.
     fetchMock.mockResolvedValue(
-      mockJsonResponse({ ok: false, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" }, { status: 504 }),
+      mockJsonResponse(
+        { ok: false, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" },
+        { status: 504 },
+      ),
     );
     const { getByTestId, findByTestId, container } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {

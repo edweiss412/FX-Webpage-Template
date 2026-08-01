@@ -42,9 +42,30 @@ import { describe, expect, it } from "vitest";
 
 const NAMESPACE_SEGMENTS = new Set(["files", "channels", "revisions", "spreadsheets", "values"]);
 const COLLECTION_METHOD_BLOCKLIST = new Set([
-  "map", "filter", "forEach", "some", "every", "find", "findIndex", "includes",
-  "join", "slice", "splice", "reduce", "flat", "flatMap", "indexOf", "keys",
-  "entries", "sort", "concat", "push", "pop", "shift", "unshift", "at",
+  "map",
+  "filter",
+  "forEach",
+  "some",
+  "every",
+  "find",
+  "findIndex",
+  "includes",
+  "join",
+  "slice",
+  "splice",
+  "reduce",
+  "flat",
+  "flatMap",
+  "indexOf",
+  "keys",
+  "entries",
+  "sort",
+  "concat",
+  "push",
+  "pop",
+  "shift",
+  "unshift",
+  "at",
 ]);
 const DEGENERATE_FINAL_SEGMENTS = new Set(["NaN", "undefined", "null"]);
 const EXEMPTION_MARKER = "// drive-call-bound: ";
@@ -85,10 +106,7 @@ function isSafeReadShape(e: ts.Expression, opts: { allowOptionalChain: boolean }
 
 function isWhitelistedBoundValue(e: ts.Expression): boolean {
   // w4: A ?? B
-  if (
-    ts.isBinaryExpression(e) &&
-    e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-  ) {
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
     return (
       isSafeReadShape(e.left, { allowOptionalChain: true }) &&
       (isPositiveNumericLiteral(e.right) || isSafeReadShape(e.right, { allowOptionalChain: false }))
@@ -174,9 +192,9 @@ describe("auditDriveCallBounds negative controls (MF1-MF7 closure set)", () => {
   });
 
   it("(e) unbounded non-allowlisted verb (getByDataFilter) -> 1 finding (MF4)", () => {
-    expect(audit(`await sheets.spreadsheets.getByDataFilter({ spreadsheetId: "s" });`)).toHaveLength(
-      1,
-    );
+    expect(
+      audit(`await sheets.spreadsheets.getByDataFilter({ spreadsheetId: "s" });`),
+    ).toHaveLength(1);
   });
 
   it("(f) exempted site -> 0", () => {
@@ -230,11 +248,7 @@ function* walkFiles(dir: string): Generator<string> {
     const stat = statSync(full);
     if (stat.isDirectory()) {
       if (!SKIP_DIRS.has(entry)) yield* walkFiles(full);
-    } else if (
-      entry.endsWith(".ts") &&
-      !entry.endsWith(".d.ts") &&
-      !entry.endsWith(".test.ts")
-    ) {
+    } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts") && !entry.endsWith(".test.ts")) {
       yield full;
     }
   }
@@ -250,8 +264,6 @@ describe("Drive/Sheets call-bound walk (lib/ + app/)", () => {
         }
       }
     }
-    expect(
-      all.map((f) => `${f.file}:${f.finding.line} ${f.finding.reason}`),
-    ).toEqual([]);
+    expect(all.map((f) => `${f.file}:${f.finding.line} ${f.finding.reason}`)).toEqual([]);
   });
 });

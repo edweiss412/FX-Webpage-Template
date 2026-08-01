@@ -88,7 +88,6 @@ export type DriveFetchOptions = {
  */
 export const DRIVE_EXPORT_TIMEOUT_MS = 45_000;
 
-
 export class DriveFetchError extends Error {
   readonly status?: number;
   constructor(message: string, status?: number) {
