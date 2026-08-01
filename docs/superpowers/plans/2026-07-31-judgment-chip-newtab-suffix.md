@@ -33,43 +33,33 @@
 
 ```tsx
 describe("chip status classes (spec 2026-07-31 §2.2)", () => {
-  test("judgment chip carries the strong outline over the info fill", () => {
+  // EXACT class-set equality per state. Membership checks lost three review
+  // rounds to escaping mutants (hover:border-*, border-transparent, border-2);
+  // set equality admits none of them by construction (plan r13).
+  const chipClasses = (container: HTMLElement) =>
+    (container.querySelector('span[aria-hidden="true"]')?.className ?? "").split(/\s+/).filter(Boolean).sort();
+  const BASE = ["grid", "size-7", "shrink-0", "place-items-center", "rounded-sm"];
+
+  test("judgment chip: exactly the strong outline over the info fill", () => {
     const { container } = renderChrome({ judgment: true });
-    const chip = container.querySelector('span[aria-hidden="true"]');
-    const classes = (chip?.className ?? "").split(/\s+/);
-    expect(classes).toContain("border");
-    expect(classes).toContain("border-border-strong");
-    expect(classes).toContain("bg-info-bg");
-    expect(classes).toContain("text-text");
-    expect(classes).not.toContain("border-border");
-    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
+    expect(chipClasses(container)).toEqual(
+      [...BASE, "border", "border-border-strong", "bg-info-bg", "text-text"].sort(),
+    );
   });
 
-  test("clean chip stays borderless and sunken", () => {
+  test("clean chip: exactly borderless sunken", () => {
     const { container } = renderChrome({});
-    const chip = container.querySelector('span[aria-hidden="true"]');
-    const classes = (chip?.className ?? "").split(/\s+/);
-    expect(classes).toContain("bg-surface-sunken");
-    expect(classes).toContain("text-text-subtle");
-    expect(classes).not.toContain("border");
-    expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
-    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
+    expect(chipClasses(container)).toEqual([...BASE, "bg-surface-sunken", "text-text-subtle"].sort());
   });
 
-  test("flagged chip stays amber and borderless", () => {
+  test("flagged chip: exactly amber, borderless", () => {
     const { container } = renderChrome({ flagged: true });
-    const chip = container.querySelector('span[aria-hidden="true"]');
-    const classes = (chip?.className ?? "").split(/\s+/);
-    expect(classes).toContain("bg-warning-bg");
-    expect(classes).toContain("text-warning-text");
-    expect(classes).not.toContain("border");
-    expect(classes.some((c) => c.startsWith("border-border"))).toBe(false);
-    expect(classes.some((c) => c.includes(":") && c.includes("border"))).toBe(false);
+    expect(chipClasses(container)).toEqual([...BASE, "bg-warning-bg", "text-warning-text"].sort());
   });
 });
 ```
 
-Failure mode caught: a silent revert of the judgment outline, or the fix bleeding into the clean/flagged branches. Exact-token matching (split on whitespace) pins the bare `border` WIDTH token on judgment (color without width renders no outline — plan r11 finding 1), its ABSENCE on clean/flagged, that the hairline `border-border` is GONE, and that the strong token is EXACTLY `border-border-strong` — a substring check would pass on a nonexistent `border-border-stronger` utility that renders no outline (plan r1 finding 5). The variant ban (`c.includes(":") && c.includes("border")` = false, all three states) kills `hover:border-*`-class mutants that would restyle the outline on interaction — the exact start-anchored-check escape the repo already documents at `tests/components/admin/showpage/_rowAssertions.ts:43-49`, and one the visual gate cannot catch (idle composites never hover the chip).
+Failure mode caught: ANY token drift on the chip, in any state — silent revert, cross-branch bleed, width-only or color-only edits, variant-prefixed overrides (`hover:border-*`), neutralizers (`border-transparent`), and width additions (`border-2`) all fail exact set equality. Three review rounds of membership-assertion mutants (plan r11 f1, r12, r13) are closed structurally: the assertion admits exactly the spec's class contract and nothing else. Cost accepted: an unrelated future chip class (e.g. a new layout token) requires updating these three expected arrays — that is the point.
 
 - [ ] **Step 2: Run to verify the judgment case fails** — `pnpm exec vitest run tests/components/admin/wizard/modalSectionChromeClasses.test.tsx` → judgment test FAILS (`border-border-strong` absent today); clean/flagged tests PASS (they pin current behavior).
 - [ ] **Step 3: Minimal implementation** — in the chip ternary's judgment branch replace `"border border-border bg-info-bg text-text"` with `"border border-border-strong bg-info-bg text-text"`. No other branch changes.
