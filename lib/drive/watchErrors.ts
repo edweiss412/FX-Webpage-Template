@@ -86,10 +86,12 @@ export const SAMPLING_PERIOD_MS = 900_000;
 // PARTLY enforceable, as of the watch-renewal-lifecycle work. What IS enforced:
 // the renewal loop stops STARTING new rows once this much time has elapsed
 // (REFRESH_RUN_BUDGET_MS aliases it), and each Drive request carries
-// DRIVE_CALL_TIMEOUT_MS. What is still NOT enforced: the in-flight iteration
-// when the budget expires (a pre-iteration check cannot bound the iteration it
-// admits), the GoogleAuth credential fetch that precedes each request on its
-// own transport, the platform's willingness to keep the invocation alive, and
+// DRIVE_CALL_TIMEOUT_MS, and the GoogleAuth credential fetch preceding each
+// request is bounded at GOOGLE_AUTH_TOKEN_TIMEOUT_MS (10s, lib/drive/client.ts
+// TokenBoundGaxios — drive-timeout cluster, 2026-07-31). What is still NOT
+// enforced: the in-flight iteration when the budget expires (a pre-iteration
+// check cannot bound the iteration it admits), the platform's willingness to
+// keep the invocation alive, and
 // pg_net's timeout_milliseconds, which may be ignored outright
 // (supabase/migrations/20260527000003_schedule_cron_jobs.sql:15-22).
 //

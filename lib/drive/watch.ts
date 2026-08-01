@@ -307,8 +307,10 @@ class PostgresWatchTx implements WatchTx {
              -- stop. If a subscribe that stalled past the young-orphan window
              -- later returns a resource id, this is the ONLY chance to record
              -- it, so the row reopens to orphaned and GC stops it on a later
-             -- pass. Without this arm the credential fetch's admitted
-             -- unboundedness turns into a live Drive channel we can never stop
+             -- pass. Without this arm a credential-fetch stall (bounded at
+             -- GOOGLE_AUTH_TOKEN_TIMEOUT_MS since the drive-timeout cluster,
+             -- but still a stall window)
+             -- turns into a live Drive channel we can never stop
              -- (whole-diff R5 finding 1). The guard is resource_id is null,
              -- so a genuinely stopped row — which necessarily HAD a resource
              -- id for GC to call with — never matches. The ::text cast is
@@ -481,7 +483,8 @@ class PostgresWatchTx implements WatchTx {
   async markStopped(id: string, expectedResourceId: string | null = null): Promise<number> {
     // Guarded by the resource id GC READ, not applied blindly. GC selects
     // candidates in one transaction and stops them in later ones, so a subscribe
-    // that was stalled in the credential fetch can commit a resource id onto the
+    // that was stalled in the credential fetch (a bounded-but-real window --
+    // GOOGLE_AUTH_TOKEN_TIMEOUT_MS) can commit a resource id onto the
     // row in between. Marking stopped anyway would leave a row that is stopped,
     // holds a live channel's id, and matches neither listGcCandidates nor the
     // markOrphaned reopen arm -- the channel would then run to lease expiry with
