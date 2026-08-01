@@ -93,6 +93,7 @@ export function mapRpcResult(
 
 - Literals gaining `performed: true`: `tests/app/admin/set-published-action.test.ts:24-25` region mocks; `tests/app/admin/show-lifecycle-actions.test.ts:37-39` region mocks; `tests/components/admin/per-show-lifecycle.test.tsx:73-75`.
 - Runtime `toEqual` assertions gaining the field: `tests/app/admin/show-lifecycle-actions.test.ts:96` (`expect(res).toEqual({ ok: true })` → `{ ok: true, performed: true }`), `tests/app/admin/set-published-action.test.ts:76` and `tests/app/admin/set-published-action.test.ts:83` (same change).
+- Per-test success-shaped overrides/casts (plan-R4 finding 1, completing the sweep): `tests/app/admin/set-published-action.test.ts:70` and `tests/app/admin/show-lifecycle-actions.test.ts:86` (`{ok:true}` overrides gain `performed: true`); `tests/app/admin/set-published-action.test.ts:124` and `tests/app/admin/show-lifecycle-actions.test.ts:182` (mock return types become incompatible after the type change; update the cast/shape); `tests/app/admin/show-lifecycle-actions.test.ts:148` (`as never` cast would yield `performed === undefined` post-T3 and silently suppress its expected telemetry; replace with a typed `{ok:true, performed:true}`).
 - GREEN: `pnpm vitest run tests/showLifecycle/callers.test.ts tests/app/admin/set-published-action.test.ts tests/app/admin/show-lifecycle-actions.test.ts tests/components/admin/per-show-lifecycle.test.tsx` + `pnpm typecheck`.
 
 Commit: `feat(showLifecycle): LifecycleResult carries performed discriminator`
@@ -163,7 +164,12 @@ Commit: `fix(admin): close ShareHub pre-paint on lifecycle flip; restore armed-v
 
 1. Surgical validation apply: `psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f supabase/migrations/<file>.sql` then `psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"` (plan-R3 finding 1) (file is transaction-wrapped; single atomic apply).
 2. Parity pre-check: `pnpm vitest run tests/db/validation-schema-parity.test.ts` (asserts validation ⊇ committed manifest).
-3. `BACKLOG.md`: rewrite + graduate the three entries to `BACKLOG-archive.md` per spec §8. Sweep for other references first: `rg -n "BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE|BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP|BL-ARCHIVE-ARMED-CONCURRENT-REFRESH" BACKLOG.md BACKLOG-archive.md docs/` and disposition every hit (the transitions-spec header reference is retired by T4; any CI-dark umbrella cross-reference gets its line updated).
+3. `BACKLOG.md`: rewrite + graduate the three entries to `BACKLOG-archive.md` per spec §8. Reconciliation sweep RUN AT PLAN TIME (plan-R4 finding 2; writing-plans rule) — `rg -n "BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE|BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP|BL-ARCHIVE-ARMED-CONCURRENT-REFRESH" BACKLOG.md BACKLOG-archive.md docs/` returned 17 hits, dispositions:
+   - BACKLOG lines 165, 937, and 943 — the three active entries: REWRITE + GRADUATE (the T5 mutation set, exactly these).
+   - `BACKLOG-archive.md:1027` — historical reference inside an already-graduated entry: KEEP unchanged.
+   - `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md` (5 hits: lines 28, 29, 79, 81, 87) and `docs/superpowers/specs/2026-07-24-sharehub-viewport-popover-and-archive-copy.md:348` — provenance in the specs that FILED the items; specs are immutable records: KEEP unchanged.
+   - `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md` (6 hits) and this plan's own sweep line — self-references of the closing feature: KEEP unchanged.
+   No CI-dark umbrella hit exists (earlier draft's conjecture; the sweep is the authority).
 4. Delete the untracked probe spec file from the worktree.
 
 Commit: `docs: graduate archive race-cluster backlog items (probe-resolved)`
