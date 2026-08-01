@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
@@ -105,6 +106,64 @@ describe("unit-suite matrix topology", () => {
       (directives(body).match(/vitest run/g) ?? []).length,
       `${key} must invoke \`vitest run\` exactly once; a second invocation breaks exactly-once execution`,
     ).toBe(1);
+    // …and fragment-matching alone admits DECORATION (R11-B): a positional
+    // filter, --passWithNoTests, --config/--root/--dir, or a later duplicate
+    // --project/--shard override narrows or re-points what the shard
+    // executes while the fragment and count above stay green. The whole run
+    // line is pinned VERBATIM (the run-excluded exact-literal posture).
+    const runLine = /(^|\n)[ \t]*run:[ \t]*([^\n]*vitest run[^\n]*)/.exec(body)?.[2]?.trim();
+    expect(runLine, `${key}'s vitest run line must be exactly the undecorated invocation`).toBe(
+      "pnpm exec vitest run --project=" + project + " --shard=${{ matrix.shard }}/" + legs,
+    );
+    // …and a verbatim run: still executes NOTHING under a step if:, a
+    // step shell: override, or a job/workflow defaults.run.shell no-op
+    // (R12-B — the same three shell scopes the coverage scanner refuses).
+    // Parsed-YAML qualification, allowlist form: the vitest step carries
+    // ONLY name/run and the exclusion-gate env, and no defaults: exists at
+    // any scope.
+    const doc = parseYaml(YAML) as {
+      defaults?: unknown;
+      jobs?: Record<string, { defaults?: unknown; steps?: Array<Record<string, unknown>> }>;
+    };
+    expect(doc.defaults, "workflow-level defaults:").toBeUndefined();
+    const job = doc.jobs?.[String(key)];
+    expect(job?.defaults, `${key} job-level defaults:`).toBeUndefined();
+    const vitestSteps = (job?.steps ?? []).filter(
+      (s) => typeof s.run === "string" && (s.run as string).includes("vitest run"),
+    );
+    expect(vitestSteps.length, `${key}: exactly one vitest step`).toBe(1);
+    expect(
+      Object.keys(vitestSteps[0]!).sort(),
+      `${key}'s vitest step must carry ONLY env/name/run — if:/shell:/working-directory:/continue-on-error: all suppress or re-point the verbatim command`,
+    ).toEqual(["env", "name", "run"]);
+    expect(vitestSteps[0]!.env, `${key}'s step env must be exactly the exclusion gate`).toEqual({
+      VITEST_EXCLUDE_ENV_BOUND: "1",
+    });
+    // …and the node-side guards run INSIDE the process pnpm settings control:
+    // an effective nodeOptions preload exits node before vitest starts, so
+    // every vitest-hosted allowlist reports nothing while the step is green
+    // (R13-B, probe-confirmed). A pre-node guard — unpoisonable by
+    // construction — must precede the vitest step. It is a COMPOSITE `uses:`
+    // action, NOT a `run:` step (R15-B): a `defaults.run.shell` no-op
+    // silences every run: step INCLUDING a run-step guard, so a run-guard
+    // can never inspect the very defaults: that no-ops it; a composite step
+    // is immune and still reaches the script's defaults: refusal.
+    const steps = job?.steps ?? [];
+    const guardIdx = steps.findIndex((s) => s.uses === "./.github/actions/assert-pnpm-sources");
+    const vitestIdx = steps.findIndex(
+      (s) => typeof s.run === "string" && (s.run as string).includes("vitest run"),
+    );
+    expect(
+      guardIdx,
+      `${key} must use the assert-pnpm-sources composite guard`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(guardIdx < vitestIdx, `${key}'s pnpm-sources guard must precede the vitest step`).toBe(
+      true,
+    );
+    expect(
+      Object.keys(steps[guardIdx]!).sort(),
+      `${key}'s guard step must carry ONLY name/uses (no run:/with:/env: decoration)`,
+    ).toEqual(["name", "uses"]);
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently
@@ -128,13 +187,15 @@ describe("unit-suite matrix topology", () => {
           "DB-free project and skip the boot entirely (that saving IS the split)",
       ).toBe(false);
     }
-    // Only the two setup actions plus the vitest step; a new `uses:` is how a
-    // database would most plausibly sneak back in.
+    // checkout + setup + the assert-pnpm-sources composite guard (R15-B);
+    // a FOURTH `uses:` is how a database bring-up would most plausibly
+    // sneak back in. The guard action is pinned by the placement assertion
+    // above, so counting it here does not weaken the database check.
     expect(
       (nodb.match(/uses:/g) ?? []).length,
-      "unit-suite-nodb must use exactly two actions (checkout + setup); a third is how a " +
-        "database bring-up would return",
-    ).toBe(2);
+      "unit-suite-nodb must use exactly three actions (checkout + setup + pnpm-sources guard); " +
+        "a fourth is how a database bring-up would return",
+    ).toBe(3);
   });
 
   it("both jobs set VITEST_EXCLUDE_ENV_BOUND=1", () => {
@@ -210,15 +271,18 @@ describe("unit-suite matrix topology", () => {
   });
 
   // The exactly-once claim is scoped: under VITEST_EXCLUDE_ENV_BOUND=1 (which BOTH
-  // jobs set) the env-bound files are excluded from serial and run ZERO times
-  // here. That is intended — each is gated elsewhere (x-audits runs them directly)
-  // — so the honest invariant is "exactly once, EXCEPT the env-bound files."
+  // jobs set) the env-bound file — just email-canonicalization since PR-B
+  // returned test-auth-gate to unit-suite (2026-07-31) — is excluded from
+  // serial and runs ZERO times here. That is intended: its execution is
+  // proven by the x5 job's verbatim `pnpm run-excluded` step
+  // (ENV_BOUND_COVERAGE_REGISTRY) — so the honest invariant is "exactly
+  // once, EXCEPT the env-bound file."
   //
   // The latent hazard the exclusion asymmetry creates: envBoundExcludes is applied
   // only to the serial project. An env-bound file added inside a PARALLEL dir
   // would therefore NOT be excluded — it would run in the no-DB leg, in the very
-  // environment it was excluded for needing. Both currently live in serial
-  // dirs; this pins that they stay there.
+  // environment it was excluded for needing. The remaining exclusion lives in
+  // a serial dir; this pins that it stays there.
   it("every env-bound exclude lives in a SERIAL dir (the exclusion is serial-only)", () => {
     for (const g of ENV_BOUND_EXCLUDES) {
       const path = g.replace(/^\*\*\//, "");

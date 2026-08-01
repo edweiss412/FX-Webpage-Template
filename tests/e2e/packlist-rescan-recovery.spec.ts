@@ -22,24 +22,18 @@
  *      version-pinned esbuild.
  *   2. serves live.html (#root + bundle.js) over node:http.
  *
- * NOT RUNNABLE AS CHECKED IN (2026-07-26). This spec was removed from
- * `tests/e2e/standalone.config.ts`'s `testMatch`, and no other Playwright
- * project collects it — the command that used to run it now exits 1 with
- * "No tests found". It is kept in the tree because the harness and assertions
- * are still the right ones once the blocker is resolved.
- *
- * WHY it was removed: its live entry reaches the whole server tree —
+ * RESTORED TO CI (PR-C / C4). This spec was dark from 2026-07-26 because its
+ * live entry reached the whole server tree —
  * step3ReviewSections -> UseRawControlBoundary -> a `"use server"` module ->
  * runScheduledCronSync -> googleapis (913 graph inputs), with
- * lib/sync/lockedShowTx reaching postgres by a parallel edge. No per-module
- * alias list fixes it (a 4-entry list leaves 78 errors; stubbing the one
- * action boundary still leaves ten lib/sync modules pulling postgres), and an
- * unfiltered CI job cannot carry a red spec.
- *
- * TO RUN IT AGAIN you must first resolve BL-HARNESS-PACKLIST-SERVER-GRAPH in
- * BACKLOG.md — either a graph-derived resolver (BL-HARNESS-RESOLVER-POLICY) or
- * a trimmed import graph for step3ReviewSections — and then re-add this file
- * to the standalone config's `testMatch`.
+ * lib/sync/lockedShowTx reaching postgres by a parallel edge — and no per-module
+ * alias list fixed it (BL-HARNESS-PACKLIST-SERVER-GRAPH). The shared
+ * useServerDirectivePlugin (helpers/useServerDirectivePlugin.mjs) now stubs every
+ * `"use server"` module by class, dropping those subtrees entirely: the C1 Step 5
+ * import-graph reality check measured 0 inputs under googleapis / postgres /
+ * google-auth-library on this exact entry. `node:crypto` survives only on the
+ * pure-client parser-overlay path (never called) and is aliased below. The spec
+ * is back in `tests/e2e/standalone.config.ts`'s `testMatch`.
  */
 import { test, expect } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
@@ -69,6 +63,12 @@ test.beforeAll(async () => {
   bundleLiveEntry({
     entry: join(REPO_ROOT, "tests", "e2e", "_packListRescanLiveEntry.tsx"),
     outFile: join(workDir, "bundle.js"),
+    // The shared directive resolver (PR-C) stubs the "use server" action modules
+    // the PackListBreakdown graph reaches; node:crypto survives only on the
+    // pure-client parser-overlay path (useRawContentHash's isContentHash) where
+    // it is never called, so it is aliased to a stub. Precedent:
+    // compact-alert-card-layout.spec.ts.
+    aliases: { "node:crypto": join(REPO_ROOT, "tests", "e2e", "_nodeCryptoStub.ts") },
   });
 
   server = createServer((req, res) => {

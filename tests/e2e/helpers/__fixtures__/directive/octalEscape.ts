@@ -1,0 +1,4 @@
+"use\040server";
+export async function f() {
+  return 1;
+}
