@@ -446,3 +446,282 @@ describe("backlog ledger graduation", () => {
     expect(body).toMatch(/forwarded|x-forwarded|spoof/i);
   });
 });
+
+/**
+ * Plants corpus — T3 of the mdast rewrite, the single fixture owner for
+ * every shape the eleven spec review rounds accumulated (spec §5). Every
+ * plant runs through entryTerminal (the live walk's ONE evaluator), so a
+ * deleted lane wiring breaks an executable plant. Each block names its
+ * mutation family from the plan's closure set (M1–M9); a reviewer-proposed
+ * NEW family is admissible only with a live escaping mutant.
+ */
+describe("plants corpus — walker verdicts (M1–M9)", () => {
+  const entryOf = (heading: string, body: string): LedgerEntry => {
+    const [entry] = extractEntries(`${heading}\n\n${body}\n`, BACKLOG_OPTS);
+    if (entry === undefined) throw new Error(`plant minted no entry: ${heading}`);
+    return entry;
+  };
+  const headingHit = (heading: string): boolean =>
+    entryTerminal(entryOf(heading, "neutral body prose.")).length > 0;
+  const entryHit = (body: string): boolean =>
+    entryTerminal(entryOf("## BL-PLANT — probe", body)).length > 0;
+
+  it("M1 — one discriminating plant per lane (deleting any wiring reds exactly its plant)", () => {
+    // heading lane only:
+    expect(headingHit("## BL-M1A — CLOSED 2026-08-01")).toBe(true);
+    // opening lane only (bold, then bare ALL-CAPS):
+    expect(entryHit("**CLOSED** by PR #9.")).toBe(true);
+    expect(entryHit("RESOLVED by the popover migration.")).toBe(true);
+    // line-leading value lane only (bare lead, no strong label, no separator
+    // after the value):
+    expect(entryHit("Status: CLOSED")).toBe(true);
+    // mid-line field-label lane only (r2 F1 — the reordered multi-field row):
+    expect(entryHit("**Class:** CI wiring · **Status:** CLOSED")).toBe(true);
+    // terminal-label lane only (closure field after a non-field lead):
+    expect(entryHit("**Effort:** M. **Resolved:** by PR #700.")).toBe(true);
+    // bold non-label lane only (Status-led, un-labeled strong claim):
+    expect(entryHit("**Status:** open — **CLOSED** later that week")).toBe(true);
+    // bare-field lane only (particle chain to a colon, r39/r40):
+    expect(entryHit("**Status:** open — CLOSED as of: 2026")).toBe(true);
+  });
+
+  it("M2 — every terminal word closes as a leading field value", () => {
+    for (const word of [
+      "CLOSED",
+      "WITHDRAWN",
+      "RESOLVED",
+      "SUPERSEDED",
+      "SHIPPED",
+      "DONE",
+      "OBSOLETE",
+      "REFUTED",
+    ]) {
+      expect(entryHit(`**Status:** ${word}`), word).toBe(true);
+    }
+  });
+
+  it("M3 — word-position veto: negations and qualifiers are open claims; sequenced closures still hit", () => {
+    // r26 direct negations…
+    expect(entryHit("**Filed:** 2026-07-01. **Not CLOSED:** still open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Never RESOLVED** — parked pending owner call.")).toBe(false);
+    // …per-occurrence: a later bare claim counts, and CANNOT carries no bounded NOT:
+    expect(entryHit("**Filed:** 2026. **Not closed at first, later CLOSED:** shipped.")).toBe(true);
+    expect(entryHit("**Filed:** 2026. **CANNOT-CLOSE follow-up, RESOLVED:** shipped.")).toBe(true);
+    // r27 — the veto window crosses the emphasis boundary:
+    expect(entryHit("**Filed:** 2026. Not **CLOSED:** waiting.")).toBe(false);
+    expect(entryHit("**Status:** open. Partially **SHIPPED** behind the flag.")).toBe(false);
+    expect(entryHit("**Status:** was **NOT CLOSED** early; later **CLOSED** by PR #9.")).toBe(true);
+    // r29 — multiword negations and historical qualifiers:
+    expect(entryHit("**Filed:** 2026. **Not fully CLOSED:** two items remain.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Not yet RESOLVED:** waiting on #700.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Never completely SHIPPED:** flag still off.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **No longer CLOSED:** regression reopened it.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Previously CLOSED:** reopened 2026-07-30.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Reviewed, then CLOSED:** done.")).toBe(true);
+    expect(entryHit("**Filed:** 2026. **was not the blocker, CLOSED:** shipped.")).toBe(true);
+    expect(entryHit("Not CLOSED: still open")).toBe(false);
+    expect(entryHit("**Status:** REOPENED 2026-07-30")).toBe(false);
+  });
+
+  it("M4 — dropped contexts stay silent; a flatten leak turns a plant into a hit", () => {
+    // fenced code (the r30-removed countermeasure's motivating shape):
+    expect(entryHit("```\n**Status:** CLOSED\n```")).toBe(false);
+    // indented code:
+    expect(entryHit("    **Status:** CLOSED")).toBe(false);
+    // table cell:
+    expect(entryHit("| Status |\n| --- |\n| CLOSED |")).toBe(false);
+    // link label + autolinked URL:
+    expect(entryHit("[**Status:** CLOSED](https://x.test)")).toBe(false);
+    expect(entryHit("see https://x.test/CLOSED: now")).toBe(false);
+    // image label:
+    expect(entryHit("![CLOSED](https://x.test/i.png)")).toBe(false);
+    // complete HTML comment:
+    expect(entryHit("open <!-- Status: CLOSED --> entry")).toBe(false);
+    // …but an UNTERMINATED comment stays prose and is caught (a strict
+    // improvement over the r28-era same-line deletion, probed 2026-08-01):
+    expect(entryHit("marker <!-- doc\n**Status:** CLOSED")).toBe(true);
+    // block-HTML island (contents unscanned, spec §7):
+    expect(entryHit("<div>\n**Status:** CLOSED\n</div>")).toBe(false);
+    // inline island's prose SIBLINGS survive the tag drop (r2 F2 — a catch
+    // gain; the enclosed text is scanned by the opening lane):
+    expect(entryHit("<strong>CLOSED</strong> by PR #1")).toBe(true);
+    // footnote prose (spec §7):
+    expect(entryHit("[^h]: **Status:** CLOSED in the predecessor.")).toBe(false);
+    // strikethrough negates (r15):
+    expect(entryHit("**Status:** ~~CLOSED~~ reopened 2026-07-28")).toBe(false);
+    // entity spellings cook and are CAUGHT (spec §7 promotion):
+    expect(entryHit("**Status:** C&#76;OSED")).toBe(true);
+    // lazy-continuation field value stays unscanned (line discipline, §7):
+    expect(entryHit("> **Status:**\nCLOSED")).toBe(false);
+  });
+
+  it("M5 — field-lane input domains: reordered rows caught, prose rows inert", () => {
+    // P1/P2 (r41, reproduced by probe — the r40 line filters missed both):
+    expect(entryHit("**Class:** CI wiring · **Status:** CLOSED")).toBe(true);
+    expect(entryHit("**Effort:** M. **Resolved:** by PR #700.")).toBe(true);
+    // the line-607 shape (r1 review probe): bold non-terminal labels plus
+    // narrative REFUTED on a prose line — the confined scans never see it:
+    expect(
+      entryHit(
+        "**Partial closure (2026-07-27):** shipped. **Header-aware segmentation** — details, a REFUTED: mention. **Residuals (still open):** more",
+      ),
+    ).toBe(false);
+    // a second field closes a Status line (r39):
+    expect(entryHit("**Status:** OPEN · **Closed:** 2026-07-30.")).toBe(true);
+    expect(entryHit("**Status:** OPEN · Closed: 2026-07-30.")).toBe(true);
+    expect(entryHit("**Filed:** 2026-07-01 · Closed - 2026-07-30.")).toBe(true);
+    expect(entryHit("**Status:** OPEN — parked pending owner call.")).toBe(false);
+    // bare/emphasis closure fields on field-led lines (r39):
+    expect(entryHit("**Status:** open · *Closed:* 2026-07-30")).toBe(true);
+    expect(entryHit("**Filed:** x · Resolved by: PR #621")).toBe(true);
+    // label-noun metadata stays open in every spelling (r35/r36). The
+    // plants sit BEHIND a neutral field line: as an entry's FIRST line a
+    // bold terminal-led segment is the opening lane's claim in the regex
+    // era too — the label rule was never the opening lane's (parity).
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent:** PR #500 — this one remains open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Superseded approach:** see below.")).toBe(false);
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent**: PR #500 — this one remains open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent** — PR #500, remains open.")).toBe(false);
+    // preposition-chain claim labels close (r36/r38/r39):
+    expect(entryHit("**Filed:** 2026. **Resolved by:** PR #621.")).toBe(true);
+    expect(entryHit("**Shipped via:** PR #500.")).toBe(true);
+    expect(entryHit("**Closed in:** the phase-2 sweep.")).toBe(true);
+    expect(entryHit("**Filed:** 2026-07-31. **Closed after:** PR #700.")).toBe(true);
+    expect(entryHit("**Superseded following:** the picker pivot.")).toBe(true);
+    expect(entryHit("**Shipped without:** the optional knob.")).toBe(true);
+    expect(entryHit("**Resolved for:** every adopter site.")).toBe(true);
+    expect(entryHit("**Closed despite:** the flake noise.")).toBe(true);
+    expect(entryHit("**Shipped alongside:** PR #700.")).toBe(true);
+    expect(entryHit("**Closed notwithstanding:** the flake.")).toBe(true);
+    // Resolution is the second status-valued label (r32):
+    expect(entryHit("**Resolution:** Shipped per the recommended fix below.")).toBe(true);
+    expect(entryHit("**Resolution:** pending owner call")).toBe(false);
+    // dash separators in every width (r35), label and bare lanes (r40):
+    expect(entryHit("**Status** — CLOSED")).toBe(true);
+    expect(entryHit("**Resolution** – SHIPPED")).toBe(true);
+    expect(entryHit("**Filed** - DONE")).toBe(true);
+    expect(entryHit("**Status:** x · Closed — 2026-07-30")).toBe(true);
+    expect(entryHit("**Status:** x · *Closed* – 2026")).toBe(true);
+    expect(entryHit("**Status:** x · Resolved by — PR #700")).toBe(true);
+  });
+
+  it("M6 — token boundaries exclude ASCII hyphen on both sides (line-global maximality)", () => {
+    // headings (P4/P5):
+    expect(headingHit("## BL-M6A — RESOLVED-vs-CLOSED naming sweep")).toBe(false);
+    expect(headingHit("## BL-M6B — DONE-state gallery polish")).toBe(false);
+    // hyphenated ids on field lines (P6/P7 + r40 control):
+    expect(entryHit("**Filed:** 2026-07-31, see BL-DRIVE-RESOLVED: details")).toBe(false);
+    expect(entryHit("**Filed:** 2026, see BL-CLOSED-LOOP-FIX — details")).toBe(false);
+    expect(entryHit("**Status:** see BL-CLOSED-LOOP-FIX for the shape")).toBe(false);
+    // strong-edge straddling runs are ONE line-token (r5):
+    expect(entryHit("re-**CLOSED**: discussion")).toBe(false);
+    expect(entryHit("**CLOSED**-by: discussion")).toBe(false);
+    expect(entryHit("**Status:** open, re-**CLOSED** discussion")).toBe(false);
+    expect(entryHit("**Status:** open, **CLOSED**2 discussion")).toBe(false);
+    expect(entryHit("**Status**2: CLOSED discussion")).toBe(false);
+    // label word-splits the r40 rule false-positived on (r2 review probe):
+    expect(entryHit("**re-CLOSED:** discussion")).toBe(false);
+    expect(entryHit("**CLOSED2:** discussion")).toBe(false);
+    expect(entryHit("**2CLOSED:** discussion")).toBe(false);
+    expect(entryHit("**CLOSED-by:** discussion")).toBe(false);
+    // intraword __ never renders bold and never claims (r28):
+    expect(entryHit("**Filed:** 2026. Token foo__CLOSED__bar is still open.")).toBe(false);
+    // intact controls:
+    expect(entryHit("x **Closed:** 2026")).toBe(true);
+    expect(headingHit("## BL-M6C — CLOSED 2026")).toBe(true);
+  });
+
+  it("M7 — container-quoted headings never open entries; container claims are the entry's own", () => {
+    // a blockquote-QUOTED heading neither opens an entry nor claims for it:
+    const md = "## BL-M7 — open\n\n> ## BL-QUOTED — CLOSED\n\nprose after the quote.\n";
+    const entries = extractEntries(md, BACKLOG_OPTS);
+    expect(entries.map((e) => e.id)).toEqual(["BL-M7"]);
+    // (the quoted heading's own text is body prose — its CLOSED is a heading
+    // shape, not a field/opening/heading claim of BL-M7):
+    expect(entryTerminal(entries[0]!)).toEqual([]);
+    // …while container-PREFIXED claims are the entry's own (r22–r24):
+    expect(entryHit("- **Status:** CLOSED")).toBe(true);
+    expect(entryHit("> Status: RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("1. **Filed**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("> > **CLOSED** by the merge.")).toBe(true);
+    expect(entryHit("- RESOLVED by PR #631.")).toBe(true);
+    expect(entryHit("- [x] **Status:** CLOSED")).toBe(true);
+    expect(entryHit("1. [X] **Filed**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("> - [x] **CLOSED** by PR #631.")).toBe(true);
+    expect(entryHit("1234. [x] **Status:** CLOSED")).toBe(true);
+    expect(entryHit("123456789. **Filed**: CLOSED 2026-07-24")).toBe(true);
+    // the veto holds behind containers (r22/r23):
+    expect(entryHit("- **Status:** PARTIALLY CLOSED")).toBe(false);
+    expect(entryHit("- [ ] **Status:** PARTIALLY CLOSED")).toBe(false);
+    // marker-only lines are not content — the claim BEHIND them opens (r26):
+    expect(entryHit(">\n> **CLOSED** by PR #1.")).toBe(true);
+    expect(entryHit("- [ ]\n- [x] **CLOSED** by PR #631.")).toBe(true);
+    // __ is markdown's bold twin (r27), emphasis labels are honest (r29/r30):
+    expect(entryHit("__Status:__ CLOSED")).toBe(true);
+    expect(entryHit("__Filed:__ CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("**Filed:** 2026. __Closed:__ 2026.")).toBe(true);
+    expect(entryHit("__Resolved__ by PR #9.")).toBe(true);
+    expect(entryHit("<!-- bookkeeping -->\n**CLOSED** by PR #1.")).toBe(true);
+    expect(entryHit("*Status:* CLOSED")).toBe(true);
+    expect(entryHit("*Status*: CLOSED")).toBe(true);
+    expect(entryHit("_Status:_ RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("_Status_: RESOLVED")).toBe(true);
+    expect(entryHit("*Filed:* CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("_Filed_: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("***Status:*** CLOSED")).toBe(true);
+    expect(entryHit("___Status___: RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("**_Filed_**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("- [x] __Resolution:__ SHIPPED in PR #500")).toBe(true);
+    // multiline strong nodes keep provenance on every touched line (r6):
+    expect(entryHit("**preamble\nCLOSED:\ntail**")).toBe(true);
+    expect(entryHit("**Status: OPEN, CLOSED discussion\ntail line\nend**")).toBe(true);
+  });
+
+  it("M9 — id-extraction source parity: formatted ids mint nothing, formatted prefixes mint", () => {
+    const idsOf = (md: string, opts: ExtractOpts = BACKLOG_OPTS): string[] =>
+      extractEntries(md, opts).map((e) => e.id);
+    // formatted SHOUTY prose headings mint no id (r8):
+    expect(idsOf("### **NOTES** — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    expect(idsOf("### *NOTES* — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    expect(idsOf("### \`NOTES\` — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    // a formatted id behind a plain bracket prefix mints nothing (r9):
+    expect(idsOf("## [P2] **BL-STRONG** — CLOSED\n\nbody\n")).toEqual([]);
+    expect(idsOf("## [P2] *BL-EM* — CLOSED\n\nbody\n")).toEqual([]);
+    expect(idsOf("## [P2] \`BL-CODE\` — CLOSED\n\nbody\n")).toEqual([]);
+    // a FORMATTED prefix before a plain id mints, claims caught (r10):
+    for (const [md, id] of [
+      ["## [**P2**] BL-M9A — CLOSED\n\nbody\n", "BL-M9A"],
+      ["## [*P2*] BL-M9B — CLOSED\n\nbody\n", "BL-M9B"],
+      ["## [\`P2\`] BL-M9C — CLOSED\n\nbody\n", "BL-M9C"],
+      ["## [~~P2~~] BL-M9D — CLOSED\n\nbody\n", "BL-M9D"],
+      ["## [<b>P2</b>] BL-M9E — CLOSED\n\nbody\n", "BL-M9E"],
+    ] as const) {
+      const entries = extractEntries(md, BACKLOG_OPTS);
+      expect(entries.map((e) => e.id), md).toEqual([id]);
+      expect(entryTerminal(entries[0]!).length, md).toBeGreaterThan(0);
+    }
+    // plain + struck controls:
+    expect(idsOf("## [P2] BL-M9F — open\n\nbody\n")).toEqual(["BL-M9F"]);
+    expect(idsOf("## [P2] ~~BL-M9G~~ — open\n\nbody\n")).toEqual(["BL-M9G"]);
+    // heading anchors scan strictly AFTER the id — pre-id anchors, a
+    // duplicated id, and an id-substring in the prefix never claim (r3/r4):
+    expect(headingHit("## [was — CLOSED once] BL-M9H — open")).toBe(false);
+    expect(headingHit("## [was – CLOSED once] BL-M9I — open")).toBe(false);
+    expect(headingHit("## [was - CLOSED once] BL-M9J — open")).toBe(false);
+    expect(headingHit("## [✅ CLOSED prior arc] BL-M9K — open")).toBe(false);
+    expect(headingHit("## [BL-M9L — CLOSED prior arc] BL-M9L — open")).toBe(false);
+    expect(headingHit("## [XBL-M9MX — CLOSED prior arc] BL-M9M — open")).toBe(false);
+    expect(headingHit("## [P2] BL-M9N — CLOSED 2026")).toBe(true);
+    // CommonMark heading surface the ^-anchored era missed (r30 gain set):
+    expect(idsOf("   ## BL-INDENTED-ID — text\n\nbody\n")).toEqual(["BL-INDENTED-ID"]);
+    expect(idsOf("##\tBL-TABBED-ID — text\n\nbody\n")).toEqual(["BL-TABBED-ID"]);
+    expect(headingHit("   ## BL-M9O — CLOSED")).toBe(true);
+    // setext heading (newly visible to every scan):
+    expect(idsOf("BL-SETEXT — CLOSED\n---\n\nbody\n")).toEqual(["BL-SETEXT"]);
+    expect(headingHit("BL-SETEXT — CLOSED\n---")).toBe(true);
+    // anchored ✅ (r30): a claim, not a decoration:
+    expect(headingHit("## BL-M9P — ✅ RESOLVED (PR #612)")).toBe(true);
+    expect(headingHit("## BL-M9Q ✅ **DONE**")).toBe(true);
+    expect(headingHit("## BL-M9R — align the ✅ icon")).toBe(false);
+  });
+});

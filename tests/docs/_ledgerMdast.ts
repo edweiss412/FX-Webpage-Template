@@ -417,7 +417,10 @@ export function entryTerminal(entry: LedgerEntry): string[] {
   const hits: string[] = [];
   hits.push(...headingVerdicts(entry.headingLine, entry.id));
   const bodyLines = flattenLines(entry.body, "claim");
-  hits.push(...openingVerdicts(bodyLines[0]));
+  // Opening line = first body line carrying at least one TOKEN (r26
+  // semantics: a marker-only line — a bare `- [ ]` flattens to literal
+  // `[ ]` — is not content and must not consume the opening slot).
+  hits.push(...openingVerdicts(bodyLines.find((l) => /[A-Za-z0-9-]/.test(l.text))));
   for (const line of bodyLines) hits.push(...lineVerdicts(line));
   return hits;
 }

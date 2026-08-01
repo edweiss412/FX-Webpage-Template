@@ -168,6 +168,14 @@ describe("flattenLines — §2 disposition table", () => {
     expect(flat("1. > - **Status:** CLOSED")[0]!.text).toBe("Status: CLOSED");
   });
 
+  it("a marker-only literal line does not consume the opening slot (r26)", () => {
+    // `- [ ]` with no content is a bullet whose text is literal "[ ]" — the
+    // opening lane must skip past it to the first TOKENED line.
+    const lines = flat("- [ ]\n- [x] **CLOSED** by PR #631.");
+    const firstTokened = lines.find((l) => /[A-Za-z0-9-]/.test(l.text));
+    expect(firstTokened?.text).toBe("CLOSED by PR #631.");
+  });
+
   it("does NOT descend footnote definitions", () => {
     expect(flat("[^h]: **Status:** CLOSED in the predecessor.")).toEqual([]);
   });
