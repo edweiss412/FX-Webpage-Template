@@ -393,7 +393,7 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    test("per-group sr-only status region announces arming and clears on auto-revert", () => {
+    test("per-group sr-only status region announces arming and the auto-revert close", () => {
       vi.useFakeTimers();
       render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
       const btnX = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
@@ -410,7 +410,10 @@ describe("BulkIgnoreControls (grouped active list)", () => {
       expect(regionY.textContent).toBe("");
       act(() => vi.advanceTimersByTime(4_000));
       expect(btnX.nextElementSibling).toBe(regionX); // never unmounted
-      expect(regionX.textContent).toBe("");
+      // Silent empty superseded by spec 2026-08-01-announce-a11y-pass §3.3:
+      // the close is announced, keyed to the expired group only.
+      expect(regionX.textContent).toBe("Confirm window closed. Nothing was changed.");
+      expect(regionY.textContent).toBe("");
     });
 
     test("running disables ALL chips and clears armed", async () => {
@@ -588,5 +591,91 @@ describe("eyebrow wrap (crewwarn-instance-discriminator §2.5)", () => {
     const label = screen.getByTestId("dq-group-label-UNKNOWN_FIELD");
     expect(label.className).not.toContain("truncate");
     expect(label.className).toContain("min-w-0");
+  });
+});
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.3/§5.1):
+// per-group keyed — the copy lands only in the expired group's own region.
+describe("arm-expiry announcement — BulkIgnoreControls (per-group keying)", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+  const groupX = bulkGroup(); // UNKNOWN_FIELD
+  const groupY: ActiveWarningGroup = {
+    code: "FIELD_UNREADABLE",
+    label: "Unreadable field",
+    itemCount: 3,
+    bulk: {
+      code: "FIELD_UNREADABLE",
+      label: "Unreadable field",
+      items: [
+        { code: "FIELD_UNREADABLE", rawSnippet: "Crew phone | ???" },
+        { code: "FIELD_UNREADABLE", rawSnippet: "Hotel | ???" },
+        { code: "FIELD_UNREADABLE", rawSnippet: "Venue | ???" },
+      ],
+    },
+    cards: <ul data-testid="cards-FIELD_UNREADABLE" />,
+  };
+  const twoGroups = [groupX, groupY];
+
+  afterEach(() => vi.useRealTimers());
+
+  // The chip's persistent sr-only region is its nextElementSibling by contract.
+  function regionOf(code: string): HTMLElement {
+    const el = screen.getByTestId(`dq-bulk-ignore-${code}`).nextElementSibling as HTMLElement;
+    expect(el?.getAttribute("role")).toBe("status");
+    expect(el?.className.split(/\s+/)).toContain("sr-only");
+    return el;
+  }
+
+  test("expiry lands in the expired group's region ONLY (same node), sibling stays empty", () => {
+    vi.useFakeTimers();
+    const { container } = render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
+    const regionX = regionOf(groupX.code);
+    fireEvent.click(screen.getByTestId(`dq-bulk-ignore-${groupX.code}`)); // arm X
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(regionOf(groupX.code)).toBe(regionX); // node identity across expire
+    expect(regionX.textContent).toBe(EXPIRY);
+    expect(regionOf(groupY.code).textContent).toBe("");
+    // Exactly one non-empty status region panel-wide.
+    const nonEmpty = Array.from(container.querySelectorAll('span[role="status"].sr-only')).filter(
+      (n) => (n.textContent ?? "") !== "",
+    );
+    expect(nonEmpty).toHaveLength(1);
+  });
+
+  test("switching the armed group before expiry leaves the old group silent", () => {
+    vi.useFakeTimers();
+    render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
+    fireEvent.click(screen.getByTestId(`dq-bulk-ignore-${groupX.code}`)); // arm X
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.click(screen.getByTestId(`dq-bulk-ignore-${groupY.code}`)); // re-arm to Y
+    act(() => vi.advanceTimersByTime(2_500)); // past X's original window
+    expect(regionOf(groupX.code).textContent).toBe("");
+    act(() => vi.advanceTimersByTime(1_500)); // Y's own window expires
+    expect(regionOf(groupY.code).textContent).toBe(EXPIRY);
+    expect(regionOf(groupX.code).textContent).toBe("");
+  });
+
+  test("confirm-tap never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(okResponse());
+    render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
+    const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
+    fireEvent.click(btn);
+    fireEvent.click(btn); // confirm
+    act(() => vi.advanceTimersByTime(4_100));
+    expect(regionOf(groupX.code).textContent).not.toBe(EXPIRY);
+  });
+
+  test("re-arm after expiry is audible both ways", () => {
+    vi.useFakeTimers();
+    render(<BulkIgnoreControls slug="rpas" groups={twoGroups} />);
+    const btn = screen.getByTestId(`dq-bulk-ignore-${groupX.code}`);
+    fireEvent.click(btn);
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(regionOf(groupX.code).textContent).toBe(EXPIRY);
+    fireEvent.click(btn); // re-arm
+    expect(regionOf(groupX.code).textContent).toBe("Tap again to confirm.");
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(regionOf(groupX.code).textContent).toBe(EXPIRY);
   });
 });
