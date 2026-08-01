@@ -520,3 +520,88 @@ describe("ArchiveShowButton — two-tier focus contract on the non-row variants 
     });
   }
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 6,
+// §3.3/§5.1): the morph variants announce BOTH the arm (they had no live
+// region and no focus move — the one fully silent arm in the family) and the
+// auto-revert close. The row variant has no timer: nothing may ever expire.
+describe("arm-expiry announcement — ArchiveShowButton", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function region(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>('span[role="status"].sr-only');
+    expect(el, "persistent sr-only status region").not.toBeNull();
+    return el as HTMLElement;
+  }
+
+  it("morph: arm announces, auto-revert announces expiry in the SAME node", async () => {
+    vi.useFakeTimers();
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { container, getByTestId } = render(<ArchiveShowButton archiveAction={action} />);
+    const before = region(container);
+    expect(before.textContent).toBe("");
+    fireEvent.click(getByTestId("archive-show-button")); // arm
+    expect(before.textContent).toBe("Tap again to confirm.");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    const after = region(container);
+    expect(after, "region node must survive the expire transition").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("morph: confirm dispatch never announces expiry, even past the timer horizon", async () => {
+    vi.useFakeTimers();
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { container, getByTestId } = render(<ArchiveShowButton archiveAction={action} />);
+    fireEvent.click(getByTestId("archive-show-button")); // arm
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button")); // dispatch
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_100);
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  it("morph: re-arm after expiry is audible both ways", async () => {
+    vi.useFakeTimers();
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { container, getByTestId } = render(<ArchiveShowButton archiveAction={action} />);
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+    fireEvent.click(getByTestId("archive-show-button")); // re-arm
+    expect(region(container).textContent).toBe("Tap again to confirm.");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+  });
+
+  it("row variant: the expiry copy never appears at any horizon (no timer exists)", async () => {
+    vi.useFakeTimers();
+    const { container, getByTestId } = render(
+      <ArchiveShowButton
+        archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+        compact
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working."
+      />,
+    );
+    fireEvent.click(getByTestId("archive-show-button")); // arm (Cancel-dismiss idiom)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(container.textContent).not.toContain(EXPIRY);
+    // The confirm row is still up — reading time is not budgeted in this idiom.
+    expect(getByTestId("archive-show-confirm-button")).toBeTruthy();
+  });
+});
