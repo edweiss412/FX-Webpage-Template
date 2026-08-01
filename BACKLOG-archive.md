@@ -1579,3 +1579,36 @@ At the 390px mobile viewport the switcher bar's counter ("52 / 116") and scenari
 Original entry (provenance):
 
 From the impeccable audit of `feat/crew-warning-attachment` (2026-07-23), pre-existing: the `Ignored (N)` `<summary>` in `components/admin/showpage/sectionWarningExtras.tsx` is a `text-xs` row with no `min-h-tap-min`, under the 44px floor, while `CrewUnderRowStack`'s equivalent "N more" summary carries it. Add `min-h-tap-min` + flex alignment to match.
+
+## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a closeout
+
+**Graduated:** 2026-08-01 — Resolved on `test/invariant8-closeout-enforcement`: the assertion removed in `a20b94457` returns as its own structural guard, `tests/docs/_metaInvariant8Closeout.test.ts` + walker `tests/docs/_invariant8Closeout.ts` — filesystem-walked unit discovery over every plan shape (flat, nested, category subdirs, closeout-attach), the machine marker grammar (`impeccable-gate: …` / `N/A — no UI surface` / TEMPLATE form, spec §3.3), a frozen 195-row pre-guard debt ledger with loud staleness, and write-path edits (AGENTS.md invariant 8, HANDOFF-TEMPLATE §12). Spec: `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` (spec r3 APPROVE; plan r3 APPROVE). The three-step path the entry prescribed (ratify a convention, migrate or debt-list, restore as default-deny walk) shipped exactly, with the entry's lexical-hedge sketch superseded by the marker grammar (probe-refuted; spec §1.1.2).
+
+Original entry (provenance):
+
+## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+
+Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
+review rounds on the same vector. The change shipped
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`, whose ledger invariants (no id both
+active and archived; every graduated id archive-only) are enforceable and true. A third
+assertion — every plan declaring an invariant-8 (impeccable) gate carries a `## 12`
+closeout section — was removed, because it cannot be made both fail-by-default and
+honest against the tree as it stands.
+
+**Measured 2026-07-24.** `docs/superpowers/plans/` holds 33 flat `*.md` plans and 274
+nested files that mention invariant 8 or impeccable. Plan files are variously
+`plan.md`, `00-plan.md`, `PLAN.md`; closeouts are variously `closeout.md` inside a plan
+directory or a sibling `<name>-closeout.md`. Of the 13 plan DIRECTORIES that declare the
+gate, 12 have no `## 12` closeout section. There is therefore no rule that locates a
+closeout for an arbitrary plan, so a filesystem walk silently under-reports; and a
+registry-based version is an opt-in list, which is precisely the fail-by-default hole a
+structural guard exists to close.
+
+**Work when prioritized:** (1) ratify one closeout location convention; (2) migrate or
+explicitly debt-list the existing plans; (3) restore the assertion as a default-deny
+walk over that convention, requiring both gate halves named AND an affirmative P0/P1
+disposition (a lexical check must reject hedges — "skipped", "pending", "not run",
+"TBD" — since the earlier draft passed on "Critique skipped. Audit pending."). Note the
+honest ceiling: any text assertion verifies SHAPE, not that a human actually ran the
+gate.

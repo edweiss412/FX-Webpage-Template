@@ -28,8 +28,10 @@
 // closeout for an arbitrary plan, and any registry-based version is an opt-in
 // list rather than a default-deny guard. Enforcing it properly means first
 // establishing that convention across ~300 documents, which is its own change.
-// Filed as BL-INVARIANT8-CLOSEOUT-ENFORCEMENT in BACKLOG.md with the
-// measurements. What remains here is enforceable and true.
+// Filed as BL-INVARIANT8-CLOSEOUT-ENFORCEMENT and graduated 2026-08-01 via
+// test/invariant8-closeout-enforcement: the assertion returned as its own
+// guard, tests/docs/_metaInvariant8Closeout.test.ts (sound discovery +
+// marker grammar). What remains HERE is the ledger half, enforceable and true.
 //
 // Spec: docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md §9 T8.
 import { readFileSync } from "node:fs";
@@ -86,6 +88,11 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/invariant8-closeout-enforcement (2026-08-01): the closeout assertion
+  // removed in a20b94457 returns as its own guard —
+  // tests/docs/_metaInvariant8Closeout.test.ts (sound discovery, marker
+  // grammar, frozen debt ledger).
+  { id: "BL-INVARIANT8-CLOSEOUT-ENFORCEMENT", provenance: "test/invariant8-closeout-enforcement" },
   // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
   // probes for the pg-cron vacuity guard — an inert-case mutant must red the
   // suite by name (attribution) and via the aggregate branch (backstop).
