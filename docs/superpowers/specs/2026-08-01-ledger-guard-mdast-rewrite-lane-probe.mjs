@@ -214,26 +214,41 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
   const found = [];
   tops.forEach((n, i) => {
     if (n.type !== "heading" || !(levels ?? [2, 3]).includes(n.depth)) return;
-    // r8/r9: source parity — the legacy matcher consumes the optional
-    // bracket prefix and the id in RAW SOURCE, stopping at any formatting
-    // delimiter. So: strip the prefix from the FIRST inline child's text; if
-    // characters remain there, the id must start in that same plain text; if
-    // the prefix exhausts the first child, the id may start only in an
-    // immediately-following delete node (`### [P2] ~~ID~~`). A formatted id
-    // after a plain prefix (`### [P2] **BL-X**`) never minted and must not.
-    const kids = n.children ?? [];
-    const first = kids[0];
-    let idSource = null;
-    if (first?.type === "text") {
-      const rem = String(first.value).replace(/^\s*(?:\[[^\]]+\]\s*)?/, "");
-      if (rem !== "") idSource = rem;
-      else if (kids[1]?.type === "delete") idSource = flattenLines([kids[1]], "id")[0]?.text ?? "";
-    } else if (first?.type === "delete") {
-      idSource = flattenLines([first], "id")[0]?.text ?? "";
-    }
-    if (idSource === null) return;
-    const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(idSource);
+    // r8/r9/r10: source parity via PROVENANCE-MAPPED flatten. The legacy
+    // matcher consumes the bracket prefix in raw source formatting-blind
+    // (`[**P2**]` is a valid prefix), but the ID itself must start (and,
+    // ratified r10, lie wholly) in plain text or delete source — a
+    // formatted id (`**BL-X**`, `[P2] **BL-X**`) never minted; a formatted
+    // PREFIX with a plain id after it always did.
+    const flatChars = [];
+    const prov = [];
+    (function pwalk(node, kind) {
+      if (node.type === "text") {
+        for (const ch of String(node.value)) {
+          if (ch === "\n") break;
+          flatChars.push(ch);
+          prov.push(kind);
+        }
+        return;
+      }
+      if (node.type === "inlineCode") {
+        for (const ch of String(node.value)) { flatChars.push(ch); prov.push("code"); }
+        return;
+      }
+      const k =
+        node.type === "delete" ? "delete" : node.type === "heading" ? kind : "fmt";
+      for (const c of node.children ?? []) pwalk(c, node.type === "heading" ? "plain" : k === "delete" ? "delete" : "fmt");
+    })(n, "plain");
+    const flat = flatChars.join("");
+    const pm = /^\s*(?:\[[^\]]*\]\s*)?/.exec(flat);
+    const idStart = pm[0].length;
+    const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
     if (!m || /[a-z]/.test(m[1])) return;
+    // whole id token must be plain- or delete-sourced (r10 ratification)
+    let plainOk = true;
+    for (let ci = idStart; ci < idStart + m[1].length; ci++)
+      if (prov[ci] !== "plain" && prov[ci] !== "delete") plainOk = false;
+    if (!plainOk) return;
     if (requirePrefix && !m[1].startsWith(requirePrefix)) return;
     // id END in the CLAIM-flattened heading (id may be delete-wrapped there:
     // find the id text if present, else scan from 0 — a struck id vanishes
@@ -348,6 +363,21 @@ for (const [nm, md, expect] of [
   const ok = JSON.stringify(ids) === JSON.stringify(expect);
   if (!ok) fails++;
   console.log(`${nm}: ids=${JSON.stringify(ids)} expected=${JSON.stringify(expect)} ${ok ? "OK" : "MISMATCH"}`);
+}
+// r10-review shapes: formatted BRACKET PREFIX with a plain id still mints
+for (const [nm, md, expect] of [
+  ["formatted-prefix strong", "## [**P2**] BL-X — CLOSED\n\nbody\n", ["BL-X"]],
+  ["formatted-prefix emphasis", "## [*P2*] BL-X2 — CLOSED\n\nbody\n", ["BL-X2"]],
+  ["formatted-prefix inlineCode", "## [\`P2\`] BL-X3 — CLOSED\n\nbody\n", ["BL-X3"]],
+  ["formatted-prefix delete", "## [~~P2~~] BL-X4 — CLOSED\n\nbody\n", ["BL-X4"]],
+  ["formatted-prefix inlineHtml", "## [<b>P2</b>] BL-X5 — CLOSED\n\nbody\n", ["BL-X5"]],
+]) {
+  const es = entries(md);
+  const ids = es.map((e) => e.id);
+  const hits = es.flatMap((e) => headingVerdict(e.headingLine, e.id));
+  const ok = JSON.stringify(ids) === JSON.stringify(expect) && hits.length === expect.length;
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} hits=${JSON.stringify(hits)} expected id+heading-claim ${ok ? "OK" : "MISMATCH"}`);
 }
 // four-ledger id parity census: legacy regex vs walker extraction
 {
