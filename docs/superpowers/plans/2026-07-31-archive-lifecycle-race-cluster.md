@@ -46,7 +46,7 @@ Test cases (failure mode each):
 - `unpublishShowReturning`: the published show from above → `true` + `published=false`; second call → `false` (catches: outer lost `if not v_published then return false`).
 - Refusal preservation: `publishShowReturning` on `seedArchivedShow()` rejects with message containing `SHOW_ARCHIVED_IMMUTABLE` (catches: recreate lost a gate).
 
-RED command: `pnpm vitest run tests/db/lifecycle_rpc_performed.test.ts  # (file created by this task)` — expected failure class: the returning helpers read no boolean from void RPCs (postgres returns empty-typed `select public.archive_show(...)` rows; `transitioned` undefined ≠ true), so every case fails.
+RED command: `pnpm vitest run tests/db/lifecycle_rpc_performed.test.ts` (file created by this task) — expected failure class: the returning helpers read no boolean from the still-void RPCs (`transitioned` undefined ≠ true), so the three discriminator cases fail. **The refusal-preservation case PASSES during RED** (plan-R2 finding 5: the shipped `_publish_show_core` already raises `SHOW_ARCHIVED_IMMUTABLE`); it is a regression pin, not part of the red set — the RED gate is "the three discriminator cases fail".
 
 **Then the migration** — a new migration file `<timestamp>_lifecycle_rpc_performed_discriminator` under supabase/migrations, exact skeleton:
 
@@ -63,7 +63,7 @@ notify pgrst, 'reload schema';
 commit;
 ```
 
-`unarchive_show`: untouched (spec §1.1 row 8). GREEN: same vitest command. Verify apply-twice: run the file twice via `psql` against local; second apply clean. `pnpm gen:schema-manifest`; commit manifest with migration + tests + helpers.
+`unarchive_show`: untouched (spec §1.1 row 8). **Apply to the LOCAL DB before the GREEN run** (plan-R2 finding 1 — writing the file changes nothing; the db tests hit the live local instance per `tests/db/_b2Helpers.ts:25`): `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<file>.sql`. GREEN: same vitest command. Then apply-twice idempotency: run the same `psql -f` a second time; clean. `pnpm gen:schema-manifest`; commit manifest with migration + tests + helpers.
 
 Commit: `feat(db): lifecycle RPCs return performed discriminator (archive/publish/unpublish)`
 
@@ -113,7 +113,7 @@ One task, one commit (plan-R1 finding 1): the e2e case IS the red test for the S
 
 1. Replace the header removal note (`tests/e2e/admin-lifecycle-transitions.spec.ts:11-17` region) with the restoration rationale (realtime vector, backdrop-immune).
 2. `beforeAll` gains `restoreDashboardState = await settleDashboardAdminState()`; `afterAll` invokes it after the existing seeded-show delete (harness-readiness section above).
-3. New case (probe Case D productionized): two pages in one context; tab B → `/admin?show=<slug>` with infra-error nav retry → hydration proof → open hub → arm Archive; install sampler on tab B; tab A archives via its own modal confirm; wait for the `SHOW_ARCHIVED` telemetry row via sqlClient poll (settle signal, probe-proven — the popover closes on settle so UI is not the signal); then drain sampler and assert.
+3. New case (probe Case D productionized): two pages in one context; tab B → `/admin?show=<slug>` with infra-error nav retry → hydration proof → open hub → arm Archive; install sampler on tab B; tab A archives via its own modal confirm; wait for the `SHOW_ARCHIVED` telemetry row **scoped to the seeded show and this run** — capture `baseline = count(app_events where message='SHOW_ARCHIVED' and show_id=<seeded>::uuid)` BEFORE tab A confirms, then poll for `count > baseline` (plan-R2 finding 2 — the destination suite has no per-case app_events cleanup, so an unscoped poll can satisfy on a historical row); **then wait for tab B's terminal UI condition** — `pageB.waitForFunction` until the latest sampler frame has `!popoverOpen` (timeout 15s) — before draining (plan-R2 finding 3: the telemetry row signals tab A's action, not tab B's refresh; the probe waited a further fixed 8s, this uses the condition itself); then drain sampler and assert.
 
 Sampler (page context, install/drain via `page.evaluate`), with health assertions (plan-R1 finding 3 anti-tautology set):
 
@@ -123,7 +123,14 @@ Sampler (page context, install/drain via `page.evaluate`), with health assertion
 const sample = () => {
   const popover = document.querySelector('[data-testid="share-hub-popover"]');
   const unarch = document.querySelector<HTMLButtonElement>('[data-testid^="unarchive-show-button-"]');
-  const modal = document.querySelector('[data-testid="published-show-review-modal"]');
+  const modalRoot = document.querySelector('[data-testid="published-show-review-modal"]');
+  // LOADED modal only: the Suspense skeleton shares the root testid; the title marker discriminates
+  // (LOADED_REVIEW_MODAL idiom, tests/e2e/admin-lifecycle-transitions.spec.ts:59-64). plan-R2 finding 4.
+  const modal =
+    modalRoot !== null &&
+    modalRoot.querySelector('[data-testid="published-show-review-title"]') !== null
+      ? modalRoot
+      : null;
   const armed = document.querySelector('[data-testid="archive-show-confirm-button"]');
   (window as any).__frames.push({
     t: performance.now(),
@@ -141,13 +148,13 @@ requestAnimationFrame(sample);
 Assertions (each with its failure mode):
 
 - **Sampler health:** `frames.length > 30` (catches: sampler never ran); ≥1 pre-archive frame with `popoverOpen && armed && modal` (catches: case armed nothing / sampled too late).
-- **Positive terminal:** final frame has `modal && !popoverOpen && !armed` — popover closed while the modal REMAINED mounted (catches: wholesale modal detachment masquerading as "closed"; torn state).
+- **Positive terminal:** final frame has `modal && !popoverOpen && !armed` — popover closed while the LOADED modal (title-marker-discriminated, see sampler) remained mounted (catches: wholesale loaded-modal detachment masquerading as "closed" — a lingering skeleton no longer satisfies it; torn state).
 - **Paint invariant:** NO frame has `enabledUnarchInsidePopover` (catches: regression of the layout-effect close; the spec §5 contract). Containment via `popover.contains(unarch)` scopes the forbidden state to INSIDE the open popover.
 - **No error banner:** `archive-show-error` / `unarchive-show-error-*` absent at drain.
 
 RED command: `E2E_PORT=<free port> pnpm exec playwright test tests/e2e/admin-lifecycle-transitions.spec.ts --project=mobile-safari -g "<new case name>"` — expected failure: the paint-invariant assertion (probe measured the 6ms painted frame on the shipped `useEffect` in Cases A AND D; WebKit rAF samples it). RED gate: fails on the paint invariant in ≥2 of 3 attempts; if it will not reproduce red, STOP and escalate (spec §7 documents the headless-scheduler caveat — a never-red test here is a genuine ambiguity, not a skip).
 
-**Then** `components/admin/showpage/ShareHub.tsx`: the §4 lifecycle-close effect (`prevLifecycleRef` effect over `[published, archived, open, busy]`) switches `useEffect` → `useLayoutEffect` (add to the existing react import; body byte-identical; keep/adjust the `eslint-disable-next-line react-hooks/set-state-in-effect` pragma as the linter dictates). All sibling effects (deferral cancel, Escape handler, dialog focus) untouched.
+**Then** `components/admin/showpage/ShareHub.tsx`: the §4 lifecycle-close effect (`prevLifecycleRef` effect over `[published, archived, open, busy]`) switches `useEffect` → `useLayoutEffect` at the CALL SITE ONLY — `useLayoutEffect` is already imported and used elsewhere in the file (`components/admin/showpage/ShareHub.tsx:91` and `components/admin/showpage/ShareHub.tsx:372`; plan-R2 finding 6 — do NOT touch the import line). Body byte-identical; keep/adjust the `eslint-disable-next-line react-hooks/set-state-in-effect` pragma as the linter dictates. All sibling effects (deferral cancel, Escape handler, dialog focus) untouched.
 
 GREEN: same command, then the full file 3 consecutive green runs (spec §9.4), then `pnpm typecheck` (covers vitest AND playwright configs).
 
