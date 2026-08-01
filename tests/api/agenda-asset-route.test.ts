@@ -51,7 +51,15 @@ const routeMock = vi.hoisted(() => ({
   lastMediaOptions: null as null | {
     responseType: "stream";
     headers?: Record<string, string>;
+    signal?: AbortSignal;
   },
+  // Drive-timeout cluster: per-call OPTIONS captured for every metadata
+  // (non-media) files.get, so the bound assertions are per-site strict.
+  metadataOptions: [] as unknown[],
+  // When true, the media call returns a promise that settles ONLY when its
+  // received AbortSignal fires (mirroring gaxios abort semantics); without a
+  // signal it hangs forever -- the pre-patch behavior under a stalled socket.
+  streamNeverSettles: false as boolean,
   // When true, the 206 media response omits the `content-length` header
   // so the route's R20 P1 fallback (derive slice length from
   // Content-Range) is exercised.
@@ -182,7 +190,13 @@ vi.mock("@/lib/drive/client", () => ({
           alt?: string;
           supportsAllDrives?: boolean;
         },
-        options?: { responseType: "stream"; headers?: Record<string, string> },
+        options?: {
+          responseType?: "stream";
+          headers?: Record<string, string>;
+          timeout?: number;
+          retry?: boolean;
+          signal?: AbortSignal;
+        },
       ) {
         routeMock.filesGetCalls.push({
           fileId: args.fileId,
@@ -191,7 +205,24 @@ vi.mock("@/lib/drive/client", () => ({
             ? {}
             : { supportsAllDrives: args.supportsAllDrives }),
         });
-        routeMock.lastMediaOptions = options ?? null;
+        if (args.alt === "media") {
+          routeMock.lastMediaOptions = (options ?? null) as typeof routeMock.lastMediaOptions;
+        } else {
+          routeMock.metadataOptions.push(options ?? null);
+        }
+        if (routeMock.streamNeverSettles && args.alt === "media") {
+          return new Promise((_resolve, reject) => {
+            const signal = options?.signal;
+            const abort = () =>
+              reject(
+                Object.assign(new Error("The operation was aborted."), {
+                  cause: Object.assign(new Error("aborted"), { name: "AbortError" }),
+                }),
+              );
+            if (signal?.aborted) abort();
+            else signal?.addEventListener("abort", abort);
+          });
+        }
         if (routeMock.driveError) throw routeMock.driveError;
         if (args.alt === "media") {
           if (!routeMock.driveBytes) {
@@ -289,6 +320,8 @@ beforeEach(() => {
   routeMock.driveError = null;
   routeMock.filesGetCalls = [];
   routeMock.lastMediaOptions = null;
+  routeMock.metadataOptions = [];
+  routeMock.streamNeverSettles = false;
   routeMock.omit206ContentLength = false;
   routeMock.agenda206TotalOverride = null;
   routeMock.omit206ContentRange = false;
@@ -324,6 +357,68 @@ beforeEach(async () => {
 });
 
 describe("/api/asset/agenda/[show]/[id]", () => {
+  // ── Drive-timeout cluster (spec S1-S3) ─────────────────────────────────────
+
+  test("bounds BOTH metadata gets with {timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false}", async () => {
+    const { DRIVE_FILES_GET_TIMEOUT_MS } = await import("@/lib/drive/timeouts");
+    routeMock.link = { kind: "success", viewer: { kind: "crew", showId, crewMemberId: "crew-1" } };
+    const getRes = await getAgenda();
+    expect(getRes.status).toBe(200);
+    const headRes = await headAgenda();
+    expect(headRes.status).toBe(200);
+    // One metadata get per handler (GET covers S2, HEAD covers S1) -- per-site
+    // strict: every captured options object carries the bound, and both sites
+    // were exercised.
+    expect(routeMock.metadataOptions).toHaveLength(2);
+    for (const opts of routeMock.metadataOptions) {
+      expect(opts).toMatchObject({ timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false });
+    }
+  });
+
+  test("passes an AbortSignal to the stream call and leaves no armed timer on success", async () => {
+    routeMock.link = { kind: "success", viewer: { kind: "crew", showId, crewMemberId: "crew-1" } };
+    vi.useFakeTimers();
+    try {
+      const baseline = vi.getTimerCount();
+      const res = await getAgenda();
+      expect(res.status).toBe(200);
+      expect(routeMock.lastMediaOptions?.signal).toBeInstanceOf(AbortSignal);
+      // guard cleared on the success path: no armed stall timer survives
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("aborts a stalled stream-open at DRIVE_ASSET_STALL_TIMEOUT_MS (runtime expiry proof)", async () => {
+    const { DRIVE_ASSET_STALL_TIMEOUT_MS } = await import("@/lib/drive/stallGuard");
+    routeMock.link = { kind: "success", viewer: { kind: "crew", showId, crewMemberId: "crew-1" } };
+    routeMock.streamNeverSettles = true;
+    vi.useFakeTimers();
+    try {
+      const resPromise = getAgenda();
+      await vi.advanceTimersByTimeAsync(DRIVE_ASSET_STALL_TIMEOUT_MS + 50);
+      const res = await resPromise;
+      expect(routeMock.lastMediaOptions?.signal?.aborted).toBe(true);
+      expect(res.status).toBe(500);
+      expect(await res.json()).toMatchObject({ error: "AGENDA_ASSET_LOOKUP_FAILED" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("maps a probed-shape timeout rejection to the existing infra error (regression pin)", async () => {
+    routeMock.link = { kind: "success", viewer: { kind: "crew", showId, crewMemberId: "crew-1" } };
+    routeMock.driveError = Object.assign(new Error("The operation was aborted."), {
+      cause: Object.assign(new Error("aborted"), { name: "AbortError" }),
+    });
+    const res = await getAgenda();
+    // A status-less timeout must NOT read as asset-gone (404/410 would let a
+    // cache poison a healthy asset); it is the infra tail.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "AGENDA_ASSET_LOOKUP_FAILED" });
+  });
+
   test("rejects unauthenticated requests before any Drive call", async () => {
     routeMock.link = { kind: "continue" };
     const res = await getAgenda();
