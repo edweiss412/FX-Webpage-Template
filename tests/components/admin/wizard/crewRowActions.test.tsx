@@ -380,3 +380,119 @@ describe("confirm flow (spec §4.3, §4.4, §4.5, §6)", () => {
     expect(screen.queryByTestId("crew-row-reset-ok")).toBeNull();
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 2,
+// §3.3/§5.1): the auto-revert close is announced; Cancel, Escape, the ARMED
+// backdrop click, and parent-driven close all stay silent past the horizon.
+describe("arm-expiry announcement — CrewRowActions", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+  const expiryRegion = () =>
+    screen.getAllByTestId("arm-expiry-announce").find((el) => el.textContent === EXPIRY) ??
+    screen.getAllByTestId("arm-expiry-announce")[0]!;
+
+  function openConfirm(id: string = ID_A) {
+    fireEvent.click(trigger(id));
+    fireEvent.click(screen.getByTestId(`crew-row-reset-item-${id}`));
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-revert announces expiry in the row's persistent region (same node)", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    const regions = screen.getAllByTestId("arm-expiry-announce");
+    const before = regions[0]!;
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(confirm(ID_A)).toBeNull(); // panel closed
+    expect(screen.getAllByTestId("arm-expiry-announce")[0]!).toBe(before);
+    expect(expiryRegion().textContent).toBe(EXPIRY);
+  });
+
+  it("Cancel never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId("crew-row-reset-cancel"));
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("Escape never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.keyDown(screen.getByTestId("crew-row-reset-cancel"), { key: "Escape" });
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("backdrop click on the ARMED confirm never announces expiry (closeFully(false) path)", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId(`crew-row-backdrop-${ID_A}`));
+    expect(confirm(ID_A)).toBeNull(); // the distinct backdrop handler closed it
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("confirm dispatch never announces expiry, even past the timer horizon", async () => {
+    // Fake timers from the START (whole-diff B1): the arm timer must be a FAKE
+    // timer, or the advance below proves nothing about it being cleared.
+    vi.useFakeTimers();
+    let settle!: (v: { ok: true }) => void;
+    resetMock.mockReturnValue(new Promise((r) => (settle = r)));
+    renderCrew();
+    openConfirm();
+    fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
+    // Advance while the request is STILL PENDING (whole-diff B2 round 2): a
+    // settled request closes via closeFully, which clears the timer on its
+    // own — only the pending window proves the DISPATCH-ENTRY clear.
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+    await act(async () => {
+      settle({ ok: true });
+      await Promise.resolve();
+    });
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("parent-driven close (opening another row) never announces expiry", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm(ID_A);
+    fireEvent.click(trigger(ID_B)); // parent swaps the open row; A's confirm closes
+    expect(confirm(ID_A)).toBeNull();
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm(ID_A);
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(expiryRegion().textContent).toBe(EXPIRY);
+    openConfirm(ID_A); // re-arm clears
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).toBe("");
+    }
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(expiryRegion().textContent).toBe(EXPIRY);
+  });
+});

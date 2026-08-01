@@ -25,7 +25,7 @@ import { useEffect, useId, useRef, useState, useTransition, type KeyboardEvent }
 
 import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert — harmonized 4s across destructive surfaces
 // (DESTRUCT-2; mirrors app/admin/show/[slug]/PickerResetControl.tsx:29).
@@ -51,6 +51,10 @@ export function CrewRowActions({
   onOutcome: (o: CrewRowOutcome | null) => void;
 }) {
   const [mode, setMode] = useState<"menu" | "confirm" | "resolving">("menu");
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch. Cancel / Escape /
+  // backdrop / parent-close go through closeFully WITHOUT touching it.
+  const [expired, setExpired] = useState(false);
   // Gallery-only override seam; undefined in production (provider never mounted).
   const overrideReset = useDevActionOverride("resetCrewMemberSelection");
   const [isPending, startTransition] = useTransition();
@@ -176,15 +180,22 @@ export function CrewRowActions({
 
   const enterConfirm = () => {
     clearAutoRevert();
+    setExpired(false);
     onOutcome(null); // arming a new confirm clears any prior banner (spec §4.5)
     setMode("confirm");
     // Timer is cleared by Cancel/Esc/Confirm/parent-close, so firing here can
     // only mean the confirm is still armed — full close, restore focus (C5).
-    autoRevertRef.current = setTimeout(() => closeFully(true), ARM_REVERT_MS);
+    // Announce BESIDE the close, never inside closeFully (Cancel shares it) —
+    // spec 2026-08-01-announce-a11y-pass §3.3.
+    autoRevertRef.current = setTimeout(() => {
+      setExpired(true);
+      closeFully(true);
+    }, ARM_REVERT_MS);
   };
 
   const onConfirm = () => {
     clearAutoRevert();
+    setExpired(false);
     setMode("resolving");
     // not-subject:M5-D8 — outcome copy (success AND error) is admin-authored inline BY DESIGN;
     // the picker message catalog is crew-oriented and would misattribute an admin reset. No raw
@@ -225,6 +236,12 @@ export function CrewRowActions({
 
   return (
     <span className="relative flex shrink-0 items-center">
+      {/* Persistent sr-only live region (spec 2026-08-01-announce-a11y-pass
+          §3.2 row 2): announces ONLY the auto-revert close — the arm itself is
+          focus-announced by the trap. Always mounted in this stable root. */}
+      <span role="status" aria-live="polite" className="sr-only" data-testid="arm-expiry-announce">
+        {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+      </span>
       {open && (
         <button
           type="button"

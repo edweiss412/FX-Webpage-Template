@@ -393,3 +393,66 @@ describe("ResetPickerEpochButton — destructive recipe + focus-safe open/close 
     expect(idleBtn()).not.toHaveFocus();
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 9,
+// §3.3/§5.1): the existing persistent sr-only region multiplexes the expiry
+// state; Cancel/confirm stay silent past the horizon.
+describe("arm-expiry announcement — ResetPickerEpochButton", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+  const srRegion = (container: HTMLElement) =>
+    container.querySelector('div.sr-only[role="status"]') as HTMLElement;
+
+  test("auto-revert announces expiry in the SAME persistent region", () => {
+    const { container } = render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    const before = srRegion(container);
+    fireEvent.click(idleBtn()); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(srRegion(container)).toBe(before);
+    expect(before.textContent).toBe(EXPIRY);
+  });
+
+  test("Cancel never announces expiry, even past the timer horizon", () => {
+    const { container } = render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    fireEvent.click(cancelBtn());
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(srRegion(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("confirm settles into the success copy, never the expiry copy", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      epoch: 3,
+    });
+    const { container } = render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(srRegion(container).textContent).toBe("Picker selections reset.");
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(srRegion(container).textContent).toBe("Picker selections reset.");
+  });
+
+  test("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    const { container } = render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(srRegion(container).textContent).toBe(EXPIRY);
+    fireEvent.click(idleBtn()); // re-arm
+    expect(srRegion(container).textContent).toBe("");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(srRegion(container).textContent).toBe(EXPIRY);
+  });
+});

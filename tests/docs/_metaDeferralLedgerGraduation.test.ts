@@ -93,6 +93,11 @@ const BACKLOG_GRADUATED = [
   // tests/docs/_metaInvariant8Closeout.test.ts (sound discovery, marker
   // grammar, frozen debt ledger).
   { id: "BL-INVARIANT8-CLOSEOUT-ENFORCEMENT", provenance: "test/invariant8-closeout-enforcement" },
+  // fix/announce-a11y-pass (2026-08-01): arm-expiry announcements on the 11
+  // ARM_REVERT_MS surfaces (+ StagedReviewCard Apply disarm fix) and the
+  // ShareHub remote-rotation live region.
+  { id: "BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS", provenance: "fix/announce-a11y-pass" },
+  { id: "BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE", provenance: "fix/announce-a11y-pass" },
   // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
   // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
   // hardening restored, the r41 findings closed by probe. The walker

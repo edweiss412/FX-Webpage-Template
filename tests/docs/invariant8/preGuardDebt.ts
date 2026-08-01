@@ -75,6 +75,7 @@ export const PRE_GUARD_DEBT: ReadonlySet<string> = new Set([
   "2026-07-31-archive-lifecycle-race-cluster.md",
   "2026-07-31-drive-timeout-cluster.md",
   "2026-07-31-judgment-chip-newtab-suffix.md",
+  "2026-08-01-announce-a11y-pass.md",
   "2026-08-01-focus-ring-a11y-pass.md",
   "admin/2026-06-22-validation-reset-button.md",
   "admin/2026-06-30-admin-shows-status-column.md",
