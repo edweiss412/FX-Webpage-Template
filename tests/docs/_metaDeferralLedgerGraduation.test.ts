@@ -5,6 +5,20 @@
 // genuine red state, only post-hoc checks that were already green. Rather than
 // patch the prose a third time, the graduation itself became a test.
 //
+// 2026-08-01 (BL-LEDGER-GUARD-MDAST-REWRITE): the line-anchored regex lanes are
+// gone — nine adversarial rounds (r22-r30) showed the CommonMark spelling
+// stream they chased is open-ended, and the r30 ratification placed the whole
+// grammar class with a remark/mdast port. tests/docs/_ledgerMdast.ts is that
+// port: parsing, flattening, id extraction, and every terminal-claim lane live
+// there behind one entry evaluator, so code blocks, HTML comments, links,
+// and tables fall out of the tree instead of being chased per-spelling
+// (inline-code TEXT is retained — the r15 backticked-value catch — with
+// label recognition provenance-gated instead). The walker file's header carries the ratified-scope text
+// (render-equivalent OBFUSCATION is review's failure class, not this
+// tripwire's); the spec at
+// docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md is
+// canonical for the lane semantics (eleven review rounds, r11 APPROVE).
+//
 // SCOPE, and why it stops here. An earlier revision also asserted that every
 // plan declaring an invariant-8 (impeccable) gate carries a §12 closeout. Three
 // consecutive review rounds showed that claim cannot be made both
@@ -23,179 +37,24 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Entry-heading matchers, ONE PER LEDGER — deliberately not a single widened
- * regex.
- *
- * DEFERRED entries are level 3 (`### SOME-ID — text`). BACKLOG entries are
- * `BL-`-prefixed and appear at BOTH levels (`## BL-…` in the active queue,
- * `###` for some archived ones). Widening the DEFERRED regex to `##|###` would
- * misclassify prose section headings as ids — `## CREWWARN instance
- * discriminator`, `## CI speedup — …`, `## CI unit-suite sharding`,
- * `## BLOCKRES — BlockedRowResolver`, `## INFO-tab data-fidelity audit`. Note
- * that requiring a following em-dash does not filter those: `## BLOCKRES — …`
- * has that shape too. The `BL-` prefix is what makes the backlog matcher
- * ledger-specific.
- */
-// Optional `~~strikethrough~~` around the id, and `/` inside it: review found
-// `### ~~MODAL-CLOSE-EXIT-ANIM-1~~` skipped entirely and `### FLOW4-2/3-POLISH`
-// truncated to `FLOW4-2`, which collides with the distinct real `FLOW4-2` entry —
-// so a reopened struck-through id could slip past the no-overlap invariant and two
-// different entries could be conflated.
-// Ids are SHOUTY tokens, optionally struck through, optionally behind a bracketed
-// priority prefix (`### [P2] SOME-ID — …`).
-//
-// Length is NOT the discriminator. A 3-character floor looked like a clean way to
-// skip the four prose headings (`### [P2] Bulk ignore produced two polite
-// announcements …`), but review found it also excluded nine genuine ids — `D1`
-// through `D9` — so reopening one of those would have gone unnoticed by the
-// no-overlap invariant. What actually separates an id from prose is what FOLLOWS
-// it: a real entry heading is `ID — text` or `ID -` or ends there, while prose
-// continues in lower case ("Bulk ignore …" would yield "B" followed by "ulk").
-// So the token must be followed by a dash, an em dash, a bracket, or end of line.
-// Ids are SHOUTY. The token is captured INCLUDING any lowercase, then rejected in
-// code if it contains lowercase — no lookahead, so there is nothing to backtrack.
-//
-// Two previous attempts both failed for the same reason. A terminator list made `-`
-// both an id character and a terminator, so `### SHAREHUB-FIDELITY "…"` backtracked
-// to `SHAREHUB`. Replacing it with a negative lookahead moved the problem rather
-// than fixing it: `### BL-something` still backtracked to `BL`, and `### ABC/def` to
-// `ABC`, because giving back the `-` or `/` satisfies the lookahead. Capturing
-// greedily over a class that INCLUDES lowercase removes the escape route — the
-// match cannot end early at a boundary character, so the whole word is judged.
-/**
- * The archive-bound terminal states, ONE union for every matcher in this file
- * (r13 added OBSOLETE + REFUTED; r14 hoisted it to module scope after the
- * dedicated heading test was found repeating the literal — the exact
- * per-matcher drift the union exists to prevent).
- */
-const TERMINAL_WORDS = "CLOSED|WITHDRAWN|RESOLVED|SUPERSEDED|SHIPPED|DONE|OBSOLETE|REFUTED";
-
-const HAS_LOWERCASE = /[a-z]/;
+import {
+  entryTerminal,
+  extractEntries,
+  headingVerdicts,
+  ledgerIds,
+  type ExtractOpts,
+  type LedgerEntry,
+} from "./_ledgerMdast";
 
 /**
- * Markdown emphasis a terminal value may be wrapped in (r15 — review found
- * `**Status:** **RESOLVED**`, `_RESOLVED_`, and a backticked value all green
- * because every matcher required the terminal word IMMEDIATELY after its
- * anchor). Strikethrough is deliberately NOT here: `~~CLOSED~~` negates the
- * claim — a reverted closure is an OPEN entry, and flagging it would order
- * that entry into the archive.
+ * Per-ledger extraction options. Heading level differs by ledger and is not
+ * incidental: DEFERRED entries are level 3 and its level-2 headings are prose
+ * sections, so widening there would pull in section titles; BACKLOG entries
+ * appear at BOTH levels (`## BL-…` in the active queue, `###` for some
+ * archived ones), and the `BL-` prefix requirement keeps prose out.
  */
-const WRAP = "(?:[*_`]|✅|\\s)*";
-
-/*
- * One definition per matcher, module-scoped (r14 hoisted TERMINAL_WORDS after
- * per-matcher drift; r15 hoists the matchers themselves — the status test and
- * the dedicated heading test carried separately-spelled copies of the heading
- * regex — and exercises them directly in the spelling-plants test below).
- *
- * STATUS_TERMINAL / FILED_TERMINAL: the terminal word is the line's own
- * VALUE — anchored to the prefix (a mid-line /i match fires on narrative:
- * "NARROWED — NOT closed", both live false positives when unanchored was
- * tried, r5/r6), optionally ✅-ed and emphasis-wrapped (r15). Case-insensitive
- * (r6: `**Status:** Shipped` is the same claim in titlecase). The wrapper
- * class cannot cross a letter, so narrative past a non-terminal value stays
- * out of reach.
- *
- * FILED_FIELD_TERMINAL (r13): the closure can arrive as a second bold FIELD
- * later on the Filed line (`**Filed:** … **Closed:** …`); a bold segment
- * containing a terminal word anywhere on that line counts.
- *
- * HEADING_TERMINAL: closure spelled as a heading suffix. Em dash, en dash, or
- * the documented ASCII form (r15 — shoutyIds' own doc names `ID - text` an
- * entry-heading shape, so `### BL-X - CLOSED` must not need the em dash; the
- * ASCII hyphen requires preceding whitespace so a terminal word INSIDE an id,
- * `BL-CLOSED-LOOP-FIX`, is not a closure claim).
- *
- * OPENING_TERMINAL_BOLD / _BARE (whole-diff r3; r6 casing split): a bold
- * opening claim matches any case; a bare one ALL-CAPS only, so narrating
- * prose ("Resolved only as part of BL-…") cannot false-positive. Both accept
- * the r15 wrappers.
- */
-// NOT `\b` after the word: a closing `_RESOLVED_` wrapper is a word char, so
-// `\b` sees no boundary there — exactly the spelling r15 is closing. Letters
-// and digits are what would make it a different word.
-const AFTER = "(?![A-Za-z0-9])";
-// Both bold conventions carry the colon differently — `**Status:** X` and
-// `**Status**: X` are the same field label (r16), so the colon is accepted on
-// either side of the closing emphasis.
-const STATUS_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Status(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
-  "i",
-);
-const FILED_TERMINAL = new RegExp(
-  `^\\s*(?:\\*\\*)?Filed(?:\\*\\*)?\\s*:?${WRAP}(${TERMINAL_WORDS})${AFTER}`,
-  "i",
-);
-// The bold-FIELD Filed lane (r13's `**Filed:** … **Closed:** …` shape) lives
-// in boldFieldTerminalHit below — per-occurrence since r17.
-const HEADING_TERMINAL = new RegExp(`(?:[—–]|(?<=\\s)-)${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
-const OPENING_TERMINAL_BOLD = new RegExp(`^\\s*\\*\\*${WRAP}(${TERMINAL_WORDS})${AFTER}`, "i");
-const OPENING_TERMINAL_BARE = new RegExp(`^\\s*${WRAP}(${TERMINAL_WORDS})${AFTER}`);
-
-/**
- * A terminal claim counts only when the CAPTURED word is not directly
- * modified by a preceding PARTIAL/PARTIALLY (r16 — the previous line-wide
- * /PARTIAL/i veto suppressed unrelated terminal claims: an id containing
- * PARTIAL in `### BL-PARTIAL-EDGE — CLOSED`, a trailing "partial follow-up"
- * clause after a bare CLOSED). Returns null when the matcher finds no claim
- * at all, false when the claim stands (a hit), true when it is
- * PARTIAL-modified (an open state). Word-position, not line-wide: `RESOLVED
- * (was PARTIALLY CLOSED)` is still a hit on RESOLVED.
- */
-const PARTIAL_BEFORE = /PARTIAL(?:LY)?[\s*_`:—–-]*$/i;
-
-function partialModified(line: string, matcher: RegExp): boolean | null {
-  const m = matcher.exec(line);
-  if (m === null) return null;
-  const wordAt = m.index + m[0].indexOf(m[1]!);
-  return PARTIAL_BEFORE.test(line.slice(0, wordAt));
-}
-
-const terminalHit = (line: string, matcher: RegExp): boolean =>
-  partialModified(line, matcher) === false;
-
-/**
- * Every terminal word inside every bold segment of a Filed line, each with
- * the per-word PARTIAL veto (r17 — a single exec associated the capture with
- * the FIRST identical spelling, so `**PARTIALLY CLOSED, then CLOSED**` read
- * as wholly partial; iterating occurrences lets a later bare claim count).
- */
-function boldFieldTerminalHit(line: string): boolean {
-  for (const seg of line.match(/\*\*[^*\n]+\*\*/g) ?? []) {
-    const word = new RegExp(`(?<![A-Za-z0-9])(${TERMINAL_WORDS})(?![A-Za-z0-9])`, "gi");
-    for (let m = word.exec(seg); m !== null; m = word.exec(seg)) {
-      if (!PARTIAL_BEFORE.test(seg.slice(0, m.index))) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Ids from one ledger: SHOUTY tokens only, so prose headings yield nothing.
- *
- * Heading level differs by ledger and is not incidental. DEFERRED entries are
- * level 3, and its level-2 headings are prose sections, so widening there would
- * pull in section titles. BACKLOG entries appear at BOTH levels (`## BL-…` in the
- * active queue, `###` for some archived ones), and its `BL-` prefix requirement is
- * what keeps prose out.
- */
-function shoutyIds(text: string, requirePrefix: string | null): Set<string> {
-  const level = requirePrefix === null ? "###" : "#{2,3}";
-  const re = new RegExp(
-    `^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`,
-    "gm",
-  );
-  const out = new Set<string>();
-  for (const m of text.matchAll(re)) {
-    const token = m[1]!;
-    if (HAS_LOWERCASE.test(token)) continue;
-    if (requirePrefix !== null && !token.startsWith(requirePrefix)) continue;
-    out.add(token);
-  }
-  return out;
-}
-
+const DEFERRED_OPTS: ExtractOpts = { requirePrefix: null, levels: [3] };
+const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
 
 /**
  * Deferrals graduated to the archive since this guard shipped. NOT a mirror of
@@ -227,6 +86,11 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
+  // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
+  // hardening restored, the r41 findings closed by probe. The walker
+  // validates this very row (the guard polices its own graduation).
+  { id: "BL-LEDGER-GUARD-MDAST-REWRITE", provenance: "test/ledger-guard-mdast-rewrite" },
   // fix/judgment-chip-newtab-suffix (2026-08-01, PR #640): judgment chip border-strong
   // outline; stripNewTabSuffix dedup at the three interpolated new-tab labels.
   { id: "BL-HEADER-JUDGMENT-CHIP-CONTRAST", provenance: "fix/judgment-chip-newtab-suffix" },
@@ -350,9 +214,11 @@ const ORIGIN_GATE_ID = "BL-SERVER-ACTION-ORIGIN-GATE";
 // file" and every assertion fails for the wrong reason.
 const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "utf8");
 
-const idsIn = (rel: string): Set<string> => shoutyIds(read(rel), null);
+const idsIn = (rel: string): Set<string> => ledgerIds(read(rel), DEFERRED_OPTS);
 
-const backlogIdsIn = (rel: string): Set<string> => shoutyIds(read(rel), "BL-");
+const backlogIdsIn = (rel: string): Set<string> => ledgerIds(read(rel), BACKLOG_OPTS);
+
+const backlogEntries = (rel: string): LedgerEntry[] => extractEntries(read(rel), BACKLOG_OPTS);
 
 describe("deferral ledger graduation", () => {
   it("no id is both active and archived", () => {
@@ -434,55 +300,21 @@ describe("backlog ledger graduation", () => {
     // open queue silently turns into a changelog — exactly what BACKLOG.md's
     // header forbids.
     //
-    // Scoped to the STATUS line, not the whole section. Sections legitimately
-    // discuss closure ("closes only as part of BL-…", "partially closed",
-    // "SUPERSEDED 2026-07-25 by …", a quoted historical status), so a
-    // section-wide substring match fires on entries that are genuinely open.
-    // The status line is the entry's own claim about itself.
-    const backlog = read("BACKLOG.md");
-    // SUPERSEDED and SHIPPED are terminal too — BACKLOG.md's header names
-    // "Resolved / shipped / superseded" as the archive-bound states (r5;
-    // mainline #628 added SHIPPED independently the same day — BL-AGENDA-
-    // PERDAY-VIEWER-FILTER sat as "**Status:** ✅ SHIPPED in PR #610").
-    // One union for every matcher (r13 — the lists had drifted per-matcher,
-    // and two states this very file documents as graduations were missing
-    // from all of them: OBSOLETE and REFUTED). Whole-diff r3: scanning ONLY
-    // the Status line let two other spellings of the same claim through — a
-    // heading suffix and a bold opening claim; both are still the entry's own
-    // claim about itself. Deeper body lines stay out of scope (entries
-    // legitimately DISCUSS closure). Matcher definitions and their rationale
-    // live at module scope with TERMINAL_WORDS (r15).
+    // Scoped to the entry's OWN claims about itself — its heading suffix, its
+    // opening line, and its field lines (Status/Resolution/Filed leads plus
+    // bold-labeled fields anywhere on a line) — never to arbitrary body prose:
+    // sections legitimately DISCUSS closure ("closes only as part of BL-…",
+    // "partially closed", a quoted historical status). The lane semantics,
+    // their input domains, and the word-position PARTIAL/negation veto live in
+    // the walker (spec §3); entryTerminal is the ONE evaluator shared with the
+    // plants test below, so removing a lane wiring breaks an executable plant.
     const offenders: string[] = [];
-    // r6: priority-prefixed headings (`### [P1] BL-X — …`) are entries too —
-    // same optional bracket the shoutyIds matcher already accepts.
-    const headings = [...backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)/gm)];
-    for (const [i, h] of headings.entries()) {
-      const start = h.index!;
-      const end = i + 1 < headings.length ? headings[i + 1]!.index! : backlog.length;
-      const section = backlog.slice(start, end);
-      const lines = section.split("\n");
-      const headingLine = lines[0] ?? "";
-      const openingLine = lines.slice(1).find((l) => l.trim() !== "") ?? "";
-      // PARTIALLY CLOSED is a real open state — but the veto is per matched
-      // WORD (partialModified, r16), not per line: a trailing "partial
-      // follow-up" clause no longer shields a bare terminal claim.
+    for (const entry of backlogEntries("BACKLOG.md")) {
       // Mainline #628's deliberate keep: an exempted id may sit terminal in
       // place with its rationale in the entry (sub-entry of a still-open
       // parent). Same exemption set as the dedicated heading test below.
-      if (HEADING_TERMINAL_EXEMPT.has(h[1]!)) continue;
-      // ALL status/filed lines, not the first (r17 — an appended second
-      // `Status: SHIPPED` after a stale `Status: OPEN` was never inspected).
-      const statusLines = lines.filter((l) => /^\s*(?:\*\*)?Status/i.test(l));
-      const filedLines = lines.filter((l) => /^\s*(?:\*\*)?Filed/i.test(l));
-      const statusHit = statusLines.some((l) => terminalHit(l, STATUS_TERMINAL));
-      const filedHit = filedLines.some(
-        (l) => terminalHit(l, FILED_TERMINAL) || boldFieldTerminalHit(l),
-      );
-      const headingHit = terminalHit(headingLine, HEADING_TERMINAL);
-      const openingHit =
-        terminalHit(openingLine, OPENING_TERMINAL_BOLD) ||
-        terminalHit(openingLine, OPENING_TERMINAL_BARE);
-      if (statusHit || filedHit || headingHit || openingHit) offenders.push(h[1]!);
+      if (HEADING_TERMINAL_EXEMPT.has(entry.id)) continue;
+      if (entryTerminal(entry).length > 0) offenders.push(entry.id);
     }
     expect(offenders, "terminal-status entries belong in BACKLOG-archive.md").toEqual([]);
   });
@@ -491,75 +323,88 @@ describe("backlog ledger graduation", () => {
     // 2026-07-27 reconciliation: two shipped entries sat in the open queue with
     // the terminal state in their HEADING ("— CLOSED 2026-07-26 …",
     // "— ✅ RESOLVED (…)"), which the status-line check above cannot see. Same
-    // drift, different spelling, so the guard grows a heading pass.
-    const backlog = read("BACKLOG.md");
+    // drift, different spelling, so the guard keeps a dedicated heading pass.
+    // The ✅ lane is ANCHORED (spec §3, r30 form): `✅ RESOLVED` is a closure
+    // claim, a decorative ✅ in an open entry's title is not — the bare
+    // /✅/ predicate this replaces ordered "— align the ✅ icon" into the
+    // archive.
     const offenders: string[] = [];
-    // Priority-prefixed headings (`### [P1] BL-X — …`) are entries too (r15 —
-    // the status test's discovery gained the bracket group at r6; this walk
-    // never did, so a prefixed heading was invisible HERE specifically).
-    for (const h of backlog.matchAll(/^#{2,3} (?:\[[^\]]+\]\s*)?~{0,2}(BL-[A-Z0-9/-]+)[^\n]*/gm)) {
-      const id = h[1]!;
-      if (HEADING_TERMINAL_EXEMPT.has(id)) continue;
-      const heading = h[0]!;
-      // Union of both 2026-07-27 passes: the dash-anchored any-case form
-      // (module-scoped, shared with the status-line test — r15; per-word
-      // PARTIAL veto since r16) plus a bare ✅ anywhere in the heading.
-      if (terminalHit(heading, HEADING_TERMINAL) || /✅/.test(heading)) offenders.push(id);
+    for (const entry of backlogEntries("BACKLOG.md")) {
+      if (HEADING_TERMINAL_EXEMPT.has(entry.id)) continue;
+      if (headingVerdicts(entry.headingLine, entry.id).length > 0) offenders.push(entry.id);
     }
     expect(offenders, "terminal-heading entries belong in BACKLOG-archive.md").toEqual([]);
   });
 
+
   it("terminal matchers catch wrapped values and the ascii-hyphen heading form (r15)", () => {
-    // Failure mode each plant pins: a closure spelled in a form the r14
-    // matchers required an em dash or an unwrapped adjacent word for, sitting
-    // green in the open queue.
-    expect(HEADING_TERMINAL.test("### BL-X - CLOSED")).toBe(true);
-    expect(HEADING_TERMINAL.test("## BL-X – RESOLVED (PR #612)")).toBe(true);
-    expect(HEADING_TERMINAL.test("### BL-X — **RESOLVED** (PR #612)")).toBe(true);
+    // The r21 plant corpus, re-targeted VERDICT-PRESERVING at the walker
+    // (T2 of the mdast rewrite — this body referenced the deleted regex
+    // lanes; the corpus EXTENSION lands in T3 as the single fixture owner).
+    // Failure mode each plant pins: a closure spelled in a form an earlier
+    // matcher generation missed, sitting green in the open queue.
+    // Every plant runs through entryTerminal — the ONE evaluator the live
+    // walk uses — so removing a lane WIRING breaks an executable plant, not
+    // just a code-reading claim (r40 architecture). headingHit plants the
+    // claim in the heading; entryHit plants it as the entry's body.
+    const entryOf = (heading: string, body: string): LedgerEntry => {
+      const [entry] = extractEntries(`${heading}\n\n${body}\n`, BACKLOG_OPTS);
+      if (entry === undefined) throw new Error(`plant minted no entry: ${heading}`);
+      return entry;
+    };
+    const headingHit = (heading: string): boolean =>
+      entryTerminal(entryOf(heading, "neutral body prose.")).length > 0;
+    const entryHit = (body: string): boolean =>
+      entryTerminal(entryOf("## BL-PLANT — probe", body)).length > 0;
+    const fieldHit = entryHit;
+    const openingHit = entryHit;
+
+    expect(headingHit("### BL-X - CLOSED")).toBe(true);
+    expect(headingHit("## BL-X – RESOLVED (PR #612)")).toBe(true);
+    expect(headingHit("### BL-X — **RESOLVED** (PR #612)")).toBe(true);
     // …but a terminal word as an ID SEGMENT is not a closure claim:
-    expect(HEADING_TERMINAL.test("### BL-CLOSED-LOOP-FIX — tighten detection")).toBe(false);
-    expect(STATUS_TERMINAL.test("**Status:** **RESOLVED**")).toBe(true);
-    expect(STATUS_TERMINAL.test("**Status:** _RESOLVED_")).toBe(true);
-    expect(STATUS_TERMINAL.test("**Status:** `RESOLVED`")).toBe(true);
-    expect(STATUS_TERMINAL.test("**Status:** ✅ **SHIPPED** in PR #610")).toBe(true);
-    // narrative past a non-terminal value stays out of reach — the wrapper
-    // class cannot cross a letter:
-    expect(STATUS_TERMINAL.test("**Status:** Open — will land as RESOLVED via BL-X")).toBe(false);
-    // strikethrough negates the claim (a reverted closure is an open entry):
-    expect(STATUS_TERMINAL.test("**Status:** ~~CLOSED~~ reopened 2026-07-28")).toBe(false);
-    expect(FILED_TERMINAL.test("**Filed:** `WITHDRAWN`")).toBe(true);
-    expect(boldFieldTerminalHit("**Filed:** 2026-07-20. **Closed:** 2026-07-24.")).toBe(true);
-    expect(OPENING_TERMINAL_BOLD.test("**_RESOLVED_** by the popover migration.")).toBe(true);
-    expect(OPENING_TERMINAL_BARE.test("_RESOLVED_ by the popover migration.")).toBe(true);
-    expect(OPENING_TERMINAL_BARE.test("Resolved only as part of BL-OTHER.")).toBe(false);
+    expect(headingHit("### BL-CLOSED-LOOP-FIX — tighten detection")).toBe(false);
+    expect(fieldHit("**Status:** **RESOLVED**")).toBe(true);
+    expect(fieldHit("**Status:** _RESOLVED_")).toBe(true);
+    expect(fieldHit("**Status:** `RESOLVED`")).toBe(true);
+    expect(fieldHit("**Status:** ✅ **SHIPPED** in PR #610")).toBe(true);
+    // narrative past a non-terminal value stays out of reach:
+    expect(fieldHit("**Status:** Open — will land as RESOLVED via BL-X")).toBe(false);
+    // strikethrough negates the claim (a reverted closure is an open entry) —
+    // the delete subtree never reaches the claim flatten:
+    expect(fieldHit("**Status:** ~~CLOSED~~ reopened 2026-07-28")).toBe(false);
+    expect(fieldHit("**Filed:** `WITHDRAWN`")).toBe(true);
+    expect(fieldHit("**Filed:** 2026-07-20. **Closed:** 2026-07-24.")).toBe(true);
+    expect(openingHit("**_RESOLVED_** by the popover migration.")).toBe(true);
+    expect(openingHit("_RESOLVED_ by the popover migration.")).toBe(true);
+    expect(openingHit("Resolved only as part of BL-OTHER.")).toBe(false);
+    // whole-diff r6 — a token straddling a strong edge is not a bold
+    // opening claim in ANY split position:
+    expect(openingHit("**Res**olved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("Re**sol**ved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("Res**olved** only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("***Res***olved only as part of BL-OTHER.")).toBe(false);
+    expect(openingHit("**Resolved** by the popover migration.")).toBe(true);
     // r16 — the colon rides either side of the closing emphasis:
-    expect(STATUS_TERMINAL.test("**Status**: RESOLVED")).toBe(true);
-    expect(FILED_TERMINAL.test("**Filed**: CLOSED 2026-07-24")).toBe(true);
+    expect(fieldHit("**Status**: RESOLVED")).toBe(true);
+    expect(fieldHit("**Filed**: CLOSED 2026-07-24")).toBe(true);
     // r16 — the PARTIAL veto is per matched word, not per line:
-    expect(terminalHit("### BL-PARTIAL-EDGE — CLOSED", HEADING_TERMINAL)).toBe(true);
-    expect(terminalHit("**Status:** CLOSED — partial follow-up filed separately", STATUS_TERMINAL)).toBe(
-      true,
-    );
-    expect(terminalHit("**CLOSED**; partial follow-up in BL-Y", OPENING_TERMINAL_BOLD)).toBe(true);
-    expect(
-      terminalHit("**Status:** RESOLVED (was PARTIALLY CLOSED in June)", STATUS_TERMINAL),
-    ).toBe(true);
+    expect(headingHit("### BL-PARTIAL-EDGE — CLOSED")).toBe(true);
+    expect(fieldHit("**Status:** CLOSED — partial follow-up filed separately")).toBe(true);
+    expect(openingHit("**CLOSED**; partial follow-up in BL-Y")).toBe(true);
+    expect(fieldHit("**Status:** RESOLVED (was PARTIALLY CLOSED in June)")).toBe(true);
     // …while a genuinely PARTIAL claim stays open in every lane that can
     // reach one:
-    expect(boldFieldTerminalHit("**Filed:** 2026-07-20. **Partially closed:** 2026-07-24.")).toBe(
-      false,
-    );
-    expect(terminalHit("**Status:** PARTIALLY CLOSED", STATUS_TERMINAL)).toBe(false);
+    expect(fieldHit("**Filed:** 2026-07-20. **Partially closed:** 2026-07-24.")).toBe(false);
+    expect(fieldHit("**Status:** PARTIALLY CLOSED")).toBe(false);
     // r17 — per-OCCURRENCE in bold fields: a later bare claim counts even
     // when the first identical spelling is PARTIAL-modified…
-    expect(boldFieldTerminalHit("**Filed:** x. **PARTIALLY CLOSED, then CLOSED:** y.")).toBe(true);
+    expect(fieldHit("**Filed:** x. **PARTIALLY CLOSED, then CLOSED:** y.")).toBe(true);
     // …and a heading whose partial claim precedes a second dash-anchored
-    // terminal still flags (exec matches at the first POSITION that fits,
-    // not the first dash):
-    expect(terminalHit("### BL-X — PARTIALLY CLOSED — RESOLVED (PR #9)", HEADING_TERMINAL)).toBe(
-      true,
-    );
+    // terminal still flags:
+    expect(headingHit("### BL-X — PARTIALLY CLOSED — RESOLVED (PR #9)")).toBe(true);
   });
+
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
     const backlog = read("BACKLOG.md");
@@ -612,5 +457,344 @@ describe("backlog ledger graduation", () => {
     expect(body).toMatch(/scope:?\s*"?local"?|one device|that device/i);
     // ...and WHY a bespoke gate is unsound, which is the whole reason it is filed.
     expect(body).toMatch(/forwarded|x-forwarded|spoof/i);
+  });
+});
+
+/**
+ * Plants corpus — T3 of the mdast rewrite, the single fixture owner for
+ * every shape the eleven spec review rounds accumulated (spec §5). Every
+ * plant runs through entryTerminal (the live walk's ONE evaluator), so a
+ * deleted lane wiring breaks an executable plant. Each block names its
+ * mutation family from the plan's closure set (M1–M9); a reviewer-proposed
+ * NEW family is admissible only with a live escaping mutant.
+ */
+describe("plants corpus — walker verdicts (M1–M9)", () => {
+  const entryOf = (heading: string, body: string): LedgerEntry => {
+    const [entry] = extractEntries(`${heading}\n\n${body}\n`, BACKLOG_OPTS);
+    if (entry === undefined) throw new Error(`plant minted no entry: ${heading}`);
+    return entry;
+  };
+  const headingHit = (heading: string): boolean =>
+    entryTerminal(entryOf(heading, "neutral body prose.")).length > 0;
+  const entryHit = (body: string): boolean =>
+    entryTerminal(entryOf("## BL-PLANT — probe", body)).length > 0;
+
+  it("M1 — one discriminating plant per lane (deleting any wiring reds exactly its plant)", () => {
+    // heading lane only:
+    expect(headingHit("## BL-M1A — CLOSED 2026-08-01")).toBe(true);
+    // opening lane only (bold, then bare ALL-CAPS):
+    expect(entryHit("**CLOSED** by PR #9.")).toBe(true);
+    expect(entryHit("RESOLVED by the popover migration.")).toBe(true);
+    // line-leading value lane only (bare lead, no strong label, no separator
+    // after the value):
+    expect(entryHit("Status: CLOSED")).toBe(true);
+    // mid-line field-label lane only (r2 F1 — the reordered multi-field row):
+    expect(entryHit("**Class:** CI wiring · **Status:** CLOSED")).toBe(true);
+    // terminal-label lane only (closure field after a non-field lead):
+    expect(entryHit("**Effort:** M. **Resolved:** by PR #700.")).toBe(true);
+    // bold non-label lane only (Status-led, un-labeled strong claim):
+    expect(entryHit("**Status:** open — **CLOSED** later that week")).toBe(true);
+    // bare-field lane only (particle chain to a colon, r39/r40):
+    expect(entryHit("**Status:** open — CLOSED as of: 2026")).toBe(true);
+  });
+
+  it("M2 — every terminal word closes as a leading field value", () => {
+    for (const word of [
+      "CLOSED",
+      "WITHDRAWN",
+      "RESOLVED",
+      "SUPERSEDED",
+      "SHIPPED",
+      "DONE",
+      "OBSOLETE",
+      "REFUTED",
+    ]) {
+      expect(entryHit(`**Status:** ${word}`), word).toBe(true);
+    }
+  });
+
+  it("M3 — word-position veto: negations and qualifiers are open claims; sequenced closures still hit", () => {
+    // r26 direct negations…
+    expect(entryHit("**Filed:** 2026-07-01. **Not CLOSED:** still open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Never RESOLVED** — parked pending owner call.")).toBe(false);
+    // …per-occurrence: a later bare claim counts, and CANNOT carries no bounded NOT:
+    expect(entryHit("**Filed:** 2026. **Not closed at first, later CLOSED:** shipped.")).toBe(true);
+    expect(entryHit("**Filed:** 2026. **CANNOT-CLOSE follow-up, RESOLVED:** shipped.")).toBe(true);
+    // r27 — the veto window crosses the emphasis boundary:
+    expect(entryHit("**Filed:** 2026. Not **CLOSED:** waiting.")).toBe(false);
+    expect(entryHit("**Status:** open. Partially **SHIPPED** behind the flag.")).toBe(false);
+    expect(entryHit("**Status:** was **NOT CLOSED** early; later **CLOSED** by PR #9.")).toBe(true);
+    // r29 — multiword negations and historical qualifiers:
+    expect(entryHit("**Filed:** 2026. **Not fully CLOSED:** two items remain.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Not yet RESOLVED:** waiting on #700.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Never completely SHIPPED:** flag still off.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **No longer CLOSED:** regression reopened it.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Previously CLOSED:** reopened 2026-07-30.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Reviewed, then CLOSED:** done.")).toBe(true);
+    expect(entryHit("**Filed:** 2026. **was not the blocker, CLOSED:** shipped.")).toBe(true);
+    expect(entryHit("Not CLOSED: still open")).toBe(false);
+    expect(entryHit("**Status:** REOPENED 2026-07-30")).toBe(false);
+  });
+
+  it("M4 — dropped contexts stay silent; a flatten leak turns a plant into a hit", () => {
+    // fenced code (the r30-removed countermeasure's motivating shape):
+    expect(entryHit("```\n**Status:** CLOSED\n```")).toBe(false);
+    // indented code:
+    expect(entryHit("    **Status:** CLOSED")).toBe(false);
+    // table cell:
+    expect(entryHit("| Status |\n| --- |\n| CLOSED |")).toBe(false);
+    // link label + autolinked URL:
+    expect(entryHit("[**Status:** CLOSED](https://x.test)")).toBe(false);
+    expect(entryHit("see https://x.test/CLOSED: now")).toBe(false);
+    // image label:
+    expect(entryHit("![CLOSED](https://x.test/i.png)")).toBe(false);
+    // complete HTML comment:
+    expect(entryHit("open <!-- Status: CLOSED --> entry")).toBe(false);
+    // …but an UNTERMINATED comment stays prose and is caught (a strict
+    // improvement over the r28-era same-line deletion, probed 2026-08-01):
+    expect(entryHit("marker <!-- doc\n**Status:** CLOSED")).toBe(true);
+    // block-HTML island (contents unscanned, spec §7):
+    expect(entryHit("<div>\n**Status:** CLOSED\n</div>")).toBe(false);
+    // inline island's prose SIBLINGS survive the tag drop (r2 F2 — a catch
+    // gain; the enclosed text is scanned by the opening lane):
+    expect(entryHit("<strong>CLOSED</strong> by PR #1")).toBe(true);
+    // footnote prose (spec §7):
+    expect(entryHit("[^h]: **Status:** CLOSED in the predecessor.")).toBe(false);
+    // strikethrough negates (r15):
+    expect(entryHit("**Status:** ~~CLOSED~~ reopened 2026-07-28")).toBe(false);
+    // entity spellings cook and are CAUGHT (spec §7 promotion):
+    expect(entryHit("**Status:** C&#76;OSED")).toBe(true);
+    // lazy-continuation field value stays unscanned (line discipline, §7):
+    expect(entryHit("> **Status:**\nCLOSED")).toBe(false);
+    // whole-diff r5 — a multiline dropped node still ENDS its source line:
+    // the next line's leading claim is caught, and a same-line bold claim
+    // is not manufactured across the gap:
+    expect(entryHit("prose [a\nb](https://x.test)\nStatus: CLOSED")).toBe(true);
+    expect(entryHit("Status: OPEN [a\nb](https://x.test) **REFUTED** discussion")).toBe(false);
+  });
+
+  it("M5 — field-lane input domains: reordered rows caught, prose rows inert", () => {
+    // P1/P2 (r41, reproduced by probe — the r40 line filters missed both):
+    expect(entryHit("**Class:** CI wiring · **Status:** CLOSED")).toBe(true);
+    expect(entryHit("**Effort:** M. **Resolved:** by PR #700.")).toBe(true);
+    // the line-607 shape (r1 review probe): bold non-terminal labels plus
+    // narrative REFUTED on a prose line — the confined scans never see it:
+    expect(
+      entryHit(
+        "**Partial closure (2026-07-27):** shipped. **Header-aware segmentation** — details, a REFUTED: mention. **Residuals (still open):** more",
+      ),
+    ).toBe(false);
+    // a second field closes a Status line (r39):
+    expect(entryHit("**Status:** OPEN · **Closed:** 2026-07-30.")).toBe(true);
+    expect(entryHit("**Status:** OPEN · Closed: 2026-07-30.")).toBe(true);
+    expect(entryHit("**Filed:** 2026-07-01 · Closed - 2026-07-30.")).toBe(true);
+    expect(entryHit("**Status:** OPEN — parked pending owner call.")).toBe(false);
+    // bare/emphasis closure fields on field-led lines (r39):
+    expect(entryHit("**Status:** open · *Closed:* 2026-07-30")).toBe(true);
+    expect(entryHit("**Filed:** x · Resolved by: PR #621")).toBe(true);
+    // label-noun metadata stays open in every spelling (r35/r36). The
+    // plants sit BEHIND a neutral field line: as an entry's FIRST line a
+    // bold terminal-led segment is the opening lane's claim in the regex
+    // era too — the label rule was never the opening lane's (parity).
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent:** PR #500 — this one remains open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026. **Superseded approach:** see below.")).toBe(false);
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent**: PR #500 — this one remains open.")).toBe(false);
+    expect(entryHit("**Filed:** 2026.\n\n**Shipped precedent** — PR #500, remains open.")).toBe(false);
+    // preposition-chain claim labels close (r36/r38/r39):
+    expect(entryHit("**Filed:** 2026. **Resolved by:** PR #621.")).toBe(true);
+    expect(entryHit("**Shipped via:** PR #500.")).toBe(true);
+    expect(entryHit("**Closed in:** the phase-2 sweep.")).toBe(true);
+    expect(entryHit("**Filed:** 2026-07-31. **Closed after:** PR #700.")).toBe(true);
+    expect(entryHit("**Superseded following:** the picker pivot.")).toBe(true);
+    expect(entryHit("**Shipped without:** the optional knob.")).toBe(true);
+    expect(entryHit("**Resolved for:** every adopter site.")).toBe(true);
+    expect(entryHit("**Closed despite:** the flake noise.")).toBe(true);
+    expect(entryHit("**Shipped alongside:** PR #700.")).toBe(true);
+    expect(entryHit("**Closed notwithstanding:** the flake.")).toBe(true);
+    // Resolution is the second status-valued label (r32):
+    expect(entryHit("**Resolution:** Shipped per the recommended fix below.")).toBe(true);
+    expect(entryHit("**Resolution:** pending owner call")).toBe(false);
+    // dash separators in every width (r35), label and bare lanes (r40):
+    expect(entryHit("**Status** — CLOSED")).toBe(true);
+    expect(entryHit("**Resolution** – SHIPPED")).toBe(true);
+    expect(entryHit("**Filed** - DONE")).toBe(true);
+    expect(entryHit("**Status:** x · Closed — 2026-07-30")).toBe(true);
+    expect(entryHit("**Status:** x · *Closed* – 2026")).toBe(true);
+    expect(entryHit("**Status:** x · Resolved by — PR #700")).toBe(true);
+  });
+
+  it("M6 — token boundaries exclude ASCII hyphen on both sides (line-global maximality)", () => {
+    // headings (P4/P5):
+    expect(headingHit("## BL-M6A — RESOLVED-vs-CLOSED naming sweep")).toBe(false);
+    expect(headingHit("## BL-M6B — DONE-state gallery polish")).toBe(false);
+    // hyphenated ids on field lines (P6/P7 + r40 control):
+    expect(entryHit("**Filed:** 2026-07-31, see BL-DRIVE-RESOLVED: details")).toBe(false);
+    expect(entryHit("**Filed:** 2026, see BL-CLOSED-LOOP-FIX — details")).toBe(false);
+    expect(entryHit("**Status:** see BL-CLOSED-LOOP-FIX for the shape")).toBe(false);
+    // strong-edge straddling runs are ONE line-token (r5):
+    expect(entryHit("re-**CLOSED**: discussion")).toBe(false);
+    expect(entryHit("**CLOSED**-by: discussion")).toBe(false);
+    expect(entryHit("**Status:** open, re-**CLOSED** discussion")).toBe(false);
+    expect(entryHit("**Status:** open, **CLOSED**2 discussion")).toBe(false);
+    expect(entryHit("**Status**2: CLOSED discussion")).toBe(false);
+    // label word-splits the r40 rule false-positived on (r2 review probe):
+    expect(entryHit("**re-CLOSED:** discussion")).toBe(false);
+    expect(entryHit("**CLOSED2:** discussion")).toBe(false);
+    expect(entryHit("**2CLOSED:** discussion")).toBe(false);
+    expect(entryHit("**CLOSED-by:** discussion")).toBe(false);
+    // intraword __ never renders bold and never claims (r28):
+    expect(entryHit("**Filed:** 2026. Token foo__CLOSED__bar is still open.")).toBe(false);
+    // whole-diff r2 — a bare hyphen is not a field separator, and a label
+    // must itself be a maximal token:
+    expect(entryHit("Status-CLOSED")).toBe(false);
+    expect(entryHit("**Class:** x · **Status:**-CLOSED")).toBe(false);
+    // …while the whitespace-delimited ASCII dash stays a separator (r35):
+    expect(entryHit("Status - CLOSED")).toBe(true);
+    // whole-diff r3 — one-SIDED dashes are not separators either:
+    expect(entryHit("**Class:** x · **Status:**- CLOSED")).toBe(false);
+    // (on a NON-field line — the one-sided dash must not mint a LABEL; a
+    // Filed-led line would still hit via the r13 per-occurrence bold scan,
+    // which is regex-era parity, asserted as the control below):
+    expect(entryHit("**Effort:** M. **Resolved** -by later work.")).toBe(false);
+    expect(entryHit("**Filed:** x. **Resolved** -by later work.")).toBe(true);
+    expect(entryHit("**Filed** - DONE")).toBe(true);
+    // intact controls:
+    expect(entryHit("x **Closed:** 2026")).toBe(true);
+    expect(headingHit("## BL-M6C — CLOSED 2026")).toBe(true);
+  });
+
+  it("M7 — container-quoted headings never open entries; container claims are the entry's own", () => {
+    // a blockquote-QUOTED heading neither opens an entry nor claims for it:
+    const md = "## BL-M7 — open\n\n> ## BL-QUOTED — CLOSED\n\nprose after the quote.\n";
+    const entries = extractEntries(md, BACKLOG_OPTS);
+    expect(entries.map((e) => e.id)).toEqual(["BL-M7"]);
+    // (the quoted heading's own text is body prose — its CLOSED is a heading
+    // shape, not a field/opening/heading claim of BL-M7):
+    expect(entryTerminal(entries[0]!)).toEqual([]);
+    // …while container-PREFIXED claims are the entry's own (r22–r24):
+    expect(entryHit("- **Status:** CLOSED")).toBe(true);
+    expect(entryHit("> Status: RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("1. **Filed**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("> > **CLOSED** by the merge.")).toBe(true);
+    expect(entryHit("- RESOLVED by PR #631.")).toBe(true);
+    expect(entryHit("- [x] **Status:** CLOSED")).toBe(true);
+    expect(entryHit("1. [X] **Filed**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("> - [x] **CLOSED** by PR #631.")).toBe(true);
+    expect(entryHit("1234. [x] **Status:** CLOSED")).toBe(true);
+    expect(entryHit("123456789. **Filed**: CLOSED 2026-07-24")).toBe(true);
+    // the veto holds behind containers (r22/r23):
+    expect(entryHit("- **Status:** PARTIALLY CLOSED")).toBe(false);
+    expect(entryHit("- [ ] **Status:** PARTIALLY CLOSED")).toBe(false);
+    // marker-only lines are not content — the claim BEHIND them opens (r26):
+    expect(entryHit(">\n> **CLOSED** by PR #1.")).toBe(true);
+    expect(entryHit("- [ ]\n- [x] **CLOSED** by PR #631.")).toBe(true);
+    // __ is markdown's bold twin (r27), emphasis labels are honest (r29/r30):
+    expect(entryHit("__Status:__ CLOSED")).toBe(true);
+    expect(entryHit("__Filed:__ CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("**Filed:** 2026. __Closed:__ 2026.")).toBe(true);
+    expect(entryHit("__Resolved__ by PR #9.")).toBe(true);
+    expect(entryHit("<!-- bookkeeping -->\n**CLOSED** by PR #1.")).toBe(true);
+    expect(entryHit("*Status:* CLOSED")).toBe(true);
+    expect(entryHit("*Status*: CLOSED")).toBe(true);
+    expect(entryHit("_Status:_ RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("_Status_: RESOLVED")).toBe(true);
+    expect(entryHit("*Filed:* CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("_Filed_: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("***Status:*** CLOSED")).toBe(true);
+    expect(entryHit("___Status___: RESOLVED (PR #631)")).toBe(true);
+    expect(entryHit("**_Filed_**: CLOSED 2026-07-24")).toBe(true);
+    expect(entryHit("- [x] __Resolution:__ SHIPPED in PR #500")).toBe(true);
+    // multiline strong nodes keep provenance on every touched line (r6):
+    expect(entryHit("**preamble\nCLOSED:\ntail**")).toBe(true);
+    expect(entryHit("**Status: OPEN, CLOSED discussion\ntail line\nend**")).toBe(true);
+  });
+
+  it("M9 — id-extraction source parity: formatted ids mint nothing, formatted prefixes mint", () => {
+    const idsOf = (md: string, opts: ExtractOpts = BACKLOG_OPTS): string[] =>
+      extractEntries(md, opts).map((e) => e.id);
+    // formatted SHOUTY prose headings mint no id (r8):
+    expect(idsOf("### **NOTES** — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    expect(idsOf("### *NOTES* — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    expect(idsOf("### \`NOTES\` — prose\n\nbody\n", DEFERRED_OPTS)).toEqual([]);
+    // a formatted id behind a plain bracket prefix mints nothing (r9):
+    expect(idsOf("## [P2] **BL-STRONG** — CLOSED\n\nbody\n")).toEqual([]);
+    expect(idsOf("## [P2] *BL-EM* — CLOSED\n\nbody\n")).toEqual([]);
+    expect(idsOf("## [P2] \`BL-CODE\` — CLOSED\n\nbody\n")).toEqual([]);
+    // a FORMATTED prefix before a plain id mints, claims caught (r10):
+    for (const [md, id] of [
+      ["## [**P2**] BL-M9A — CLOSED\n\nbody\n", "BL-M9A"],
+      ["## [*P2*] BL-M9B — CLOSED\n\nbody\n", "BL-M9B"],
+      ["## [\`P2\`] BL-M9C — CLOSED\n\nbody\n", "BL-M9C"],
+      ["## [~~P2~~] BL-M9D — CLOSED\n\nbody\n", "BL-M9D"],
+      ["## [<b>P2</b>] BL-M9E — CLOSED\n\nbody\n", "BL-M9E"],
+    ] as const) {
+      const entries = extractEntries(md, BACKLOG_OPTS);
+      expect(entries.map((e) => e.id), md).toEqual([id]);
+      expect(entryTerminal(entries[0]!).length, md).toBeGreaterThan(0);
+    }
+    // plain + struck controls:
+    expect(idsOf("## [P2] BL-M9F — open\n\nbody\n")).toEqual(["BL-M9F"]);
+    expect(idsOf("## [P2] ~~BL-M9G~~ — open\n\nbody\n")).toEqual(["BL-M9G"]);
+    // heading anchors scan strictly AFTER the id — pre-id anchors, a
+    // duplicated id, and an id-substring in the prefix never claim (r3/r4):
+    expect(headingHit("## [was — CLOSED once] BL-M9H — open")).toBe(false);
+    expect(headingHit("## [was – CLOSED once] BL-M9I — open")).toBe(false);
+    expect(headingHit("## [was - CLOSED once] BL-M9J — open")).toBe(false);
+    expect(headingHit("## [✅ CLOSED prior arc] BL-M9K — open")).toBe(false);
+    expect(headingHit("## [BL-M9L — CLOSED prior arc] BL-M9L — open")).toBe(false);
+    expect(headingHit("## [XBL-M9MX — CLOSED prior arc] BL-M9M — open")).toBe(false);
+    expect(headingHit("## [P2] BL-M9N — CLOSED 2026")).toBe(true);
+    // whole-diff r1 — astral characters in the prefix must not skew the
+    // provenance map (UTF-16-unit parity), and an EMPTY bracket is not a
+    // prefix (legacy [^\]]+):
+    expect(extractEntries("## [🚨] **B**L-X — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    {
+      const es = extractEntries("## [🚨🚨🚨🚨] BL-M9S — **CLOSED**\n\nbody\n", BACKLOG_OPTS);
+      expect(es.map((e) => e.id)).toEqual(["BL-M9S"]);
+      expect(entryTerminal(es[0]!).length).toBeGreaterThan(0);
+    }
+    expect(extractEntries("## [] BL-M9T — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // whole-diff r4 — delete is provenance-transparent over PLAIN text only;
+    // any nested formatting under the tildes keeps fmt and mints nothing:
+    expect(extractEntries("## ~~**BL-M9U**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~*BL-M9V*~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~[BL-M9W](https://x.test)~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~<b>BL-M9X</b>~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~BL-**M9Y**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~\`BL-M9Z\`~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // whole-diff r6/r7 — an UNPAIRED tilde run is literal text in mdast but
+    // the legacy raw matcher consumed ~{0,2}; parity keeps these ids visible
+    // to the no-overlap invariant, and the heading scan RELOCATES past them
+    // so a bracket-prefix anchor is never the claim:
+    for (const h of [
+      "## ~BL-M9T2 — open",
+      "## ~~BL-M9T3 — open",
+      "## ~BL-M9T4~~ — open",
+      "## [P2] ~BL-M9T5 — open",
+    ]) {
+      expect(extractEntries(`${h}\n\nbody\n`, BACKLOG_OPTS).map((e) => e.id), h).toHaveLength(1);
+    }
+    expect(headingHit("## [was — CLOSED once] ~BL-M9T6 — open")).toBe(false);
+    expect(headingHit("## [✅ CLOSED prior] ~~BL-M9T7 — open")).toBe(false);
+    expect(headingHit("## ~BL-M9T8 — CLOSED 2026")).toBe(true);
+    // whole-diff r5 — zero-prose nodes occupy raw position (sentinel): a
+    // dropped image/link/footnote-ref/whitespace-code at the heading start
+    // never lets later plain text read as source-leading:
+    expect(extractEntries("## ![x](https://y) BL-IMG — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## [](https://y) BL-EMPTY — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## \` \` BL-CODE — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## [P2] [^1] BL-FOOT — CLOSED\n\nbody\n\n[^1]: note\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## **![x](https://y)** BL-SW — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // CommonMark heading surface the ^-anchored era missed (r30 gain set):
+    expect(idsOf("   ## BL-INDENTED-ID — text\n\nbody\n")).toEqual(["BL-INDENTED-ID"]);
+    expect(idsOf("##\tBL-TABBED-ID — text\n\nbody\n")).toEqual(["BL-TABBED-ID"]);
+    expect(headingHit("   ## BL-M9O — CLOSED")).toBe(true);
+    // setext heading (newly visible to every scan):
+    expect(idsOf("BL-SETEXT — CLOSED\n---\n\nbody\n")).toEqual(["BL-SETEXT"]);
+    expect(headingHit("BL-SETEXT — CLOSED\n---")).toBe(true);
+    // anchored ✅ (r30): a claim, not a decoration:
+    expect(headingHit("## BL-M9P — ✅ RESOLVED (PR #612)")).toBe(true);
+    expect(headingHit("## BL-M9Q ✅ **DONE**")).toBe(true);
+    expect(headingHit("## BL-M9R — align the ✅ icon")).toBe(false);
   });
 });

@@ -8,7 +8,7 @@
  *
  *   - components/admin/SheetIconLink.tsx (2 — the subject and fallback label
  *     literals; every icon-only sheet link must delegate here)
- *   - components/admin/wizard/Step3SheetCard.tsx (1 — the ratified text-link
+ *   - components/admin/wizard/Step3SheetCard.tsx (2 since the PR #640 ternary split — the ratified text-link
  *     variant, spec §1.5: visible words carry the affordance)
  *   - components/admin/wizard/step3ReviewSections.tsx (1 — the agenda
  *     error-state text link, spec §1.11: visible words carry the affordance)
@@ -45,15 +45,14 @@ const PHRASE = "Open the source sheet";
 
 const EXPECTED: Record<string, number> = {
   "components/admin/SheetIconLink.tsx": 2,
-  // 1 -> 2 (2026-07-31, same plan Task 3): SheetTitleLink gained the no-subject fallback
-  // branch (the no-subject source-sheet label; the #592 no-dangling-"for" shape).
+  // r42 reconcile (2026-08-01, restore branch): PR #640's stripNewTabSuffix
+  // dedup split the card label into a ternary pair (Step3SheetCard.tsx:156-157).
   "components/admin/wizard/Step3SheetCard.tsx": 2,
   "components/admin/wizard/step3ReviewSections.tsx": 1,
   // Test files quoting the phrase as assertion material (r9 — the walk now
   // covers the whole repository, so these pin like everything else; a new
   // assertion legitimately bumps its row here).
-  // 2 -> 6 (2026-07-31, plan docs/superpowers/plans/2026-07-31-judgment-chip-newtab-suffix.md
-  // Task 3): four exact-computed-name assertions for the suffix-dedup cases carry the phrase.
+  // r42 reconcile: the same PR's a11y test quotes the phrase six times.
   "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 6,
   "tests/components/admin/sheetIconLink.test.tsx": 4,
   // 3 since r11: two label-context mentions plus the verbatim-phrase negative
@@ -322,6 +321,38 @@ function isRequireCallee(expr: ts.Expression): boolean {
 }
 
 /**
+ * Resolution APIs are specifier-bearing too (r24): `require.resolve("./x")`
+ * takes the SAME literal specifier grammar as `require` itself, and its
+ * return value feeds a one-hop composition — `require(require.resolve(lit))`
+ * — whose inner literal the argument extractor never saw (the outer argument
+ * is a call expression, ratified computed; the inner callee is `.resolve`,
+ * not a require spelling). The member ride the same normalization as the
+ * require callee: property access or string-keyed element access named
+ * `resolve` (or webpack's `resolveWeak`) on any require-callee expression,
+ * plus the ESM twin `import.meta.resolve`, each behind runtime-transparent
+ * wrappers. Computed keys stay in the ratified computed class.
+ */
+function isResolveCallee(expr: ts.Expression): boolean {
+  const e = unwrapTransparent(expr);
+  const RESOLVE_NAMES = new Set(["resolve", "resolveWeak"]);
+  let base: ts.Expression;
+  if (ts.isPropertyAccessExpression(e) && RESOLVE_NAMES.has(e.name.text)) {
+    base = e.expression;
+  } else if (
+    ts.isElementAccessExpression(e) &&
+    ts.isStringLiteralLike(e.argumentExpression) &&
+    RESOLVE_NAMES.has(e.argumentExpression.text)
+  ) {
+    base = e.expression;
+  } else {
+    return false;
+  }
+  const owner = unwrapTransparent(base);
+  if (isRequireCallee(owner)) return true;
+  return ts.isMetaProperty(owner) && owner.keywordToken === ts.SyntaxKind.ImportKeyword;
+}
+
+/**
  * Context modules (r17): `require.context(dir, …, filter)` and
  * `import.meta.webpackContext(dir, …)` are documented static webpack module
  * syntaxes that select modules by directory + pattern, so no specifier ever
@@ -417,6 +448,7 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         isRequireCallee(node.expression) ||
+        isResolveCallee(node.expression) ||
         isAmdDefineCallee(node.expression))
     ) {
       const out: ts.StringLiteralLike[] = [];
@@ -506,6 +538,17 @@ function classNameViolations(src: string, fileName = "probe.tsx"): string[] {
         );
       }
     }
+    // r29: the identifier can be spelled as a STRING LITERAL in a binding
+    // position — `import { "SheetIconLink" as X }` / `export { X as
+    // "SheetIconLink" }` produce no Identifier node for the name. Denied in
+    // import/export-specifier positions specifically; a test quoting the
+    // name in assertion prose is not a binding and stays clean.
+    if (ts.isStringLiteralLike(node) && node.text === NAME) {
+      const p = node.parent;
+      if (p !== undefined && (ts.isImportSpecifier(p) || ts.isExportSpecifier(p))) {
+        out.push(`string-literal ${NAME} import/export binding: ${snip(p)}`);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
@@ -572,12 +615,12 @@ function rendersTag(src: string, rel: string): boolean {
  * reach like computed specifiers. MDX needs no twin: the live scan already
  * flags ANY backslash in MDX.
  */
-function hiddenPhraseCount(src: string, rel: string): number {
+function hiddenPhraseCount(src: string, rel: string, needle: string = PHRASE): number {
   if (!src.includes("\\")) return 0;
   const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
   const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
   let hidden = 0;
-  const countIn = (s: string): number => s.split(PHRASE).length - 1;
+  const countIn = (s: string): number => s.split(needle).length - 1;
   const visit = (node: ts.Node): void => {
     if (
       ts.isStringLiteral(node) ||
@@ -646,6 +689,23 @@ const REMAP_SPELLINGS = new Set([
   "externalDir",
   "modularizeImports",
   "root",
+  // r22: keys that redirect which FILE a specifier lands on by EXTENSION.
+  // `turbopack.resolveExtensions` REPLACES the candidate-extension list, and
+  // Next's schema accepts arbitrary strings — an entry like "IconLink.tsx"
+  // makes an innocent-looking specifier (`…/Sheet`) land on the component
+  // file while both the suffix and identifier checks stay green.
+  // `extensions` is the webpack twin (`resolve.extensions`) behind the
+  // already-denied `webpack` hook key, listed for the same defense-in-depth
+  // the r16 sub-keys carry. Neither token appears in the real config or its
+  // reachable JSON; a legitimate future use teaches this guard first.
+  "resolveExtensions",
+  "extensions",
+  // r23: the MDX loader's `extension` option redirects which FILES the MDX
+  // pipeline claims — `createMDX({ extension: /\.mdx?$/ })` compiles tracked
+  // `.md` (a tree the walk treats as prose) into importable/page source. The
+  // real config passes no such key; the compiled-page surface is additionally
+  // pinned by the pageExtensions equality check below.
+  "extension",
 ]);
 
 function nextConfigAliasOffenders(src: string): string[] {
@@ -669,10 +729,43 @@ function nextConfigAliasOffenders(src: string): string[] {
     ) {
       out.push(`computed element access in next.config.ts — cannot be statically cleared`);
     }
+    // r25: a computed PROPERTY NAME is the object-literal twin of computed
+    // element access — `{ ["page" + "Extensions"]: [...] }` constructs a key
+    // no token scan can see. A string-literal computed name cooks into the
+    // token scans above; anything else is statically unclearable in config
+    // space, same class as the element-access rule.
+    if (ts.isComputedPropertyName(node)) {
+      const key = unwrapTransparent(node.expression);
+      if (!ts.isStringLiteralLike(key) && !ts.isNumericLiteral(key)) {
+        out.push(`computed property name in next.config.ts — cannot be statically cleared`);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
   return out;
+}
+
+/**
+ * Every AST spelling of the `pageExtensions` token in a module (r25):
+ * identifiers and string literals cook escapes in `.text`, so the pinned
+ * property's own name, a shorthand property (`{ pageExtensions }`), a
+ * string-literal computed key, a getter, a later dot/bracket assignment,
+ * and a `delete` all count — the graph-wide pin requires EXACTLY ONE
+ * occurrence (the entry property's name), so any second spelling in any
+ * form fails without this guard having to model object semantics.
+ * Non-literal computed keys are offenses outright (above).
+ */
+function pageExtensionsTokenCount(sf: ts.SourceFile): number {
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === "pageExtensions") {
+      count += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return count;
 }
 
 /**
@@ -726,6 +819,13 @@ function jsonRemapOffenses(value: unknown, rel: string): string[] {
   const found: string[] = [];
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (REMAP_SPELLINGS.has(k)) found.push(`resolver-remap key "${k}" in ${rel}`);
+    // r24: `pageExtensions` is denied in the JSON lane ONLY — the one
+    // sanctioned definition site is the entry file's own property, pinned by
+    // graph-wide AST equality; a reachable JSON carrying the key exists to be
+    // spread into the config, which is exactly the laundering the pin closes.
+    // (Not in REMAP_SPELLINGS: the code lane scans the entry file, where the
+    // legitimate property lives.)
+    if (k === "pageExtensions") found.push(`pageExtensions key in reachable JSON ${rel}`);
     found.push(...jsonRemapOffenses(v, rel));
   }
   return found;
@@ -787,7 +887,9 @@ function configReachableFiles(root: string): {
         specNode = node.moduleReference.expression;
       } else if (
         ts.isCallExpression(node) &&
-        (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCallee(node.expression))
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          isRequireCallee(node.expression) ||
+          isResolveCallee(node.expression))
       ) {
         specifierBearing = true;
         specNode = node.arguments[0] ?? null;
@@ -865,6 +967,241 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(hidden).toEqual([]);
     expect(found).toEqual(EXPECTED);
   });
+
+  it(
+    "sheet-URL destination surface is pinned: one builder, censused consumers",
+    { timeout: 30_000 },
+    () => {
+      // r33: the identifier/phrase lanes bind the COMPONENT; the destination
+      // binds the CLASS. A hand-rolled icon-only anchor that mentions neither
+      // the identifier nor the canonical phrase still needs a sheet URL, and
+      // every static acquisition path is pinned: the raw host-path literal
+      // (count-pinned per file, escape spellings flagged via the
+      // cooked-literal scan), the `buildSheetDeepLink` fragment
+      // (COUNT-pinned per shipped file since r34 — a second call or a
+      // re-export inside an existing consumer is as loud as a new consumer;
+      // escape-spelled identifiers and literals cook in the AST and are
+      // counted by cookedFragmentExtra, riding the same single-backslash
+      // tell as the r11 prefilter), and the three adopter href variables
+      // (token-count-pinned below — reusing `openSheetHref` in a sibling
+      // hand-rolled anchor, or renaming it to dodge the pin, changes a
+      // pinned count either way). Computed and runtime construction stay in
+      // the ratified out-of-scope class. A new sheet link therefore teaches
+      // this guard first, where review (the invariant-8 UI gate) sees it.
+      const SHEET_URL = "docs.google.com/spreadsheets";
+      const BUILDER = "buildSheetDeepLink";
+      const root = join(__dirname, "..", "..", "..");
+      const urlFound: Record<string, number> = {};
+      const urlHidden: string[] = [];
+      const builderCounts: Record<string, number> = {};
+      const cookedFragmentExtra = (src: string, rel: string, needle: string): number => {
+        if (!src.includes("\\")) return 0;
+        const kind = /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX;
+        const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, kind);
+        let extra = 0;
+        const visit = (node: ts.Node): void => {
+          if (
+            ts.isIdentifier(node) ||
+            ts.isStringLiteral(node) ||
+            ts.isNoSubstitutionTemplateLiteral(node) ||
+            ts.isTemplateHead(node) ||
+            ts.isTemplateMiddle(node) ||
+            ts.isTemplateTail(node)
+          ) {
+            const raw = src.slice(node.getStart(sf), node.getEnd());
+            if (node.text.includes(needle) && !raw.includes(needle)) extra += 1;
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sf);
+        return extra;
+      };
+      for (const file of walkedFiles(root)) {
+        const rel = file.slice(root.length + 1);
+        const src = readFileSync(file, "utf8");
+        const count = src.split(SHEET_URL).length - 1;
+        if (count > 0) urlFound[rel] = count;
+        if (!rel.endsWith(".mdx") && hiddenPhraseCount(src, rel, SHEET_URL) > 0)
+          urlHidden.push(`${rel}: escape-hidden sheet-URL occurrence(s)`);
+        if (!/^tests\//.test(rel)) {
+          const raw = src.split(BUILDER).length - 1;
+          const cooked = rel.endsWith(".mdx") ? 0 : cookedFragmentExtra(src, rel, BUILDER);
+          if (raw + cooked > 0) builderCounts[rel] = raw + cooked;
+        }
+      }
+      expect(urlHidden).toEqual([]);
+      expect(urlFound).toEqual({
+        "docs/superpowers/specs/step3-onboarding/2026-07-02-step3-review-modal-mock/data.jsx": 1,
+        "lib/sheet-links/buildSheetDeepLink.ts": 1,
+        "tests/admin/attentionClearingKind.test.ts": 1,
+        "tests/adminAlerts/alertActions.test.ts": 5,
+        "tests/components/a11y/newTabAnnouncementBehavior.test.tsx": 1,
+        "tests/components/admin/review/attentionBanner.test.tsx": 1,
+        "tests/components/admin/sheetIconLink.test.tsx": 1,
+        // This file's own SHEET_URL constant — the self-row the phrase
+        // census also carries.
+        "tests/components/admin/sheetIconLinkContainment.test.ts": 1,
+        "tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx": 1,
+        "tests/components/admin/showpage/attentionMenuGroups.test.tsx": 1,
+        "tests/components/admin/showpage/publishedReviewModal.test.tsx": 2,
+        "tests/components/admin/wizard/Step2Verify.test.tsx": 1,
+        "tests/components/step3SheetCard.test.tsx": 1,
+        "tests/dev/fullSplitComposite.test.ts": 1,
+        "tests/e2e/_pillFocusLiveEntry.tsx": 1,
+        "tests/e2e/_publishedReviewModalHarness.tsx": 1,
+        "tests/e2e/_skeletonParityHarness.tsx": 1,
+        "tests/sheet-links/buildSheetDeepLink.test.ts": 1,
+      });
+      expect(builderCounts).toEqual({
+        "app/admin/_showReviewModal.tsx": 3,
+        "app/api/admin/onboarding/finalize/route.ts": 1,
+        "components/admin/NoteWarningCard.tsx": 3,
+        "components/admin/OnboardingWizard.tsx": 1,
+        "components/admin/PerShowActionableWarnings.tsx": 3,
+        "components/admin/wizard/Step3Review.tsx": 1,
+        "components/admin/wizard/Step3ReviewModal.tsx": 3,
+        "components/admin/wizard/Step3SheetCard.tsx": 3,
+        "components/admin/wizard/step3ReviewSections.tsx": 8,
+        "components/crew/primitives/CardHeaderActions.tsx": 1,
+        "components/crew/primitives/SourceLink.tsx": 5,
+        "components/crew/sections/BudgetSection.tsx": 1,
+        "components/crew/sections/CrewSection.tsx": 1,
+        "components/crew/sections/GearSection.tsx": 1,
+        "components/crew/sections/ScheduleSection.tsx": 1,
+        "components/crew/sections/TodaySection.tsx": 1,
+        "components/crew/sections/TravelSection.tsx": 1,
+        "components/crew/sections/VenueSection.tsx": 1,
+        "components/shared/CardReportTrigger.tsx": 1,
+        "lib/admin/step3SectionStatus.ts": 1,
+        "lib/adminAlerts/alertActions.ts": 5,
+        "lib/data/getShowForViewer.ts": 2,
+        "lib/dev/publishedModalFixture.ts": 4,
+        "lib/drive/crewRoleAnchors.ts": 1,
+        "lib/drive/showDayTimeAnchors.ts": 1,
+        "lib/drive/sourceAnchors.ts": 1,
+        "lib/drive/unknownFieldAnchors.ts": 2,
+        "lib/parser/sectionHeaderNormalize.ts": 1,
+        "lib/parser/types.ts": 2,
+        "lib/sheet-links/buildSheetDeepLink.ts": 1,
+        "lib/sync/applyParseResult.ts": 1,
+        "lib/sync/attachWarningAnchors.ts": 1,
+        "lib/sync/phase1.ts": 1,
+        "lib/sync/phase2.ts": 1,
+        "lib/sync/runOnboardingScan.ts": 1,
+        "lib/sync/runScheduledCronSync.ts": 1,
+      });
+      // r34: the three adopters' sheet-href VARIABLES are the last static
+      // acquisition path — a sibling hand-rolled `<a href={openSheetHref}>`
+      // adds a token occurrence, and renaming the variable to dodge the pin
+      // zeroes one. Exact counts, escape spellings included via the cooked
+      // scan.
+      const HREF_TOKEN_PINS: Array<[string, string, number]> = [
+        ["components/admin/showpage/PublishedReviewModal.tsx", "openSheetHref", 5],
+        ["components/admin/wizard/Step3ReviewModal.tsx", "sheetLink", 3],
+        ["components/admin/wizard/step3ReviewSections.tsx", "sheetHref", 7],
+      ];
+      for (const [rel, token, pinned] of HREF_TOKEN_PINS) {
+        const src = readFileSync(join(root, rel), "utf8");
+        const raw = [
+          ...src.matchAll(new RegExp(`(?<![A-Za-z0-9_$])${token}(?![A-Za-z0-9_$])`, "g")),
+        ].length;
+        const cooked = cookedFragmentExtra(src, rel, token);
+        expect(raw + cooked, `${rel}: ${token} token count`).toBe(pinned);
+      }
+    },
+  );
+
+  it(
+    "icon-only anchors in the admin tree are censused by exact set (r35)",
+    { timeout: 30_000 },
+    () => {
+      // r35: the drift class is the ICON-ONLY sheet anchor, and the attack
+      // shape is census-able directly — an `<a>` whose subtree carries no
+      // rendered text (no non-whitespace JsxText, no expression child, which
+      // may render text) is an icon-only anchor wherever its href came from,
+      // pinned here by exact per-file count. A sibling hand-rolled icon
+      // anchor reusing ANY existing URL variable adds a row and teaches this
+      // guard first. Text-labeled anchors are the site-C pattern — visible
+      // words carry the affordance — and are not the drift class. URL-value
+      // REUSE beyond this shape (prop drilling, aliased locals feeding
+      // text-labeled links) is intra-file dataflow: out of a static guard's
+      // scope with the other computed forms, owned by the invariant-8 UI
+      // gate and review, exactly as runtime indirection is.
+      const root = join(__dirname, "..", "..", "..");
+      const found: Record<string, number> = {};
+      for (const file of walkedFiles(root)) {
+        const rel = file.slice(root.length + 1);
+        if (!/^(components\/admin|app\/admin)\//.test(rel)) continue;
+        if (!/\.(tsx|jsx)$/.test(rel)) continue;
+        const src = readFileSync(file, "utf8");
+        if (!src.includes("<a")) continue;
+        const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        // r36: an expression child is text-bearing only when it can RENDER
+        // text — a wrapped element (`{<ExternalLink />}`), `{null}`, and a
+        // whitespace-only string are not text; anything else (identifiers,
+        // calls, member access) is conservatively text-bearing so legit
+        // `{title}` links stay out of the census. Visually hidden text
+        // (sr-only) and single-symbol glyph children are HIDING — review's
+        // failure class per the dataflow ratification above, not this
+        // census's.
+        // r37: recursion is over RENDERED CHILDREN only — attributes never
+        // render text, so `<ExternalLink aria-hidden={true} />` must not
+        // read as text-bearing via its `{true}` prop (the default
+        // expression branch is for CHILD expressions, where an identifier
+        // can render text).
+        const textBearing = (node: ts.Node): boolean => {
+          if (ts.isJsxText(node)) return node.text.trim() !== "";
+          if (ts.isJsxExpression(node)) {
+            const e = node.expression;
+            if (e === undefined) return false;
+            if (ts.isStringLiteralLike(e)) return e.text.trim() !== "";
+            if (e.kind === ts.SyntaxKind.NullKeyword) return false;
+            if (ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e) || ts.isJsxFragment(e)) {
+              return textBearing(e);
+            }
+            return true;
+          }
+          if (ts.isJsxSelfClosingElement(node)) return false;
+          if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+            return node.children.some((c) => textBearing(c));
+          }
+          return false;
+        };
+        const visit = (node: ts.Node): void => {
+          // r36: a self-closing `<a />` renders no text by construction
+          // (pseudo-element/CSS content included) — censused too.
+          if (
+            ts.isJsxSelfClosingElement(node) &&
+            ts.isIdentifier(node.tagName) &&
+            node.tagName.text === "a"
+          ) {
+            found[rel] = (found[rel] ?? 0) + 1;
+          }
+          if (
+            ts.isJsxElement(node) &&
+            ts.isIdentifier(node.openingElement.tagName) &&
+            node.openingElement.tagName.text === "a" &&
+            !node.children.some((c) => textBearing(c))
+          ) {
+            found[rel] = (found[rel] ?? 0) + 1;
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sf);
+      }
+      expect(found).toEqual({
+        // The bell panel's chevron affordance (reviewed, not a sheet link).
+        "components/admin/BellPanel.tsx": 1,
+        // The component this whole guard contains.
+        "components/admin/SheetIconLink.tsx": 1,
+        // Three icon-only CONTACT affordances (the crew-row call action and
+        // the tel:/mailto: pair) plus the staged-diagram image anchor
+        // (img-only, aria-labeled — the r37 attribute-expression fix
+        // surfaced it) — none is a sheet link.
+        "components/admin/wizard/step3ReviewSections.tsx": 4,
+      });
+    },
+  );
 
   it("className checker flags off-contract tokens and non-literal expressions (negative plants)", () => {
     expect(
@@ -1127,6 +1464,42 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(
       classNameViolations('define("app", ["@/tests/helpers/x"], (h) => h);', "lib/consumer.ts"),
     ).toHaveLength(1);
+    // r29 — string-literal binding spellings produce no Identifier node:
+    expect(
+      classNameViolations('import { "SheetIconLink" as X } from "@/lib/sheet-icon";').length,
+    ).toBeGreaterThan(0);
+    expect(
+      classNameViolations('export { X as "SheetIconLink" } from "./somewhere";').length,
+    ).toBeGreaterThan(0);
+    expect(classNameViolations('expect(name).toBe("SheetIconLink");', "tests/x.test.ts")).toEqual(
+      [],
+    );
+    // r24 — resolution APIs are specifier-bearing: the one-hop
+    // require(require.resolve(lit)) composition, the bare resolve call, the
+    // webpack resolveWeak twin, the ESM import.meta.resolve twin, and the
+    // wrapped/element-access spellings all surface the inner literal:
+    expect(
+      classNameViolations(
+        'const m = require(require.resolve("@/components/admin/SheetIconLink"));',
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = require.resolve("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = require.resolveWeak("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const p = import.meta.resolve("@/components/admin/SheetIconLink");'),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations(
+        'const p = (module.require)["resolve"]("@/components/admin/SheetIconLink");',
+      ),
+    ).toHaveLength(1);
+    expect(
+      classNameViolations('const h = require.resolve("@/tests/helpers/x");', "lib/consumer.ts"),
+    ).toHaveLength(1);
     // r17 — context modules select by directory + pattern; the mechanism is
     // denied outright, and the `context` fragment gates the parse:
     expect(
@@ -1238,6 +1611,19 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       encoding: "utf8",
     }).trim();
     expect(pnpmfiles, "no tracked pnpmfile hooks").toBe("");
+    // r22: the pnpmfile pin above matches FILENAMES, but pnpm accepts
+    // arbitrary hook paths via .npmrc (`pnpmfile=hooks.cjs`,
+    // `global-pnpmfile=…`) — a tracked .npmrc would re-open install-time
+    // resolution rewriting under any hook name the glob never sees. No other
+    // tracked surface can point at a hook: the workspace-yaml top-level keys
+    // are pinned above, manifest `pnpm` is pinned absent, and env/CLI are not
+    // tracked state. Zero tracked npmrc files today; a future legitimate one
+    // teaches this guard (and its key denylist) first.
+    const npmrcs = execFileSync("git", ["ls-files", "--", "*npmrc*"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect(npmrcs, "no tracked npmrc (pnpm hook-path redirect surface)").toBe("");
     // r17: package scope is PER-DIRECTORY — a tracked nested package.json
     // (`components/package.json`) carries its own imports/exports/browser
     // remaps that the root-manifest pins above never see, and resolvers honor
@@ -1288,6 +1674,141 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ),
     ];
     expect(configOffenders).toEqual([]);
+    // r23: the compiled-PAGE surface is a resolution surface too — adding
+    // "md" to pageExtensions (or an MDX `extension` regex, denied via
+    // REMAP_SPELLINGS above) turns tracked `.md` — a tree the walk treats as
+    // prose — into compiled first-party source. r24: the pin is GRAPH-WIDE,
+    // not entry-only — a reachable helper can hold
+    // `{ pageExtensions: [...] }` that the entry merely spreads AFTER its own
+    // property (the r13 lesson, replayed on a new key), so EVERY reachable
+    // TS/JS module is parsed and exactly one `pageExtensions` property may
+    // exist, in the entry file, every element a plain string literal, equal
+    // to the current set. Reachable JSON carrying the key is an offense in
+    // jsonRemapOffenses (a JSON file is never the sanctioned definition
+    // site).
+    const pageExtSets: Array<[string, string[]]> = [];
+    // r25: property-shape collection alone is fail-open — shorthand
+    // (`{ pageExtensions }`), string-literal computed keys, getters, later
+    // dot/bracket assignments, and `delete` all reshape the config while
+    // presenting no PropertyAssignment. Every one of those spellings still
+    // carries the token as an identifier or string literal, so the pin
+    // ALSO counts raw token occurrences graph-wide and requires exactly ONE
+    // — the pinned entry property's own name. Non-literal computed keys are
+    // config-space offenses (nextConfigAliasOffenders, r25).
+    const pageExtTokenAt: string[] = [];
+    for (const rel of reachable.files) {
+      const graphSf = ts.createSourceFile(
+        rel,
+        readFileSync(join(root, rel), "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        /\.(ts|mts|cts)$/.test(rel) ? ts.ScriptKind.TS : ts.ScriptKind.TSX,
+      );
+      for (let i = 0; i < pageExtensionsTokenCount(graphSf); i += 1) pageExtTokenAt.push(rel);
+      const collectPageExts = (node: ts.Node): void => {
+        if (
+          ts.isPropertyAssignment(node) &&
+          (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+          node.name.text === "pageExtensions"
+        ) {
+          if (!ts.isArrayLiteralExpression(node.initializer)) {
+            pageExtSets.push([rel, ["<non-array pageExtensions initializer>"]]);
+          } else {
+            pageExtSets.push([
+              rel,
+              node.initializer.elements.map((el) =>
+                ts.isStringLiteralLike(el) ? el.text : "<non-literal pageExtensions element>",
+              ),
+            ]);
+          }
+        }
+        ts.forEachChild(node, collectPageExts);
+      };
+      collectPageExts(graphSf);
+    }
+    expect(pageExtSets, "pageExtensions pinned by exact set, graph-wide").toEqual([
+      ["next.config.ts", ["ts", "tsx", "mdx"]],
+    ]);
+    expect(
+      pageExtTokenAt,
+      "exactly one pageExtensions token spelling in the whole config graph",
+    ).toEqual(["next.config.ts"]);
+    // …and the named artifact stays impossible even if the pins above are
+    // ever loosened: zero tracked .md under app/ (the only page-capable
+    // tree). A future legitimate .md page teaches this guard first.
+    const appMd = execFileSync("git", ["ls-files", "--", "app/*.md"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect(appMd, "no tracked .md under app/ (page-candidate tripwire)").toBe("");
+    // r29: a tracked SYMLINK is a filesystem-level alias — an extensionless
+    // link `lib/sheet-icon → components/admin/SheetIconLink.tsx` resolves
+    // for every bundler while the walk never reads it, the specifier never
+    // ends with the component name, and no lane parses link targets. The
+    // tracked symlink set is pinned by exact equality (both current entries
+    // are documentation/fixture .md files); a new symlink teaches this
+    // guard first.
+    const symlinks = execFileSync("git", ["ls-files", "-s"], { cwd: root, encoding: "utf8" })
+      .split("\n")
+      .filter((l) => l.startsWith("120000 "))
+      .map((l) => l.split("\t")[1]!)
+      .sort();
+    expect(symlinks, "tracked symlinks pinned by exact set").toEqual([
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md",
+      "tests/specLint/fixtures/cited/symlink.md",
+    ]);
+    // r30: a tracked REGULAR file with no extension (or an unmodeled one)
+    // is a walk escape — `lib/sheet-icon` holding
+    // `module.exports = require("../components/admin/SheetIconLink").…`
+    // resolves as an exact-path import while no lane ever reads it, and its
+    // consumer mentions neither the name nor the module path. Every tracked
+    // file must carry a MODELED extension: a walked source extension, or a
+    // non-executable type no pinned-config bundler resolves as code without
+    // a rules/loader config (denied above). Extensionless files are pinned
+    // to the exact dotfile set below. A new extension or dotfile teaches
+    // this guard first.
+    const MODELED_EXTS = new Set([
+      ...SOURCE_EXTS,
+      ".md",
+      ".json",
+      ".sql",
+      ".png",
+      ".webp",
+      ".svg",
+      ".ico",
+      ".pdf",
+      ".xlsx",
+      ".css",
+      ".html",
+      ".yml",
+      ".yaml",
+      ".toml",
+      ".txt",
+      ".sh",
+      ".fixture",
+      ".snap",
+      ".example",
+    ]);
+    const DOTFILE_BASENAMES = new Set([
+      ".gitattributes",
+      ".gitignore",
+      ".nojekyll",
+      ".prettierignore",
+      ".prettierrc",
+      ".vercelignore",
+    ]);
+    const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .trim()
+      .split("\n");
+    const unmodeled = tracked.filter((f) => {
+      const base = f.slice(f.lastIndexOf("/") + 1);
+      if (DOTFILE_BASENAMES.has(base)) return false;
+      const stem = base.startsWith(".") ? base.slice(1) : base;
+      const dot = stem.lastIndexOf(".");
+      if (dot <= 0) return true;
+      return !MODELED_EXTS.has(stem.slice(dot).toLowerCase());
+    });
+    expect(unmodeled, "every tracked file carries a modeled extension").toEqual([]);
     // Plants: escape-spelled property key, intermediate-binding assignment,
     // quoted key, computed key — all flagged; the alias-free real config and
     // prose-comment mentions are not.
@@ -1358,9 +1879,31 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     expect(jsonRemapOffenses({ nested: { resolveAlias: {} } }, "cfg.json").length).toBeGreaterThan(
       0,
     );
-    expect(jsonRemapOffenses({ remarkPlugins: [], pageExtensions: ["mdx"] }, "cfg.json")).toEqual(
-      [],
+    expect(jsonRemapOffenses({ remarkPlugins: [] }, "cfg.json")).toEqual([]);
+    // r23 — extension-selection keys are remap keys in every lane:
+    expect(jsonRemapOffenses({ extension: {} }, "cfg.json").length).toBeGreaterThan(0);
+    expect(jsonRemapOffenses({ resolveExtensions: ["x.tsx"] }, "cfg.json").length).toBeGreaterThan(
+      0,
     );
+    // r24 — pageExtensions in reachable JSON is spread-fodder, denied (the
+    // sanctioned definition site is the entry file's own pinned property):
+    expect(jsonRemapOffenses({ pageExtensions: ["mdx"] }, "cfg.json").length).toBeGreaterThan(0);
+    // r25 — every override spelling carries the token as an identifier or
+    // string literal, so the graph-wide token count sees each one; a
+    // non-literal computed key is an offense outright:
+    const tokCount = (src: string): number =>
+      pageExtensionsTokenCount(
+        ts.createSourceFile("probe.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+      );
+    expect(tokCount("const nextConfig = { pageExtensions };")).toBe(1);
+    expect(tokCount('const c = { ["pageExtensions"]: ["md"] };')).toBe(1);
+    expect(tokCount("const c = { get pageExtensions() { return ['md']; } };")).toBe(1);
+    expect(tokCount('cfg.pageExtensions = ["md"];')).toBe(1);
+    expect(tokCount('delete cfg["pageExtensions"];')).toBe(1);
+    expect(tokCount("const unrelated = { remarkPlugins: [] };")).toBe(0);
+    expect(
+      nextConfigAliasOffenders('const c = { ["page" + "Extensions"]: ["md"] };').length,
+    ).toBeGreaterThan(0);
   });
 
   it(

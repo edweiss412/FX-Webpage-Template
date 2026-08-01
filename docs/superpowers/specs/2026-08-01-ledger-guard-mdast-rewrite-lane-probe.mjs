@@ -1,0 +1,439 @@
+// r3 repair verification: FULL walker prototype — every §3 lane, §2
+// disposition table, id-mode extraction, per-strong-node spans,
+// code-span-overlap label provenance, global-token-rule label evaluation.
+// Required: zero offenders on live BACKLOG.md with ALL lanes active
+// (HEADING_TERMINAL_EXEMPT parity applied), and every targeted shape —
+// including all r2-review mismatch shapes — correct.
+import { readFileSync } from "node:fs";
+import { remark } from "remark";
+import remarkGfm from "remark-gfm";
+
+const TERMINAL_WORDS = ["CLOSED", "WITHDRAWN", "RESOLVED", "SUPERSEDED", "SHIPPED", "DONE", "OBSOLETE", "REFUTED"];
+const TERMINAL = new RegExp(`^(?:${TERMINAL_WORDS.join("|")})$`, "i");
+const PARTICLES = new Set(
+  "aboard about above absent across after against along alongside amid amidst among amongst around as at atop barring before behind below beneath beside besides between beyond but by circa concerning considering despite down during except excepting excluding failing following for from in including inside into like minus near notwithstanding of off on onto opposite out outside over past pending per plus regarding respecting save since through throughout till to toward towards under underneath until unto up upon using versus via with within without worth".split(
+    " ",
+  ),
+);
+const FIELD_LABELS = /^(status|resolution|filed)$/i;
+const EXEMPT = new Set(["BL-CI-STALE-BRANCH-PROTECTION-COMMENT"]);
+
+const parse = (t) => remark().use(remarkGfm).parse(t);
+
+// mode: "claim" drops delete; "id" keeps it. Strong spans are ONE span per
+// strong NODE (full extent, nested emphasis/inlineCode descendants included).
+function flattenLines(nodes, mode = "claim") {
+  const lines = [{ text: "", strongSpans: [], codeSpans: [] }];
+  const cur = () => lines[lines.length - 1];
+  const push = (s) => (cur().text += s);
+  const newline = () => lines.push({ text: "", strongSpans: [], codeSpans: [] });
+  const walk = (n) => {
+    switch (n.type) {
+      case "text": {
+        String(n.value)
+          .split("\n")
+          .forEach((p, i) => {
+            if (i > 0) newline();
+            push(p);
+          });
+        return;
+      }
+      case "inlineCode": {
+        String(n.value).split("\n").forEach((part, i) => {
+          if (i > 0) newline();
+          const start = cur().text.length;
+          push(part);
+          cur().codeSpans.push([start, start + part.length]);
+        });
+        return;
+      }
+      case "strong": {
+        const startLine = lines.length - 1;
+        const start = cur().text.length;
+        for (const c of n.children ?? []) walk(c);
+        // ONE span per strong NODE per touched line: start line from its
+        // offset, EVERY interior line full-width, last line to its end
+        // (r6 — interior lines previously lost emphasis provenance).
+        const endLine = lines.length - 1;
+        for (let li = startLine; li <= endLine; li++) {
+          const a = li === startLine ? start : 0;
+          const b = li === endLine ? lines[li].text.length : lines[li].text.length;
+          if (b > a || li === startLine) lines[li].strongSpans.push([a, b]);
+        }
+        return;
+      }
+      case "emphasis":
+        for (const c of n.children ?? []) walk(c);
+        return;
+      case "delete":
+        if (mode === "id") { for (const c of n.children ?? []) walk(c); return; }
+        if (n.position !== undefined && n.position.end.line > n.position.start.line) newline();
+        return;
+      case "code":
+      case "html":
+      case "link":
+      case "linkReference":
+      case "image":
+      case "imageReference":
+      case "table":
+      case "footnoteDefinition":
+      case "footnoteReference":
+      case "definition":
+      case "thematicBreak":
+      case "yaml":
+        if (n.position !== undefined && n.position.end.line > n.position.start.line) newline();
+        return;
+      case "break":
+        newline();
+        return;
+      default: {
+        const block = ["paragraph", "heading", "blockquote", "list", "listItem"].includes(n.type);
+        if (block && cur().text !== "") newline();
+        for (const c of n.children ?? []) walk(c);
+        if (block) newline();
+      }
+    }
+  };
+  for (const n of nodes) walk(n);
+  return lines.filter((l) => l.text.trim() !== "");
+}
+
+// global token rule: maximal [A-Za-z0-9-]+ runs; a claim token EQUALS a terminal word
+const tokens = (s) => [...s.matchAll(/[A-Za-z0-9-]+/g)].map((m) => ({ t: m[0], i: m.index }));
+const tokenAt = (text, i) => /^[A-Za-z0-9-]*/.exec(text.slice(i))[0];
+
+const VETO = new RegExp(
+  `(?:PARTIAL(?:LY)?|\\bNOT|\\bNEVER|\\bNO\\s+LONGER|\\bPREVIOUSLY|\\bFORMERLY)(?:\\s+(?!(?:${TERMINAL_WORDS.join("|")})\\b)[A-Za-z]+)?[\\s:—–-]*$`,
+  "i",
+);
+const vetoed = (text, at) => VETO.test(text.slice(0, at));
+const overlaps = (spans, s, e) => spans.some(([a, b]) => s < b && e > a);
+
+function labelSpans(line) {
+  const out = [];
+  for (const [s, e] of line.strongSpans) {
+    if (overlaps(line.codeSpans, s, e)) continue; // label provenance: full-span overlap check
+    const inner = line.text.slice(s, e);
+    const after = line.text.slice(e);
+    const innerLabel = /:\s*$/.test(inner);
+    const external = /^(?:\s*:|\s*[—–]|\s+-(?=\s))/.test(after);
+    if (innerLabel || external) out.push({ s, e, inner: inner.replace(/:\s*$/, "") });
+  }
+  return out;
+}
+
+// label evaluation under the global token rule: tokens are maximal runs of
+// the LINE (r5 — a token straddling the strong boundary, `re-**CLOSED**:`,
+// is the line-token "re-CLOSED" and never the span interior "CLOSED");
+// a span lane selects only tokens FULLY CONTAINED in its span. Strip
+// trailing whole-token particles; final remaining token must EQUAL a
+// terminal word.
+const spanTokens = (line, s, e) =>
+  tokens(line.text).filter((x) => x.i >= s && x.i + x.t.length <= e);
+function labelTerminal(line, L) {
+  const tk = spanTokens(line, L.s, L.e);
+  while (tk.length && PARTICLES.has(tk[tk.length - 1].t.toLowerCase())) tk.pop();
+  const last = tk[tk.length - 1];
+  if (last && TERMINAL.test(last.t) && !vetoed(line.text, last.i)) return last.t;
+  return null;
+}
+
+function lineVerdicts(line) {
+  const hits = [];
+  const labels = labelSpans(line);
+  for (const L of labels) {
+    const t = labelTerminal(line, L);
+    if (t) hits.push(`terminal-label:${t}`);
+  }
+  for (const L of labels) {
+    const labelTokens = spanTokens(line, L.s, L.e);
+    if (labelTokens.length !== 1 || !FIELD_LABELS.test(labelTokens[0].t)) continue;
+    let vs = L.e + /^(?:\s*:|\s*[—–]|\s+-(?=\s))?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
+    const tok = tokenAt(line.text, vs);
+    if (TERMINAL.test(tok) && !vetoed(line.text, vs)) hits.push(`field-label:${tok}`);
+  }
+  const lead = /^\s*(status|resolution|filed)(?![A-Za-z0-9-])/i.exec(line.text);
+  const leadStart = lead ? lead[0].length - lead[1].length : 0;
+  const leadField =
+    lead !== null && !overlaps(line.codeSpans, leadStart, leadStart + lead[1].length);
+  if (leadField) {
+    let i = lead[0].length + /^(?:\s*:|\s*[—–]|\s+-(?=\s))?\s*✅?\s*/.exec(line.text.slice(lead[0].length))[0].length;
+    const tok = tokenAt(line.text, i);
+    if (TERMINAL.test(tok) && !vetoed(line.text, i)) hits.push(`leading:${tok}`);
+    for (const [s, e] of line.strongSpans) {
+      if (labels.some((L) => L.s === s)) continue;
+      for (const { t, i: ti } of spanTokens(line, s, e))
+        if (TERMINAL.test(t) && !vetoed(line.text, ti)) hits.push(`bold-nonlabel:${t}`);
+    }
+    // bare-field lane with particle chains: terminal token whose following
+    // tokens are all particles until a separator
+    for (const { t, i: ti } of tokens(line.text)) {
+      if (!TERMINAL.test(t)) continue;
+      let rest = line.text.slice(ti + t.length);
+      const chain = new RegExp(`^(?:\\s+(?:${[...PARTICLES].join("|")}))*`, "i").exec(rest)[0];
+      rest = rest.slice(chain.length);
+      if (/^\s*:|^\s*[—–](?=\s|$)|^\s+-(?=\s|$)/.test(rest) && !vetoed(line.text, ti))
+        hits.push(`bare-field:${t}`);
+    }
+  }
+  return hits;
+}
+
+function headingVerdict(headingLine, id) {
+  // dash-anchored or ✅-anchored terminal token AFTER the id token (§3):
+  // anchors inside an arbitrary bracket prefix or anywhere before the id
+  // are not the entry's own closure claim.
+  const text = headingLine.text;
+  // Re-run the extraction shape on the claim-flattened text: the bracket
+  // prefix is skipped structurally, so an id (or id-substring) occurrence
+  // INSIDE the prefix cannot anchor the scan. Delete-wrapped id: no match,
+  // fall back to 0 (ratified conservative-loud).
+  const em = /^\s*(?:\[[^\]]+\]\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
+  const from = em && em[1] === id ? em.index + em[0].length : 0;
+  const m = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
+  m.lastIndex = 0;
+  const hits = [];
+  for (let x = m.exec(text); x; x = m.exec(text)) {
+    if (x.index < from) continue;
+    const tok = tokenAt(text, x.index + x[0].length);
+    if (TERMINAL.test(tok) && !vetoed(text, x.index + x[0].length)) hits.push(`heading:${tok}`);
+  }
+  return hits;
+}
+
+function openingVerdict(line) {
+  if (!line) return [];
+  const hits = [];
+  const first = tokens(line.text)[0];
+  if (first && TERMINAL.test(first.t) && line.text.slice(0, first.i).trim() === "") {
+    const inStrong = line.strongSpans.some(([a, b]) => first.i >= a && first.i + first.t.length <= b);
+    const allCaps = first.t === first.t.toUpperCase();
+    if ((inStrong || allCaps) && !vetoed(line.text, first.i)) hits.push(`opening:${first.t}`);
+  }
+  return hits;
+}
+
+function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", levels: [2, 3] }) {
+  const root = parse(text);
+  const tops = root.children;
+  const found = [];
+  tops.forEach((n, i) => {
+    if (n.type !== "heading" || !(levels ?? [2, 3]).includes(n.depth)) return;
+    // r8/r9/r10: source parity via PROVENANCE-MAPPED flatten. The legacy
+    // matcher consumes the bracket prefix in raw source formatting-blind
+    // (`[**P2**]` is a valid prefix), but the ID itself must start (and,
+    // ratified r10, lie wholly) in plain text or delete source — a
+    // formatted id (`**BL-X**`, `[P2] **BL-X**`) never minted; a formatted
+    // PREFIX with a plain id after it always did.
+    const flatChars = [];
+    const prov = [];
+    (function pwalk(node, kind) {
+      if (node.type === "text") {
+        const v = String(node.value);
+        // UTF-16 code UNITS (regex-offset parity — whole-diff r1 F1)
+        for (let i = 0; i < v.length; i++) {
+          if (v[i] === "\n") break;
+          flatChars.push(v[i]);
+          prov.push(kind);
+        }
+        return;
+      }
+      if (node.type !== "delete" && node.type !== "heading") { flatChars.push("\u0000"); prov.push("fmt"); }
+      if (node.type === "inlineCode") {
+        const v = String(node.value);
+        for (let i = 0; i < v.length; i++) { flatChars.push(v[i]); prov.push("code"); }
+        return;
+      }
+      if (node.type === "html") return;
+      const k =
+        node.type === "heading"
+          ? "plain"
+          : node.type === "delete"
+            ? (kind === "plain" ? "delete" : kind)
+            : kind === "code" ? kind : "fmt";
+      for (const c of node.children ?? []) pwalk(c, k);
+    })(n, "plain");
+    const flat = flatChars.join("");
+    const pm = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);
+    let idStart = pm[0].length;
+    const tildes = /^~{1,2}/.exec(flat.slice(idStart));
+    if (tildes !== null && prov[idStart] === "plain") idStart += tildes[0].length;
+    const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
+    if (!m || /[a-z]/.test(m[1])) return;
+    // whole id token must be plain- or delete-sourced (r10 ratification)
+    let plainOk = true;
+    for (let ci = idStart; ci < idStart + m[1].length; ci++)
+      if (prov[ci] !== "plain" && prov[ci] !== "delete") plainOk = false;
+    if (!plainOk) return;
+    if (flat[idStart + m[1].length] === "\u0000") return;
+    if (requirePrefix && !m[1].startsWith(requirePrefix)) return;
+    // id END in the CLAIM-flattened heading (id may be delete-wrapped there:
+    // find the id text if present, else scan from 0 — a struck id vanishes
+    // from claim-flatten, and what remains after it is the suffix).
+    found.push({ id: m[1], i });
+  });
+  return found.map((f, k) => ({
+    ...f,
+    headingLine: flattenLines([tops[f.i]], "claim")[0] ?? { text: "", strongSpans: [], codeSpans: [] },
+    body: tops.slice(f.i + 1, k + 1 < found.length ? found[k + 1].i : tops.length),
+  }));
+}
+
+function entryVerdicts(e) {
+  const hits = [];
+  hits.push(...headingVerdict(e.headingLine, e.id));
+  const bodyLines = flattenLines(e.body, "claim");
+  hits.push(...openingVerdict(bodyLines.find((l) => /[A-Za-z0-9-]/.test(l.text))));
+  for (const l of bodyLines) hits.push(...lineVerdicts(l));
+  return hits;
+}
+
+// --- live run, ALL lanes ---
+const backlog = readFileSync("BACKLOG.md", "utf8");
+const offenders = [];
+for (const e of entries(backlog)) {
+  if (EXEMPT.has(e.id)) continue;
+  const h = entryVerdicts(e);
+  if (h.length) offenders.push({ id: e.id, hits: h });
+}
+console.log("live BACKLOG offenders, ALL lanes, post-exemption:", JSON.stringify(offenders, null, 1));
+
+// --- targeted shapes ---
+let fails = 0;
+const shape = (name, md, expect, kind = "entry") => {
+  let hits;
+  if (kind === "entry") {
+    const es = entries(`## BL-PROBE — probe\n\n${md}\n`);
+    hits = es.flatMap(entryVerdicts);
+  } else if (kind === "heading") {
+    const es = entries(`${md}\n\nbody\n`);
+    hits = es.flatMap((e) => headingVerdict(e.headingLine, e.id));
+  } else if (kind === "ids") {
+    hits = entries(md).map((e) => e.id);
+    console.log(`${name}: ids=${JSON.stringify(hits)}`);
+    return;
+  }
+  const ok = (hits.length > 0) === expect;
+  if (!ok) fails++;
+  console.log(`${name}: hits=${JSON.stringify(hits)} expected=${expect} ${ok ? "OK" : "MISMATCH"}`);
+};
+
+// r1-round originals
+shape("P1 mid-line Status", "**Class:** CI wiring · **Status:** CLOSED", true);
+shape("P2 terminal label", "**Effort:** M. **Resolved:** by PR #700.", true);
+shape("line-607 narrative", "**Partial closure (2026-07-27):** shipped. **Header-aware segmentation** — details, a REFUTED: mention. **Residuals (still open):** more", false);
+shape("backticked value", "**Status:** `RESOLVED`", true);
+shape("quoted example line", "`Status: CLOSED`", false);
+shape("footnote", "[^h]: **Status:** CLOSED in the predecessor.", false);
+// r2-round mismatch shapes
+shape("heading lane control", "## BL-H — CLOSED 2026-08-01", true, "heading");
+shape("heading exempt-shape ✅", "## BL-H2 — ✅ RESOLVED (kept)", true, "heading");
+shape("decorative ✅ open title", "## BL-H3 — align the ✅ icon", false, "heading");
+shape("opening lane control", "**CLOSED** by PR #9.", true);
+shape("opening bare all-caps", "RESOLVED by the popover migration.", true);
+shape("opening bare titlecase", "Resolved only as part of BL-X.", false);
+shape("bare-field particle chain", "**Status:** open — CLOSED as of: 2026", true); // bare-field on leading-field line
+shape("hyphenated terminal label", "**re-CLOSED:** discussion", false);
+shape("digit-suffix label", "**CLOSED2:** discussion", false);
+shape("digit-prefix label", "**2CLOSED:** discussion", false);
+shape("hyphen-particle label", "**CLOSED-by:** discussion", false);
+shape("partial code-label overlap", "**Sta`tus`:** CLOSED", false);
+shape("fragmented strong label", "**Class:** x · **Resolved *by*:** PR #9", true);
+shape("inline html island opening", "<strong>CLOSED</strong> by PR #1", true); // opening lane: bare ALL-CAPS after tag drop
+shape("struck-id extraction", "## ~~BL-STRUCK~~ — reopened\n\nbody\n\n## BL-NEXT — open\n\nbody2\n", null, "ids");
+// r3-review shapes
+{
+  const es = entries("## PROSE heading section\n\nbody\n\n### REAL-ID — open\n\nbody\n", { requirePrefix: null, levels: [3] });
+  const ids = es.map((e) => e.id);
+  const ok = JSON.stringify(ids) === JSON.stringify(["REAL-ID"]);
+  if (!ok) fails++;
+  console.log(`deferred depth-mask probe: ids=${JSON.stringify(ids)} expected=["REAL-ID"] ${ok ? "OK" : "MISMATCH"}`);
+}
+shape("pre-id em-dash anchor", "## [was — CLOSED once] BL-P — open", false, "heading");
+shape("pre-id en-dash anchor", "## [was – CLOSED once] BL-P2 — open", false, "heading");
+shape("pre-id ASCII-dash anchor", "## [was - CLOSED once] BL-P3 — open", false, "heading");
+shape("pre-id check anchor", "## [✅ CLOSED prior arc] BL-P4 — open", false, "heading");
+shape("post-id anchor still caught", "## [P2] BL-P5 — CLOSED 2026", true, "heading");
+// r4-review shapes
+shape("pre-id duplicated-id anchor", "## [BL-P6 — CLOSED prior arc] BL-P6 — open", false, "heading");
+shape("pre-id id-substring anchor", "## [XBL-P7X — CLOSED prior arc] BL-P7 — open", false, "heading");
+// r8-review shapes: formatted SHOUTY prose headings mint no id (source parity)
+for (const [nm, md] of [
+  ["strong-formatted heading", "### **NOTES** — prose\n\nbody\n"],
+  ["emphasis-formatted heading", "### *NOTES* — prose\n\nbody\n"],
+  ["code-formatted heading", "### \`NOTES\` — prose\n\nbody\n"],
+]) {
+  const ids = entries(md, { requirePrefix: null, levels: [3] }).map((e) => e.id);
+  const ok = ids.length === 0;
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} expected=[] ${ok ? "OK" : "MISMATCH"}`);
+}
+// r9-review shapes: bracket prefix + formatted id mints nothing
+for (const [nm, md, expect] of [
+  ["bracket+strong id", "## [P2] **BL-STRONG** — CLOSED\n\nbody\n", []],
+  ["bracket+emphasis id", "## [P2] *BL-EM* — CLOSED\n\nbody\n", []],
+  ["bracket+code id", "## [P2] \`BL-CODE\` — CLOSED\n\nbody\n", []],
+  ["bracket+plain control", "## [P2] BL-PLAIN — open\n\nbody\n", ["BL-PLAIN"]],
+  ["bracket+struck control", "## [P2] ~~BL-DEL~~ — open\n\nbody\n", ["BL-DEL"]],
+]) {
+  const ids = entries(md).map((e) => e.id);
+  const ok = JSON.stringify(ids) === JSON.stringify(expect);
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} expected=${JSON.stringify(expect)} ${ok ? "OK" : "MISMATCH"}`);
+}
+// r10-review shapes: formatted BRACKET PREFIX with a plain id still mints
+for (const [nm, md, expect] of [
+  ["formatted-prefix strong", "## [**P2**] BL-X — CLOSED\n\nbody\n", ["BL-X"]],
+  ["formatted-prefix emphasis", "## [*P2*] BL-X2 — CLOSED\n\nbody\n", ["BL-X2"]],
+  ["formatted-prefix inlineCode", "## [\`P2\`] BL-X3 — CLOSED\n\nbody\n", ["BL-X3"]],
+  ["formatted-prefix delete", "## [~~P2~~] BL-X4 — CLOSED\n\nbody\n", ["BL-X4"]],
+  ["formatted-prefix inlineHtml", "## [<b>P2</b>] BL-X5 — CLOSED\n\nbody\n", ["BL-X5"]],
+]) {
+  const es = entries(md);
+  const ids = es.map((e) => e.id);
+  const hits = es.flatMap((e) => headingVerdict(e.headingLine, e.id));
+  const ok = JSON.stringify(ids) === JSON.stringify(expect) && hits.length === expect.length;
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} hits=${JSON.stringify(hits)} expected id+heading-claim ${ok ? "OK" : "MISMATCH"}`);
+}
+// four-ledger id parity census: legacy regex vs walker extraction
+{
+  const legacyIds = (text, requirePrefix) => {
+    const level = requirePrefix === null ? "###" : "#{2,3}";
+    const re = new RegExp(`^${level} (?:\\[[^\\]]+\\]\\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)~{0,2}`, "gm");
+    const out = new Set();
+    for (const m of text.matchAll(re)) {
+      if (/[a-z]/.test(m[1])) continue;
+      if (requirePrefix !== null && !m[1].startsWith(requirePrefix)) continue;
+      out.add(m[1]);
+    }
+    return out;
+  };
+  for (const [rel, prefix, levels] of [
+    ["DEFERRED.md", null, [3]],
+    ["DEFERRED-archive.md", null, [3]],
+    ["BACKLOG.md", "BL-", [2, 3]],
+    ["BACKLOG-archive.md", "BL-", [2, 3]],
+  ]) {
+    const text = readFileSync(rel, "utf8");
+    const legacy = legacyIds(text, prefix);
+    const walker = new Set(entries(text, { requirePrefix: prefix, levels }).map((e) => e.id));
+    const onlyLegacy = [...legacy].filter((x) => !walker.has(x));
+    const onlyWalker = [...walker].filter((x) => !legacy.has(x));
+    const ok = onlyLegacy.length === 0 && onlyWalker.length === 0;
+    if (!ok) fails++;
+    console.log(`id-parity ${rel}: legacy=${legacy.size} walker=${walker.size} onlyLegacy=${JSON.stringify(onlyLegacy)} onlyWalker=${JSON.stringify(onlyWalker)} ${ok ? "OK" : "MISMATCH"}`);
+  }
+}
+// r5-review shapes: token maximality across strong-span edges
+shape("edge-split label prefix", "re-**CLOSED**: discussion", false);
+shape("edge-split label suffix", "**CLOSED**-by: discussion", false);
+shape("edge-split bold-nonlabel prefix", "**Status:** open, re-**CLOSED** discussion", false);
+shape("edge-split bold-nonlabel suffix", "**Status:** open, **CLOSED**2 discussion", false);
+shape("edge-split field-label", "**Status**2: CLOSED discussion", false);
+shape("intact bold label still caught", "x **Closed:** 2026", true);
+// r6-review shapes: multiline strong interior lines keep provenance
+shape("multiline strong middle-line label", "**preamble\nCLOSED:\ntail**", true);
+shape("multiline strong last-line label control", "**preamble\nCLOSED:**", true);
+shape("multiline strong middle-line bold-nonlabel", "**Status: OPEN, CLOSED discussion\ntail line\nend**", true);
+console.log(fails === 0 ? "ALL SHAPES OK" : `${fails} MISMATCHES`);

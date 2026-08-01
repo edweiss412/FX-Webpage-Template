@@ -8,6 +8,20 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-LEDGER-GUARD-MDAST-REWRITE — RESOLVED (2026-08-01, `test/ledger-guard-mdast-rewrite`)
+
+**Resolution:** the tripwire now parses each ledger with remark + remark-gfm and evaluates the terminal-word + veto semantics on the mdast — `tests/docs/_ledgerMdast.ts` (provenance-mapped id extraction, id-heading-to-id-heading partition, disposition-table flatten, seven lanes behind one `entryTerminal` evaluator). The full r15–r40 plant corpus rides the walker verdict-preserving; the owner-split r22–r41 containment hardening (`tests/components/admin/sheetIconLinkContainment.test.ts`) was restored from snapshot `a1cfce98d` with a two-row PR-#640 reconcile and its sheet-icon spec §7.10 paragraph in lockstep; the three r41 open findings were re-derived by probe (both ledger classes REPRODUCED and fixed — reordered field rows now caught, hyphenated-id false positives closed by line-global token maximality; the census-expression-shapes probe found no escaping variant). Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md (eleven adversarial rounds, r11 APPROVE). Original entry below.
+
+## BL-LEDGER-GUARD-MDAST-REWRITE — port the graduation tripwire from regexes onto the remark/mdast AST
+
+**Filed:** 2026-07-31 (branch `feat/sheet-icon-link-affordance-class`, whole-diff rounds 22-30). **Class:** test infrastructure. **Effort:** M.
+
+`tests/docs/_metaDeferralLedgerGraduation.test.ts` detects terminal-status claims in ledger prose with line-anchored regexes. Nine adversarial-review rounds (r22-r30) surfaced an open-ended stream of CommonMark surface spellings the regex lanes miss (container prefixes, task-list checkboxes, `__` bold twins, italic/mixed-emphasis labels, indented headings) — and the two regex countermeasures that tried to model code contexts (fence blanking, inline-code stripping) shipped their own CommonMark-semantics defects and were removed in r30. The guard's header now ratifies two boundaries: render-equivalent obfuscation is review's failure class, and regex reimplementation of markdown grammar is out of scope.
+
+**Charter extended (2026-07-31 split):** the r22–r41 hardening rounds (container prefixes, task-list checkboxes, `__`/comment normalization, italic/mixed labels, dash separators, bare/anywhere field lanes, preposition chains — plus the containment extension/symlink/URL/icon-anchor censuses) live on `test/guard-hardening-followup` (snapshot `a1cfce98d`, r41 WIP patch in the branch note) and ship through THIS item's review, not the feature PR's. The r41 open findings (census expression shapes; later same-line fields; hyphenated-id false positives) are the follow-up's starting worklist.
+
+**Work:** parse each ledger with remark + remark-gfm (already dependencies), walk the mdast — headings, paragraph/text/strong/emphasis nodes — and evaluate the existing terminal-word + veto semantics on node text. Code blocks, inline code, HTML comments, links, and tables then fall out of the tree for free, closing the entire spelling class the regex lanes can only chase. Keep the current plants; they become fixtures for the AST walker. Until this lands, grammar-completeness findings against the regex lanes re-litigate the r28/r30 ratification.
+
 ## BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED — ✅ RESOLVED (2026-07-26, PR4 of the CI-dark cluster)
 
 **Graduated:** 2026-07-27 (reconciliation) — resolved by `feat/ci-lifecycle-gallery` (PR #615, PR4 of the CI-dark cluster); the entry had been annotated RESOLVED in place. Filed 2026-07-24 under the "Admin lifecycle e2e" section (share-link-chrome-backlog review r4).
