@@ -28,3 +28,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-destruct1-armed-reflow.md`](./2026-07-17-destruct1-armed-reflow.md) | 2026-07-17 |
 | [`2026-07-17-devtier-toggle-help.md`](./2026-07-17-devtier-toggle-help.md) | 2026-07-17 |
 | [`2026-07-17-sync-cell-edited-checked.md`](./2026-07-17-sync-cell-edited-checked.md) | 2026-07-17 |
+| [`2026-07-25-destruct-thumb-order-drift-guard.md`](./2026-07-25-destruct-thumb-order-drift-guard.md) | 2026-07-25 |

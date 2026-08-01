@@ -26,3 +26,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-use-raw-callout-preview-demotion.md`](./2026-07-17-use-raw-callout-preview-demotion.md) | 2026-07-17 |
 | [`2026-07-17-use-raw-control-site-a11y-copy.md`](./2026-07-17-use-raw-control-site-a11y-copy.md) | 2026-07-17 |
 | [`2026-07-18-callout-preview-action-cue.md`](./2026-07-18-callout-preview-action-cue.md) | 2026-07-18 |
+| [`2026-07-25-secondary-drive-id-nonblank.md`](./2026-07-25-secondary-drive-id-nonblank.md) | 2026-07-25 |
+| [`2026-07-26-driveid-guard-cluster-design.md`](./2026-07-26-driveid-guard-cluster-design.md) | 2026-07-26 |

@@ -16,3 +16,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-bell-triage-severity-grouping.md`](./2026-07-17-bell-triage-severity-grouping.md) | 2026-07-17 |
 | [`2026-07-17-condensed-alert-copy-design.md`](./2026-07-17-condensed-alert-copy-design.md) | 2026-07-17 |
 | [`2026-07-17-role-flags-notice-lead-only-doug.md`](./2026-07-17-role-flags-notice-lead-only-doug.md) | 2026-07-17 |
+| [`2026-07-24-alert-autoresolve-tile-and-report-family.md`](./2026-07-24-alert-autoresolve-tile-and-report-family.md) | 2026-07-24 |
