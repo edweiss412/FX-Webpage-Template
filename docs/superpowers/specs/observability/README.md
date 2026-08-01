@@ -32,3 +32,8 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-15-observe-cli-telemetry-gaps-design.md`](./2026-07-15-observe-cli-telemetry-gaps-design.md) | 2026-07-15 |
 | [`2026-07-16-digest-autofix-per-show-detail.md`](./2026-07-16-digest-autofix-per-show-detail.md) | 2026-07-16 |
 | [`2026-07-17-rescan-decision-telemetry.md`](./2026-07-17-rescan-decision-telemetry.md) | 2026-07-17 |
+| [`2026-07-24-watch-reconcile-backoff-design.md`](./2026-07-24-watch-reconcile-backoff-design.md) | 2026-07-24 |
+| [`2026-07-25-watch-lease-slack-design.md`](./2026-07-25-watch-lease-slack-design.md) | 2026-07-25 |
+| [`2026-07-26-watch-reconcile-backoff-v2-design.md`](./2026-07-26-watch-reconcile-backoff-v2-design.md) | 2026-07-26 |
+| [`2026-07-26-watch-renewal-lifecycle-design.md`](./2026-07-26-watch-renewal-lifecycle-design.md) | 2026-07-26 |
+| [`2026-07-26-watch-renewal-lifecycle-review-log.md`](./2026-07-26-watch-renewal-lifecycle-review-log.md) | 2026-07-26 |
