@@ -27,13 +27,13 @@
  * Action is still authoritative — a forged submit goes through the
  * lockout predicate and surfaces LAST_ADMIN_LOCKOUT_REFUSED inline.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 
 import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -52,6 +52,9 @@ type UiState = "idle" | "confirm" | "resolving" | "couldnt_confirm";
 
 export function RevokeRowButton({ email, disabled }: { email: string; disabled: boolean }) {
   const [ui, setUi] = useState<UiState>("idle");
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [result, formAction, isPending] = useActionState<AdminEmailActionResult | null, FormData>(
@@ -139,8 +142,12 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
 
   const onRevokeClick = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -152,6 +159,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
 
   const onConfirmClick = () => {
     clearAutoRevert();
+    setExpired(false);
     clearWatchdog();
     setUi("resolving");
     // Start the no-response watchdog. If we're still resolving with no result
@@ -186,13 +194,28 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   const writeFailMessage =
     result?.kind === "infra_error" ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED") : null;
 
+  // Single return with a key-stable live-region sibling: the region node must
+  // survive branch swaps across couldnt_confirm / idle / confirm (spec
+  // 2026-08-01-announce-a11y-pass §3.3 persistent-region rule; plan R1 F1).
+  const liveRegion = (
+    <span
+      key="arm-expiry-region"
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="arm-expiry-announce"
+    >
+      {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+    </span>
+  );
+  let branch: ReactNode;
   if (effectiveUi === "couldnt_confirm") {
     // The revoke neither returned a result nor surfaced a catchable error
     // within WATCHDOG_MS. Stay conservative: never imply the revoke failed
     // (it may have committed late), never re-enable a submit (no double
     // revoke), and steer Doug to refresh, the §6.3 revalidatePath on the
     // refreshed render reconciles the row's true state.
-    return (
+    branch = (
       <div className="flex flex-col items-end gap-2">
         <div
           data-testid="admin-allowlist-revoke-confirm-row"
@@ -225,9 +248,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         </p>
       </div>
     );
-  }
-
-  if (effectiveUi === "idle") {
+  } else if (effectiveUi === "idle") {
     // Audit P3 fix: when the Revoke button is disabled because actor
     // is the only active admin, render the explanation as a visible
     // sibling hint (not a `title` tooltip — mobile devices don't
@@ -235,7 +256,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     // disabled buttons). aria-describedby ties the hint to the
     // button so AT users get the same context.
     const hintId = disabled ? `${email}-revoke-hint` : undefined;
-    return (
+    branch = (
       <div className="flex flex-col items-end gap-2">
         <form action={formAction}>
           <input type="hidden" name="email" value={email} />
@@ -293,80 +314,87 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         )}
       </div>
     );
+  } else {
+    const isResolving = ui === "resolving" || isPending;
+    branch = (
+      <div className="flex flex-col items-end gap-2">
+        <form action={formAction}>
+          <input type="hidden" name="email" value={email} />
+          <div
+            ref={confirmRowRef}
+            data-testid="admin-allowlist-revoke-confirm-row"
+            className="flex flex-wrap items-center gap-3"
+          >
+            <button
+              type="submit"
+              data-testid="admin-allowlist-revoke-confirm-button"
+              onClick={onConfirmClick}
+              // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
+              // NOT be disabled by the synchronous setUi("resolving") in its own
+              // onClick — a discrete-event re-render would disable it BEFORE the
+              // native submit event fires, cancelling the dispatch and stranding
+              // the button on "Revoking…" with zero POSTs (the misdiagnosed
+              // "server hang"). Disable on isPending, which useActionState sets
+              // AFTER React dispatches the action, so the submit always fires and
+              // double-submit is still prevented (isPending true within the same
+              // tick). Visual feedback stays keyed on isResolving below.
+              disabled={isPending}
+              aria-busy={isResolving}
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isResolving ? "Revoking…" : "Confirm revoke"}
+            </button>
+            <button
+              type="button"
+              ref={cancelRef}
+              onClick={onCancelClick}
+              disabled={isResolving}
+              data-testid="admin-allowlist-revoke-cancel-button"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+        {lockoutMessage && (
+          <p
+            data-testid="admin-allowlist-lockout-error"
+            role="alert"
+            // P1 fix: was max-w-xs text-right text-xs — easy to miss
+            // after refusal on Doug's phone. Now full container width,
+            // left-aligned, text-sm with a subtle error wash so the
+            // refusal anchors visually next to the disabled control.
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {lockoutMessage}
+          </p>
+        )}
+        {selfRevokeMessage && (
+          <p
+            data-testid="admin-allowlist-self-revoke-error"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {selfRevokeMessage}
+          </p>
+        )}
+        {writeFailMessage && (
+          <p
+            data-testid="admin-allowlist-error-write-failed"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {writeFailMessage}
+          </p>
+        )}
+      </div>
+    );
   }
 
-  const isResolving = ui === "resolving" || isPending;
   return (
-    <div className="flex flex-col items-end gap-2">
-      <form action={formAction}>
-        <input type="hidden" name="email" value={email} />
-        <div
-          ref={confirmRowRef}
-          data-testid="admin-allowlist-revoke-confirm-row"
-          className="flex flex-wrap items-center gap-3"
-        >
-          <button
-            type="submit"
-            data-testid="admin-allowlist-revoke-confirm-button"
-            onClick={onConfirmClick}
-            // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
-            // NOT be disabled by the synchronous setUi("resolving") in its own
-            // onClick — a discrete-event re-render would disable it BEFORE the
-            // native submit event fires, cancelling the dispatch and stranding
-            // the button on "Revoking…" with zero POSTs (the misdiagnosed
-            // "server hang"). Disable on isPending, which useActionState sets
-            // AFTER React dispatches the action, so the submit always fires and
-            // double-submit is still prevented (isPending true within the same
-            // tick). Visual feedback stays keyed on isResolving below.
-            disabled={isPending}
-            aria-busy={isResolving}
-            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isResolving ? "Revoking…" : "Confirm revoke"}
-          </button>
-          <button
-            type="button"
-            ref={cancelRef}
-            onClick={onCancelClick}
-            disabled={isResolving}
-            data-testid="admin-allowlist-revoke-cancel-button"
-            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-      {lockoutMessage && (
-        <p
-          data-testid="admin-allowlist-lockout-error"
-          role="alert"
-          // P1 fix: was max-w-xs text-right text-xs — easy to miss
-          // after refusal on Doug's phone. Now full container width,
-          // left-aligned, text-sm with a subtle error wash so the
-          // refusal anchors visually next to the disabled control.
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {lockoutMessage}
-        </p>
-      )}
-      {selfRevokeMessage && (
-        <p
-          data-testid="admin-allowlist-self-revoke-error"
-          role="alert"
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {selfRevokeMessage}
-        </p>
-      )}
-      {writeFailMessage && (
-        <p
-          data-testid="admin-allowlist-error-write-failed"
-          role="alert"
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {writeFailMessage}
-        </p>
-      )}
-    </div>
+    <>
+      {branch}
+      {liveRegion}
+    </>
   );
 }

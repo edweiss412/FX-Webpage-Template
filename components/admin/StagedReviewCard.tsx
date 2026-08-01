@@ -71,7 +71,7 @@ import { AccentButton } from "@/components/shared/AccentButton";
 import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -240,6 +240,9 @@ export function StagedReviewCard({
   // into a solid recipe button, 4s auto-revert) and fires the EXISTING
   // handleDiscard("permanent_ignore") on the second.
   const [ignoreArmed, setIgnoreArmed] = useState(false);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at every dispatch entry (Apply + discards).
+  const [ignoreExpired, setIgnoreExpired] = useState(false);
   const ignoreArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   function clearIgnoreArmTimer() {
     if (ignoreArmTimerRef.current !== null) {
@@ -251,15 +254,18 @@ export function StagedReviewCard({
   function onGuardedIgnoreClick() {
     if (!ignoreArmed) {
       setIgnoreArmed(true);
+      setIgnoreExpired(false);
       clearIgnoreArmTimer();
       ignoreArmTimerRef.current = setTimeout(() => {
         ignoreArmTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setIgnoreArmed(false);
+        setIgnoreExpired(true);
       }, ARM_REVERT_MS);
       return;
     }
     clearIgnoreArmTimer();
     setIgnoreArmed(false);
+    setIgnoreExpired(false);
     void handleDiscard("permanent_ignore");
   }
 
@@ -286,6 +292,12 @@ export function StagedReviewCard({
 
   const handleApply = async () => {
     if (pending) return;
+    // Spec 2026-08-01-announce-a11y-pass §3.3 (R1 F1): a starting Apply disarms a
+    // pending stop-showing confirm at dispatch ENTRY — the arm timer must never
+    // fire "Nothing was changed" across a mutation that IS changing things.
+    clearIgnoreArmTimer();
+    setIgnoreArmed(false);
+    setIgnoreExpired(false);
     setErrorCode(null);
     const reviewerChoices: ReviewerChoice[] = [];
     for (const item of row.triggeredReviewItems) {
@@ -380,6 +392,7 @@ export function StagedReviewCard({
     // past another mutation (whole-diff review; mirrors PendingPanelDiscardButtons).
     clearIgnoreArmTimer();
     setIgnoreArmed(false);
+    setIgnoreExpired(false);
     setErrorCode(null);
     setPending(true);
     try {
@@ -678,7 +691,7 @@ export function StagedReviewCard({
               screen readers (impeccable P2). Always mounted — conditional
               mounting drops the announcement (project a11y rule). */}
           <span role="status" className="sr-only">
-            {ignoreArmed ? "Tap again to confirm." : ""}
+            {ignoreArmed ? "Tap again to confirm." : ignoreExpired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
           </span>
           <p id={`staged-${row.stagedId}-ignore-note`} className="mt-1 text-xs text-text-subtle">
             This sheet will not reappear until Doug clears it from settings.

@@ -531,3 +531,97 @@ describe("BlockedRowResolver — invariant 5: no raw code in visible DOM text", 
     expect(textWithoutHelpAffordance(container)).not.toContain(CORRUPT_A);
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.3/§5.1):
+// auto-revert announces; confirm and the external disabled-flip disarm stay
+// silent past the timer horizon; the region node survives the transition.
+describe("arm-expiry announcement — BlockedRowResolver", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function renderResolver(extra: { disabled?: boolean } = {}) {
+    return render(
+      <BlockedRowResolver
+        driveFileId={DFID}
+        wizardSessionId={WSID}
+        code={ARCHIVED}
+        onResolved={vi.fn()}
+        {...extra}
+      />,
+    );
+  }
+  function region(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>('span[role="status"].sr-only');
+    expect(el, "persistent sr-only status region").not.toBeNull();
+    return el as HTMLElement;
+  }
+
+  test("auto-revert announces expiry in the SAME region node", () => {
+    vi.useFakeTimers();
+    const { container, getByTestId } = renderResolver();
+    const before = region(container);
+    fireEvent.click(getByTestId(`blocked-row-resolver-${DFID}`)); // arm
+    expect(before.textContent).toBe("Tap again to confirm.");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    const after = region(container);
+    expect(after, "region node must survive the expire transition").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+  });
+
+  test("confirm never announces expiry, even past the timer horizon", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: true, status: "resolved" }));
+    const { container, getByTestId } = renderResolver();
+    const btn = getByTestId(`blocked-row-resolver-${DFID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      fireEvent.click(btn); // confirm
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+    await act(async () => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("external disabled flip while armed never announces expiry", async () => {
+    vi.useFakeTimers();
+    const { container, getByTestId, rerender } = renderResolver();
+    fireEvent.click(getByTestId(`blocked-row-resolver-${DFID}`)); // arm
+    rerender(
+      <BlockedRowResolver
+        driveFileId={DFID}
+        wizardSessionId={WSID}
+        code={ARCHIVED}
+        disabled={true}
+        onResolved={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("re-arm after expiry is audible both ways", () => {
+    vi.useFakeTimers();
+    const { container, getByTestId } = renderResolver();
+    const btn = getByTestId(`blocked-row-resolver-${DFID}`);
+    fireEvent.click(btn);
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+    fireEvent.click(btn); // re-arm
+    expect(region(container).textContent).toBe("Tap again to confirm.");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+  });
+});

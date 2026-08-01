@@ -36,7 +36,7 @@ import { useEffect, useRef, useState } from "react";
 import { messageFor, isMessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 export type BlockedRowResolverProps = {
   driveFileId: string;
@@ -100,6 +100,9 @@ export function BlockedRowResolver({
         ? "rebuild"
         : null;
   const [armed, setArmed] = useState(false);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at every action-dispatch entry.
+  const [expired, setExpired] = useState(false);
   const [pending, setPending] = useState(false);
   // Coded branches (needs_attention/busy) carry the response's cataloged code so the
   // <HelpAffordance> disclosure keys off the SAME code as the dougFacing copy (spec §3.6,
@@ -199,15 +202,18 @@ export function BlockedRowResolver({
     if (disabled) return;
     if (!armed) {
       setArmed(true);
+      setExpired(false);
       clearArmTimer();
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null;
         setArmed(false);
+        setExpired(true);
       }, ARM_REVERT_MS);
       return;
     }
     clearArmTimer();
     setArmed(false);
+    setExpired(false);
     void handleClick();
   }
 
@@ -240,7 +246,7 @@ export function BlockedRowResolver({
             : idleLabel}
       </button>
       <span role="status" className="sr-only">
-        {armed ? "Tap again to confirm." : ""}
+        {armed ? "Tap again to confirm." : expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
       </span>
       {errorState ? (
         <div

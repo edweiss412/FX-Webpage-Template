@@ -383,7 +383,7 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  test("persistent sr-only status region announces arming and clears on auto-revert", () => {
+  test("persistent sr-only status region announces arming and the auto-revert close", () => {
     vi.useFakeTimers();
     const { getByTestId } = renderButtons();
     const btn = getByTestId(`admin-pending-ignore-${ID}`);
@@ -401,9 +401,11 @@ describe("G1 two-tap guard — Permanently ignore (PendingPanelDiscardButtons)",
     act(() => {
       vi.advanceTimersByTime(4_000);
     });
-    // Same persistently-mounted element, emptied — never unmounted.
+    // Same persistently-mounted element — never unmounted. The silent empty
+    // was superseded by spec 2026-08-01-announce-a11y-pass §3.3: the close is
+    // announced (the dedicated expiry describe below pins the full lifecycle).
     expect(btn.closest("div")!.parentElement!.querySelector('[role="status"]')).toBe(region);
-    expect(region.textContent).toBe("");
+    expect(region.textContent).toBe("Confirm window closed. Nothing was changed.");
   });
 });
 
@@ -455,5 +457,133 @@ describe("D7: the responsive-stack basis is GONE (reorder design)", () => {
     expect(region.textContent).toBe("");
     fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`));
     expect(region.textContent).toBe("Tap again to stop tracking this sheet permanently.");
+  });
+});
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.3/§5.1): the
+// auto-revert close is announced; every explicit disarm path stays silent, the
+// clear sits at dispatch ENTRY (settlement-kind-independent), and the region
+// node is stable across the expire transition (no remount = no dropped or
+// insert-time announcement).
+describe("arm-expiry announcement — PendingPanelDiscardButtons", () => {
+  const ID = "pi-expiry";
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function renderButtons() {
+    return render(<PendingPanelDiscardButtons pendingIngestionId={ID} />);
+  }
+  function region(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>('span[role="status"].sr-only');
+    expect(el, "persistent sr-only status region").not.toBeNull();
+    return el as HTMLElement;
+  }
+
+  test("auto-revert announces expiry in the SAME region node", () => {
+    vi.useFakeTimers();
+    const { container, getByTestId } = renderButtons();
+    const before = region(container);
+    fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    const after = region(container);
+    expect(after, "region node must survive the expire transition").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+  });
+
+  test("second-tap confirm never announces expiry, even past the timer horizon", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ status: "discarded", kind: "permanent_ignore" }),
+    );
+    const { container, getByTestId } = renderButtons();
+    const btn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.click(btn); // arm
+    await act(async () => {
+      fireEvent.click(btn); // confirm
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+    await act(async () => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("sibling Defer while armed never announces expiry, even past the timer horizon", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ status: "discarded", kind: "defer_until_modified" }),
+    );
+    const { container, getByTestId } = renderButtons();
+    fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // arm ignore
+    await act(async () => {
+      fireEvent.click(getByTestId(`admin-pending-defer-${ID}`)); // sibling
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+    await act(async () => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("post-expiry Defer clears the expiry copy AT DISPATCH and it never returns (OK settle)", async () => {
+    vi.useFakeTimers();
+    let resolveFetch: ((r: unknown) => void) | undefined;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((r) => (resolveFetch = r)) as unknown as ReturnType<typeof fetch>,
+    );
+    const { container, getByTestId } = renderButtons();
+    fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000); // expire
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+    await act(async () => {
+      fireEvent.click(getByTestId(`admin-pending-defer-${ID}`)); // dispatch
+    });
+    // Dispatch-entry pin: expiry gone while the request is still in flight.
+    expect(region(container).textContent).toBe("Working…");
+    await act(async () => {
+      resolveFetch?.(mockJsonResponse({ status: "discarded", kind: "defer_until_modified" }));
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("post-expiry Defer stays silent on the returned-error settle too", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "LIVE_ROW_REQUIRED" }));
+    const { container, getByTestId } = renderButtons();
+    fireEvent.click(getByTestId(`admin-pending-ignore-${ID}`)); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000); // expire
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+    await act(async () => {
+      fireEvent.click(getByTestId(`admin-pending-defer-${ID}`)); // dispatch -> error settle
+    });
+    expect(region(container).textContent).not.toBe(EXPIRY);
+  });
+
+  test("re-arm after expiry is audible both ways", () => {
+    vi.useFakeTimers();
+    const { container, getByTestId } = renderButtons();
+    const btn = getByTestId(`admin-pending-ignore-${ID}`);
+    fireEvent.click(btn); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000); // expire #1
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
+    fireEvent.click(btn); // re-arm — content changes (audible)
+    expect(region(container).textContent).toBe(
+      "Tap again to stop tracking this sheet permanently.",
+    );
+    act(() => {
+      vi.advanceTimersByTime(4_000); // expire #2 — content changes again
+    });
+    expect(region(container).textContent).toBe(EXPIRY);
   });
 });

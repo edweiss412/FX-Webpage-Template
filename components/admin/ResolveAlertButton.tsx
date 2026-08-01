@@ -51,10 +51,10 @@
  * (brief §1 + §11): if he tapped Resolve and put his phone down to
  * call a cue, the state reverts to idle automatically.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { AccentButton } from "@/components/shared/AccentButton";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -63,6 +63,9 @@ type UiState = "idle" | "confirm";
 
 export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) {
   const [ui, setUi] = useState<UiState>("idle");
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -116,8 +119,12 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
 
   const onResolveClick = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("confirm");
     autoRevertTimerRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -134,8 +141,24 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
   // This is the load-bearing M9-D-C4-1 change.
   const onConfirmClick = () => {
     clearAutoRevert();
+    setExpired(false);
   };
 
+  // Single return with a key-stable live-region sibling: the region node must
+  // survive idle/confirm branch swaps (spec 2026-08-01-announce-a11y-pass §3.3
+  // persistent-region rule; plan R1 F1 restructure).
+  const liveRegion = (
+    <span
+      key="arm-expiry-region"
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="arm-expiry-announce"
+    >
+      {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+    </span>
+  );
+  let branch: ReactNode;
   if (ui === "idle") {
     if (quiet) {
       // Quiet idle variant for in-panel placement (watch-alert dismiss row):
@@ -143,7 +166,7 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
       // the action slot; a second full-strength accent button on the same open
       // surface would dilute the one-accent doctrine (DESIGN.md §1). Mirrors
       // the ConfirmRow Cancel treatment. Two-tap confirm keeps full prominence.
-      return (
+      branch = (
         <button
           type="button"
           ref={triggerRef}
@@ -154,28 +177,36 @@ export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) 
           Dismiss
         </button>
       );
+    } else {
+      branch = (
+        <AccentButton
+          ref={triggerRef}
+          data-testid="admin-alert-resolve-button"
+          onClick={onResolveClick}
+          fontWeight="medium"
+          minWidthTap
+          ringOffset="warning-bg"
+        >
+          Dismiss
+        </AccentButton>
+      );
     }
-    return (
-      <AccentButton
-        ref={triggerRef}
-        data-testid="admin-alert-resolve-button"
-        onClick={onResolveClick}
-        fontWeight="medium"
-        minWidthTap
-        ringOffset="warning-bg"
-      >
-        Dismiss
-      </AccentButton>
+  } else {
+    branch = (
+      <ConfirmRow
+        onConfirmClick={onConfirmClick}
+        onCancelClick={onCancelClick}
+        cancelRef={cancelRef}
+        rowRef={confirmRowRef}
+      />
     );
   }
 
   return (
-    <ConfirmRow
-      onConfirmClick={onConfirmClick}
-      onCancelClick={onCancelClick}
-      cancelRef={cancelRef}
-      rowRef={confirmRowRef}
-    />
+    <>
+      {branch}
+      {liveRegion}
+    </>
   );
 }
 

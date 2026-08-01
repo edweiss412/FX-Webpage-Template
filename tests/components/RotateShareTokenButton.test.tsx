@@ -429,3 +429,61 @@ describe("RotateShareTokenButton — destructive recipe + focus-safe open/close 
     expect(idleBtn()).not.toHaveFocus();
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 10,
+// §3.3/§5.1). The rotate row keeps its live 4s timer (spec §1.1) — the close
+// is announced; Cancel and confirm stay silent past the horizon.
+describe("arm-expiry announcement — RotateShareTokenButton", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  test("auto-revert announces expiry in the SAME region node", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    const before = screen.getByTestId("arm-expiry-announce");
+    expect(before.textContent).toBe("");
+    fireEvent.click(idleBtn()); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    const after = screen.getByTestId("arm-expiry-announce");
+    expect(after, "region node must survive the confirm-to-idle swap").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+  });
+
+  test("Cancel never announces expiry, even past the timer horizon", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    fireEvent.click(cancelBtn());
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(screen.getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
+  test("confirm dispatch never announces expiry, even past the timer horizon", async () => {
+    mockRotateOk();
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+    });
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(screen.getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
+  test("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(screen.getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+    fireEvent.click(idleBtn()); // re-arm clears
+    expect(screen.getByTestId("arm-expiry-announce").textContent).toBe("");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(screen.getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+  });
+});

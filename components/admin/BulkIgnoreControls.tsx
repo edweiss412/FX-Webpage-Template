@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
   /** Plain-language type label (catalog title / data-gap label), or null. Never the raw code. */
@@ -68,6 +68,9 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
   const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
   const [armedCode, setArmedCode] = useState<string | null>(null);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback (keyed to the expired group); cleared at arm and at dispatch entry.
+  const [expiredCode, setExpiredCode] = useState<string | null>(null);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   function clearArmTimer() {
     if (armTimerRef.current !== null) {
@@ -81,15 +84,18 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
     if (armedCode !== group.code) {
       // Arm (or re-arm from another group): timer restarted either way.
       setArmedCode(group.code);
+      setExpiredCode(null);
       clearArmTimer();
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setArmedCode(null);
+        setExpiredCode(group.code);
       }, ARM_REVERT_MS);
       return;
     }
     clearArmTimer();
     setArmedCode(null);
+    setExpiredCode(null);
     void ignoreGroup(group);
   }
 
@@ -216,7 +222,11 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
                     {/* Persistent sr-only live region (always mounted — conditional mounting
                         drops the announcement). Kept as the chip's nextElementSibling. */}
                     <span role="status" className="sr-only">
-                      {armed ? "Tap again to confirm." : ""}
+                      {armed
+                        ? "Tap again to confirm."
+                        : expiredCode === group.code
+                          ? ARM_EXPIRED_ANNOUNCEMENT
+                          : ""}
                     </span>
                   </>
                 ) : null}
