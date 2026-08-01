@@ -614,6 +614,51 @@ test.describe("attention modal switcher gallery", () => {
       .toBeGreaterThanOrEqual(44);
   });
 
+  // 390px switcher-bar layout contract (spec 2026-08-01-focus-ring-a11y-pass
+  // §7.1, plan Task 5): containment + no overflow + counter untruncated +
+  // label readable floor + interactive controls at the tap floor. The tier
+  // badge is a non-interactive span: containment only, no 44px requirement.
+  test("switcher bar keeps all six clusters visible and readable at 390px (§7.1)", async ({
+    page,
+  }) => {
+    await gotoScenario(page, "t2-ignored-warnings");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const bar = page.locator('[data-testid="attention-switcher-controls"]');
+    await expect(bar).toBeVisible();
+    expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const ids = [
+      "attention-switcher-prev",
+      "attention-switcher-next",
+      "attention-switcher-counter",
+      "attention-switcher-label",
+      "attention-switcher-tier",
+      "attention-switcher-group-select",
+      "attention-switcher-excluded-toggle",
+    ];
+    for (const id of ids) {
+      const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
+      if (box === null) throw new Error(`${id} not rendered`);
+      expect(box.x, id).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, id).toBeLessThanOrEqual(390);
+      expect(box.width, id).toBeGreaterThan(0);
+    }
+    const counter = page.locator('[data-testid="attention-switcher-counter"]');
+    expect(await counter.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const label = await page.locator('[data-testid="attention-switcher-label"]').boundingBox();
+    if (label === null) throw new Error("label not rendered");
+    expect(label.width).toBeGreaterThanOrEqual(48);
+    for (const id of [
+      "attention-switcher-prev",
+      "attention-switcher-next",
+      "attention-switcher-group-select",
+      "attention-switcher-excluded-toggle",
+    ]) {
+      const box = await page.locator(`[data-testid="${id}"]`).boundingBox();
+      if (box === null) throw new Error(`${id} not rendered`);
+      expect(box.height, id).toBeGreaterThanOrEqual(44);
+    }
+  });
+
   // Focus-ring offset probe (spec 2026-08-01-focus-ring-a11y-pass §8 row 4, plan
   // Task 3 probe B): a REGISTRY-lane control (DataQualityWarningControls
   // RING_OFFSET[mode], ignored mode -> surface-sunken) must render its offset
