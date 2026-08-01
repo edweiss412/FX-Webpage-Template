@@ -43,6 +43,7 @@
  * Tailwind JIT must see complete class names; DESIGN.md focus-ring row).
  */
 import { ExternalLink } from "lucide-react";
+import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
 
 type SheetIconLinkProps = {
   /** Resolved sheet deep link. Call sites keep their null-gating: null never
@@ -79,7 +80,7 @@ export function SheetIconLink({
   ringOffset,
   className,
 }: SheetIconLinkProps) {
-  const trimmed = subjectLabel.trim();
+  const trimmed = stripNewTabSuffix(subjectLabel).trim();
   // The ternary lives INLINE in the attribute so the _metaNewTabAnnouncement
   // static census can SEE the announcement inside the aria-label expression —
   // hoisting it to a const made the anchor unverifiable to that guard.

@@ -1031,3 +1031,68 @@ describe("scanner and runtime agree, per attribute kind", () => {
     });
   }
 });
+
+// spec 2026-07-31-judgment-chip-newtab-suffix-design.md §3 — the three
+// interpolated labels never stack the appended suffix. Exact computed-name
+// assertions (not getAttribute) so an aria-labelledby regression is caught.
+import { SheetIconLink } from "@/components/admin/SheetIconLink";
+import { DiagramTile } from "@/components/admin/wizard/step3ReviewSections";
+import { SheetTitleLink } from "@/components/admin/wizard/Step3SheetCard";
+
+describe("interpolated labels never stack the appended suffix (spec 2026-07-31 §3)", () => {
+  test("SheetIconLink: trailing occurrence in the subject dedupes to one", () => {
+    const { getByRole } = render(
+      <SheetIconLink
+        href="https://x"
+        subjectLabel="Summit (opens in a new tab)"
+        testId="t1"
+        ringOffset="bg"
+      />,
+    );
+    expect(getByRole("link")).toHaveAccessibleName(
+      "Open the source sheet for Summit in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("SheetIconLink: mid-string occurrence is preserved, exactly two total", () => {
+    const { getByRole } = render(
+      <SheetIconLink
+        href="https://x"
+        subjectLabel="Summit (opens in a new tab) Tour"
+        testId="t2"
+        ringOffset="bg"
+      />,
+    );
+    expect(getByRole("link")).toHaveAccessibleName(
+      "Open the source sheet for Summit (opens in a new tab) Tour in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("DiagramTile: alt ending in the phrase announces it once", () => {
+    const { getByRole } = render(
+      <DiagramTile
+        src="https://x/img"
+        alt="Stage plot (opens in a new tab)"
+        testId="t3"
+        hasPreviewSource={true}
+      />,
+    );
+    expect(getByRole("link")).toHaveAccessibleName("Stage plot (opens in a new tab)");
+  });
+
+  test("SheetTitleLink: title ending in the phrase announces it once", () => {
+    const { getByRole } = render(
+      <SheetTitleLink dfid="d1" title="II - Summit (opens in a new tab)" />,
+    );
+    expect(getByRole("link")).toHaveAccessibleName(
+      "Open the source sheet for II - Summit in Google Sheets (opens in a new tab)",
+    );
+  });
+
+  test("SheetTitleLink: title that strips to empty takes the no-subject fallback", () => {
+    const { getByRole } = render(<SheetTitleLink dfid="d1" title="(opens in a new tab)" />);
+    expect(getByRole("link")).toHaveAccessibleName(
+      "Open the source sheet in Google Sheets (opens in a new tab)",
+    );
+  });
+});
