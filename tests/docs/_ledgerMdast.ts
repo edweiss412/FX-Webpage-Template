@@ -308,7 +308,11 @@ function labelTerminal(line: FlatLine, label: LabelSpan): string | null {
   return null;
 }
 
-const SEP_AFTER_LABEL = /^\s*[:—–-]?\s*✅?\s*/;
+// Separator after a field label: colon, em/en dash, or a whitespace-
+// delimited ASCII dash — never a bare hyphen, which would re-admit the
+// token-splitting class the maximal-token rule excludes (whole-diff r2:
+// `Status-CLOSED` and `**Status:**-CLOSED` are not field claims).
+const SEP_AFTER_LABEL = /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/;
 
 /**
  * Every field-lane verdict for one flattened line. Returns `lane:WORD`
@@ -339,7 +343,9 @@ export function lineVerdicts(line: FlatLine): string[] {
     if (TERMINAL.test(tok) && !vetoed(line.text, at)) hits.push(`field-label:${tok}`);
   }
 
-  const lead = /^\s*(status|resolution|filed)\b/i.exec(line.text);
+  // The label itself must be a MAXIMAL token — \b would match before a
+  // hyphen and read `Status-CLOSED` as a lead (whole-diff r2).
+  const lead = /^\s*(status|resolution|filed)(?![A-Za-z0-9-])/i.exec(line.text);
   const leadStart = lead === null ? 0 : lead[0].length - lead[1]!.length;
   const leadField =
     lead !== null && !overlaps(line.codeSpans, leadStart, leadStart + lead[1]!.length);

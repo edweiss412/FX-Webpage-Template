@@ -143,16 +143,16 @@ function lineVerdicts(line) {
   for (const L of labels) {
     const labelTokens = spanTokens(line, L.s, L.e);
     if (labelTokens.length !== 1 || !FIELD_LABELS.test(labelTokens[0].t)) continue;
-    let vs = L.e + /^\s*[:—–-]?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
+    let vs = L.e + /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
     const tok = tokenAt(line.text, vs);
     if (TERMINAL.test(tok) && !vetoed(line.text, vs)) hits.push(`field-label:${tok}`);
   }
-  const lead = /^\s*(status|resolution|filed)\b/i.exec(line.text);
+  const lead = /^\s*(status|resolution|filed)(?![A-Za-z0-9-])/i.exec(line.text);
   const leadStart = lead ? lead[0].length - lead[1].length : 0;
   const leadField =
     lead !== null && !overlaps(line.codeSpans, leadStart, leadStart + lead[1].length);
   if (leadField) {
-    let i = lead[0].length + /^\s*[:—–-]?\s*✅?\s*/.exec(line.text.slice(lead[0].length))[0].length;
+    let i = lead[0].length + /^\s*(?::|[—–]|-(?=\s))?\s*✅?\s*/.exec(line.text.slice(lead[0].length))[0].length;
     const tok = tokenAt(line.text, i);
     if (TERMINAL.test(tok) && !vetoed(line.text, i)) hits.push(`leading:${tok}`);
     for (const [s, e] of line.strongSpans) {
@@ -269,7 +269,7 @@ function entryVerdicts(e) {
   const hits = [];
   hits.push(...headingVerdict(e.headingLine, e.id));
   const bodyLines = flattenLines(e.body, "claim");
-  hits.push(...openingVerdict(bodyLines[0]));
+  hits.push(...openingVerdict(bodyLines.find((l) => /[A-Za-z0-9-]/.test(l.text))));
   for (const l of bodyLines) hits.push(...lineVerdicts(l));
   return hits;
 }

@@ -631,6 +631,12 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(entryHit("**CLOSED-by:** discussion")).toBe(false);
     // intraword __ never renders bold and never claims (r28):
     expect(entryHit("**Filed:** 2026. Token foo__CLOSED__bar is still open.")).toBe(false);
+    // whole-diff r2 — a bare hyphen is not a field separator, and a label
+    // must itself be a maximal token:
+    expect(entryHit("Status-CLOSED")).toBe(false);
+    expect(entryHit("**Class:** x · **Status:**-CLOSED")).toBe(false);
+    // …while the whitespace-delimited ASCII dash stays a separator (r35):
+    expect(entryHit("Status - CLOSED")).toBe(true);
     // intact controls:
     expect(entryHit("x **Closed:** 2026")).toBe(true);
     expect(headingHit("## BL-M6C — CLOSED 2026")).toBe(true);
