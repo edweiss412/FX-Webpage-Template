@@ -81,7 +81,7 @@ Pattern (both): `const [expired, setExpired] = useState(false);` — timer callb
   - expiry: arm → `advanceTimersByTime(4_000)` → region text `"Confirm window closed. Nothing was changed."` (literal).
   - confirm-tap silent: arm → second tap → advance 4s → expiry copy never appeared.
   - sibling silent (Pending): arm ignore → click defer → advance 4s → no expiry copy.
-  - post-expiry action does not re-announce (spec §5.1 R2 F1, Pending): expire → dispatch Defer → let it settle → region holds idle/outcome content, expiry copy did NOT return (catches a persisted `expired` flag surviving the "Working…" multiplex).
+  - post-expiry action does not re-announce (spec §5.1 R2 F1 + R3 F1, Pending): expire → dispatch Defer → assert the expiry copy is ALREADY gone at the running state (dispatch-entry pin), then settle and assert it never returns. Two variants: Defer settling OK and Defer settling on the returned-error path. Implementation note: `setExpired(false)` sits at `handleClick` ENTRY (beside the existing `clearArmTimer(); setArmed(false);`), never in a settlement branch — spec §3.3 makes branch-placement a violation.
   - disabled-flip silent (Blocked): arm → flip `disabled` → advance 4s → no expiry copy.
   - re-arm audibility: expire → arm again (region shows arm prompt) → expire again (copy present again).
 - [ ] RED → implement → GREEN → commit `feat(admin): announce arm expiry on pending-discard + blocked-row surfaces`.
@@ -107,7 +107,7 @@ Pattern (both): `const [expired, setExpired] = useState(false);` — timer callb
 
 Two changes: (a) region ternary gains expired arm (same pattern as Task 2, arm copy "Tap again to confirm."); (b) `handleApply` gains, at entry after the `pending` guard: `clearIgnoreArmTimer(); setIgnoreArmed(false); setExpired(false);` — mirroring `handleDiscard`.
 
-- [ ] Tests: expiry announces; confirm-tap silent; **Apply disarm** — arm ignore → click Apply (mock fetch pending) → advance 4s → NO expiry copy (this is the F1 regression test; it FAILS against current code); discard sibling silent; re-arm audibility.
+- [ ] Tests: expiry announces; confirm-tap silent; **Apply disarm** — arm ignore → click Apply (mock fetch pending) → advance 4s → NO expiry copy (this is the F1 regression test; it FAILS against current code); **post-expiry Apply** (spec §5.1 R3 F1 — armed-start tests cannot catch a stale flag): expire → click Apply → expiry copy gone at dispatch, absent after settle; discard sibling silent; re-arm audibility. Clears (`clearIgnoreArmTimer(); setIgnoreArmed(false); setExpired(false);`) sit at `handleApply`/`handleDiscard` ENTRY.
 - [ ] RED → implement → GREEN → commit `fix(admin): staged-card Apply disarms the ignore confirm; announce arm expiry`.
 
 ### Task 5: ArchiveShowButton morph — new region (arm + expiry), row-branch negative
