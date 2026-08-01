@@ -214,15 +214,25 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
   const found = [];
   tops.forEach((n, i) => {
     if (n.type !== "heading" || !(levels ?? [2, 3]).includes(n.depth)) return;
-    // r8: source parity — the legacy matcher requires the id (or its bracket
-    // prefix) to start in PLAIN text at the heading start. A heading whose
-    // first inline child is strong/emphasis/inlineCode (`### **NOTES**`)
-    // never minted an id and must not now: gate on first child type text or
-    // delete (ratified strikethrough).
-    const first = (n.children ?? [])[0];
-    if (!first || (first.type !== "text" && first.type !== "delete")) return;
-    const flat = flattenLines([n], "id")[0]?.text ?? "";
-    const m = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat);
+    // r8/r9: source parity — the legacy matcher consumes the optional
+    // bracket prefix and the id in RAW SOURCE, stopping at any formatting
+    // delimiter. So: strip the prefix from the FIRST inline child's text; if
+    // characters remain there, the id must start in that same plain text; if
+    // the prefix exhausts the first child, the id may start only in an
+    // immediately-following delete node (`### [P2] ~~ID~~`). A formatted id
+    // after a plain prefix (`### [P2] **BL-X**`) never minted and must not.
+    const kids = n.children ?? [];
+    const first = kids[0];
+    let idSource = null;
+    if (first?.type === "text") {
+      const rem = String(first.value).replace(/^\s*(?:\[[^\]]+\]\s*)?/, "");
+      if (rem !== "") idSource = rem;
+      else if (kids[1]?.type === "delete") idSource = flattenLines([kids[1]], "id")[0]?.text ?? "";
+    } else if (first?.type === "delete") {
+      idSource = flattenLines([first], "id")[0]?.text ?? "";
+    }
+    if (idSource === null) return;
+    const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(idSource);
     if (!m || /[a-z]/.test(m[1])) return;
     if (requirePrefix && !m[1].startsWith(requirePrefix)) return;
     // id END in the CLAIM-flattened heading (id may be delete-wrapped there:
@@ -325,6 +335,19 @@ for (const [nm, md] of [
   const ok = ids.length === 0;
   if (!ok) fails++;
   console.log(`${nm}: ids=${JSON.stringify(ids)} expected=[] ${ok ? "OK" : "MISMATCH"}`);
+}
+// r9-review shapes: bracket prefix + formatted id mints nothing
+for (const [nm, md, expect] of [
+  ["bracket+strong id", "## [P2] **BL-STRONG** — CLOSED\n\nbody\n", []],
+  ["bracket+emphasis id", "## [P2] *BL-EM* — CLOSED\n\nbody\n", []],
+  ["bracket+code id", "## [P2] \`BL-CODE\` — CLOSED\n\nbody\n", []],
+  ["bracket+plain control", "## [P2] BL-PLAIN — open\n\nbody\n", ["BL-PLAIN"]],
+  ["bracket+struck control", "## [P2] ~~BL-DEL~~ — open\n\nbody\n", ["BL-DEL"]],
+]) {
+  const ids = entries(md).map((e) => e.id);
+  const ok = JSON.stringify(ids) === JSON.stringify(expect);
+  if (!ok) fails++;
+  console.log(`${nm}: ids=${JSON.stringify(ids)} expected=${JSON.stringify(expect)} ${ok ? "OK" : "MISMATCH"}`);
 }
 // four-ledger id parity census: legacy regex vs walker extraction
 {
