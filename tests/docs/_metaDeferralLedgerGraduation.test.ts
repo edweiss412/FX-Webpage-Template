@@ -244,6 +244,10 @@ const BACKLOG_GRADUATED = [
   // test/alert-action-links-e2e (2026-07-27): PR6, the last of the sweep — live-app
   // e2e over every registered alert action link.
   { id: "BL-ALERT-ACTION-LINKS-E2E", provenance: "test/alert-action-links-e2e" },
+  // feat/ci-dark-vitest-exclusion (2026-07-31): PR-B of the ci-dark descoped
+  // close-out — every ENV_BOUND_EXCLUDES entry now proves execution via the
+  // run-excluded oracle registry; test-auth-gate returned to unit-suite.
+  { id: "BL-CI-VITEST-EXCLUSION-COVERAGE", provenance: "feat/ci-dark-vitest-exclusion" },
   // feat/driveid-guard-cluster (2026-07-27): the four soundness follow-ups the 2026-07-25
   // Drive-ID coverage guard filed, closed by the guard-cluster spec.
   { id: "BL-DRIVEID-CENSUS-QUERY-SELF-CHECK", provenance: "feat/driveid-guard-cluster" },
