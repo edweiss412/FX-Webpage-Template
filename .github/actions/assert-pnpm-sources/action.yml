@@ -1,0 +1,13 @@
+name: Assert pnpm sources clean
+description: >
+  Pre-node refusal of node-killing pnpm settings and workflow execution
+  overrides (spec ci-dark descoped close-out §6; R15-B). Runs as a COMPOSITE
+  action step so it is immune to a job/workflow `defaults.run.shell` no-op —
+  a `run:`-step guard cannot inspect the very `defaults:` that no-ops it
+  (R15-B self-bypass). Because this step still executes under that override,
+  the script reaches its `defaults:` refusal and reds the job.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: bash scripts/ci/assert-pnpm-sources-clean.sh

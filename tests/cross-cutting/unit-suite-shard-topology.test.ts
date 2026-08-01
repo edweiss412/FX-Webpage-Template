@@ -142,26 +142,28 @@ describe("unit-suite matrix topology", () => {
     // …and the node-side guards run INSIDE the process pnpm settings control:
     // an effective nodeOptions preload exits node before vitest starts, so
     // every vitest-hosted allowlist reports nothing while the step is green
-    // (R13-B, probe-confirmed). A bash-only pre-step — unpoisonable by
-    // construction — must precede the vitest step, verbatim and undecorated.
+    // (R13-B, probe-confirmed). A pre-node guard — unpoisonable by
+    // construction — must precede the vitest step. It is a COMPOSITE `uses:`
+    // action, NOT a `run:` step (R15-B): a `defaults.run.shell` no-op
+    // silences every run: step INCLUDING a run-step guard, so a run-guard
+    // can never inspect the very defaults: that no-ops it; a composite step
+    // is immune and still reaches the script's defaults: refusal.
     const steps = job?.steps ?? [];
-    const bashGuardIdx = steps.findIndex(
-      (s) =>
-        typeof s.run === "string" &&
-        s.run.trim() === "bash scripts/ci/assert-pnpm-sources-clean.sh",
-    );
+    const guardIdx = steps.findIndex((s) => s.uses === "./.github/actions/assert-pnpm-sources");
     const vitestIdx = steps.findIndex(
       (s) => typeof s.run === "string" && (s.run as string).includes("vitest run"),
     );
-    expect(bashGuardIdx, `${key} must run the bash pnpm-sources guard`).toBeGreaterThanOrEqual(0);
     expect(
-      bashGuardIdx < vitestIdx,
-      `${key}'s bash pnpm-sources guard must precede the vitest step`,
-    ).toBe(true);
+      guardIdx,
+      `${key} must use the assert-pnpm-sources composite guard`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(guardIdx < vitestIdx, `${key}'s pnpm-sources guard must precede the vitest step`).toBe(
+      true,
+    );
     expect(
-      Object.keys(steps[bashGuardIdx]!).sort(),
-      `${key}'s bash guard step must carry ONLY name/run`,
-    ).toEqual(["name", "run"]);
+      Object.keys(steps[guardIdx]!).sort(),
+      `${key}'s guard step must carry ONLY name/uses (no run:/with:/env: decoration)`,
+    ).toEqual(["name", "uses"]);
   });
 
   // The whole point of the split. If the no-DB job ever boots Supabase it silently
@@ -185,13 +187,15 @@ describe("unit-suite matrix topology", () => {
           "DB-free project and skip the boot entirely (that saving IS the split)",
       ).toBe(false);
     }
-    // Only the two setup actions plus the vitest step; a new `uses:` is how a
-    // database would most plausibly sneak back in.
+    // checkout + setup + the assert-pnpm-sources composite guard (R15-B);
+    // a FOURTH `uses:` is how a database bring-up would most plausibly
+    // sneak back in. The guard action is pinned by the placement assertion
+    // above, so counting it here does not weaken the database check.
     expect(
       (nodb.match(/uses:/g) ?? []).length,
-      "unit-suite-nodb must use exactly two actions (checkout + setup); a third is how a " +
-        "database bring-up would return",
-    ).toBe(2);
+      "unit-suite-nodb must use exactly three actions (checkout + setup + pnpm-sources guard); " +
+        "a fourth is how a database bring-up would return",
+    ).toBe(3);
   });
 
   it("both jobs set VITEST_EXCLUDE_ENV_BOUND=1", () => {

@@ -275,32 +275,34 @@ describe("env-bound exclusion coverage (spec §6)", () => {
         coverageRowProblems(row, file, raw),
         `${row.workflow}#${row.job} failed verification for ${file}`,
       ).toEqual([]);
-      // R13-B corpus pin: the covering job must run the bash-only pnpm
-      // sources guard BEFORE the run-excluded step — the oracle's own node
-      // process is killable by an effective nodeOptions preload, so the
-      // pre-node bash layer is the only one that cannot be self-bypassed.
+      // R13-B/R15-B corpus pin: the covering job must invoke the
+      // assert-pnpm-sources COMPOSITE guard BEFORE the run-excluded step.
+      // The oracle's own node process is killable by an effective
+      // nodeOptions preload (R13-B) and a `defaults.run.shell` no-op
+      // silences every run: step (R15-B) — so the guard is a `uses:`
+      // composite action (immune to both) that still reaches the script's
+      // node-options / defaults refusals.
       {
         const wf = parse(raw) as WorkflowShape;
         const steps = wf.jobs?.[row.job]?.steps ?? [];
         const guardIdx = steps.findIndex(
-          (s) =>
-            typeof s.run === "string" &&
-            s.run.trim() === "bash scripts/ci/assert-pnpm-sources-clean.sh",
+          (s) => (s as { uses?: unknown }).uses === "./.github/actions/assert-pnpm-sources",
         );
         const coveringIdx = steps.findIndex(
           (s) => typeof s.run === "string" && s.run.trim() === `pnpm run-excluded ${file}`,
         );
-        expect(guardIdx, `${row.job} must run the bash pnpm-sources guard`).toBeGreaterThanOrEqual(
-          0,
-        );
+        expect(
+          guardIdx,
+          `${row.job} must use the assert-pnpm-sources composite guard`,
+        ).toBeGreaterThanOrEqual(0);
         expect(
           guardIdx < coveringIdx,
-          `${row.job}'s bash pnpm-sources guard must precede the run-excluded step`,
+          `${row.job}'s pnpm-sources guard must precede the run-excluded step`,
         ).toBe(true);
         expect(
           Object.keys(steps[guardIdx]! as object).sort(),
-          `${row.job}'s bash guard step must carry ONLY name/run`,
-        ).toEqual(["name", "run"]);
+          `${row.job}'s guard step must carry ONLY name/uses`,
+        ).toEqual(["name", "uses"]);
       }
       // github.workflow interpolates the DISPLAY name, and concurrency
       // groups are repository-wide AND case-insensitive (R2-B F4, tightened
