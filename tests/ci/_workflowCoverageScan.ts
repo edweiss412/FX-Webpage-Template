@@ -170,7 +170,7 @@ function runsBlockOf(text: string): string | null {
  * reads (`uses`, `if`, `continue-on-error`, `run`, …).
  */
 const UNMODELLED_SPELLING_RE =
-  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]|(^|\n)[ \t]*(?:-[ \t]+)?\?[ \t]|(^|\n)[ \t]*:[ \t]|(^|\n)[ \t]*(?:-[ \t]+)?!/;
+  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]|(^|\n)[ \t]*(?:-[ \t]+)?\?(?=[ \t]|\r?\n|$)|(^|\n)[ \t]*:(?=[ \t]|\r?\n|$)|(^|\n)[ \t]*(?:-[ \t]+)?!/;
 
 /** A step chunk minus its run VALUE — the metadata the spelling refusal reads. */
 function stepMetaOf(chunk: string): string {

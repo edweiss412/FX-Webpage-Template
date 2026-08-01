@@ -488,6 +488,15 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.covered.has(spec)).toBe(false);
       expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
     }
+    // R6: bare indicator lines — `?` / `:` at END of line (key/value on the
+    // continuation, inline comment blocking the plain-key detector) parse
+    // identically; the anchors are EOL-tolerant so the split form reds too.
+    const splitExplicit = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ?\n          if # split explicit key\n        :\n          false\n        run: playwright test ${spec}\n`;
+    {
+      const r = S(splitExplicit);
+      expect(r.covered.has(spec)).toBe(false);
+      expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+    }
     const explicitPaths = `name: x\non:\n  pull_request:\n    ? paths\n    : ["docs/**"]\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: playwright test ${spec}\n`;
     {
       const r = S(explicitPaths);
