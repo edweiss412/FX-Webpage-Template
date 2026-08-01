@@ -27,7 +27,7 @@ MF-1 is the hole the backlog entry demonstrates via commit `1c1ae148e` (which ha
 
 ## 2. Design
 
-Extend `tests/cross-cutting/pgCronCiVacuity.test.ts` (serial project — `tests/cross-cutting` is not in `PARALLEL_TEST_GLOBS`, `vitest.projects.ts`; CI job `unit-suite-db`, which boots Supabase) with a second describe block, "query-count mechanism cannot be deleted silently", holding one injection helper and two probes. Reuses the existing `runSuite` helper unchanged.
+Extend `tests/cross-cutting/pgCronCiVacuity.test.ts` (serial project — `tests/cross-cutting` is not in `PARALLEL_TEST_GLOBS`, `vitest.projects.ts`; CI job `unit-suite-db`, which boots Supabase) with a second describe block, "query-count mechanism cannot be deleted silently", holding one injection helper and two probes. The existing `runSuite` helper gains an optional second parameter `file: string = SUITE` threaded into the child vitest argument list — the three existing call sites pass no second argument and are behaviourally unchanged; the probes pass the mutant's repo-relative path.
 
 ### 2.1 Injection helper
 
