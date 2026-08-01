@@ -239,7 +239,7 @@ Persistent sr-only region at the popover root (mounted whenever the popover rend
 ## Checklist gates (process)
 
 - [x] Plan self-review (placeholder scan, type consistency, snippet verification).
-- [ ] **Adversarial review (cross-model)** — Codex plan-review rounds to APPROVE (this gate sits between self-review and execution handoff; in flight now).
+- [x] **Adversarial review (cross-model)** — Codex plan-review APPROVE at R2 (2026-08-01).
 - [ ] Execution (Tasks 1–12, autonomous pipeline).
 
 ## Self-review notes
