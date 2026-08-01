@@ -392,6 +392,12 @@ export function scanWorkflowCoverage({
     // that is skipped. Any of them anywhere means this scanner cannot say what
     // ran, so it says nothing.
     const unmodelled = UNMODELLED_RE.test(yaml);
+    // R3 comprehensive-audit closure: document markers/directives make the
+    // regex scan and the YAML parser read DIFFERENT documents (a second
+    // `---` document is text this scanner would claim from while the runner
+    // never executes it). Zero live workflows carry any; a run body printing
+    // one costs a reasoned allowlist row — fail-closed.
+    const docMarkers = /(^|\n)(---|\.\.\.|%YAML|%TAG)/.test(yaml);
 
     for (const job of jobs(yaml)) {
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
@@ -442,7 +448,7 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
-            else if (headSpelling || stepSpelling)
+            else if (docMarkers || headSpelling || stepSpelling)
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
             else if (envPoisoned)
               rejected.push({

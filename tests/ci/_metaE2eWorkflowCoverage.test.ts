@@ -468,6 +468,23 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(proseComposite.covered.has(spec)).toBe(true);
   });
 
+  it("document markers make regex and parser read different documents — refused (R3 audit)", () => {
+    // A second `---` document is text a regex scan would claim from while
+    // the runner never executes it. Zero live workflows carry any marker.
+    const w = `${two("run: echo hi")}---\nname: phantom\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+  });
+
+  it("an inline comment glued onto a uses: value fails closed, never mis-resolves (R3 audit)", () => {
+    // Strict value extraction: "actions/checkout@v4 # pin" is not a plain
+    // token, so it poisons rather than silently resolving to either branch.
+    const r = S(two("uses: actions/checkout@v4 # pin"));
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(REASON);
+  });
+
   it("nested local composites resolve recursively; cycles fail closed (F8)", () => {
     // R1 escaping mutant #2: a composite may `uses:` another local
     // composite; the child's writes must poison the caller's job.
