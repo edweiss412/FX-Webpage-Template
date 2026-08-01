@@ -3,6 +3,8 @@ import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
+import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";
+import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
@@ -54,8 +56,11 @@ type UsableReelRow = ReelRow & {
 };
 
 type ReelDriveOptions = {
-  responseType: "stream";
+  responseType?: "stream";
   headers?: Record<string, string>;
+  timeout?: number;
+  retry?: boolean;
+  signal?: AbortSignal;
 };
 
 type ReelDriveResponse = {
@@ -394,11 +399,14 @@ async function authorizeReelRequest(
   const drive = getDriveClient() as unknown as ReelDriveClient;
   let current: DriveMetadata;
   try {
-    const meta = (await drive.files.get({
-      fileId: row.opening_reel_drive_file_id,
-      fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
-      supportsAllDrives: true,
-    })) as { data: DriveMetadata };
+    const meta = (await drive.files.get(
+      {
+        fileId: row.opening_reel_drive_file_id,
+        fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    )) as { data: DriveMetadata };
     current = meta.data;
   } catch (err) {
     if (isPermissionDenied(err))
@@ -524,11 +532,14 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     const drive = getDriveClient() as unknown as ReelDriveClient;
     // Codex R14 P1: `supportsAllDrives: true` so reels in Shared
     // Drives resolve instead of 404ing on the metadata + media calls.
-    const { data: current } = (await drive.files.get({
-      fileId: row.opening_reel_drive_file_id,
-      fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
-      supportsAllDrives: true,
-    })) as { data: DriveMetadata };
+    const { data: current } = (await drive.files.get(
+      {
+        fileId: row.opening_reel_drive_file_id,
+        fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    )) as { data: DriveMetadata };
     if (drifted(row, current)) {
       return gone("drift", { showId: show });
     }
@@ -560,8 +571,12 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       }
     }
 
+    // Bound the stream-open AWAIT (connect + headers), never the body; the
+    // guard clears the moment the await settles either way (drive-timeout
+    // cluster spec 3.2). The md5 fallback in the catch arms its OWN guard.
+    const revGuard = createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS);
     try {
-      const revOpts: ReelDriveOptions = { responseType: "stream" };
+      const revOpts: ReelDriveOptions = { responseType: "stream", signal: revGuard.signal };
       if (rangeHeader && Number.isFinite(reportedSize)) {
         revOpts.headers = { Range: rangeHeader };
       }
@@ -573,6 +588,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
         revOpts,
       )) as ReelDriveResponse;
+      revGuard.clear();
       // Drive returns 200 (full body) or 206 (partial). Forward verbatim.
       const driveStatus = typeof revRes.status === "number" ? revRes.status : 200;
       const contentRange = pickStringHeader(revRes.headers, "content-range");
@@ -650,6 +666,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       }
       return new Response(stream, { status: driveStatus, headers: responseHeaders });
     } catch (revisionsError) {
+      revGuard.clear();
       // Codex R18 P1: Drive 416 means the requested Range is
       // unsatisfiable (e.g., past the end of the file). Return 416 to
       // the client — NOT a generic 500. Surface size context when
@@ -658,14 +675,20 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
       }
       if (!isRevisionFallbackAllowed(revisionsError)) throw revisionsError;
-      const { data } = (await drive.files.get(
-        {
-          fileId: row.opening_reel_drive_file_id,
-          alt: "media",
-          supportsAllDrives: true,
-        },
-        { responseType: "stream" },
-      )) as { data: unknown };
+      const fallbackGuard = createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS);
+      let data: unknown;
+      try {
+        ({ data } = (await drive.files.get(
+          {
+            fileId: row.opening_reel_drive_file_id,
+            alt: "media",
+            supportsAllDrives: true,
+          },
+          { responseType: "stream", signal: fallbackGuard.signal },
+        )) as { data: unknown });
+      } finally {
+        fallbackGuard.clear();
+      }
       // Codex R3 P1: md5 fallback must hash before serving, but
       // `readBoundedNodeStream` finalized a 2nd contiguous Uint8Array
       // for every chunk it had already buffered — 2x in-memory cost.
