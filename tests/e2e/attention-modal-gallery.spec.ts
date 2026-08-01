@@ -551,7 +551,12 @@ test.describe("attention modal switcher gallery", () => {
   }) => {
     await gotoScenario(page, "t2-archived");
     const dialog = page.locator(DIALOG);
-    await expect(dialog.getByText(/archived/i).first()).toBeVisible();
+    // .first() used to land on a VISIBLE match; the mobile strip-state badge
+    // (hidden at this viewport) now precedes it in DOM order, so filter to
+    // visible matches. Pre-existing failure on origin/main (verified on a
+    // clean worktree 2026-08-01) — dev-gate is schedule-only, so it rotted
+    // dark (the BL-DEV-GATE-GALLERY-SPEC-ROT class).
+    await expect(dialog.getByText(/archived/i).locator("visible=true").first()).toBeVisible();
     await expect(dialog.getByRole("switch")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: /re-sync/i })).toHaveCount(0);
   });
