@@ -1265,6 +1265,24 @@ describe("spec registration detector (spec §3.1)", () => {
       { run: "echo first", guarded: false, poisoned: false },
       { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
     ]);
+    // F2 census-side (R2): the predicate has NO write-shape grammar — tee and
+    // single-`>` forms poison exactly like `>>`. A mutant narrowing the
+    // census predicate to `>>` fails these two while the scanner twins stay
+    // green, so the layers cannot drift apart silently.
+    for (const write of [
+      'echo "PATH=/fake-bin:$PATH" | tee -a "$GITHUB_ENV"',
+      'echo "/fake-bin" > "$GITHUB_PATH"',
+    ]) {
+      expect(
+        runBlocksOf(
+          parse(`jobs:\n  j:\n    steps:\n      - run: ${write}\n      - run: echo later\n`),
+        ),
+        write,
+      ).toEqual([
+        { run: write, guarded: false, poisoned: false },
+        { run: "echo later", guarded: false, poisoned: true },
+      ]);
+    }
     // F1 precision twin: env state is JOB-scoped — a write in job a must not
     // poison job b (over-poisoning forces reason-free registry rows).
     const crossJob = parse(
@@ -1474,6 +1492,12 @@ describe("spec registration detector (spec §3.1)", () => {
     // state both compose there), so the map is built BEFORE the workflow
     // walk and the old separate used-action append is gone — appended-flat
     // blocks would have lost the job context the splice exists to model.
+    //
+    // ONLY the GitHub-recognized manifest keys the map (spec R2 BLOCKING):
+    // keying every yml under an action dir let a supplemental clean YAML
+    // OVERWRITE the parsed action.yml under the same directory key,
+    // masquerading a javascript action as a clean composite. GitHub reads
+    // action.yml (preferred) or action.yaml — nothing else executes.
     const actionDocs: Record<string, unknown> = {};
     const actionFiles = walkFiles(join(ROOT, ".github", "actions")).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
@@ -1483,8 +1507,25 @@ describe("spec registration detector (spec §3.1)", () => {
         .split(sep)
         .join("/")
         .replace(/\/[^/]+$/, "")}`;
+    const manifestByDir = new Map<string, string>();
     for (const p of actionFiles) {
-      actionDocs[actionDirOf(p)] = parse(readFileSync(p, "utf8"));
+      if (!/(^|\/)action\.ya?ml$/.test(relative(ROOT, p).split(sep).join("/"))) continue;
+      const dir = actionDirOf(p);
+      const prev = manifestByDir.get(dir);
+      if (prev === undefined || p.endsWith("action.yml")) manifestByDir.set(dir, p);
+    }
+    for (const [dir, p] of manifestByDir) {
+      actionDocs[dir] = parse(readFileSync(p, "utf8"));
+    }
+    // Non-manifest YAML under an action dir never executes — playwright text
+    // there is dead text posing as surface (same R9 G1 rule as unreferenced
+    // actions), and it must not exist even in a USED action's directory.
+    for (const p of actionFiles) {
+      if (manifestByDir.get(actionDirOf(p)) === p) continue;
+      expect(
+        /playwr/.test(readFileSync(p, "utf8")),
+        `non-manifest ${relative(ROOT, p)} under a local action dir mentions playwright — dead text posing as surface`,
+      ).toBe(false);
     }
     const usedActionDirs = new Set<string>();
     const wfDir = join(ROOT, ".github", "workflows");
@@ -1510,12 +1551,12 @@ describe("spec registration detector (spec §3.1)", () => {
     // An action NO workflow references cannot legitimately register a
     // playwright invocation — its contributions would be dead text posing as
     // live surface (R9 G1).
-    for (const p of actionFiles) {
-      if (usedActionDirs.has(actionDirOf(p))) continue;
-      for (const b of runBlocksOf(actionDocs[actionDirOf(p)])) {
+    for (const [dir] of manifestByDir) {
+      if (usedActionDirs.has(dir)) continue;
+      for (const b of runBlocksOf(actionDocs[dir])) {
         expect(
           /playwr/.test(b.run),
-          `unreferenced local action ${actionDirOf(p)} invokes playwright — reference it or remove it`,
+          `unreferenced local action ${dir} invokes playwright — reference it or remove it`,
         ).toBe(false);
       }
     }

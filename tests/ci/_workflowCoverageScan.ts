@@ -133,28 +133,47 @@ function writesJobEnv(chunk: string): boolean {
  * the `./` test into the trusted-marketplace branch. Non-`./` refs stay
  * trusted (spec §5 L1: setup-node writes GITHUB_PATH by design).
  */
+/** Comment-stripped text (full-line `#` lines never execute). */
+function stripCommentLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((l) => !/^[ \t]*#/.test(l))
+    .join("\n");
+}
+
+/**
+ * The manifest's top-level `runs:` block — its own indented lines only, same
+ * bounded-block shape as onBlock/pullRequestBlock. Scoping matters (spec R2
+ * BLOCKING): `using: composite` matched ANYWHERE in the manifest let a
+ * node20 action masquerade as composite via that line in a multiline
+ * `description:` scalar. `runs.using` / child `uses:` live under `runs:`, so
+ * both checks read this block and nothing else. An inline-flow `runs: {...}`
+ * yields null, which callers treat as not-composite — fail-closed.
+ */
+function runsBlockOf(text: string): string | null {
+  const m = stripCommentLines(text).match(/(^|\n)runs\s*:\s*\n([\s\S]*?)(?=\n\S|$)/);
+  return m ? m[2]! : null;
+}
+
 function localActionPoisons(
   chunk: string,
   localActions: Record<string, string>,
   seen: ReadonlySet<string>,
 ): boolean {
-  const stripped = chunk
-    .split("\n")
-    .filter((l) => !/^[ \t]*#/.test(l))
-    .join("\n");
-  for (const m of stripped.matchAll(/(^|\n)\s*(?:-\s*)?uses\s*:\s*["']?([^\s"']+)/g)) {
+  for (const m of stripCommentLines(chunk).matchAll(
+    /(^|\n)\s*(?:-\s*)?uses\s*:\s*["']?([^\s"']+)/g,
+  )) {
     const ref = m[2]!;
     if (!ref.startsWith("./")) continue;
     if (seen.has(ref)) return true;
     const text = localActions[ref];
     if (text === undefined) return true;
-    const textStripped = text
-      .split("\n")
-      .filter((l) => !/^[ \t]*#/.test(l))
-      .join("\n");
-    if (!/(^|\n)\s*using\s*:\s*["']?composite\b/.test(textStripped)) return true;
+    const runs = runsBlockOf(text);
+    if (runs === null || !/(^|\n)\s*using\s*:\s*["']?composite\b/.test(runs)) return true;
     if (writesJobEnv(text)) return true;
-    if (localActionPoisons(text, localActions, new Set(seen).add(ref))) return true;
+    // Child uses: are steps under runs: — recurse on the runs block only, so
+    // prose outside it can neither masquerade nor false-poison.
+    if (localActionPoisons(runs, localActions, new Set(seen).add(ref))) return true;
   }
   return false;
 }

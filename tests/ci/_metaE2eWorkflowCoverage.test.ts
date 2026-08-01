@@ -142,15 +142,22 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // Local composite actions run in the caller's job env (cross-step-env-guard
   // spec §2.2): hand the scanner every action manifest so a `uses: ./…` step
   // resolves — a ./ ref MISSING from this map poisons fail-closed, so the map
-  // must be complete for the live tree.
-  const localActions = Object.fromEntries(
-    (readdirSync(join(ROOT, ".github/actions"), { recursive: true }) as string[])
-      .filter((f) => /(^|[\\/])action\.ya?ml$/.test(f))
-      .map((f) => [
-        `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`,
-        readFileSync(join(ROOT, ".github/actions", f), "utf8"),
-      ]),
-  );
+  // must be complete for the live tree. ONLY GitHub-recognized manifests key
+  // the map, action.yml preferred over action.yaml (spec R2: a supplemental
+  // YAML must never overwrite the manifest under the same directory key).
+  const localActions: Record<string, string> = {};
+  {
+    const manifestByDir = new Map<string, string>();
+    for (const f of readdirSync(join(ROOT, ".github/actions"), { recursive: true }) as string[]) {
+      if (!/(^|[\\/])action\.ya?ml$/.test(f)) continue;
+      const dir = `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`;
+      const prev = manifestByDir.get(dir);
+      if (prev === undefined || f.endsWith("action.yml")) manifestByDir.set(dir, f);
+    }
+    for (const [dir, f] of manifestByDir) {
+      localActions[dir] = readFileSync(join(ROOT, ".github/actions", f), "utf8");
+    }
+  }
 
   const { covered } = scanWorkflowCoverage({
     workflows,
@@ -444,6 +451,21 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     });
     expect(r.covered.has(spec)).toBe(false);
     expect(r.rejected[0]!.reason).toBe(REASON);
+    // R2 refinement: `using: composite` in a multiline description scalar
+    // must not masquerade a node action as composite — the check reads the
+    // runs: block only.
+    const masqueraded = S(two("uses: ./.github/actions/js2"), {
+      "./.github/actions/js2":
+        "name: x\ndescription: |\n  using: composite\nruns:\n  using: node20\n  main: index.js\n",
+    });
+    expect(masqueraded.covered.has(spec)).toBe(false);
+    expect(masqueraded.rejected[0]!.reason).toBe(REASON);
+    // …and a REAL composite with prose elsewhere still resolves clean.
+    const proseComposite = S(two("uses: ./.github/actions/ok2"), {
+      "./.github/actions/ok2":
+        "name: x\ndescription: |\n  helper prose\nruns:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n",
+    });
+    expect(proseComposite.covered.has(spec)).toBe(true);
   });
 
   it("nested local composites resolve recursively; cycles fail closed (F8)", () => {
