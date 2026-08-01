@@ -16,7 +16,7 @@ Every migrated RPC keeps its existing single in-RPC holder (`pg_advisory_xact_lo
 
 ### T1 — migration: performed discriminator (spec §3)
 
-New `supabase/migrations/<ts>_lifecycle_rpc_performed_discriminator.sql`.
+A new migration file `<timestamp>_lifecycle_rpc_performed_discriminator` under supabase/migrations.
 
 TDD: write T2's failing DB tests FIRST (they assert boolean returns; red against void RPCs), then the migration, then green.
 
@@ -47,10 +47,10 @@ Failure modes stated per test in-file. Commit: `test(db): performed/no-op discri
 
 TDD: extend `tests/showLifecycle/callers.test.ts` first — injected rpc `{data:true}` → `performed:true`; `{data:false}` / `{data:null}` / `{data:undefined}` → `performed:false`; thrown → `{ok:false, code:"infra_error"}`. Red (field absent), then:
 
-- `lib/showLifecycle/_shared.ts`: `LifecycleResult = { ok: true; performed: boolean } | { ok: false; code: string }`; `mapRpcResult(error, data)` gains the data param → `{ ok: true, performed: data === true }`; `callLifecycleRpc` passes `data` through (single chokepoint — the ONLY `{ok:true}` producer, verified `rg "ok: true" lib/showLifecycle` → `_shared.ts:4,40` only).
+- `lib/showLifecycle/_shared.ts`: `LifecycleResult = { ok: true; performed: boolean } | { ok: false; code: string }`; `mapRpcResult(error, data)` gains the data param → `{ ok: true, performed: data === true }`; `callLifecycleRpc` passes `data` through (single chokepoint — the ONLY `{ok:true}` producer, verified `rg "ok: true" lib/showLifecycle` → `lib/showLifecycle/_shared.ts:4` and line 40 only).
 - Callers (`archiveShow.ts`, `publishShow.ts`, `unpublishShow.ts`, `unarchiveShow.ts`) need no per-file mapping change (chokepoint produces the field); `unarchiveShow`'s `data === true` catch-up gate untouched.
 - `pnpm typecheck` sweeps the 13 enumerated `LifecycleResult`-referencing files (consumers read `.ok`/`.code`; required-field addition compiles clean or surfaces each site).
-- Mock-literal sweep (spec §6.5 disposition): add `performed` to `{ok: true}` lifecycle mocks in `tests/app/admin/set-published-action.test.ts`, `tests/app/admin/show-lifecycle-actions.test.ts`, `tests/components/admin/per-show-lifecycle.test.tsx:73,75` (plus the two suites already in T2/T4 scope).
+- Mock-literal sweep (spec §6.5 disposition): add `performed` to `{ok: true}` lifecycle mocks in `tests/app/admin/set-published-action.test.ts`, `tests/app/admin/show-lifecycle-actions.test.ts`, `tests/components/admin/per-show-lifecycle.test.tsx:73-75` (plus the two suites already in T2/T4 scope).
 
 Commit: `feat(showLifecycle): LifecycleResult carries performed discriminator`
 
@@ -58,7 +58,7 @@ Commit: `feat(showLifecycle): LifecycleResult carries performed discriminator`
 
 TDD: extend `tests/log/adminOutcomeBehavior.test.ts` first — per action (archive / unarchive / setPublished×2 directions): no-op branch (`{ok:true, performed:false}` via injected deps) → sink-spy records ZERO codes while revalidate spy observed; performed branch → exactly one code (existing cases updated to construct `performed:true`). Red, then:
 
-- `app/admin/show/[slug]/_actions/archive.ts`, `.../unarchive.ts`, `.../setPublished.ts`: wrap `await logAdminOutcome(...)` in `if (result.performed)` (archive/setPublished) / gate on `result.ok && result.performed` (unarchive's void flow). Revalidates stay on `ok` (spec §1.1 row 4).
+- `app/admin/show/[slug]/_actions/archive.ts`, `app/admin/show/[slug]/_actions/unarchive.ts`, `app/admin/show/[slug]/_actions/setPublished.ts`: wrap `await logAdminOutcome(...)` in `if (result.performed)` (archive/setPublished) / gate on `result.ok && result.performed` (unarchive's void flow). Revalidates stay on `ok` (spec §1.1 row 4).
 - Comment repairs: the three "never on a ... no-op" claims become accurate; update wording.
 
 Commit: `fix(admin): lifecycle telemetry emits only on performed transitions`
