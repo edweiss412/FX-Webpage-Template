@@ -1581,7 +1581,7 @@ export function CrewUnderRowStack({ nodes, ckey }: { nodes: React.ReactNode[]; c
             {hidden.length} more
             <ChevronRight
               aria-hidden="true"
-              className="ml-1 inline-block size-4 shrink-0 transition-transform group-open:rotate-90"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
             />
           </summary>
           <div className="mt-2 flex flex-col items-stretch gap-2">{hidden}</div>

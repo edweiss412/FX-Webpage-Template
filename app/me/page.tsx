@@ -243,7 +243,7 @@ function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary[]; now
             Past ({past.length}){" "}
             <span
               aria-hidden="true"
-              className="ml-1 inline-block transition-transform group-open:rotate-90"
+              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
             >
               ▸
             </span>

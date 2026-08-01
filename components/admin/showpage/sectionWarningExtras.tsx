@@ -276,7 +276,7 @@ export function buildSectionWarningExtras(args: {
               Ignored ({ignoredWarnings.length}){" "}
               <ChevronRight
                 aria-hidden="true"
-                className="ml-1 inline-block size-4 shrink-0 align-text-bottom transition-transform group-open:rotate-90"
+                className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
               />
             </summary>
             <div className="mt-3" data-testid={`section-ignored-list-${id}`}>

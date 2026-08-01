@@ -107,7 +107,7 @@ export function EventRow({
         )}
         <ChevronDown
           aria-hidden
-          className={`mt-0.5 size-4 shrink-0 text-text-faint transition-transform ${open ? "rotate-180" : ""}`}
+          className={`mt-0.5 size-4 shrink-0 text-text-faint transition-transform duration-normal ${open ? "rotate-180" : ""}`}
         />
       </div>
       {/* The ONE animated transition in this surface (spec §7): height disclosure,
