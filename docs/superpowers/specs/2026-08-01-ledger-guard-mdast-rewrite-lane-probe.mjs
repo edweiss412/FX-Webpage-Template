@@ -114,13 +114,19 @@ function labelSpans(line) {
   return out;
 }
 
-// label evaluation under the global token rule: strip trailing whole-token
-// particles, final remaining token must EQUAL a terminal word
+// label evaluation under the global token rule: tokens are maximal runs of
+// the LINE (r5 — a token straddling the strong boundary, `re-**CLOSED**:`,
+// is the line-token "re-CLOSED" and never the span interior "CLOSED");
+// a span lane selects only tokens FULLY CONTAINED in its span. Strip
+// trailing whole-token particles; final remaining token must EQUAL a
+// terminal word.
+const spanTokens = (line, s, e) =>
+  tokens(line.text).filter((x) => x.i >= s && x.i + x.t.length <= e);
 function labelTerminal(line, L) {
-  const tk = tokens(L.inner);
+  const tk = spanTokens(line, L.s, L.e);
   while (tk.length && PARTICLES.has(tk[tk.length - 1].t.toLowerCase())) tk.pop();
   const last = tk[tk.length - 1];
-  if (last && TERMINAL.test(last.t) && !vetoed(line.text, L.s + last.i)) return last.t;
+  if (last && TERMINAL.test(last.t) && !vetoed(line.text, last.i)) return last.t;
   return null;
 }
 
@@ -132,7 +138,7 @@ function lineVerdicts(line) {
     if (t) hits.push(`terminal-label:${t}`);
   }
   for (const L of labels) {
-    const labelTokens = tokens(L.inner);
+    const labelTokens = spanTokens(line, L.s, L.e);
     if (labelTokens.length !== 1 || !FIELD_LABELS.test(labelTokens[0].t)) continue;
     let vs = L.e + /^\s*[:—–-]?\s*✅?\s*/.exec(line.text.slice(L.e))[0].length;
     const tok = tokenAt(line.text, vs);
@@ -148,8 +154,8 @@ function lineVerdicts(line) {
     if (TERMINAL.test(tok) && !vetoed(line.text, i)) hits.push(`leading:${tok}`);
     for (const [s, e] of line.strongSpans) {
       if (labels.some((L) => L.s === s)) continue;
-      for (const { t, i: ti } of tokens(line.text.slice(s, e)))
-        if (TERMINAL.test(t) && !vetoed(line.text, s + ti)) hits.push(`bold-nonlabel:${t}`);
+      for (const { t, i: ti } of spanTokens(line, s, e))
+        if (TERMINAL.test(t) && !vetoed(line.text, ti)) hits.push(`bold-nonlabel:${t}`);
     }
     // bare-field lane with particle chains: terminal token whose following
     // tokens are all particles until a separator
@@ -299,4 +305,11 @@ shape("post-id anchor still caught", "## [P2] BL-P5 — CLOSED 2026", true, "hea
 // r4-review shapes
 shape("pre-id duplicated-id anchor", "## [BL-P6 — CLOSED prior arc] BL-P6 — open", false, "heading");
 shape("pre-id id-substring anchor", "## [XBL-P7X — CLOSED prior arc] BL-P7 — open", false, "heading");
+// r5-review shapes: token maximality across strong-span edges
+shape("edge-split label prefix", "re-**CLOSED**: discussion", false);
+shape("edge-split label suffix", "**CLOSED**-by: discussion", false);
+shape("edge-split bold-nonlabel prefix", "**Status:** open, re-**CLOSED** discussion", false);
+shape("edge-split bold-nonlabel suffix", "**Status:** open, **CLOSED**2 discussion", false);
+shape("edge-split field-label", "**Status**2: CLOSED discussion", false);
+shape("intact bold label still caught", "x **Closed:** 2026", true);
 console.log(fails === 0 ? "ALL SHAPES OK" : `${fails} MISMATCHES`);
