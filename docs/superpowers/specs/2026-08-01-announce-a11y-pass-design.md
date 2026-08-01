@@ -113,7 +113,7 @@ Known edge, accepted: this browser's OWN rotate on an INACTIVE crew link skips `
 
 ### 4.2 ShareHub live region
 
-ShareHub watches `remoteTokenChanges` with the same render-phase adjust-state pattern as `prevToken` and sets a local `remoteAnnounce: string | null` when ALL of:
+ShareHub watches `remoteTokenChanges` with the same render-phase adjust-state pattern as `prevToken` and sets a local boolean `remoteAnnounce` flag (the region renders the fixed §4.3 string while it is true) when ALL of:
 
 - the counter advanced since last render,
 - `open` is true,
@@ -189,4 +189,4 @@ UI files under `components/` + `app/` change → invariant-8 impeccable dual-gat
 - Closed-popover rotation announcements (§1.1).
 - Arm-copy rewrites on surfaces that already announce the arm.
 - The visual flash cue and its e2e spec.
-- DESIGN.md §15 gains one paragraph documenting the expiry-announcement contract and the ShareHub region (docs task in the plan), nothing else in DESIGN.md moves.
+- DESIGN.md §15 gains one paragraph documenting the expiry-announcement contract and the ShareHub region, plus the §3.2 rotate-timer factual correction inside the same section; nothing else in DESIGN.md moves.

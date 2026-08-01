@@ -254,6 +254,20 @@ describe("arm-expiry announcement — RevokeRowButton", () => {
     expect(after.textContent).toBe(EXPIRY);
   });
 
+  it("confirm dispatch never announces expiry, even past the timer horizon", async () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button")); // arm
+    await act(async () => {
+      fireEvent.click(getByTestId("admin-allowlist-revoke-confirm-button")); // dispatch
+      await Promise.resolve();
+    });
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
   it("Cancel never announces expiry, even past the timer horizon", () => {
     vi.useFakeTimers();
     const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);

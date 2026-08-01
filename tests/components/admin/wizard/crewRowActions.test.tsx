@@ -446,15 +446,47 @@ describe("arm-expiry announcement — CrewRowActions", () => {
   });
 
   it("confirm dispatch never announces expiry, even past the timer horizon", async () => {
-    resetMock.mockResolvedValue({ ok: true });
+    // Fake timers from the START (whole-diff B1): the arm timer must be a FAKE
+    // timer, or the advance below proves nothing about it being cleared.
+    vi.useFakeTimers();
+    let settle!: (v: { ok: true }) => void;
+    resetMock.mockReturnValue(new Promise((r) => (settle = r)));
     renderCrew();
     openConfirm();
     fireEvent.click(screen.getByTestId("crew-row-reset-confirm-go"));
-    await vi.waitFor(() => expect(confirm(ID_A)).toBeNull());
-    vi.useFakeTimers();
+    await act(async () => {
+      settle({ ok: true });
+      await Promise.resolve();
+    });
     act(() => vi.advanceTimersByTime(4_100));
     for (const el of screen.getAllByTestId("arm-expiry-announce")) {
       expect(el.textContent).not.toBe(EXPIRY);
     }
+  });
+
+  it("parent-driven close (opening another row) never announces expiry", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm(ID_A);
+    fireEvent.click(trigger(ID_B)); // parent swaps the open row; A's confirm closes
+    expect(confirm(ID_A)).toBeNull();
+    act(() => vi.advanceTimersByTime(4_100));
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).not.toBe(EXPIRY);
+    }
+  });
+
+  it("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    vi.useFakeTimers();
+    renderCrew();
+    openConfirm(ID_A);
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(expiryRegion().textContent).toBe(EXPIRY);
+    openConfirm(ID_A); // re-arm clears
+    for (const el of screen.getAllByTestId("arm-expiry-announce")) {
+      expect(el.textContent).toBe("");
+    }
+    act(() => vi.advanceTimersByTime(4_000));
+    expect(expiryRegion().textContent).toBe(EXPIRY);
   });
 });

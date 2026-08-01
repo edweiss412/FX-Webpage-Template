@@ -18,7 +18,7 @@
 
 ## Meta-test inventory (mandatory declaration)
 
-- EXTENDS tests/styles/_metaDestructiveConfirm.test.ts: T4 (ARM_REVERT_MS ⇒ ARM_EXPIRED_ANNOUNCEMENT lexical co-presence) + T5 (copy value pin).
+- EXTENDS tests/styles/_metaDestructiveConfirm.test.ts: T4 (ARM_REVERT_MS ⇒ ARM_EXPIRED_ANNOUNCEMENT lexical co-presence) + T4a (ARM_EXPIRED_ANNOUNCEMENT declaration uniqueness, the T1 clone) + T5 (copy value pin).
 - EXTENDS tests/components/admin/showpage/shareHubFlashState.test.tsx harness (remote/local/clear cases).
 - Auth/DB/advisory/alert registries: none applies — client-component + docs diff only; no Supabase calls, no locks, no routes, no migrations.
 - Layout-dimensions / transition-audit tasks: N/A — sr-only regions only, no visual state or fixed-dimension parents.

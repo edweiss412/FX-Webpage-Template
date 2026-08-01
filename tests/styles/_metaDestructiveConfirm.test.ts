@@ -231,7 +231,7 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    * R15 F1), then the surviving code is joined so a multi-line declaration is still one
    * subject. */
   const DECL =
-    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_REVERT_MS\s*[=:]|\{[^}]*\bARM_REVERT_MS\b[^}]*\}\s*=)/;
+    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_REVERT_MS\s*[=:]|\{[^}]*\bARM_REVERT_MS\b[^}]*\}\s*=|\[[^\]]*\bARM_REVERT_MS\b[^\]]*\]\s*=)/;
   /* R16 F2: this used stripComments() on whole-file source. Regex comment stripping
    * misparses TS/TSX — a "/*" inside a STRING opens a span that a later "*\/" string
    * closes, deleting the live code between them from inspection, so a real duplicate
@@ -256,6 +256,8 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(DECL.test("const ARM_REVERT_MS = 4_000;")).toBe(true);
     expect(DECL.test("export const ARM_REVERT_MS = 4_000;")).toBe(true);
     expect(DECL.test("setTimeout(cb, ARM_REVERT_MS);")).toBe(false);
+    // Whole-diff A1 mutant: an ARRAY-destructured binding is a declaration too.
+    expect(DECL.test("const [ARM_REVERT_MS] = [1];")).toBe(true);
   });
 
   it("T3: the shared value is the ratified 4s", async () => {
@@ -267,7 +269,7 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
    * 2026-08-01-announce-a11y-pass §3.1/§5.2): declared exactly once, in the
    * shared module, so no surface can drift the announced copy locally. */
   const EXPIRY_DECL =
-    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_EXPIRED_ANNOUNCEMENT\s*[=:]|\{[^}]*\bARM_EXPIRED_ANNOUNCEMENT\b[^}]*\}\s*=)/;
+    /(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+(?:ARM_EXPIRED_ANNOUNCEMENT\s*[=:]|\{[^}]*\bARM_EXPIRED_ANNOUNCEMENT\b[^}]*\}\s*=|\[[^\]]*\bARM_EXPIRED_ANNOUNCEMENT\b[^\]]*\]\s*=)/;
 
   it("T4a: exactly one file declares ARM_EXPIRED_ANNOUNCEMENT, and it is the shared module", () => {
     const declaring: string[] = [];
@@ -284,6 +286,8 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
   it("T4a self-check: the matcher finds a declaration and ignores a mere reference", () => {
     expect(EXPIRY_DECL.test('const ARM_EXPIRED_ANNOUNCEMENT = "x";')).toBe(true);
     expect(EXPIRY_DECL.test("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;")).toBe(false);
+    // Whole-diff A1 mutant: an ARRAY-destructured binding is a declaration too.
+    expect(EXPIRY_DECL.test('const [ARM_EXPIRED_ANNOUNCEMENT] = ["wrong"];')).toBe(true);
   });
 
   /* T4 — expiry-wiring co-presence (spec 2026-08-01-announce-a11y-pass §5.2):

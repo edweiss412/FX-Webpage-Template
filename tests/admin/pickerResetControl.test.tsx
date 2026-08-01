@@ -274,17 +274,29 @@ describe("arm-expiry announcement — PickerResetControl", () => {
     }
   });
 
-  it("confirm settles into the success copy, never the expiry copy; re-arm clears it", async () => {
-    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
-    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
-    fireEvent.click(allBtn());
-    fireEvent.click(confirmGo());
-    await vi.waitFor(() =>
-      expect(srRegion(container).textContent).toBe("Everyone will pick again on their next visit."),
-    );
-    // Re-arm: the multiplexed region clears (outcome AND expiry both reset).
-    fireEvent.click(allBtn());
-    expect(srRegion(container).textContent).toBe("");
+  it("confirm settles into the success copy, never the expiry copy, even past the timer horizon; re-arm clears it", async () => {
+    // Fake timers from the START (whole-diff B3): the confirm path must also
+    // prove the arm timer is dead past the 4s horizon.
+    vi.useFakeTimers();
+    try {
+      let settle!: (v: { ok: true; epoch: number }) => void;
+      epochMock.mockReturnValue(new Promise((r) => (settle = r)));
+      const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(confirmGo());
+      await act(async () => {
+        settle({ ok: true, epoch: 2 });
+        await Promise.resolve();
+      });
+      expect(srRegion(container).textContent).toBe("Everyone will pick again on their next visit.");
+      act(() => vi.advanceTimersByTime(4_100));
+      expect(srRegion(container).textContent).toBe("Everyone will pick again on their next visit.");
+      // Re-arm: the multiplexed region clears (outcome AND expiry both reset).
+      fireEvent.click(allBtn());
+      expect(srRegion(container).textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-arm after expiry clears the region, then a second expiry announces again", () => {

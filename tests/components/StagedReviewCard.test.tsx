@@ -324,9 +324,14 @@ describe("StagedReviewCard", () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    test("post-expiry Apply clears the expiry copy at dispatch and it never returns", async () => {
+    test("post-expiry Apply clears the expiry copy AT DISPATCH (held pending) and it never returns", async () => {
       vi.useFakeTimers();
-      fetchMock.mockResolvedValue(okResponse());
+      // Held request (whole-diff B2): assert the clear BEFORE settlement, so a
+      // mutant clearing ignoreExpired in the success branch fails here.
+      let settle!: (v: Response) => void;
+      fetchMock.mockImplementationOnce(
+        () => new Promise<Response>((r) => (settle = r)) as unknown as Promise<Response>,
+      );
       const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
       fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
       act(() => {
@@ -336,12 +341,21 @@ describe("StagedReviewCard", () => {
       await act(async () => {
         fireEvent.click(getByTestId("staged-review-apply")); // dispatch
       });
+      // Dispatch-entry pin: request still in flight, expiry already gone.
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+      await act(async () => {
+        settle(okResponse());
+        await Promise.resolve();
+      });
       expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
     });
 
-    test("post-expiry discard (Retry) clears the expiry copy at dispatch and it never returns", async () => {
+    test("post-expiry discard (Retry) clears the expiry copy AT DISPATCH (held pending) and it never returns", async () => {
       vi.useFakeTimers();
-      fetchMock.mockResolvedValue(okResponse());
+      let settle!: (v: Response) => void;
+      fetchMock.mockImplementationOnce(
+        () => new Promise<Response>((r) => (settle = r)) as unknown as Promise<Response>,
+      );
       const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
       fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
       act(() => {
@@ -350,6 +364,25 @@ describe("StagedReviewCard", () => {
       expect(ignoreRegion(getByTestId).textContent).toBe(EXPIRY);
       await act(async () => {
         fireEvent.click(getByTestId("staged-review-discard-try-again")); // distinct dispatch entry
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+      await act(async () => {
+        settle(okResponse());
+        await Promise.resolve();
+      });
+      expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
+    });
+
+    test("armed sibling discard stays silent past the timer horizon (stale-timer proof)", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(okResponse());
+      const { getByTestId } = render(<StagedReviewCard row={firstSeenRow()} />);
+      fireEvent.click(getByTestId("staged-review-discard-ignore")); // arm
+      await act(async () => {
+        fireEvent.click(getByTestId("staged-review-discard-try-again")); // sibling while ARMED
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(4_100);
       });
       expect(ignoreRegion(getByTestId).textContent).not.toBe(EXPIRY);
     });
