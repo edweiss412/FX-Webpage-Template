@@ -237,3 +237,69 @@ describe("PickerResetControl (everyone-only)", () => {
     }
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 8,
+// §3.3/§5.1): the existing persistent sr-only region multiplexes the expiry
+// state; Cancel/confirm stay silent past the horizon; success copy is never
+// overwritten by a stale expiry.
+describe("arm-expiry announcement — PickerResetControl", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+  const srRegion = (container: HTMLElement) =>
+    container.querySelector('div.sr-only[role="status"]') as HTMLElement;
+
+  it("auto-revert announces expiry in the SAME persistent region", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      const before = srRegion(container);
+      fireEvent.click(allBtn()); // arm
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(srRegion(container)).toBe(before);
+      expect(before.textContent).toBe(EXPIRY);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Cancel never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      fireEvent.click(cancelBtn());
+      act(() => vi.advanceTimersByTime(4_100));
+      expect(srRegion(container).textContent).not.toBe(EXPIRY);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("confirm settles into the success copy, never the expiry copy; re-arm clears it", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() =>
+      expect(srRegion(container).textContent).toBe("Everyone will pick again on their next visit."),
+    );
+    // Re-arm: the multiplexed region clears (outcome AND expiry both reset).
+    fireEvent.click(allBtn());
+    expect(srRegion(container).textContent).toBe("");
+  });
+
+  it("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+      fireEvent.click(allBtn());
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(srRegion(container).textContent).toBe(EXPIRY);
+      fireEvent.click(allBtn()); // re-arm
+      expect(srRegion(container).textContent).toBe("");
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(srRegion(container).textContent).toBe(EXPIRY);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

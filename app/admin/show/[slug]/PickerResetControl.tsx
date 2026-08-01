@@ -19,7 +19,7 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -57,6 +57,9 @@ export function PickerResetControl({
   const overrideEpoch = useDevActionOverride("resetPickerEpoch");
   const [ui, setUi] = useState<UiState>("idle");
   const [outcome, setOutcome] = useState<Outcome>(null);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descId = useId();
@@ -139,8 +142,12 @@ export function PickerResetControl({
   const enterConfirm = () => {
     clearAutoRevert();
     setOutcome(null);
+    setExpired(false);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -152,6 +159,7 @@ export function PickerResetControl({
 
   const onConfirm = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("resolving");
     // not-subject:M5-D8 — this control's outcome copy (success AND error) is admin-authored inline
     // BY DESIGN (spec §6.2): the picker message catalog is crew-oriented and would misattribute an
@@ -183,7 +191,7 @@ export function PickerResetControl({
           flex gap), so the success text swaps INTO a pre-existing region and
           SRs reliably announce it. The visible banner below is decorative. */}
       <div className="sr-only" role="status" aria-live="polite">
-        {outcome?.kind === "ok" ? outcome.message : ""}
+        {expired ? ARM_EXPIRED_ANNOUNCEMENT : outcome?.kind === "ok" ? outcome.message : ""}
       </div>
       {/* Visible banners render only at rest (idle) — the sr-only region above
           still announces immediately regardless of ui. */}
