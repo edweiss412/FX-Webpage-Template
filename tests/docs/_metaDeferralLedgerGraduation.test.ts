@@ -717,6 +717,16 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(headingHit("## [BL-M9L — CLOSED prior arc] BL-M9L — open")).toBe(false);
     expect(headingHit("## [XBL-M9MX — CLOSED prior arc] BL-M9M — open")).toBe(false);
     expect(headingHit("## [P2] BL-M9N — CLOSED 2026")).toBe(true);
+    // whole-diff r1 — astral characters in the prefix must not skew the
+    // provenance map (UTF-16-unit parity), and an EMPTY bracket is not a
+    // prefix (legacy [^\]]+):
+    expect(extractEntries("## [🚨] **B**L-X — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    {
+      const es = extractEntries("## [🚨🚨🚨🚨] BL-M9S — **CLOSED**\n\nbody\n", BACKLOG_OPTS);
+      expect(es.map((e) => e.id)).toEqual(["BL-M9S"]);
+      expect(entryTerminal(es[0]!).length).toBeGreaterThan(0);
+    }
+    expect(extractEntries("## [] BL-M9T — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     // CommonMark heading surface the ^-anchored era missed (r30 gain set):
     expect(idsOf("   ## BL-INDENTED-ID — text\n\nbody\n")).toEqual(["BL-INDENTED-ID"]);
     expect(idsOf("##\tBL-TABBED-ID — text\n\nbody\n")).toEqual(["BL-TABBED-ID"]);

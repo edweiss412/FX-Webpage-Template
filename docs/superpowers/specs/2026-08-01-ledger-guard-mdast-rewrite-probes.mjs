@@ -189,7 +189,7 @@ probe(
 
 console.log("\n=== Live-ledger sweep: do any of these shapes exist TODAY? ===");
 import { readFileSync } from "node:fs";
-const ROOT = "/Users/ericweiss/FX-worktrees/ledger-guard-mdast-rewrite";
+const ROOT = process.cwd(); // run from the repo root (whole-diff r1 F3: no absolute path)
 for (const rel of ["BACKLOG.md", "DEFERRED.md"]) {
   const text = readFileSync(`${ROOT}/${rel}`, "utf8");
   const lines = text.split("\n");

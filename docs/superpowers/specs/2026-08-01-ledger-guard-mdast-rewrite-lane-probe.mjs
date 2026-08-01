@@ -224,15 +224,18 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
     const prov = [];
     (function pwalk(node, kind) {
       if (node.type === "text") {
-        for (const ch of String(node.value)) {
-          if (ch === "\n") break;
-          flatChars.push(ch);
+        const v = String(node.value);
+        // UTF-16 code UNITS (regex-offset parity — whole-diff r1 F1)
+        for (let i = 0; i < v.length; i++) {
+          if (v[i] === "\n") break;
+          flatChars.push(v[i]);
           prov.push(kind);
         }
         return;
       }
       if (node.type === "inlineCode") {
-        for (const ch of String(node.value)) { flatChars.push(ch); prov.push("code"); }
+        const v = String(node.value);
+        for (let i = 0; i < v.length; i++) { flatChars.push(v[i]); prov.push("code"); }
         return;
       }
       const k =
@@ -240,7 +243,7 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
       for (const c of node.children ?? []) pwalk(c, node.type === "heading" ? "plain" : k === "delete" ? "delete" : "fmt");
     })(n, "plain");
     const flat = flatChars.join("");
-    const pm = /^\s*(?:\[[^\]]*\]\s*)?/.exec(flat);
+    const pm = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);
     const idStart = pm[0].length;
     const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
     if (!m || /[a-z]/.test(m[1])) return;

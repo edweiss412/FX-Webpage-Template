@@ -179,7 +179,12 @@ function headingId(heading: Heading): string | null {
   const pwalk = (node: Node, kind: Provenance): void => {
     if (node.type === "text") {
       const value = String((node as Text).value);
-      for (const ch of value) {
+      // UTF-16 code UNITS, not code points: the provenance array indexes
+      // must align with regex match offsets on the joined string (whole-diff
+      // r1 — an astral character in a bracket prefix skewed every later
+      // index, minting formatted ids and dropping plain ones).
+      for (let i = 0; i < value.length; i++) {
+        const ch = value[i]!;
         if (ch === "\n") return;
         flatChars.push(ch);
         prov.push(kind);
@@ -188,8 +193,8 @@ function headingId(heading: Heading): string | null {
     }
     if (node.type === "inlineCode") {
       const value = String((node as InlineCode).value);
-      for (const ch of value) {
-        flatChars.push(ch);
+      for (let i = 0; i < value.length; i++) {
+        flatChars.push(value[i]!);
         prov.push("code");
       }
       return;
@@ -199,7 +204,7 @@ function headingId(heading: Heading): string | null {
   };
   for (const c of heading.children) pwalk(c, "plain");
   const flat = flatChars.join("");
-  const prefix = /^\s*(?:\[[^\]]*\]\s*)?/.exec(flat);
+  const prefix = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);
   const idStart = prefix?.[0].length ?? 0;
   const m = /^([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat.slice(idStart));
   if (!m) return null;
@@ -380,7 +385,7 @@ export function lineVerdicts(line: FlatLine): string[] {
  */
 export function headingVerdicts(headingLine: FlatLine, id: string): string[] {
   const text = headingLine.text;
-  const em = /^\s*(?:\[[^\]]*\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
+  const em = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
   const from = em !== null && em[1] === id ? em.index + em[0].length : 0;
   const anchor = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
   const hits: string[] = [];
