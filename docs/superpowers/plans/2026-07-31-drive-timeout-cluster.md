@@ -40,7 +40,7 @@ No task touches `pg_advisory*`. The scan route's downstream wizard-reservation t
 | `lib/sync/runScheduledCronSync.ts:2103` | Comment corrected in Task 2. |
 | runScheduledCronSync.ts lines 135, 150, 1860, 1865, 2016, 2509 | KEEP — `SyncStepTimeoutError` is the repo's own class, unrelated to gaxios. |
 | geocoding/client.ts lines 57 and 130 | KEEP — native-fetch path using `AbortSignal.timeout`, where top-level `name === "TimeoutError"` IS the real shape (no gaxios involved). |
-| `lib/drive/agendaDrive.ts:67` | KEEP — retry-exclusion check on the stall-guard/native-abort path where the top-level name is `AbortError`; broadened coverage arrives via Task 2's classifier only where gaxios errors are classified. Verify at implementation that this function receives non-gaxios errors (it guards the raw-fetch export path); if a gaxios error can reach it, extend the check to `isDriveTimeoutShape` in the same commit and note it in the Task 2 commit body. |
+| `lib/drive/agendaDrive.ts:67` | FIX in Task 2 (plan-review r3 F4 corrected the earlier disposition — this is NOT a raw-fetch-only path: `isTransientDriveError` is called from `getAgendaChips` after `sheets.spreadsheets.get`, so a gaxios per-call-timeout error whose signature lives on `cause.name` reaches it and MISSES the name check). Extend the line-67 check to walk the bounded `.cause` chain for the names `AbortError` / `TimeoutError` ONLY — deliberately NOT `isDriveTimeoutShape`, which also matches `ETIMEDOUT`/`ECONNABORTED`, socket shapes this site leaves to its transient classification. Unit case in `tests/drive/agendaDrive.test.ts`: a GaxiosError-like error with `cause.name === "AbortError"` is classified NOT transient (no retry), matching the existing intent for top-level abort names. |
 
 Watch comments (`lib/drive/watchErrors.ts:86` region, `lib/drive/watch.ts:310`, `lib/drive/watch.ts:484` regions) are corrected in Task 3 when the token bound makes them stale.
 
@@ -69,9 +69,13 @@ describe("lib/drive/timeouts", () => {
     expect(DRIVE_FILES_GET_TIMEOUT_MS).toBe(8_000);
     expect(reexported).toBe(DRIVE_FILES_GET_TIMEOUT_MS);
   });
-  it("is a leaf module: no imports (routes must not inherit fetch.ts's xlsx cost)", () => {
+  it("is a leaf module: no imports AND no re-exports (routes must not inherit fetch.ts's xlsx cost)", () => {
     const src = readFileSync("lib/drive/timeouts.ts", "utf8");
     expect(src).not.toMatch(/^\s*import /m);
+    // Plan-review r3 F3: a circular `export ... from "@/lib/drive/fetch"` re-export
+    // would satisfy both value assertions while pulling xlsx right back in. No
+    // module specifier of any kind may appear in this file.
+    expect(src).not.toMatch(/\bfrom\s+["']/);
   });
 });
 ```
@@ -86,8 +90,8 @@ Failure mode caught: constant moved back behind the xlsx-bearing module, or valu
 ### Task 2: Timeout-shape classifier + comment sweep
 
 **Files:**
-- Modify: `package.json` (add `"gaxios": "^7.1.4"` to dependencies + `pnpm install` — moved here from Task 3 because THIS task's live-socket test imports `gaxios` first; plan-review r1 F2. Lockfile must not fork the version — verify `pnpm why gaxios` shows the single 7.1.4), `lib/drive/errorStatus.ts` (new export + header sentence updated: the header's "what deliberately does NOT live here" list keeps retry POLICY out but now names the SHAPE-level `isDriveTimeoutShape` as in-scope, plan-review r1 F3), `lib/drive/fetch.ts` (delegate at line 190 region + rewrite comments line 92/line 181-185), comment-only: `lib/drive/list.ts:15`, `lib/drive/sheetGids.ts:18`, `lib/sync/verifyReelOnApply.ts:64`, `lib/sync/applyStaged.ts:993`, `lib/sync/runScheduledCronSync.ts:2103`
-- Test: tests/drive/errorStatus.test.ts (extend or create), `tests/drive/fetch.test.ts` (extend)
+- Modify: `package.json` (add `"gaxios": "^7.1.4"` to dependencies + `pnpm install` — moved here from Task 3 because THIS task's live-socket test imports `gaxios` first; plan-review r1 F2. Lockfile must not fork the version — verify `pnpm why gaxios` shows the single 7.1.4), `lib/drive/errorStatus.ts` (new export + header sentence updated: the header's "what deliberately does NOT live here" list keeps retry POLICY out but now names the SHAPE-level `isDriveTimeoutShape` as in-scope, plan-review r1 F3), `lib/drive/fetch.ts` (delegate at line 190 region + rewrite comments line 92/line 181-185), `lib/drive/agendaDrive.ts:67` (cause-chain walk for AbortError/TimeoutError names per the sweep table's FIX row), comment-only: `lib/drive/list.ts:15`, `lib/drive/sheetGids.ts:18`, `lib/sync/verifyReelOnApply.ts:64`, `lib/sync/applyStaged.ts:993`, `lib/sync/runScheduledCronSync.ts:2103`
+- Test: tests/drive/errorStatus.test.ts (extend or create), `tests/drive/fetch.test.ts` (extend), `tests/drive/agendaDrive.test.ts` (extend — cause-chain abort case)
 
 **Interfaces:**
 - Produces: `isDriveTimeoutShape(error: unknown): boolean` from `@/lib/drive/errorStatus` (no-imports module contract preserved).
@@ -223,11 +227,23 @@ describe("TokenBoundGaxios", () => {
     srv.close();
   }, 10_000);
   it("caller-set timeout wins on the token host (no override of explicit budgets)", async () => {
-    const { port, close } = await stallServer();
+    const { port, close, seen } = await stallServer();
     const t = new TokenBoundGaxios(60_000, `127.0.0.1:${port}`);
     const started = Date.now();
-    await expect(t.request({ url: `http://127.0.0.1:${port}/token`, timeout: 250, retry: false })).rejects.toThrow();
-    expect(Date.now() - started).toBeLessThan(5_000);
+    let caught: unknown;
+    try {
+      await t.request({ url: `http://127.0.0.1:${port}/token`, timeout: 250, retry: false });
+    } catch (e) {
+      caught = e;
+    }
+    const elapsed = Date.now() - started;
+    // Plan-review r3 F2: same three-way proof as arm 1, keyed to the CALLER budget:
+    // an implementation that clobbers caller timeouts (e.g. with 1ms) fails elapsed >= 250;
+    // one that ignores them entirely (using 60s) fails the 5s ceiling.
+    expect(seen).toContain("/token");
+    expect(elapsed).toBeGreaterThanOrEqual(250);
+    expect(elapsed).toBeLessThan(5_000);
+    expect(isDriveTimeoutShape(caught)).toBe(true);
     close();
   }, 10_000);
 });
@@ -351,7 +367,7 @@ Same shape as Task 4 — including the per-site strict metadata assertion (both 
 Checker rules (spec D7 + §2.1, verbatim contract):
 - Parse each non-test `.ts` under `lib/` and `app/` (skip .d.ts, `__generated__`) with `ts.createSourceFile`; walk `CallExpression`s.
 - MATCH when the callee property chain contains a NON-terminal segment in {`files`, `channels`, `revisions`, `spreadsheets`, `values`} and the terminal method name is NOT in the JS-collection blocklist (`map filter forEach some every find findIndex includes join slice splice reduce flat flatMap indexOf keys entries sort concat push pop shift unshift`).
-- A matched call is BOUND iff its LAST argument is an object literal containing a `timeout` or `signal` property whose initializer is one of an enumerated WHITELIST of AST shapes (plan-review r2 F1: a blacklist loses to logical-expression mutants like `0 && DRIVE_FILES_GET_TIMEOUT_MS`, which gaxios treats as no-timeout since it skips falsy values): (w1) a positive numeric literal; (w2) an identifier; (w3) a non-optional property-access chain (no `?.`); (w4) a nullish-coalescing expression `A ?? B` whose right operand is itself w1/w2/w3. EVERYTHING ELSE is unbound — ternaries, logical `&&`/`||` expressions, `undefined`/`null`/`0`/`NaN` literals, optional chains without a `??` safe fallback, call expressions, template strings. Whitelisting closes the mutant family by construction instead of enumerating escapes.
+- A matched call is BOUND iff its LAST argument is an object literal containing a `timeout` or `signal` property whose initializer is one of an enumerated WHITELIST of AST shapes (plan-review r2 F1: a blacklist loses to logical-expression mutants like `0 && DRIVE_FILES_GET_TIMEOUT_MS`, which gaxios treats as no-timeout since it skips falsy values): (w1) a positive numeric literal; (w2) an identifier; (w3) a non-optional property-access chain (no `?.`) whose FINAL segment is not one of the degenerate global names `NaN` / `undefined` / `null` (plan-review r3 F1: `Number.NaN` is a member chain and gaxios installs no timeout for falsy values — statically catchable, so caught; a chain resolving to a degenerate value only at RUNTIME is MF7 by definition); (w4) a nullish-coalescing expression `A ?? B` whose right operand is itself w1/w2/w3. EVERYTHING ELSE is unbound — ternaries, logical `&&`/`||` expressions, `undefined`/`null`/`0`/`NaN` literals, optional chains without a `??` safe fallback, call expressions, template strings. Whitelisting closes the mutant family by construction instead of enumerating escapes.
 - Exemption: line (or preceding line) contains `// drive-call-bound: `.
 - UNBOUND matches are findings; the walk test asserts ZERO findings tree-wide.
 
