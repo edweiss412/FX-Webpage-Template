@@ -242,28 +242,53 @@ describe("run-excluded-test execution oracle (spec §6.1)", () => {
     // world, and its workflow placement is pinned by the shard-topology and
     // exclusion-coverage guards.
     const GUARD = join(ROOT, "scripts", "ci", "assert-pnpm-sources-clean.sh");
-    const runGuard = (fixture: Record<string, string>): number => {
+    const runGuard = (
+      fixture: Record<string, string>,
+      env: Record<string, string> = {},
+    ): number => {
       const dir = mkdtempSync(join(tmpdir(), "pnpm-sources-"));
       for (const [name, content] of Object.entries(fixture)) {
         writeFileSync(join(dir, name), content);
       }
       try {
-        execFileSync("bash", [GUARD], { cwd: dir, stdio: "pipe" });
+        execFileSync("bash", [GUARD], { cwd: dir, stdio: "pipe", env: { ...process.env, ...env } });
         return 0;
       } catch (e) {
         const status = (e as { status?: number }).status;
         return typeof status === "number" ? status : -1;
       }
     };
-    expect(runGuard({ "package.json": "{}", "pnpm-workspace.yaml": "allowBuilds: {}\n" })).toBe(0);
-    expect(runGuard({ ".npmrc": "" }), ".npmrc presence").not.toBe(0);
+    const CLEAN = { "package.json": "{}", "pnpm-workspace.yaml": "allowBuilds: {}\n" };
+    expect(runGuard(CLEAN)).toBe(0);
+    // An em-dash in a workspace COMMENT is legit (the real file has one).
     expect(
-      runGuard({ "pnpm-workspace.yaml": "nodeOptions: --import=x\n" }),
-      "workspace nodeOptions",
+      runGuard({ "pnpm-workspace.yaml": "allowBuilds: {}\n# note — em-dash ok\n" }),
+      "comment em-dash",
+    ).toBe(0);
+    expect(runGuard({ ...CLEAN, ".npmrc": "" }), ".npmrc presence").not.toBe(0);
+    expect(
+      runGuard({ ...CLEAN, "pnpm-workspace.yaml": "nodeOptions: --import=x\n" }),
+      "workspace nodeOptions (plain)",
+    ).not.toBe(0);
+    // R14-B: YAML-escape-encoded key — backslash refusal catches every
+    // \x/\u/\U form and the backslash-newline continuation uniformly.
+    expect(
+      runGuard({
+        ...CLEAN,
+        "pnpm-workspace.yaml": 'allowBuilds: {}\n"nodeOpti\\x4fns": "--import=x"\n',
+      }),
+      "workspace escaped-key nodeOptions",
     ).not.toBe(0);
     expect(
-      runGuard({ "package.json": '{"pnpm":{"nodeOptions":"--import=x"}}' }),
+      runGuard({ ...CLEAN, "package.json": '{"pnpm":{"nodeOptions":"--import=x"}}' }),
       "package.json nodeOptions",
+    ).not.toBe(0);
+    // R14-B: NODE_OPTIONS / npm_config_node_options at job/workflow env
+    // scope is present in this step's OWN env — refused directly.
+    expect(runGuard(CLEAN, { NODE_OPTIONS: "--import=x" }), "env NODE_OPTIONS").not.toBe(0);
+    expect(
+      runGuard(CLEAN, { npm_config_node_options: "--import=x" }),
+      "env npm_config_node_options",
     ).not.toBe(0);
     // …and the real tree passes it.
     expect(execFileSync("bash", [GUARD], { cwd: ROOT, stdio: "pipe" }).toString()).toContain("ok");
