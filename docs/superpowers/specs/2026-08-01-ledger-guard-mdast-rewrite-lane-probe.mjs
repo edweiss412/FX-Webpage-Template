@@ -188,7 +188,7 @@ function headingVerdict(headingLine, id) {
   // prefix is skipped structurally, so an id (or id-substring) occurrence
   // INSIDE the prefix cannot anchor the scan. Delete-wrapped id: no match,
   // fall back to 0 (ratified conservative-loud).
-  const em = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
+  const em = /^\s*(?:\[[^\]]+\]\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
   const from = em && em[1] === id ? em.index + em[0].length : 0;
   const m = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
   m.lastIndex = 0;
@@ -238,12 +238,12 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
         }
         return;
       }
+      if (node.type !== "delete" && node.type !== "heading") { flatChars.push("\u0000"); prov.push("fmt"); }
       if (node.type === "inlineCode") {
         const v = String(node.value);
         for (let i = 0; i < v.length; i++) { flatChars.push(v[i]); prov.push("code"); }
         return;
       }
-      if (node.type !== "delete" && node.type !== "heading") { flatChars.push("\u0000"); prov.push("fmt"); }
       if (node.type === "html") return;
       const k =
         node.type === "heading"

@@ -762,6 +762,21 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(extractEntries("## ~~<b>BL-M9X</b>~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     expect(extractEntries("## ~~BL-**M9Y**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     expect(extractEntries("## ~~\`BL-M9Z\`~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // whole-diff r6/r7 — an UNPAIRED tilde run is literal text in mdast but
+    // the legacy raw matcher consumed ~{0,2}; parity keeps these ids visible
+    // to the no-overlap invariant, and the heading scan RELOCATES past them
+    // so a bracket-prefix anchor is never the claim:
+    for (const h of [
+      "## ~BL-M9T2 — open",
+      "## ~~BL-M9T3 — open",
+      "## ~BL-M9T4~~ — open",
+      "## [P2] ~BL-M9T5 — open",
+    ]) {
+      expect(extractEntries(`${h}\n\nbody\n`, BACKLOG_OPTS).map((e) => e.id), h).toHaveLength(1);
+    }
+    expect(headingHit("## [was — CLOSED once] ~BL-M9T6 — open")).toBe(false);
+    expect(headingHit("## [✅ CLOSED prior] ~~BL-M9T7 — open")).toBe(false);
+    expect(headingHit("## ~BL-M9T8 — CLOSED 2026")).toBe(true);
     // whole-diff r5 — zero-prose nodes occupy raw position (sentinel): a
     // dropped image/link/footnote-ref/whitespace-code at the heading start
     // never lets later plain text read as source-leading:

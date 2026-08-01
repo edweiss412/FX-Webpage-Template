@@ -434,7 +434,10 @@ export function lineVerdicts(line: FlatLine): string[] {
  */
 export function headingVerdicts(headingLine: FlatLine, id: string): string[] {
   const text = headingLine.text;
-  const em = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
+  // Mirror extraction's optional unpaired-tilde consumption (r7): a
+  // `~BL-X` id must relocate here too, or the scan falls back to offset 0
+  // and a bracket-prefix anchor reads as the entry's claim.
+  const em = /^\s*(?:\[[^\]]*\]\s*)?~{0,2}([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
   const from = em !== null && em[1] === id ? em.index + em[0].length : 0;
   const anchor = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
   const hits: string[] = [];
