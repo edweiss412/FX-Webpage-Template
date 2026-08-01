@@ -286,6 +286,58 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(EXPIRY_DECL.test("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;")).toBe(false);
   });
 
+  /* T4 — expiry-wiring co-presence (spec 2026-08-01-announce-a11y-pass §5.2):
+   * every file referencing ARM_REVERT_MS must also reference
+   * ARM_EXPIRED_ANNOUNCEMENT, or hold an exemption row with a real reason.
+   * Lexical presence only — "no known spelling is absent" honesty posture;
+   * whether the announcement fires on the timer path is proven by the
+   * per-surface behavioral tests, not here (spec §1.1). */
+  const REF_REVERT = /\bARM_REVERT_MS\b/;
+  const REF_EXPIRY = /\bARM_EXPIRED_ANNOUNCEMENT\b/;
+  type T4Exemption = { file: string; reason: string };
+  const T4_EXEMPTIONS: T4Exemption[] = [];
+  const isValidExemption = (row: T4Exemption): boolean => row.reason.length >= 20;
+  const referencesRevert = (source: string, filePath: string): boolean =>
+    REF_REVERT.test(stripCommentsForFile(source, filePath));
+  const wiresExpiry = (source: string, filePath: string): boolean =>
+    REF_EXPIRY.test(stripCommentsForFile(source, filePath));
+
+  it("T4: every ARM_REVERT_MS referencer wires the expiry announcement (or is exempt)", () => {
+    const problems: string[] = [];
+    const exemptFiles = new Set(T4_EXEMPTIONS.map((r) => r.file));
+    const seen = new Set<string>();
+    for (const root of ["components", "app", "lib"]) {
+      for (const file of walk(root)) {
+        const source = readFileSync(file, "utf8");
+        if (!referencesRevert(source, file)) continue;
+        seen.add(file);
+        if (file === CONST_MODULE) continue; // declares both, trivially wired
+        if (wiresExpiry(source, file)) continue;
+        if (exemptFiles.has(file)) continue;
+        problems.push(`UNWIRED: ${file} references ARM_REVERT_MS without ARM_EXPIRED_ANNOUNCEMENT`);
+      }
+    }
+    for (const row of T4_EXEMPTIONS) {
+      if (!isValidExemption(row)) problems.push(`INVALID EXEMPTION (reason too short): ${row.file}`);
+      if (!seen.has(row.file)) problems.push(`STALE EXEMPTION: ${row.file}`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("T4 self-checks: bare import fails, comment-only reference fails, wired passes, short exemption reason rejected", () => {
+    const bare = 'import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";';
+    expect(referencesRevert(bare, "a.tsx")).toBe(true);
+    expect(wiresExpiry(bare, "a.tsx")).toBe(false); // -> would be UNWIRED
+    expect(wiresExpiry("// mentions ARM_EXPIRED_ANNOUNCEMENT only in a comment", "a.tsx")).toBe(
+      false,
+    );
+    expect(wiresExpiry("region.textContent = ARM_EXPIRED_ANNOUNCEMENT;", "a.tsx")).toBe(true);
+    expect(isValidExemption({ file: "a.tsx", reason: "short" })).toBe(false);
+    expect(
+      isValidExemption({ file: "a.tsx", reason: "timer lives in a shared hook, wired there" }),
+    ).toBe(true);
+  });
+
   it("T5: the expiry copy is the ratified string", async () => {
     const mod = await import("@/lib/admin/destructiveConfirm");
     expect(mod.ARM_EXPIRED_ANNOUNCEMENT, "spec 2026-08-01-announce-a11y-pass §3.1").toBe(
