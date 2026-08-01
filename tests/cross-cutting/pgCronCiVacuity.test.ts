@@ -196,4 +196,19 @@ describe("query-count mechanism cannot be deleted silently", () => {
       unlinkSync(MUTANT_ABS);
     }
   }, 300_000);
+
+  it("the aggregate afterAll branch backstops when attribution is absent", () => {
+    writeMutant([
+      { anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` },
+      { anchor: OBSERVE_ANCHOR, replaceWith: "makeLiveCaseCounter(liveDbTest)" },
+    ]);
+    try {
+      const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" }, MUTANT_REL);
+      expect(run.status, "an uncounted-inert-case run must red the suite").not.toBe(0);
+      // Seven counted cases, six queries: only the aggregate branch notices.
+      expect(run.output).toMatch(/live cases ran but only \d+ database queries were issued/);
+    } finally {
+      unlinkSync(MUTANT_ABS);
+    }
+  }, 300_000);
 });
