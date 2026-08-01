@@ -411,3 +411,20 @@ Module header states the MF5/MF7 honest ceiling verbatim from spec §2.1.
 - Spec coverage: S1–S8 → Tasks 4/5/6; credential → Task 3; classifier → Task 2; guard → Task 7; graduations + master-spec amendment → Tasks 6/8; §12.4 lockstep → Task 6; invariant-8 → Task 9. AC-1..AC-7 each land in a named task.
 - CI wiring: all new test files are under `tests/drive/` (parallel project glob `vitest.projects.ts:96`) or extend existing wired files; no workflow edits needed.
 - Adversarial review (cross-model, Codex) follows this plan's self-review; iterate to APPROVE before implementation.
+
+---
+
+## 12. Invariant-8 close-out
+
+Ran 2026-08-01 on the affected UI diff (one string in Step2Verify's RECOGNIZED_CODES set + the ONBOARDING_FOLDER_VERIFY_UNAVAILABLE catalog row it renders), canonical v3 setup gates (context.mjs PRODUCT.md load, product register), critique per the two-isolated-assessments contract.
+
+**Critique:** PASS. Error-recovery heuristic 4/4; system-real-world match 4/4. Detector (Assessment B) ran clean on Step2Verify.tsx: zero findings; no browser run needed (zero layout/styling change, stated, not skipped silently). Findings and dispositions:
+
+| Finding | Tier | Disposition |
+|---|---|---|
+| Hardcoded frame heading "We could not verify that folder." mildly redundant with the new copy, register mismatch (uncontracted) | P3 | ACCEPTED, not fixed: the frame is pre-existing and shared by ALL verify-failure codes; changing it is a copy decision across six codes, out of this diff's scope. |
+| dougFacing says "try again" while helpfulContext says "click Verify again" | P3 | ACCEPTED, not fixed: harmless precision delta; the disclosure copy is deliberately more specific than the one-line message, same shape as sibling rows. |
+
+**Audit:** zero findings across the diff surface (no em-dash in user copy; straight-apostrophe convention matches the catalog-wide 141-contraction pattern; no raw code in rendered DOM, code appears only in the helpHref fragment per the established row pattern; no hardcoded colors / side stripes / gradient text; no tap-target or layout deltas — the diff renders through the existing error container, which wraps multi-sentence copy without truncation).
+
+P0/P1 count: zero. Nothing deferred to DEFERRED.md.
