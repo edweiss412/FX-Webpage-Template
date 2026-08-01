@@ -170,8 +170,12 @@ function headingVerdict(headingLine, id) {
   // anchors inside an arbitrary bracket prefix or anywhere before the id
   // are not the entry's own closure claim.
   const text = headingLine.text;
-  const idAt = id ? text.indexOf(id) : -1;
-  const from = idAt >= 0 ? idAt + id.length : 0;
+  // Re-run the extraction shape on the claim-flattened text: the bracket
+  // prefix is skipped structurally, so an id (or id-substring) occurrence
+  // INSIDE the prefix cannot anchor the scan. Delete-wrapped id: no match,
+  // fall back to 0 (ratified conservative-loud).
+  const em = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(text);
+  const from = em && em[1] === id ? em.index + em[0].length : 0;
   const m = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
   m.lastIndex = 0;
   const hits = [];
@@ -292,4 +296,7 @@ shape("pre-id en-dash anchor", "## [was – CLOSED once] BL-P2 — open", false,
 shape("pre-id ASCII-dash anchor", "## [was - CLOSED once] BL-P3 — open", false, "heading");
 shape("pre-id check anchor", "## [✅ CLOSED prior arc] BL-P4 — open", false, "heading");
 shape("post-id anchor still caught", "## [P2] BL-P5 — CLOSED 2026", true, "heading");
+// r4-review shapes
+shape("pre-id duplicated-id anchor", "## [BL-P6 — CLOSED prior arc] BL-P6 — open", false, "heading");
+shape("pre-id id-substring anchor", "## [XBL-P7X — CLOSED prior arc] BL-P7 — open", false, "heading");
 console.log(fails === 0 ? "ALL SHAPES OK" : `${fails} MISMATCHES`);

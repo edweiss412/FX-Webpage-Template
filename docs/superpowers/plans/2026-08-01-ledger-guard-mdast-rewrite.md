@@ -30,31 +30,29 @@ A reviewer-proposed NEW family is admissible only with a live escaping mutant ag
 
 ## Tasks (TDD; conventional commit per task)
 
-### T1 `chore(infra): add remark parser devDependency`
-`pnpm add -D remark@^15` (package.json + pnpm-lock.yaml already staged in worktree). No test — dependency-only commit (the T2 red test is its consumer).
-
-### T2 `test(docs): mdast walker helper — parseLedger/extractEntries/flattenLines`
+### T1 `test(docs): mdast walker helper — parseLedger/extractEntries/flattenLines (+ remark devDependency)`
+The remark dep (`pnpm add -D remark@^15`, package.json + pnpm-lock.yaml already staged in worktree) lands INSIDE this TDD commit — the RED test is its first consumer (spec §9, r4 P0: no testless standalone dep commit).
 RED: new `tests/docs/_ledgerMdast.walker.test.ts` asserting, from fixture strings: entry extraction (top-level only, SHOUTY rules, struck ids, arbitrary-bracket prefixes, no-terminator parity, BL- prefix filter, 2|3 levels, id-heading-to-id-heading partition incl. the nested-H3 shape), flatten semantics per the spec §2 disposition table (all node types, strong spans, code-contributed spans, `\n`-splitting of text values, container descent, footnoteDefinition NON-descent). GREEN: implement `tests/docs/_ledgerMdast.ts` — the committed spec sibling `2026-08-01-ledger-guard-mdast-rewrite-lane-probe.mjs` is the working prototype to port. Failure mode caught: a walker that reads rendered text where it should read structure (e.g. keeps link text) turns a silent plant into a hit — asserted directly.
 
-### T3 `test(docs): port the ledger guard onto the walker`
+### T2 `test(docs): port the ledger guard onto the walker`
 RED: rewrite the two terminal-status `it()` bodies + `shoutyIds` call sites in `tests/docs/_metaDeferralLedgerGraduation.test.ts` to consume `_ledgerMdast.ts`; the eight `it()` names unchanged. The restored semantics (negation vetoes, `Resolution` label, anchored-✅) land here with hit-plants that are RED against the r21 logic if evaluated (they are — the plants test runs the shared evaluator). GREEN: wire `entryTerminal`. Live ledgers must stay green (spec §5 live-clean criterion). Regex lanes, `normalizeSection`, `WRAP`, `AFTER`, `CONTAINER` deleted.
 
-### T4 `test(docs): plants corpus — snapshot port + probe fixtures`
+### T3 `test(docs): plants corpus — snapshot port + probe fixtures`
 Port the ~230-line r15–r40 plants verbatim from `a1cfce98d` (annotations kept), re-targeted at walker verdicts; add spec §5 new plants (P1–P7, fenced-code, table/link/html/raw-html silents, setext, 3-space heading, entity, autolink, lazy-continuation, `Resolution`, `Not CLOSED`, ✅ pair, M2's per-word hit plants, M7 quoted-heading plant). Each plant states its mutation family (M1–M8) in a comment.
 
-### T5 `test(admin): restore r22–r41 containment hardening + two-row reconcile + sheet-icon spec §7.10 lockstep`
+### T4 `test(admin): restore r22–r41 containment hardening + two-row reconcile + sheet-icon spec §7.10 lockstep`
 ONE commit (spec §6.1, r2 F3): `git checkout a1cfce98d -- tests/components/admin/sheetIconLinkContainment.test.ts`; update the two count rows per plan-time facts (verified legitimate adopters, PR #640); restore the reverted §7-item-10 paragraph of `docs/superpowers/specs/2026-07-26-sheet-icon-link-affordance-class.md` from `a1cfce98d` (spec-is-canonical; mirrors `2d9d0ba11` in reverse); run full file green. Census probe per the spec §6.3 EXHAUSTIVE table (eight rows, per-row obligation: 3-variant probe / loud-failure variant / set-equality green / plant citation); escaping variant ⇒ fix + plant, none ⇒ documented-limits note in the guard header. Probe outputs recorded in the commit body.
 
-### T6 `docs: graduate BL-LEDGER-GUARD-MDAST-REWRITE`
+### T5 `docs: graduate BL-LEDGER-GUARD-MDAST-REWRITE`
 Move the entry to `BACKLOG-archive.md` with provenance `test/ledger-guard-mdast-rewrite`; add the `BACKLOG_GRADUATED` registry row. Reference sweep RUN 2026-08-01 (`rg -n "BL-LEDGER-GUARD-MDAST-REWRITE" --no-heading`, excluding this arc's own spec/plan): exactly two hits — `BACKLOG.md:7` (reconciliation-note prose recording the 2026-07-31 split: KEEP, historical record; the graduation layers its own note per house style) and `BACKLOG.md:11` (the entry heading itself: MOVES to archive). `BL-SOUND-REDIRECT-GUARD` does NOT cite the id (an earlier draft assumed it did — refuted by this sweep); the r30 header citation exists only in the `a1cfce98d` snapshot file, which this branch's rewrite replaces. The new walker validates its own graduation row — the guard polices this commit.
 
-### T7 Close-out
+### T6 Close-out
 Full `pnpm test`; `tsc` both configs; eslint; `format:check`. Whole-diff cross-model review (fresh-eyes brief, split-scope if needed); push; CI green; merge; ff-sync main; delete `test/guard-hardening-followup`; CronDelete nudge + clear pane.
 
 ## Snippet typecheck note
 
-Task bodies above carry no pasted TS snippets (shapes are named, not inlined) — the T2/T3/T4 test bodies are authored in-branch under the repo's strict tsconfig at implementation time, which is where the typecheck-pasted-snippets rule lands.
+Task bodies above carry no pasted TS snippets (shapes are named, not inlined) — the T1/T2/T3 test bodies are authored in-branch under the repo's strict tsconfig at implementation time, which is where the typecheck-pasted-snippets rule lands.
 
 ## e2e/CI wiring
 
-No new workflow, no new e2e spec, no testMatch change: `_ledgerMdast.ts` (underscore helper, not matched by `**/*.test.ts` globs) plus edits inside two existing registered test files and one new `tests/docs/_ledgerMdast.walker.test.ts` — verify at T2 that the `tests/docs/` glob of the vitest project that runs `_metaDeferralLedgerGraduation.test.ts` also matches the new walker test (same directory, same suffix).
+No new workflow, no new e2e spec, no testMatch change: `_ledgerMdast.ts` (underscore helper, not matched by `**/*.test.ts` globs) plus edits inside two existing registered test files and one new `tests/docs/_ledgerMdast.walker.test.ts` — verify at T1 that the `tests/docs/` glob of the vitest project that runs `_metaDeferralLedgerGraduation.test.ts` also matches the new walker test (same directory, same suffix).
