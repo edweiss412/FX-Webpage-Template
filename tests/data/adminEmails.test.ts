@@ -41,6 +41,7 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase/server", () => {
   return {
+    createSupabaseServiceRoleClient: vi.fn(),
     createSupabaseServerClient: async () => {
       return {
         rpc: async (fn: string, args: Record<string, unknown>) => {

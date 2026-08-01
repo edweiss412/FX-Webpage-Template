@@ -53,6 +53,7 @@ vi.mock("next/navigation", () => ({
 // previewed crew's display name/role (banner label only — auth flags come from
 // getShowForViewer).
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({
     from(table: string) {
       const builder: Record<string, unknown> = {};

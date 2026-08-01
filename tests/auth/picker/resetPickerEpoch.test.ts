@@ -5,7 +5,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: vi.fn() }));
-vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
+  createSupabaseServerClient: vi.fn(),
+}));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert: vi.fn() }));
 // Invariant #10: the action now emits PICKER_EPOCH_RESET_BY_ADMIN via logAdminOutcome.
 // Stub it so this unit test doesn't drive the real logger (behavioral proof lives in

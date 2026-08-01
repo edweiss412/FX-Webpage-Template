@@ -85,6 +85,7 @@ vi.mock("@/lib/admin/readShowReviewSnapshot", () => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({
     from() {
       const builder: Record<string, unknown> = {};

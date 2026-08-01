@@ -7,7 +7,10 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { log } from "@/lib/log";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: vi.fn() }));
-vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
+  createSupabaseServerClient: vi.fn(),
+}));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn() }));
 vi.mock("@/lib/log", () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 

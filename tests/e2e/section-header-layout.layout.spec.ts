@@ -58,10 +58,17 @@ test.beforeAll(async () => {
     narrowestRowPx: number;
     hairline: string;
     rowWidths: Record<string, number>;
+    saturated: Record<string, string>;
     cells: Record<string, Record<string, string>>;
   };
   expect(Object.keys(cells.cells).length, "harness emitted all 15 matrix cells").toBe(15);
   expect(cells.hairline, "harness emitted the hairline fixture").toBeTruthy();
+  // Saturated-name auxiliary fixture (sheet-icon-link spec §7.7): both narrow
+  // widths, or the intersection cases below measure a fixture that is not there.
+  expect(Object.keys(cells.saturated).sort(), "saturated fixture at 320 and 375").toEqual([
+    "320",
+    "375",
+  ]);
   // The harness reported the width it rendered the hairline into and nothing read
   // it, so the fixture could drift off 240px while a test still titled "@ 240px
   // row" stayed green (review round 1). Pinned here; the rendered container's own
@@ -84,6 +91,11 @@ test.beforeAll(async () => {
 
   const sources = [join(workDir, "hairline.html")];
   writeFileSync(join(workDir, "hairline.html"), pageOf(cells.hairline));
+  for (const [viewport, markup] of Object.entries(cells.saturated)) {
+    const file = join(workDir, `saturated-name-${viewport}.html`);
+    writeFileSync(file, pageOf(markup));
+    sources.push(file);
+  }
   for (const [cell, perWidth] of Object.entries(cells.cells)) {
     for (const [viewport, markup] of Object.entries(perWidth)) {
       const file = join(workDir, `${cell}-${viewport}.html`);
@@ -453,9 +465,15 @@ for (const spec of MATRIX) {
       expect(m.lines, `${spec.cell} @ ${viewport}: the section name occupies ONE text line`).toBe(
         1,
       );
+      // Sub-blocks (level 4 — the Diagrams row) carry NO tap floor: they never
+      // render a link, so 44px bought nothing and defeated the deliberate
+      // size-6/text-sm subordination. Natural height, bounded below by the 24px
+      // icon chip so a collapsed row cannot pass (sheet-icon-link spec §1.8/§7.9,
+      // amending wide-inline §2.4's "44px regardless of pill" to TOP-LEVEL rows).
+      const isSub = spec.level === 4;
       if (WIDE_VIEWPORTS.has(viewport)) {
         // sm+: the line-1 wrapper flattens (display: contents) — boxless is the
-        // positive statement of the mode; the 44px row belongs to `outer`,
+        // positive statement of the mode; the row height belongs to `outer`,
         // REGARDLESS of pill (2026-07-26 spec §4.2 rows D/E).
         expect(m.headerLineWidth, `${spec.cell} @ ${viewport}: headerLine is boxless at sm+`).toBe(
           0,
@@ -463,10 +481,30 @@ for (const spec of MATRIX) {
         expect(m.headerLineHeight, `${spec.cell} @ ${viewport}: headerLine is boxless at sm+`).toBe(
           0,
         );
-        expect(m.outerHeight, `${spec.cell} @ ${viewport}: one 44px row, pill inline`).toBeCloseTo(
-          HEADER_LINE_PX,
-          0,
-        );
+        if (isSub) {
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: sub-block row is floorless (< 44px)`,
+          ).toBeLessThan(HEADER_LINE_PX);
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: sub-block row still holds its 24px chip`,
+          ).toBeGreaterThanOrEqual(24);
+        } else {
+          expect(
+            m.outerHeight,
+            `${spec.cell} @ ${viewport}: one 44px row, pill inline`,
+          ).toBeCloseTo(HEADER_LINE_PX, 0);
+        }
+      } else if (isSub) {
+        expect(
+          m.headerLineHeight,
+          `${spec.cell} @ ${viewport}: sub-block LINE is floorless (< 44px)`,
+        ).toBeLessThan(HEADER_LINE_PX);
+        expect(
+          m.headerLineHeight,
+          `${spec.cell} @ ${viewport}: sub-block LINE still holds its 24px chip`,
+        ).toBeGreaterThanOrEqual(24);
       } else {
         expect(
           m.headerLineHeight,
@@ -871,10 +909,13 @@ test("transition audit: wide header keeps 44px when its pill changes on a mounte
  * T2 — the corner link's tap target, proven by HIT TESTING rather than by geometry.
  *
  * The link paints a 20px icon and expands its hit area with a `::before` overlay
- * (`before:absolute before:-inset-3`). `getBoundingClientRect()` CANNOT see that:
- * a pseudo-element contributes no box to its host's rect, so a rect-based check
- * would report 20px and fail a passing implementation — or, worse, pass a broken
- * one that grew the icon instead of the target.
+ * (`before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5` — the
+ * ASYMMETRIC 44×44 of the sheet-icon-link spec §5: 12px vertical, 10px on the
+ * heading side so the reach never exceeds the row's 10px gap, 14px trailing).
+ * `getBoundingClientRect()` CANNOT see that: a pseudo-element contributes no box
+ * to its host's rect, so a rect-based check would report 20px and fail a passing
+ * implementation — or, worse, pass a broken one that grew the icon instead of
+ * the target.
  *
  * `elementFromPoint` is the oracle because it answers the question a thumb asks.
  */
@@ -889,15 +930,18 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
     const link = document.querySelector('[data-cell="G1-clean"] a[href]');
     if (!(link instanceof HTMLElement)) return { error: "corner link not found" };
     const r = link.getBoundingClientRect();
-    // The overlay's own box, read from the pseudo-element's resolved inset rather
-    // than assumed: -inset-3 on a 20px icon is 44px, but the check must fail if the
-    // token changes underneath it.
-    const inset = parseFloat(getComputedStyle(link, "::before").insetBlockStart || "0");
+    // The overlay's own box, read from ALL FOUR resolved pseudo-element inset
+    // components rather than assumed: the overlay is ASYMMETRIC (10px heading
+    // side, 14px trailing — sheet-icon-link spec §5), so a single component
+    // applied symmetrically would misplace two edges. Resolved values are
+    // negative (-10px etc.), so adding/subtracting expands the box; the check
+    // still fails if any token changes underneath it.
+    const cs = getComputedStyle(link, "::before");
     const box = {
-      left: r.left + inset,
-      top: r.top + inset,
-      right: r.right - inset,
-      bottom: r.bottom - inset,
+      left: r.left + parseFloat(cs.insetInlineStart || "0"),
+      top: r.top + parseFloat(cs.insetBlockStart || "0"),
+      right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+      bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
     };
     const probe = (x: number, y: number) => {
       const hit = document.elementFromPoint(x, y);
@@ -947,6 +991,160 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
     [m.outsideLeft, m.outsideRight, m.outsideTop, m.outsideBottom],
     "the target does not extend past its own expanded box on any side" + " (left/right/top/bottom)",
   ).toEqual([false, false, false, false]);
+});
+
+/**
+ * T2b — bleed invariant by RECT INTERSECTION (sheet-icon-link spec §5/§7.7).
+ *
+ * The overlay must not cover any pixel of ANY neighbouring content box. Probing
+ * hand-picked coordinates cannot be guaranteed to land inside a neighbour (a
+ * centred pill does not span the link's centre-x; sublines start after margins),
+ * so the oracle is pure geometry: the overlay rect — anchor rect expanded by the
+ * four resolved ::before insets, the same computation as T2 — must have an EMPTY
+ * intersection with each neighbour's own rect, wherever that neighbour sits.
+ * Every neighbour rect is asserted non-degenerate first, so an unrendered
+ * neighbour cannot green-wash its case.
+ *
+ * The saturated-name fixture is the one genuine pre-fix overlap: the long name
+ * wraps, the count lands 10px (the row gap) from the link box, and a 12px reach
+ * covers 2px of it. The empty-intersection assertion on that case IS this
+ * change's red edge — it fails on the `-inset-3` tree and passes at 10px reach.
+ */
+type NamedRect = { name: string; left: number; top: number; right: number; bottom: number };
+
+async function measureOverlayAndNeighbours(
+  page: Page,
+  cellSelector: string,
+): Promise<{ error: string | null; overlay?: NamedRect; neighbours?: NamedRect[] }> {
+  return page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    const link = root?.querySelector("a[href]");
+    if (!(link instanceof HTMLElement)) return { error: `link not found under ${sel}` };
+    const r = link.getBoundingClientRect();
+    const cs = getComputedStyle(link, "::before");
+    const overlay = {
+      name: "overlay",
+      left: r.left + parseFloat(cs.insetInlineStart || "0"),
+      top: r.top + parseFloat(cs.insetBlockStart || "0"),
+      right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+      bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
+    };
+    const named = (name: string, el: Element | null | undefined): NamedRect | null => {
+      if (!(el instanceof HTMLElement)) return null;
+      const b = el.getBoundingClientRect();
+      return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    };
+    const heading = named("heading", root?.querySelector("h3, h4"));
+    const count = named(
+      "count",
+      Array.from(root?.querySelectorAll("span") ?? []).find((el) =>
+        /^\(\d+\)$/.test((el.textContent ?? "").trim()),
+      ),
+    );
+    const pill = named("pill", root?.querySelector('[class*="rounded-pill"]'));
+    const neighbours = [heading, count, pill].filter((n): n is NamedRect => n !== null);
+    return { error: null, overlay, neighbours };
+  }, cellSelector);
+}
+
+function intersectionArea(a: NamedRect, b: NamedRect): number {
+  const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return Math.max(0, w) * Math.max(0, h);
+}
+
+for (const viewport of [320, 375] as const) {
+  test(`saturated name: overlay intersects NO neighbouring box @ ${viewport}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: viewport, height: 900 });
+    await page.goto(`${baseUrl}saturated-name-${viewport}.html`, { waitUntil: "load" });
+    const m = await measureOverlayAndNeighbours(page, '[data-cell="saturated-name"]');
+    expect(m.error, "fixture shape").toBeNull();
+    if (m.error !== null) return;
+    // The saturated fixture must actually saturate: heading AND count rendered
+    // (clean counted cell), both non-degenerate — the anti-vacuity precondition.
+    const names = m.neighbours!.map((n) => n.name);
+    expect(names, "heading and count both present").toEqual(
+      expect.arrayContaining(["heading", "count"]),
+    );
+    for (const n of m.neighbours!) {
+      expect(n.right - n.left, `${n.name} rect is non-degenerate (width)`).toBeGreaterThan(0);
+      expect(n.bottom - n.top, `${n.name} rect is non-degenerate (height)`).toBeGreaterThan(0);
+      expect(
+        intersectionArea(m.overlay!, n),
+        `overlay does not cover the ${n.name} @ ${viewport}`,
+      ).toBe(0);
+    }
+    // Anti-vacuity saturation bound (whole-diff r12): this case's RED edge is
+    // real only while the count actually sits one row-gap (10px) from the
+    // link box — i.e. flush against the 10px overlay reach. A shortened
+    // fixture name would drift the count away and every assertion above would
+    // stay green on the pre-fix tree too. Bound the geometry: the count's
+    // trailing edge lies within half a pixel of the overlay's leading edge,
+    // on the link's own row.
+    const count = m.neighbours!.find((n) => n.name === "count")!;
+    expect(
+      Math.abs(m.overlay!.left - count.right),
+      `count sits flush against the overlay edge (saturated) @ ${viewport}`,
+    ).toBeLessThanOrEqual(0.5);
+    const vOverlap =
+      Math.min(m.overlay!.bottom, count.bottom) - Math.max(m.overlay!.top, count.top);
+    expect(vOverlap, `count shares the link's row @ ${viewport}`).toBeGreaterThan(0);
+  });
+}
+
+test("flagged narrow: overlay clears the line-2 pill @ 375", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto(`${baseUrl}G1-flagged-375.html`, { waitUntil: "load" });
+  const m = await measureOverlayAndNeighbours(page, '[data-cell="G1-flagged"]');
+  expect(m.error, "fixture shape").toBeNull();
+  if (m.error !== null) return;
+  const pill = m.neighbours!.find((n) => n.name === "pill");
+  expect(pill, "line-2 pill rendered").toBeTruthy();
+  expect(pill!.right - pill!.left, "pill rect non-degenerate (width)").toBeGreaterThan(0);
+  expect(pill!.bottom - pill!.top, "pill rect non-degenerate (height)").toBeGreaterThan(0);
+  expect(intersectionArea(m.overlay!, pill!), "overlay never reaches line 2").toBe(0);
+});
+
+test("wide inline: overlay clears pill, count and heading @ 640", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 640, height: 900 });
+  for (const cell of ["G1-flagged", "G1-clean"] as const) {
+    await page.goto(`${baseUrl}${cell}-640.html`, { waitUntil: "load" });
+    const m = await measureOverlayAndNeighbours(page, `[data-cell="${cell}"]`);
+    expect(m.error, `fixture shape (${cell})`).toBeNull();
+    if (m.error !== null) return;
+    // G1-flagged carries the inline pill (pilled order); G1-clean has none
+    // (no-pill order). Only the PILL case has executable adjacency (whole-diff
+    // review F3): the pill sits at gap-2.5 + sm:ml-0.5 = 12px from the link
+    // box by construction, asserted below so the intersection check cannot be
+    // green-washed by free space. The no-pill case IS free space (name
+    // left-aligned, flex-1 slack) — a containment proof, documented as such,
+    // never claimed saturated.
+    for (const n of m.neighbours!) {
+      expect(n.right - n.left, `${cell}: ${n.name} non-degenerate (width)`).toBeGreaterThan(0);
+      expect(n.bottom - n.top, `${cell}: ${n.name} non-degenerate (height)`).toBeGreaterThan(0);
+      expect(intersectionArea(m.overlay!, n), `${cell}: overlay does not cover ${n.name}`).toBe(0);
+    }
+    if (cell === "G1-flagged") {
+      const pill = m.neighbours!.find((n) => n.name === "pill")!;
+      // Overlay left edge = link.left - 10; pill sits 12px left of the link
+      // box, so pill.right must be within ~2px+TOL of the overlay's left edge.
+      expect(
+        m.overlay!.left - pill.right,
+        "pill adjacency: the 12px clearance really is the measured gap",
+      ).toBeLessThanOrEqual(2 + 1);
+      // r39: the dead zone is a LOWER-bounded claim too — the graduated
+      // BL-HEADER-PILL-LINK-TOUCH-BUFFER entry's deliverable is ~2px of
+      // touch buffer, so 0px (e.g. sm:ml-0.5 dropped) must fail, not pass
+      // as "never overlaps".
+      expect(
+        m.overlay!.left - pill.right,
+        "pill dead zone: the ~2px touch buffer exists",
+      ).toBeGreaterThanOrEqual(2 - 0.5);
+    }
+  }
 });
 
 /**

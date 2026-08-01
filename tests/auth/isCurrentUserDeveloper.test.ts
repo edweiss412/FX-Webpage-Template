@@ -38,6 +38,7 @@ vi.mock("@/lib/log", () => ({ log: logMock }));
 vi.mock("next/navigation", () => nav);
 vi.mock("next/headers", () => ({ headers: nextHeaders.headers, cookies: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: server.createSupabaseServerClient,
 }));
 

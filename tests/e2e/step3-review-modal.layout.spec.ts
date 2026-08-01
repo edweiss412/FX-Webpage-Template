@@ -639,6 +639,117 @@ test("§9.1 long-content header @ 390: close + chip in-viewport, no horizontal o
   ).toBe(overflow.clientWidth);
 });
 
+/**
+ * SheetIconLink coverage (sheet-icon-link spec §7.8 + §7.7): D-site tap target
+ * and bleed invariant, on the LONG-title page so the link is pushed against
+ * the actions cluster (a short title parks it in free flex space and the
+ * cluster cases go vacuous).
+ *
+ *  - anti-inflation: the anchor's own rect stays 20px on BOTH axes (a rect
+ *    ≥44 means the boxed idiom crept back) — the migration's red edge;
+ *  - the 44×44 target comes from the four resolved ::before insets
+ *    (asymmetric 10px title-side / 14px trailing), floored by the title row;
+ *  - rect-intersection: the overlay covers no pixel of the title, eyebrow,
+ *    subline, state chip, or close button, each asserted non-degenerate first.
+ */
+test("sheet link: 20px box, 44px overlay target, zero neighbour intersection @ 390", async ({
+  page,
+}) => {
+  await openHarness(page, { width: 390, height: 844 }, "harness-long.html");
+  const m = await page.evaluate(
+    (ids) => {
+      const link = document.querySelector(`[data-testid="${ids.sheetlink}"]`);
+      if (!(link instanceof HTMLElement)) return { error: "sheetlink not found" };
+      const r = link.getBoundingClientRect();
+      const cs = getComputedStyle(link, "::before");
+      const overlay = {
+        left: r.left + parseFloat(cs.insetInlineStart || "0"),
+        top: r.top + parseFloat(cs.insetBlockStart || "0"),
+        right: r.right - parseFloat(cs.insetInlineEnd || "0"),
+        bottom: r.bottom - parseFloat(cs.insetBlockEnd || "0"),
+      };
+      const named = (name: string, el: Element | null | undefined) => {
+        if (!(el instanceof HTMLElement)) return null;
+        const b = el.getBoundingClientRect();
+        return { name, left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      };
+      // The title row is the link's parent; the eyebrow is the row's previous
+      // sibling and the subline its next (structural — those lines carry no
+      // testids of their own).
+      const row = link.parentElement!;
+      const neighbours = [
+        named("title", document.querySelector(`[data-testid="${ids.title}"]`)),
+        named("eyebrow", row.previousElementSibling),
+        named("subline", row.nextElementSibling),
+        named("chip", document.querySelector(`[data-testid="${ids.chip}"]`)),
+        named("close", document.querySelector(`[data-testid="${ids.close}"]`)),
+      ].filter((n): n is NonNullable<typeof n> => n !== null);
+      return {
+        error: null,
+        w: r.width,
+        h: r.height,
+        targetW: overlay.right - overlay.left,
+        targetH: overlay.bottom - overlay.top,
+        rowH: row.getBoundingClientRect().height,
+        overlay,
+        neighbours,
+      };
+    },
+    {
+      sheetlink: tid("sheetlink"),
+      title: tid("title"),
+      chip: tid("chip"),
+      close: tid("close"),
+    },
+  );
+  expect(m.error, "fixture shape").toBeNull();
+  if (m.error !== null) return;
+  expect(m.w, "visible box stays 20px wide").toBeLessThan(44);
+  expect(m.h, "visible box stays 20px tall").toBeLessThan(44);
+  expect(m.targetW, "overlay target width").toBeGreaterThanOrEqual(44 - TOL);
+  expect(m.targetH, "overlay target height").toBeGreaterThanOrEqual(44 - TOL);
+  expect(m.rowH, "title row holds the 44px floor").toBeGreaterThanOrEqual(44 - TOL);
+  expect(
+    m.neighbours!.map((n) => n.name),
+    "title, eyebrow, subline, chip and close all measured",
+  ).toEqual(expect.arrayContaining(["title", "eyebrow", "subline", "chip", "close"]));
+  // SATURATION IS ASSERTED, not assumed (whole-diff review F3): the long title
+  // must push the link against the chip clearance — trailing edge (overlay
+  // right minus its 14px reach) to the chip within mr-0.5(2) + gap-3(12) + TOL.
+  const chip = m.neighbours!.find((n) => n.name === "chip")!;
+  expect(
+    chip.left - (m.overlay!.right - 14),
+    "saturated title leaves <= 14px+TOL to the chip",
+  ).toBeLessThanOrEqual(14 + 1);
+  for (const n of m.neighbours!) {
+    expect(n.right - n.left, `${n.name} rect non-degenerate (width)`).toBeGreaterThan(0);
+    expect(n.bottom - n.top, `${n.name} rect non-degenerate (height)`).toBeGreaterThan(0);
+    const w = Math.min(m.overlay!.right, n.right) - Math.max(m.overlay!.left, n.left);
+    const h = Math.min(m.overlay!.bottom, n.bottom) - Math.max(m.overlay!.top, n.top);
+    expect(Math.max(0, w) * Math.max(0, h), `overlay does not cover the ${n.name}`).toBe(0);
+  }
+  // elementFromPoint spot check (whole-diff review F2): only a hit test proves
+  // paint order and stacking leave the 44×44 target clickable.
+  const hits = await page.evaluate(
+    ({ sel, box }) => {
+      const link = document.querySelector(`[data-testid="${sel}"]`);
+      const probe = (x: number, y: number) => {
+        const hit = document.elementFromPoint(x, y);
+        return hit !== null && (hit === link || (link?.contains(hit) ?? false));
+      };
+      return [
+        probe((box.left + box.right) / 2, (box.top + box.bottom) / 2),
+        probe(box.left + 1, box.top + 1),
+        probe(box.right - 1, box.top + 1),
+        probe(box.left + 1, box.bottom - 1),
+        probe(box.right - 1, box.bottom - 1),
+      ];
+    },
+    { sel: tid("sheetlink"), box: m.overlay! },
+  );
+  expect(hits, "overlay centre + corners all hit the link").toEqual([true, true, true, true, true]);
+});
+
 test("§9.1 sheet footer safe-area @ 390: paddingBottom ≥ base padding + stylesheet mechanism", async ({
   page,
 }) => {

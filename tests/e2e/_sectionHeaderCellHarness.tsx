@@ -271,6 +271,50 @@ function cellMarkup(c: (typeof CELLS)[number], widthPx: number): string {
 }
 
 /**
+ * SATURATED-NAME fixture (sheet-icon-link spec §7.7): a counted, link-bearing
+ * top-level section whose long name fills the row, so the COUNT node — the
+ * link-side neighbour below `sm` — lands within the OLD overlay's 12px reach
+ * of the link box. This is the one genuine pre-fix bleed configuration; the
+ * empty-intersection assertion must fail on it before the overlay narrows to
+ * 10px. AUXILIARY emission, deliberately NOT a 16th matrix cell: the spec pins
+ * `cells` to exactly 15 (section-header-layout.layout.spec.ts asserts the
+ * count), and this fixture exists for one geometry question, not the identity
+ * matrix. Emitted at the 320/375 rows where saturation is real.
+ */
+const SATURATED = {
+  cell: "saturated-name",
+  heading: "Wardrobe, backline & key-moment logistics",
+  dfid: HARNESS_DFID,
+  sectionId: "rooms",
+  headingLevel: 3,
+  count: 12,
+  status: "clean",
+  expectLink: true,
+  expectPill: "none",
+} as const satisfies (typeof CELLS)[number];
+
+function saturatedMarkup(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const viewport of [320, 375] as const) {
+    const rowPx = ROW_WIDTHS[viewport];
+    out[viewport] = renderToStaticMarkup(
+      <div data-cell={SATURATED.cell} style={{ width: `${rowPx}px` }}>
+        <Step3SectionChromeContext.Provider value={chromeFor(SATURATED)}>
+          <BreakdownSection
+            testId={`cell-${SATURATED.cell}`}
+            label={SATURATED.heading}
+            count={SATURATED.count}
+          >
+            <div />
+          </BreakdownSection>
+        </Step3SectionChromeContext.Provider>
+      </div>,
+    );
+  }
+  return out;
+}
+
+/**
  * Only `notes` is populated, so exactly one group renders — "Wardrobe & key
  * moments", the longest title. Every other group filters out for having no
  * non-empty field, which is what isolates the worst-case rule width.
@@ -295,6 +339,7 @@ export function buildCells(): {
   dfid: string;
   narrowestRowPx: number;
   hairline: string;
+  saturated: Record<string, string>;
   rowWidths: typeof ROW_WIDTHS;
   cells: Record<string, Record<string, string>>;
 } {
@@ -310,6 +355,7 @@ export function buildCells(): {
     dfid: HARNESS_DFID,
     narrowestRowPx: NARROWEST_ROW_PX,
     hairline: hairlineMarkup(),
+    saturated: saturatedMarkup(),
     rowWidths: ROW_WIDTHS,
     cells,
   };

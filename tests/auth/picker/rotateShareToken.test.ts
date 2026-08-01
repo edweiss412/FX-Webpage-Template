@@ -4,7 +4,10 @@ import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: vi.fn() }));
-vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
+  createSupabaseServerClient: vi.fn(),
+}));
 // Invariant #10: the action now emits SHARE_TOKEN_ROTATED_BY_ADMIN via logAdminOutcome.
 // Stub it so this unit test doesn't drive the real logger (behavioral proof lives in
 // tests/log/adminOutcomeBehavior.test.ts). The stub also lets us assert the secret token

@@ -88,6 +88,7 @@ import {
   resolveCurrentDiagrams,
 } from "@/lib/data/diagrams";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 // Type-only (runtime cycle unchanged): the crew chrome value's banner payload.
@@ -927,9 +928,21 @@ export function ModalSectionChrome({
           `items-center` on a row; the parent section stays a column and `w-full`
           keeps carrying the row's width.) */}
       <div
-        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:min-h-tap-min sm:flex-row sm:items-center sm:gap-2.5`}
+        className={`${sub ? "mb-2" : "mb-3"} flex w-full flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:gap-2.5${sub && sheetHref === null ? "" : " sm:min-h-tap-min"}`}
       >
-        <div className="flex w-full min-h-tap-min items-center gap-2.5 sm:contents">
+        {/* The 44px floors are TOP-LEVEL only: they exist to contain the corner
+            link's overlay vertically (SheetIconLink consuming-context rule 1),
+            and a sub-block (Diagrams) never carries a link — an unconditional
+            floor gave it a peer-section footprint that defeated the size-6 /
+            text-sm subordination (sheet-icon-link spec §1.8, amending
+            wide-inline §2.4 to top-level rows). Keyed on LINK PRESENCE, not on
+            `sub` alone (audit P2): a future sub-block that gains a sheetHref
+            gets its floor back automatically — the floor is SheetIconLink's
+            consuming-context requirement 1, and must never detach from the
+            link it contains. */}
+        <div
+          className={`flex w-full items-center gap-2.5 sm:contents${sub && sheetHref === null ? "" : " min-h-tap-min"}`}
+        >
           <span
             aria-hidden="true"
             className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
@@ -976,33 +989,20 @@ export function ModalSectionChrome({
             ) : null}
           </div>
           {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
-          {/* Icon-only, in the corner. The show card's own header already uses an
-              icon-only sheet link, so this is a consistency fix. 20px glyph with a
-              `before:-inset-3` overlay = a 44px hit area (20 + 2x12) without a 44px
-              visual box, which measured 8-29px better on centring than the boxed
-              form. `-inset-3` and not `inset-[-12px]`: tokenized, per DESIGN.md §10.
-              Dropping the visible words costs assistive tech nothing because the
-              label carries the whole name -- and with no visible text left, WCAG
-              2.5.3 label-in-name no longer constrains it. The label DOES now carry
-              the new-tab announcement (this link opens a new tab and the glyph that
-              says so is aria-hidden), plus the .trim() guard so a blank section
-              label yields "Open the source sheet (opens in a new tab)" rather than a
-              dangling "for". */}
+          {/* Icon-only corner link — the shared SheetIconLink idiom (its header
+              documents the geometry, colours, and the consuming-context
+              requirements this row satisfies: 44px line floor, gap-2.5 heading
+              clearance, trailing edge free). `sm:order-1` places it last in the
+              inline row; `sm:ml-0.5` keeps 12px to the pill against the 10px
+              heading-side reach. */}
           {sheetHref ? (
-            <a
-              data-testid={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
+            <SheetIconLink
               href={sheetHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={
-                label.trim()
-                  ? `Open the source sheet for ${label.trim()} (opens in a new tab)`
-                  : "Open the source sheet (opens in a new tab)"
-              }
-              className="relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text-subtle transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg sm:order-1 sm:ml-0.5"
-            >
-              <ExternalLink aria-hidden="true" className="size-4" />
-            </a>
+              subjectLabel={label}
+              testId={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
+              ringOffset="bg"
+              className="sm:order-1 sm:ml-0.5"
+            />
           ) : null}
         </div>
         {/* Below `sm` the pill takes its own centred line; at `sm`+ this wrapper

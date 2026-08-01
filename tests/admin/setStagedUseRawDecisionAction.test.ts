@@ -43,6 +43,7 @@ function makeClient(result: { data: unknown; error: unknown }) {
   return { from: () => node };
 }
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (throwOnConstruct) throw new Error("simulated construction fault");
     return makeClient(preLockResult);

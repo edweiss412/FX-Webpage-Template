@@ -104,6 +104,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({
     from(_table: string) {
       const builder: Record<string, unknown> = {};

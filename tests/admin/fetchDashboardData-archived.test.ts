@@ -130,6 +130,7 @@ function makeClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => makeClient(),
 }));
 vi.mock("@/lib/time/now", () => ({

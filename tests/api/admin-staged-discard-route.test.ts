@@ -33,6 +33,7 @@ const supabaseMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({
     auth: {
       getUser: async () => {

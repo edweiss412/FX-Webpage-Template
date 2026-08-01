@@ -124,6 +124,7 @@ function makeClient(opts: FakeOpts) {
 
 const serverMock = vi.hoisted(() => ({ throwOnConstruct: false }));
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => {
     if (serverMock.throwOnConstruct) {
       throw new Error("SIMULATED server-client construction fault");

@@ -62,6 +62,7 @@ const eq = vi.fn(() => ({ maybeSingle }));
 const select = vi.fn(() => ({ eq }));
 const from = vi.fn(() => ({ select }));
 vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: vi.fn(),
   createSupabaseServerClient: async () => ({ from }),
 }));
 
