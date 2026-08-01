@@ -141,6 +141,7 @@ export function PublishCheckbox({
  */
 export function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
   const href = buildSheetDeepLink(dfid);
+  const strippedTitle = stripNewTabSuffix(title);
   if (!href) {
     return <p className="wrap-break-word text-base font-semibold text-text-strong">{title}</p>;
   }
@@ -151,8 +152,8 @@ export function SheetTitleLink({ dfid, title }: { dfid: string; title: string })
       target="_blank"
       rel="noopener noreferrer"
       aria-label={
-        stripNewTabSuffix(title)
-          ? `Open the source sheet for ${stripNewTabSuffix(title)} in Google Sheets (opens in a new tab)`
+        strippedTitle
+          ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
           : "Open the source sheet in Google Sheets (opens in a new tab)"
       }
       className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"

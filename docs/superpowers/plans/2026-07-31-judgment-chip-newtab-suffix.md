@@ -240,3 +240,18 @@ Note: `SheetTitleLink` renders the title link only when `buildSheetDeepLink` yie
   4. **Convergence check:** if `git rev-parse HEAD` ≠ `H` (either gate produced a commit), GO TO 1 — both gates must re-evaluate the new head. The loop exits only when one full pass (impeccable green AND Codex APPROVE) completes with ZERO new commits, i.e. both approvals reference the identical SHA that will merge; that exiting-pass record goes to the PR via `gh pr comment`, not to any tracked file. UI-fix commits are never merged without an impeccable pass over them, and review repairs never without both gates.
 
 - [ ] **Step 6: Merge — fail-closed preconditions first.** All four MUST hold: (a) `git status --porcelain` EMPTY; (b) after `git fetch origin`, `git rev-list --left-right --count origin/fix/judgment-chip-newtab-suffix...HEAD` = `0 0` (symmetric, so a remote-only descendant fails it — a one-directional `..` count returns 0 for remote=newer and would merge an unreviewed SHA; plan r6/r7 HIGH) AND `gh pr view --json headRefOid --jq .headRefOid` equals `git rev-parse HEAD` (the PR merges exactly the approved SHA); (c) real CI green on the final pushed head; (d) the convergence loop's exiting pass approved exactly `git rev-parse HEAD`, recorded OUT-OF-TREE via `gh pr comment` (SHA + both approval references) — a tracked-file record would change the blob and mint a new unapproved HEAD (plan r5 HIGH); the committed `## Close-out (§12)` carries dispositions only, written during loop passes as loop INPUTS, never after the exiting pass. Then `gh pr merge --merge` → `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only` → verify `git rev-list --left-right --count main...origin/main` = `0  0` → CronDelete the nudge, clear pane label.
+
+## Close-out (§12)
+
+Invariant-8 impeccable dual-gate, convergence pass 1 (2026-08-01, dual-agent A+B, detector run, browser step skipped: authenticated admin surface, no routable static target).
+
+**Critique (Assessment A): 31/40, not slop. Audit dimensions: A11y 3, Performance 4, Theming 4, Responsive 4, Anti-patterns 4 = 19/20.** Detector (Assessment B): one hit, `broken-image` at the DiagramTile raw-img doc comment — pre-existing, documented deliberate pattern (next/image drops admin cookies), zero findings attributable to this diff.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| Chip border-strong outline is sub-3:1 (1.33/1.48:1 vs fill) as a state cue (WCAG 1.4.11) | P1 | **No change — pass-condition verified.** The reviewer's own condition holds: every judgment section also renders the "Parsed with judgment" text pill (same component, both narrow and sm+ modes), so the chip is a supplement, never the sole carrier. Spec §2.4 ratified exactly this posture; owner picked Option A from a mockup showing these ratios. |
+| border-strong repurposed as status token; DESIGN.md row stale | P2 | **Fixed** — DESIGN.md border-strong row now names the status-emphasis outline use (flagged pill + judgment chip) with the never-sole-carrier caveat. |
+| `img alt` keeps raw (unstripped) value while anchor label is stripped | P3 | **No change — deliberate.** The anchor's aria-label names the link (the img sits inside it); alt is user content, and stripping content is the documented-limits §6 boundary the spec draws. |
+| `stripNewTabSuffix(title)` called twice in one ternary; Label-in-Name contiguity edge | P3 | **Fixed** (hoisted `strippedTitle`, matching DiagramTile). Contiguity: pre-existing shape ("in Google Sheets" infix predates this diff) — out of scope per Assessment A itself. |
+
+Pre-existing notes (not counted, per fresh-eyes scope): Label-in-Name infix; clean-chip fill sharing surface-sunken with the identity chip.
