@@ -576,17 +576,19 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // cluster spec 3.2). The md5 fallback in the catch arms its OWN guard.
     const revGuard = createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS);
     try {
-      const revOpts: ReelDriveOptions = { responseType: "stream", signal: revGuard.signal };
-      if (rangeHeader && Number.isFinite(reportedSize)) {
-        revOpts.headers = { Range: rangeHeader };
-      }
       const revRes = (await drive.revisions.get(
         {
           fileId: row.opening_reel_drive_file_id,
           revisionId: row.opening_reel_head_revision_id,
           alt: "media",
         },
-        revOpts,
+        {
+          responseType: "stream",
+          signal: revGuard.signal,
+          ...(rangeHeader && Number.isFinite(reportedSize)
+            ? { headers: { Range: rangeHeader } }
+            : {}),
+        },
       )) as ReelDriveResponse;
       revGuard.clear();
       // Drive returns 200 (full body) or 206 (partial). Forward verbatim.

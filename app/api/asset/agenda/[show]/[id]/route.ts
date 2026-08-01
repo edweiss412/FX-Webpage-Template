@@ -533,17 +533,15 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // (drive-timeout cluster spec 3.2).
     const guard = createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS);
     try {
-      const driveOpts: {
-        responseType: "stream";
-        headers?: Record<string, string>;
-        signal?: AbortSignal;
-      } = { responseType: "stream", signal: guard.signal };
-      if (rangeHeader && Number.isFinite(reportedSize)) {
-        driveOpts.headers = { Range: rangeHeader };
-      }
       const bytesResult = await drive.files.get(
         { fileId: id, alt: "media", supportsAllDrives: true },
-        driveOpts,
+        {
+          responseType: "stream",
+          signal: guard.signal,
+          ...(rangeHeader && Number.isFinite(reportedSize)
+            ? { headers: { Range: rangeHeader } }
+            : {}),
+        },
       );
       guard.clear();
       // Codex R2 P2: stream straight through with a bounded passthrough.
