@@ -508,14 +508,17 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
-  it("a YAML tag on an implicit key cannot hide a scanner-read key (R4 preempt)", () => {
-    // `!!str if: false` parses as an ordinary if: key with a tagged name —
-    // one more member of the spelling family, refused on metadata segments
-    // (run bodies keep shell `!` negation at line start).
-    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        !!str if: 'false'\n        run: playwright test ${spec}\n`;
-    const r = S(w);
-    expect(r.covered.has(spec)).toBe(false);
-    expect(r.rejected[0]!.reason).toBe("unmodelled YAML spelling");
+  it("a YAML tag on an implicit key cannot hide a scanner-read key (R4 preempt, R5 widened)", () => {
+    // `!!str if:`, bare `! if:`, and verbatim `!<tag:yaml.org,2002:str> if:`
+    // all parse as an ordinary if: key — the refusal is ANY line-start `!`
+    // on metadata segments (no trailing-character class left to enumerate
+    // against; run bodies keep shell negation at line start).
+    for (const tag of ["!!str ", "! ", "!<tag:yaml.org,2002:str> "]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: gated\n        ${tag}if: 'false'\n        run: playwright test ${spec}\n`;
+      const r = S(w);
+      expect(r.covered.has(spec), tag).toBe(false);
+      expect(r.rejected[0]!.reason, tag).toBe("unmodelled YAML spelling");
+    }
   });
 
   it("an inline comment glued onto a uses: value fails closed, never mis-resolves (R3 audit)", () => {
