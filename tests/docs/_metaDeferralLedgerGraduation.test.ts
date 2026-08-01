@@ -86,6 +86,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/pg-cron-mechanism-sabotage-probe (2026-08-01): mechanism-sabotage
+  // probes for the pg-cron vacuity guard — an inert-case mutant must red the
+  // suite by name (attribution) and via the aggregate branch (backstop).
+  { id: "BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION", provenance: "test/pg-cron-mechanism-sabotage-probe" },
   // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
   // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
   // hardening restored, the r41 findings closed by probe. The walker
