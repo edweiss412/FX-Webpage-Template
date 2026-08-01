@@ -18,7 +18,11 @@ Verified against live code 2026-08-01: `tests/cross-cutting/no-absolute-self-red
 
 Spec §6 is the closure set (R1–R57 positives, N1–N7 negatives, E1–E2 documented-escape pins). Reviewer-proposed NEW families require a live escaping mutant against the shipped two-prong guard.
 
-## Task 1 — RED: rewrite `tests/cross-cutting/no-absolute-self-redirect.test.ts`
+## Task 1 — one TDD cycle, ONE commit: type-aware two-prong guard (test + audit module)
+
+This task is a single "failing test → minimal implementation → passing test → commit" cycle per AGENTS.md invariant 1: step A rewrites the test file and records the RED state; step B rewrites the audit module to GREEN; the task commits ONCE — `test(cross-cutting): resolve self-redirect callee through the type checker (two-prong)` — with the RED transcript in the commit body. (No commit of a red tree ever exists; the two steps below are phases of this one task, not separate commits.)
+
+### Step A — RED: rewrite `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
 1. Compilable-fixture harness (spec §5.4): standard preamble for the 17 body-only legacy rows —
 
@@ -42,22 +46,24 @@ Spec §6 is the closure set (R1–R57 positives, N1–N7 negatives, E1–E2 docu
 7. Fixture-shadow assertions: neither `app/__audit_fixture__` nor `lib/__audit_fixture__` exists on disk.
 8. Anti-tautology notes: every positive row asserts `findings.length` via the SOURCE fixture (auditSource return), not test-runner side effects; concrete failure mode per new row = "this mutant family silently reintroduces the host flip". N5 pins the exact count (1), not `>0`.
 
-**RED evidence (stated precisely):** at this commit the rewritten test file fails to COLLECT against the current audit module — it statically imports `addFixtureModule` and `auditTree`, which do not exist yet — so the vitest run is red but not per-fixture-discriminating. The discriminating mutant-level evidence is the committed probe transcripts, cited in the Task 2 commit body: probe 1 (R20–R23 escape the syntactic audit), probes 4/5/6c (R25–R35 and R37–R57 escape it; R37+ are inexpressible against the old single-prong API). Two rows are ALREADY caught by the current audit and serve as regression floor only: R24 (a direct call spelling — path plays no role in `auditSource`) and R36 (`as any` VALUE laundering — the old matcher's alias tracking unwraps as-expressions). Record `pnpm exec vitest run tests/cross-cutting/no-absolute-self-redirect.test.ts` output (collection failure) plus the probe citations in the Task 2 commit body.
+**RED evidence (stated precisely; discriminating, per-row):** before touching the audit module, run every NEW positive-fixture body (R20–R23, R25–R35, R37–R57) through the CURRENT `auditSource` with a one-off tsx harness (the bodies are ordinary single-file fixtures — the current API accepts them all except R22's sibling module, which the harness inlines) and record the per-row verdicts: expected 0 findings for every row (escape proven — probe 1 recorded R20–R23; the round-2 plan reviewer's independent probes confirmed R37, R38, R50 at 0), except R24 and R36 which the current audit ALREADY catches (regression-floor rows: R24 is a direct call spelling — path plays no role; R36's `as any` is unwrapped by the old alias tracking). This per-row transcript, not the committed probe files (probe 4 runs the NEW matcher — it proves closure, not old-guard escape), is the discriminating RED evidence; paste it into the task's commit body. The rewritten test file additionally fails to COLLECT against the current module (missing `addFixtureModule`/`auditTree` exports) — record that vitest output too, as the red-state marker.
 
-## Task 2 — GREEN: rewrite `tests/cross-cutting/no-absolute-self-redirect-audit.ts`
+### Step B — GREEN: rewrite `tests/cross-cutting/no-absolute-self-redirect-audit.ts`
 
 1. Delete `parseSource`, `resolveBindings`, `receiverText`, `unwrap`, `isRedirectCall`, `findSelfRedirects`, and the raw `typescript` import. Keep `EXTERNAL_REDIRECT_ALLOWLIST` rows + comments verbatim. **Change `unallowedRedirects` to the spec-§5.2 findings-based boundary: `unallowedRedirects(repoRelativePath, findings)`** — same exact-argument filter semantics + rationale comment, but operating on findings handed in from the memoized `auditTree()` scan (or `auditSource` output in fixtures), never re-reading source itself.
 2. `SelfRedirectFinding` gains `kind: "call" | "reference"`; `argument: ""` for references (never matches an allowlist row → references unconditionally banned).
 3. Core = spec §5.1 (containerName / declaredName / isBannedDecl / two prongs) — the committed probe-4 mechanics exactly: prong 2 candidates are EVERY non-callee PropertyAccess/ElementAccess/BindingElement, type-decided (`node.getType().getCallSignatures()`), with callee-position skipped only when prong 1 flagged that call; PLUS assignment-pattern object members (Property/ShorthandPropertyAssignment whose parent answers the vendored compiler's `getTypeOfAssignmentPattern`), decided by the SOURCE property-symbol type, with raw-side twin predicates written against ts-morph's exported `ts` namespace.
 4. Entry points per spec §5.2: `auditSource` (lazy shared fixture project; paths under `app/__audit_fixture__/` or `lib/__audit_fixture__/`), `addFixtureModule`, `auditTree(): TreeAudit` (fresh project instance; globs `app/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `lib/**/*.{ts,tsx,js,jsx,mjs,cjs}`, `middleware.{ts,tsx}`; per-file findings incl. empty arrays; visited counts; plainJsFiles), and the findings-based `unallowedRedirects(repoRelativePath, findings)` per item 1 — the offenders assertion derives contractually from `findingsByFile` of the single memoized scan.
 5. Header rewrite per spec §5.6 (two-prong claim; TS-only import-resolution condition + JS sentinel pointer; §7 limits; 19-spelling list = regression floor).
-6. GREEN: full test file passes including tree scan (probe 4b: exactly the one allowlisted finding). Commit `test(cross-cutting): resolve self-redirect callee through the type checker (two-prong)` with the RED transcript in the body.
+6. GREEN: full test file passes including tree scan (probe 4b: exactly the one allowlisted finding). Then the task's single commit lands (message + RED transcript per the task header).
 
-## Task 3 — `docs: graduate BL-SOUND-REDIRECT-GUARD`
+## Task 2 — TDD cycle, ONE commit: `docs: graduate BL-SOUND-REDIRECT-GUARD`
 
-1. Move the BACKLOG.md entry to `BACKLOG-archive.md` (house format; provenance `test/redirect-guard-type-aware`; note: the four R1-residual classes plus the typed value-flow, literal-typed-key, and assignment-pattern families are now caught. Precise residual boundary: receiver laundering (E1-pinned), WIDENED non-literal-typed computed keys (E2-pinned), and reflection/eval (documented limit, no E-pin — not statically expressible); literal-typed computed keys are CLOSED, not residual).
-2. Add the one `BACKLOG_GRADUATED` registry row.
-3. `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — the mdast walker polices the move.
+TDD order (the graduation meta-test is the failing test):
+
+1. **RED:** add the one `BACKLOG_GRADUATED` registry row (`{ id: "BL-SOUND-REDIRECT-GUARD", provenance: "test/redirect-guard-type-aware" }`) to `tests/docs/_metaDeferralLedgerGraduation.test.ts` FIRST, then run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — the mdast walker fails: the registry row exists but the entry still sits in BACKLOG.md's open queue with no archive record. Record the failure.
+2. **GREEN:** move the BACKLOG.md entry to `BACKLOG-archive.md` (house format; provenance `test/redirect-guard-type-aware`; note: the four R1-residual classes plus the typed value-flow, literal-typed-key, and assignment-pattern families are now caught. Precise residual boundary: receiver laundering (E1-pinned), WIDENED non-literal-typed computed keys (E2-pinned), and reflection/eval (documented limit, no E-pin — not statically expressible); literal-typed computed keys are CLOSED, not residual). Re-run the meta-test to green.
+3. Commit once with the RED output in the body.
 
 ## Close-out gates (before push)
 
