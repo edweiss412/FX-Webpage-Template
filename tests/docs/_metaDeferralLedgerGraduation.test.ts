@@ -86,6 +86,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/ci-cross-step-env-guard (2026-08-01): job-scoped cross-step
+  // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
+  // splice + scanner per-job poison flag, closure families F1-F8).
+  { id: "BL-CI-GITHUB-ENV-CROSS-STEP-STATE", provenance: "test/ci-cross-step-env-guard" },
   // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
   // the regex lanes replaced by the _ledgerMdast walker, the r22-r41
   // hardening restored, the r41 findings closed by probe. The walker

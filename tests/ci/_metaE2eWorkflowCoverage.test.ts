@@ -418,7 +418,8 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(ghost.covered.has(spec)).toBe(false);
     expect(ghost.rejected[0]!.reason).toBe(REASON);
     const clean = S(two("uses: ./.github/actions/ok"), {
-      "./.github/actions/ok": "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n",
+      "./.github/actions/ok":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n",
     });
     expect(clean.covered.has(spec)).toBe(true);
     const writer = S(two("uses: ./.github/actions/w"), {
@@ -448,8 +449,7 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
   it("nested local composites resolve recursively; cycles fail closed (F8)", () => {
     // R1 escaping mutant #2: a composite may `uses:` another local
     // composite; the child's writes must poison the caller's job.
-    const parent =
-      "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/child\n";
+    const parent = "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/child\n";
     const w = two("uses: ./.github/actions/parent");
     const writer = S(w, {
       "./.github/actions/parent": parent,
