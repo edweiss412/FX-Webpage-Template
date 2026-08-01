@@ -80,7 +80,7 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
           prefetch={true}
           scroll={false}
           data-testid={`archived-show-open-${row.slug}`}
-          className="inline-flex min-h-tap-min items-center justify-center self-center px-3 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center justify-center self-center px-3 text-sm font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           {/* The separating space is a VISIBLE text node on this line, not inside
               the sr-only span: the accessible-name algorithm trims each text node

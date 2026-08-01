@@ -163,7 +163,7 @@ function useFitWithinClip() {
  *  "Dismiss sync result") — a bare "Dismiss" is ambiguous once two overlay
  *  types exist. */
 const DISMISS_BUTTON =
-  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg";
+  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
 // Friendly summary of `runManualSyncForShow`'s ProcessOneFileResult shapes
 // (handoff §0 Pin-stop 2 contract). Plain-language so Doug doesn't read
@@ -372,7 +372,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
               triggerRef.current?.focus();
               setErrorCode(null);
             }}
-            className={DISMISS_BUTTON}
+            className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg`}
           >
             <span aria-hidden="true">×</span>
           </button>
@@ -452,7 +452,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
               triggerRef.current?.focus();
               setSuccessMessage(null);
             }}
-            className={DISMISS_BUTTON}
+            className={`${DISMISS_BUTTON} focus-visible:ring-offset-2 focus-visible:ring-offset-info-bg`}
           >
             <span aria-hidden="true">×</span>
           </button>

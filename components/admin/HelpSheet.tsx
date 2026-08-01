@@ -72,7 +72,7 @@ export function HelpSheet({ label, children, testId = "help-sheet" }: HelpSheetP
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         <span aria-hidden="true">?</span>
       </button>
@@ -142,7 +142,7 @@ function HelpSheetOverlay({
             data-testid={`${testId}-close`}
             onClick={onClose}
             aria-label="Close help"
-            className="-m-1 inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="-m-1 inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             <X aria-hidden="true" className="size-5" />
           </button>

@@ -50,6 +50,22 @@ describe("duration token emission (compiled)", () => {
     },
   );
 
+  test("bare transition-* utilities consume the default-duration var", () => {
+    // A bare `transition-colors` (no named duration class) must take its
+    // duration through Tailwind's default-duration variable — this is the
+    // regression net for a future Tailwind that stops consuming the
+    // namespace (spec 2026-08-01-focus-ring-a11y-pass §5).
+    expect(css).toMatch(
+      /\.transition-colors\s*\{[^}]*transition-duration:\s*var\(--tw-duration,\s*var\(--default-transition-duration\)\)/,
+    );
+  });
+
+  test("default transition duration aliases to --duration-fast", () => {
+    // The @theme alias that pulls every bare transition-* site into the
+    // duration-token system and the reduced-motion collapse.
+    expect(css).toMatch(/--default-transition-duration:\s*var\(--duration-fast\)/);
+  });
+
   test("reduced-motion terminus zeroes the non-zero source tokens", () => {
     // --duration-instant is 0ms by value and is deliberately absent from the
     // reduced-motion override; fast/normal/slow are the ones it must rewrite.

@@ -57,7 +57,7 @@ export function HelpTooltip({ label, children, testId = "help-tooltip" }: HelpTo
       <summary
         data-testid={`${testId}-trigger`}
         aria-label={label}
-        className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
       >
         <span aria-hidden="true">?</span>
       </summary>

@@ -25,7 +25,7 @@ import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
 import type { ExcludedScenario, ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
 
 const STEP_BTN =
-  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring";
 
 const EXCLUDED_PANEL_ID = "switcher-excluded-panel";
 
@@ -78,26 +78,46 @@ export function SwitcherControls({
       className="fixed inset-x-0 top-0 z-60 mx-auto flex max-w-3xl flex-col gap-1 rounded-b-xl border border-t-0 border-border bg-surface/95 px-4 pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0))] shadow-lg backdrop-blur"
     >
       <div className="flex flex-nowrap items-center gap-x-2">
-        <button type="button" className={STEP_BTN} onClick={onPrev} aria-label="Previous scenario">
+        <button
+          type="button"
+          data-testid="attention-switcher-prev"
+          className={STEP_BTN}
+          onClick={onPrev}
+          aria-label="Previous scenario"
+        >
           Prev
         </button>
-        <button type="button" className={STEP_BTN} onClick={onNext} aria-label="Next scenario">
+        <button
+          type="button"
+          data-testid="attention-switcher-next"
+          className={STEP_BTN}
+          onClick={onNext}
+          aria-label="Next scenario"
+        >
           Next
         </button>
         {/* Position + label share one live region so a screen reader announces
             WHICH scenario became active, not just the number (Codex R1 P2). */}
         <div aria-live="polite" className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-subtle">
+          <span
+            data-testid="attention-switcher-counter"
+            className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-subtle"
+          >
             {index + 1} / {total}
           </span>
-          <span className="min-w-0 truncate text-sm font-medium text-text-strong">{label}</span>
+          <span
+            data-testid="attention-switcher-label"
+            className="min-w-12 truncate text-sm font-medium text-text-strong"
+          >
+            {label}
+          </span>
         </div>
         {/* Section jump (spec 2026-07-22 gap-fill §3.5): the select doubles as the
             current-group chip — its value tracks the active scenario's group. */}
         <select
           data-testid="attention-switcher-group-select"
           aria-label="Jump to section"
-          className="min-h-tap-min min-w-tap-min max-w-28 shrink rounded-md border border-border bg-surface px-2 text-xs text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-accent"
+          className="min-h-tap-min min-w-tap-min max-w-28 shrink rounded-md border border-border bg-surface px-2 text-xs text-text-strong hover:border-accent focus-visible:outline-2 focus-visible:outline-focus-ring"
           value={group}
           onChange={(e) => {
             const g = groups.find((x) => x.id === e.target.value);
@@ -110,14 +130,17 @@ export function SwitcherControls({
             </option>
           ))}
         </select>
-        <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle">
+        <span
+          data-testid="attention-switcher-tier"
+          className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-xs text-text-subtle"
+        >
           tier {tier}
         </span>
         {excluded.length > 0 && (
           <button
             type="button"
             data-testid="attention-switcher-excluded-toggle"
-            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent"
+            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring"
             aria-expanded={panelOpen}
             {...(panelOpen ? { "aria-controls": EXCLUDED_PANEL_ID } : {})}
             onClick={() => setShowExcluded((v) => !v)}

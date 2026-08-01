@@ -236,6 +236,12 @@
   --transition-duration-normal: var(--duration-normal);
   --transition-duration-slow: var(--duration-slow);
 
+  /* Bare `transition-*` utilities (no named duration class) resolve Tailwind's
+     default duration through this alias, so they join the duration-token
+     system and the prefers-reduced-motion collapse below (150ms default was
+     outside it; 120ms = --duration-fast). Spec 2026-08-01-focus-ring-a11y-pass §5. */
+  --default-transition-duration: var(--duration-fast);
+
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -304,10 +310,10 @@
   --color-stale-tint-runtime: #f4ece0;
   --color-warning-bg-runtime: #fff3d6;
   --color-warning-text-runtime: #5c3f00;
-  --color-info-bg-runtime: #eeeae3;
+  --color-info-bg-runtime: #f1ede7;
   --color-accent-tint-runtime: #feeede;
   --color-danger-bg-runtime: #fbeae8;
-  --color-focus-ring-runtime: rgba(255, 140, 26, 0.55);
+  --color-focus-ring-runtime: #e06000;
   --color-overlay-scrim-runtime: rgba(20, 18, 12, 0.4);
   --shadow-tile-runtime: 0 1px 2px rgba(20, 18, 12, 0.04);
   --shadow-popover-runtime: 0 8px 24px -4px rgba(20, 18, 12, 0.18);

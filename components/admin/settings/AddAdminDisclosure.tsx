@@ -28,7 +28,7 @@ export function AddAdminTrigger({ open, onToggle }: { open: boolean; onToggle: (
       aria-expanded={open}
       aria-controls="admin-settings-add-admin"
       onClick={onToggle}
-      className="inline-flex min-h-tap-min items-center justify-center gap-1.5 self-start rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      className="inline-flex min-h-tap-min items-center justify-center gap-1.5 self-start rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
       <Plus aria-hidden="true" className="size-4 shrink-0" />
       Add admin

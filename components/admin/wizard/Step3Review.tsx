@@ -351,7 +351,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-retry-${row.driveFileId}`}
           onClick={() => run("retry")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           {pending === "retry" ? "Retrying…" : "Retry now"}
         </button>
@@ -360,7 +360,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-defer-${row.driveFileId}`}
           onClick={() => run("defer")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           {pending === "defer" ? "Deferring…" : "Defer until modified"}
         </button>
@@ -369,7 +369,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-ignore-${row.driveFileId}`}
           onClick={() => run("ignore")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           {pending === "ignore" ? "Ignoring…" : "Permanently ignore"}
         </button>
@@ -397,7 +397,7 @@ function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
     <Link
       href="/admin"
       data-testid={`wizard-step3-conflict-dashboard-${driveFileId}`}
-      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
     >
       Resolve in the dashboard, then re-run setup
     </Link>
@@ -462,7 +462,7 @@ function ManifestIgnoreAction({
         data-testid={`wizard-step3-ignore-${row.driveFileId}`}
         onClick={() => void run()}
         disabled={pending || disabled}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         {pending ? "Ignoring…" : "Permanently ignore"}
       </button>
@@ -707,7 +707,7 @@ function Step3PublishHeader({
         />
         <span
           aria-hidden="true"
-          className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
+          className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
             allChecked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
           }`}
         >
@@ -1318,7 +1318,7 @@ export function Step3Review({
               <a
                 href="/help/admin/onboarding-wizard#step-3"
                 aria-label="Learn more about reviewing your sheets"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Learn more →
               </a>
