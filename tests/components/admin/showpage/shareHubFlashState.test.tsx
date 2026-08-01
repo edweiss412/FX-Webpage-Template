@@ -423,3 +423,104 @@ describe("ShareTokenContext.remoteTokenChanges", () => {
     expect(count()).toBe(0);
   });
 });
+
+// ShareHub remote-rotation live region (spec 2026-08-01-announce-a11y-pass
+// §4.2/§5.3): mirrors the flash predicate — announces a seed-driven token
+// change only while open with a live link; local rotations stay silent; the
+// region is a persistent popover-root node, not nested under the link branch.
+describe("ShareHub remote-rotation announcement", () => {
+  const COPY = "Crew link changed. The earlier link no longer works.";
+  const region = () => screen.getByTestId("share-hub-remote-rotate-announce");
+
+  it("a remote change while open + link active announces the ratified copy", () => {
+    const { reseed } = renderHub();
+    openPanel();
+    const before = region();
+    expect(before.textContent).toBe("");
+    reseed(T2, 6); // remote rotation via the server seed
+    expect(region()).toBe(before); // same pre-existing node — no insert-time mount
+    expect(region().textContent).toBe(COPY);
+  });
+
+  it("a remote change while CLOSED never announces, and reopening is not retroactive", () => {
+    const { reseed } = renderHub();
+    reseed(T2, 6); // popover closed
+    openPanel();
+    expect(region().textContent).toBe("");
+  });
+
+  it("a bump while open with an INACTIVE link stays silent, with no retroactive announce", () => {
+    const { reseed, rerenderWith } = renderHub({ published: false });
+    openPanel();
+    // Paused state: the region node still EXISTS (popover-root placement), empty.
+    expect(region().textContent).toBe("");
+    reseed(T2, 6); // accepted token change; linkActive is false
+    expect(region().textContent).toBe("");
+    // Republishing closes the popover (the §4 lifecycle-close contract); the
+    // no-retroactive claim is asserted on the reopened panel.
+    act(() => rerenderWith({ published: true }));
+    openPanel();
+    expect(region().textContent).toBe("");
+  });
+
+  it("linkActive dropping false while the popover STAYS open clears the announcement", async () => {
+    vi.useFakeTimers();
+    let settle: ((v: { ok: false; code: string }) => void) | undefined;
+    rotateMock.mockReturnValue(
+      new Promise<{ ok: false; code: string }>((res) => {
+        settle = res;
+      }),
+    );
+    const { reseed, rerenderWith } = renderHub();
+    openPanel();
+    reseed(T2, 6);
+    expect(region().textContent).toBe(COPY);
+    // Hold busy so the unpublish flip cannot close the popover (the flash
+    // suite's busy-held pattern) — a clear keyed only to !open fails here.
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => rerenderWith({ published: false }));
+    expect(panel()).not.toBeNull(); // still open
+    expect(region().textContent).toBe("");
+    await act(async () => {
+      settle?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
+  });
+
+  it("a LOCAL rotation (applyRotated + its equal follow-up seed) stays silent", () => {
+    const { reseed } = renderHub();
+    openPanel();
+    remoteRotate(0); // applyRotated(T2, 6): the local instant path
+    expect(region().textContent).toBe("");
+    reseed(T2, 6); // equal-pair follow-up seed
+    expect(region().textContent).toBe("");
+  });
+
+  it("stale, epoch-only, and null-transition seeds stay silent", () => {
+    const { reseed } = renderHub();
+    openPanel();
+    reseed("STALE", 4); // stale — rejected
+    expect(region().textContent).toBe("");
+    reseed(T1, 9); // same token, higher epoch (picker-reset shape)
+    expect(region().textContent).toBe("");
+    reseed(null, 10); // token -> null
+    expect(region().textContent).toBe("");
+    reseed(T2, 11); // null -> token
+    expect(region().textContent).toBe("");
+  });
+
+  it("closing the popover clears the announcement (clean reopen)", () => {
+    const { reseed } = renderHub();
+    openPanel();
+    reseed(T2, 6);
+    expect(region().textContent).toBe(COPY);
+    fireEvent.click(screen.getByTestId("share-hub-primary")); // close
+    openPanel();
+    expect(region().textContent).toBe("");
+  });
+});
