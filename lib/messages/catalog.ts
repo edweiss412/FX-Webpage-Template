@@ -1959,6 +1959,19 @@ export const MESSAGE_CATALOG = {
       "We tried to read your folder using the service account but Drive returned access-denied. Open the folder's share dialog, add the service-account email shown in the wizard, then click 'Try again'.",
     helpHref: "/help/errors#ONBOARDING_FOLDER_NOT_SHARED",
   },
+  ONBOARDING_FOLDER_VERIFY_UNAVAILABLE: {
+    code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
+    dougFacing:
+      "Google Drive didn't respond while we checked the folder. Nothing was scanned. Wait a moment and try again.",
+    crewFacing: null,
+    followUp: "Doug → retry in a moment",
+    helpfulContext:
+      "Before scanning, the wizard asks Google Drive to confirm the folder exists and is really a folder. Drive did not answer within the time limit, so the check was abandoned before any scanning started. Nothing was changed. This is usually a temporary Drive or network hiccup; wait a moment and click Verify again.",
+    title: "Google Drive didn't respond",
+    longExplanation:
+      "The pre-scan folder check timed out reaching Google Drive. Nothing was scanned and nothing was changed. Wait a moment and click Verify again; if it keeps happening, Drive may be having an outage.",
+    helpHref: "/help/errors#ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
+  },
   ONBOARDING_OPERATOR_ERROR: {
     code: "ONBOARDING_OPERATOR_ERROR",
     dougFacing: "Something is wrong on our end. The developer has been notified.",

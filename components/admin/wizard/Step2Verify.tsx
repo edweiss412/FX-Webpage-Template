@@ -57,6 +57,7 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
   "WIZARD_ISOLATION_INDEXES_MISSING",
   "ONBOARDING_SCAN_FAILED",
+  "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
 ]);
 
 // not-subject:M5-D8 — code-less generic fallback: the fetch itself threw, so no

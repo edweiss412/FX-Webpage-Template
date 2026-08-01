@@ -2,6 +2,8 @@ import { randomUUID as defaultRandomUUID } from "node:crypto";
 import postgres from "postgres";
 import { NextResponse } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
+import { DRIVE_FILES_GET_TIMEOUT_MS } from "@/lib/drive/timeouts";
+import { isDriveTimeoutShape } from "@/lib/drive/errorStatus";
 import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
 import {
   runOnboardingScan as defaultRunOnboardingScan,
@@ -29,13 +31,14 @@ export type FolderVerificationResult =
   | { ok: true; folderId: string; folderName: string }
   | {
       ok: false;
-      status: 400 | 403 | 404;
+      status: 400 | 403 | 404 | 504;
       code:
         | "INVALID_FOLDER_URL"
         | "FOLDER_NOT_SHARED"
         | "FOLDER_NOT_FOUND"
         | "OPERATOR_ERROR_NOT_FOLDER"
-        | "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA";
+        | "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA"
+        | "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE";
     };
 
 export type OnboardingScanRouteTx = {
@@ -106,11 +109,14 @@ function driveStatus(error: unknown): number | null {
 export async function defaultVerifyFolder(folderId: string): Promise<FolderVerificationResult> {
   const drive = getDriveClient();
   try {
-    const response = await drive.files.get({
-      fileId: folderId,
-      fields: DRIVE_FOLDER_FIELDS,
-      supportsAllDrives: true,
-    });
+    const response = await drive.files.get(
+      {
+        fileId: folderId,
+        fields: DRIVE_FOLDER_FIELDS,
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    );
     const folder = response.data;
     if (folder.trashed) return { ok: false, status: 404, code: "FOLDER_NOT_FOUND" };
     if (!folder.id || !folder.name || !folder.mimeType) {
@@ -121,6 +127,14 @@ export async function defaultVerifyFolder(folderId: string): Promise<FolderVerif
     }
     return { ok: true, folderId: folder.id, folderName: folder.name };
   } catch (error) {
+    // A Drive stall is an infra fault, not the operator's mistake: without this
+    // branch a status-less timeout fell to the 400 operator-error tail below.
+    // Classified by the probed gaxios-7 shape (cause.name "AbortError" -- see
+    // isDriveTimeoutShape), never by err.name === "TimeoutError", which that
+    // path does not produce.
+    if (isDriveTimeoutShape(error)) {
+      return { ok: false, status: 504, code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE" };
+    }
     const status = driveStatus(error);
     if (status === 403) return { ok: false, status: 403, code: "FOLDER_NOT_SHARED" };
     if (status === 404) return { ok: false, status: 404, code: "FOLDER_NOT_FOUND" };
