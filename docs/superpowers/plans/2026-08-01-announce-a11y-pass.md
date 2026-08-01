@@ -123,15 +123,34 @@ New persistent sr-only region rendered on the NON-row variants only (`asRow` ret
 
 **Files:** Modify components/admin/wizard/CrewRowActions.tsx, components/admin/ResolveAlertButton.tsx, app/admin/show/[slug]/RotateShareTokenButton.tsx, app/admin/settings/admins/RevokeRowButton.tsx; tests: each surface's existing test file (spec §3.2 matrix column).
 
-Pattern per surface: `const [expired, setExpired] = useState(false);` — arm handler (`enterConfirm` / `onResolveClick` / `onRotateClick` / `onRevokeClick`) sets false; timer callback sets true BESIDE the existing `closeFully(true)` / `closeConfirm()` call (never inside — Cancel shares it). Persistent region rendered on every branch (Rotate: inside the `banners` fragment, which both `ui` branches render; others: root wrapper):
+Pattern per surface: `const [expired, setExpired] = useState(false);` — arm handler (`enterConfirm` / `onResolveClick` / `onRotateClick` / `onRevokeClick`) sets false; timer callback sets true BESIDE the existing `closeFully(true)` / `closeConfirm()` call (never inside — Cancel shares it).
+
+**Stable-node restructure (plan R1 F1).** Rotate, ResolveAlert, and Revoke return branch-separate trees today (Rotate's `banners` renders only in the two IDLE returns; ResolveAlert's idle/confirm and Revoke's couldnt_confirm/idle/confirm are separate early returns). A region duplicated per branch REMOUNTS on the confirm→idle expiry transition — the text would mount already-populated, the exact insert-time announcement failure the persistent-region rule exists to avoid. Each of the three is restructured to compute its branch tree into a variable and return once:
 
 ```tsx
-<span role="status" aria-live="polite" className="sr-only">
-  {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
-</span>
+const liveRegion = (
+  <span
+    key="arm-expiry-region"
+    role="status"
+    aria-live="polite"
+    className="sr-only"
+    data-testid="arm-expiry-announce"
+  >
+    {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+  </span>
+);
+return (
+  <>
+    {branch /* idle / confirm / couldnt_confirm tree, unchanged markup */}
+    {liveRegion}
+  </>
+);
 ```
 
-- [ ] Tests per surface (extend existing fake-timer suites): expiry announces (literal string); Cancel then advance past 4s → silent (stale-timer proof); CrewRowActions additionally: Escape → silent, backdrop click on the ARMED confirm (`closeFully(false)` at the backdrop handler — spec §5.1 R2 F2; existing backdrop tests exercise menu mode only) → silent, parent-driven close → silent; confirm-tap then advance → silent; re-arm after expiry clears the region (content change on arm — assert region empty while confirm row is open).
+Fragment position 2 is type- and key-stable, so React preserves the DOM node across branch swaps (do NOT use display:contents wrappers — the ResetPickerEpochButton comment documents Safari/VoiceOver dropping live-region semantics there). CrewRowActions has a stable root already; the region joins it directly.
+
+- [ ] Tests per surface (extend existing fake-timer suites): expiry announces (literal string); **node identity** — capture the `arm-expiry-announce` element before arming, expire, assert the post-expiry element `toBe` the captured node (this is the assertion that fails on a per-branch duplicated region); Cancel then advance past 4s → silent (stale-timer proof); CrewRowActions additionally: Escape → silent, backdrop click on the ARMED confirm (`closeFully(false)` at the backdrop handler — spec §5.1 R2 F2; existing backdrop tests exercise menu mode only) → silent, parent-driven close → silent; confirm-tap then advance → silent; re-arm after expiry clears the region (content change on arm — assert region empty while confirm row is open).
+- [ ] Class-sweep: the SAME node-identity assertion is added to every Task 2–7 surface's expiry test (Staged/Bulk regions sit inside conditional sections; identity across the expire transition proves container stability instead of assuming it).
 - [ ] RED → implement → GREEN → commit `feat(admin): arm-expiry announcements on the four panel confirm surfaces`.
 
 ### Task 7: multiplex regions — PickerResetControl, ResetPickerEpochButton
@@ -147,7 +166,7 @@ Existing persistent regions multiplex the new state: `{expired ? ARM_EXPIRED_ANN
 
 **Files:** Modify tests/styles/_metaDestructiveConfirm.test.ts.
 
-- [ ] Add T4: reuse the T1 walk (`components`, `app`, `lib`) + `stripCommentsForFile`; collect files referencing `ARM_REVERT_MS` (word-boundary regex on stripped lines); each must also reference `ARM_EXPIRED_ANNOUNCEMENT` or hold an exemption row (`{ file, reason }`, reason ≥ 20 chars). Ship with an EMPTY exemption list. Self-checks: bare-import fixture fails; comment-only reference fails; wired fixture passes.
+- [ ] Add T4: reuse the T1 walk (`components`, `app`, `lib`) + `stripCommentsForFile`; collect files referencing `ARM_REVERT_MS` (word-boundary regex on stripped lines); each must also reference `ARM_EXPIRED_ANNOUNCEMENT` or hold an exemption row (`{ file, reason }`, validated by an extracted `isValidExemption` predicate: reason ≥ 20 chars). Ship with an EMPTY exemption list. Self-checks: bare-import fixture fails; comment-only reference fails; wired fixture passes; **invalid-exemption fixture (plan R1 F3): `isValidExemption({ file: "a.tsx", reason: "short" })` is false** — the declared exemption-shape mutation family gets a non-vacuous proof.
 - [ ] Run full file: all green (11 surfaces wired by Tasks 2–7). Red-proof: predicate self-check fixtures (the closure set per the mutation-family table above; do NOT add semantic timer scanning — spec §1.1).
 - [ ] Commit `test(admin): T4 expiry-wiring co-presence guard`.
 
@@ -199,22 +218,29 @@ Persistent sr-only region at the popover root (mounted whenever the popover rend
 </span>
 ```
 
-- [ ] Tests (spec §5.3 list, all nine cases — remote+open+active announces literal string; closed → empty + no retroactive on reopen; open&&!linkActive bump → silent + no retroactive when active later; linkActive false while open clears (busy-held unpublish path); local silent; stale silent; same-token-higher-epoch silent; null transitions silent; close clears).
+- [ ] Tests (spec §5.3 list, all nine cases — remote+open+active announces literal string; closed → empty + no retroactive on reopen; open&&!linkActive bump → silent + no retroactive when active later; linkActive false while open clears (busy-held unpublish path); local silent; stale silent; same-token-higher-epoch silent; null transitions silent; close clears). PLUS structural pins (plan R1 F2): the region node EXISTS with empty text while the popover is open with `linkActive` false (paused-note state — a region nested under the live-link branch fails this), and node identity holds across announce → clear (capture element, `toBe` after).
 - [ ] RED → implement → GREEN → commit `feat(admin): ShareHub announces remote crew-link rotation`.
 
 ### Task 11: docs + ledger
 
-**Files:** Modify DESIGN.md (§15), BACKLOG.md, BACKLOG-archive.md.
+**Files:** Modify DESIGN.md (§15), BACKLOG.md, BACKLOG-archive.md, tests/docs/_metaDeferralLedgerGraduation.test.ts.
 
 - [ ] DESIGN.md §15: add the announcement contract paragraph (arm-writes-region rule, expiry copy constant, ShareHub region); correct the false "the rotate row has always dismissed via Cancel, not a timeout" aside (spec §3.2 correction — decision untouched, factual claim fixed, cite RotateShareTokenButton's live timer).
-- [ ] Graduate `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` + `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` to BACKLOG-archive.md with provenance (branch, spec path); update the BACKLOG.md reconciliation header. Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`.
+- [ ] RED first (plan R1 F4): add `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` + `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE` to the graduation registry (`BACKLOG_GRADUATED` in tests/docs/_metaDeferralLedgerGraduation.test.ts); run the test — FAILS while the entries still sit in BACKLOG.md.
+- [ ] Move both entries to BACKLOG-archive.md with provenance (branch, spec path); update the BACKLOG.md reconciliation header. Re-run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — PASS.
 - [ ] Commit `docs(plan): DESIGN §15 announcement contract + ledger graduation`.
 
 ### Task 12: gates
 
 - [ ] Full-suite `pnpm vitest run` in the worktree; fix any fallout.
-- [ ] Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) on the diff (UI files touched); P0/P1 fixed or DEFERRED.md'd.
+- [ ] Impeccable dual-gate, full invariant-8 mechanics (plan R1 F5): canonical v3 setup — `context.mjs` context load (PRODUCT.md + DESIGN.md) → register reference read — then `/impeccable critique` AND `/impeccable audit` on the affected diff; P0/P1 findings fixed or explicitly deferred via DEFERRED.md; RERUN both commands to pass after any repair; record findings + dispositions in a close-out section appended to this plan (handoff-equivalent record).
 - [ ] Whole-diff Codex review (split briefs if needed), CI green, merge per pipeline.
+
+## Checklist gates (process)
+
+- [x] Plan self-review (placeholder scan, type consistency, snippet verification).
+- [ ] **Adversarial review (cross-model)** — Codex plan-review rounds to APPROVE (this gate sits between self-review and execution handoff; in flight now).
+- [ ] Execution (Tasks 1–12, autonomous pipeline).
 
 ## Self-review notes
 
