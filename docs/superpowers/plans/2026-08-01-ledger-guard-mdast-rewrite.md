@@ -18,6 +18,7 @@ This milestone CREATES no new registry meta-test and EXTENDS none of the standin
 | M6 token-boundary regression | readmit ASCII hyphen at either boundary | P4–P6 plants + P7 control |
 | M7 entry-boundary drift | nested/quoted heading opens an entry | blockquote-quoted-heading plant asserting entry count |
 | M8 registry decoupling | graduation invariants stop reading the walker's id extraction | existing 4 graduation `it()` cases (self-pinning — a broken extractor empties the id sets and the presence assertions fail) |
+| M9 id-parity gate regression | weaken the provenance gate (formatted ids mint) or the heading-level mask (H2 prose mints under `requirePrefix: null`) | the r8–r10 plant set: six formatted-id rejections, five formatted-prefix mints, plain/struck controls, DEFERRED levels-mask plant. (The four-ledger legacy-vs-walker census is MIGRATION evidence only — it dies with the legacy regex; the plants are the permanent pin.) |
 
 A reviewer-proposed NEW family is admissible only with a live escaping mutant against the shipped guard (AGENTS.md finding-admissibility (c)).
 
@@ -30,11 +31,17 @@ A reviewer-proposed NEW family is admissible only with a live escaping mutant ag
 
 ## Tasks (TDD; conventional commit per task)
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+
 ### T1 `test(docs): mdast walker helper — parseLedger/extractEntries/flattenLines (+ remark devDependency)`
-The remark dep (`pnpm add -D remark@^15`, package.json + pnpm-lock.yaml already staged in worktree) lands INSIDE this TDD commit — the RED test is its first consumer (spec §9, r4 P0: no testless standalone dep commit).
+The remark dep (`pnpm add -D remark@^15`; package.json + pnpm-lock.yaml sit MODIFIED-unstaged in the worktree — stage both here) lands INSIDE this TDD commit — the RED test is its first consumer (spec §9, r4 P0: no testless standalone dep commit).
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 RED: new `tests/docs/_ledgerMdast.walker.test.ts` asserting, from fixture strings: entry extraction (top-level only, SHOUTY rules, struck ids, arbitrary-bracket prefixes, no-terminator parity, BL- prefix filter, 2|3 levels, id-heading-to-id-heading partition incl. the nested-H3 shape), flatten semantics per the spec §2 disposition table (all node types, strong spans, code-contributed spans, `\n`-splitting of text values, container descent, footnoteDefinition NON-descent). GREEN: implement `tests/docs/_ledgerMdast.ts` — the committed spec sibling `2026-08-01-ledger-guard-mdast-rewrite-lane-probe.mjs` is the working prototype to port. Failure mode caught: a walker that reads rendered text where it should read structure (e.g. keeps link text) turns a silent plant into a hit — asserted directly.
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 ### T2 `test(docs): port the ledger guard onto the walker`
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 RED: rewrite the two terminal-status `it()` bodies + `shoutyIds` call sites in `tests/docs/_metaDeferralLedgerGraduation.test.ts` to consume `_ledgerMdast.ts` (eight `it()` names unchanged), AND mechanically re-target the file's EXISTING r21 plants `it()` body (current lines ~512–563 — it references `STATUS_TERMINAL`/`HEADING_TERMINAL`/`boldFieldTerminalHit`/etc., so leaving it would break the compile when those symbols die; r7 P0) to walker verdicts, verdict-preserving, no new fixtures. The rewritten bodies are RED against the not-yet-wired evaluator. GREEN: wire `entryTerminal`. Live ledgers must stay green (spec §5 live-clean criterion). Regex lanes, `normalizeSection`, `WRAP`, `AFTER`, `CONTAINER` deleted — zero dangling references. NEW fixtures all belong to T3.
 
 ### T3 `test(docs): plants corpus — snapshot port + review-round fixtures (single fixture owner)`
@@ -44,7 +51,7 @@ Port the ~230-line r15–r40 plants verbatim from `a1cfce98d` (annotations kept)
 ONE commit (spec §6.1, r2 F3): `git checkout a1cfce98d -- tests/components/admin/sheetIconLinkContainment.test.ts`; update the two count rows per plan-time facts (verified legitimate adopters, PR #640); restore the reverted §7-item-10 paragraph of `docs/superpowers/specs/2026-07-26-sheet-icon-link-affordance-class.md` from `a1cfce98d` (spec-is-canonical; mirrors `2d9d0ba11` in reverse); run full file green. Census probe per the spec §6.3 EXHAUSTIVE table (eight rows, per-row obligation: 3-variant probe / loud-failure variant / set-equality green / plant citation); escaping variant ⇒ fix + plant, none ⇒ documented-limits note in the guard header. Probe outputs recorded in the commit body.
 
 ### T5 `docs: graduate BL-LEDGER-GUARD-MDAST-REWRITE`
-Move the entry to `BACKLOG-archive.md` with provenance `test/ledger-guard-mdast-rewrite`; add the `BACKLOG_GRADUATED` registry row. Reference sweep RUN 2026-08-01 (`rg -n "BL-LEDGER-GUARD-MDAST-REWRITE" --no-heading`, excluding this arc's own spec/plan): exactly two hits — `BACKLOG.md:7` (reconciliation-note prose recording the 2026-07-31 split: KEEP, historical record; the graduation layers its own note per house style) and `BACKLOG.md:11` (the entry heading itself: MOVES to archive). `BL-SOUND-REDIRECT-GUARD` does NOT cite the id (an earlier draft assumed it did — refuted by this sweep); the r30 header citation exists only in the `a1cfce98d` snapshot file, which this branch's rewrite replaces. The new walker validates its own graduation row — the guard polices this commit.
+Move the entry to `BACKLOG-archive.md` with provenance `test/ledger-guard-mdast-rewrite`; add the `BACKLOG_GRADUATED` registry row. Reference sweep RUN 2026-08-01 (`rg -n "BL-LEDGER-GUARD-MDAST-REWRITE" --no-heading`, excluding this arc's own spec/plan): exactly two hits — root `BACKLOG.md` line 7 (reconciliation-note prose recording the 2026-07-31 split: KEEP, historical record; the graduation layers its own note per house style) and root `BACKLOG.md` line 11 (the entry heading itself: MOVES to archive). `BL-SOUND-REDIRECT-GUARD` does NOT cite the id (an earlier draft assumed it did — refuted by this sweep); the r30 header citation exists only in the `a1cfce98d` snapshot file, which this branch's rewrite replaces. The new walker validates its own graduation row — the guard polices this commit.
 
 ### T6 Close-out
 Full `pnpm test`; `tsc` both configs; eslint; `format:check`. Whole-diff cross-model review (fresh-eyes brief, split-scope if needed); push; CI green; merge; ff-sync main; delete `test/guard-hardening-followup`; CronDelete nudge + clear pane.
@@ -55,4 +62,5 @@ Task bodies above carry no pasted TS snippets (shapes are named, not inlined) �
 
 ## e2e/CI wiring
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 No new workflow, no new e2e spec, no testMatch change: `_ledgerMdast.ts` (underscore helper, not matched by `**/*.test.ts` globs) plus edits inside two existing registered test files and one new `tests/docs/_ledgerMdast.walker.test.ts` — verify at T1 that the `tests/docs/` glob of the vitest project that runs `_metaDeferralLedgerGraduation.test.ts` also matches the new walker test (same directory, same suffix).
