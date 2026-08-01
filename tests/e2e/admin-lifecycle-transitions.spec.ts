@@ -570,9 +570,7 @@ test.describe("compound: armed Archive while a realtime refresh lands (cross-tab
         // for the one holding the title marker: first-match querySelector can
         // land on the skeleton sibling and report a false negative.
         const modal =
-          Array.from(
-            document.querySelectorAll('[data-testid="published-show-review-modal"]'),
-          ).find(
+          Array.from(document.querySelectorAll('[data-testid="published-show-review-modal"]')).find(
             (r) => r.querySelector('[data-testid="published-show-review-title"]') !== null,
           ) ?? null;
         const armed = document.querySelector('[data-testid="archive-show-confirm-button"]');

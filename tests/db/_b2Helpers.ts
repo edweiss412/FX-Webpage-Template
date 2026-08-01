@@ -68,9 +68,7 @@ export async function unarchiveShowReturning(showId: string): Promise<boolean> {
 /** Call archive_show as admin and return its boolean result (true iff it performed live/held→archived). */
 export async function archiveShowReturning(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.archive_show($1::uuid) as transitioned`, [
-      showId,
-    ]);
+    const [row] = await tx.unsafe(`select public.archive_show($1::uuid) as transitioned`, [showId]);
     return (row as unknown as { transitioned: boolean }).transitioned;
   });
 }
@@ -78,9 +76,7 @@ export async function archiveShowReturning(showId: string): Promise<boolean> {
 /** Call publish_show as admin and return its boolean result (true iff it performed held→live). */
 export async function publishShowReturning(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.publish_show($1::uuid) as transitioned`, [
-      showId,
-    ]);
+    const [row] = await tx.unsafe(`select public.publish_show($1::uuid) as transitioned`, [showId]);
     return (row as unknown as { transitioned: boolean }).transitioned;
   });
 }

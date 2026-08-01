@@ -36,7 +36,9 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome }));
 
 const archiveShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
 const publishShow = vi.fn(async (_id: string) => ({ ok: true, performed: true }) as const);
-const unarchiveShow = vi.fn(async (_id: string, _drive: string) => ({ ok: true, performed: true }) as const);
+const unarchiveShow = vi.fn(
+  async (_id: string, _drive: string) => ({ ok: true, performed: true }) as const,
+);
 vi.mock("@/lib/showLifecycle/archiveShow", () => ({
   archiveShow: (...a: unknown[]) => archiveShow(...(a as [string])),
 }));

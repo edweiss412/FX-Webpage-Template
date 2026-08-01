@@ -42,10 +42,7 @@ export const defaultRpc = (): LifecycleRpc => async (fn, args) => {
  *  (`data === true` exactly): a void-RPC transitional window or malformed payload suppresses
  *  one telemetry emission rather than fabricating a transition. Thrown faults never reach this
  *  mapping — callLifecycleRpc's catch owns them (infra_error, invariant 9). */
-export function mapRpcResult(
-  error: { message?: string } | null,
-  data: unknown,
-): LifecycleResult {
+export function mapRpcResult(error: { message?: string } | null, data: unknown): LifecycleResult {
   if (!error) return { ok: true, performed: data === true };
   const msg = error.message ?? "";
   const code = KNOWN.find((c) => msg.includes(c));

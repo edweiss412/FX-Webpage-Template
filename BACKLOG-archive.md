@@ -1242,17 +1242,15 @@ Tailwind v4's `duration-*` utility resolves `--transition-duration-*`, but `app/
 
 Scenario: the archive RPC's show invalidation publishes before the server action finishes post-RPC work; the mounted realtime bridge refreshes `archived` props while `useFormStatus` is still pending; ShareHub swaps Archive for Unarchive; ArchiveShowButton's unmount cleanup releases the busy gate; a fast next tap could fire Unarchive while the original action is still settling (server-side advisory lock serializes actual mutations, so the exposure is UX/telemetry, not data corruption). Shared with the legacy variants; untouched by the row restyle. **Fix (when prioritized):** run the mandated empirical race probe (invalidation arriving before action completion), then ratify one of: retain pending UI across the swap, close the hub on the archived flip, or disable the replacement lifecycle control until settlement.
 
-
 ## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — CLOSED 2026-07-31 (race-cluster feature)
 
-**Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** Probe Case C confirmed the duplicate (stale tab's no-op archive → two SHOW_ARCHIVED rows for one transition). Fixed FAMILY-WIDE per the class-sweep rule: archive_show / publish_show (+_publish_show_core) / unpublish_show now return a performed/no-op boolean discriminator (migration `20260801000000_lifecycle_rpc_performed_discriminator.sql`, single-transaction DROP+recreate; unarchive_show was already boolean since 20260718000001); `LifecycleResult` carries required `performed`; all three admin actions gate `logAdminOutcome` on it (revalidates still run on ok so a stale surface heals). Layered coverage: `tests/db/lifecycle_rpc_performed.test.ts` (RPC discriminator + no-op side-effect probes) and no-op zero-emission cases in `tests/log/adminOutcomeBehavior.test.ts`. Original entry below for provenance.
+**Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** Probe Case C confirmed the duplicate (stale tab's no-op archive → two SHOW_ARCHIVED rows for one transition). Fixed FAMILY-WIDE per the class-sweep rule: archive_show / publish_show (+\_publish_show_core) / unpublish_show now return a performed/no-op boolean discriminator (migration `20260801000000_lifecycle_rpc_performed_discriminator.sql`, single-transaction DROP+recreate; unarchive_show was already boolean since 20260718000001); `LifecycleResult` carries required `performed`; all three admin actions gate `logAdminOutcome` on it (revalidates still run on ok so a stale surface heals). Layered coverage: `tests/db/lifecycle_rpc_performed.test.ts` (RPC discriminator + no-op side-effect probes) and no-op zero-emission cases in `tests/log/adminOutcomeBehavior.test.ts`. Original entry below for provenance.
 
 ## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
 
 **Status:** OPEN · **Severity:** LOW (forensic telemetry cosmetics) · **Class:** idempotent-no-op observability — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24).
 
 `archive_show` is an under-lock idempotent no-op when the show is already archived (`supabase/migrations/20260601000000_b2_show_lifecycle.sql:73-74`), but `archiveShowAction` (`app/admin/show/[slug]/_actions/archive.ts`) treats that no-op as committed success and emits `SHOW_ARCHIVED` again — a repeat submit inside the committed-refreshing window (or from a stale tab) writes a duplicate forensic event for a transition that did not occur. Pre-existing on all variants. **Fix (when prioritized):** have the RPC return a performed/no-op discriminator and emit `SHOW_ARCHIVED` only on the actual false→true transition; add a repeat-submit test asserting single emission.
-
 
 ## BL-ARCHIVE-ARMED-CONCURRENT-REFRESH — CLOSED 2026-07-31 (race-cluster feature)
 
@@ -1269,4 +1267,3 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 **The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
 
 **If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
-

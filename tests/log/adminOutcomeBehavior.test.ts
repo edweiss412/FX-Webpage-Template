@@ -343,10 +343,18 @@ const AUTO_APPLIED_FILE = "app/admin/_actions/autoApplied.ts";
 // runs against the shared swappable `serverClientImpl` (resolveShowBySlug/ById).
 // undoChange + showCacheTag.revalidateShow are already mocked above for the
 // dashboard auto-applied actions; feed.undoChangeAction reuses undoChangeMock.
-const archiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
-const unarchiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
-const publishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
-const unpublishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown);
+const archiveShowMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown,
+);
+const unarchiveShowMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown,
+);
+const publishShowMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown,
+);
+const unpublishShowMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, performed: true }) as unknown,
+);
 vi.mock("@/lib/showLifecycle/archiveShow", () => ({
   archiveShow: (...a: unknown[]) => archiveShowMock(...a),
 }));
