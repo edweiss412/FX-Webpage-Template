@@ -165,13 +165,20 @@ function lineVerdicts(line) {
   return hits;
 }
 
-function headingVerdict(headingLine) {
-  // dash-anchored or ✅-anchored terminal token after the id
+function headingVerdict(headingLine, id) {
+  // dash-anchored or ✅-anchored terminal token AFTER the id token (§3):
+  // anchors inside an arbitrary bracket prefix or anywhere before the id
+  // are not the entry's own closure claim.
+  const text = headingLine.text;
+  const idAt = id ? text.indexOf(id) : -1;
+  const from = idAt >= 0 ? idAt + id.length : 0;
   const m = /(?:[—–]|(?<=\s)-(?=\s)|✅)\s*✅?\s*/g;
+  m.lastIndex = 0;
   const hits = [];
-  for (let x = m.exec(headingLine.text); x; x = m.exec(headingLine.text)) {
-    const tok = tokenAt(headingLine.text, x.index + x[0].length);
-    if (TERMINAL.test(tok) && !vetoed(headingLine.text, x.index + x[0].length)) hits.push(`heading:${tok}`);
+  for (let x = m.exec(text); x; x = m.exec(text)) {
+    if (x.index < from) continue;
+    const tok = tokenAt(text, x.index + x[0].length);
+    if (TERMINAL.test(tok) && !vetoed(text, x.index + x[0].length)) hits.push(`heading:${tok}`);
   }
   return hits;
 }
@@ -188,16 +195,19 @@ function openingVerdict(line) {
   return hits;
 }
 
-function entries(text, { requirePrefix } = { requirePrefix: "BL-" }) {
+function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", levels: [2, 3] }) {
   const root = parse(text);
   const tops = root.children;
   const found = [];
   tops.forEach((n, i) => {
-    if (n.type !== "heading" || n.depth < 2 || n.depth > 3) return;
+    if (n.type !== "heading" || !(levels ?? [2, 3]).includes(n.depth)) return;
     const flat = flattenLines([n], "id")[0]?.text ?? "";
     const m = /^\s*(?:\[[^\]]+\]\s*)?([A-Za-z0-9][A-Za-z0-9/-]*)/.exec(flat);
     if (!m || /[a-z]/.test(m[1])) return;
     if (requirePrefix && !m[1].startsWith(requirePrefix)) return;
+    // id END in the CLAIM-flattened heading (id may be delete-wrapped there:
+    // find the id text if present, else scan from 0 — a struck id vanishes
+    // from claim-flatten, and what remains after it is the suffix).
     found.push({ id: m[1], i });
   });
   return found.map((f, k) => ({
@@ -209,7 +219,7 @@ function entries(text, { requirePrefix } = { requirePrefix: "BL-" }) {
 
 function entryVerdicts(e) {
   const hits = [];
-  hits.push(...headingVerdict(e.headingLine));
+  hits.push(...headingVerdict(e.headingLine, e.id));
   const bodyLines = flattenLines(e.body, "claim");
   hits.push(...openingVerdict(bodyLines[0]));
   for (const l of bodyLines) hits.push(...lineVerdicts(l));
@@ -235,7 +245,7 @@ const shape = (name, md, expect, kind = "entry") => {
     hits = es.flatMap(entryVerdicts);
   } else if (kind === "heading") {
     const es = entries(`${md}\n\nbody\n`);
-    hits = es.flatMap((e) => headingVerdict(e.headingLine));
+    hits = es.flatMap((e) => headingVerdict(e.headingLine, e.id));
   } else if (kind === "ids") {
     hits = entries(md).map((e) => e.id);
     console.log(`${name}: ids=${JSON.stringify(hits)}`);
@@ -269,4 +279,17 @@ shape("partial code-label overlap", "**Sta`tus`:** CLOSED", false);
 shape("fragmented strong label", "**Class:** x · **Resolved *by*:** PR #9", true);
 shape("inline html island opening", "<strong>CLOSED</strong> by PR #1", true); // opening lane: bare ALL-CAPS after tag drop
 shape("struck-id extraction", "## ~~BL-STRUCK~~ — reopened\n\nbody\n\n## BL-NEXT — open\n\nbody2\n", null, "ids");
+// r3-review shapes
+{
+  const es = entries("## PROSE heading section\n\nbody\n\n### REAL-ID — open\n\nbody\n", { requirePrefix: null, levels: [3] });
+  const ids = es.map((e) => e.id);
+  const ok = JSON.stringify(ids) === JSON.stringify(["REAL-ID"]);
+  if (!ok) fails++;
+  console.log(`deferred depth-mask probe: ids=${JSON.stringify(ids)} expected=["REAL-ID"] ${ok ? "OK" : "MISMATCH"}`);
+}
+shape("pre-id em-dash anchor", "## [was — CLOSED once] BL-P — open", false, "heading");
+shape("pre-id en-dash anchor", "## [was – CLOSED once] BL-P2 — open", false, "heading");
+shape("pre-id ASCII-dash anchor", "## [was - CLOSED once] BL-P3 — open", false, "heading");
+shape("pre-id check anchor", "## [✅ CLOSED prior arc] BL-P4 — open", false, "heading");
+shape("post-id anchor still caught", "## [P2] BL-P5 — CLOSED 2026", true, "heading");
 console.log(fails === 0 ? "ALL SHAPES OK" : `${fails} MISMATCHES`);
