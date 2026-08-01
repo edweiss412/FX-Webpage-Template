@@ -27,21 +27,50 @@ function* walk(dir) {
 }
 
 // Partition every file into its unit (topmost dated segment) or "undated".
+// Closeout-attach rule (spec r2 F1): a flat file `X-closeout.md` / `X-CLOSEOUT.md`
+// whose plan `X.md` exists in the same directory is a MEMBER of unit `X.md`,
+// not its own unit. Applies only to flat files with that exact suffix + an
+// existing same-directory plan; `*-closeout` DIRECTORIES and stem-extending
+// names like `X-fidelity-fixes` stay their own units.
+const rawKeys = [];
+for (const file of walk(ROOT)) rawKeys.push(relative(ROOT, file));
+const flatSet = new Set(
+  rawKeys.filter((rel) => {
+    const segs = rel.split("/");
+    const datedIdx = segs.findIndex((s) => DATED.test(s));
+    return datedIdx === segs.length - 1 && datedIdx !== -1;
+  }),
+);
+const CLOSEOUT_SUFFIX = /-(closeout|CLOSEOUT)\.md$/;
+function attachTarget(rel) {
+  if (!CLOSEOUT_SUFFIX.test(rel)) return null;
+  const plan = rel.replace(CLOSEOUT_SUFFIX, ".md");
+  return flatSet.has(plan) ? plan : null;
+}
 const units = new Map(); // unitKey -> {kind, files[]}
 const undated = [];
-for (const file of walk(ROOT)) {
-  const rel = relative(ROOT, file);
+let attached = 0;
+for (const rel of rawKeys) {
   const segs = rel.split("/");
   const datedIdx = segs.findIndex((s) => DATED.test(s));
   if (datedIdx === -1) {
     undated.push(rel);
     continue;
   }
-  const key = segs.slice(0, datedIdx + 1).join("/");
-  const kind = datedIdx === segs.length - 1 ? "flat-file" : "directory";
+  let key = segs.slice(0, datedIdx + 1).join("/");
+  let kind = datedIdx === segs.length - 1 ? "flat-file" : "directory";
+  if (kind === "flat-file") {
+    const target = attachTarget(rel);
+    if (target !== null) {
+      key = target;
+      kind = "flat-file";
+      attached += 1;
+    }
+  }
   if (!units.has(key)) units.set(key, { kind, files: [] });
   units.get(key).files.push(rel);
 }
+console.log(`closeout-attached flat files: ${attached}`);
 
 let declaring = 0;
 let flatDeclaring = 0;
