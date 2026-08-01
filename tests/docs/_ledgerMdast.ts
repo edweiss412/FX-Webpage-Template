@@ -199,8 +199,22 @@ function headingId(heading: Heading): string | null {
       }
       return;
     }
-    const next: Provenance = node.type === "delete" ? "delete" : "fmt";
-    if (isParent(node)) for (const c of node.children) pwalk(c, kind === "plain" ? next : kind);
+    // Provenance propagation (whole-diff r4): DELETE is transparent only
+    // over plain text — the moment any OTHER formatting wrapper appears on
+    // the path, provenance is fmt and STAYS fmt (legacy raw parity:
+    // `~~**BL-X**~~` starts with `*` after the tildes and never minted).
+    // An html TAG node contributes no prose but occupies raw position —
+    // emit one zero-width fmt sentinel so `~~<b>ID</b>~~` cannot read as
+    // tag-adjacent plain text while `[<b>P2</b>] BL-X` still mints (the
+    // sentinel rides inside the bracket prefix, which is formatting-blind).
+    if (node.type === "html") {
+      flatChars.push("\u0000");
+      prov.push("fmt");
+      return;
+    }
+    const next: Provenance =
+      node.type === "delete" ? (kind === "plain" ? "delete" : kind) : kind === "code" ? kind : "fmt";
+    if (isParent(node)) for (const c of node.children) pwalk(c, next);
   };
   for (const c of heading.children) pwalk(c, "plain");
   const flat = flatChars.join("");

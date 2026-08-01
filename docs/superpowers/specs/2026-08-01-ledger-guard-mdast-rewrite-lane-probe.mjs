@@ -238,9 +238,14 @@ function entries(text, { requirePrefix, levels } = { requirePrefix: "BL-", level
         for (let i = 0; i < v.length; i++) { flatChars.push(v[i]); prov.push("code"); }
         return;
       }
+      if (node.type === "html") { flatChars.push("\u0000"); prov.push("fmt"); return; }
       const k =
-        node.type === "delete" ? "delete" : node.type === "heading" ? kind : "fmt";
-      for (const c of node.children ?? []) pwalk(c, node.type === "heading" ? "plain" : k === "delete" ? "delete" : "fmt");
+        node.type === "heading"
+          ? "plain"
+          : node.type === "delete"
+            ? (kind === "plain" ? "delete" : kind)
+            : kind === "code" ? kind : "fmt";
+      for (const c of node.children ?? []) pwalk(c, k);
     })(n, "plain");
     const flat = flatChars.join("");
     const pm = /^\s*(?:\[[^\]]+\]\s*)?/.exec(flat);

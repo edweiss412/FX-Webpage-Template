@@ -741,6 +741,14 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
       expect(entryTerminal(es[0]!).length).toBeGreaterThan(0);
     }
     expect(extractEntries("## [] BL-M9T — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    // whole-diff r4 — delete is provenance-transparent over PLAIN text only;
+    // any nested formatting under the tildes keeps fmt and mints nothing:
+    expect(extractEntries("## ~~**BL-M9U**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~*BL-M9V*~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~[BL-M9W](https://x.test)~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~<b>BL-M9X</b>~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~BL-**M9Y**~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
+    expect(extractEntries("## ~~\`BL-M9Z\`~~ — CLOSED\n\nbody\n", BACKLOG_OPTS)).toEqual([]);
     // CommonMark heading surface the ^-anchored era missed (r30 gain set):
     expect(idsOf("   ## BL-INDENTED-ID — text\n\nbody\n")).toEqual(["BL-INDENTED-ID"]);
     expect(idsOf("##\tBL-TABBED-ID — text\n\nbody\n")).toEqual(["BL-TABBED-ID"]);
