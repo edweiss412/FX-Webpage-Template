@@ -61,6 +61,13 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   {
+    file: "tests/ci/_workflowCoverageScan.ts",
+    family: "name-family",
+    marker: "stripCommentLines",
+    reason:
+      "cross-step-env-guard spec §2.0: YAML/shell full-line-# drop feeding the env-poison predicate and spelling refusal — same never-executes grammar class as the census's registered marker-skip-regex row; scanner-local because the module is a pure scanner with no dependency on tests/_shared (it imports only the yaml parser)",
+  },
+  {
     file: "tests/styles/_newTabScan.ts",
     family: "name-family",
     marker: "commentRanges",

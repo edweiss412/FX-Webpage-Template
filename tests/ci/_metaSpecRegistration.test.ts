@@ -19,6 +19,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
+import {
+  usesKind,
+  validRunsOn,
+  validWorkflowShape,
+  validatedCompositeSteps,
+} from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
 // Playwright resolves a reporter's relative `outputFile` against the CONFIG
@@ -256,14 +262,122 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * `guarded` marks a block whose step (or containing job) carries `if:` —
  * conditionally executed regardless of shell content (R9 G1).
  */
-export type RunBlock = { run: string; guarded: boolean };
-type StepShape = { run?: unknown; if?: unknown; shell?: unknown };
+export type RunBlock = { run: string; guarded: boolean; poisoned: boolean };
+type StepShape = { run?: unknown; if?: unknown; shell?: unknown; uses?: unknown };
 // bash and sh are the semantics the census models; any other shell
 // reinterprets the block (R10 — `shell: python {0}` can discard it).
 const customShell = (s: StepShape) =>
   s.shell !== undefined && !/^(?:bash|sh)$/.test(String(s.shell).trim());
-export function runBlocksOf(doc: unknown): RunBlock[] {
+/**
+ * Cross-step env-state predicate (spec §2.0, BL-CI-GITHUB-ENV-CROSS-STEP-STATE
+ * graduated): a step whose run text mentions GITHUB_ENV or GITHUB_PATH outside
+ * full-line comments mutates the environment of every LATER step in the same
+ * job — `echo "PATH=/fake:$PATH" >> "$GITHUB_PATH"` makes a textually clean
+ * downstream `pnpm exec playwright test` run a fake pnpm that exits 0. No
+ * write-shape grammar (>> vs > vs tee): distinguishing writes from reads is
+ * shell modeling, the losing game; mention = poison, case-sensitive (the
+ * runner exports exactly these names). Constructed-name evasions are the
+ * ratified perfect-obfuscation-impossible axiom (spec §5 L2).
+ */
+/**
+ * The env-file mention family (R31): the uppercase variables AND the
+ * documented `github.env` / `github.path` context properties, which name
+ * the same files — a step writing through either mutates every later
+ * step in the job, so recognizing only the variables missed a real
+ * charter-surface vector (not a constructed-name obfuscation). R32: GitHub
+ * documents INDEX syntax as equivalent to property dereference, so
+ * `github['env']` / `github["path"]` are first-class spellings too.
+ */
+const ENV_FILE_MENTION =
+  // The quote class tolerates a leading backslash: the census and the
+  // scanner both test JSON-serialized step values, where an inner quote
+  // arrives escaped (`github[\\"path\\"]`).
+  /GITHUB_ENV|GITHUB_PATH|github\s*(?:\.\s*(?:env|path)\b|\[\s*\\?['"](?:env|path)\\?['"]\s*\])/i;
+
+const writesJobEnv = (text: string): boolean =>
+  ENV_FILE_MENTION.test(
+    text
+      .split(/\r?\n/)
+      .filter((l) => !/^[ \t]*#/.test(l))
+      .join("\n"),
+  );
+export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> = {}): RunBlock[] {
   const out: RunBlock[] = [];
+  // A local action is walkable ONLY when it declares `using: composite` —
+  // a javascript (node20/node16) or docker action has no runs.steps, and its
+  // ENTRY CODE can mutate the caller's env (core.addPath /
+  // core.exportVariable / direct env-file writes) with nothing for a YAML
+  // walk to see. Spec R1 demonstrated the escaping mutant: presence in the
+  // map is NOT "modeled". Non-composite => null => opaque, fail-closed.
+  // R8: ONE shared validator with the scanner — the layers had drifted and
+  // twelve invalid step shapes escaped one or both. An invalid manifest
+  // fails the job at the use site, so downstream steps never run: null =>
+  // opaque, fail-closed.
+  const compositeStepsOf = (action: unknown): StepShape[] | null =>
+    validatedCompositeSteps(action) as StepShape[] | null;
+  // R11: the walker's own uses-branch routes through the SHARED classifier
+  // too — treating any non-`./` value as neutral let a REFLESS remote ref
+  // (which GitHub rejects before any step runs) pass silently here while the
+  // scanner and the manifest profile both refused it. "invalid" poisons.
+  const localRef = (s: StepShape): string | null =>
+    usesKind(s.uses) === "local" ? (s.uses as string).trim() : null;
+  /**
+   * One walker for workflow jobs, spliced composite actions, and the
+   * standalone composite-doc entry: per job, IN ORDER, an earlier
+   * GITHUB_ENV/GITHUB_PATH write poisons every later block — and only this
+   * job (env state does not cross jobs; over-poisoning forces reason-free
+   * registry rows). A local composite action's steps execute in the CALLER's
+   * job env, so they are spliced at the use site and poison flows BOTH
+   * directions; nesting recurses (a composite may `uses:` another local
+   * composite — spec R1's second escaping mutant), with a PATH-scoped cycle
+   * guard (sequential reuse of one action is legit; a cycle is fail-closed
+   * poison). Unknown or non-composite local refs poison fail-closed.
+   * PINNED marketplace refs (usesKind === "remote") stay trusted; every
+   * other non-local value — refless, docker, Git-invalid — is INVALID and
+   * poisons (spec §5 L8). (§5 L1: setup-node writes
+   * GITHUB_PATH by design).
+   */
+  const walkSteps = (
+    steps: StepShape[],
+    outerGuard: boolean,
+    state: { poisoned: boolean },
+    seen: ReadonlySet<string>,
+  ): void => {
+    for (const s of steps) {
+      // R15: a step carrying BOTH run: and uses: is schema-invalid — the
+      // runner defines a step as one or the other, so GitHub rejects the
+      // workflow and nothing in it runs. Emitting the run block as clean
+      // also bypassed every usesKind refusal. Poison and emit nothing.
+      if (typeof s.run === "string" && "uses" in s) {
+        state.poisoned = true;
+        continue;
+      }
+      if (typeof s.run === "string") {
+        out.push({
+          run: s.run,
+          guarded: outerGuard || s.if !== undefined || customShell(s),
+          poisoned: state.poisoned,
+        });
+        if (writesJobEnv(s.run)) state.poisoned = true;
+        continue;
+      }
+      const ref = localRef(s);
+      if (ref === null) {
+        // Remote refs are trusted; an INVALID uses value (refless remote,
+        // non-string, malformed) fails the job at this step, so everything
+        // after it is unreachable — poison fail-closed.
+        if ("uses" in s && usesKind(s.uses) === "invalid") state.poisoned = true;
+        continue;
+      }
+      const action = localActions[ref];
+      const inner = action === undefined ? null : compositeStepsOf(action);
+      if (inner === null || seen.has(ref)) {
+        state.poisoned = true;
+      } else {
+        walkSteps(inner, outerGuard || s.if !== undefined, state, new Set(seen).add(ref));
+      }
+    }
+  };
   const jobs = (
     doc as {
       jobs?: Record<
@@ -272,19 +386,45 @@ export function runBlocksOf(doc: unknown): RunBlock[] {
       >;
     }
   )?.jobs;
+  // R15, corrected to FILE level at whole-diff R3: a step carrying BOTH
+  // `run:` and `uses:` is schema-invalid, so GitHub rejects the WHOLE
+  // workflow — every job in it is unreachable, not just the steps after the
+  // offending one.
+  // R19: a workflow whose SHAPE is schema-invalid (unknown root/job/step
+  // keys, `with:` on a run step, non-numeric timeouts) is rejected by
+  // GitHub, so nothing in it runs — same narrow-accept posture as the
+  // manifest profile, shared with the scanner.
+  const schemaInvalid = jobs !== undefined && !validWorkflowShape(doc);
+  const mixedStepAnywhere = Object.values(jobs ?? {}).some((jb) =>
+    (jb.steps ?? []).some((st) => "run" in st && "uses" in st),
+  );
   for (const j of Object.values(jobs ?? {})) {
     // needs: a failed/skipped dependency skips the whole job; strategy: an
     // empty matrix executes nothing — both are execution context (R10).
     const jobGuarded = j.if !== undefined || j.needs !== undefined || j.strategy !== undefined;
-    for (const s of j.steps ?? []) {
-      if (typeof s.run === "string")
-        out.push({ run: s.run, guarded: jobGuarded || s.if !== undefined || customShell(s) });
-    }
+    // R16/R17: `runs-on` decided by the SHARED TYPED validator, so both
+    // layers accept exactly the schedulable shapes (the R16 per-layer
+    // heuristics diverged: non-string sequence members and wrong-typed
+    // group/labels mappings were accepted census-side).
+    const validRunsOnJob = validRunsOn((j as { "runs-on"?: unknown })["runs-on"]);
+    walkSteps(
+      j.steps ?? [],
+      jobGuarded,
+      { poisoned: !validRunsOnJob || mixedStepAnywhere || schemaInvalid },
+      new Set(),
+    );
   }
-  const actionSteps = (doc as { runs?: { steps?: StepShape[] } })?.runs?.steps;
-  for (const s of actionSteps ?? []) {
-    if (typeof s.run === "string")
-      out.push({ run: s.run, guarded: s.if !== undefined || customShell(s) });
+  // Standalone composite-doc walk: same walker, same in-order threading
+  // (nested local uses: resolve through the map; absent => fail-closed).
+  // R19: validated through the SAME narrow-accept profile as a spliced
+  // manifest — walking raw `runs.steps` let an OFF-PROFILE standalone action
+  // emit clean blocks, which the spec never claimed and the splice path has
+  // refused since R8.
+  if ((doc as { runs?: unknown })?.runs !== undefined) {
+    const standaloneSteps = compositeStepsOf(doc);
+    if (standaloneSteps !== null) {
+      walkSteps(standaloneSteps, false, { poisoned: false }, new Set());
+    }
   }
   return out;
 }
@@ -445,7 +585,7 @@ export function transitivePwScriptNames(
 }
 
 export function censusInvocations(
-  texts: Array<string | { text: string; guarded?: boolean }>,
+  texts: Array<string | { text: string; guarded?: boolean; poisoned?: boolean }>,
   pwScriptNames: string[],
   complexRegistry: Record<string, readonly string[]> = {},
 ): { invoked: Set<string>; problems: string[] } {
@@ -535,6 +675,7 @@ export function censusInvocations(
   for (const item of texts) {
     const raw = typeof item === "string" ? item : item.text;
     const guarded = typeof item !== "string" && item.guarded === true;
+    const poisoned = typeof item !== "string" && item.poisoned === true;
     if (fuzzy.test(raw) && raw.includes("<<")) {
       problems.push(`heredoc in a text mentioning playwright: ${raw.slice(0, 120)}`);
       continue;
@@ -559,15 +700,19 @@ export function censusInvocations(
     // on ANY non-comment sibling line is execution context for the text's
     // classifying lines, not just on the classifying line itself (where
     // complexRe already refuses it).
+    // Spec §2.1: cross-step env poison is execution context exactly like a
+    // guarded step — the mutated environment governs every line in the block.
     const contextWhy = guarded
       ? "context-guarded step (if:/needs/strategy/custom shell)"
-      : logical.some(({ line }) => controlFlowRe.test(line))
-        ? "shell control-flow or state-change context"
-        : logical.some(({ line }) => endsInOpenQuote(line))
-          ? "multiline lexical context"
-          : logical.some(({ line }) => !/^\s*#/.test(line) && /[$`]/.test(line))
-            ? "expansion-capable sibling line"
-            : null;
+      : poisoned
+        ? "environment poisoned by an earlier same-job GITHUB_ENV/GITHUB_PATH write"
+        : logical.some(({ line }) => controlFlowRe.test(line))
+          ? "shell control-flow or state-change context"
+          : logical.some(({ line }) => endsInOpenQuote(line))
+            ? "multiline lexical context"
+            : logical.some(({ line }) => !/^\s*#/.test(line) && /[$`]/.test(line))
+              ? "expansion-capable sibling line"
+              : null;
     for (const { line, continued } of logical) {
       if (/^\s*#/.test(line)) continue;
       const forwarded = fwd?.exec(line);
@@ -964,6 +1109,32 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(g.problems).not.toEqual([]);
       expect(g.invoked.size).toBe(0);
     }
+    // Spec §2.1: a block whose job env was mutated by an EARLIER same-job
+    // GITHUB_ENV/GITHUB_PATH write is execution context exactly like a
+    // guarded step — a textually clean invocation may run a fake pnpm that
+    // exits 0. Registry-or-loud, never auto-classified.
+    {
+      const p = censusInvocations(
+        [{ text: "pnpm exec playwright test --config ghost.ts", poisoned: true }],
+        [],
+      );
+      expect(p.problems).not.toEqual([]);
+      expect(p.invoked.size).toBe(0);
+    }
+    // …a poisoned NON-classifying block stays silent (same rule as guarded).
+    {
+      const p = censusInvocations([{ text: "echo hi", poisoned: true }], []);
+      expect(p.problems).toEqual([]);
+      expect(p.invoked.size).toBe(0);
+    }
+    // …and a REGISTERED poisoned line contributes exactly its declared
+    // configs — the human-declaration escape hatch every context shares.
+    {
+      const key = "pnpm exec playwright test --config known.ts";
+      const p = censusInvocations([{ text: key, poisoned: true }], [], { [key]: ["known.ts"] });
+      expect(p.problems).toEqual([]);
+      expect([...p.invoked]).toEqual(["known.ts"]);
+    }
     // R9 G2: runtime-composed command/script targets \u2014 expansion or quoting
     // hides the invocation from every literal scan while a config flag rides
     // along.
@@ -1097,39 +1268,55 @@ describe("spec registration detector (spec §3.1)", () => {
     // raw-text sweep already treats actions as execution surface; the census
     // must see the same universe or the two guards disagree.
     const wfDoc = parse(
-      "jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y\n      - run: echo guarded-step\n        if: failure()\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo wf-step\n      - uses: x/y@v1\n      - run: echo guarded-step\n        if: failure()\n",
     );
     const actionDoc = parse(
       "name: setup\nruns:\n  using: composite\n  steps:\n    - run: echo action-step\n      shell: bash\n",
     );
     expect(runBlocksOf(wfDoc)).toEqual([
-      { run: "echo wf-step", guarded: false },
-      { run: "echo guarded-step", guarded: true },
+      { run: "echo wf-step", guarded: false, poisoned: false },
+      { run: "echo guarded-step", guarded: true, poisoned: false },
     ]);
-    expect(runBlocksOf(actionDoc)).toEqual([{ run: "echo action-step", guarded: false }]);
+    expect(runBlocksOf(actionDoc)).toEqual([
+      { run: "echo action-step", guarded: false, poisoned: false },
+    ]);
     // Job-level if: guards every step in the job (R9 G1).
-    const guardedJob = parse("jobs:\n  j:\n    if: false\n    steps:\n      - run: echo x\n");
-    expect(runBlocksOf(guardedJob)).toEqual([{ run: "echo x", guarded: true }]);
+    const guardedJob = parse(
+      "jobs:\n  j:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+    );
+    expect(runBlocksOf(guardedJob)).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     // R10: needs (dependency may fail → job skipped), strategy (matrix may
     // be empty), and a custom shell (reinterprets the block) are execution
     // context too. bash/sh shells stay unguarded; composite actions REQUIRE
     // an explicit shell, so bash there is not context.
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    needs: build\n    steps:\n      - run: echo x\n")),
-    ).toEqual([{ run: "echo x", guarded: true }]);
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    needs: build\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+        ),
+      ),
+    ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     expect(
       runBlocksOf(
         parse(
-          "jobs:\n  j:\n    strategy:\n      matrix:\n        s: [1]\n    steps:\n      - run: echo x\n",
+          "jobs:\n  j:\n    strategy:\n      matrix:\n        s: [1]\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
         ),
       ),
-    ).toEqual([{ run: "echo x", guarded: true }]);
+    ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: python\n")),
-    ).toEqual([{ run: "echo x", guarded: true }]);
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        shell: python\n",
+        ),
+      ),
+    ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: bash\n")),
-    ).toEqual([{ run: "echo x", guarded: false }]);
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        shell: bash\n",
+        ),
+      ),
+    ).toEqual([{ run: "echo x", guarded: false, poisoned: false }]);
     expect(
       runBlocksOf(
         parse(
@@ -1137,8 +1324,368 @@ describe("spec registration detector (spec §3.1)", () => {
         ),
       ),
     ).toEqual([
-      { run: "echo a", guarded: false },
-      { run: "echo b", guarded: true },
+      { run: "echo a", guarded: false, poisoned: false },
+      { run: "echo b", guarded: true, poisoned: false },
+    ]);
+  });
+
+  it("runBlocksOf models cross-step GITHUB_ENV/GITHUB_PATH state per job (spec §2.1)", () => {
+    // F3 both directions: a write-first step poisons every LATER same-job
+    // block; a write AFTER an invocation poisons nothing before it.
+    // (Semantically real writes — R1 probe honesty: a GITHUB_PATH entry is a
+    // PATH COMPONENT to prepend, so the corrupting form is a directory
+    // holding a fake pnpm; a PATH= assignment corrupts via GITHUB_ENV.)
+    const poisonFirst = parse(
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      - run: echo later\n',
+    );
+    expect(runBlocksOf(poisonFirst)).toEqual([
+      { run: 'echo "/fake-bin" >> "$GITHUB_PATH"', guarded: false, poisoned: false },
+      { run: "echo later", guarded: false, poisoned: true },
+    ]);
+    const poisonLast = parse(
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo first\n      - run: echo "X=1" >> "$GITHUB_ENV"\n',
+    );
+    expect(runBlocksOf(poisonLast)).toEqual([
+      { run: "echo first", guarded: false, poisoned: false },
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+    ]);
+    // F2 census-side (R2): the predicate has NO write-shape grammar — tee and
+    // single-`>` forms poison exactly like `>>`. A mutant narrowing the
+    // census predicate to `>>` fails these two while the scanner twins stay
+    // green, so the layers cannot drift apart silently.
+    for (const write of [
+      'echo "PATH=/fake-bin:$PATH" | tee -a "$GITHUB_ENV"',
+      'echo "/fake-bin" > "$GITHUB_PATH"',
+    ]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${write}\n      - run: echo later\n`,
+          ),
+        ),
+        write,
+      ).toEqual([
+        { run: write, guarded: false, poisoned: false },
+        { run: "echo later", guarded: false, poisoned: true },
+      ]);
+    }
+    // F1 precision twin: env state is JOB-scoped — a write in job a must not
+    // poison job b (over-poisoning forces reason-free registry rows).
+    const crossJob = parse(
+      'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo clean\n',
+    );
+    expect(runBlocksOf(crossJob)).toEqual([
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+      { run: "echo clean", guarded: false, poisoned: false },
+    ]);
+    // F6: a full-line # comment mentioning GITHUB_ENV never executes and
+    // must not poison (same non-execution rule as the census's comment skip).
+    const commentOnly = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          # GITHUB_ENV is not written here\n          echo hi\n      - run: echo later\n",
+    );
+    expect(runBlocksOf(commentOnly)).toEqual([
+      { run: "# GITHUB_ENV is not written here\necho hi\n", guarded: false, poisoned: false },
+      { run: "echo later", guarded: false, poisoned: false },
+    ]);
+    // F4, all three directions. A local composite action's steps run in the
+    // CALLER's job env: an action write poisons later workflow steps; an
+    // earlier workflow write poisons the spliced action blocks; and inside
+    // the action, step 1's write poisons step 2.
+    const setupWrites = parse(
+      'runs:\n  using: composite\n  steps:\n    - run: echo "X=1" >> "$GITHUB_ENV"\n      shell: bash\n    - run: echo action-second\n      shell: bash\n',
+    );
+    const actions = { "./.github/actions/w": setupWrites };
+    const actionThenRun = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/w\n      - run: echo after-action\n",
+    );
+    expect(runBlocksOf(actionThenRun, actions)).toEqual([
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+      { run: "echo action-second", guarded: false, poisoned: true },
+      { run: "echo after-action", guarded: false, poisoned: true },
+    ]);
+    const cleanAction = parse(
+      "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n",
+    );
+    const writeThenAction = parse(
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n      - uses: ./.github/actions/clean\n',
+    );
+    expect(runBlocksOf(writeThenAction, { "./.github/actions/clean": cleanAction })).toEqual([
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+      { run: "echo inside", guarded: false, poisoned: true },
+    ]);
+    // Spliced action steps compose guards: a use-site if: guards them the
+    // same way a step-level if: guards a run step.
+    const guardedUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/clean\n        if: failure()\n",
+    );
+    expect(runBlocksOf(guardedUse, { "./.github/actions/clean": cleanAction })).toEqual([
+      { run: "echo inside", guarded: true, poisoned: false },
+    ]);
+    // F5: an unresolvable local action is an opaque same-env executor —
+    // fail-closed, later steps are poisoned.
+    const ghostUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/ghost\n      - run: echo after-ghost\n",
+    );
+    expect(runBlocksOf(ghostUse, {})).toEqual([
+      { run: "echo after-ghost", guarded: false, poisoned: true },
+    ]);
+    // PINNED marketplace actions stay trusted (spec §1.1 / §5 L1); the
+    // unpinned and docker shapes are refused as invalid (§5 L8):
+    // setup-node writes GITHUB_PATH by DESIGN; poisoning on remote uses:
+    // would darken every workflow.
+    const marketplaceUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo after-checkout\n",
+    );
+    expect(runBlocksOf(marketplaceUse, {})).toEqual([
+      { run: "echo after-checkout", guarded: false, poisoned: false },
+    ]);
+    // R11: a REFLESS remote ref is INVALID, not trusted — GitHub rejects it
+    // before any step runs, so everything after is unreachable. The walker's
+    // own uses-branch shares the classifier with the scanner and the
+    // manifest profile, so all three agree.
+    for (const ref of ["actions/checkout", "owner/repo/path"]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - run: echo after-refless\n`,
+          ),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo after-refless", guarded: false, poisoned: true }]);
+    }
+    // R16: a job without a valid runs-on never executes, so its blocks are
+    // poisoned rather than clean; the valid runner shapes stay clean.
+    for (const head of ["", "    runs-on:\n", "    runs-on: null\n", "    runs-on: []\n"]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo no-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo no-runner", guarded: false, poisoned: true }]);
+    }
+    for (const head of [
+      "    runs-on: ubuntu-latest\n",
+      "    runs-on:\n      - self-hosted\n",
+      "    runs-on:\n      group: my-group\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo runner-ok\n`), {}),
+        head,
+      ).toEqual([{ run: "echo runner-ok", guarded: false, poisoned: false }]);
+    }
+    // R19: a schema-invalid workflow shape poisons every block — GitHub
+    // rejects the file, so nothing in it executes.
+    for (const wf of [
+      "bogus-root: 1\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    bogus-job: 1\n    steps:\n      - run: echo x\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        with:\n          a: b\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    timeout-minutes: fast\n    steps:\n      - run: echo x\n",
+    ]) {
+      expect(runBlocksOf(parse(wf), {}), wf).toEqual([
+        { run: "echo x", guarded: false, poisoned: true },
+      ]);
+    }
+    // R18: mixed detection is key-presence based, so mapping ORDER cannot
+    // hide it (run-first was invisible to a truncating text scan).
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mixed\n        uses: actions/checkout@v4\n      - run: echo later\n",
+        ),
+        {},
+      ),
+    ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
+    // R17: the census shares the typed validator, so the same shapes that
+    // the scanner refuses poison here (non-string sequence members and
+    // wrong-typed/extra-keyed group-labels mappings were accepted before).
+    for (const head of [
+      "    runs-on: 42\n",
+      "    runs-on:\n      - 42\n",
+      "    runs-on:\n      group: []\n",
+      "    runs-on:\n      bogus: x\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo bad-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo bad-runner", guarded: false, poisoned: true }]);
+    }
+    for (const head of [
+      "    runs-on:\n      group: my-group\n      labels: gpu\n",
+      "    runs-on:\n      labels:\n        - gpu\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo good-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo good-runner", guarded: false, poisoned: false }]);
+    }
+    // R15: a step carrying BOTH run: and uses: is schema-invalid — GitHub
+    // rejects the workflow, so the run block must not be emitted clean (it
+    // also bypassed every usesKind refusal that way).
+    for (const ref of ["actions/checkout@v4", "actions/checkout", "./.github/actions/ghost"]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n        run: echo mixed\n      - run: echo later\n`,
+          ),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
+    }
+    // R31: github.env / github.path name the same env files, so a write
+    // through either poisons later blocks census-side too.
+    for (const prop of ["github.env", "github.path", "github['env']", 'github["path"]']) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo /fake-bin >> \${{ ${prop} }}\n      - run: echo later\n`,
+          ),
+          {},
+        ),
+        prop,
+      ).toEqual([
+        { run: `echo /fake-bin >> \${{ ${prop} }}`, guarded: false, poisoned: false },
+        { run: "echo later", guarded: false, poisoned: true },
+      ]);
+    }
+    // R13: the docker:// family is refused wholesale (spec §5 L8) — its
+    // reference grammar is its own spec and two rounds of modelling it
+    // produced escaping forms; zero live refs, so the refusal is free.
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine:3\n      - run: echo after-docker\n",
+        ),
+        {},
+      ),
+    ).toEqual([{ run: "echo after-docker", guarded: false, poisoned: true }]);
+    // …and the pinned GitHub-action forms stay trusted.
+    for (const ref of ["owner/repo/sub@v1", "actions/checkout@v4"]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - run: echo after-ok\n`,
+          ),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo after-ok", guarded: false, poisoned: false }]);
+    }
+    // Standalone composite walk threads the same internal ordering.
+    expect(runBlocksOf(setupWrites)).toEqual([
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+      { run: "echo action-second", guarded: false, poisoned: true },
+    ]);
+    // F7 (R1 escaping mutant #1): a KNOWN javascript/docker action has no
+    // runs.steps, and its ENTRY CODE can core.addPath / core.exportVariable
+    // with nothing for a YAML walk to see — presence in the map is not
+    // "modeled". Opaque, fail-closed.
+    const jsAction = parse("runs:\n  using: node20\n  main: index.js\n");
+    const jsUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/js\n      - run: echo after-js\n",
+    );
+    expect(runBlocksOf(jsUse, { "./.github/actions/js": jsAction })).toEqual([
+      { run: "echo after-js", guarded: false, poisoned: true },
+    ]);
+    // Nested F7 (plan-review R4): a javascript action reached through a
+    // composite PARENT is opaque there too, not just at the direct site.
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/pjs\n      - run: echo after-nested-js\n",
+        ),
+        {
+          "./.github/actions/pjs": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/js3\n",
+          ),
+          "./.github/actions/js3": parse("runs:\n  using: node20\n  main: index.js\n"),
+        },
+      ),
+    ).toEqual([{ run: "echo after-nested-js", guarded: false, poisoned: true }]);
+    // R7/R8: an INVALID composite manifest — no steps, or any step shape
+    // GitHub's runner schema rejects — fails the job at the use site, so
+    // downstream never runs. Clean-composite readings were false coverage;
+    // the shared validator makes both layers agree shape-for-shape.
+    for (const body of [
+      "runs:\n  using: composite\n",
+      "runs:\n  using: composite\n  steps: nope\n",
+      "runs:\n  using: composite\n  steps:\n    a: b\n",
+      "runs:\n  using: composite\n  steps:\n",
+      "runs:\n  using: composite\n  steps:\n    - just-a-string\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n",
+      "runs:\n  using: composite\n  steps:\n    - name: idle\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      uses: ./x\n",
+      "runs:\n  using: composite\n  steps:\n    - uses: ./x\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      bogus: 1\n",
+      "runs:\n  using: composite\n  steps:\n    - run:\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell:\n",
+      "runs:\n  using: composite\n  steps:\n    - uses:\n",
+    ]) {
+      expect(
+        runBlocksOf(
+          parse(
+            "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/bad\n      - run: echo after-bad\n",
+          ),
+          { "./.github/actions/bad": parse(body) },
+        ),
+        body,
+      ).toEqual([{ run: "echo after-bad", guarded: false, poisoned: true }]);
+    }
+    // F8 (R1 escaping mutant #2): a composite may `uses:` another LOCAL
+    // composite — resolution recurses, so a writing grandchild poisons the
+    // rest of the parent AND the rest of the workflow job; a clean chain
+    // poisons nothing.
+    const parentUsing = parse(
+      "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/child\n    - run: echo parent-after\n      shell: bash\n",
+    );
+    const childWrites = parse(
+      'runs:\n  using: composite\n  steps:\n    - run: echo "X=1" >> "$GITHUB_ENV"\n      shell: bash\n',
+    );
+    const childClean = parse(
+      "runs:\n  using: composite\n  steps:\n    - run: echo child-ok\n      shell: bash\n",
+    );
+    const nestedUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/parent\n      - run: echo wf-after\n",
+    );
+    expect(
+      runBlocksOf(nestedUse, {
+        "./.github/actions/parent": parentUsing,
+        "./.github/actions/child": childWrites,
+      }),
+    ).toEqual([
+      { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
+      { run: "echo parent-after", guarded: false, poisoned: true },
+      { run: "echo wf-after", guarded: false, poisoned: true },
+    ]);
+    expect(
+      runBlocksOf(nestedUse, {
+        "./.github/actions/parent": parentUsing,
+        "./.github/actions/child": childClean,
+      }),
+    ).toEqual([
+      { run: "echo child-ok", guarded: false, poisoned: false },
+      { run: "echo parent-after", guarded: false, poisoned: false },
+      { run: "echo wf-after", guarded: false, poisoned: false },
+    ]);
+    // F8 cycle: fail-closed (GitHub rejects cyclic actions; the walker must
+    // not hang or fail open). PATH-scoped seen-set: sequential REUSE of one
+    // action in a job is legit and stays clean.
+    const selfCycle = parse(
+      "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/cycle\n    - run: echo after-cycle\n      shell: bash\n",
+    );
+    const cycleUse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/cycle\n      - run: echo wf-after\n",
+    );
+    expect(runBlocksOf(cycleUse, { "./.github/actions/cycle": selfCycle })).toEqual([
+      { run: "echo after-cycle", guarded: false, poisoned: true },
+      { run: "echo wf-after", guarded: false, poisoned: true },
+    ]);
+    const reuse = parse(
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/clean\n      - uses: ./.github/actions/clean\n      - run: echo wf-after\n",
+    );
+    expect(runBlocksOf(reuse, { "./.github/actions/clean": cleanAction })).toEqual([
+      { run: "echo inside", guarded: false, poisoned: false },
+      { run: "echo inside", guarded: false, poisoned: false },
+      { run: "echo wf-after", guarded: false, poisoned: false },
     ]);
   });
 
@@ -1199,14 +1746,62 @@ describe("spec registration detector (spec §3.1)", () => {
   it("config-set tripwire: invocation census + filename belt both equal the known config set", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
     const scripts = pkg.scripts as Record<string, string>;
-    const texts: Array<string | { text: string; guarded?: boolean }> = Object.values(scripts);
+    const texts: Array<string | { text: string; guarded?: boolean; poisoned?: boolean }> =
+      Object.values(scripts);
+    // Local composite actions execute run blocks no workflow file textually
+    // contains — same universe, same census (R7 F4). Spec §2.1: their steps
+    // are SPLICED at each use site (per-job guard + cross-step env-poison
+    // state both compose there), so the map is built BEFORE the workflow
+    // walk and the old separate used-action append is gone — appended-flat
+    // blocks would have lost the job context the splice exists to model.
+    //
+    // ONLY the GitHub-recognized manifest keys the map (spec R2 BLOCKING):
+    // keying every yml under an action dir let a supplemental clean YAML
+    // OVERWRITE the parsed action.yml under the same directory key,
+    // masquerading a javascript action as a clean composite. GitHub reads
+    // action.yml (preferred) or action.yaml — nothing else executes.
+    const actionDocs: Record<string, unknown> = {};
+    const actionFiles = walkFiles(join(ROOT, ".github", "actions")).filter(
+      (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
+    );
+    const actionDirOf = (p: string) =>
+      `./${relative(ROOT, p)
+        .split(sep)
+        .join("/")
+        .replace(/\/[^/]+$/, "")}`;
+    const manifestByDir = new Map<string, string>();
+    for (const p of actionFiles) {
+      if (!/(^|\/)action\.ya?ml$/.test(relative(ROOT, p).split(sep).join("/"))) continue;
+      const dir = actionDirOf(p);
+      const prev = manifestByDir.get(dir);
+      if (prev === undefined || p.endsWith("action.yml")) manifestByDir.set(dir, p);
+    }
+    for (const [dir, p] of manifestByDir) {
+      actionDocs[dir] = parse(readFileSync(p, "utf8"));
+    }
+    // Non-manifest YAML under an action dir never executes — playwright text
+    // there is dead text posing as surface (same R9 G1 rule as unreferenced
+    // actions), and it must not exist even in a USED action's directory.
+    for (const p of actionFiles) {
+      if (manifestByDir.get(actionDirOf(p)) === p) continue;
+      expect(
+        /playwr/.test(readFileSync(p, "utf8")),
+        `non-manifest ${relative(ROOT, p)} under a local action dir mentions playwright — dead text posing as surface`,
+      ).toBe(false);
+    }
     const usedActionDirs = new Set<string>();
     const wfDir = join(ROOT, ".github", "workflows");
     for (const wfPath of readdirSync(wfDir).filter(
       (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
     )) {
       const doc = parse(readFileSync(join(wfDir, wfPath), "utf8"));
-      texts.push(...runBlocksOf(doc).map((b) => ({ text: b.run, guarded: b.guarded })));
+      texts.push(
+        ...runBlocksOf(doc, actionDocs).map((b) => ({
+          text: b.run,
+          guarded: b.guarded,
+          poisoned: b.poisoned,
+        })),
+      );
       for (const j of Object.values(
         ((doc.jobs ?? {}) as Record<string, { steps?: Array<{ uses?: unknown }> }>) ?? {},
       )) {
@@ -1215,27 +1810,16 @@ describe("spec registration detector (spec §3.1)", () => {
         }
       }
     }
-    // Local composite actions execute run blocks no workflow file textually
-    // contains — same universe, same census (R7 F4). An action NO workflow
-    // references cannot legitimately register a playwright invocation — its
-    // contributions would be dead text posing as live surface (R9 G1).
-    for (const p of walkFiles(join(ROOT, ".github", "actions")).filter(
-      (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
-    )) {
-      const actionDir = `./${relative(ROOT, p)
-        .split(sep)
-        .join("/")
-        .replace(/\/[^/]+$/, "")}`;
-      const blocks = runBlocksOf(parse(readFileSync(p, "utf8")));
-      if (usedActionDirs.has(actionDir)) {
-        texts.push(...blocks.map((b) => ({ text: b.run, guarded: b.guarded })));
-      } else {
-        for (const b of blocks) {
-          expect(
-            /playwr/.test(b.run),
-            `unreferenced local action ${actionDir} invokes playwright — reference it or remove it`,
-          ).toBe(false);
-        }
+    // An action NO workflow references cannot legitimately register a
+    // playwright invocation — its contributions would be dead text posing as
+    // live surface (R9 G1).
+    for (const [dir] of manifestByDir) {
+      if (usedActionDirs.has(dir)) continue;
+      for (const b of runBlocksOf(actionDocs[dir])) {
+        expect(
+          /playwr/.test(b.run),
+          `unreferenced local action ${dir} invokes playwright — reference it or remove it`,
+        ).toBe(false);
       }
     }
     // Transitive closure: a script whose body invokes another playwright-

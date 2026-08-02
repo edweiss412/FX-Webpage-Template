@@ -88,6 +88,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/ci-cross-step-env-guard (2026-08-01): job-scoped cross-step
+  // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
+  // splice + scanner per-job poison flag, closure families F1-F8).
+  { id: "BL-CI-GITHUB-ENV-CROSS-STEP-STATE", provenance: "test/ci-cross-step-env-guard" },
   // feat/card-copy-parity-sync-job-names (2026-08-01): §4.2 helpfulContext
   // byte-parity frozen for all 44 registry codes (rows 1-42 back-filled), and
   // the sync job's Doug-facing name unified to "Auto sync" across the catalog,
