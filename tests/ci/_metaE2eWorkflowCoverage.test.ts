@@ -612,6 +612,53 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(wf(ok)).covered.has(spec)).toBe(true);
   });
 
+  it("every workflow key is TYPE-checked, not merely name-checked (R21)", () => {
+    // R19/R20 validated key NAMES and a few values; each round then found
+    // another value that passed unvalidated. Every key now carries a type
+    // predicate, so a wrong-typed value is refused wherever it appears.
+    const wf = (root: string, jobBody: string) =>
+      `name: x\n${root}on:\n  pull_request:\njobs:\n  j:\n${jobBody}`;
+    const stepsJob = (extra: string, step: string) =>
+      `    runs-on: ubuntu-latest\n${extra}    steps:\n      - run: pnpm exec playwright test ${spec}\n${step}`;
+    const bad = [
+      // root-level wrong types
+      wf("name:\n  - seq\n", stepsJob("", "")),
+      wf("run-name:\n  - seq\n", stepsJob("", "")),
+      wf("concurrency:\n  - seq\n", stepsJob("", "")),
+      wf("permissions:\n  - seq\n", stepsJob("", "")),
+      // job-level wrong types
+      wf("", stepsJob("    environment:\n      - seq\n", "")),
+      wf("", stepsJob("    outputs:\n      - seq\n", "")),
+      wf("", stepsJob("    continue-on-error:\n      - seq\n", "")),
+      wf("", stepsJob("    if:\n      - seq\n", "")),
+      // step-level wrong types and out-of-range timeouts
+      wf("", stepsJob("", "      - run: ''\n")),
+      wf("", stepsJob("", "      - run: 42\n")),
+      wf("", stepsJob("", "      - uses: ''\n")),
+      wf("", stepsJob("", "      - run: echo x\n        continue-on-error:\n          - seq\n")),
+      wf("", stepsJob("", "      - run: echo x\n        timeout-minutes: 0\n")),
+      wf("", stepsJob("", "      - run: echo x\n        timeout-minutes: -1\n")),
+      wf("", stepsJob("", "      - run: echo x\n        timeout-minutes: 1.5\n")),
+      wf("", stepsJob("", "      - run: echo x\n        timeout-minutes: 361\n")),
+      // reusable-workflow job with an invalid uses reference
+      `name: x\non:\n  pull_request:\njobs:\n  a:\n    uses: not-a-workflow-ref\n  j:\n${stepsJob("", "")}`,
+    ];
+    for (const w of bad) {
+      const r = S(w);
+      expect(r.covered.has(spec), w).toBe(false);
+      // Most shapes are REPORTED with the schema reason; a root-level type
+      // error can also make the file yield no claim at all (safe-dark).
+      // Either is a refusal — false coverage is the only failure.
+      if (r.rejected.length > 0) {
+        expect(r.rejected[0]!.reason, w).toBe("unmodelled YAML spelling");
+      }
+    }
+    // …and the well-typed forms still count, including a valid reusable job
+    // beside the claiming one and an in-range step timeout.
+    const okReusable = `name: x\non:\n  pull_request:\njobs:\n  a:\n    uses: ./.github/workflows/other.yml\n  j:\n${stepsJob("", "      - run: echo x\n        timeout-minutes: 360\n")}`;
+    expect(S(okReusable).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

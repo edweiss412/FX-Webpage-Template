@@ -117,115 +117,129 @@ const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim(
  * typed values; anything off-profile is unschedulable, so the file claims
  * nothing (scanner) and its blocks start poisoned (census).
  */
-const WF_ROOT_KEYS = new Set([
-  "name",
-  "run-name",
-  "on",
-  "env",
-  "defaults",
-  "concurrency",
-  "permissions",
-  "jobs",
-]);
 /**
- * Job key sets are per KIND (R20): a normal job runs `steps:` on a runner; a
- * reusable-workflow job carries `uses:` and may only add a small keyword set.
- * A union allowlist accepted `uses:`+`steps:` together, `with:`/`secrets:` on
- * a steps job, and similar cross-kind mixes — all rejected by GitHub, so the
- * file runs nothing.
+ * Workflow shape as a TYPE TABLE (R21). R19 shipped key allowlists and R20
+ * added per-kind sets, but each round still found values that passed
+ * unvalidated (sequence-valued `name`, `concurrency`, `permissions`,
+ * `continue-on-error`; empty or numeric `run`/`uses`; out-of-range
+ * timeouts). Enumerating those one round at a time is the losing game this
+ * arc retired for manifests at R9, so the burden is inverted here too:
+ * EVERY key of every mapping we walk declares a type predicate, and a key
+ * whose value fails its predicate — or a key with no entry at all — makes
+ * the file unschedulable. There is no "unvalidated key" left by
+ * construction; the residue is refused-but-valid (spec §5 L9), never
+ * accepted-but-invalid.
  */
-const WF_STEPS_JOB_KEYS = new Set([
-  "name",
-  "needs",
-  "if",
-  "runs-on",
-  "environment",
-  "concurrency",
-  "outputs",
-  "env",
-  "defaults",
-  "steps",
-  "timeout-minutes",
-  "strategy",
-  "continue-on-error",
-  "container",
-  "services",
-  "permissions",
-]);
-const WF_USES_JOB_KEYS = new Set([
-  "name",
-  "needs",
-  "if",
-  "uses",
-  "with",
-  "secrets",
-  "strategy",
-  "concurrency",
-  "permissions",
-]);
-const WF_RUN_STEP_KEYS = new Set([
-  "name",
-  "id",
-  "if",
-  "run",
-  "shell",
-  "working-directory",
-  "env",
-  "continue-on-error",
-  "timeout-minutes",
-]);
-const WF_USES_STEP_KEYS = new Set([
-  "name",
-  "id",
-  "if",
-  "uses",
-  "with",
-  "env",
-  "continue-on-error",
-  "timeout-minutes",
-]);
+type Pred = (v: unknown) => boolean;
+const str: Pred = (v) => nonEmptyString(v);
+const strOrBool: Pred = (v) => typeof v === "boolean" || nonEmptyString(v);
+const mapping: Pred = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const strOrMapping: Pred = (v) => nonEmptyString(v) || mapping(v);
+const strOrSeqOrMapping: Pred = (v) =>
+  nonEmptyString(v) || mapping(v) || (Array.isArray(v) && v.length > 0);
+const strOrSeq: Pred = (v) =>
+  nonEmptyString(v) || (Array.isArray(v) && v.every((x) => nonEmptyString(x)));
+/** GitHub: a positive integer of at most 360 minutes. */
+const timeout: Pred = (v) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 360;
+const scalars: Pred = (v) => scalarMap(v);
+
+const WF_ROOT: Record<string, Pred> = {
+  name: str,
+  "run-name": str,
+  on: strOrSeqOrMapping,
+  env: scalars,
+  defaults: mapping,
+  concurrency: strOrMapping,
+  permissions: strOrMapping,
+  jobs: mapping,
+};
+const WF_STEPS_JOB: Record<string, Pred> = {
+  name: str,
+  needs: strOrSeq,
+  if: strOrBool,
+  // Presence is required below; the VALUE is validated by the dedicated
+  // `validRunsOn` gate so the refusal reports its own precise reason
+  // rather than a generic schema rejection (R16/R17 fixtures pin that).
+  "runs-on": () => true,
+  environment: strOrMapping,
+  concurrency: strOrMapping,
+  outputs: scalars,
+  env: scalars,
+  defaults: mapping,
+  steps: (v) => Array.isArray(v),
+  "timeout-minutes": timeout,
+  strategy: mapping,
+  "continue-on-error": strOrBool,
+  container: strOrMapping,
+  services: mapping,
+  permissions: strOrMapping,
+};
+const WF_USES_JOB: Record<string, Pred> = {
+  name: str,
+  needs: strOrSeq,
+  if: strOrBool,
+  // A reusable-workflow ref: a local `./…​.yml` path or `owner/repo/path@ref`.
+  uses: (v) =>
+    typeof v === "string" &&
+    (/^\.\/[\w./-]+\.ya?ml$/.test(v.trim()) ||
+      /^[\w.-]+\/[\w.-]+\/[\w./-]+\.ya?ml@[\w./-]+$/.test(v.trim())),
+  with: scalars,
+  secrets: (v) => v === "inherit" || scalars(v),
+  strategy: mapping,
+  concurrency: strOrMapping,
+  permissions: strOrMapping,
+};
+const WF_RUN_STEP: Record<string, Pred> = {
+  name: str,
+  id: str,
+  if: strOrBool,
+  run: str,
+  shell: str,
+  "working-directory": str,
+  env: scalars,
+  "continue-on-error": strOrBool,
+  "timeout-minutes": timeout,
+};
+const WF_USES_STEP: Record<string, Pred> = {
+  name: str,
+  id: str,
+  if: strOrBool,
+  uses: str,
+  with: scalars,
+  env: scalars,
+  "continue-on-error": strOrBool,
+  "timeout-minutes": timeout,
+};
+/** Every present key must have an entry AND satisfy its predicate. */
+function typedShape(obj: Record<string, unknown>, table: Record<string, Pred>): boolean {
+  return Object.entries(obj).every(([k, v]) => table[k] !== undefined && table[k]!(v));
+}
 /** GitHub job IDs: start with a letter or _, then alphanumerics, - or _. */
 const JOB_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export function validWorkflowShape(doc: unknown): boolean {
-  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return false;
+  if (!mapping(doc)) return false;
   const root = doc as Record<string, unknown>;
-  if (!Object.keys(root).every((k) => WF_ROOT_KEYS.has(k))) return false;
+  if (!typedShape(root, WF_ROOT)) return false;
   const jobs = root.jobs;
-  if (jobs === null || typeof jobs !== "object" || Array.isArray(jobs)) return false;
+  if (!mapping(jobs)) return false;
   for (const [jobId, job] of Object.entries(jobs as Record<string, unknown>)) {
     if (!JOB_ID_RE.test(jobId)) return false;
-    if (job === null || typeof job !== "object" || Array.isArray(job)) return false;
+    if (!mapping(job)) return false;
     const j = job as Record<string, unknown>;
     const hasSteps = "steps" in j;
     const hasUses = "uses" in j;
     if (hasSteps === hasUses) return false; // a job is one kind or the other
-    if (!Object.keys(j).every((k) => (hasSteps ? WF_STEPS_JOB_KEYS : WF_USES_JOB_KEYS).has(k)))
-      return false;
-    if ("timeout-minutes" in j && typeof j["timeout-minutes"] !== "number") return false;
-    if ("name" in j && !nonEmptyString(j.name)) return false;
-    if ("env" in j && !scalarMap(j.env)) return false;
-    if (hasUses) {
-      if (!nonEmptyString(j.uses)) return false;
-      if ("with" in j && !scalarMap(j.with)) return false;
-      continue;
-    }
-    if (!Array.isArray(j.steps)) return false;
-    for (const step of j.steps) {
-      if (step === null || typeof step !== "object" || Array.isArray(step)) return false;
+    if (!typedShape(j, hasSteps ? WF_STEPS_JOB : WF_USES_JOB)) return false;
+    if (hasUses) continue;
+    // `runs-on` presence AND value are owned by the dedicated gate, which
+    // reports the precise reason; a steps job missing it is refused there.
+    for (const step of j.steps as unknown[]) {
+      if (!mapping(step)) return false;
       const s = step as Record<string, unknown>;
       const hasRun = "run" in s;
       const hasStepUses = "uses" in s;
       if (hasRun === hasStepUses) return false;
-      const allowed = hasRun ? WF_RUN_STEP_KEYS : WF_USES_STEP_KEYS;
-      if (!Object.keys(s).every((k) => allowed.has(k))) return false;
-      if ("timeout-minutes" in s && typeof s["timeout-minutes"] !== "number") return false;
-      for (const k of ["name", "id", "shell", "working-directory"]) {
-        if (k in s && !nonEmptyString(s[k])) return false;
-      }
-      // `if` may be a boolean or an expression string — both are legal.
-      if ("if" in s && !(typeof s.if === "boolean" || nonEmptyString(s.if))) return false;
-      if ("env" in s && !scalarMap(s.env)) return false;
-      if ("with" in s && !scalarMap(s.with)) return false;
+      if (!typedShape(s, hasRun ? WF_RUN_STEP : WF_USES_STEP)) return false;
     }
   }
   return true;
