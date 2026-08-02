@@ -1732,10 +1732,22 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     const configSpecs = {
       "tests/e2e/standalone.config.ts": listedSpecFiles().map((f) => `tests/e2e/${f}`),
     };
+    const localActions: Record<string, string> = {};
+    const actionsDir = join(process.cwd(), ".github/actions");
+    if (existsSync(actionsDir)) {
+      for (const d of readdirSync(actionsDir)) {
+        for (const base of ["action.yml", "action.yaml"]) {
+          const mp = join(actionsDir, d, base);
+          if (!existsSync(mp)) continue;
+          localActions[`./.github/actions/${d}`] = readFileSync(mp, "utf8");
+          break;
+        }
+      }
+    }
     expect(
       governanceViolations(
         ENV_KEY_ALLOWLIST,
-        envPairGovernance(workflows, packageScripts, configSpecs),
+        envPairGovernance(workflows, packageScripts, configSpecs, ENV_KEY_ALLOWLIST, localActions),
       ),
     ).toEqual([]);
   });
@@ -1744,30 +1756,40 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     const claiming = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`;
     const relocated = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
     const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
+    const gv = (
+      workflows: Record<string, string>,
+      packageScripts: Record<string, string> = {},
+      allowlist: Record<string, { values: string[]; reason: string; governs: string[] }> = row,
+    ) => envPairGovernance(workflows, packageScripts, {}, allowlist);
     // The R3 mutant: pair parked at a non-claiming site — pair-level presence
     // still holds, governance does not.
-    expect(governanceViolations(row, envPairGovernance({ "w.yml": claiming }, {}))).toEqual([]);
-    expect(governanceViolations(row, envPairGovernance({ "w.yml": relocated }, {}))).toHaveLength(
-      1,
-    );
+    expect(governanceViolations(row, gv({ "w.yml": claiming }))).toEqual([]);
+    expect(governanceViolations(row, gv({ "w.yml": relocated }))).toHaveLength(1);
     // The inverse drift: a pair silently GAINING governance must also red.
     const bare = { K: { values: ["v"], reason: "r", governs: [] } };
-    expect(governanceViolations(bare, envPairGovernance({ "w.yml": claiming }, {}))).toHaveLength(
-      1,
-    );
+    expect(governanceViolations(bare, gv({ "w.yml": claiming }, {}, bare))).toHaveLength(1);
     // R4 launder twin: prose is not a claim. A pair parked on an echo step
     // that PRINTS the spec path confers no governance — the declared row
     // reds instead of being laundered through non-command-position text.
     const parked = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  park:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo tests/e2e/x.spec.ts\n`;
-    expect(governanceViolations(row, envPairGovernance({ "w.yml": parked }, {}))).toHaveLength(1);
+    expect(governanceViolations(row, gv({ "w.yml": parked }))).toHaveLength(1);
     // …and alias-resolved claims DO confer it (same recognizer as the scan).
     const aliased = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm run e2e:x\n`;
     expect(
       governanceViolations(
         row,
-        envPairGovernance({ "w.yml": aliased }, { "e2e:x": "playwright test tests/e2e/x.spec.ts" }),
+        gv({ "w.yml": aliased }, { "e2e:x": "playwright test tests/e2e/x.spec.ts" }),
       ),
     ).toEqual([]);
+    // R5 duplicate-substitution twin: governance is credited ONLY at the
+    // scan's covered.add site, so a DISQUALIFIED duplicate of the real
+    // invocation (path-gated here) carrying the pair confers nothing — the
+    // declaring row reds while pair presence and recognition both hold.
+    const substituted = {
+      "real.yml": `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`,
+      "gated.yml": `on:\n  pull_request:\n    paths:\n      - docs/**\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`,
+    };
+    expect(governanceViolations(row, gv(substituted))).toHaveLength(1);
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {

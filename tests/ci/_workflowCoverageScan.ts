@@ -684,202 +684,47 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   SUPABASE_URL: {
     values: ["${{ secrets.SUPABASE_URL }}", "http://127.0.0.1:54321"],
     reason: "Supabase endpoint read by app/test code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_URL: {
     values: ["http://127.0.0.1:54321"],
     reason: "Supabase endpoint read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_SECRET_KEY: {
     values: ["${{ secrets.SUPABASE_SECRET_KEY }}", DEMO_SERVICE_JWT],
     reason: "Supabase credential read by app/test code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_ANON_KEY: {
     values: [DEMO_ANON_JWT],
     reason: "Supabase credential read by app/test code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_SERVICE_ROLE_KEY: {
     values: [DEMO_SERVICE_JWT],
     reason: "Supabase credential read by app/test code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
     values: [DEMO_ANON_JWT],
     reason: "Supabase credential read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_ANON_KEY: {
     values: [DEMO_ANON_JWT],
     reason: "Supabase credential read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_JWT_SECRET: {
     values: ["super-secret-jwt-token-with-at-least-32-characters-long"],
     reason: "local-stack JWT secret read by test bridge code",
-    governs: [
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_REALTIME_ISS: {
     values: ["supabase-demo"],
     reason: "realtime issuer read by test bridge code",
-    governs: [
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_TEST_REST_URL: {
     values: ["${{ vars.SUPABASE_TEST_REST_URL }}"],
@@ -909,150 +754,37 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   HASH_FOR_LOG_PEPPER: {
     values: ["fxav-r41-test-pepper-32-chars-min-deterministic"],
     reason: "log-hash pepper read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   ENABLE_TEST_AUTH: {
     values: ["true"],
     reason: "test-auth toggle read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   TEST_AUTH_SECRET: {
     values: ["fxav-m3-test-auth-2026-DO-NOT-SHIP", "test-secret-fixture"],
     reason: "test-auth secret read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   JWT_SIGNING_SECRET: {
     values: ["redeem-link-test-secret-32-bytes-min"],
     reason: "JWT secret read by app code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-      "tests/e2e/step3-review-modal.interactions.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   PICKER_COOKIE_SIGNING_KEY: {
     values: ["7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"],
     reason: "cookie-signing key read by app code",
-    governs: [
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   GOOGLE_SERVICE_ACCOUNT_JSON: {
     values: ['{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'],
     reason: "service-account JSON read by sync code",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   BASELINE_SERVER_ONLY: {
     values: ["1"],
     reason: "capture-mode flag read by screenshot scripts",
-    governs: [
-      "tests/e2e/admin-layout-dimensions.spec.ts",
-      "tests/e2e/admin-lifecycle-layout.spec.ts",
-      "tests/e2e/admin-lifecycle-transitions.spec.ts",
-      "tests/e2e/admin-nav-layout-dimensions.spec.ts",
-      "tests/e2e/bell-panel-layout.spec.ts",
-      "tests/e2e/crew-layout-dimensions.spec.ts",
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   VITEST_EXCLUDE_ENV_BOUND: {
     values: ["1"],
@@ -1072,16 +804,12 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   CREW_E2E_ONLY: {
     values: ["1"],
     reason: "suite-selection flag read by playwright config",
-    governs: [
-      "tests/e2e/alert-action-links.spec.ts",
-      "tests/e2e/crew-section-toggle.spec.ts",
-      "tests/e2e/picker-flow.spec.ts",
-    ],
+    governs: [],
   },
   STEP3_LIVE_BUNDLE_ONLY: {
     values: ["1"],
     reason: "suite-selection flag read by playwright config",
-    governs: ["tests/e2e/step3-review-modal.interactions.spec.ts"],
+    governs: [],
   },
   HELP_DOCS_WALKER_ONLY: {
     values: ["1"],
@@ -1091,35 +819,17 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   MODAL_PREFETCH_E2E: {
     values: ["1"],
     reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
-    governs: [
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: [],
   },
   MODAL_REALTIME_E2E: {
     values: ["1"],
     reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
-    governs: [
-      "tests/e2e/published-review-modal.closeFreshness.spec.ts",
-      "tests/e2e/published-review-modal.crew-actions.spec.ts",
-      "tests/e2e/published-review-modal.deeplink.spec.ts",
-      "tests/e2e/published-review-modal.interactions.spec.ts",
-      "tests/e2e/published-review-modal.layout.spec.ts",
-      "tests/e2e/published-review-modal.prefetch.spec.ts",
-      "tests/e2e/published-review-modal.realtime.spec.ts",
-      "tests/e2e/published-review-modal.reopen.spec.ts",
-    ],
+    governs: [],
   },
   REPEATS: {
     values: ["${{ github.event.inputs.transitions_repeats || '1' }}"],
     reason: "repeat-count input read by test scripts",
-    governs: ["tests/e2e/admin-lifecycle-transitions.spec.ts"],
+    governs: [],
   },
   BRANCH: {
     values: ["${{ github.ref_name }}"],
@@ -1510,49 +1220,29 @@ export function claimedSpecsOf(
 }
 
 /**
- * Key -> spec paths its env scope governs (static-env spec §2.3): a key at
- * workflow-root, job, or step env scope governs every spec the SHARED
- * recognizer extracts from that job's claiming run text. Prose mentions
- * (echo lines, comments) are not claims and confer no governance (§7 R4).
- * Pure so the S8 fixtures can feed doctored trees.
+ * Key -> spec paths its env scope governs (static-env spec §2.3): governance
+ * IS the scan — a thin wrapper reading the `governance` map that
+ * scanWorkflowCoverage credits at its covered.add site, so it shares the
+ * recognizer AND the whole qualification chain (R4 closed prose laundering;
+ * R5 closed duplicate-claim substitution through disqualified sites). Specs
+ * the scan does not cover (path-gated, guarded, dark) confer no governance —
+ * they are outside the coverage guarantee and carry their own dark rows
+ * (spec §5 LS7).
  */
 export function envPairGovernance(
   workflows: Record<string, string>,
   packageScripts: Record<string, string>,
   configSpecs: Record<string, string[]> = {},
+  envKeyAllowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
+  localActions: Record<string, string> = {},
 ): Map<string, Set<string>> {
-  const gov = new Map<string, Set<string>>();
-  const keysOf = (env: unknown): string[] =>
-    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
-  for (const raw of Object.values(workflows)) {
-    let doc: unknown;
-    try {
-      doc = parse(raw);
-    } catch {
-      continue;
-    }
-    const root = keysOf((doc as { env?: unknown } | null)?.env);
-    for (const j of Object.values(
-      (doc as { jobs?: Record<string, { env?: unknown; steps?: unknown }> } | null)?.jobs ?? {},
-    )) {
-      const job = keysOf(j?.env);
-      for (const st of Array.isArray(j?.steps)
-        ? (j.steps as Array<{ run?: unknown; env?: unknown }>)
-        : []) {
-        const specs =
-          typeof st?.run === "string"
-            ? [...new Set(claimedSpecsOf(st.run, packageScripts, configSpecs))]
-            : [];
-        if (specs.length === 0) continue;
-        for (const k of [...root, ...job, ...keysOf(st?.env)]) {
-          const set = gov.get(k) ?? new Set<string>();
-          for (const sp of specs) set.add(sp);
-          gov.set(k, set);
-        }
-      }
-    }
-  }
-  return gov;
+  return scanWorkflowCoverage({
+    workflows,
+    packageScripts,
+    configSpecs,
+    localActions,
+    envKeyAllowlist,
+  }).governance;
 }
 
 /** governs-equality check (S8): every row's declared governs must equal the
@@ -1580,9 +1270,19 @@ export function scanWorkflowCoverage({
 }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
+  governance: Map<string, Set<string>>;
 } {
   const covered = new Set<string>();
   const rejected: Array<{ file: string; spec: string; reason: string }> = [];
+  // Static-env spec §2.3 (R5): env-key -> specs it governs, credited ONLY at
+  // the covered.add site — governance shares the scan's full qualification
+  // chain by construction, so a duplicate claim the scan REJECTS (path
+  // filter, if:, non-PR trigger, poison) confers nothing. R5's live mutant
+  // parked the pair on a path-gated duplicate of the real invocation; a
+  // recognition-only derivation credited it while the real job ran flagless.
+  const governance = new Map<string, Set<string>>();
+  const envKeysOf = (env: unknown): string[] =>
+    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
 
   // R13: a claim requires COMMAND POSITION. SPEC_RE and the alias grammar
   // used to grep the whole run block, so `echo tests/e2e/foo.spec.ts` — or a
@@ -1839,7 +1539,18 @@ export function scanWorkflowCoverage({
               rejected.push({ file, spec, reason: "exit-code suppression" });
             else if (UNMODELLED_SHELL_RE.test(cmd))
               rejected.push({ file, spec, reason: "unmodelled shell construct" });
-            else covered.add(spec);
+            else {
+              covered.add(spec);
+              for (const k of [
+                ...envKeysOf((parsedDoc as { env?: unknown } | null)?.env),
+                ...envKeysOf((parsedJob as { env?: unknown } | undefined)?.env),
+                ...envKeysOf(parsedStep.env),
+              ]) {
+                const set = governance.get(k) ?? new Set<string>();
+                set.add(spec);
+                governance.set(k, set);
+              }
+            }
           }
         }
         if (stepSpelling) envPoisoned = true;
@@ -1862,5 +1573,5 @@ export function scanWorkflowCoverage({
       }
     }
   }
-  return { covered, rejected };
+  return { covered, rejected, governance };
 }
