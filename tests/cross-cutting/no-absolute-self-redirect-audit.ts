@@ -171,10 +171,26 @@ function carriesBanned(node: Node, t: Type): boolean {
   ) {
     return true;
   }
-  // Namespace hop (whole-diff r3): a module-namespace object carries the class
-  // one property deeper (`NS.NextResponse.redirect`). One hop suffices — any
-  // DEEPER stuffing must spell a tracked name at the stuffing site, which is
-  // itself a flagged naked reference.
+  // Namespace hop (whole-diff r3; widened r6): a module-namespace object
+  // carries the class one property deeper, under WHATEVER export name a
+  // re-export chose — so for module-symbol types every property is checked
+  // (module-gated, so ordinary structural types stay on the cheap path). One
+  // hop suffices: any DEEPER stuffing must spell a tracked name at the
+  // stuffing site, which is itself a flagged naked reference.
+  if (isModuleType(t)) {
+    for (const p of t.getProperties()) {
+      const pt = checker.getTypeOfSymbolAtLocation(p, node);
+      if (typeCarriesBannedSignature(pt)) return true;
+      const rp = pt.getProperty("redirect");
+      if (
+        rp !== undefined &&
+        typeCarriesBannedSignature(checker.getTypeOfSymbolAtLocation(rp, node))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
   for (const carrier of ["NextResponse", "Response"]) {
     const p = t.getProperty(carrier);
     if (p === undefined) continue;
@@ -188,6 +204,13 @@ function carriesBanned(node: Node, t: Type): boolean {
     }
   }
   return false;
+}
+
+/** Module-namespace types get the all-property hop regardless of export spelling. */
+function isModuleType(t: Type): boolean {
+  const sym = t.getSymbol();
+  if (sym === undefined) return false;
+  return (sym.getFlags() & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)) !== 0;
 }
 
 /**
@@ -299,10 +322,10 @@ function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boo
 
 /** Does a module-namespace type carry the banned class (NextResponse/Response → redirect)? */
 function rawModuleCarries(checker: ts.TypeChecker, t: ts.Type, at: ts.Node): boolean {
-  for (const carrier of ["NextResponse", "Response"]) {
-    const p = t.getProperty(carrier);
-    if (p === undefined) continue;
+  // r6: a re-export can rename the class, so every module property is checked.
+  for (const p of t.getProperties()) {
     const pt = checker.getTypeOfSymbolAtLocation(p, at);
+    if (rawTypeCarriesBannedSignature(checker, pt)) return true;
     const rp = pt.getProperty("redirect");
     if (
       rp !== undefined &&

@@ -14,7 +14,7 @@
  * finding at the site where the member name is spelled. The fixture tables
  * below are the mutation-family closure set from the spec
  * (docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md §6):
- * R1–R19 legacy spellings (regression floor), R20–R86 families that defeated
+ * R1–R19 legacy spellings (regression floor), R20+ families that defeated
  * syntactic or single-hop resolution, N1–N9 negatives, E1 documented-escape pin.
  */
 import { existsSync } from "node:fs";
@@ -114,10 +114,11 @@ const FLAGGED_SPELLINGS: Array<[string, string]> = [
 ];
 
 /**
- * R20–R86 (minus the separately-asserted R22/R24/R83–R86): every family that defeated
- * syntactic resolution or an earlier construction round (spec §6.1). Old-guard
- * verdicts per the Task-1 RED harness: 0 findings for every row except
- * R24/R36, which the old guard already caught (regression floor).
+ * The R20+ families that defeated syntactic resolution or an earlier
+ * construction round (spec §6.1 is the canonical table; multi-module rows are
+ * asserted separately below). Old-guard verdicts per the Task-1 RED harness:
+ * 0 findings for every row except R24/R36, which the old guard already caught
+ * (regression floor).
  */
 const NEW_FAMILY_ROWS: Array<[string, string]> = [
   [
@@ -511,7 +512,38 @@ describe("no absolute self-redirect under the walked roots", () => {
       `import { Hop } from "./r86-helper";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Hop;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
     ],
   ])("flags %s", (_label, helperPath, helperSource, consumerSource) => {
+    // Every row lays down the full helper chain it needs — order-independent
+    // (whole-diff r6 finding 2: R86 previously relied on R83's helper).
+    addFixtureModule(
+      "app/__audit_fixture__/r83-helper.ts",
+      `export { NextResponse as Redirector } from "next/server";`,
+    );
     addFixtureModule(helperPath, helperSource);
+    expect(auditSource(fixturePath(), consumerSource).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [
+      "R87 renamed-export namespace stuffing",
+      `import * as NSr from "./r83-helper";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { Redirector: { redirect: RedirectFn } } = NSr;\nexport function GET() { return R.Redirector.redirect(new URL("/x", request.url)); }`,
+    ],
+    [
+      "R88 default-export namespace stuffing",
+      `import * as NSd from "./r84-helper";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { default: { redirect: RedirectFn } } = NSd;\nexport function GET() { return R.default.redirect(new URL("/x", request.url)); }`,
+    ],
+    [
+      "R89 dynamic import of a renamed-export helper",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m: { Redirector: { redirect: RedirectFn } } = await import("./r83-helper");\n  return m.Redirector.redirect(new URL("/x", request.url));\n}`,
+    ],
+  ])("flags %s", (_label, consumerSource) => {
+    addFixtureModule(
+      "app/__audit_fixture__/r83-helper.ts",
+      `export { NextResponse as Redirector } from "next/server";`,
+    );
+    addFixtureModule(
+      "app/__audit_fixture__/r84-helper.ts",
+      `import { NextResponse } from "next/server";\nexport default NextResponse;`,
+    );
     expect(auditSource(fixturePath(), consumerSource).length).toBeGreaterThan(0);
   });
 

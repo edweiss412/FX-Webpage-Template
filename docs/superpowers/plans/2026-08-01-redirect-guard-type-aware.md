@@ -1,6 +1,6 @@
 # Plan: type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Spec:** `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md` (R7 — rounds 1–3 + whole-diff r2–r4 repaired; §1.1 do-not-relitigate, §2 probe data, §6 mutation-family closure set). **Branch:** `test/redirect-guard-type-aware`.
+**Spec:** `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md` (current revision — spec/plan review rounds plus every whole-diff repair round are recorded in the spec's disposition blocks; §1.1 do-not-relitigate, §2 probe data, §6 mutation-family closure set). **Branch:** `test/redirect-guard-type-aware`.
 
 ## Pre-draft verification (writing-plans rule)
 
@@ -16,7 +16,7 @@ Verified against live code 2026-08-01: `tests/cross-cutting/no-absolute-self-red
 
 ## Mutation-family closure
 
-Spec §6 is the closure set (R1–R82 positives, N1–N9 negatives, E1 documented-escape pin; grown across four whole-diff rounds — the spec's disposition blocks record each extension). Reviewer-proposed NEW families require a live escaping mutant against the shipped two-prong guard.
+Spec §6 is the closure set — its tables are the single source of truth for the R/N/E rows, grown across the whole-diff review rounds (each extension recorded in the spec's disposition blocks; exact ranges live ONLY there so they cannot rot here). Reviewer-proposed NEW families require a live escaping mutant against the shipped two-prong guard.
 
 ## Task 1 — one TDD cycle, ONE commit: type-aware two-prong guard (test + audit module)
 

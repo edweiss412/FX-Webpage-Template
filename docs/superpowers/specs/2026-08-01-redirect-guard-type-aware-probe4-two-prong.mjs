@@ -116,12 +116,10 @@ function audit(sf) {
     if (call.getExpression().getKind() === SyntaxKind.ImportKeyword) {
       const awaited = raw2.getAwaitedType(raw2.getTypeAtLocation(call.compilerNode));
       if (awaited !== undefined) {
-        for (const carrier of ["NextResponse", "Response"]) {
-          const cp = awaited.getProperty(carrier);
-          if (cp === undefined) continue;
+        for (const cp of awaited.getProperties()) {
           const cpt = raw2.getTypeOfSymbolAtLocation(cp, call.compilerNode);
           const rp = cpt.getProperty("redirect");
-          if (rp !== undefined && rawTypeCarries(raw2, raw2.getTypeOfSymbolAtLocation(rp, call.compilerNode))) {
+          if ((rp !== undefined && rawTypeCarries(raw2, raw2.getTypeOfSymbolAtLocation(rp, call.compilerNode))) || rawTypeCarries(raw2, cpt)) {
             hits.push({ line: call.getStartLineNumber(), kind: "reference", text: call.getText().split("\n")[0] ?? "" });
             break;
           }
@@ -143,10 +141,12 @@ function audit(sf) {
     if (typeCarries(t)) return true;
     const prop = t.getProperty("redirect");
     if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, b))) return true;
-    for (const carrier of ["NextResponse", "Response"]) {
-      const cp = t.getProperty(carrier);
-      if (cp === undefined) continue;
+    const sym = t.getSymbol();
+    const isModule = sym !== undefined && (sym.getFlags() & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)) !== 0;
+    const props = isModule ? t.getProperties() : ["NextResponse", "Response"].map((n) => t.getProperty(n)).filter((x) => x !== undefined);
+    for (const cp of props) {
       const cpt = checkerW.getTypeOfSymbolAtLocation(cp, b);
+      if (typeCarries(cpt)) return true;
       const rp = cpt.getProperty("redirect");
       if (rp !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(rp, b))) return true;
     }
@@ -201,11 +201,13 @@ function audit(sf) {
     const prop = t.getProperty("redirect");
     if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, node))) carries = true;
     if (!carries) {
-      // namespace hop (whole-diff r3): NS object carries the class one deeper
-      for (const carrier of ["NextResponse", "Response"]) {
-        const cp = t.getProperty(carrier);
-        if (cp === undefined) continue;
+      // namespace hop (r3; r6: ALL properties for module-symbol types)
+      const symN = t.getSymbol();
+      const isModuleN = symN !== undefined && (symN.getFlags() & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)) !== 0;
+      const propsN = isModuleN ? t.getProperties() : ["NextResponse", "Response"].map((n) => t.getProperty(n)).filter((x) => x !== undefined);
+      for (const cp of propsN) {
         const cpt = checkerW.getTypeOfSymbolAtLocation(cp, node);
+        if (typeCarries(cpt)) { carries = true; break; }
         const rp = cpt.getProperty("redirect");
         if (rp !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(rp, node))) { carries = true; break; }
       }
@@ -321,6 +323,9 @@ const MUTANTS = [
   ["R84 default re-export + laundering", `import Def from "./reexp-default";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Def;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R85 namespace re-export + laundering", `import { SrvNS } from "./reexp-ns";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: SrvNS };\nexport function GET() { return R.ns.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R86 two-hop re-export + laundering", `import { Hop } from "./reexp-hop2";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Hop;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R87 renamed-export namespace stuffing", `import * as NSr from "./reexp-named";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { Redirector: { redirect: RedirectFn } } = NSr;\nexport function GET() { return R.Redirector.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R88 default-export namespace stuffing", `import * as NSd from "./reexp-default";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { default: { redirect: RedirectFn } } = NSd;\nexport function GET() { return R.default.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R89 dynamic import of renamed-export helper", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m: { Redirector: { redirect: RedirectFn } } = await import("./reexp-named");\n  return m.Redirector.redirect(new URL("/x", request.url));\n}`, "flag"],
   ["N10 unrelated import bindings untracked", `import { join } from "node:path";\nconst j = join;\nexport function GET() { return j("a", "b"); }`, "clean"],
   ["NEG dynamic import of unrelated module", `export async function GET() {\n  const m = await import("node:path");\n  return m.join("a", "b");\n}`, "clean"],
   ["N9 ordinary namespace uses", `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`, "clean"],

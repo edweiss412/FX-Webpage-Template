@@ -1,8 +1,10 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R8 — whole-diff round-5 finding repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R9 — whole-diff round-6 finding repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
 
-**Whole-diff R5 disposition (2026-08-01):** one RED finding — renamed static re-exports (`export { NextResponse as Redirector }`, default re-exports, re-exported namespaces, multi-hop chains) deliver a carrier under an arbitrary local name, so name-based tracking missed their naked structural launderings. Closed (probe 10): tracked locals are now decided by TYPE — every import binding (default, namespace, named) whose type carries the banned method (directly, via `redirect`, or one namespace hop) joins the candidate set; one type query per binding, tree cost unchanged. Rows R83–R86 + N10 (unrelated bindings stay untracked); the plan's graduation text and the committed harness's leftover name-tracking swept in the same revision.
+**Whole-diff R6 disposition (2026-08-01):** one RED finding — the namespace hop inspected only properties literally named `NextResponse`/`Response`, so a namespace over a RENAMED re-export (`export { NextResponse as Redirector }`, default exports, dynamic-import twins) escaped. Closed (probe 11): module-symbol types (ValueModule/NamespaceModule flags) get an ALL-property one-hop check regardless of export spelling — module-gated, so ordinary structural types stay on the cheap named path; tree cost unchanged. Rows R87–R89. Also repaired: R86 made order-independent (each multi-module row lays down its full helper chain), and the rot-prone range metadata in the plan and test header now defers to §6 as the single source of truth.
+
+**Whole-diff R5 disposition (2026-08-01):** one RED finding — renamed static re-exports (`export { NextResponse as Redirector }`, default re-exports, re-exported namespaces, multi-hop chains) deliver a carrier under an arbitrary local name, so name-based tracking missed their naked structural launderings. Closed (probe 10): tracked locals are now decided by TYPE — every import binding (default, namespace, named) whose type carries the banned method (directly, via `redirect`, or one namespace hop) joins the candidate set; one type query per binding, tree cost unchanged. (r6: the namespace hop enumerates ALL properties for module-symbol types.) Rows R83–R86 + N10 (unrelated bindings stay untracked); the plan's graduation text and the committed harness's leftover name-tracking swept in the same revision.
 
 **Whole-diff R4 disposition (2026-08-01):** one RED finding — dynamic-import tracking covered only direct variable initializers; five zero-diagnostic shapes escaped (inline awaited-import stuffing, declaration/assignment destructuring, promise-carried awaiting, `.then` callbacks). Closed (probe 9): the `import(...)` CALL EXPRESSION itself is a candidate, decided on its AWAITED module type — every downstream shape flags at the one site that must spell the module specifier; the variable-name tracking is removed as subsumed. Rows R78–R82; dynamic import of an unrelated module stays quiet. Second finding (staleness in plan/archive ranges) swept in the same revision.
 
@@ -148,6 +150,8 @@ tree: 633 files, 1 finding(s), 13103ms
 
 **Probe 10 — re-export carriers closed by type-decided binding tracking (whole-diff r5 repair).** Renamed/default/namespace/multi-hop re-exports + structural laundering all flag at the naked local (V1–V4 OK); the R22 direct-call regression holds; unrelated import bindings stay untracked; tree unchanged (633 files, 1 finding, 13.8s). ALL CLOSED.
 
+**Probe 11 — renamed-export namespace carriers closed by the module-gated all-property hop (whole-diff r6 repair).** `import * as NS` over `export { NextResponse as Redirector }` (and default-export/dynamic-import twins) stuffed structurally now flags at the naked namespace reference (U1–U3 OK); unrelated namespaces (node:path) stay quiet; tree unchanged (633 files, 1 finding, 12.5s). ALL CLOSED.
+
 **Probe — no plain-JS modules under walked roots (R1/F6).** `find app lib -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs"` (node_modules excluded) → 0 files. tsconfig `include` covers only `**/*.ts`/`**/*.tsx`, `checkJs` off — so the typecheck gate does NOT discharge import resolution for standalone JS; the sentinel in §5.5 fences the class instead.
 
 ## 3. Consequence bound (acceptance criterion)
@@ -227,7 +231,7 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R86 (§6.1).
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R89 (§6.1).
 - Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`, ordinary element access/destructuring (N6 — pins the no-prefilter widening quiet on normal code).
 - Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
 - Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
@@ -286,6 +290,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R76–R77 | Dynamic-import carriers (probe 8 Y5–Y6) | `const m = await import("next/server")` then naked `m`/member flows |
 | R78–R82 | Import-call carriers, five shapes (whole-diff r4, probe 9 Z1–Z5) | inline awaited-import stuffing; declaration destructuring; assignment destructuring; promise-carried; `.then` callback — all flagged AT the `import("next/server")` call, decided on the awaited type |
 | R83–R86 | Re-export carriers, four shapes (whole-diff r5, probe 10 V1–V4) | renamed named re-export; default re-export; re-exported namespace; two-hop chain — each + structural laundering, flagged at the naked local whose BINDING TYPE carries |
+| R87–R89 | Renamed-export namespace carriers (whole-diff r6, probe 11 U1–U3) | `import * as NS` over a renamed/default re-export, stuffed structurally; dynamic-import twin — module-symbol types get the ALL-property hop |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -318,7 +323,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R86, N1–N10, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R89, N1–N10, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
