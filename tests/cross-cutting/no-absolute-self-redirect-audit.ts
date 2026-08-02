@@ -623,13 +623,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       return false;
     }
     if (Node.isCallExpression(expr)) {
-      let callee: Node = expr.getExpression();
-      while (
-        (Node.isParenthesizedExpression(callee) || Node.isNonNullExpression(callee)) &&
-        callee.getExpression() !== undefined
-      ) {
-        callee = callee.getExpression();
-      }
+      const callee = unwrapAliasRhs(expr.getExpression());
       if (Node.isIdentifier(callee)) return symbolDeclsIn(callee, carrierFnDecls);
     }
     return false;
@@ -802,11 +796,23 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     }
     if (isCarrierExpression(id)) {
       if (inNonExtractingPosition(id, bannedCalls)) continue;
-      const parent = id.getParent();
-      const destinationType =
-        parent !== undefined && (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent))
-          ? parent.getType()
-          : checker.getContextualType(id);
+      let outerId: Node = id;
+      let parentId = outerId.getParent();
+      while (
+        parentId !== undefined &&
+        (Node.isParenthesizedExpression(parentId) ||
+          Node.isNonNullExpression(parentId) ||
+          Node.isAsExpression(parentId) ||
+          Node.isSatisfiesExpression(parentId)) &&
+        parentId.getExpression() === outerId
+      ) {
+        outerId = parentId;
+        parentId = outerId.getParent();
+      }
+      if (inNonExtractingPosition(outerId, bannedCalls)) continue;
+      const destinationType = Node.isExpression(outerId)
+        ? checker.getContextualType(outerId)
+        : undefined;
       // The destination is structurally erased by construction, so the check is
       // SHAPE-based: it exposes a callable `redirect`, bare or under a carrier
       // name. Erasing destinations (Record<string, unknown> polyfill casts)
@@ -819,13 +825,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // Helper CALLS producing a carrier get the same destination-shape decision;
   // an awaiting wrapper inherits the carrier and is judged at ITS destination.
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    let callee: Node = call.getExpression();
-    while (
-      (Node.isParenthesizedExpression(callee) || Node.isNonNullExpression(callee)) &&
-      callee.getExpression() !== undefined
-    ) {
-      callee = callee.getExpression();
-    }
+    const callee = unwrapAliasRhs(call.getExpression());
     if (!Node.isIdentifier(callee)) continue;
     if (!symbolDeclsIn(callee, carrierFnDecls)) continue;
     let outer: Node = call;
@@ -834,19 +834,20 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       parent !== undefined &&
       (Node.isAwaitExpression(parent) ||
         Node.isParenthesizedExpression(parent) ||
-        Node.isNonNullExpression(parent)) &&
+        Node.isNonNullExpression(parent) ||
+        Node.isAsExpression(parent) ||
+        Node.isSatisfiesExpression(parent)) &&
       parent.getExpression() === outer
     ) {
       outer = parent;
       parent = outer.getParent();
     }
     if (inNonExtractingPosition(outer, bannedCalls)) continue;
-    const destinationType =
-      parent !== undefined && (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent))
-        ? parent.getType()
-        : Node.isExpression(outer)
-          ? checker.getContextualType(outer)
-          : undefined;
+    // The destination is the OUTERMOST wrapper's contextual type (r25):
+    // `viaEnvironment(pick() as any, …)` is judged by the parameter it lands
+    // in, not by the erasing cast — while an unannotated initializer has no
+    // contextual type and stays quiet (N16 polyfill posture preserved).
+    const destinationType = Node.isExpression(outer) ? checker.getContextualType(outer) : undefined;
     if (destinationType !== undefined && destinationLooksRedirectish(outer, destinationType)) {
       findings.push(findingFor(outer, "reference", ""));
     }

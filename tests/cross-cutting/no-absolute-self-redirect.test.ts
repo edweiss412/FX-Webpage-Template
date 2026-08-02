@@ -720,6 +720,16 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings).toHaveLength(2);
   });
 
+  it("flags R105 cast callees and cast arguments (outermost destination)", () => {
+    // whole-diff r25: (pick as typeof pick)() and viaEnvironment(x as any, …)
+    // are judged at the outermost wrapper's contextual destination.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nexport function GET() {\n  const a = viaEnvironment((pick as typeof pick)(), new URL("/1", request.url));\n  const b = viaEnvironment((pick satisfies typeof pick)(), new URL("/2", request.url));\n  const c = viaEnvironment(globalThis as any, new URL("/3", request.url));\n  const d = viaEnvironment(pick() as any, new URL("/4", request.url));\n  return [a, b, c, d];\n}`,
+    );
+    expect(findings).toHaveLength(4);
+  });
+
   it("walked root globs cover every root surface the vestigial-middleware guard permits", () => {
     // whole-diff r24: middleware.js / proxy.ts / proxy.js are permitted
     // production surfaces — the audit must walk them all.
