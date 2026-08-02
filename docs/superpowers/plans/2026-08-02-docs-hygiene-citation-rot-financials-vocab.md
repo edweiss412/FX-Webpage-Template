@@ -47,11 +47,11 @@ Wording latitude: the implementer may vary the qualifier ("retired" / "since-ret
 
 ## Task 2 — master-spec financials vocabulary (spec §3)
 
-**Red (measured):** the seed (spec §3.2, exact command in spec) returns 15 lines, 11 carrying stale LEAD-only entitlement claims; the window probe below returns 3 more (spec §3.2.1). 14 claims total.
+**Red (measured):** the seed (spec §3.2, exact command in spec) returns 15 lines, 11 carrying stale LEAD-only entitlement claims; the discovery-mode window probe below returns the full 14-line edit-site set (spec §3.2.1). 14 claims total (line 177 pairs with probe-visible 178 as one claim).
 
 **Edits:** spec §3.2 (11 seed-visible) + §3.2.1 (3 seed-blind) are the disposition tables — 11 rule-a rewrites, 3 rule-b bracketed amendment notes. Constraints: line-count-neutral (each edit stays on its line); no em-dash introduced; entitlement phrasing matches `financialsEntitled` (`lib/data/getShowForViewer.ts:380`); the line-640 edit is COLUMN-scoped (`financials` only — spec §3.2 row 640, R1 finding 1); inline vocab-extension marker `(… 2026-07-15 vocab extension)` where a bare rewrite would read as drift from the v1 ratification.
 
-**Window probe (canonical script; run before AND after editing):**
+**Window probe (canonical script; discovery mode — the edit sites are deliberately NOT excluded, so a missed edit keeps it red; spec review R2 finding 2):**
 
 ```sh
 python3 - <<'EOF'
@@ -60,21 +60,19 @@ lines=open('docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md').read().spl
 fin=re.compile(r'financ|invoice|proposal|po#|shows_internal|financials|\bops\b',re.I)
 lead=re.compile(r'\bLEAD\b|\blead\b|\bLead\b')
 fl=re.compile(r'FINANCIALS')
-RATIFIED={221,1715,2076,2449,2451,2733,2865,3805,  # §3.2.1 non-claims
-          193,655,657,1418,                        # seed no-edit lines
-          653,2372,3727,3728,3747,3831,23,199,640,1487,2460,632,3832,177,178}  # edit set (post-edit these name FINANCIALS or drop LEAD)
+RATIFIED={221,1715,2076,2449,2451,2733,2865,3805,  # spec 3.2.1 non-claims
+          193,655,657,1418}                        # seed no-edit lines
 hits=[]
 for i,l in enumerate(lines):
     n=i+1
     if lead.search(l) and not fl.search(l):
         if any(fin.search(lines[j]) for j in range(max(0,i-2),min(len(lines),i+3))):
-            if n not in RATIFIED: hits.append((n,l[:120]))
-for h in hits: print(*h)
-print("UNREVIEWED:",len(hits))
+            if n not in RATIFIED: hits.append(n)
+print("hits:",hits)
 EOF
 ```
 
-Measured pre-edit output: `UNREVIEWED: 0` (every current hit is in the ratified list — 8 non-claims + 4 seed no-edits + the edit set). Post-edit acceptance: still `UNREVIEWED: 0`, and each edited line either names `FINANCIALS` or no longer matches the LEAD pattern (spot-checked per line).
+Measured pre-edit output: `hits: [23, 178, 199, 632, 640, 653, 1487, 2372, 2460, 3727, 3728, 3747, 3831, 3832]` — exactly the 14 edit-site lines, nothing beyond (measured this branch, merge-base master spec). Post-edit acceptance: `hits: []` — every edited line then names `FINANCIALS` on-line (rule-a and rule-b both introduce the token) or no longer matches the LEAD pattern (line 3831's rewrite drops the flag name).
 
 **Green (spec §3.3):**
 1. Seed re-run returns exactly lines 193, 655, 657, 1418.
@@ -95,6 +93,7 @@ Measured pre-edit output: `UNREVIEWED: 0` (every current hit is in the ratified 
 2. Update BACKLOG.md's "Last reconciled" header line.
 3. Append two `{ id, provenance: "docs/citation-rot-financials-vocab" }` rows to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` with the conventional explanatory comment.
 4. `BL-HELP-STRIP-COPYLINK-STALE` untouched.
+5. **New row filed:** `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT` — master spec :3356 (`ROLE_FLAGS_NOTICE` §12.4 helpfulContext) says LEAD or FINANCIALS are "the roles that unlock internal financials and admin access"; FINANCIALS unlocks financials only (vocab authority Effect row; master :1627 states the distinction correctly). Fix requires the §12.4 three-way lockstep (spec prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, one commit) and touches the frozen helpfulContext byte-parity contract, so it is deferred out of this docs-only branch per spec §1.1 item 10. Class: docs/copy. Severity: low (explanatory copy over-states; no access is actually granted). Trigger: next §12.4 copy pass.
 
 **Red:** `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` fails after step 1 alone (archived id without registry row) — run it mid-task to observe, then step 3 turns it green.
 **Green:** that test passes; the full docs suite (`pnpm vitest run tests/docs/`) passes.
