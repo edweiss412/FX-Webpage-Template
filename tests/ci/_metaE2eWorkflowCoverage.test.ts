@@ -817,6 +817,24 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("multiline uses: values are classified whole, not by first line (R28)", () => {
+    // Reconstructing `uses: <value>` and re-scanning it as text classified
+    // a block scalar on its first line only; the runner consumes the whole
+    // scalar, so both a remote-looking and a local-looking multiline value
+    // must poison.
+    const multiline = [
+      "      - uses: |\n          actions/checkout@v4\n          extra-junk\n",
+      "      - uses: |\n          ./.github/actions/setup\n          extra-junk\n",
+    ];
+    for (const step of multiline) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n${step}      - run: pnpm exec playwright test ${spec}\n`;
+      expect(S(w).covered.has(spec), step).toBe(false);
+    }
+    // …single-line equivalents still behave: pinned remote covered.
+    const ok = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm exec playwright test ${spec}\n`;
+    expect(S(ok).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

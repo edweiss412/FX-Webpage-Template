@@ -656,6 +656,40 @@ function stepMetaOf(chunk: string): string {
  * block/folded scalar on the next line, `&`/`*` → anchor/alias, stray
  * tokens) is unprovable by a line scan and poisons fail-closed.
  */
+/**
+ * Poison decision for a PARSED `uses:` VALUE (R28). Reconstructing
+ * `uses: <value>` and re-scanning it as text meant a block-scalar value was
+ * classified on its first line only — the runner consumes the whole scalar.
+ * This takes the value itself: local refs resolve through the manifest
+ * profile (recursively), pinned remotes are trusted, everything else
+ * poisons fail-closed.
+ */
+export function usesValuePoisons(
+  value: unknown,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): boolean {
+  const kind = usesKind(value);
+  if (kind === "invalid") return true;
+  if (kind === "remote") return false;
+  const ref = (value as string).trim();
+  if (seen.has(ref)) return true;
+  const raw = localActions[ref];
+  if (raw === undefined) return true;
+  let doc: unknown;
+  try {
+    doc = parse(raw);
+  } catch {
+    return true;
+  }
+  const steps = validatedCompositeSteps(doc);
+  if (steps === null) return true;
+  const text = canonicalYaml(raw);
+  if (text === null || writesJobEnv(text)) return true;
+  const next = new Set(seen).add(ref);
+  return steps.some((s) => "uses" in s && usesValuePoisons(s.uses, localActions, next));
+}
+
 function localActionPoisons(
   chunk: string,
   localActions: Record<string, string>,
@@ -1083,10 +1117,8 @@ export function scanWorkflowCoverage({
         // every scalar the step carries is serialized for the mention
         // predicate, and the uses value goes through the shared classifier.
         if (writesJobEnv(JSON.stringify(parsedStep))) envPoisoned = true;
-        if (typeof parsedStep.uses === "string") {
-          if (localActionPoisons(`uses: ${parsedStep.uses}`, localActions, new Set()))
-            envPoisoned = true;
-        }
+        if ("uses" in parsedStep && usesValuePoisons(parsedStep.uses, localActions, new Set()))
+          envPoisoned = true;
       }
     }
   }
