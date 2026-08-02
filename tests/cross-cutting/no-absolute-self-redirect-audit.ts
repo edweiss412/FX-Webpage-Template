@@ -230,6 +230,31 @@ function isModuleType(t: Type): boolean {
  * the callee of a call prong 1 already flagged, instanceof RHS, and the
  * `typeof` value operand.
  */
+/** Shape check for global-carrier destinations: a callable `redirect`, bare or one carrier hop down. */
+function destinationLooksRedirectish(node: Node, t: Type): boolean {
+  const checker = node.getProject().getTypeChecker();
+  const direct = t.getProperty("redirect");
+  if (
+    direct !== undefined &&
+    checker.getTypeOfSymbolAtLocation(direct, node).getCallSignatures().length > 0
+  ) {
+    return true;
+  }
+  for (const carrier of ["NextResponse", "Response"]) {
+    const p = t.getProperty(carrier);
+    if (p === undefined) continue;
+    const pt = checker.getTypeOfSymbolAtLocation(p, node);
+    const rp = pt.getProperty("redirect");
+    if (
+      rp !== undefined &&
+      checker.getTypeOfSymbolAtLocation(rp, node).getCallSignatures().length > 0
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Climb transparent wrappers — `(X)`, `X!`, `X as T`, `X satisfies T` — so a
  * wrapped receiver/callee still classifies by its REAL syntactic position
@@ -529,6 +554,13 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // (Dynamic-import namespaces need no name tracking either: the import CALL
   // is flagged in the prong-1 loop above — whole-diff r4.)
   const objectNames = new Set(["NextResponse", "Response"]);
+  // The global objects are carriers too (their types hold `Response`) — but
+  // unlike the class names they have pervasive legitimate value uses (polyfill
+  // casts, feature probes: the tree's pdf-globals shim false-flagged under an
+  // own-type decision), so they get a DESTINATION-typed decision (whole-diff
+  // r14): the naked flow flags only when the contextual/asserted destination
+  // type still carries the banned method.
+  const globalCarrierNames = new Set(["globalThis", "window", "self", "global"]);
   for (const imp of sf.getImportDeclarations()) {
     const clause = imp.getImportClause();
     if (clause === undefined) continue;
@@ -555,9 +587,26 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     if (carriesBanned(nameNode, nameNode.getType())) objectNames.add(nameNode.getText());
   }
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
-    if (!objectNames.has(id.getText())) continue;
     if (!identifierIsExpressionUse(id)) continue;
-    candidates.push(id);
+    if (objectNames.has(id.getText())) {
+      candidates.push(id);
+      continue;
+    }
+    if (globalCarrierNames.has(id.getText())) {
+      if (inNonExtractingPosition(id, bannedCalls)) continue;
+      const parent = id.getParent();
+      const destinationType =
+        parent !== undefined && (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent))
+          ? parent.getType()
+          : checker.getContextualType(id);
+      // The destination is structurally erased by construction, so the check is
+      // SHAPE-based: it exposes a callable `redirect`, bare or under a carrier
+      // name. Erasing destinations (Record<string, unknown> polyfill casts)
+      // expose neither.
+      if (destinationType !== undefined && destinationLooksRedirectish(id, destinationType)) {
+        findings.push(findingFor(id, "reference", ""));
+      }
+    }
   }
   for (const node of candidates) {
     const t = node.getType();

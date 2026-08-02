@@ -605,6 +605,25 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  it("flags R94 global-object carrier into a structural parameter", () => {
+    // whole-diff r14: globalThis IS a carrier (its type holds Response); the
+    // naked argument flow is the extraction site.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(globalThis, new URL("/x", request.url)); }`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it("does not flag ordinary global-object receiver/typeof uses (N16)", () => {
+    expect(
+      auditSource(
+        fixturePath(),
+        `export function GET() {\n  const a = globalThis.structuredClone({ ok: 1 });\n  const b = typeof globalThis;\n  const c = globalThis.Response.json({ ok: 2 });\n  return [a, b, c];\n}`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag wrapped non-extracting positions (N15)", () => {
     // Transparent wrappers climb to the real position (whole-diff r13):
     // wrapped receivers, new-callees, instanceof RHS, typeof operands.

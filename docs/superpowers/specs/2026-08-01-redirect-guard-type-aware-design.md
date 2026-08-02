@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R15 — whole-diff rounds 12–13 repaired (doc sync; transparent-wrapper position climb) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R16 — whole-diff round-14 repaired (global-object carriers, destination-shape decision) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R14 disposition (2026-08-01):** one P1 — `viaEnvironment(globalThis, url)` into a structurally-typed parameter destructuring `Response` escaped: the global objects are carriers (their types hold `Response`) but were untracked. Closed: `globalThis`/`window`/`self`/`global` value uses get a DESTINATION-typed, SHAPE-based decision — the naked flow flags when the contextual/asserted destination exposes a callable `redirect` (bare or one carrier hop down), which an erasing polyfill cast (`globalThis as Record<string, unknown>` — two legitimate tree sites false-flagged under the first own-type draft) does not. R94 pins the mutant; N16 pins ordinary global receiver/typeof uses quiet. One P2 — archive round count and family summary swept.
 
 **Whole-diff R13 disposition (2026-08-01):** one P1 — wrapped receivers/callees (`(NextResponse).json(…)`, `NextResponse!.json(…)`, `new (NextResponse)(…)`, `instanceof (Response)`, `typeof (Response)`) false-flagged because position checks read only the immediate parent. Fixed: `effectivePosition` climbs parens/non-null unconditionally and `as`/`satisfies` ONLY while the asserted type still carries — a carry-ERASING cast is itself the laundering step, so R68/R69 keep flagging (the first climb draft regressed them; the mutant corpus caught it pre-commit); N15 pins the five wrapped shapes quiet. One P2 — the R12 doc-sync round now has its disposition (below) and the status line reflects it.
 
@@ -316,6 +318,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R87–R89 | Renamed-export namespace carriers (whole-diff r6, probe 11 U1–U3) | `import * as NS` over a renamed/default re-export, stuffed structurally; dynamic-import twin — module-symbol types get the ALL-property hop |
 | R90–R92 | CommonJS require carriers (whole-diff r7, probe 12) | untyped `require("next/server")`; `as typeof import(...)` cast; renamed require — flagged at the require call via the callee's `Require` type + resolved specifier |
 | R93 | `import NR = NS.NextResponse` value alias + structural receiver (whole-diff r10) | ImportEqualsDeclaration bindings tracked type-decidedly; flags at the naked alias use |
+| R94 | Global-object carrier into a structural parameter (whole-diff r14) | `viaEnvironment(globalThis, …)` destructuring `Response` — flagged at the naked global when the destination SHAPE exposes a callable `redirect` |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -336,6 +339,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N13 | Type-only `typeof X.member` chains (`typeof NextResponse.json`, namespace/globalThis variants) | QualifiedName parents are type space (r9 false-positive fix, probe 14) |
 | N14 | App-local `class Response { redirect(…) }` | provenance pin — only node_modules-declared containers are banned (r11 false-positive fix); a local mimic falls to the delegator/hand-roller fence |
 | N15 | Wrapped non-extracting positions (`(NextResponse).json(…)`, `NextResponse!.json(…)`, `new (NextResponse)(…)`, `instanceof (Response)`, `typeof (Response)`) | `effectivePosition` climbs transparent wrappers before classifying (r13 false-positive fix) |
+| N16 | Ordinary global-object uses (`globalThis.structuredClone(…)`, `typeof globalThis`, member receivers) and erasing polyfill casts | destination shape exposes no callable `redirect` (r14) |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -346,7 +350,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 7. Documented limits (residual after this work)
 
 1. **String-mediated dynamic access.** `eval("NextResponse.redirect")` or any construct where the name reaches the method only inside a string literal — the one remaining type-erasure escape (E1 pins the shape at 0 findings). Everything short of that now flags: VALUE laundering at the extraction reference (R36), receiver laundering / widened keys / `Reflect.get` at the naked class-object reference they must spell (R68–R70, whole-diff r2 closure). Consequence bound: hiding the name in a string is the loudest possible construct in review and greppable tree-wide.
-2. **Deliberate module-object laundering beyond the pinned families (ratified whole-diff r8).** Nested re-export namespaces, require/import adapters (`(require)(…)`, `require.call`, `module.require`, structurally-erased loader aliases), computed or literal-typed-variable specifiers, and whatever the next contrivance is — the carrier space is unbounded, and each such flow requires deliberate construction no plausible refactor produces. Conceded alongside the hand-rolled-Location limit: the same author writes `new NextResponse(null, { headers: { Location } })` and bypasses the redirect claim entirely. The §6 families (R58–R93) stay pinned as regression floor; review, not this guard, is the control for adversarial code.
+2. **Deliberate module-object laundering beyond the pinned families (ratified whole-diff r8).** Nested re-export namespaces, require/import adapters (`(require)(…)`, `require.call`, `module.require`, structurally-erased loader aliases), computed or literal-typed-variable specifiers, and whatever the next contrivance is — the carrier space is unbounded, and each such flow requires deliberate construction no plausible refactor produces. Conceded alongside the hand-rolled-Location limit: the same author writes `new NextResponse(null, { headers: { Location } })` and bypasses the redirect claim entirely. The §6 families (R58–R94) stay pinned as regression floor; review, not this guard, is the control for adversarial code.
 3. **Soundness is conditional on import resolution — TypeScript files only.** A TS file whose `NextResponse` reference does not resolve fails `tsc --noEmit` (TS2304) at the merge gate. Plain-JS files have NO such backstop (tsconfig `include` is TS-only, `checkJs` off — R1/F6 probe); the §5.5 sentinel therefore keeps the walked roots free of plain-JS modules, and a future JS adoption must extend the guard's JS story deliberately.
 4. **`node_modules` wrappers.** A third-party package calling `NextResponse.redirect` internally is outside the walked roots. Unchanged from today.
 5. **Hand-rolled absolute Location.** `new NextResponse(null, { headers: { Location: absoluteUrl } })` is not a `redirect` call and never was this guard's claim; `hostRelativeRedirect` is the sanctioned constructor-shaped emitter (N4 pins it clean).
@@ -354,7 +358,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R93, N1–N15, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R94, N1–N16, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
