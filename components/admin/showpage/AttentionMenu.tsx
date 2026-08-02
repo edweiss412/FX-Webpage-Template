@@ -29,6 +29,7 @@
  * reduced-motion renders instant. Close is instant (unmount).
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
@@ -64,6 +65,10 @@ function AttentionMenuPanel({
 }: Omit<AttentionMenuProps, "open">) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [entered, setEntered] = useState(false);
+  // Re-apply key is the entrance flag: the scale-95 entrance distorts the
+  // measured rect, and the mount measurement runs before the entrance rAF, so
+  // the settled cap needs a second pass (spec §4.2).
+  const fitRef = useFitWithinClip(entered);
 
   // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
   // MOUNT-SCOPED, deliberately separate from the listener effect below (whole-diff
@@ -144,7 +149,24 @@ function AttentionMenuPanel({
           </span>
         </div>
       ) : null}
-      <div className="max-h-96 overflow-y-auto">
+      {/* The scroller, not the panel, is the SCROLLABLE REGION: it owns the
+          scroll range, and it can overflow with zero focusable descendants (a
+          monitoring-only list is entirely read-only rows), so engines cannot be
+          relied on to place it in sequential focus order. tabIndex + a nameable
+          role fix that. The role is load-bearing, not decorative — a bare div
+          maps to `generic`, which is naming-prohibited, so aria-label alone
+          would be invalid (spec §4.2). The panel above keeps its own group role
+          naming the leading section; this is a second, nested region.
+          `useFitWithinClip` caps max-h-96 against the review-modal panel's clip
+          edge; `entered` is the re-apply key so the cap is re-measured once the
+          scale-95 entrance has settled (spec §4.2). */}
+      <div
+        ref={fitRef}
+        role="group"
+        aria-label="Show issues"
+        tabIndex={0}
+        className="max-h-96 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
+      >
         {needsYou.map((item) => {
           const tone = TONE_DOT[item.tone];
           const code = item.kind === "alert" ? item.alert.code : null;
