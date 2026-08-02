@@ -1,7 +1,7 @@
 /**
  * Probe 1 (spec §2): do the four residual classes escape the SYNTACTIC guard?
  *
- * Run: pnpm exec tsx docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe1-residual-escapes.mjs
+ * Run: pnpm exec tsx tests/cross-cutting/redirect-guard-probes/probe1-residual-escapes.mjs
  *
  * HISTORICAL PIN: run at origin/main 0fb6f9efb (pre-rewrite), every class printed
  * `0 findings (ESCAPES this guard)` — the escape evidence that motivated the
@@ -9,7 +9,7 @@
  * the test file's R20-R23 fixtures, not by this probe: the re-export case needs a
  * sibling fixture module the test harness provides.
  */
-import { auditSource } from "../../../tests/cross-cutting/no-absolute-self-redirect-audit";
+import { auditSource } from "../no-absolute-self-redirect-audit";
 
 const RESIDUALS = [
   [
