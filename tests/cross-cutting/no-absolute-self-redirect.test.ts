@@ -679,6 +679,15 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings).toHaveLength(1);
   });
 
+  it("flags R103 conditionally selected helper aliases", () => {
+    // whole-diff r23: feature-flag selection of the helper implementation.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ndeclare const cond: boolean;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction carrierPick() { return globalThis; }\nfunction safePick() { return { Response: { redirect: ((u: string | URL) => new Response(String(u))) as RedirectFn } }; }\nconst configuredPick: typeof carrierPick | undefined = cond ? carrierPick : undefined;\nconst a = cond ? carrierPick : safePick;\nconst b = configuredPick ?? safePick;\nconst c = (cond && carrierPick) || safePick;\nexport function GET() {\n  return [\n    viaEnvironment(a(), new URL("/1", request.url)),\n    viaEnvironment(b(), new URL("/2", request.url)),\n    viaEnvironment(c(), new URL("/3", request.url)),\n  ];\n}`,
+    );
+    expect(findings).toHaveLength(3);
+  });
+
   it("flags R101b staged helper alias through a type-asserted RHS", () => {
     const findings = auditSource(
       fixturePath(),

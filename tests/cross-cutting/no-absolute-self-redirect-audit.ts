@@ -683,6 +683,27 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     }
     return e;
   };
+  /** Helper-membership twin of isCarrierExpression: an expression RESOLVING to
+   * a carrier helper through wrappers and conditional/logical selection
+   * (whole-diff r23 — `cond ? carrierPick : safePick` etc.). */
+  const resolvesToCarrierFn = (exprIn: Node): boolean => {
+    const e = unwrapAliasRhs(exprIn);
+    if (Node.isIdentifier(e)) return symbolDeclsIn(e, carrierFnDecls);
+    if (Node.isConditionalExpression(e)) {
+      return resolvesToCarrierFn(e.getWhenTrue()) || resolvesToCarrierFn(e.getWhenFalse());
+    }
+    if (Node.isBinaryExpression(e)) {
+      const op = e.getOperatorToken().getKind();
+      if (
+        op === SyntaxKind.QuestionQuestionToken ||
+        op === SyntaxKind.BarBarToken ||
+        op === SyntaxKind.AmpersandAmpersandToken
+      ) {
+        return resolvesToCarrierFn(e.getLeft()) || resolvesToCarrierFn(e.getRight());
+      }
+    }
+    return false;
+  };
   let carrierSetGrew = true;
   while (carrierSetGrew) {
     carrierSetGrew = false;
@@ -708,13 +729,9 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         carrierSetGrew = true;
         continue;
       }
-      // Helper ALIAS: `const choose = pick` — wrapped forms included (r19/r20).
-      const unwrappedInit = unwrapAliasRhs(init);
-      if (
-        Node.isIdentifier(unwrappedInit) &&
-        symbolDeclsIn(unwrappedInit, carrierFnDecls) &&
-        !carrierFnDecls.has(vd)
-      ) {
+      // Helper ALIAS: `const choose = pick` — wrapped and conditionally/
+      // logically selected forms included (r19/r20/r23).
+      if (resolvesToCarrierFn(init) && !carrierFnDecls.has(vd)) {
         carrierFnDecls.add(vd);
         carrierSetGrew = true;
       }
@@ -734,7 +751,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       const rhs = unwrapAliasRhs(bin.getRight());
       const target = isCarrierExpression(rhs)
         ? carrierDecls
-        : Node.isIdentifier(rhs) && symbolDeclsIn(rhs, carrierFnDecls)
+        : resolvesToCarrierFn(rhs)
           ? carrierFnDecls
           : undefined;
       if (target === undefined) continue;
