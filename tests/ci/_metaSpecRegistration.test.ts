@@ -284,9 +284,15 @@ const customShell = (s: StepShape) =>
  * documented `github.env` / `github.path` context properties, which name
  * the same files — a step writing through either mutates every later
  * step in the job, so recognizing only the variables missed a real
- * charter-surface vector (not a constructed-name obfuscation).
+ * charter-surface vector (not a constructed-name obfuscation). R32: GitHub
+ * documents INDEX syntax as equivalent to property dereference, so
+ * `github['env']` / `github["path"]` are first-class spellings too.
  */
-const ENV_FILE_MENTION = /GITHUB_ENV|GITHUB_PATH|github\s*\.\s*(?:env|path)\b/i;
+const ENV_FILE_MENTION =
+  // The quote class tolerates a leading backslash: the census and the
+  // scanner both test JSON-serialized step values, where an inner quote
+  // arrives escaped (`github[\\"path\\"]`).
+  /GITHUB_ENV|GITHUB_PATH|github\s*(?:\.\s*(?:env|path)\b|\[\s*\\?['"](?:env|path)\\?['"]\s*\])/i;
 
 const writesJobEnv = (text: string): boolean =>
   ENV_FILE_MENTION.test(
@@ -1527,17 +1533,17 @@ describe("spec registration detector (spec §3.1)", () => {
     }
     // R31: github.env / github.path name the same env files, so a write
     // through either poisons later blocks census-side too.
-    for (const prop of ["github.env", "github.path"]) {
+    for (const prop of ["github.env", "github.path", "github['env']", 'github["path"]']) {
       expect(
         runBlocksOf(
           parse(
-            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "/fake-bin" >> "\${{ ${prop} }}"\n      - run: echo later\n`,
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo /fake-bin >> \${{ ${prop} }}\n      - run: echo later\n`,
           ),
           {},
         ),
         prop,
       ).toEqual([
-        { run: `echo "/fake-bin" >> "\${{ ${prop} }}"`, guarded: false, poisoned: false },
+        { run: `echo /fake-bin >> \${{ ${prop} }}`, guarded: false, poisoned: false },
         { run: "echo later", guarded: false, poisoned: true },
       ]);
     }

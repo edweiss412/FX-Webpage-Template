@@ -656,9 +656,15 @@ type Opts = {
  * documented `github.env` / `github.path` context properties, which name
  * the same files — a step writing through either mutates every later
  * step in the job, so recognizing only the variables missed a real
- * charter-surface vector (not a constructed-name obfuscation).
+ * charter-surface vector (not a constructed-name obfuscation). R32: GitHub
+ * documents INDEX syntax as equivalent to property dereference, so
+ * `github['env']` / `github["path"]` are first-class spellings too.
  */
-const ENV_FILE_MENTION = /GITHUB_ENV|GITHUB_PATH|github\s*\.\s*(?:env|path)\b/i;
+const ENV_FILE_MENTION =
+  // The quote class tolerates a leading backslash: the census and the
+  // scanner both test JSON-serialized step values, where an inner quote
+  // arrives escaped (`github[\\"path\\"]`).
+  /GITHUB_ENV|GITHUB_PATH|github\s*(?:\.\s*(?:env|path)\b|\[\s*\\?['"](?:env|path)\\?['"]\s*\])/i;
 
 function writesJobEnv(chunk: string): boolean {
   return ENV_FILE_MENTION.test(
