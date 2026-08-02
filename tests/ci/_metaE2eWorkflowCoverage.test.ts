@@ -739,6 +739,43 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("shell text that looks like a step cannot invent coverage (R25)", () => {
+    // The regex splitter treated an indented `- run:` inside a shell BODY as
+    // a new step, so text GitHub runs as ONE shell command was read as a
+    // second, claiming step. Steps now come from the parsed document.
+    const bodies = [
+      `      - name: echo a fake step\n        run: |\n          echo "      - run: pnpm exec playwright test ${spec}"\n`,
+      `      - run: |\n          echo "      - name: fake"\n          echo "        run: pnpm exec playwright test ${spec}"\n`,
+      `      - run: |\n          echo "      -"\n          echo "        run: pnpm exec playwright test ${spec}"\n`,
+    ];
+    for (const steps of bodies) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`;
+      const r = S(w);
+      expect(r.covered.has(spec), steps).toBe(false);
+    }
+    // …and a REAL second step still counts.
+    const real = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      - run: pnpm exec playwright test ${spec}\n`;
+    expect(S(real).covered.has(spec)).toBe(true);
+  });
+
+  it("unknown events and event/schedule keys are refused (R25)", () => {
+    const job = `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    for (const on of [
+      "  pull_request:\n  bogus_event:\n",
+      "  pull_request:\n    bogus_key:\n      - x\n",
+      "  pull_request:\n  schedule:\n    - cron: '0 9 * * 1'\n      bogus: 1\n",
+    ]) {
+      const r = S(`name: x\non:\n${on}${job}`);
+      expect(r.covered.has(spec), on).toBe(false);
+    }
+    // …known events with known config keys still count.
+    expect(
+      S(`name: x\non:\n  pull_request:\n  push:\n    branches:\n      - main\n${job}`).covered.has(
+        spec,
+      ),
+    ).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

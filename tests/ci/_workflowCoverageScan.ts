@@ -206,6 +206,58 @@ const services: Pred = (v) =>
         options: str,
       }),
   );
+/** GitHub workflow events this guard models; anything else is unschedulable
+ *  for our purposes and refused (narrow accept, spec §5 L9). */
+const KNOWN_EVENTS = new Set([
+  "pull_request",
+  "pull_request_target",
+  "push",
+  "schedule",
+  "workflow_dispatch",
+  "workflow_call",
+  "workflow_run",
+  "merge_group",
+  "release",
+  "issues",
+  "issue_comment",
+  "create",
+  "delete",
+  "fork",
+  "watch",
+  "repository_dispatch",
+  "registry_package",
+  "check_run",
+  "check_suite",
+  "deployment",
+  "deployment_status",
+  "discussion",
+  "discussion_comment",
+  "label",
+  "milestone",
+  "page_build",
+  "project",
+  "project_card",
+  "project_column",
+  "public",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "status",
+  "gollum",
+]);
+const EVENT_CFG_KEYS = new Set([
+  "types",
+  "branches",
+  "branches-ignore",
+  "tags",
+  "tags-ignore",
+  "paths",
+  "paths-ignore",
+  "workflows",
+  "inputs",
+  "outputs",
+  "secrets",
+  "cron",
+]);
 /** `on`: an event name, a list of them, or a mapping of event -> null|config. */
 const onTrigger: Pred = (v) =>
   nonEmptyString(v) ||
@@ -217,13 +269,19 @@ const onTrigger: Pred = (v) =>
       // workflows carry it, and the live-tree tripwire caught the
       // over-refusal immediately.
       ([k, cfg]) =>
-        k.trim() !== "" &&
+        KNOWN_EVENTS.has(k) &&
         (cfg === null ||
           (k === "schedule"
             ? Array.isArray(cfg) &&
               cfg.length > 0 &&
-              cfg.every((x) => mapping(x) && nonEmptyString((x as { cron?: unknown }).cron))
-            : mapping(cfg))),
+              cfg.every(
+                (x) =>
+                  mapping(x) &&
+                  Object.keys(x as Record<string, unknown>).every((ek) => ek === "cron") &&
+                  nonEmptyString((x as { cron?: unknown }).cron),
+              )
+            : mapping(cfg) &&
+              Object.keys(cfg as Record<string, unknown>).every((ck) => EVENT_CFG_KEYS.has(ck)))),
     ));
 
 const WF_ROOT: Record<string, Pred> = {
@@ -900,8 +958,21 @@ export function scanWorkflowCoverage({
       // claims). Per-job flag: env state does not cross jobs, and
       // over-poisoning would force reason-free allowlist rows.
       let envPoisoned = false;
-      for (const step of job.steps) {
-        const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+      // R25: iterate the PARSED steps, not the regex-split chunks — an
+      // indented `- run:` inside a shell BODY made the splitter invent a
+      // phantom claiming step, so text GitHub runs as one shell command was
+      // read as a second step and covered specs it never executed. The
+      // typed steps are exactly what the runner executes; each chunk is
+      // still used for the text-level gates that need raw source.
+      const parsedSteps: Array<Record<string, unknown>> =
+        parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
+          ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
+          : [];
+      for (const [stepIdx, parsedStep] of parsedSteps.entries()) {
+        const step = job.steps[stepIdx] ?? "";
+        const runValue = typeof parsedStep.run === "string" ? parsedStep.run : null;
+        const runMatch: [string, string, string] | null =
+          runValue === null ? null : ["", "", runValue];
         // Canonical stringify double-quotes scalars that plain style cannot
         // carry (e.g. a shell command ending in a colon). Unquote the
         // single-line double-quoted form (JSON-compatible by construction —
