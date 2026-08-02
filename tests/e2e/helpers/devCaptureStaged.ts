@@ -48,6 +48,9 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0
  *  54321) can only ever be two doors onto the SAME instance. */
 const LOCAL_SUPABASE_DB_PORT = "54322";
 
+/** The database every other gallery consumer reads through `supabaseAdmin`. */
+const LOCAL_SUPABASE_DB_NAME = "postgres";
+
 /** libpq connection parameters that RE-TARGET a URI regardless of its authority.
  *  `psql "postgresql://…@127.0.0.1:54322/postgres?host=192.0.2.1"` connects to
  *  192.0.2.1: the authority a URL parser reads is NOT the effective target, so a
@@ -113,6 +116,33 @@ export function galleryDatabaseUrl(): string {
     );
   }
 
+  // The URI PATH is the database name. Distinct from the closed `?dbname=`
+  // override — this is the ordinary component, and `…:54322/template1` is
+  // host-correct, port-correct, and still the wrong database: SQL would land in
+  // `template1` while `supabaseAdmin`, the readback, and the render stay on
+  // `postgres` (whole-diff review R3).
+  const database = parsed.pathname.replace(/^\//, "");
+  if (database !== LOCAL_SUPABASE_DB_NAME) {
+    throw new Error(
+      `devCaptureStaged: the Step-3 state gallery refuses database "${database || "(none)"}"; ` +
+        `it must be "${LOCAL_SUPABASE_DB_NAME}", the database every other gallery consumer reads.`,
+    );
+  }
+
+  // Self-containment. `galleryPsqlEnv()` strips PGPASSWORD along with the rest
+  // of PG*, so a DSN that relied on the ambient password would be ACCEPTED here
+  // and then fail at connect time with an authentication error that points
+  // nowhere near this guard. Require the DSN to carry its own credentials, and
+  // say so now (whole-diff review R3).
+  if (parsed.username === "" || parsed.password === "") {
+    throw new Error(
+      `devCaptureStaged: the Step-3 state gallery requires a DATABASE_URL carrying BOTH a user ` +
+        `and a password. The gallery runs psql with every PG* variable stripped (PGPASSWORD ` +
+        `included), so an ambient-credential DSN would be accepted here and then fail to ` +
+        `authenticate. Use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default, or supply credentials inline.`,
+    );
+  }
+
   return url;
 }
 
@@ -165,7 +195,14 @@ function runLockedSql(
     commit;
   `;
   try {
-    execFileSync("psql", [dsn, "-v", "ON_ERROR_STOP=1", "-At"], {
+    // `-X` is load-bearing, not tidiness: without it psql reads PSQLRC, then
+    // `$HOME/.psqlrc` (and its versioned variants), then the compiled system
+    // psqlrc, ALL of which run before the transaction arrives on stdin and any
+    // of which may contain `\connect postgresql://…@remote`. That reconnects the
+    // session after the validated local connection is made, so the seed or
+    // cleanup would execute remotely with the guard none the wiser (whole-diff
+    // review R3). Stripping PG* cannot close this: PSQLRC and HOME are not PG*.
+    execFileSync("psql", [dsn, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
       input: sql,
       encoding: "utf8",
       // NOT the ambient environment: PG* variables retarget libpq behind the

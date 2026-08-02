@@ -70,6 +70,22 @@ describe("galleryDatabaseUrl", () => {
     process.env[KEY] = "host=127.0.0.1 port=54322 dbname=postgres";
     expect(() => galleryDatabaseUrl()).toThrow(/not a parseable URL/);
   });
+
+  // R3: distinct from the closed `?dbname=` override — this is the URI's own
+  // path component, which IS the database name. Host and port are both correct.
+  test("the right host and port on the WRONG database is refused", () => {
+    process.env[KEY] = "postgresql://postgres:postgres@127.0.0.1:54322/template1";
+    const parsed = new URL(process.env[KEY]);
+    expect([parsed.hostname, parsed.port]).toEqual(["127.0.0.1", "54322"]);
+    expect(() => galleryDatabaseUrl()).toThrow(/refuses database "template1"/);
+  });
+
+  // R3: the gallery strips PGPASSWORD, so a DSN relying on it would be accepted
+  // and then fail to authenticate far from this guard.
+  test("a DSN without inline credentials is refused rather than accepted-then-broken", () => {
+    process.env[KEY] = "postgresql://postgres@127.0.0.1:54322/postgres";
+    expect(() => galleryDatabaseUrl()).toThrow(/carrying BOTH a user and a password/);
+  });
 });
 
 /**

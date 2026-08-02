@@ -76,7 +76,13 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   let path = "";
   try {
     const resolved = new URL(url, window.location.origin);
-    sameOrigin = resolved.origin === window.location.origin;
+    // Credentials in the URL are rejected by native fetch before dispatch
+    // ("Request cannot be constructed from a URL that includes credentials"), so
+    // a stub that answered them would be MORE permissive than the real thing and
+    // would mask that failure (whole-diff review R3). `origin` alone does not
+    // carry userinfo, hence the explicit check.
+    const credentialed = resolved.username !== "" || resolved.password !== "";
+    sameOrigin = !credentialed && resolved.origin === window.location.origin;
     path = resolved.pathname;
   } catch {
     sameOrigin = false;
