@@ -51,6 +51,7 @@
 ```ts
 import { describe, expect, test } from "vitest";
 import { assembleStep3Row } from "@/lib/admin/assembleStep3Row";
+import type { ParseResult } from "@/lib/parser/types";
 
 import type { Step3ManifestStatus } from "@/components/admin/wizard/Step3Review";
 
@@ -66,10 +67,18 @@ const mani = (over: Partial<{ status: Step3ManifestStatus }> & Record<string, un
 
 describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop body)", () => {
   test("clean staged row gets parseResult + stagedShowTitle enrichment", () => {
+    // Shape mirrors the stagedByDfid value type verbatim (OnboardingWizard.tsx:534-545):
+    // stagedId + lastFinalizeFailureCode are REQUIRED; sourceAnchors is a
+    // non-null Record (empty object, never null).
     const staged = {
-      parseResult: { show: { title: "Parsed Title" }, warnings: [] },
-      sourceAnchors: null, adminAgendaPreview: [], agendaStateKey: "k",
-      useRawDecisions: [], title: "Parsed Title",
+      stagedId: "st-1",
+      title: "Parsed Title",
+      parseResult: { show: { title: "Parsed Title" }, warnings: [] } as unknown as ParseResult,
+      sourceAnchors: {},
+      adminAgendaPreview: [],
+      agendaStateKey: "k",
+      lastFinalizeFailureCode: null,
+      useRawDecisions: [],
     };
     const row = assembleStep3Row(mani({}), null, [], staged, undefined, "s1");
     expect(row.parseResult).toBe(staged.parseResult);
@@ -90,9 +99,14 @@ describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop b
   test("NEGATIVE GATE: clean row ignores a supplied ingestion; hard_failed ignores supplied staged", () => {
     // Kills the attach-everything mutant the positive cases cannot see.
     const staged = {
-      parseResult: { show: { title: "T" }, warnings: [] },
-      sourceAnchors: null, adminAgendaPreview: [], agendaStateKey: "k",
-      useRawDecisions: [], title: "T",
+      stagedId: "st-2",
+      title: "T",
+      parseResult: { show: { title: "T" }, warnings: [] } as unknown as ParseResult,
+      sourceAnchors: {},
+      adminAgendaPreview: [],
+      agendaStateKey: "k",
+      lastFinalizeFailureCode: null,
+      useRawDecisions: [],
     };
     const clean = assembleStep3Row(mani(), null, [], staged, { id: "ing-x", code: null }, "s1");
     expect(clean.pendingIngestionId).toBeUndefined(); // ingestion gated to hard_failed only
@@ -132,6 +146,7 @@ import {
   type GalleryRow,
 } from "../e2e/helpers/devCaptureStaged";
 import { assembleStep3Row } from "@/lib/admin/assembleStep3Row";
+import type { ParseResult } from "@/lib/parser/types";
 import { nonAmbiguityGapTotal } from "@/lib/admin/step3Buckets";
 
 const EXPECTED: Record<string, string> = {
