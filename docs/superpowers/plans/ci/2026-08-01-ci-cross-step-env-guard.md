@@ -82,3 +82,7 @@ The only embedded snippet is the T1 signature sketch; it was typechecked at draf
 
 - Codex adversarial review of this plan (codex-guard, REVIEWER ONLY brief, finding-admissibility contract, §3 closure set F1–F8 as the convergence criterion) → APPROVE.
 - Remaining execution: T3; whole-diff Codex review → APPROVE; push; real CI green; `gh pr merge --merge`; ff-sync main to `0  0`.
+
+## Pre-push ladder record (2026-08-01, post-merge tree)
+
+`pnpm typecheck` green; `pnpm lint` green (44 pre-existing warnings, 0 errors); `pnpm format:check` green; `pnpm test` = 1696 passed / 1 failed, the single failure being `tests/scripts/runExcludedTest.test.ts` ("bash pre-node guard" case), which passes in isolation — the documented shared-machine contention class (this spec spawns child processes; the same file, plus validation-project and live-Google specs, flaked across ladders 2/5/6/7 and passed isolated every time). Live-Google smoke failures on interim runs were the machine's Node 250ms family-autoselect timeout, proven by an isolated pass under `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=3000`. Guard suites specific to this diff: 68 tests green across `tests/ci/_metaSpecRegistration.test.ts` and `tests/ci/_metaE2eWorkflowCoverage.test.ts`; ledger + invariant-8 closeout + README parity guards green after the origin/main merge (158 tests).
