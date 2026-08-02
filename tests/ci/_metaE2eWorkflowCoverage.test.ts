@@ -449,7 +449,7 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(writer.rejected[0]!.reason).toBe(REASON);
   });
 
-  it("marketplace (non-./) actions stay trusted (spec §5 L1)", () => {
+  it("PINNED marketplace actions stay trusted; unpinned and docker are refused (spec §5 L1/L8)", () => {
     const r = S(two("uses: actions/checkout@v4"));
     expect(r.covered.has(spec)).toBe(true);
     // …including owner/repo/path@ref. (docker:// is refused wholesale as of
