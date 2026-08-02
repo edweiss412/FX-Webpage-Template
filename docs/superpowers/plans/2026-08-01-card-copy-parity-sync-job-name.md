@@ -180,10 +180,12 @@ import { CRON_JOBS } from "@/lib/cron/runSummary";
 and a new top-level test alongside the existing ones:
 
 ```ts
-it("the sync job's registry label is the unified name (BL-SYNC-JOB-FOUR-NAMES)", () => {
+test("the sync job's registry label is the unified name (BL-SYNC-JOB-FOUR-NAMES)", () => {
   expect(CRON_JOBS.find((j) => j.jobName === "sync")?.label).toBe("Auto sync");
 });
 ```
+
+(`test`, not `it`: the file imports `test` from vitest and the repo runs `globals: false`.)
 
 - [ ] **Step 2: Run to verify red**
 
@@ -314,8 +316,8 @@ git commit --no-verify -m "docs(plan): graduate BL-CARD-COPY-HELPFULCONTEXT-PARI
 
 - [ ] **Step 1: Full suite**
 
-Run: `rm -f scripts/tmp-parity-probe.ts && pnpm test 2>&1 | tail -20`
-Expected: full unit suite green (loopback-guarded DB tests may skip per preflight warning — skips are not failures).
+Run: `rm -f scripts/tmp-parity-probe.ts && set -o pipefail && pnpm test 2>&1 | tail -20; echo "exit=$?"`
+Expected: full unit suite green and `exit=0` (pipefail makes the pipe carry pnpm's status; loopback-guarded DB tests may skip per preflight warning — skips are not failures).
 
 - [ ] **Step 2: Acceptance sweep (spec §5)**
 
