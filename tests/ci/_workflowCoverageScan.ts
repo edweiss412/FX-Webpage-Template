@@ -111,7 +111,28 @@ export function usesKind(v: unknown): UsesKind {
   // twice already. Zero live workflows use docker:// (calibrated), so the
   // whole family is opaque: it poisons fail-closed and costs a reasoned
   // allowlist row if one ever appears (spec §5 L8).
-  if (/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[\w./-]+$/.test(s)) return "remote";
+  // Remote GitHub actions: `owner/repo[/path]@ref` with a NARROW ref
+  // allowlist (R14). The previous character class admitted Git-INVALID refs
+  // — `..`, leading/trailing/repeated slashes, dot-leading components,
+  // `.lock` suffixes, a terminal dot — each unresolvable, so the action
+  // step fails before the claimed downstream test runs. Rather than
+  // re-implement git-check-ref-format (the same losing game the docker
+  // grammar just cost two rounds), accept only the shape this repo uses and
+  // that no ref rule can reject: a tag/branch of alphanumerics, dots,
+  // hyphens and underscores starting alphanumeric, with no `..`, no
+  // trailing dot, and no `.lock` ending — or a full 40-hex SHA. A valid but
+  // slash-bearing ref (`release/v1`) is REFUSED: conservative, documented
+  // in spec §5 L8, and zero live refs use one (live set: v1, v4, v7).
+  const m = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@([^\s@]+)$/.exec(s);
+  if (m) {
+    const ref = m[1]!;
+    const wellFormed =
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(ref) &&
+      !ref.includes("..") &&
+      !ref.endsWith(".") &&
+      !ref.endsWith(".lock");
+    if (wellFormed) return "remote";
+  }
   return "invalid";
 }
 /** A scalar map (env/with): non-empty string keys, scalar values only. */

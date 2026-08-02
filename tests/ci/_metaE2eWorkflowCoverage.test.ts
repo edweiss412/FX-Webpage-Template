@@ -531,6 +531,45 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("Git-invalid action refs are invalid, not trusted — every site (R14)", () => {
+    // git check-ref-format rejects each of these, so GitHub cannot resolve
+    // the action and the step fails before the claimed downstream test
+    // runs. The classifier accepts a narrow allowlist instead of modelling
+    // ref grammar (spec §5 L8).
+    const bad = [
+      "..",
+      "foo..bar",
+      "/foo",
+      "foo/",
+      "foo//bar",
+      ".foo",
+      "foo/.bar",
+      "foo.lock",
+      "foo.",
+    ];
+    for (const ref of bad) {
+      const full = `owner/repo@${ref}`;
+      const direct = S(two(`uses: ${full}`));
+      expect(direct.covered.has(spec), `workflow ${full}`).toBe(false);
+      expect(direct.rejected[0]!.reason, `workflow ${full}`).toBe(REASON);
+      const child = S(two("uses: ./.github/actions/g1"), {
+        "./.github/actions/g1": `runs:\n  using: composite\n  steps:\n    - uses: ${full}\n`,
+      });
+      expect(child.covered.has(spec), `composite child ${full}`).toBe(false);
+      const nested = S(two("uses: ./.github/actions/g2"), {
+        "./.github/actions/g2":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/g1\n",
+        "./.github/actions/g1": `runs:\n  using: composite\n  steps:\n    - uses: ${full}\n`,
+      });
+      expect(nested.covered.has(spec), `nested ${full}`).toBe(false);
+    }
+    // …and the well-formed shapes stay trusted: the live tag family, a
+    // dotted tag, and a full 40-hex SHA.
+    for (const ref of ["v4", "v1.2.3", "main", "release_1", "a".repeat(40)]) {
+      expect(S(two(`uses: owner/repo@${ref}`)).covered.has(spec), ref).toBe(true);
+    }
+  });
+
   it("invalid composite manifests are opaque: inexact using values, missing steps (R7)", () => {
     // GitHub requires runs.using === "composite" VERBATIM and requires
     // runs.steps — composite!, composite/x, or a steps-less composite is an
