@@ -452,9 +452,9 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
   it("marketplace (non-./) actions stay trusted (spec §5 L1)", () => {
     const r = S(two("uses: actions/checkout@v4"));
     expect(r.covered.has(spec)).toBe(true);
-    // …including owner/repo/path@ref and docker:// images.
+    // …including owner/repo/path@ref. (docker:// is refused wholesale as of
+    // R13 — see the dedicated fixture and spec §5 L8.)
     expect(S(two("uses: owner/repo/sub@v1")).covered.has(spec)).toBe(true);
-    expect(S(two("uses: docker://alpine:3")).covered.has(spec)).toBe(true);
   });
 
   it("a REFLESS remote uses: is invalid, not trusted — every site (R10)", () => {
@@ -486,11 +486,29 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(ok.covered.has(spec)).toBe(true);
   });
 
-  it("a malformed docker:// image reference is invalid, not trusted (R12)", () => {
-    // The runner strips docker:// and pulls the remainder; `docker://@` is
-    // not a valid image reference, the pull fails, and the downstream step
-    // never runs — a \\S+ check trusted it at all three sites.
-    for (const ref of ["docker://@", "docker://", "docker://:tag", "docker://UPPER/img"]) {
+  it("the whole docker:// family is opaque, at every site (R12/R13)", () => {
+    // R12 replaced a \\S+ check with a hand-written image grammar; R13 then
+    // produced four more Docker-invalid forms (hyphen-edged registry labels,
+    // >128-char tags, >255-char paths, bare 64-hex names). Docker's
+    // reference grammar is its own spec, so the family is refused wholesale
+    // — including well-formed references, which is a conservative refusal
+    // (spec §5 L8), never false coverage. Zero live docker:// refs.
+    const long = "a".repeat(129);
+    for (const ref of [
+      "docker://@",
+      "docker://",
+      "docker://:tag",
+      "docker://UPPER/img",
+      "docker://-host.example.com/img",
+      "docker://host-.example.com/img",
+      `docker://alpine:${long}`,
+      `docker://${"b".repeat(64)}`,
+      // …and the well-formed ones are refused too, by design.
+      "docker://alpine:3",
+      "docker://ghcr.io/owner/img:v1.2",
+      `docker://alpine@sha256:${"a".repeat(64)}`,
+      "docker://registry.example.com:5000/team/img",
+    ]) {
       const direct = S(two(`uses: ${ref}`));
       expect(direct.covered.has(spec), `workflow ${ref}`).toBe(false);
       expect(direct.rejected[0]!.reason, `workflow ${ref}`).toBe(REASON);
@@ -505,13 +523,10 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       });
       expect(nested.covered.has(spec), `nested ${ref}`).toBe(false);
     }
-    // …and real image references stay trusted (tag, digest, registry host).
-    for (const ref of [
-      "docker://alpine:3",
-      "docker://ghcr.io/owner/img:v1.2",
-      `docker://alpine@sha256:${"a".repeat(64)}`,
-      "docker://registry.example.com:5000/team/img",
-    ]) {
+    // …while pinned GitHub-action refs — the shapes this repo actually uses
+    // — stay trusted, so the wholesale docker refusal costs no live
+    // coverage.
+    for (const ref of ["actions/checkout@v4", "owner/repo/sub@v1"]) {
       expect(S(two(`uses: ${ref}`)).covered.has(spec), ref).toBe(true);
     }
   });

@@ -1377,8 +1377,19 @@ describe("spec registration detector (spec §3.1)", () => {
         ref,
       ).toEqual([{ run: "echo after-refless", guarded: false, poisoned: true }]);
     }
-    // …and the valid remote forms stay trusted.
-    for (const ref of ["owner/repo/sub@v1", "docker://alpine:3"]) {
+    // R13: the docker:// family is refused wholesale (spec §5 L8) — its
+    // reference grammar is its own spec and two rounds of modelling it
+    // produced escaping forms; zero live refs, so the refusal is free.
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    steps:\n      - uses: docker://alpine:3\n      - run: echo after-docker\n",
+        ),
+        {},
+      ),
+    ).toEqual([{ run: "echo after-docker", guarded: false, poisoned: true }]);
+    // …and the pinned GitHub-action forms stay trusted.
+    for (const ref of ["owner/repo/sub@v1", "actions/checkout@v4"]) {
       expect(
         runBlocksOf(
           parse(`jobs:\n  j:\n    steps:\n      - uses: ${ref}\n      - run: echo after-ok\n`),
