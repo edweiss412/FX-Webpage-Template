@@ -103,14 +103,26 @@ Takeover protocol — a new session, in any account, picking up a live pipeline:
 1. Run `date` first; derive pipeline state from `git -C <worktree>` (branch, commits ahead of `origin/main`, dirty tree) plus the marker; explicitly discard the prior session's "blocked / usage limit / out of context" framing — it is stale by definition.
 2. Overwrite the marker's `sessionId` with your own session UUID. This flips you to the strict tier and demotes the prior session to soft. Clear `blockedOn` if it names the usage limit.
 3. Register your own 10-minute nudge with full Stage-0 semantics — including the supersession check below in the prompt — and write the new `cronJobId` into the marker.
-4. Rename your pane to the arc per the pane-naming rule below.
+4. Rename your pane **and your agent** to the arc per the pane + agent naming rule below.
 5. Resume the marker's `next` action in the same turn.
 
 Never rewrite `sessionId` merely to inspect a worktree — inspection sessions leave the marker untouched and take the soft tier by design.
 
-**Supersession stand-down** — the second permitted `CronDelete` site alongside Stage 4.4, and mandatory in every nudge prompt: after `date`, re-read the marker; if `sessionId` is present and is not yours, you are superseded. `CronDelete` your own job, clear your pane label (`herdr pane rename "$HERDR_PANE_ID" --clear`), then stand down silently, in that order, and never write to that worktree again. Rationale: `CronCreate` jobs survive a usage-limit pause, so the paused session's nudge WILL fire after the limit resets — without this check, two drivers race on one working tree, the same two-writers race invariant 11 exists to prevent.
+**Supersession stand-down** — the second permitted `CronDelete` site alongside Stage 4.4, and mandatory in every nudge prompt: after `date`, re-read the marker; if `sessionId` is present and is not yours, you are superseded. `CronDelete` your own job, clear your pane and agent labels (`herdr pane rename "$HERDR_PANE_ID" --clear` and `herdr agent rename "$HERDR_PANE_ID" --clear`), then stand down silently, in that order, and never write to that worktree again. Rationale: `CronCreate` jobs survive a usage-limit pause, so the paused session's nudge WILL fire after the limit resets — without this check, two drivers race on one working tree, the same two-writers race invariant 11 exists to prevent.
 
-**Pane naming (herdr, mandatory).** Every session driving a pipeline renames its herdr pane to the feature arc — the branch name — so a human or a takeover session scanning four workspaces sees at a glance which pane drives which live pipeline. Lifecycle: at Stage 0, immediately after worktree creation, `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>"` (e.g. `docs/pane-arc-naming`); at Stage 4.4, after the `0  0` check, `herdr pane rename "$HERDR_PANE_ID" --clear`; a takeover session sets its own pane to the same arc (protocol step 4); a superseded session clears its label during stand-down. `HERDR_PANE_ID` is injected into every herdr pane shell — when it is empty (session not under herdr), skip silently; never guess a pane id. **Rename panes only, NEVER the workspace** — the workspace label is load-bearing for account mapping (the label-keyed `~/.zshrc` hook resolves `CLAUDE_CONFIG_DIR` from it); renaming a workspace silently reverts its new panes to the main account.
+**Pane + agent naming (herdr, mandatory).** Every session driving a pipeline labels itself with the feature arc — the branch name — so a human or a takeover session scanning four workspaces sees at a glance which session drives which live pipeline. Two labels, one arc string, always set and cleared together:
+
+- **Pane label** — `herdr pane rename "$HERDR_PANE_ID" "<branch>"` / `--clear`. Names the pane in its tab.
+- **Agent label** — `herdr agent rename "$HERDR_PANE_ID" "<branch>"` / `--clear`. Names the agent entry in the corner agent list. Without it every concurrent run reads as the detected agent label (`claude`) and the list cannot distinguish them; the per-agent `terminal_title` is derived from conversation topic and drifts on its own, so it is not a substitute. `herdr agent rename` accepts a pane id as its target, so the same `$HERDR_PANE_ID` drives both commands.
+
+Lifecycle — both commands at every site:
+
+- **Stage 0**, immediately after worktree creation: `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>" && herdr agent rename "$HERDR_PANE_ID" "<branch>"` (e.g. `docs/agent-arc-naming`).
+- **Stage 4.4**, after the `0  0` check: `herdr pane rename "$HERDR_PANE_ID" --clear` and `herdr agent rename "$HERDR_PANE_ID" --clear`.
+- **Takeover session**: sets both of its own labels to the same arc (protocol step 4).
+- **Superseded session**: clears both during stand-down.
+
+`HERDR_PANE_ID` is injected into every herdr pane shell — when it is empty (session not under herdr), skip silently; never guess a pane id. **Rename panes and agents only, NEVER the workspace** — the workspace label is load-bearing for account mapping (the label-keyed `~/.zshrc` hook resolves `CLAUDE_CONFIG_DIR` from it); renaming a workspace silently reverts its new panes to the main account.
 
 ---
 

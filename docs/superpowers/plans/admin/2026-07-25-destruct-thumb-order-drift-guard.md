@@ -99,7 +99,7 @@ Deliberately no test COUNT here. Three consecutive review rounds (R13, R14, R15)
 
 ### Task 5 — CI wiring — **DONE**
 
-`package.json` script `test:e2e:destructive-layout` running **both** layout specs under `tests/e2e/standalone.config.ts`. New workflow **.github/workflows/destructive-layout-e2e.yml** modelled on `modal-header-layout-e2e.yml` (same setup action, Playwright cache, failure-artifact upload, `workflow_dispatch:`), no `env:` block — the harness imports no server chain.
+`package.json` script `test:e2e:destructive-layout` running **both** layout specs under `tests/e2e/standalone.config.ts`. New workflow **.github/workflows/destructive-layout-e2e.yml** modelled on the since-retired modal-header-layout-e2e workflow (same setup action, Playwright cache, failure-artifact upload, `workflow_dispatch:`), no `env:` block — the harness imports no server chain.
 
 `paths:` must include `components/admin/PendingPanelDiscardButtons.tsx`, `components/admin/NeedsAttentionInbox.tsx`, `tests/e2e/_pendingDiscardHarness.tsx`, both layout specs, `tests/e2e/standalone.config.ts`, `app/globals.css`, `package.json`, `pnpm-lock.yaml`, and the workflow file.
 
