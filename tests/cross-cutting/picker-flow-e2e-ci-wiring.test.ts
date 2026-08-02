@@ -22,8 +22,8 @@
  * own self-test), and every crew spec this job runs — including
  * stage-restricted-crew-schedule.spec, wired here for the seeded agenda fold —
  * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
- * The rest of the mobile-safari project, stage-restricted excepted, stays dark
- * under BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * The rest of the mobile-safari project stays dark under
+ * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -80,6 +80,15 @@ const read = (wf: string): string => stripYamlComments(readRaw(wf));
  * position (`echo playwright test …`) cannot either. Comments are stripped first
  * (agenda-fold plan-review R1 mutation families MF1/MF2/MF4; idempotent over `read`'s
  * stripping).
+ *
+ * Only the HEAD segment of each `run:` scalar counts (MF7, whole-diff review R1 escaping
+ * mutant): `true || pnpm exec playwright test …` is wiring-shaped in a segment that the shell
+ * skips whenever the left side succeeds, and the static text cannot say whether ANY
+ * operator-guarded segment runs — `false && …` is the same hole with the other operator. Command
+ * position is the one position that always executes, so requiring it closes the whole
+ * conditional-execution family at once. Deliberately FAIL-CLOSED: a legitimate
+ * `setup && playwright test …` reads as unwired and fails the guard, which surfaces as "move the
+ * invocation to its own step", never as green-while-dark.
  */
 function playwrightTestSegments(yaml: string): string[][] {
   const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
@@ -90,7 +99,7 @@ function playwrightTestSegments(yaml: string): string[][] {
   const NON_EXECUTING = new Set(["--list", "--ui"]);
   return [...stripYamlComments(yaml).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
     .map((m) => m[1]!)
-    .flatMap((c) => c.split(/&&|\|\||;|\|/))
+    .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
     .map((seg) => seg.trim().split(/\s+/))
     .filter((t) => {
       const i = t.indexOf("playwright");

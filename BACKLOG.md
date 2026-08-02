@@ -380,6 +380,29 @@ trailing. What remains is prose that names a day without any of those tokens.
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
 
+### BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED — a `next` carrying a query string fails the bootstrap
+
+**Status:** OPEN — measured on `test/agenda-fold-seeded-e2e` (2026-08-02) · **Severity:** low · **Class:** AUTH UX
+
+A Google session that matches a crew row with no picker-cookie entry yet resolves to
+`needs_picker_bootstrap` and redirects through `/api/auth/picker-bootstrap`. When the `next` it
+carries has a query string — e.g. the deep link `/show/<slug>/<token>?s=schedule`, which is exactly
+what a crew member gets from a section link — the handler does not land back on the show and renders
+"Sign-in unavailable / Sign-in landed somewhere we don't recognize." Measured on BOTH engines
+(Chromium and WebKit), so it is not a cookie-storage artifact: the bare URL bootstraps fine and the
+same URL with `?s=schedule` does not.
+
+**Blast radius today.** First contact only, and only on a deep link: once the cookie exists the
+query rides along normally. A crew member who hits it can recover by opening the bare show link, so
+the effect is a confusing dead end rather than lost access.
+
+**Worked around, not fixed, in e2e.** `stage-restricted-crew-schedule.spec.ts` bootstraps on the
+bare URL and re-navigates with `?s=schedule`. That documents the limit; it does not close it.
+
+**Fix (when prioritized):** decide whether the bootstrap should preserve the `next` query (probably)
+or strip it and redirect to the canonical show URL, then pin the chosen behavior with a route test
+covering a query-bearing `next`.
+
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH

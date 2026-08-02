@@ -15,10 +15,28 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import standaloneConfig from "../e2e/standalone.config";
+
 const ROOT = process.cwd();
 const PROJECT = "standalone-webkit-a11y";
 
 describe("standalone WebKit a11y leg wiring", () => {
+  it(`${PROJECT} actually runs on WebKit`, () => {
+    // Whole-diff review R1 (HIGH) escaping mutant: swapping `devices["Desktop Safari"]` for
+    // `devices["Desktop Chrome"]` left the exactly-one-test pin below green while Safari
+    // coverage went completely dark — the engine was the ONE thing the leg exists to prove and
+    // the ONLY thing nothing asserted. Read from the RESOLVED config object, not the source
+    // text: `use` is what Playwright launches with, and a device spread that stopped carrying
+    // webkit would regress this even if the source still spelled a Safari-looking device name.
+    const project = standaloneConfig.projects?.find((p) => p.name === PROJECT);
+    expect(project, `${PROJECT} is not defined in tests/e2e/standalone.config.ts`).toBeDefined();
+    expect(
+      project!.use?.defaultBrowserType,
+      `${PROJECT} must launch WebKit — a Chromium device here makes the leg a duplicate of ` +
+        "standalone-chromium and leaves Safari, an explicit crew target, uncovered.",
+    ).toBe("webkit");
+  });
+
   it(`the standalone config resolves ${PROJECT} to exactly the one a11y test`, () => {
     const out = execFileSync(
       "pnpm",
@@ -61,9 +79,12 @@ describe("standalone WebKit a11y leg wiring", () => {
   it("standalone-e2e.yml installs webkit alongside chromium", () => {
     // Executing-position, token-exact matching (plan-review R1 families MF1-MF4): YAML
     // comments are stripped (quote-aware, trailing `# webkit` is a disabled token, not an
-    // install), run scalars split on shell operators, each segment must be a
+    // install), only the HEAD segment of each run scalar counts (MF7 — an operator-guarded
+    // segment such as `true || pnpm exec playwright install webkit` is skipped by the shell
+    // whenever the left side succeeds, and static text cannot decide it; same fail-closed
+    // command-position rule as picker-flow-e2e-ci-wiring.test.ts), that segment must be a
     // pnpm/npx-prefixed playwright invocation (an `echo playwright install webkit` payload
-    // is non-executing), and `webkit` must appear as a WHOLE token of that segment.
+    // is non-executing), and `webkit` must appear as a WHOLE token of it.
     const stripYaml = (yaml: string): string =>
       yaml
         .split("\n")
@@ -89,7 +110,7 @@ describe("standalone WebKit a11y leg wiring", () => {
         ).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g),
       ]
         .map((m) => m[1]!)
-        .flatMap((c) => c.split(/&&|\|\||;|\|/))
+        .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
         .map((seg) => seg.trim().split(/\s+/))
         .filter((t) => {
           const i = t.indexOf("playwright");

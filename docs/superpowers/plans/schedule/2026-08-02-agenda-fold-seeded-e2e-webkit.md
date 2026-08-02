@@ -51,6 +51,20 @@ against the shipped guard (AGENTS.md round-economy contract):
   rejection.) Not applicable to Task 3's install assertions: `playwright install` has no
   collect-only mode.
 
+- **MF7 — conditional-execution guarding (whole-diff review R1 live mutant):** `true || pnpm exec
+  playwright test …` is wiring-shaped in a segment the shell skips whenever the left side
+  succeeds, and `false && …` is the same hole with the other operator — static text cannot decide
+  either. Closed by counting only the HEAD segment of each `run:` scalar (command position, the
+  one position that always executes), in BOTH guards. Deliberately fail-closed: a legitimate
+  `setup && playwright test …` reads as unwired, which surfaces as "give it its own step", never
+  as green-while-dark.
+- **MF8 — engine substitution (whole-diff review R1 live mutant):** swapping
+  `devices["Desktop Safari"]` for `devices["Desktop Chrome"]` in the new project left the
+  exactly-one-test pin green while Safari coverage went dark — the engine was the one thing the
+  leg exists to prove and the only thing nothing asserted. Closed by reading
+  `use.defaultBrowserType` off the RESOLVED config object (not the source text) in
+  `tests/ci/standalone-webkit-a11y-wiring.test.ts`.
+
 Out of scope by declaration: YAML anchors/aliases and multi-line `run: |` blocks — crew-e2e.yml
 and standalone-e2e.yml use neither today; the guards read the live files, so introducing one
 that hides wiring would surface as a guard FAILURE (fail-closed direction), not a silent pass.
@@ -695,6 +709,36 @@ git rev-list --left-right --count main...origin/main   # must print: 0  0
 Then Stage 4.4 cleanup: CronDelete the nudge job, clear the herdr pane + agent labels, set ship-state stage to "done".
 
 ---
+
+## 11. Post-plan amendment — the fold suite runs on desktop-chromium, not mobile-safari
+
+Ratified by measurement on 2026-08-02, after Task 2 wired the spec in and the FIRST real crew-e2e
+run (30754740917) failed. Task 1-3 bodies above still spell `mobile-safari` and the picker-cookie
+staging they were written against; this section supersedes them, and the shipped code is the
+authority.
+
+**What the run measured.** Four cases failed, all of them the non-admin viewers — including the two
+pre-existing SFS-1 cases that had never run in CI before this branch wired the file in. Every
+`signInAs` (admin) case in the same file passed. The trace screencast shows the first-contact
+Welcome gate, not the crew shell: Linux WebKit dropped the injected `__Host-fxav_picker` cookie.
+The prefix requires Secure, and that build does not extend the localhost/127.0.0.1 secure-context
+exemption to it; macOS WebKit does, which is why the mechanism passed locally for months. Nothing
+about the fold itself was wrong.
+
+**What changed.**
+
+- Staging moved from an injected picker cookie to an **email-matched Google session**: the seeded
+  crew row carries `NON_ADMIN_CREW_FIXTURE.email`, so `validateGoogleSession` resolves the generic
+  fixture TO the restricted row (the `sign-in-page.spec.ts` pattern; an unclaimed row is fine).
+- The fold describe seeds **one show per viewer** — the single fixture email can identify only one
+  row per show — differing ONLY in which row carries it. The anti-tautology property is preserved:
+  the same fixture sees row 0 open in one show and row 1 in the other.
+- Navigation is **two-step**: bootstrap on the BARE show URL, then re-navigate with `?s=schedule`.
+  `/api/auth/picker-bootstrap` rejects a `next` carrying a query string and renders "Sign-in
+  unavailable" (measured on both engines) — filed as `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`.
+- The spec's `testMatch` membership moved **mobile-safari → desktop-chromium**, joining
+  picker-flow.spec for the same cookie reason, and every project claim in the workflow header, the
+  count comment, the webServer comment and the guard header was reconciled to match.
 
 ## 12. Closeout
 
