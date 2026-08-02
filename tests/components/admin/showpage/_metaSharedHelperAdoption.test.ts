@@ -46,6 +46,12 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/lib/popover/rafCoalescer",
     requiresCancelAdoption: true,
   },
+  {
+    consumer: "components/admin/ReSyncButton.tsx",
+    helper: "useFitWithinClip",
+    module: "@/components/admin/useFitWithinClip",
+    requiresCancelAdoption: false,
+  },
 ];
 
 /**
