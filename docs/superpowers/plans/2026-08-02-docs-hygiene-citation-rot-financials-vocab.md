@@ -12,7 +12,14 @@ None created or extended, with one convention-mandated exception: two `{ id, pro
 
 ## Plan artifacts (measured at plan time, committed beside this plan)
 
-- `2026-08-02-docs-hygiene-baseline-lint.txt` — unfiltered all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base).
+- `2026-08-02-docs-hygiene-baseline-lint.txt` — all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base). Canonical (re)generation command — the post-edit delta MUST re-run exactly this, then `diff` against the artifact (plan review R3: the pnpm/header chrome is stripped by the same filter both times, so the diff is deterministic):
+
+  ```sh
+  for f in <the ten files, same order as the artifact>; do
+    echo "===== $f"
+    pnpm spec:lint "$f" 2>&1 | grep -v "^> \|^$\|^pnpm\|ELIFECYCLE\|spec:lint docs"
+  done
+  ```
 - `2026-08-02-docs-hygiene-adjacency-sweep.txt` — the ±2-line context dump around all 14 probe-visible master-spec edit lines with LEAD-token flags (plan review R1 finding 4: the sweep is run at plan time, not deferred). Result: the only LEAD-bearing lines in any window are edit sites themselves or the ratified no-edit line 655 — no stragglers.
 
 ## TDD framing (docs tasks)
@@ -46,7 +53,7 @@ Each task's red state is a measured failing check (a lint count, a grep hit-set,
 
 Wording latitude: the implementer may vary the qualifier ("retired" / "since-retired" / "now-deleted") to read naturally; binding constraints: (a) no backticks around any deleted workflow name or path, (b) no `.yml`-suffixed backticked token pointing at a deleted file, (c) sentence meaning preserved, (d) no em-dash introduced, (e) tense adjusted where the sentence otherwise asserts live CI behavior.
 
-**Green:** spec §2.3's three items — (1) per-file lint matches the counts above with zero target-class findings; (2) all-severity delta: per-file `pnpm spec:lint` output diffed against the baseline artifact is identical except the removed target findings; (3) the spec §2.3 tree-wide `rg` loop, hits confirmed against `spec:lint`, reports zero target-class citations.
+**Green:** spec §2.3's three items — (1) per-file lint matches the counts above with zero target-class findings; (2) all-severity delta: re-run the canonical artifact-generation command above and `diff` its output against the committed baseline — the only differences are the removed target findings and the affected files' summary hard-counts; (3) the spec §2.3 tree-wide `rg` loop, hits confirmed against `spec:lint`, reports zero target-class citations.
 
 **Commit:** `docs: strip dangling citations to the seven retired e2e workflows`
 
