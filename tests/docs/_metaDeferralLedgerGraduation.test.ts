@@ -99,6 +99,10 @@ const BACKLOG_GRADUATED = [
   // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
   // splice + scanner per-job poison flag, closure families F1-F8).
   { id: "BL-CI-GITHUB-ENV-CROSS-STEP-STATE", provenance: "test/ci-cross-step-env-guard" },
+  // test/ci-static-env-injection (2026-08-02): static env: blocks at every
+  // scope refused via the value-pinned ENV_KEY_ALLOWLIST shared by both CI
+  // guard layers (closure families S1-S7, pair-level hygiene).
+  { id: "BL-CI-STATIC-ENV-INJECTION", provenance: "test/ci-static-env-injection" },
   // feat/card-copy-parity-sync-job-names (2026-08-01): §4.2 helpfulContext
   // byte-parity frozen for all 44 registry codes (rows 1-42 back-filled), and
   // the sync job's Doug-facing name unified to "Auto sync" across the catalog,
