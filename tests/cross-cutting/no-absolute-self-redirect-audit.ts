@@ -161,10 +161,31 @@ function typeCarriesBannedSignature(t: Type): boolean {
  */
 function carriesBanned(node: Node, t: Type): boolean {
   if (typeCarriesBannedSignature(t)) return true;
-  const prop = t.getProperty("redirect");
-  if (prop === undefined) return false;
   const checker = node.getProject().getTypeChecker();
-  return typeCarriesBannedSignature(checker.getTypeOfSymbolAtLocation(prop, node));
+  const prop = t.getProperty("redirect");
+  if (
+    prop !== undefined &&
+    typeCarriesBannedSignature(checker.getTypeOfSymbolAtLocation(prop, node))
+  ) {
+    return true;
+  }
+  // Namespace hop (whole-diff r3): a module-namespace object carries the class
+  // one property deeper (`NS.NextResponse.redirect`). One hop suffices — any
+  // DEEPER stuffing must spell a tracked name at the stuffing site, which is
+  // itself a flagged naked reference.
+  for (const carrier of ["NextResponse", "Response"]) {
+    const p = t.getProperty(carrier);
+    if (p === undefined) continue;
+    const pt = checker.getTypeOfSymbolAtLocation(p, node);
+    const rp = pt.getProperty("redirect");
+    if (
+      rp !== undefined &&
+      typeCarriesBannedSignature(checker.getTypeOfSymbolAtLocation(rp, node))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -338,6 +359,24 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (spec.getNameNode().getText() === "NextResponse") {
         objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
       }
+    }
+    // Namespace objects CARRY the class one property deep — their locals are
+    // candidates too (whole-diff r3: `({ NextResponse: R } = NS)` and
+    // object-rest spellings launder without a class-name expression).
+    const nsImport = imp.getNamespaceImport();
+    if (nsImport !== undefined) objectNames.add(nsImport.getText());
+  }
+  // Dynamic-import namespaces: `const m = await import("next/server")`.
+  for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = vd.getInitializer();
+    const inner = init !== undefined && Node.isAwaitExpression(init) ? init.getExpression() : init;
+    if (
+      inner !== undefined &&
+      Node.isCallExpression(inner) &&
+      inner.getExpression().getKind() === SyntaxKind.ImportKeyword
+    ) {
+      const nameNode = vd.getNameNode();
+      if (Node.isIdentifier(nameNode)) objectNames.add(nameNode.getText());
     }
   }
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {

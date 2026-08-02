@@ -123,6 +123,16 @@ function audit(sf) {
         objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
       }
     }
+    const nsi = imp.getNamespaceImport();
+    if (nsi !== undefined) objectNames.add(nsi.getText());
+  }
+  for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = vd.getInitializer();
+    const inner = init !== undefined && Node.isAwaitExpression(init) ? init.getExpression() : init;
+    if (inner !== undefined && Node.isCallExpression(inner) && inner.getExpression().getKind() === SyntaxKind.ImportKeyword) {
+      const nn = vd.getNameNode();
+      if (Node.isIdentifier(nn)) objectNames.add(nn.getText());
+    }
   }
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
     if (!objectNames.has(id.getText())) continue;
@@ -159,8 +169,20 @@ function audit(sf) {
       continue;
     }
     if (nonExtracting(node)) continue;
+    let carries = false;
     const prop = t.getProperty("redirect");
-    if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, node))) {
+    if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, node))) carries = true;
+    if (!carries) {
+      // namespace hop (whole-diff r3): NS object carries the class one deeper
+      for (const carrier of ["NextResponse", "Response"]) {
+        const cp = t.getProperty(carrier);
+        if (cp === undefined) continue;
+        const cpt = checkerW.getTypeOfSymbolAtLocation(cp, node);
+        const rp = cpt.getProperty("redirect");
+        if (rp !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(rp, node))) { carries = true; break; }
+      }
+    }
+    if (carries) {
       hits.push({ line: node.getStartLineNumber(), kind: "reference", text: node.getText().split("\n")[0] ?? "" });
     }
   }
@@ -250,6 +272,13 @@ const MUTANTS = [
   ["R69 widened computed key (FORMER limit E2)", PRE + `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`, "flag"],
   ["R70 Reflect.get", PRE + `declare const k2: string;\nexport function GET() { const f = Reflect.get(NextResponse, k2); return f(new URL("/x", request.url)); }`, "flag"],
   ["R71 bare .call with no naked thisArg", PRE + `export function GET() { return NextResponse.redirect.call(undefined, new URL("/x", request.url)); }`, "flag"],
+  ["R72 namespace member assignment-destructure", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet R: { redirect: RedirectFn };\n({ NextResponse: R } = NS);\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R73 namespace object-rest assignment", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet rest: { NextResponse: { redirect: RedirectFn } };\n(({ ...rest } = NS));\nexport function GET() { return rest.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R74 namespace declaration destructure", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst { NextResponse: R } = NS;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R75 namespace stuffed into object", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: NS };\nexport function GET() { return box.ns.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R76 dynamic-import binding naked flow", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const R: { redirect: RedirectFn } = m.NextResponse;\n  return R.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R77 dynamic-import namespace stuffed", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: m };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["N9 ordinary namespace uses", `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`, "clean"],
   ["N8 non-extracting whole-object positions", `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`, "clean"],
   // --- documented-escape pin (the one remaining type-erasure limit) ---
   ["E1 string-mediated dynamic access (eval shape)", PRE + `declare function evil(code: string): unknown;\nexport function GET() { const f = evil("NextResponse.redirect") as RedirectFn; return f(new URL("/x", request.url)); }`, "clean"],

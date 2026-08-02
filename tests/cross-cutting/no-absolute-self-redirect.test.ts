@@ -14,8 +14,8 @@
  * finding at the site where the member name is spelled. The fixture tables
  * below are the mutation-family closure set from the spec
  * (docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md §6):
- * R1–R19 legacy spellings (regression floor), R20–R57 families that defeated
- * syntactic resolution, N1–N7 negatives, E1–E2 documented-escape pins.
+ * R1–R19 legacy spellings (regression floor), R20–R77 families that defeated
+ * syntactic or single-hop resolution, N1–N9 negatives, E1 documented-escape pin.
  */
 import { existsSync } from "node:fs";
 
@@ -114,10 +114,10 @@ const FLAGGED_SPELLINGS: Array<[string, string]> = [
 ];
 
 /**
- * R20–R57 (minus the separately-asserted R22/R24): every family that defeated
- * syntactic resolution (spec §6.1). Old-guard verdicts per the Task-1 RED
- * harness: 0 findings for every row except R24/R36, which the old guard
- * already caught (regression floor).
+ * R20–R77 (minus the separately-asserted R22/R24): every family that defeated
+ * syntactic resolution or an earlier construction round (spec §6.1). Old-guard
+ * verdicts per the Task-1 RED harness: 0 findings for every row except
+ * R24/R36, which the old guard already caught (regression floor).
  */
 const NEW_FAMILY_ROWS: Array<[string, string]> = [
   [
@@ -367,6 +367,33 @@ const NEW_FAMILY_ROWS: Array<[string, string]> = [
     PRE +
       `export function GET() { return NextResponse.redirect.call(undefined, new URL("/x", request.url)); }`,
   ],
+  // Namespace carriers (whole-diff r3): the class object rides one property
+  // deep inside a module-namespace object; the naked namespace reference is
+  // the finding.
+  [
+    "R72 namespace member assignment-destructure",
+    `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet R: { redirect: RedirectFn };\n({ NextResponse: R } = NS);\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R73 namespace object-rest assignment",
+    `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet rest: { NextResponse: { redirect: RedirectFn } };\n(({ ...rest } = NS));\nexport function GET() { return rest.NextResponse.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R74 namespace declaration destructure",
+    `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst { NextResponse: R } = NS;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R75 namespace stuffed into an object",
+    `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: NS };\nexport function GET() { return box.ns.NextResponse.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R76 dynamic-import binding naked flow",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const R: { redirect: RedirectFn } = m.NextResponse;\n  return R.redirect(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R77 dynamic-import namespace stuffed",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: m };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`,
+  ],
 ];
 
 /** N-rows (spec §6.2): constructions that must stay quiet. */
@@ -403,6 +430,10 @@ const NEGATIVE_ROWS: Array<[string, string]> = [
   [
     "N8 non-extracting whole-object positions (new, member receiver, instanceof, typeof)",
     `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`,
+  ],
+  [
+    "N9 ordinary namespace member and type-position uses",
+    `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`,
   ],
 ];
 
