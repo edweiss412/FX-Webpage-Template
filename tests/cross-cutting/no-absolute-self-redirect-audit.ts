@@ -583,25 +583,62 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     if (decls.length === 0) return id.getText() === "globalThis";
     return decls.some((d) => d.getSourceFile().getFilePath().includes("node_modules/"));
   };
+  const symbolDeclsIn = (node: Node, set: ReadonlySet<Node>): boolean => {
+    const decls = node.getSymbol()?.getDeclarations() ?? [];
+    return decls.some((d) => set.has(d));
+  };
   const isCarrierExpression = (exprIn: Node): boolean => {
     let expr: Node = exprIn;
     while (
-      (Node.isParenthesizedExpression(expr) || Node.isNonNullExpression(expr)) &&
+      (Node.isParenthesizedExpression(expr) ||
+        Node.isNonNullExpression(expr) ||
+        Node.isAwaitExpression(expr)) &&
       expr.getExpression() !== undefined
     ) {
       expr = expr.getExpression();
     }
     if (Node.isIdentifier(expr)) {
       if (isAmbientGlobalIdentifier(expr)) return true;
-      const key = declKeyOf(expr);
-      return key !== undefined && carrierDecls.has(key);
+      return symbolDeclsIn(expr, carrierDecls);
     }
     if (Node.isCallExpression(expr)) {
       const callee = expr.getExpression();
-      if (Node.isIdentifier(callee)) {
-        const key = declKeyOf(callee);
-        return key !== undefined && carrierFnDecls.has(key);
+      if (Node.isIdentifier(callee)) return symbolDeclsIn(callee, carrierFnDecls);
+    }
+    return false;
+  };
+  /** Returns OWNED by this function — nested function bodies excluded (r17 FP). */
+  const ownReturnExpressions = (fnBody: Node): Node[] => {
+    const out: Node[] = [];
+    const walk = (n: Node): void => {
+      if (
+        Node.isFunctionDeclaration(n) ||
+        Node.isFunctionExpression(n) ||
+        Node.isArrowFunction(n) ||
+        Node.isMethodDeclaration(n) ||
+        Node.isClassDeclaration(n)
+      ) {
+        return;
       }
+      if (Node.isReturnStatement(n)) {
+        const e = n.getExpression();
+        if (e !== undefined) out.push(e);
+      }
+      n.forEachChild(walk);
+    };
+    fnBody.forEachChild(walk);
+    return out;
+  };
+  const functionLikeReturnsCarrier = (fnLike: Node): boolean => {
+    if (Node.isArrowFunction(fnLike)) {
+      const body = fnLike.getBody();
+      return Node.isBlock(body)
+        ? ownReturnExpressions(body).some(isCarrierExpression)
+        : isCarrierExpression(body);
+    }
+    if (Node.isFunctionDeclaration(fnLike) || Node.isFunctionExpression(fnLike)) {
+      const body = fnLike.getBody();
+      return body !== undefined && ownReturnExpressions(body).some(isCarrierExpression);
     }
     return false;
   };
@@ -620,29 +657,33 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         }
         continue;
       }
-      // Arrow helper: `const f = () => globalThis`
-      if (Node.isArrowFunction(init)) {
-        const body = init.getBody();
-        const returnsCarrier = Node.isBlock(body)
-          ? body
-              .getDescendantsOfKind(SyntaxKind.ReturnStatement)
-              .some(
-                (r) => r.getExpression() !== undefined && isCarrierExpression(r.getExpression()!),
-              )
-          : isCarrierExpression(body);
-        if (returnsCarrier && !carrierFnDecls.has(vd)) {
-          carrierFnDecls.add(vd);
-          carrierSetGrew = true;
-        }
+      if (
+        (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) &&
+        functionLikeReturnsCarrier(init) &&
+        !carrierFnDecls.has(vd)
+      ) {
+        carrierFnDecls.add(vd);
+        carrierSetGrew = true;
       }
     }
     for (const fn of sf.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
-      const returnsCarrier = fn
-        .getDescendantsOfKind(SyntaxKind.ReturnStatement)
-        .some((r) => r.getExpression() !== undefined && isCarrierExpression(r.getExpression()!));
-      if (returnsCarrier && !carrierFnDecls.has(fn)) {
+      if (functionLikeReturnsCarrier(fn) && !carrierFnDecls.has(fn)) {
         carrierFnDecls.add(fn);
         carrierSetGrew = true;
+      }
+    }
+    // Staged initialization: `let environment; environment = globalThis;`
+    for (const bin of sf.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+      if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+      const lhs = bin.getLeft();
+      if (!Node.isIdentifier(lhs)) continue;
+      if (!isCarrierExpression(bin.getRight())) continue;
+      const decls = lhs.getSymbol()?.getDeclarations() ?? [];
+      for (const d of decls) {
+        if (!carrierDecls.has(d)) {
+          carrierDecls.add(d);
+          carrierSetGrew = true;
+        }
       }
     }
   }
@@ -693,20 +734,33 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       }
     }
   }
-  // Helper CALLS producing a carrier get the same destination-shape decision.
+  // Helper CALLS producing a carrier get the same destination-shape decision;
+  // an awaiting wrapper inherits the carrier and is judged at ITS destination.
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
     if (!Node.isIdentifier(callee)) continue;
-    const key = declKeyOf(callee);
-    if (key === undefined || !carrierFnDecls.has(key)) continue;
-    if (inNonExtractingPosition(call, bannedCalls)) continue;
-    const parent = call.getParent();
+    if (!symbolDeclsIn(callee, carrierFnDecls)) continue;
+    let outer: Node = call;
+    let parent = outer.getParent();
+    while (
+      parent !== undefined &&
+      (Node.isAwaitExpression(parent) ||
+        Node.isParenthesizedExpression(parent) ||
+        Node.isNonNullExpression(parent)) &&
+      parent.getExpression() === outer
+    ) {
+      outer = parent;
+      parent = outer.getParent();
+    }
+    if (inNonExtractingPosition(outer, bannedCalls)) continue;
     const destinationType =
       parent !== undefined && (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent))
         ? parent.getType()
-        : checker.getContextualType(call);
-    if (destinationType !== undefined && destinationLooksRedirectish(call, destinationType)) {
-      findings.push(findingFor(call, "reference", ""));
+        : Node.isExpression(outer)
+          ? checker.getContextualType(outer)
+          : undefined;
+    if (destinationType !== undefined && destinationLooksRedirectish(outer, destinationType)) {
+      findings.push(findingFor(outer, "reference", ""));
     }
   }
   for (const node of candidates) {

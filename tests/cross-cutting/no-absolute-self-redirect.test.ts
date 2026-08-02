@@ -615,14 +615,13 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
-  it("flags R95 aliased global carrier into a structural parameter", () => {
-    // whole-diff r15/r16: symbol provenance survives aliases to a fixpoint —
-    // env2's USE sits in a function body ABOVE the declarations, so a single
-    // forward pass over declaration order cannot have added it (the r16
-    // reviewer showed the earlier fixture passed without the loop).
+  it("flags R95 aliased global carrier through a reverse-ordered chain", () => {
+    // whole-diff r15/r16/r17: the use precedes every declaration, and the
+    // chain (env2 <- pick() <- environment <- globalThis) is laid out so a
+    // single declaration-order pass cannot resolve it - only the fixpoint can.
     const findings = auditSource(
       fixturePath(),
-      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }\nconst environment = globalThis;\nconst env2 = environment;`,
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }\nconst env2 = pick();\nfunction pick() { return environment; }\nconst environment = globalThis;`,
     );
     expect(findings.some((f) => f.text === "env2")).toBe(true);
   });
@@ -634,6 +633,33 @@ describe("no absolute self-redirect under the walked roots", () => {
       `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction currentEnvironment() { return globalThis; }\nconst pickEnvironment = () => globalThis;\nexport function GET() {\n  const a = viaEnvironment(currentEnvironment(), new URL("/x", request.url));\n  const b = viaEnvironment(pickEnvironment(), new URL("/y", request.url));\n  return [a, b];\n}`,
     );
     expect(findings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each([
+    [
+      "R97 function-expression helper",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst pickFE = function () { return globalThis; };\nexport function GET() { return viaEnvironment(pickFE(), new URL("/x", request.url)); }`,
+    ],
+    [
+      "R98 async helper awaited",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nasync function pickAsync() { return globalThis; }\nexport async function GET() { return viaEnvironment(await pickAsync(), new URL("/x", request.url)); }`,
+    ],
+    [
+      "R99 staged-initialization alias",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nlet environment: typeof globalThis | undefined;\nenvironment = globalThis;\nexport function GET() { return viaEnvironment(environment!, new URL("/x", request.url)); }`,
+    ],
+  ])("flags %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
+  });
+
+  it("does not flag a safe outer helper containing a nested carrier helper (N18)", () => {
+    // r17 FP: return statements are scoped to the OWNING function.
+    expect(
+      auditSource(
+        fixturePath(),
+        `type RedirectFn = (url: string | URL, status?: number) => Response;\nfunction take(g: { info: string }) { return g; }\nfunction outerSafe() {\n  function nested() { return globalThis; }\n  void nested;\n  return { info: "safe" };\n}\nexport function GET() { return take(outerSafe()); }`,
+      ),
+    ).toEqual([]);
   });
 
   it("does not flag shadowing or same-named locals (N17)", () => {
