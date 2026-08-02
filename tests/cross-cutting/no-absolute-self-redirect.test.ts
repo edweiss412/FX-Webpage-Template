@@ -687,6 +687,19 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings).toHaveLength(1);
   });
 
+  it("D1: flow-insensitive taint is deliberate — safe-after-carrier reassignment still flags", () => {
+    // Ratified whole-diff r22: a symbol EVER assigned a carrier is a carrier at
+    // every use. Flow-sensitivity is dataflow analysis this guard deliberately
+    // does not do; the worst case is a VISIBLE false positive on mixed-use of
+    // one binding (distinct names resolve it), never a silent miss. If this
+    // pin trips, flow-sensitivity was added — update spec §5.1 deliberately.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction carrierPick() { return globalThis; }\nfunction safePick() { return { Response: { redirect: ((u: string | URL) => new Response(String(u))) as RedirectFn } }; }\nlet pick = carrierPick;\npick = safePick;\nexport function GET() { return viaEnvironment(pick(), new URL("/x", request.url)); }`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
   it("does not flag a safe outer helper containing nested carrier scopes (N18)", () => {
     // r17/r18 FP: return scanning is owned-returns-only, incl. accessors and
     // class expressions. The sink IS redirect-shaped, so a misclassification
