@@ -29,9 +29,16 @@ all four answers = the recommended option):
    is already in the `mobile-safari` project's `testMatch` (`playwright.config.ts:63-66`), so
    there is no new config entry and no new coverage-registry row.
 3. **CI wiring: add the file to the crew-e2e run command** (`.github/workflows/crew-e2e.yml:143`)
-   and delete its `UNSEEN` row from `tests/ci/_metaE2eWorkflowCoverage.test.ts:109` (the
-   registry's shadowing assertion forces the deletion once the spec becomes covered). The
-   pre-existing stage-restricted assertions start running in CI as a deliberate side effect.
+   and transition its registry row in `tests/ci/_metaE2eWorkflowCoverage.test.ts:109` from
+   `UNSEEN` to `PATH_GATED_BY_EXCLUSION` — NOT a deletion. `crew-e2e.yml` carries
+   `pull_request.paths-ignore`, so the scanner deliberately never classifies its specs as
+   `covered` (review R1 probe: the proposed command yields `covered: []`, rejection reason
+   `pull_request.paths/paths-ignore filter`); the three specs already in that workflow all hold
+   `PATH_GATED_BY_EXCLUSION` rows (`_metaE2eWorkflowCoverage.test.ts:60-61` and the picker-flow
+   row), and a deleted row would make the dark-spec assertion
+   (`_metaE2eWorkflowCoverage.test.ts:170`) fail. The pre-existing stage-restricted assertions
+   start running in CI (on every PR the paths-ignore filter doesn't exclude) as a deliberate
+   side effect.
 4. **WebKit rider shape: a scoped project in `tests/e2e/standalone.config.ts`** (Desktop Safari,
    testMatch pinned to `agendaScheduleLayout.spec.ts`, `grep` pinned to the `a11y:` title), NOT a
    workflow matrix leg.
@@ -60,9 +67,10 @@ Two independent units, one PR:
 
 - **U1 — seeded fold e2e:** `seedShowWithCrew` gains `agendaLinks`; a new `describe` in
   `stage-restricted-crew-schedule.spec.ts` seeds a show whose `agenda_links` carry a
-  high-confidence extraction with parseable day labels plus a date-restricted crew member, loads
-  the real share-link route as that viewer (picker-cookie path), and asserts the viewer's day row
-  is open and marked while the other day folds. Wired into `crew-e2e.yml`.
+  high-confidence extraction with parseable day labels plus TWO date-restricted crew members
+  with complementary day assignments, loads the real share-link route as each viewer
+  (picker-cookie path), and asserts each viewer's own day row is open and marked while the
+  other day folds. Wired into `crew-e2e.yml`.
 - **U2 — WebKit a11y leg:** a `standalone-webkit-a11y` project in `standalone.config.ts` scoped
   to exactly the a11y test, webkit browser install lines in `standalone-e2e.yml`, and the
   regenerated `tests/e2e/standalone-baseline.json`.
@@ -92,10 +100,21 @@ same as the existing `dates` option.
 
 Show dates (all in the past relative to any run date, matching the template's frozen-clock
 convention): `travelIn 2026-05-04`, `set 2026-05-05`, `showDays ["2026-05-06", "2026-05-07"]`,
-`travelOut 2026-05-08`. Crew member "Fold Fiona", `dateRestriction: { kind: "explicit", days:
-["2026-05-06"] }`, no email, unclaimed (picker-cookie selection by id, exactly the template's
-viewer mechanism at `stage-restricted-crew-schedule.spec.ts` header "Why a picker-cookie
-viewer").
+`travelOut 2026-05-08`. TWO date-restricted crew members, both no-email, unclaimed
+(picker-cookie selection by id, exactly the template's viewer mechanism at
+`stage-restricted-crew-schedule.spec.ts` header "Why a picker-cookie viewer"):
+
+- "Fold Fiona", `dateRestriction: { kind: "explicit", days: ["2026-05-06"] }` → expects row 0
+  open+marked, row 1 folded.
+- "Thursday Theo", `dateRestriction: { kind: "explicit", days: ["2026-05-07"] }` → expects row 1
+  open+marked, row 0 folded.
+
+The second viewer exists to kill a degeneracy the review R1 probe demonstrated: with one viewer
+assigned row 0, a seam regression that returns a CONSTANT `{kind:"subset", rows:{0}}` for every
+explicit viewer satisfies every single-viewer assertion (and the admin control cannot catch it —
+admins bypass the matcher with `{kind:"all"}`). Two viewers with complementary assignments make
+"same subset for every viewer" fail one of the two tests, so the suite genuinely pins the
+`viewerDates`/`restrictionDays` → row composition.
 
 `agenda_links`: one link,
 
@@ -132,48 +151,71 @@ Walk the real pipeline (`ScheduleSection.tsx`, hoisted day-derivation block →
   `restrictionDays = ["2026-05-06"]`.
 - `visibleAgendaDaysForViewer(extracted, viewerDates, restrictionDays)`
   (`lib/crew/agendaViewerDays.ts:193`): both labels parse to exactly one date each (05-06,
-  05-07) — no ambiguity; disagreement guard: parsed ∩ restriction ⊆ R ✓; located = {05-06} =
-  R, complete; every row parses → returns `{ kind: "subset", rows: {0} }`.
-- `AgendaScheduleBlock` (`components/crew/AgendaScheduleBlock.tsx:68-88`): `isOpen(0)` true,
-  `isOpen(1)` false; marker rule: rows.size 1 < days.length 2 → `markerOn(0)` true only.
+  05-07) — no ambiguity; disagreement guard: parsed ∩ restriction ⊆ R ✓; located = R (one
+  date), complete; every row parses → Fiona returns `{ kind: "subset", rows: {0} }`, Theo
+  `{ kind: "subset", rows: {1} }`. (Review R1 ran the Fiona derivation as a live probe:
+  `{kind:"subset", rows:[0]}` confirmed.)
+- `AgendaScheduleBlock` (`components/crew/AgendaScheduleBlock.tsx:68-88`): for Fiona `isOpen(0)`
+  true, `isOpen(1)` false, marker rule: rows.size 1 < days.length 2 → `markerOn(0)` only; for
+  Theo the mirror image on row 1.
 
-### 3.3 Assertions (the viewer test)
+### 3.3 Assertions (two viewer tests)
 
-Navigate `/show/<slug>/<shareToken>` with a seeded `__Host-fxav_picker` cookie for the crew
-member id and NO Google session (template mechanism, `seedPickerCookie` helper). Then:
+Each viewer test navigates `/show/<slug>/<shareToken>` with a seeded `__Host-fxav_picker`
+cookie for its crew member id and NO Google session (template mechanism, `seedPickerCookie`
+helper). With V = the viewer's own row index (Fiona 0, Theo 1) and F = the other row:
 
 1. Composition proof: `[data-testid="agenda-schedule"]` visible (real jsonb round-trip survived
    `normalizeAgendaExtraction` on the real page).
-2. Viewer's day open: `[data-testid="agenda-day-0"]` has the `open` attribute
+2. Viewer's day open: `[data-testid="agenda-day-V"]` has the `open` attribute
    (`AgendaScheduleBlock.tsx`, `<details ... open={isOpen(di)}>`).
-3. Viewer's day marked: `[data-testid="agenda-day-marker-0"]` visible with text "Your day".
-4. Other day folded, not hidden: `[data-testid="agenda-day-1"]` present WITHOUT the `open`
-   attribute; its summary `[data-testid="agenda-day-summary-1"]` visible (fold ≠ removal — the
+3. Viewer's day marked: `[data-testid="agenda-day-marker-V"]` visible with text "Your day".
+4. Other day folded, not hidden: `[data-testid="agenda-day-F"]` present WITHOUT the `open`
+   attribute; its summary `[data-testid="agenda-day-summary-F"]` visible (fold ≠ removal — the
    fold is a de-emphasis, unlike the day-card privacy boundary).
-5. No marker on the folded day: `[data-testid="agenda-day-marker-1"]` count 0.
+5. No marker on the folded day: `[data-testid="agenda-day-marker-F"]` count 0.
 
-### 3.4 Anti-tautology control (the admin test)
+### 3.4 Anti-tautology controls
 
-Same seeded show, admin viewer via `signInAs(ADMIN_FIXTURE)` (template's control-test
-mechanism): admin resolves `dateRestriction {kind:'none'}` → `viewerDays {kind:'all'}` →
-BOTH `agenda-day-0` and `agenda-day-1` carry `open`, and `agenda-day-marker-*` count 0 (marker
-renders only when it distinguishes). Proves the folded row in §3.3 is a genuine narrowing
-produced by the restriction, not a fixture artifact.
+Two independent controls:
+
+- **Admin test:** same seeded show, admin viewer via `signInAs(ADMIN_FIXTURE)` (template's
+  control-test mechanism): admin resolves `dateRestriction {kind:'none'}` → `viewerDays
+  {kind:'all'}` → BOTH `agenda-day-0` and `agenda-day-1` carry `open`, and
+  `agenda-day-marker-*` count 0 (marker renders only when it distinguishes). Proves the folded
+  rows in §3.3 are a genuine narrowing produced by the restriction, not a fixture artifact.
+- **Cross-viewer pair (§3.2):** Fiona and Theo have complementary expectations over the SAME
+  extraction, so any viewer-independent constant subset fails one of them. This is the control
+  the admin test cannot provide, because admins never enter the matcher.
 
 ### 3.5 CI wiring
 
 - `.github/workflows/crew-e2e.yml:143`: append `tests/e2e/stage-restricted-crew-schedule.spec.ts`
   to the existing single `playwright test` invocation. The file is claimed by `mobile-safari`
   only (absent from `desktop-chromium`'s testMatch, `playwright.config.ts:76-80`), which is the
-  project whose webkit binary the job already installs (`crew-e2e.yml:125-126`). The adjacent
-  "verified with --list: 6 + 6 + 4 tests, 3 files" comment is refreshed with the new measured
-  counts (measured at implementation time via `--list`, not predicted here).
-- `tests/ci/_metaE2eWorkflowCoverage.test.ts:109`: delete the
-  `"tests/e2e/stage-restricted-crew-schedule.spec.ts": UNSEEN` row. TDD ordering: the registry's
-  shadowing assertion fails while the row exists and the workflow names the file — delete-row is
-  the green step after the yml edit (or equivalently: row deletion first makes the
-  stale/shadowing pair the failing test; either order yields a failing-then-green pair, the plan
-  picks one).
+  project whose webkit binary the job already installs (`crew-e2e.yml:125-126`).
+- **Stale-comment sweep, same commit as the yml edit** (class-swept per review R1 finding 5 —
+  every prose surface asserting the three-spec inventory or Chromium-only coverage):
+  - `crew-e2e.yml:2-4` header ("client-side section-toggle suite … and the crew picker flow"):
+    extend to name all four specs.
+  - `crew-e2e.yml:142` step name ("Run crew section-toggle + picker-flow + alert-action-links
+    e2e"): extend.
+  - `crew-e2e.yml:132-136` "verified with --list: 6 + 6 + 4 tests, 3 files" comment: refresh
+    with measured counts (measured at implementation time via `--list`; today's pre-change
+    measurement is already 6 + 7 + 4 + 3 in 4 files — the picker-flow count in the live comment
+    is ALREADY stale — so the refreshed comment is written from the post-change `--list` run,
+    not incremented).
+  - `tests/e2e/agendaScheduleLayout.spec.ts:463-466` a11y-test comment ("runs Chromium only …
+    filed as BL-AGENDA-A11Y-WEBKIT-COVERAGE"): rewrite to state the WebKit leg exists
+    (`standalone-webkit-a11y` project) and the backlog item is closed.
+- `tests/ci/_metaE2eWorkflowCoverage.test.ts:109`: transition the stage-restricted spec's
+  registry row from `UNSEEN` to `PATH_GATED_BY_EXCLUSION` (see §1.1 item 3 for why not a
+  deletion), and update the row's preceding provenance comment. TDD shape: the transition is prose-accuracy, not
+  assertion-forced — the registry maps spec → reason string and neither string trips an
+  assertion here (the dark-spec assertion at `_metaE2eWorkflowCoverage.test.ts:170` fires only
+  on a MISSING row) — so the plan pairs the yml edit + row transition in one commit and proves
+  the meta-test green after; the behavioral red for T3 lives in the scanner probe recorded in
+  the plan body, not in a red test run.
 
 ### 3.6 What U1 leaves unproven (documented limits)
 
@@ -197,17 +239,29 @@ produced by the restriction, not a fixture artifact.
 {
   name: "standalone-webkit-a11y",
   testMatch: /agendaScheduleLayout\.spec\.ts/,   // project-level override of the top-level allowlist
-  grep: /^a11y:/,                                 // exactly the a11y-titled test(s) in that file
+  grep: /a11y:/,                                  // UNANCHORED, see below
   use: { ...devices["Desktop Safari"] },
 },
 ```
+
+**The grep is deliberately unanchored.** Playwright applies a project's `grep` to the JOINED
+title — `<project name> <file name> <test title>` — per Playwright 1.59.1's vendored internals
+(title assembly in the common test module, project filtering in the runner's load utilities;
+both probed live in review R1 against this repo's installed copy). A caret-anchored form of
+the pattern therefore matches ZERO tests (the joined string starts with the project name) and
+the project would be silently empty. The unanchored pattern, WITH the trailing colon, matches
+only the one test whose TITLE contains the `a11y:` token: the joined prefix
+`standalone-webkit-a11y agendaScheduleLayout.spec.ts` contains `a11y` followed by a space,
+never `a11y` followed by a colon, and the file's only test carrying the token in its title is
+the top-level one at `agendaScheduleLayout.spec.ts:453` (no `describe` wrapper). Implementation
+verifies with `--project=standalone-webkit-a11y --list` resolving exactly 1 test; the baseline
+comparator (§4.2) then pins that count structurally.
 
 Rationale pinned in a comment: `devices["Desktop Safari"]` matches the hand-run probe measured
 during #610 (BACKLOG: "a temporary `probe-webkit` project ran the a11y test green in 5.0s"); the
 `grep` scoping means the file's dimensional tests do NOT run on WebKit (deliberate — the BACKLOG
 entry declined a whole-config WebKit leg precisely because it "runs all 439 standalone specs a
-second time and would surface unrelated engine differences"). The a11y test's title starts with
-`a11y:` (`agendaScheduleLayout.spec.ts:453`).
+second time and would surface unrelated engine differences").
 
 ### 4.2 Workflow + baseline
 
@@ -245,9 +299,10 @@ diff only asserts the INITIAL open/closed state the server renders.
 
 | Surface | Action |
 |---|---|
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | delete UNSEEN row (§3.5) |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | row transition UNSEEN → PATH_GATED_BY_EXCLUSION + provenance comment (§3.5) |
 | `tests/e2e/standalone-baseline.json` | regenerate + commit (§4.2) |
-| `crew-e2e.yml` --list count comment | refresh measured counts (§3.5) |
+| Stale-comment sweep: `crew-e2e.yml:2-4` header, `crew-e2e.yml:142` step name, `crew-e2e.yml:132-136` --list count comment; `agendaScheduleLayout.spec.ts:463-466` Chromium-only note | all refreshed in the same commits as the edits that stale them (§3.5) |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | add BOTH graduated IDs to the graduation registry (`BACKLOG_GRADUATED`, `_metaDeferralLedgerGraduation.test.ts:90`) — the registry drives the archive-only and per-section provenance checks; graduation without the rows leaves those protections dark |
 | `tests/ci/_metaStandaloneConfigBranches` / `_standaloneConfigProbe` / `_metaStandaloneConfigEnv` | no action expected — probes observe via `--list`/import and carry no project-count pin (verified: the probe's own header documents project-level testMatch/grep as its motivating cases); plan re-runs them to confirm |
 | `tests/log/_metaMutationSurfaceObservability` (invariant 10) | N/A — no mutation surface added |
 | invariant-9 registry | N/A — no new Supabase call site; the one touched insert already destructures `{ data, error }` (`seedShowWithCrew.ts:116-130`) |
@@ -261,16 +316,20 @@ diff only asserts the INITIAL open/closed state the server renders.
    `agendaLinks` in `seedShowWithCrew` options → `pnpm typecheck` red → add the option → green.
    (The helper has no standalone unit suite; the spec IS its consumer test, per the existing
    helper's pattern.)
-2. **T2 (U1 spec):** the two tests of §3.3/§3.4, red against a stub (option present but not
-   written to the insert → agenda area absent → assertion 1 fails), green once the insert
-   carries the column. Run locally: `pnpm exec playwright test --project=mobile-safari
+2. **T2 (U1 spec):** the three tests of §3.3/§3.4 (Fiona viewer, Theo viewer, admin control),
+   red against a stub (option present but not written to the insert → agenda area absent →
+   assertion 1 fails), green once the insert carries the column. Run locally:
+   `pnpm exec playwright test --project=mobile-safari
    tests/e2e/stage-restricted-crew-schedule.spec.ts`.
-3. **T3 (U1 CI):** registry row deletion + yml edit as a failing/green pair (§3.5); local proof
-   via the meta-test file run.
+3. **T3 (U1 CI):** yml edit + registry row transition + stale-comment sweep in one commit
+   (§3.5); the meta-test file run proves green after, and the plan body records the scanner
+   probe (`covered: []`, paths-ignore rejection) as the behavioral evidence — there is no
+   red-test state for a reason-string transition (dark assertion fires only on a missing row).
 4. **T4 (U2):** baseline comparator `--list-check` red after adding the project (baseline lacks
-   the new identities) → regen baseline → green; then
-   `pnpm exec playwright test --config tests/e2e/standalone.config.ts
-   --project=standalone-webkit-a11y` green locally (webkit binary present from repo setup;
+   the new identities) → regen baseline → green; verify
+   `--project=standalone-webkit-a11y --list` resolves EXACTLY 1 test (§4.1 joined-title grep
+   trap); then `pnpm exec playwright test --config tests/e2e/standalone.config.ts
+   --project=standalone-webkit-a11y` green locally (webkit binary already present locally;
    if absent, `pnpm exec playwright install webkit` first).
 5. **Full gates before push:** full `pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs),
    `pnpm lint`, `pnpm format:check`, plus the touched playwright suites; real CI green is a
