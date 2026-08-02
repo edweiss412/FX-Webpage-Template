@@ -29,6 +29,7 @@ import {
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
 import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
+import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   buildParseResult,
   harnessVenue,
@@ -128,6 +129,11 @@ function withContactableCrew(crew: CrewMemberRow[]): CrewMemberRow[] {
 export function buildSectionData(
   prOverrides: Partial<ParseResult> = {},
   showOverrides: Partial<ParseResult["show"]> = {},
+  // Empty by default, so every existing caller keeps today's no-agenda render
+  // (`includesAgenda` gates on baseline.length). The agenda harness passes a
+  // non-empty baseline so the REAL <AgendaBreakdown> mounts inside the REAL
+  // modal chrome — the wrapper step3-review-modal.agenda.spec.ts measures.
+  agendaBaseline: AdminAgendaItem[] = [],
 ): StagedSectionData {
   // Harness defaults (diagrams + crew warnings, above) layer UNDER the
   // caller's prOverrides so existing override-driven cases stay authoritative.
@@ -155,7 +161,7 @@ export function buildSectionData(
     pullSheetOverride: null,
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
-    agendaBaseline: [],
+    agendaBaseline,
     useRawDecisions: [],
   });
 }
