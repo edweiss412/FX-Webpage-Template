@@ -733,6 +733,15 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     });
     expect(masqueraded.covered.has(spec)).toBe(false);
     expect(masqueraded.rejected[0]!.reason).toBe(REASON);
+    // Nested F7 (plan-review R4): a javascript action reached through a
+    // composite PARENT is opaque there too, not just at the direct site.
+    const nestedJs = S(two("uses: ./.github/actions/pjs"), {
+      "./.github/actions/pjs":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/js3\n",
+      "./.github/actions/js3": "runs:\n  using: node20\n  main: index.js\n",
+    });
+    expect(nestedJs.covered.has(spec)).toBe(false);
+    expect(nestedJs.rejected[0]!.reason).toBe(REASON);
     // …and a REAL composite with prose elsewhere still resolves clean.
     const proseComposite = S(two("uses: ./.github/actions/ok2"), {
       "./.github/actions/ok2":

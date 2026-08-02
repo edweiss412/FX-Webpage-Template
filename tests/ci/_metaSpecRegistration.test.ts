@@ -1436,6 +1436,21 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(runBlocksOf(jsUse, { "./.github/actions/js": jsAction })).toEqual([
       { run: "echo after-js", guarded: false, poisoned: true },
     ]);
+    // Nested F7 (plan-review R4): a javascript action reached through a
+    // composite PARENT is opaque there too, not just at the direct site.
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/pjs\n      - run: echo after-nested-js\n",
+        ),
+        {
+          "./.github/actions/pjs": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/js3\n",
+          ),
+          "./.github/actions/js3": parse("runs:\n  using: node20\n  main: index.js\n"),
+        },
+      ),
+    ).toEqual([{ run: "echo after-nested-js", guarded: false, poisoned: true }]);
     // R7/R8: an INVALID composite manifest — no steps, or any step shape
     // GitHub's runner schema rejects — fails the job at the use site, so
     // downstream never runs. Clean-composite readings were false coverage;
