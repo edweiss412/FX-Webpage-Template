@@ -43,7 +43,11 @@ export function looksLikeAnchoredScroller(source: string): boolean {
 
 const IMPORT_FOR_DISPOSITION: Partial<Record<OverlayRow["disposition"], RegExp>> = {
   "placement-module": /from\s+"@\/lib\/popover\/position"/,
-  "fit-within-clip": /useFitWithinClip/,
+  // Requires the SHARED-MODULE import, not merely the identifier. The old
+  // /useFitWithinClip/ also matched a file that declared its own local copy, so
+  // a consumer could silently fork the hook and stay "registered as fit-within-
+  // clip" (spec §4.1; the escaping mutant is quoted in this task's commit).
+  "fit-within-clip": /from\s+"@\/components\/admin\/useFitWithinClip"/,
 };
 
 function detectedFiles(): string[] {
