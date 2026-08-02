@@ -14,7 +14,7 @@
  * finding at the site where the member name is spelled. The fixture tables
  * below are the mutation-family closure set from the spec
  * (docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md §6):
- * R1–R19 legacy spellings (regression floor), R20–R77 families that defeated
+ * R1–R19 legacy spellings (regression floor), R20–R82 families that defeated
  * syntactic or single-hop resolution, N1–N9 negatives, E1 documented-escape pin.
  */
 import { existsSync } from "node:fs";
@@ -114,7 +114,7 @@ const FLAGGED_SPELLINGS: Array<[string, string]> = [
 ];
 
 /**
- * R20–R77 (minus the separately-asserted R22/R24): every family that defeated
+ * R20–R82 (minus the separately-asserted R22/R24): every family that defeated
  * syntactic resolution or an earlier construction round (spec §6.1). Old-guard
  * verdicts per the Task-1 RED harness: 0 findings for every row except
  * R24/R36, which the old guard already caught (regression floor).
@@ -393,6 +393,28 @@ const NEW_FAMILY_ROWS: Array<[string, string]> = [
   [
     "R77 dynamic-import namespace stuffed",
     `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: m };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`,
+  ],
+  // Import-call carriers (whole-diff r4): every downstream shape flags at the
+  // `import("next/server")` spelling itself, decided on the awaited type.
+  [
+    "R78 direct awaited-import stuffing",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: await import("next/server") };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R79 dynamic-import declaration destructuring",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const { NextResponse: R } = await import("next/server");\n  return (R as { redirect: RedirectFn }).redirect(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R80 dynamic-import assignment destructuring",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet R80: { redirect: RedirectFn };\nexport async function GET() {\n  ({ NextResponse: R80 } = await import("next/server"));\n  return R80.redirect(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R81 promise-carried namespace",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const pr = import("next/server");\n  const m: { NextResponse: { redirect: RedirectFn } } = await pr;\n  return m.NextResponse.redirect(new URL("/x", request.url));\n}`,
+  ],
+  [
+    "R82 .then callback stuffing",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport function GET() {\n  return import("next/server").then((m) => (m.NextResponse as { redirect: RedirectFn }).redirect(new URL("/x", request.url)));\n}`,
   ],
 ];
 

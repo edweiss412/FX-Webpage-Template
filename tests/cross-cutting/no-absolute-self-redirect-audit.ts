@@ -23,9 +23,11 @@
  *   2. REFERENCES — every OTHER reference to that method OR to the class
  *      object carrying it: property/element access, binding elements,
  *      destructuring-assignment members (via the source property-symbol type),
- *      and naked `NextResponse`/`Response` value flows (whole-object
- *      laundering — `const R: { redirect: RedirectFn } = NextResponse` — needs
- *      no cast, so the object reference itself is the finding). Extracting,
+ *      naked `NextResponse`/`Response` value flows (whole-object laundering —
+ *      `const R: { redirect: RedirectFn } = NextResponse` — needs no cast, so
+ *      the object reference itself is the finding), namespace-import locals
+ *      carrying the class one property deep, and dynamic `import(...)` calls
+ *      of carrier modules (flagged at the import spelling). Extracting,
  *      storing, passing, or adapting the method or its carrier is a finding at
  *      the site where the name is spelled, and is NEVER allow-listable.
  *
@@ -295,6 +297,23 @@ function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boo
     .some((s) => rawIsBannedDecl(s.getDeclaration()));
 }
 
+/** Does a module-namespace type carry the banned class (NextResponse/Response → redirect)? */
+function rawModuleCarries(checker: ts.TypeChecker, t: ts.Type, at: ts.Node): boolean {
+  for (const carrier of ["NextResponse", "Response"]) {
+    const p = t.getProperty(carrier);
+    if (p === undefined) continue;
+    const pt = checker.getTypeOfSymbolAtLocation(p, at);
+    const rp = pt.getProperty("redirect");
+    if (
+      rp !== undefined &&
+      rawTypeCarriesBannedSignature(checker, checker.getTypeOfSymbolAtLocation(rp, at))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Property name of an assignment-pattern member; literal-TYPED computed keys resolve too. */
 function memberPropName(checker: ts.TypeChecker, name: ts.PropertyName): string | null {
   if (
@@ -326,7 +345,11 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   const raw = checker.compilerObject;
   const findings: SelfRedirectFinding[] = [];
 
-  // Prong 1 — calls, by resolved-signature identity.
+  // Prong 1 — calls, by resolved-signature identity. Dynamic `import(...)` of
+  // a carrier module is flagged HERE, at the import spelling (whole-diff r4):
+  // deciding on the awaited module type closes every downstream shape (inline
+  // stuffing, destructuring, promise variables, `.then` callbacks) at once —
+  // name-tracking the bound variable covered only direct initializers.
   const bannedCalls = new Set<CallExpression>();
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     if (isBannedDecl(checker.getResolvedSignature(call)?.getDeclaration())) {
@@ -335,6 +358,13 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       findings.push(
         findingFor(call, "call", firstArg === undefined ? "" : firstArg.getText().trim()),
       );
+      continue;
+    }
+    if (call.getExpression().getKind() === SyntaxKind.ImportKeyword) {
+      const awaited = raw.getAwaitedType(raw.getTypeAtLocation(call.compilerNode));
+      if (awaited !== undefined && rawModuleCarries(raw, awaited, call.compilerNode)) {
+        findings.push(findingFor(call, "reference", ""));
+      }
     }
   }
 
@@ -366,19 +396,10 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     const nsImport = imp.getNamespaceImport();
     if (nsImport !== undefined) objectNames.add(nsImport.getText());
   }
-  // Dynamic-import namespaces: `const m = await import("next/server")`.
-  for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
-    const init = vd.getInitializer();
-    const inner = init !== undefined && Node.isAwaitExpression(init) ? init.getExpression() : init;
-    if (
-      inner !== undefined &&
-      Node.isCallExpression(inner) &&
-      inner.getExpression().getKind() === SyntaxKind.ImportKeyword
-    ) {
-      const nameNode = vd.getNameNode();
-      if (Node.isIdentifier(nameNode)) objectNames.add(nameNode.getText());
-    }
-  }
+  // (Dynamic-import namespaces need no name tracking here: the import CALL
+  // itself is flagged in the prong-1 loop above, which covers every downstream
+  // binding/destructure/promise/.then shape at the one site that must spell
+  // the module specifier — whole-diff r4.)
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
     if (!objectNames.has(id.getText())) continue;
     if (!identifierIsExpressionUse(id)) continue;

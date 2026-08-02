@@ -105,10 +105,28 @@ function audit(sf) {
   const checker = sf.getProject().getTypeChecker();
   const hits = [];
   const bannedCalls = new Set();
+  const raw2 = checker.compilerObject;
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     if (isBannedDecl(checker.getResolvedSignature(call)?.getDeclaration())) {
       bannedCalls.add(call);
       hits.push({ line: call.getStartLineNumber(), kind: "call", text: call.getText().split("\n")[0] ?? "" });
+      continue;
+    }
+    // import-call carrier (whole-diff r4): decide on the awaited module type
+    if (call.getExpression().getKind() === SyntaxKind.ImportKeyword) {
+      const awaited = raw2.getAwaitedType(raw2.getTypeAtLocation(call.compilerNode));
+      if (awaited !== undefined) {
+        for (const carrier of ["NextResponse", "Response"]) {
+          const cp = awaited.getProperty(carrier);
+          if (cp === undefined) continue;
+          const cpt = raw2.getTypeOfSymbolAtLocation(cp, call.compilerNode);
+          const rp = cpt.getProperty("redirect");
+          if (rp !== undefined && rawTypeCarries(raw2, raw2.getTypeOfSymbolAtLocation(rp, call.compilerNode))) {
+            hits.push({ line: call.getStartLineNumber(), kind: "reference", text: call.getText().split("\n")[0] ?? "" });
+            break;
+          }
+        }
+      }
     }
   }
   const candidates = [
@@ -278,6 +296,12 @@ const MUTANTS = [
   ["R75 namespace stuffed into object", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: NS };\nexport function GET() { return box.ns.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R76 dynamic-import binding naked flow", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const R: { redirect: RedirectFn } = m.NextResponse;\n  return R.redirect(new URL("/x", request.url));\n}`, "flag"],
   ["R77 dynamic-import namespace stuffed", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m = await import("next/server");\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: m };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R78 direct awaited-import stuffing", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const box: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: await import("next/server") };\n  return box.ns.NextResponse.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R79 dynamic-import declaration destructuring", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const { NextResponse: R } = await import("next/server");\n  return (R as { redirect: RedirectFn }).redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R80 dynamic-import assignment destructuring", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet R80: { redirect: RedirectFn };\nexport async function GET() {\n  ({ NextResponse: R80 } = await import("next/server"));\n  return R80.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R81 promise-carried namespace", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const pr = import("next/server");\n  const m: { NextResponse: { redirect: RedirectFn } } = await pr;\n  return m.NextResponse.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R82 .then callback stuffing", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport function GET() {\n  return import("next/server").then((m) => (m.NextResponse as { redirect: RedirectFn }).redirect(new URL("/x", request.url)));\n}`, "flag"],
+  ["NEG dynamic import of unrelated module", `export async function GET() {\n  const m = await import("node:path");\n  return m.join("a", "b");\n}`, "clean"],
   ["N9 ordinary namespace uses", `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`, "clean"],
   ["N8 non-extracting whole-object positions", `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`, "clean"],
   // --- documented-escape pin (the one remaining type-erasure limit) ---

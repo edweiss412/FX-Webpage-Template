@@ -1,6 +1,6 @@
 # Plan: type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Spec:** `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md` (R6 — rounds 1–3 + whole-diff r2–r3 repaired; §1.1 do-not-relitigate, §2 probe data, §6 mutation-family closure set). **Branch:** `test/redirect-guard-type-aware`.
+**Spec:** `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md` (R7 — rounds 1–3 + whole-diff r2–r4 repaired; §1.1 do-not-relitigate, §2 probe data, §6 mutation-family closure set). **Branch:** `test/redirect-guard-type-aware`.
 
 ## Pre-draft verification (writing-plans rule)
 
@@ -16,7 +16,7 @@ Verified against live code 2026-08-01: `tests/cross-cutting/no-absolute-self-red
 
 ## Mutation-family closure
 
-Spec §6 is the closure set (R1–R71 positives, N1–N8 negatives, E1 documented-escape pin). Reviewer-proposed NEW families require a live escaping mutant against the shipped two-prong guard.
+Spec §6 is the closure set (R1–R82 positives, N1–N9 negatives, E1 documented-escape pin; grown across four whole-diff rounds — the spec's disposition blocks record each extension). Reviewer-proposed NEW families require a live escaping mutant against the shipped two-prong guard.
 
 ## Task 1 — one TDD cycle, ONE commit: type-aware two-prong guard (test + audit module)
 
@@ -40,7 +40,7 @@ This task is a single "failing test → minimal implementation → passing test 
    Aliased-import and namespace-import rows stay whole-file fixtures with their own imports. Call-shape text of all 19 rows preserved verbatim (regression floor).
 2. New positive rows (spec §6.1): R20 helper-return, R21 class field holding the method, R22 re-export (sibling module via `addFixtureModule`), R23 typed dynamic dispatch, R24 direct call in `lib/__audit_fixture__/` path, R25–R36 the probe-4 F1 families (callback param; structural type-literal/interface/class-field property; conditional/tuple/object-union composite; `.call`/`.apply`/`Response.redirect.call` adapters; renamed destructure; `as any` VALUE laundering), R37 const-literal computed key call, R38–R47 the ten literal-typed-key extraction shapes, R48–R49 union-typed-key call and extraction, R50–R57 destructuring-assignment extraction (five forms + `Response` twin + array-nested + for-of head). Bodies verbatim from their probe sources: R20–R23 from `tests/cross-cutting/redirect-guard-probes/probe1-residual-escapes.mjs` (R24 is a one-line direct call in a `lib/__audit_fixture__/` path — spec §6.1 row, no probe file needed), R25–R57 from `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe4-two-prong.mjs`.
 3. Negative fixtures (spec §6.2): N2 `next/navigation` call AND extraction; N3 local `Router.redirect` call, extraction, `.call` adapter, element access; N4 `new NextResponse(null, { status: 302, headers: { Location: "/x" } })`; N5 direct banned call yields exactly ONE finding (prong 2 skips a callee only when prong 1 flagged that call); N6 ordinary element access/destructuring stays quiet; N7 benign assignment destructure (`({ redirect: g } = src)`) AND value-position object literal (`const o = { redirect: safe }`) stay quiet. N1 `hostRelativeRedirect` exists.
-4. Escape pins (spec §6.3): E1 receiver-as-any and E2 widened computed key both `toEqual([])`, comments naming spec §7 limit 1.
+4. Escape pin (spec §6.3, as finally ratified): the E1 string-mediated (eval-shape) fixture `toEqual([])`, comment naming spec §7 limit 1. (The plan's original E1/E2 — receiver-as-any, widened key — became positives R68–R69 in the whole-diff r2 closure.)
 5. Tree `describe` with `beforeAll(() => { tree = auditTree(); }, 120_000)` (spec §5.2): offenders assertion (message text unchanged); stale-row live keys from prong-1 findings; vacuous floors `visitedAppFiles > 50`, `visitedLibFiles >= 1`; no-plain-JS sentinel `plainJsFiles == []` with the WHY message (tsconfig include TS-only + checkJs off → no typecheck backstop for JS).
 6. Argument-changed test: compilable module with the call landing on line 72 (assert the finding's own line === 72 to keep padding honest), expect 1 unallowed finding.
 7. Fixture-shadow assertions: neither `app/__audit_fixture__` nor `lib/__audit_fixture__` exists on disk.
