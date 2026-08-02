@@ -524,6 +524,59 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(ok.covered.has(spec)).toBe(true);
   });
 
+  it("acceptance requires the NARROW profile: off-profile shapes are opaque (R9)", () => {
+    // R8's validator was a blacklist, so each round found another
+    // accepted-but-invalid shape. Acceptance now requires exact conformance
+    // to a small profile — per-step-kind key sets, scalar-shaped values — so
+    // anything off-profile (valid or not) is opaque and poisons fail-closed.
+    const bodies: Record<string, string> = {
+      "extra-runs-key":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n  bogus: 1\n",
+      "with-on-run-step":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      with:\n        a: b\n",
+      "workdir-on-uses-step":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      working-directory: x\n",
+      "mapping-name":
+        "runs:\n  using: composite\n  steps:\n    - name:\n        a: b\n      run: echo hi\n      shell: bash\n",
+      "empty-id":
+        "runs:\n  using: composite\n  steps:\n    - id: ''\n      run: echo hi\n      shell: bash\n",
+      "mapping-if":
+        "runs:\n  using: composite\n  steps:\n    - if:\n        a: b\n      run: echo hi\n      shell: bash\n",
+      "sequence-env":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        - a\n",
+      "empty-env-key":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        '': b\n",
+      "mapping-env-value":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        a:\n          b: c\n",
+      "mapping-coe":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      continue-on-error:\n        a: b\n",
+      "mapping-workdir":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      working-directory:\n        a: b\n",
+      "sequence-with":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      with:\n        - a\n",
+      "mapping-with-value":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      with:\n        a:\n          b: c\n",
+    };
+    for (const [shape, body] of Object.entries(bodies)) {
+      const direct = S(two("uses: ./.github/actions/off"), { "./.github/actions/off": body });
+      expect(direct.covered.has(spec), `direct ${shape}`).toBe(false);
+      expect(direct.rejected[0]!.reason, `direct ${shape}`).toBe(REASON);
+      const nested = S(two("uses: ./.github/actions/parent2"), {
+        "./.github/actions/parent2":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/off\n",
+        "./.github/actions/off": body,
+      });
+      expect(nested.covered.has(spec), `nested ${shape}`).toBe(false);
+      expect(nested.rejected[0]!.reason, `nested ${shape}`).toBe(REASON);
+    }
+    // On-profile optional keys stay CLEAN — the profile is narrow, not empty.
+    const rich = S(two("uses: ./.github/actions/rich"), {
+      "./.github/actions/rich":
+        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        A: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
+    });
+    expect(rich.covered.has(spec)).toBe(true);
+  });
+
   it("javascript/docker local actions are opaque even when provided (F7)", () => {
     // R1 escaping mutant #1: no runs.steps to inspect, and the entry code
     // can core.addPath / core.exportVariable — presence in the map is not

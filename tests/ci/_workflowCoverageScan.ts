@@ -63,37 +63,65 @@ export type ActionStep = {
   if?: unknown;
   shell?: unknown;
 };
-const STEP_KEYS = new Set([
+/**
+ * NARROW-ACCEPT profile (R9). The R8 version was a blacklist — it rejected
+ * enumerated defects and accepted whatever it had not thought of, so each
+ * round produced another accepted-but-invalid shape (extra `runs` keys,
+ * `with` on a run step, mapping-valued `name`/`id`/`if`/`env`/`with`, …).
+ * This version inverts the burden: a manifest is walkable ONLY if it matches
+ * this exact profile — the key sets are per-step-kind allowlists and every
+ * value must be a scalar of the declared shape. Anything else, VALID OR NOT,
+ * is opaque and poisons fail-closed. That terminates the enumeration: there
+ * is no "accepted but invalid" left to find, only "refused but valid", which
+ * costs a reasoned allowlist row and never false coverage.
+ */
+const RUNS_KEYS = new Set(["using", "steps"]);
+const RUN_STEP_KEYS = new Set([
   "name",
   "id",
   "if",
   "run",
   "shell",
-  "uses",
-  "with",
-  "env",
   "working-directory",
+  "env",
   "continue-on-error",
 ]);
+const USES_STEP_KEYS = new Set(["name", "id", "if", "uses", "with", "env", "continue-on-error"]);
 const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim() !== "";
+/** A scalar map (env/with): non-empty string keys, scalar values only. */
+const scalarMap = (v: unknown): boolean => {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (k.trim() === "") return false;
+    if (val !== null && typeof val === "object") return false;
+  }
+  return true;
+};
+const okFlag = (v: unknown): boolean => typeof v === "boolean" || nonEmptyString(v);
 export function validatedCompositeSteps(doc: unknown): ActionStep[] | null {
   const runs = (doc as { runs?: unknown } | null | undefined)?.runs;
   if (runs === null || typeof runs !== "object" || Array.isArray(runs)) return null;
+  for (const k of Object.keys(runs as Record<string, unknown>)) if (!RUNS_KEYS.has(k)) return null;
   const { using, steps } = runs as { using?: unknown; steps?: unknown };
   if (using !== "composite") return null;
   if (!Array.isArray(steps)) return null;
   for (const step of steps) {
     if (step === null || typeof step !== "object" || Array.isArray(step)) return null;
     const s = step as Record<string, unknown>;
-    for (const k of Object.keys(s)) if (!STEP_KEYS.has(k)) return null;
     const hasRun = "run" in s;
     const hasUses = "uses" in s;
     if (hasRun === hasUses) return null; // neither, or both
-    if (hasRun) {
-      if (!nonEmptyString(s.run) || !nonEmptyString(s.shell)) return null;
-    } else {
-      if (!nonEmptyString(s.uses) || "shell" in s) return null;
+    const allowed = hasRun ? RUN_STEP_KEYS : USES_STEP_KEYS;
+    for (const k of Object.keys(s)) if (!allowed.has(k)) return null;
+    if (hasRun && (!nonEmptyString(s.run) || !nonEmptyString(s.shell))) return null;
+    if (hasUses && !nonEmptyString(s.uses)) return null;
+    for (const k of ["name", "id", "if", "working-directory"]) {
+      if (k in s && !nonEmptyString(s[k])) return null;
     }
+    for (const k of ["env", "with"]) {
+      if (k in s && !scalarMap(s[k])) return null;
+    }
+    if ("continue-on-error" in s && !okFlag(s["continue-on-error"])) return null;
   }
   return steps as ActionStep[];
 }
