@@ -739,21 +739,33 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
-  it("shell text that looks like a step cannot invent coverage (R25)", () => {
-    // The regex splitter treated an indented `- run:` inside a shell BODY as
-    // a new step, so text GitHub runs as ONE shell command was read as a
-    // second, claiming step. Steps now come from the parsed document.
-    const bodies = [
-      `      - name: echo a fake step\n        run: |\n          echo "      - run: pnpm exec playwright test ${spec}"\n`,
-      `      - run: |\n          echo "      - name: fake"\n          echo "        run: pnpm exec playwright test ${spec}"\n`,
-      `      - run: |\n          echo "      -"\n          echo "        run: pnpm exec playwright test ${spec}"\n`,
+  it("block-scalar lines that look like steps cannot invent or shift coverage (R25/R26)", () => {
+    // A body line beginning `- run:` / `- name:` / bare `-` used to add a
+    // phantom raw chunk, which both invented coverage AND shifted every
+    // later step's gate association. These fixtures put the step-shaped
+    // text at line start INSIDE the block scalar, so the splitter really
+    // sees it (the R25 fixtures only echoed it, which R26 caught).
+    const phantom = [
+      `      - run: |\n          - run: pnpm exec playwright test ${spec}\n`,
+      `      - run: |\n          - name: fake\n            run: pnpm exec playwright test ${spec}\n`,
+      `      - run: |\n          -\n          run: pnpm exec playwright test ${spec}\n`,
     ];
-    for (const steps of bodies) {
+    for (const steps of phantom) {
       const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`;
-      const r = S(w);
-      expect(r.covered.has(spec), steps).toBe(false);
+      expect(S(w).covered.has(spec), steps).toBe(false);
     }
-    // …and a REAL second step still counts.
+    // …and a phantom chunk must not shift a LATER real step's gates: these
+    // claim only through a step that carries `if:` / `continue-on-error:`,
+    // so the claim must still be REJECTED for that reason.
+    const shifted = [
+      `      - run: |\n          - run: echo phantom\n      - if: false\n        run: pnpm exec playwright test ${spec}\n`,
+      `      - run: |\n          - run: echo phantom\n      - continue-on-error: true\n        run: pnpm exec playwright test ${spec}\n`,
+    ];
+    for (const steps of shifted) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n${steps}`;
+      expect(S(w).covered.has(spec), steps).toBe(false);
+    }
+    // …and a real second step still counts.
     const real = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      - run: pnpm exec playwright test ${spec}\n`;
     expect(S(real).covered.has(spec)).toBe(true);
   });

@@ -968,8 +968,12 @@ export function scanWorkflowCoverage({
         parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
           ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
           : [];
-      for (const [stepIdx, parsedStep] of parsedSteps.entries()) {
-        const step = job.steps[stepIdx] ?? "";
+      for (const parsedStep of parsedSteps) {
+        // R26: NO pairing with regex chunks. Index-pairing shifted whenever
+        // a block-scalar line looked like a step, which silently moved a
+        // later step's if:/continue-on-error:/env/uses gates onto the wrong
+        // text. Every per-step gate below reads the PARSED step, so there is
+        // no association to drift.
         const runValue = typeof parsedStep.run === "string" ? parsedStep.run : null;
         const runMatch: [string, string, string] | null =
           runValue === null ? null : ["", "", runValue];
@@ -993,7 +997,11 @@ export function scanWorkflowCoverage({
         // so JSON/prose inside a run body cannot false-dark the step. A bad
         // spelling rejects this step's own claims AND poisons the job env —
         // the unreadable metadata may hide a `uses:`/`run:` that mutates it.
-        const stepSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(stepMetaOf(step)));
+        // A parsed step needs no spelling refusal: the parser already
+        // resolved whatever spelling produced these keys (that refusal
+        // remains for the workflow head and job heads, which are still read
+        // as text).
+        const stepSpelling = false;
         if (runMatch) {
           // Full-line YAML/shell comments never execute, and the step-splitter
           // glues BETWEEN-step comment lines onto the preceding step's chunk —
@@ -1004,8 +1012,14 @@ export function scanWorkflowCoverage({
             .split("\n")
             .filter((l) => !/^[ \t]*#/.test(l))
             .join("\n");
-          const stepIf = /(^|\n)\s*if\s*:/.test(step);
-          const stepCoe = hasContinueOnError(step);
+          const stepIf = "if" in parsedStep;
+          const coeValue = parsedStep["continue-on-error"];
+          const stepCoe =
+            coeValue !== undefined &&
+            String(coeValue)
+              .trim()
+              .replace(/^["']|["']$/g, "")
+              .toLowerCase() !== "false";
           // Whole-config claim. Evaluated against the ENTIRE run block, and
           // deliberately NOT through alias resolution: an adversarial round
           // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
@@ -1051,8 +1065,14 @@ export function scanWorkflowCoverage({
           }
         }
         if (stepSpelling) envPoisoned = true;
-        if (writesJobEnv(step)) envPoisoned = true;
-        if (localActionPoisons(step, localActions, new Set())) envPoisoned = true;
+        // Env-write and local-action bookkeeping read the PARSED step too:
+        // every scalar the step carries is serialized for the mention
+        // predicate, and the uses value goes through the shared classifier.
+        if (writesJobEnv(JSON.stringify(parsedStep))) envPoisoned = true;
+        if (typeof parsedStep.uses === "string") {
+          if (localActionPoisons(`uses: ${parsedStep.uses}`, localActions, new Set()))
+            envPoisoned = true;
+        }
       }
     }
   }
