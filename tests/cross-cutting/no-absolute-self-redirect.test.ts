@@ -616,12 +616,36 @@ describe("no absolute self-redirect under the walked roots", () => {
   });
 
   it("flags R95 aliased global carrier into a structural parameter", () => {
-    // whole-diff r15: provenance survives ordinary local aliases to a fixpoint.
+    // whole-diff r15/r16: symbol provenance survives aliases to a fixpoint —
+    // env2's USE sits in a function body ABOVE the declarations, so a single
+    // forward pass over declaration order cannot have added it (the r16
+    // reviewer showed the earlier fixture passed without the loop).
     const findings = auditSource(
       fixturePath(),
-      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst environment = globalThis;\nconst env2 = environment;\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }`,
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }\nconst environment = globalThis;\nconst env2 = environment;`,
     );
-    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((f) => f.text === "env2")).toBe(true);
+  });
+
+  it("flags R96 helper-return global carriers (function and arrow)", () => {
+    // whole-diff r16: single-file helper returns join the carrier fixpoint.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction currentEnvironment() { return globalThis; }\nconst pickEnvironment = () => globalThis;\nexport function GET() {\n  const a = viaEnvironment(currentEnvironment(), new URL("/x", request.url));\n  const b = viaEnvironment(pickEnvironment(), new URL("/y", request.url));\n  return [a, b];\n}`,
+    );
+    expect(findings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not flag shadowing or same-named locals (N17)", () => {
+    // whole-diff r16: provenance is symbol-based — a shadowing parameter and a
+    // local named `global` resolve to their own declarations, never the
+    // ambient globals.
+    expect(
+      auditSource(
+        fixturePath(),
+        `type RedirectFn = (url: string | URL, status?: number) => Response;\nconst safeLocalRedirect: RedirectFn = (u) => new Response(String(u));\nconst environment = globalThis;\nfunction useShadow(environment: { Response: { redirect: RedirectFn } }) {\n  return environment;\n}\nconst global = { Response: { redirect: safeLocalRedirect } };\nfunction take(g: { Response: { redirect: RedirectFn } }) { return g; }\nexport function GET() { return [useShadow(global), take(global), environment.location]; }`,
+      ),
+    ).toEqual([]);
   });
 
   it("does not flag ordinary global-object receiver/typeof uses (N16)", () => {

@@ -560,28 +560,88 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // own-type decision), so they get a DESTINATION-typed decision (whole-diff
   // r14): the naked flow flags only when the contextual/asserted destination
   // type still carries the banned method.
-  const globalCarrierNames = new Set(["globalThis", "window", "self", "global"]);
-  // Provenance survives ordinary local aliases (`const environment = globalThis`)
-  // to a fixpoint — an alias of an alias spells a tracked name at ITS
-  // declaration, so each pass extends the set until stable (whole-diff r15).
+  // Global-carrier provenance is SYMBOL-based (whole-diff r16): the four
+  // ambient globals seed the set only when an identifier actually resolves to
+  // the lib/@types declaration (a local `const global = {…}` or a shadowing
+  // parameter resolves elsewhere and never joins). Provenance then extends to
+  // a fixpoint through ordinary local aliases AND single-file helper returns
+  // (`function currentEnvironment() { return globalThis; }`), keyed by each
+  // symbol's first declaration node. DEEPER environment-object indirection is
+  // the ratified evasion concession (spec §7 limit 2), same as every other
+  // carrier family.
+  const AMBIENT_GLOBAL_NAMES = new Set(["globalThis", "window", "self", "global"]);
+  const carrierDecls = new Set<Node>();
+  const carrierFnDecls = new Set<Node>();
+  const declKeyOf = (node: Node): Node | undefined => {
+    const sym = node.getSymbol();
+    return sym?.getDeclarations()[0];
+  };
+  const isAmbientGlobalIdentifier = (id: Node): boolean => {
+    if (!Node.isIdentifier(id) || !AMBIENT_GLOBAL_NAMES.has(id.getText())) return false;
+    const decls = id.getSymbol()?.getDeclarations() ?? [];
+    // globalThis has no declarations in some lib shapes; fall back to type-symbol.
+    if (decls.length === 0) return id.getText() === "globalThis";
+    return decls.some((d) => d.getSourceFile().getFilePath().includes("node_modules/"));
+  };
+  const isCarrierExpression = (exprIn: Node): boolean => {
+    let expr: Node = exprIn;
+    while (
+      (Node.isParenthesizedExpression(expr) || Node.isNonNullExpression(expr)) &&
+      expr.getExpression() !== undefined
+    ) {
+      expr = expr.getExpression();
+    }
+    if (Node.isIdentifier(expr)) {
+      if (isAmbientGlobalIdentifier(expr)) return true;
+      const key = declKeyOf(expr);
+      return key !== undefined && carrierDecls.has(key);
+    }
+    if (Node.isCallExpression(expr)) {
+      const callee = expr.getExpression();
+      if (Node.isIdentifier(callee)) {
+        const key = declKeyOf(callee);
+        return key !== undefined && carrierFnDecls.has(key);
+      }
+    }
+    return false;
+  };
   let carrierSetGrew = true;
   while (carrierSetGrew) {
     carrierSetGrew = false;
     for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
       const nameNode = vd.getNameNode();
       if (!Node.isIdentifier(nameNode)) continue;
-      const localName = nameNode.getText();
-      if (globalCarrierNames.has(localName)) continue;
-      let init = vd.getInitializer();
-      while (
-        init !== undefined &&
-        (Node.isParenthesizedExpression(init) || Node.isNonNullExpression(init)) &&
-        true
-      ) {
-        init = init.getExpression();
+      const init = vd.getInitializer();
+      if (init === undefined) continue;
+      if (isCarrierExpression(init)) {
+        if (!carrierDecls.has(vd)) {
+          carrierDecls.add(vd);
+          carrierSetGrew = true;
+        }
+        continue;
       }
-      if (init !== undefined && Node.isIdentifier(init) && globalCarrierNames.has(init.getText())) {
-        globalCarrierNames.add(localName);
+      // Arrow helper: `const f = () => globalThis`
+      if (Node.isArrowFunction(init)) {
+        const body = init.getBody();
+        const returnsCarrier = Node.isBlock(body)
+          ? body
+              .getDescendantsOfKind(SyntaxKind.ReturnStatement)
+              .some(
+                (r) => r.getExpression() !== undefined && isCarrierExpression(r.getExpression()!),
+              )
+          : isCarrierExpression(body);
+        if (returnsCarrier && !carrierFnDecls.has(vd)) {
+          carrierFnDecls.add(vd);
+          carrierSetGrew = true;
+        }
+      }
+    }
+    for (const fn of sf.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
+      const returnsCarrier = fn
+        .getDescendantsOfKind(SyntaxKind.ReturnStatement)
+        .some((r) => r.getExpression() !== undefined && isCarrierExpression(r.getExpression()!));
+      if (returnsCarrier && !carrierFnDecls.has(fn)) {
+        carrierFnDecls.add(fn);
         carrierSetGrew = true;
       }
     }
@@ -617,7 +677,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       candidates.push(id);
       continue;
     }
-    if (globalCarrierNames.has(id.getText())) {
+    if (isCarrierExpression(id)) {
       if (inNonExtractingPosition(id, bannedCalls)) continue;
       const parent = id.getParent();
       const destinationType =
@@ -631,6 +691,22 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (destinationType !== undefined && destinationLooksRedirectish(id, destinationType)) {
         findings.push(findingFor(id, "reference", ""));
       }
+    }
+  }
+  // Helper CALLS producing a carrier get the same destination-shape decision.
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isIdentifier(callee)) continue;
+    const key = declKeyOf(callee);
+    if (key === undefined || !carrierFnDecls.has(key)) continue;
+    if (inNonExtractingPosition(call, bannedCalls)) continue;
+    const parent = call.getParent();
+    const destinationType =
+      parent !== undefined && (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent))
+        ? parent.getType()
+        : checker.getContextualType(call);
+    if (destinationType !== undefined && destinationLooksRedirectish(call, destinationType)) {
+      findings.push(findingFor(call, "reference", ""));
     }
   }
   for (const node of candidates) {
