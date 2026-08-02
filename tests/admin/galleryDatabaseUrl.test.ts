@@ -12,7 +12,7 @@
  * that probe, plus the split-target case it also surfaced.
  */
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { galleryDatabaseUrl } from "../e2e/helpers/devCaptureStaged";
+import { galleryDatabaseUrl, galleryPsqlEnv } from "../e2e/helpers/devCaptureStaged";
 
 const KEY = "DATABASE_URL";
 let prior: string | undefined;
@@ -69,5 +69,48 @@ describe("galleryDatabaseUrl", () => {
   test("a DSN that is not a URL at all is refused", () => {
     process.env[KEY] = "host=127.0.0.1 port=54322 dbname=postgres";
     expect(() => galleryDatabaseUrl()).toThrow(/not a parseable URL/);
+  });
+});
+
+/**
+ * R2 finding: validating the DSN closes nothing if psql then inherits libpq's
+ * environment. The reviewer drove a loopback-accepted DSN to 192.0.2.2 with
+ * PGHOSTADDR and to 192.0.2.3 with a PGSERVICE entry. The guard cannot detect
+ * these by parsing a URL, so the gallery does not inherit them at all.
+ */
+describe("galleryPsqlEnv", () => {
+  test("strips every PG* variable, including the two that provably retargeted psql", () => {
+    const env = galleryPsqlEnv({
+      PGHOSTADDR: "192.0.2.2",
+      PGSERVICE: "evil",
+      PGHOST: "192.0.2.1",
+      PGPORT: "1",
+      PGPASSWORD: "hunter2",
+      PGSERVICEFILE: "/tmp/evil.conf",
+      PATH: "/usr/bin",
+      HOME: "/Users/someone",
+    } as unknown as NodeJS.ProcessEnv);
+    expect(Object.keys(env).filter((k) => k.toUpperCase().startsWith("PG"))).toEqual([]);
+    // Non-PG variables survive — psql still needs a usable environment.
+    expect(env["PATH"]).toBe("/usr/bin");
+    expect(env["HOME"]).toBe("/Users/someone");
+  });
+
+  test("strips a lowercase pg-prefixed name too (env lookup is case-insensitive on some platforms)", () => {
+    const env = galleryPsqlEnv({
+      pghostaddr: "192.0.2.9",
+      PATH: "/usr/bin",
+    } as unknown as NodeJS.ProcessEnv);
+    expect(env["pghostaddr"]).toBeUndefined();
+    expect(env["PATH"]).toBe("/usr/bin");
+  });
+
+  test("a future PG* variable is stripped by the prefix rule, not by a denylist", () => {
+    // The point of the prefix rule: it closes names nobody has written down yet.
+    const env = galleryPsqlEnv({
+      PGNOTINVENTEDYET: "x",
+      PATH: "/usr/bin",
+    } as unknown as NodeJS.ProcessEnv);
+    expect(env["PGNOTINVENTEDYET"]).toBeUndefined();
   });
 });

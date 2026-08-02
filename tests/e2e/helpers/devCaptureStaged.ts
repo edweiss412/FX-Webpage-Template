@@ -116,6 +116,34 @@ export function galleryDatabaseUrl(): string {
   return url;
 }
 
+/**
+ * The environment every gallery-path `psql` runs under: the ambient environment
+ * with EVERY `PG*` variable stripped.
+ *
+ * Inspecting the DSN is not sufficient and cannot be made sufficient. libpq also
+ * reads its target from the environment, and those variables are invisible to
+ * any amount of URL parsing. Demonstrated by whole-diff review R2 against the
+ * DSN-only guard: with a loopback DATABASE_URL the guard ACCEPTED and psql then
+ * reported `connection to server at "192.0.2.2"` under `PGHOSTADDR=192.0.2.2`,
+ * and `"192.0.2.3"` under a `PGSERVICE` whose service entry carried a hostaddr.
+ * (`PGHOST` and `PGPORT` did NOT retarget, because the URI supplies host and
+ * port explicitly and those win — but that is a detail of two variables, not a
+ * property worth depending on.)
+ *
+ * So the fix is not detection, it is non-inheritance: strip the whole `PG`
+ * prefix rather than denylisting the ones known today, which closes variables
+ * added by future libpq versions too. Everything the connection needs — host,
+ * port, user, password, database — is already in the DSN that
+ * `galleryDatabaseUrl()` validated.
+ */
+export function galleryPsqlEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase().startsWith("PG")) delete env[key];
+  }
+  return env;
+}
+
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -140,6 +168,9 @@ function runLockedSql(
     execFileSync("psql", [dsn, "-v", "ON_ERROR_STOP=1", "-At"], {
       input: sql,
       encoding: "utf8",
+      // NOT the ambient environment: PG* variables retarget libpq behind the
+      // validated DSN (see galleryPsqlEnv).
+      env: galleryPsqlEnv(),
     });
   } catch (err) {
     throw new Error(

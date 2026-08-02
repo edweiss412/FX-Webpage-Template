@@ -68,14 +68,20 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     init?.method ??
     (typeof input === "object" && input !== null && "method" in input ? input.method : "GET")
   ).toUpperCase();
-  // Relative or absolute: compare the PATH, never the raw string.
-  let path: string;
+  // Relative or absolute: resolve, then require BOTH our own origin and the
+  // exact path shape. Matching the path alone would stub a same-path request to
+  // ANY host, so a regression that pointed extraction at another origin would
+  // still be answered here and the spec would stay green (whole-diff review R2).
+  let sameOrigin = false;
+  let path = "";
   try {
-    path = new URL(url, window.location.origin).pathname;
+    const resolved = new URL(url, window.location.origin);
+    sameOrigin = resolved.origin === window.location.origin;
+    path = resolved.pathname;
   } catch {
-    path = "";
+    sameOrigin = false;
   }
-  if (method === "POST" && EXTRACT_ROUTE.test(path)) {
+  if (method === "POST" && sameOrigin && EXTRACT_ROUTE.test(path)) {
     return Promise.resolve(
       new Response(JSON.stringify({ items: READY_ITEMS }), {
         status: 200,
