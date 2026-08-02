@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { CRON_JOBS } from "@/lib/cron/runSummary";
 
 // developer-tier §6 row 5: Telemetry swapped its gate
 // requireAdminIdentity → requireDeveloperIdentity.
@@ -35,6 +36,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 afterEach(cleanup);
+
+// Data-source assertion against the real registry, not the mocks below: the
+// mocked loadCronHealth fixtures can drift green, this cannot. Catches the
+// registry label regressing from the unified job name.
+test("the sync job's registry label is the unified name (BL-SYNC-JOB-FOUR-NAMES)", () => {
+  expect(CRON_JOBS.find((j) => j.jobName === "sync")?.label).toBe("Auto sync");
+});
 
 describe("TelemetryPage", () => {
   beforeEach(() => vi.resetModules());
@@ -73,7 +81,7 @@ describe("TelemetryPage", () => {
         jobs: [
           {
             jobName: "sync",
-            label: "Sheet sync",
+            label: "Auto sync",
             cadence: "every 5 min",
             description: "Checks each show's Google Sheet for changes",
             staleAfterMs: 3_600_000,

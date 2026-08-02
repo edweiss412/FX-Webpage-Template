@@ -27,7 +27,7 @@ const FROZEN: Record<string, string> = {
   WIZARD_SESSION_SUPERSEDED_RACE:
     "Two wizard tabs for the same sheet overlapped; the newer one won and the older tab's action was cancelled before it could touch state. Its leftovers are inert and auto-cleaned. Informational only.",
   WATCH_CHANNEL_ORPHANED:
-    "At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
+    "At worst, edits take a few minutes to appear instead of instantly, since Auto sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.",
   WEBHOOK_TOKEN_INVALID:
     "The bad token usually means a stale Drive subscription is still firing, occasionally a spoof attempt. The developer is notified and rotates it if needed; no admin action.",
   REEL_DRIFTED:
