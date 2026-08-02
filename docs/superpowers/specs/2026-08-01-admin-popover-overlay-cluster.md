@@ -198,6 +198,16 @@ geometry), strictly less than `DEFAULT_CLIP_GUTTER` (8px,
 cross the clip edge; the settled state is what the layout spec asserts
 (`prefers-reduced-motion: reduce`, the standalone-layout-spec idiom).
 
+Keyboard reachability (review R2 F3): the scroller can overflow with ZERO
+focusable descendants (monitoring-only lists render read-only rows,
+`components/admin/showpage/AttentionMenu.tsx:188-220`), and engines do not
+uniformly place scroll containers in sequential focus order. The scroller
+therefore gains `tabIndex={0}` plus an accessible name
+(`aria-label="Show issues"`) — the standard scrollable-region-focusable
+contract — so keyboard users can focus it and scroll with arrow keys. The §11
+standalone spec asserts it: focus the scroller via Tab, send `ArrowDown`,
+assert `scrollTop` increased.
+
 Registry row flips: `components/admin/showpage/AttentionMenu.tsx` disposition
 `unverified-gap` → `fit-within-clip`
 (`tests/components/admin/showpage/popoverOverlayRegistry.ts:74-78`), reason
@@ -212,6 +222,14 @@ max-height is declared, so the clip cap is the only bound
 `components/admin/ReSyncButton.tsx:122-124` comment, moving verbatim): a long
 error inside the clipping panel now scrolls instead of being cut; error-only
 and momentary otherwise unchanged (`components/admin/PublishedToggle.tsx:55` rationale comment stays).
+
+Keyboard reachability (review R2 F3): the banner's content is plain text
+(including the codeless generic-retry branch,
+`components/admin/PublishedToggle.tsx:170-185`), so a capped, overflowing
+banner would be keyboard-unreachable without the same contract: the banner
+element gains `tabIndex={0}` + `aria-label` naming it (e.g.
+"Publish error details") alongside the new `overflow-y-auto`. Covered by the
+same keyboard-scroll assertion shape in the §11 standalone spec.
 
 Adding `overflow-y-auto` makes the file match the anchored-scroller detector
 (`_metaPopoverPlacementContract.test.ts:39-41` — `absolute` + `top-full` +
@@ -324,10 +342,15 @@ No other rAF sites change: the double-rAF settle helper
 No new visual states are introduced anywhere in the cluster; this inventory
 enumerates ALL pairs of the touched components' existing states (review R1 F3).
 
-**ShareHub triggers** — states: closed, open.
+**ShareHub triggers** — open axis: closed, open; presentation axis (primary
+trigger label/weight, prop-driven): live ("Share link"), paused
+("Share link · paused"), archived ("Show actions")
+(`components/admin/showpage/ShareHub.tsx:693-705`).
 | Pair | Treatment |
 |---|---|
 | closed ↔ open | Instant class swap; this cluster adds `relative z-30` on open — z/position changes do not animate (matches the existing instant `bg-surface-sunken` kebab swap, `components/admin/showpage/ShareHub.tsx:719-721`) |
+| live ↔ paused ↔ archived (any pair) | Server-prop re-render, instant label/weight swap (existing; no animation) |
+| Compound: lifecycle change while open | Existing immediate-or-busy-deferred close machinery (`components/admin/showpage/ShareHub.tsx:548-602`) — untouched by this cluster; the open-gated `z-30` unmounts with the same close, so no state where the backdrop is gone but the elevation remains |
 
 **AttentionMenu panel** — states: absent, pre-frame (mounted, `scale-95
 opacity-0`), entered (`scale-100 opacity-100`); orthogonal axis: group
@@ -356,9 +379,16 @@ post-failure (refusal / not-found / generic banners via `banners`,
 | Pair | Treatment |
 |---|---|
 | resting ↔ armed | Instant morph (existing). Copy-only change in the armed branch (§5.2) |
+| resting → armed-submitting | Unreachable directly (submit exists only in the armed render) |
 | armed → armed-submitting | Instant disable/`aria-busy` (existing). Untouched |
+| armed-submitting → success | `router.refresh()` re-renders into the Archived presentation; the row unmounts (`components/admin/ArchiveShowButton.tsx:152-156`). Instant, existing |
 | armed-submitting → post-failure | Instant banner mount (existing). Untouched |
-| post-failure → resting/armed | Instant (existing re-arm clears banners, `onArmClick`). Untouched |
+| post-failure → armed | Re-arm clears banners and sets `armed` directly (`components/admin/ArchiveShowButton.tsx:134-145`) — goes to ARMED, not resting. Instant, existing |
+| post-failure → resting | Only via Cancel from the armed render (banners persist until re-arm). Instant, existing |
+
+Inventory boundary: components this cluster does not edit (`UnarchiveShowButton`,
+`RotateShareTokenButton`, `PickerResetControl`) keep their shipped inventories;
+nothing here alters their states.
 
 Compound cases: arming Archive while the hub popover is mid-placement is
 already covered by the body-content `ResizeObserver`
@@ -383,6 +413,12 @@ Fixed-dimension parent → child relationships this cluster creates:
 2. **Menu bottom vs clip edge:** `menu.bottom ≤ panel.bottom` at 390×560 with
    the overflow fixture (probe showed 615 > 560 before), including after a
    monitoring-only → needs-you group flip with the menu held open (§4.2).
+   Assertion targeting (review R2 F3): the ≥44px effective-tap-height
+   assertion targets the last INTERACTIVE needs-you row button (the 10/10/10
+   fixture's tail rows are read-only monitoring rows,
+   `tests/e2e/_pillFocusLiveEntry.tsx:68-87`); the monitoring tail is asserted
+   for READ reachability (`elementFromPoint` resolves into the row's text at
+   max scroll).
 3. **PublishedToggle banner:** `banner.bottom ≤ panel.bottom` whenever the
    banner renders inside the clipping panel AND available space ≥ 48px (same
    floor exemption as 1); content beyond scrolls (`overflow-y-auto`).
@@ -436,19 +472,44 @@ shared helpers unadopted):
   longer satisfies the registry (the R1 reviewer's probe showed the current
   regex passes `ReSyncButton`'s local copy). Rows bound: `ReSyncButton`,
   `AttentionMenu`, `PublishedToggle`.
-- Source-form assertions (same test file or a sibling structural test):
-  `components/admin/ReSyncButton.tsx` no longer DEFINES `useFitWithinClip` or
-  `findClippingAncestor` (import only); `components/admin/showpage/ShareHub.tsx`
-  and `components/admin/HoverHelp.tsx` both import
-  `@/lib/popover/rafCoalescer` and neither contains a local
-  `requestAnimationFrame` coalescer with the pending-flag idiom (grep target:
-  the "cleared BEFORE running" marker comment, which moves to the shared
-  module and must appear in exactly one source file).
+- Source-form assertions (same test file or a sibling structural test), with
+  the mutation-family closure declared up front (writing-plans rule: the
+  enumeration is the closure set the review converges against):
+  (i) IMPORT — each consumer imports the shared module
+  (`@/components/admin/useFitWithinClip` for ReSyncButton/AttentionMenu/
+  PublishedToggle; `@/lib/popover/rafCoalescer` for ShareHub/HoverHelp);
+  (ii) CALL — the same file contains a matching call expression
+  (`useFitWithinClip(` / `createRafCoalescer(`), so an unused aliased import
+  cannot satisfy the pin alone;
+  (iii) NO SAME-NAME LOCAL — no consumer defines a local
+  `function useFitWithinClip` / `findClippingAncestor` /
+  `createRafCoalescer`, and the "cleared BEFORE running" marker comment
+  appears in exactly one source file (the shared module).
+  Closure boundary, stated explicitly (review R2 F1): a local
+  reimplementation under a DIFFERENT name with the imported helper consumed
+  by a decoy call is outside this closure set — these are drift guards, not
+  adversarial-rename guards; per the mutation-family rule a new family is
+  admissible only with a live escaping mutant demonstrated against the
+  shipped guard, and the behavioral pins (T-S8, the fit layout spec) remain
+  the semantic backstop for any such shape.
 
 Real browser (standalone config): new `tests/e2e/popover-clip-fit.spec.ts (new)` (name added to
-`tests/e2e/standalone.config.ts` `testMatch`, R7) — §9 invariants 1-2, last-row
-reachability + tap height at 390×560, `PublishedToggle` banner containment with
+`tests/e2e/standalone.config.ts` `testMatch`, R7) — §9 invariants 1-2 with the
+assertion-targeting split above (last interactive needs-you row ≥44px;
+monitoring tail read-reachable), the held-open monitoring-only → needs-you
+group-flip containment case (§4.2), keyboard-scroll assertions for both
+focusable scrollers (§4.2/§4.3), and `PublishedToggle` banner containment with
 a forced long error; runs on the existing whole-config standalone workflow.
+
+Standalone membership baseline (review R2 F4): the standalone workflow and
+`tests/ci/_metaSpecRegistration.test.ts:74` both compare executed membership
+against `tests/e2e/standalone-baseline.json`
+(`scripts/check-standalone-baseline.mjs:180-192` fails on any extra spec), so
+landing the new spec REQUIRES regenerating the committed baseline in the same
+change (`node scripts/check-standalone-baseline.mjs --write`) once test
+identities are final, then verifying with `--list-check`. This is a committed
+JSON fixture regeneration — neither a workflow edit nor an e2e-coverage
+allowlist row, so R7 is not violated.
 
 Real browser (app-backed, existing wired spec): T-BACKDROP trigger assertions
 restored in `tests/e2e/admin-lifecycle-layout.spec.ts` (§3.3).
