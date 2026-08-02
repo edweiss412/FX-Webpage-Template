@@ -222,9 +222,23 @@ for (const vw of VIEWPORTS) {
         TOL,
       );
 
+      // The agenda-schedule BLOCK itself stays inside the section. The deleted
+      // spec asserted this against its hand-written `card-col`; without it the
+      // schedule could overhang the section while every session row still sat
+      // inside the (equally overhanging) schedule, and the per-row loop below
+      // would stay green. Re-homed here against the REAL section chrome.
+      const scheduleRect = await rectOf(page.locator(AGENDA_SCHEDULE).first());
+      expect(
+        scheduleRect.left,
+        `agenda-schedule left >= section left @ ${vw}`,
+      ).toBeGreaterThanOrEqual(sectionRect.left - TOL);
+      expect(
+        scheduleRect.right,
+        `agenda-schedule right <= section right @ ${vw}`,
+      ).toBeLessThanOrEqual(sectionRect.right + TOL);
+
       // EVERY session row (not nth=0 only) stays within the schedule block and
       // the section — the assertion family re-homed from the deleted spec.
-      const scheduleRect = await rectOf(page.locator(AGENDA_SCHEDULE).first());
       const sessions = page.locator(AGENDA_SESSION);
       const n = await sessions.count();
       expect(n, `every fixture session paints in the admin shape @ ${vw}`).toBe(TOTAL_SESSIONS);
