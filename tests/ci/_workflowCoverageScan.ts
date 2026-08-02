@@ -151,11 +151,29 @@ const scalars: Pred = (v) => scalarMap(v);
  * of its CONTENTS, and anything else makes the file unschedulable.
  */
 const PERM_LEVELS = new Set(["read", "write", "none"]);
+const PERM_SCOPES = new Set([
+  "actions",
+  "attestations",
+  "checks",
+  "contents",
+  "deployments",
+  "discussions",
+  "id-token",
+  "issues",
+  "models",
+  "packages",
+  "pages",
+  "pull-requests",
+  "repository-projects",
+  "security-events",
+  "statuses",
+]);
 const permissions: Pred = (v) =>
-  (typeof v === "string" && (v === "read-all" || v === "write-all" || v.trim() !== "")) ||
+  v === "read-all" ||
+  v === "write-all" ||
   (mapping(v) &&
-    Object.values(v as Record<string, unknown>).every(
-      (x) => typeof x === "string" && PERM_LEVELS.has(x),
+    Object.entries(v as Record<string, unknown>).every(
+      ([k, x]) => PERM_SCOPES.has(k) && typeof x === "string" && PERM_LEVELS.has(x),
     ));
 const concurrency: Pred = (v) =>
   nonEmptyString(v) ||
@@ -201,8 +219,11 @@ const onTrigger: Pred = (v) =>
       ([k, cfg]) =>
         k.trim() !== "" &&
         (cfg === null ||
-          mapping(cfg) ||
-          (Array.isArray(cfg) && cfg.length > 0 && cfg.every((x) => mapping(x)))),
+          (k === "schedule"
+            ? Array.isArray(cfg) &&
+              cfg.length > 0 &&
+              cfg.every((x) => mapping(x) && nonEmptyString((x as { cron?: unknown }).cron))
+            : mapping(cfg))),
     ));
 
 const WF_ROOT: Record<string, Pred> = {
@@ -786,6 +807,18 @@ export function scanWorkflowCoverage({
     // its specs "covered" even though the job does not run on every PR (found while
     // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
     const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
+    // R23: a `types:` list narrows WHICH pull_request activity fires the
+    // workflow (e.g. `types: [closed]` never runs on an ordinary open PR),
+    // and a sequence-valued `pull_request` is not a per-PR trigger either.
+    // Both are read from the PARSED document and treated exactly like a
+    // paths filter: the job does not run on every PR, so it cannot be the
+    // thing that keeps a spec covered.
+    const parsedOn = (parsedDoc as { on?: unknown } | null)?.on;
+    const parsedPr = mapping(parsedOn)
+      ? (parsedOn as Record<string, unknown>)["pull_request"]
+      : undefined;
+    const prActivityFilter =
+      Array.isArray(parsedPr) || (mapping(parsedPr) && "types" in (parsedPr as object));
     // Checked against the WHOLE file: `shell:`/`working-directory:`/`defaults:`
     // apply at workflow, job, or step level, and `needs:` can point at a job
     // that is skipped. Any of them anywhere means this scanner cannot say what
@@ -929,7 +962,7 @@ export function scanWorkflowCoverage({
                 spec,
                 reason: "earlier same-job step writes GITHUB_ENV/GITHUB_PATH",
               });
-            else if (hasPathsFilter)
+            else if (hasPathsFilter || prActivityFilter)
               rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
             else if (jobIf || stepIf)
               rejected.push({ file, spec, reason: "if: condition present" });

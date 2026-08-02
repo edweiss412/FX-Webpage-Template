@@ -697,6 +697,43 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("nested trigger and permission shapes are validated, and activity-filtered PRs do not count (R23)", () => {
+    const job = `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    // Activity-filtered or sequence-valued pull_request: the workflow does
+    // not run on every PR, so it cannot keep a spec covered (same treatment
+    // as a paths filter).
+    const filtered = [
+      `name: x\non:\n  pull_request:\n    types:\n      - closed\n${job}`,
+      `name: x\non:\n  pull_request:\n    types:\n      - opened\n      - synchronize\n${job}`,
+      `name: x\non:\n  pull_request:\n    - opened\n${job}`,
+    ];
+    for (const w of filtered) {
+      const r = S(w);
+      expect(r.covered.has(spec), w).toBe(false);
+    }
+    // Schema-invalid nested shapes: schedule without cron, permission
+    // scalars and scopes outside GitHub's sets.
+    const bad = [
+      `name: x\non:\n  pull_request:\n  schedule:\n    - bogus: 1\n${job}`,
+      `name: x\npermissions: bogus\non:\n  pull_request:\n${job}`,
+      `name: x\npermissions:\n  bogus-scope: read\non:\n  pull_request:\n${job}`,
+    ];
+    for (const w of bad) {
+      const r = S(w);
+      expect(r.covered.has(spec), w).toBe(false);
+    }
+    // …and the well-formed forms still count.
+    const ok = [
+      `name: x\non:\n  pull_request:\n${job}`,
+      `name: x\npermissions: read-all\non:\n  pull_request:\n${job}`,
+      `name: x\npermissions:\n  contents: read\non:\n  pull_request:\n${job}`,
+      `name: x\non:\n  pull_request:\n  schedule:\n    - cron: '0 9 * * 1'\n${job}`,
+    ];
+    for (const w of ok) {
+      expect(S(w).covered.has(spec), w).toBe(true);
+    }
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any
