@@ -141,17 +141,35 @@ function resolvedByCommand(segment: string[], spec: string): number {
   const argv = segment.slice(i + 1);
   let out: string;
   try {
-    out = execFileSync("pnpm", ["exec", "playwright", ...argv, "--list", "--reporter=json"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      timeout: 300_000,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    out = execFileSync(
+      "pnpm",
+      ["exec", "playwright", ...argv, "--list", "--forbid-only", "--reporter=json"],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
   } catch {
     return 0;
   }
   return countTests(out, spec);
 }
+
+/**
+ * Cases these specs deliberately keep skipped, by exact title.
+ *
+ * Whole-diff review R5 (HIGH) escaping mutant: excluding skipped tests from BOTH sides of the
+ * count comparison made `test.describe.skip(...)` on the agenda-fold block invisible — three
+ * defined, three collected, three executed, and the three cases the branch exists for silently
+ * gone. Counting cannot tell a deliberate skip from a regressed one; only an explicit list can.
+ * A new skip therefore fails here until someone writes down why, and deleting a row that still
+ * has a `.skip` fails too.
+ */
+const EXPECTED_SKIPS: Record<string, string[]> = {
+  // picker-flow.spec.ts:354 — "non-deterministic on a shared single-host local run. The DB
+  // rotation …": pre-existing, documented at the skip site, unrelated to this branch.
+  "tests/e2e/picker-flow.spec.ts": [
+    "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
+  ],
+  "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+};
 
 /**
  * Every test the spec file defines, resolved WITHOUT the workflow's own filters — the baseline the
@@ -164,19 +182,51 @@ function resolvedByCommand(segment: string[], spec: string): number {
  * the fix and it maintains itself: adding a case to the spec raises both sides together, while any
  * filter that drops one fails the comparison.
  */
-function definedTestCount(spec: string, projects: string[]): number {
+function definedResolution(spec: string, projects: string[]): { count: number; skips: string[] } {
   const projectFlags = projects.map((p) => `--project=${p}`);
   let out: string;
   try {
     out = execFileSync(
       "pnpm",
-      ["exec", "playwright", "test", ...projectFlags, spec, "--list", "--reporter=json"],
+      [
+        "exec",
+        "playwright",
+        "test",
+        ...projectFlags,
+        spec,
+        "--list",
+        "--forbid-only",
+        "--reporter=json",
+      ],
       { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
     );
   } catch {
-    return 0;
+    return { count: 0, skips: [] };
   }
-  return countTests(out, spec);
+  return { count: countTests(out, spec), skips: skippedTitles(out, spec) };
+}
+
+function skippedTitles(json: string, spec: string): string[] {
+  const parsed = JSON.parse(json.slice(json.indexOf("{"))) as { suites?: unknown[] };
+  const base = spec.split("/").pop()!;
+  const titles: string[] = [];
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as {
+        suites?: unknown[];
+        specs?: { file?: string; title?: string; tests?: { expectedStatus?: string }[] }[];
+      };
+      for (const sp of s.specs ?? []) {
+        if (!(sp.file ?? "").endsWith(base)) continue;
+        if ((sp.tests ?? []).some((t) => t.expectedStatus === "skipped")) {
+          titles.push(sp.title ?? "");
+        }
+      }
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  return [...new Set(titles)].sort();
 }
 
 function countTests(json: string, spec: string): number {
@@ -187,10 +237,17 @@ function countTests(json: string, spec: string): number {
     for (const suite of suites) {
       const s = suite as {
         suites?: unknown[];
-        specs?: { file?: string; tests?: unknown[] }[];
+        specs?: { file?: string; tests?: { expectedStatus?: string }[] }[];
       };
       for (const sp of s.specs ?? []) {
-        if ((sp.file ?? "").endsWith(base)) n += (sp.tests ?? []).length;
+        if (!(sp.file ?? "").endsWith(base)) continue;
+        // A `skip`ped case is collected but never executed, so it is not coverage. R5 (HIGH)
+        // escaping mutant: `test.describe.skip(...)` moved BOTH sides of the count comparison
+        // together — six defined, six "collected", zero executed — and both guards stayed green.
+        // Counting only non-skipped tests makes that mutant drive the count to 0, which the
+        // `> 0` assertion rejects. `--forbid-only` on both resolutions closes the `test.only`
+        // twin: Playwright errors instead of silently narrowing the run.
+        n += (sp.tests ?? []).filter((t) => t.expectedStatus !== "skipped").length;
       }
       if (s.suites) walk(s.suites);
     }
@@ -219,12 +276,18 @@ function expectNoProjectGate(spec: string): void {
     readFileSync(join(process.cwd(), spec), "utf8"),
     ts.ScriptKind.TS,
   );
+  // The IDENTIFIERS, not a spelling. R5 (HIGH) defeated a `/project\.name/` scan with
+  // `test.info().project["name"]`, and destructuring (`const { project } = testInfo`) or aliasing
+  // would defeat any bracket-aware successor. Every project-based gate must name `project` or
+  // reach it through `testInfo`/`test.info()`, and neither spec uses either identifier for
+  // anything else (verified 2026-08-02: zero occurrences in code, comments excluded).
+  const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/].filter((re) => re.test(code));
   expect(
-    /project\.name/.test(code),
-    `${spec} reads project.name outside its header. A project guard clause makes every case a ` +
-      "silent assertion-free PASS under any other project, so a one-word testMatch move turns the " +
-      "suite into a no-op that still reports green. Let it run and fail loudly instead.",
-  ).toBe(false);
+    banned.map(String),
+    `${spec} names project/testInfo in code. A project guard clause makes every case a silent ` +
+      "assertion-free PASS under any other project, so a one-word testMatch move turns the suite " +
+      "into a no-op that still reports green. Let it run and fail loudly instead.",
+  ).toEqual([]);
 }
 
 /**
@@ -245,7 +308,14 @@ function expectWired(segments: string[][], spec: string, what: string): void {
     const projects = segment
       .filter((w) => w.startsWith("--project="))
       .map((w) => w.slice("--project=".length));
-    const expected = definedTestCount(spec, projects);
+    const defined = definedResolution(spec, projects);
+    const expected = defined.count;
+    expect(
+      defined.skips,
+      `${spec} has skipped cases that are not in EXPECTED_SKIPS. A skip is invisible to the count ` +
+        "comparison below — both sides drop together — so every one is written down with a reason " +
+        "or it is a coverage regression.",
+    ).toEqual([...(EXPECTED_SKIPS[spec] ?? [])].sort());
     expect(
       expected,
       `no project the segment selects (${projects.join(", ")}) resolves any test in ${spec}`,

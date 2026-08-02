@@ -89,6 +89,27 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF14 — effective-engine override (whole-diff review R5 live mutant):** an explicit
+  `browserName: "chromium"` after the Desktop Safari spread left `defaultBrowserType` reading
+  "webkit" while the worker fixture launched Chromium — `browserName` is an overridable worker
+  option that merely DEFAULTS from `defaultBrowserType`. Closed by asserting the EFFECTIVE engine
+  (`use.browserName ?? use.defaultBrowserType`).
+- **MF15 — gate identifier laundering (whole-diff review R5 live mutant):** MF13's ban matched
+  `/project\.name/`, which `test.info().project["name"]` walked straight past (and destructuring or
+  aliasing would defeat any bracket-aware successor). Closed by banning the IDENTIFIERS — `project`,
+  `testInfo`, `test.info(` — in these specs' code, none of which either file uses for anything
+  else.
+- **MF16 — skip/only narrowing (whole-diff review R5 live mutants):** excluding skipped tests from
+  both sides of the count comparison made `test.describe.skip(...)` invisible (both sides drop
+  together), and `test.only` narrowed the run while `--list` still reported six. Closed by an
+  explicit `EXPECTED_SKIPS` registry — every skipped title is written down with a reason or the
+  guard fails — plus `--forbid-only` on both resolutions, which makes Playwright error on a focused
+  test rather than silently narrow.
+- **MF17 — unproducible fixture (whole-diff review R5 HIGH):** the seeded extraction claimed
+  `confidence: "high"` with 2 sessions and no rooms, which no extractor version can emit (n >= 5,
+  >= 75% roomed — `lib/agenda/constants.ts`, enforced at `extractAgendaSchedule.ts:602-608`), so the
+  fold was proven only for a forged jsonb state. Closed by making the fixture satisfy the real
+  gates: 6 sessions across the two days, every one timed, titled and roomed.
 - **MF11 — self-gate / project drift (whole-diff review R3 live mutant; SUPERSEDED by MF13, which
   removed the gates the pin was reading):**
   `stage-restricted-crew-schedule.spec.ts` opens every hook and case with

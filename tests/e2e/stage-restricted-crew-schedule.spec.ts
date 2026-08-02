@@ -330,6 +330,12 @@ const FOLD_AGENDA_LINKS = [
     // click (components/agenda/AgendaEmbed.tsx), which these tests never perform.
     fileId: "agenda-fold-e2e-fileid",
     extracted: {
+      // `confidence: "high"` is a CLAIM about the producer, so the payload satisfies the real
+      // gates rather than merely asserting the label (whole-diff review R5 HIGH). The extractor
+      // requires n >= 5 sessions, >= 95% parsed time anchors, >= 80% titled and >= 75% roomed
+      // (lib/agenda/constants.ts AGENDA_CONFIDENCE, enforced at
+      // lib/agenda/extractAgendaSchedule.ts:602-608): this fixture is 6 sessions, all with a
+      // parseable time, a title and a room, monotonic within each day.
       confidence: "high" as const,
       corrections: 0,
       extractorVersion: 1,
@@ -337,12 +343,38 @@ const FOLD_AGENDA_LINKS = [
         {
           dayLabel: "Wednesday, May 6, 2026",
           date: null,
-          sessions: [{ time: "9:00 AM", title: "Keynote", room: null, tracks: [], drift: null }],
+          sessions: [
+            { time: "9:00 AM", title: "Keynote", room: "Grand Ballroom", tracks: [], drift: null },
+            {
+              time: "10:30 AM",
+              title: "Product Deep Dive",
+              room: "Salon A",
+              tracks: [],
+              drift: null,
+            },
+            { time: "1:00 PM", title: "Partner Panel", room: "Salon B", tracks: [], drift: null },
+          ],
         },
         {
           dayLabel: "Thursday, May 7, 2026",
           date: null,
-          sessions: [{ time: "10:00 AM", title: "Breakouts", room: null, tracks: [], drift: null }],
+          sessions: [
+            { time: "10:00 AM", title: "Breakouts", room: "Salon A", tracks: [], drift: null },
+            {
+              time: "11:30 AM",
+              title: "Customer Stories",
+              room: "Salon B",
+              tracks: [],
+              drift: null,
+            },
+            {
+              time: "2:00 PM",
+              title: "Closing Remarks",
+              room: "Grand Ballroom",
+              tracks: [],
+              drift: null,
+            },
+          ],
         },
       ],
     },

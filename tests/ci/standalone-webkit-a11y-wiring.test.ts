@@ -30,10 +30,17 @@ describe("standalone WebKit a11y leg wiring", () => {
     // webkit would regress this even if the source still spelled a Safari-looking device name.
     const project = standaloneConfig.projects?.find((p) => p.name === PROJECT);
     expect(project, `${PROJECT} is not defined in tests/e2e/standalone.config.ts`).toBeDefined();
+    // EFFECTIVE engine, not the device default. Whole-diff review R5 (HIGH) escaping mutant: an
+    // explicit `browserName: "chromium"` after the Desktop Safari spread left
+    // `defaultBrowserType` reading "webkit" while the worker fixture launched Chromium.
+    // `browserName` is an overridable worker option that merely DEFAULTS from
+    // `defaultBrowserType`, so the override is what decides.
+    const engine = project!.use?.browserName ?? project!.use?.defaultBrowserType;
     expect(
-      project!.use?.defaultBrowserType,
-      `${PROJECT} must launch WebKit — a Chromium device here makes the leg a duplicate of ` +
-        "standalone-chromium and leaves Safari, an explicit crew target, uncovered.",
+      engine,
+      `${PROJECT} must launch WebKit — a Chromium device OR an explicit browserName override ` +
+        "here makes the leg a duplicate of standalone-chromium and leaves Safari, an explicit " +
+        "crew target, uncovered.",
     ).toBe("webkit");
   });
 
