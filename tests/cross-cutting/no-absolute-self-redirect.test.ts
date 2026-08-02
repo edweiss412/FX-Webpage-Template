@@ -605,6 +605,17 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  it("does not flag wrapped non-extracting positions (N15)", () => {
+    // Transparent wrappers climb to the real position (whole-diff r13):
+    // wrapped receivers, new-callees, instanceof RHS, typeof operands.
+    expect(
+      auditSource(
+        fixturePath(),
+        `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const a = (NextResponse).json({ ok: 1 });\n  const b = NextResponse!.json({ ok: 2 });\n  const c = new (NextResponse)(null, { status: 302, headers: { Location: "/x" } });\n  const d = x instanceof (Response);\n  const e = typeof (Response);\n  return [a, b, c, d, e];\n}`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag an app-local class merely named Response (N14)", () => {
     // Provenance pin (whole-diff r11): only node_modules-declared containers
     // are banned; a local domain model sharing the name is not.

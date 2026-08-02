@@ -1,6 +1,10 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R14 — whole-diff round-11 repaired (container provenance pin; runner contract; table placement) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R15 — whole-diff rounds 12–13 repaired (doc sync; transparent-wrapper position climb) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R13 disposition (2026-08-01):** one P1 — wrapped receivers/callees (`(NextResponse).json(…)`, `NextResponse!.json(…)`, `new (NextResponse)(…)`, `instanceof (Response)`, `typeof (Response)`) false-flagged because position checks read only the immediate parent. Fixed: `effectivePosition` climbs parens/non-null unconditionally and `as`/`satisfies` ONLY while the asserted type still carries — a carry-ERASING cast is itself the laundering step, so R68/R69 keep flagging (the first climb draft regressed them; the mutant corpus caught it pre-commit); N15 pins the five wrapped shapes quiet. One P2 — the R12 doc-sync round now has its disposition (below) and the status line reflects it.
+
+**Whole-diff R12 disposition (2026-08-01):** one P1 doc-sync — the §5.1 normative predicate and container-scope paragraph now carry the r11 provenance pin (in-repo redeclarations of any shape fall to the mimic fence; N14), and the hand-rolled-Location cite reads limit 5.
 
 **Whole-diff R11 disposition (2026-08-01):** four findings, all repaired. (P1) An app-local `class Response { redirect }` false-flagged under name-only container matching — `isBannedDecl` (both worlds) now pins declaration provenance to node_modules, so only the real classes ban; N14 pins the local mimic quiet, and the delegator/hand-roller fence covers any local class with a genuinely host-flipping redirect. (P1) The mutant-corpus run contract is standardized (tsx-loader required; bare node fails by design — stated in the header). (P2) R93 moved from the negatives table to §6.1; stale R92 endpoints updated. (P2) The spec-side probe-3 file is marked HISTORICAL (call-prong-only R1 evidence); the drift-proof harness is the importing runner.
 
@@ -331,6 +335,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N12 | Local callable `interface Require` | the require branch pins Node's DECLARATION, not the symbol name (r8 false-positive fix, probe 13) |
 | N13 | Type-only `typeof X.member` chains (`typeof NextResponse.json`, namespace/globalThis variants) | QualifiedName parents are type space (r9 false-positive fix, probe 14) |
 | N14 | App-local `class Response { redirect(…) }` | provenance pin — only node_modules-declared containers are banned (r11 false-positive fix); a local mimic falls to the delegator/hand-roller fence |
+| N15 | Wrapped non-extracting positions (`(NextResponse).json(…)`, `NextResponse!.json(…)`, `new (NextResponse)(…)`, `instanceof (Response)`, `typeof (Response)`) | `effectivePosition` climbs transparent wrappers before classifying (r13 false-positive fix) |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -349,7 +354,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R93, N1–N14, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R93, N1–N15, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.

@@ -230,23 +230,55 @@ function isModuleType(t: Type): boolean {
  * the callee of a call prong 1 already flagged, instanceof RHS, and the
  * `typeof` value operand.
  */
+/**
+ * Climb transparent wrappers — `(X)`, `X!`, `X as T`, `X satisfies T` — so a
+ * wrapped receiver/callee still classifies by its REAL syntactic position
+ * (whole-diff r13: `(NextResponse).json(...)` false-flagged when only the
+ * immediate parent was inspected).
+ */
+function effectivePosition(node: Node): { child: Node; parent: Node | undefined } {
+  let child: Node = node;
+  let parent = child.getParent();
+  while (parent !== undefined) {
+    const transparent =
+      (Node.isParenthesizedExpression(parent) || Node.isNonNullExpression(parent)) &&
+      parent.getExpression() === child;
+    // An `as`/`satisfies` wrapper climbs ONLY while the asserted type still
+    // carries — a cast that ERASES the carry (`as any`, `as unknown as …`) is
+    // itself the laundering step, and the naked reference must keep flagging
+    // (R68/R69; the r13 wrapped-receiver shapes stay quiet via parens/non-null).
+    const carryPreservingCast =
+      (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent)) &&
+      parent.getExpression() === child &&
+      carriesBanned(parent, parent.getType());
+    if (!transparent && !carryPreservingCast) break;
+    child = parent;
+    parent = child.getParent();
+  }
+  return { child, parent };
+}
+
 function inNonExtractingPosition(node: Node, bannedCalls: ReadonlySet<Node>): boolean {
-  const parent = node.getParent();
+  const { child, parent } = effectivePosition(node);
   if (parent === undefined) return false;
   if (
     (Node.isPropertyAccessExpression(parent) || Node.isElementAccessExpression(parent)) &&
-    parent.getExpression() === node
+    parent.getExpression() === child
   ) {
     return true;
   }
-  if (Node.isNewExpression(parent) && parent.getExpression() === node) return true;
-  if (Node.isCallExpression(parent) && parent.getExpression() === node && bannedCalls.has(parent)) {
+  if (Node.isNewExpression(parent) && parent.getExpression() === child) return true;
+  if (
+    Node.isCallExpression(parent) &&
+    parent.getExpression() === child &&
+    bannedCalls.has(parent)
+  ) {
     return true;
   }
   if (
     Node.isBinaryExpression(parent) &&
     parent.getOperatorToken().getKind() === SyntaxKind.InstanceOfKeyword &&
-    parent.getRight() === node
+    parent.getRight() === child
   ) {
     return true;
   }
@@ -534,11 +566,11 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       // except the exact call prong 1 already reported. Receiver position is
       // NOT exempt here: `NextResponse.redirect.call(undefined, u)` must flag
       // at the inner access even though it is the receiver of `.call`.
-      const parent = node.getParent();
+      const { child, parent } = effectivePosition(node);
       const calleeOfBanned =
         parent !== undefined &&
         Node.isCallExpression(parent) &&
-        parent.getExpression() === node &&
+        parent.getExpression() === child &&
         bannedCalls.has(parent);
       if (!calleeOfBanned) findings.push(findingFor(node, "reference", ""));
       continue;
