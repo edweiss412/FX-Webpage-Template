@@ -1,6 +1,6 @@
 # Admin show-page popover/overlay-clip cluster
 
-**Date:** 2026-08-01 · **Status:** DRAFT (autonomous /ship-feature run)
+**Date:** 2026-08-01 · **Status:** RATIFIED 2026-08-02 (Codex adversarial review APPROVE, 7 rounds; autonomous /ship-feature run)
 **Backlog items:** `BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS`, `BL-ATTENTION-MENU-PANEL-CLIP`, `BL-PUBLISHED-TOGGLE-OVERLAY-CLIP`, `BL-SHAREHUB-CONFIRM-NAMES-SHOW`, `BL-SHAREHUB-OPEN-TIMER-LEAK`, `BL-POPOVER-SHARED-RAF-COALESCER` (all in `BACKLOG.md`)
 
 Six items on one surface family: the admin show-page popovers/overlays inside the
