@@ -1124,7 +1124,7 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   BRANCH: {
     values: ["${{ github.ref_name }}"],
     reason: "branch name read by regen scripts",
-    governs: ["tests/e2e/section-header-visual.spec.ts"],
+    governs: [],
   },
   PG_CRON_COVERAGE_TARGET: {
     values: ["validation"],
@@ -1132,11 +1132,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     governs: [],
   },
   GH_TOKEN: { values: ["${{ github.token }}"], reason: "GitHub token read by gh CLI", governs: [] },
-  GH_APP_TOKEN: {
-    values: ["${{ secrets.GH_APP_TOKEN }}"],
-    reason: "GitHub token read by regen scripts",
-    governs: [],
-  },
   BRANCH_PROTECTION_PAT: {
     values: ["${{ secrets.BRANCH_PROTECTION_PAT }}"],
     reason: "GitHub token read by audit scripts",
@@ -1468,6 +1463,114 @@ const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container
 const UNMODELLED_SHELL_RE =
   /[$`]|(?:^|[\n;&|])[ \t]*[{}]|(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.[ \t]|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[^\s;&|(){}]+[ \t]*\([ \t]*\))/;
 
+const INVOKER_SEG =
+  /^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*[ \t]+)*(?:pnpm|npx|yarn|bun|playwright)\b/;
+
+/**
+ * The ONE claim recognizer (R13 command-position + alias resolution + the
+ * whole-config literal), shared by the scan loop AND the governance
+ * derivation. R4 (static-env spec §7): a governance derivation using a bare
+ * path regex credited `echo tests/e2e/…` prose as a claim, so a reviewed
+ * pair parked on an echo step laundered its declared governs set while the
+ * real Playwright step ran flagless. Recognition — not qualification — is
+ * what governance needs, and it must be THIS recognizer or the two diverge.
+ */
+function resolveAliasClaims(cmd: string, packageScripts: Record<string, string>): string[] {
+  const out: string[] = [];
+  for (const line of cmd.split("\n")) {
+    for (const seg of line.split(/(?:&&|\|\||[;&|])/)) {
+      if (!INVOKER_SEG.test(seg)) continue;
+      out.push(...(seg.match(SPEC_RE) ?? []));
+      // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
+      for (const mm of seg.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)) {
+        const name = mm[1]!;
+        if (name in packageScripts)
+          out.push(...resolveAliasClaims(packageScripts[name]!, packageScripts));
+      }
+    }
+  }
+  return out;
+}
+
+export function claimedSpecsOf(
+  cmd: string,
+  packageScripts: Record<string, string>,
+  configSpecs: Record<string, string[]> = {},
+): string[] {
+  const out = resolveAliasClaims(cmd, packageScripts);
+  // The whole-config literal applies to the TOP-LEVEL run block ONLY and
+  // deliberately NOT through alias resolution (ratified — an adversarial
+  // round claimed full coverage for a wrapped alias because recursion
+  // applied the exact match to the package-script BODY while qualification
+  // only ever saw the outer command; the R4 refactor briefly reintroduced
+  // exactly that and the wrapped-literal fixture caught it pre-commit).
+  const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+  if (wholeConfigMatch) out.push(...(configSpecs[wholeConfigMatch[1]!] ?? []));
+  return out;
+}
+
+/**
+ * Key -> spec paths its env scope governs (static-env spec §2.3): a key at
+ * workflow-root, job, or step env scope governs every spec the SHARED
+ * recognizer extracts from that job's claiming run text. Prose mentions
+ * (echo lines, comments) are not claims and confer no governance (§7 R4).
+ * Pure so the S8 fixtures can feed doctored trees.
+ */
+export function envPairGovernance(
+  workflows: Record<string, string>,
+  packageScripts: Record<string, string>,
+  configSpecs: Record<string, string[]> = {},
+): Map<string, Set<string>> {
+  const gov = new Map<string, Set<string>>();
+  const keysOf = (env: unknown): string[] =>
+    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
+  for (const raw of Object.values(workflows)) {
+    let doc: unknown;
+    try {
+      doc = parse(raw);
+    } catch {
+      continue;
+    }
+    const root = keysOf((doc as { env?: unknown } | null)?.env);
+    for (const j of Object.values(
+      (doc as { jobs?: Record<string, { env?: unknown; steps?: unknown }> } | null)?.jobs ?? {},
+    )) {
+      const job = keysOf(j?.env);
+      for (const st of Array.isArray(j?.steps)
+        ? (j.steps as Array<{ run?: unknown; env?: unknown }>)
+        : []) {
+        const specs =
+          typeof st?.run === "string"
+            ? [...new Set(claimedSpecsOf(st.run, packageScripts, configSpecs))]
+            : [];
+        if (specs.length === 0) continue;
+        for (const k of [...root, ...job, ...keysOf(st?.env)]) {
+          const set = gov.get(k) ?? new Set<string>();
+          for (const sp of specs) set.add(sp);
+          gov.set(k, set);
+        }
+      }
+    }
+  }
+  return gov;
+}
+
+/** governs-equality check (S8): every row's declared governs must equal the
+ *  derived set — relocation, prose-laundering, and silent governance gain
+ *  all force a reviewable registry edit. */
+export function governanceViolations(
+  allowlist: EnvKeyAllowlist,
+  derived: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, row] of Object.entries(allowlist)) {
+    const want = JSON.stringify([...(derived.get(key) ?? [])].sort());
+    if (want !== JSON.stringify([...row.governs].sort()))
+      out.push(`${key}: declared governs ${JSON.stringify(row.governs)} != live ${want}`);
+  }
+  return out;
+}
+
 export function scanWorkflowCoverage({
   workflows,
   packageScripts,
@@ -1490,24 +1593,6 @@ export function scanWorkflowCoverage({
   // Leading env-assignment prefixes stay CLAIMABLE on purpose: the claim
   // must survive to the qualification chain so UNMODELLED_SHELL_RE rejects
   // it WITH a reason ("REPORTED, not silently dropped").
-  const INVOKER_SEG =
-    /^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*[ \t]+)*(?:pnpm|npx|yarn|bun|playwright)\b/;
-  const resolveSpecs = (cmd: string): string[] => {
-    const out: string[] = [];
-    for (const line of cmd.split("\n")) {
-      for (const seg of line.split(/(?:&&|\|\||[;&|])/)) {
-        if (!INVOKER_SEG.test(seg)) continue;
-        out.push(...(seg.match(SPEC_RE) ?? []));
-        // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
-        for (const mm of seg.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)) {
-          const name = mm[1]!;
-          if (name in packageScripts) out.push(...resolveSpecs(packageScripts[name]!));
-        }
-      }
-    }
-    return out;
-  };
-
   for (const [file, rawYaml] of Object.entries(workflows)) {
     // Everything below reads the CANONICAL text; an unparseable workflow
     // never runs on GitHub, so it claims nothing (safe-dark).
@@ -1700,8 +1785,7 @@ export function scanWorkflowCoverage({
           // qualification only ever saw the outer command. Requiring the whole
           // run block to BE the literal removes the shell reasoning entirely —
           // there is no surrounding context left to smuggle anything into.
-          const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
-          const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+
           // Static-env spec §2.1: the union of every scope governing THIS
           // step (workflow < job < step precedence all reach its process
           // env), sorted and deduped so the reason is deterministic and
@@ -1714,7 +1798,7 @@ export function scanWorkflowCoverage({
             ]),
           ].sort();
 
-          for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
+          for (const spec of claimedSpecsOf(cmd, packageScripts, configSpecs)) {
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });

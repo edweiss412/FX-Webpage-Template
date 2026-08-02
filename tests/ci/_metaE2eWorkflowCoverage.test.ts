@@ -23,7 +23,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { ENV_KEY_ALLOWLIST, scanWorkflowCoverage } from "./_workflowCoverageScan";
+import {
+  ENV_KEY_ALLOWLIST,
+  envPairGovernance,
+  governanceViolations,
+  scanWorkflowCoverage,
+} from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
 
 /** Every env: (key, value-text) pair a live workflow or local action
@@ -1698,61 +1703,6 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
   });
 });
 
-/** Key → spec paths its env scope governs, derived from a workflows map the
- *  same way the seed's `governs` arrays were: a key at workflow-root, job, or
- *  claiming-step env scope governs every spec named in that job's claiming
- *  run text. Pure so the S8 fixtures can feed doctored trees. */
-function envPairGovernance(workflows: Record<string, string>): Map<string, Set<string>> {
-  const SPEC_PATH_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
-  const gov = new Map<string, Set<string>>();
-  const keysOf = (env: unknown): string[] =>
-    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
-  for (const raw of Object.values(workflows)) {
-    let doc: unknown;
-    try {
-      doc = parse(raw);
-    } catch {
-      continue;
-    }
-    const root = keysOf((doc as { env?: unknown } | null)?.env);
-    for (const j of Object.values(
-      (doc as { jobs?: Record<string, { env?: unknown; steps?: unknown }> } | null)?.jobs ?? {},
-    )) {
-      const job = keysOf(j?.env);
-      for (const st of Array.isArray(j?.steps)
-        ? (j.steps as Array<{ run?: unknown; env?: unknown }>)
-        : []) {
-        const specs =
-          typeof st?.run === "string" ? [...new Set(st.run.match(SPEC_PATH_RE) ?? [])] : [];
-        if (specs.length === 0) continue;
-        for (const k of [...root, ...job, ...keysOf(st?.env)]) {
-          const set = gov.get(k) ?? new Set<string>();
-          for (const sp of specs) set.add(sp);
-          gov.set(k, set);
-        }
-      }
-    }
-  }
-  return gov;
-}
-
-/** governs-equality check (S8): every row's declared governs must equal the
- *  derived set — relocation OR new governance both force a registry edit. */
-function governanceViolations(
-  allowlist: typeof ENV_KEY_ALLOWLIST,
-  derived: Map<string, Set<string>>,
-): string[] {
-  const out: string[] = [];
-  for (const [key, row] of Object.entries(allowlist)) {
-    const want = [...(derived.get(key) ?? [])].sort();
-    if (JSON.stringify(want) !== JSON.stringify([...row.governs].sort()))
-      out.push(
-        `${key}: declared governs ${JSON.stringify(row.governs)} != live ${JSON.stringify(want)}`,
-      );
-  }
-  return out;
-}
-
 describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
   it("every allowlist row pins live (key, value) pairs only, with a non-empty reason (S6)", () => {
     const live = liveEnvPairs();
@@ -1772,7 +1722,22 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
         .filter((n) => /\.ya?ml$/.test(n))
         .map((f) => [f, readFileSync(join(wfDir, f), "utf8")]),
     );
-    expect(governanceViolations(ENV_KEY_ALLOWLIST, envPairGovernance(workflows))).toEqual([]);
+    // Same recognizer inputs as the live scan (§7 R4): alias resolution and
+    // the whole-config literal both confer governance; prose does not.
+    const packageScripts = (
+      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    const configSpecs = {
+      "tests/e2e/standalone.config.ts": listedSpecFiles().map((f) => `tests/e2e/${f}`),
+    };
+    expect(
+      governanceViolations(
+        ENV_KEY_ALLOWLIST,
+        envPairGovernance(workflows, packageScripts, configSpecs),
+      ),
+    ).toEqual([]);
   });
 
   it("the governance checker reds a relocated pair and a silently-gained one (S8 doctored twins)", () => {
@@ -1781,11 +1746,28 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
     // The R3 mutant: pair parked at a non-claiming site — pair-level presence
     // still holds, governance does not.
-    expect(governanceViolations(row, envPairGovernance({ "w.yml": claiming }))).toEqual([]);
-    expect(governanceViolations(row, envPairGovernance({ "w.yml": relocated }))).toHaveLength(1);
+    expect(governanceViolations(row, envPairGovernance({ "w.yml": claiming }, {}))).toEqual([]);
+    expect(governanceViolations(row, envPairGovernance({ "w.yml": relocated }, {}))).toHaveLength(
+      1,
+    );
     // The inverse drift: a pair silently GAINING governance must also red.
     const bare = { K: { values: ["v"], reason: "r", governs: [] } };
-    expect(governanceViolations(bare, envPairGovernance({ "w.yml": claiming }))).toHaveLength(1);
+    expect(governanceViolations(bare, envPairGovernance({ "w.yml": claiming }, {}))).toHaveLength(
+      1,
+    );
+    // R4 launder twin: prose is not a claim. A pair parked on an echo step
+    // that PRINTS the spec path confers no governance — the declared row
+    // reds instead of being laundered through non-command-position text.
+    const parked = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  park:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo tests/e2e/x.spec.ts\n`;
+    expect(governanceViolations(row, envPairGovernance({ "w.yml": parked }, {}))).toHaveLength(1);
+    // …and alias-resolved claims DO confer it (same recognizer as the scan).
+    const aliased = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm run e2e:x\n`;
+    expect(
+      governanceViolations(
+        row,
+        envPairGovernance({ "w.yml": aliased }, { "e2e:x": "playwright test tests/e2e/x.spec.ts" }),
+      ),
+    ).toEqual([]);
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
