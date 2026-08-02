@@ -1166,7 +1166,7 @@ export function Step3Review({
   // proxy (uncheckedNamesKey) so a fresh array ref each render doesn't re-fire it.
   const uncheckedCleanNames = heldableRows.filter((r) => !isChecked(r)).map(rowDisplayName);
   const optimisticUncheckedCleanCount = uncheckedCleanNames.length;
-  const uncheckedNamesKey = uncheckedCleanNames.join(" ");
+  const uncheckedNamesKey = uncheckedCleanNames.join("\u0000");
   useEffect(() => {
     onCountsChange?.({
       publishCount: optimisticPublishCount,

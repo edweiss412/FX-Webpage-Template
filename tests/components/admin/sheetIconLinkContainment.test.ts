@@ -1072,6 +1072,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/crew/sections/TravelSection.tsx": 1,
         "components/crew/sections/VenueSection.tsx": 1,
         "components/shared/CardReportTrigger.tsx": 1,
+        // Carries the `SourceAnchor` type import that came out of
+        // OnboardingWizard.tsx with the Step-3 row assembly (2026-08-02
+        // assembleStep3Row extraction). OnboardingWizard keeps its own import,
+        // so this is a NEW row, not a moved one.
+        "lib/admin/assembleStep3Row.ts": 1,
         "lib/admin/step3SectionStatus.ts": 1,
         "lib/adminAlerts/alertActions.ts": 5,
         "lib/data/getShowForViewer.ts": 2,

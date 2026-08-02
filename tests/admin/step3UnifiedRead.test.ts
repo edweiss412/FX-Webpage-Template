@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStep3Row } from "@/components/admin/OnboardingWizard";
+import { buildStep3Row } from "@/lib/admin/assembleStep3Row";
 
 const manifest = {
   drive_file_id: "d1",

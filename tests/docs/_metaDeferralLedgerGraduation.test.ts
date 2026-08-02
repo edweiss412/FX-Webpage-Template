@@ -240,6 +240,19 @@ const BACKLOG_GRADUATED = [
     id: "BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE",
     provenance: "fix/lifecycle-transitions-roundtrip-flake",
   },
+  // docs/citation-rot-financials-vocab (2026-08-02): the docs-hygiene batch —
+  // 15 dangling citations to the seven retired e2e workflows rendered as
+  // prose across 10 docs (class-swept), and the master spec's financials
+  // prose reconciled to LEAD/FINANCIALS/admin entitlement (14 claims;
+  // spec 2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md).
+  {
+    id: "BL-DANGLING-CITATIONS-RETIRED-WORKFLOW",
+    provenance: "docs/citation-rot-financials-vocab",
+  },
+  {
+    id: "BL-MASTERSPEC-FINANCIALS-VOCAB",
+    provenance: "docs/citation-rot-financials-vocab",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

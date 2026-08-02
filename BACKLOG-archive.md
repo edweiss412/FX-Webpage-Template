@@ -22,6 +22,48 @@ Static env injection is a FAIL-OPEN residual of `tests/ci/_workflowCoverageScan.
 
 **Status:** OPEN.
 
+---
+
+## BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
+
+### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+
+**Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
+
+`origin/main` deleted `.github/workflows/modal-header-layout-e2e.yml` when it retired seven per-feature
+e2e workflows. Backticked references to that path are citations to `spec:lint`, so every doc still
+naming it now hard-fails `CITATION_FILE_MISSING`. Note the linter keys on the `.yml` extension, not on
+the directory separator — shortening to a bare filename does NOT clear it; the backticks have to go.
+
+PR #610 swept its own three docs (5 + 3 hard findings → 0 each) by rendering the name as prose. Seven
+others were left alone deliberately, to avoid pulling unrelated specs into an in-review diff:
+
+- `docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md`
+- `docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+- `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md`
+- `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`
+- `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md`
+- `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md`
+- `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+
+**Not urgent:** `spec:lint` is not wired into any workflow (verified — no `.github/workflows/**` match),
+so nothing is merge-blocked. It fails only for whoever runs it by hand on one of those files.
+
+**Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
+retiring spec itself, where the old name is legitimate history.
+
+**CLOSED 2026-08-02** — resolved on docs/citation-rot-financials-vocab: all 15 backticked citations to the seven deleted workflows rendered as prose (the entry's seven-file list was class-swept to 10 files; the retiring spec — second-to-last in the entry's list, not last — was measured already clean and needed no edit). Residual non-target lint findings (12, five classes) deliberately left, inventoried in the batch spec §1.1.
+
+## BL-MASTERSPEC-FINANCIALS-VOCAB — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
+
+## BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec
+
+**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug, owner scope decision) · **Class:** docs (canonical-spec consistency) · **Effort:** S (doc-only grep-sweep)
+
+Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FINANCIALS` role flag but did not reconcile the master spec's (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) ~15 financials-access prose claims, which still describe financials/`shows_internal`/FinancialsTile access as LEAD-only. Live code (`lib/data/getShowForViewer.ts:380` `financialsEntitled = isAdmin || includes("LEAD") || includes("FINANCIALS")`, `lib/visibility/scopeTiles.ts:141`) grants on LEAD ∪ FINANCIALS ∪ admin. Reconcile every financials-entitlement claim to `LEAD ∪ FINANCIALS` (or admin). Grep seed: `rg -n "financ|shows_internal|FinancialsTile|financialsEntitled|Proposal|Invoice|PO#" <masterspec> | rg -i "LEAD" | rg -v "FINANCIALS"` (the final exclude is CASE-SENSITIVE — drops only lines already naming the all-caps FINANCIALS role flag). Exclude RLS-admin-only denial and `raw_unrecognized`/`parse_warnings` (admin/LEAD-only — FINANCIALS grants only the `financials` column). Trigger: next master-spec pass or an audit flagging the drift. (This capability-narrow change already corrected the §6.8 MI-9 "LEAD is the only capability element" claim; the rest is out of its scope.)
+
+**CLOSED 2026-08-02** — resolved on docs/citation-rot-financials-vocab: 14 claims reconciled (11 of the seed's 15 hits + 3 seed-blind instances found by a whole-file window probe), line-count-neutral, entitlement phrased as LEAD or FINANCIALS or admin per the live financialsEntitled mechanism. The 4 seed no-edit lines and 8 probe non-claims are ratified in the batch spec §3.2/§3.2.1. One same-vocabulary residue found during review — the §12.4 ROLE_FLAGS_NOTICE helpfulContext over-grant — is filed separately as BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (needs the §12.4 three-way lockstep).
+
 ## BL-SOUND-REDIRECT-GUARD — RESOLVED (2026-08-01, `test/redirect-guard-type-aware`)
 
 **Resolution:** the syntactic 19-spelling matcher in `tests/cross-cutting/no-absolute-self-redirect-audit.ts` is replaced by TWO-PRONG type-checker resolution over walked roots extended to `app/** + lib/**` plus the permitted root middleware/proxy surfaces (ts/tsx/js): prong 1 flags every call whose resolved signature's declaration is `redirect` on a container named `NextResponse`/`Response`; prong 2 flags every OTHER reference to that method OR to the class object carrying it — property/element access, binding elements, destructuring-assignment members (via the vendored compiler's `getTypeOfAssignmentPattern`), and naked `NextResponse`/`Response` value flows — type-decided, never allow-listable. All four residual classes this entry filed (helper return, class field, re-export, dynamic dispatch) are caught, plus the families the spec/plan reviews and the whole-diff rounds (each recorded in the spec's disposition blocks) surfaced on the way: twelve typed value-flow shapes, ten literal-typed computed-key extraction shapes, union-typed keys, eight destructuring-assignment forms, ten whole-receiver structural-laundering shapes, namespace carriers, import-call carriers, re-export carriers, CommonJS require and import-equals carriers, and global-object carriers (symbol-based provenance over direct references, local aliases, and single-file helper returns; deeper environment indirection stays under the deliberate-evasion concession) — the spec §6 closure tables are the canonical enumeration (grown across the whole-diff rounds), pinned by fixtures + the E1 escape pin in `tests/cross-cutting/no-absolute-self-redirect.test.ts`. Former limits receiver-as-any, widened computed keys, and `Reflect.get` are CAUGHT at the naked class-object reference their erasure must spell; the sole remaining type-erasure limit, pinned AS BEHAVIOR (E1), is string-mediated dynamic access (eval shape). Plain-JS modules are fenced out of the walked roots by a sentinel (tsconfig `include` is TS-only + `checkJs` off, so `tsc --noEmit` gives JS no backstop). Spec: docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md (spec APPROVE r4, plan APPROVE r3, then whole-diff-driven closures recorded in the spec's disposition blocks; probe harness committed: self-contained probes beside the spec, the importing mutant corpus under tests/cross-cutting/redirect-guard-probes/). Original entry below.
@@ -841,7 +883,7 @@ The entry's premise was also incomplete in a way that mattered. Keying on `tileI
 
 ## Test-safety hardening batch (3) — CLOSED on branch `test/safety-hardening-batch` (2026-07-25, PR #590)
 
-Filed together under BACKLOG.md's §"Test-safety hardening (2026-07-05)", closed together, and graduated together on 2026-07-25. That section still holds its open remainder (`BL-SOURCE-NUL-BYTE-STEP3REVIEW`, `BL-PREPARE-INTERNAL-FAULT-KIND`, `BL-CRON-WORKBOOK-FAULT-CODE`, `BL-ROOM-DIMS-ONLY-NOVEL-HEADER`).
+Filed together under BACKLOG.md's §"Test-safety hardening (2026-07-05)", closed together, and graduated together on 2026-07-25. That section still holds its open remainder (`BL-PREPARE-INTERNAL-FAULT-KIND`, `BL-CRON-WORKBOOK-FAULT-CODE`, `BL-ROOM-DIMS-ONLY-NOVEL-HEADER`); `BL-SOURCE-NUL-BYTE-STEP3REVIEW` graduated 2026-08-02.
 
 ### BL-DBTEST-LOOPBACK-EVAL-GUARD — retrofit module-eval loopback guard onto pre-existing db tests
 
@@ -1674,3 +1716,81 @@ The 2026-07-03 and 2026-07-25 sweeps (`BL-COPY-CRON-SWEEP`, `-2`) both removed j
 **Fix (when prioritized):** pick one name for the sync job, then apply the §12.4 three-way lockstep for the two catalog rows (spec prose + `pnpm gen:spec-codes` + `catalog.ts`) and plain edits for the other two sites. **Trigger:** the next admin-copy pass, or any new surface that has to name this job.
 
 **CLOSED 2026-08-01** — resolved on feat/card-copy-parity-sync-job-names (spec 2026-08-01-card-copy-parity-sync-job-name): one name, "Auto sync" — six catalog codes via §12.4 three-way lockstep, the runSummary label, and the explainer mirror; the StagedReviewCard badge already read "Auto sync" and is unchanged.
+
+---
+
+## BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY — RESOLVED — the admin layout harness hand-writes the wrapper it measures inside
+
+`tests/e2e/agendaBreakdown.layout.spec.ts` now renders the real `AgendaScheduleBlock` (PR #610 replaced
+that transcription), but still hand-writes the surrounding `article` / `section` / `ul` / `li.min-w-0`
+chrome. That `min-w-0` is load-bearing for the long-token overflow assertion, so the harness can stay
+green while the ACTUAL admin wrapper overflows. Production Step 3 renders `AgendaBreakdown`
+(`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
+does not reproduce.
+
+**Why PR #610 did not close it — cost premise CORRECTED by review R3.** The first version of this
+entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
+error is worth naming: the hook count came from `grep -c` over the whole 4000-line
+`step3ReviewSections.tsx` and was attributed to the component. Measured properly,
+`AgendaBreakdown` is **225 lines with 4 hook call sites in its own body** — `useContext` x1,
+`useEffect` x2, `useLayoutEffect` x1. Method, so the number is checkable rather than asserted:
+brace-match the function body from `export function AgendaBreakdown(` and count `use[A-Z]\w*(`.
+Review R4 reported nine (adding three `useState` and two `useRef`); those do not appear anywhere
+between this function and the next export, `PublishedAgendaList`. Child components it renders have
+their own hooks — the relevant number for harness cost is the ones this component owns.
+
+The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
+modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
+pass-through for anything it does not intercept). The one thing standing between that harness and real
+coverage is a single line: `tests/e2e/_step3ReviewModalHarness.tsx:158` hands the modal
+`agendaBaseline: []`.
+
+**Still deferred, on the corrected grounds:** closing it needs a non-empty `AdminAgendaItem[]` fixture
+(`lib/agenda/agendaAdminPreview.ts:34`), an extract-route intercept, and its own bundle entry + spec —
+because `buildSectionData` is shared, so changing the default fixture in place would perturb every
+existing step3-review-modal spec. Additive work, not a new harness. Sized in hours, not the days the
+original entry implied.
+
+**Start here:** add an optional `agendaBaseline` override to `buildSectionData`
+(`tests/e2e/_step3ReviewModalHarness.tsx:128`) defaulting to `[]`, so existing callers are untouched.
+
+**Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
+on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
+was written, which assumed the retired path filter.
+
+**Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
+containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
+
+**RESOLVED (2026-08-02, `test/step3-live-render-cluster`).** Spec `docs/superpowers/specs/admin/2026-08-02-step3-live-render-cluster-design.md` §4, plan `docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md` Tasks 4-5. The "start here" line was taken literally: `buildSectionData` (`tests/e2e/_step3ReviewModalHarness.tsx`) gained an optional third `agendaBaseline` param defaulting to `[]`, so no existing caller moved; a new browser entry (`tests/e2e/_step3ReviewModalAgendaEntry.tsx`) mounts the REAL `<Step3ReviewModal>` with a non-empty baseline and stubs only the extract-agenda POST. `tests/e2e/step3-review-modal.agenda.spec.ts` now measures the real `li[data-testid="agenda-item"]` wrapper at 320/390/720px, and the hand-transcribed `tests/e2e/agendaBreakdown.layout.spec.ts` was DELETED with all three of its assertion families re-homed first. **One correction the entry earned:** its premise that the `li`'s `min-w-0` is the load-bearing declaration is FALSE. Mutation-proved on the shipped spec — dropping `min-w-0` from `step3ReviewSections.tsx:3239` leaves all six cases green, because the agenda `ul` is `flex flex-col` and the automatic-minimum-size floor applies to its vertical main axis. The declaration that actually holds containment is `wrap-break-word` on the session title (`components/crew/AgendaScheduleBlock.tsx:166`); dropping THAT turns both 320px cases red. The shipped spec's header records this so the wrong premise does not propagate.
+
+---
+
+## BL-STEP3-IMPECCABLE-LIVE-RENDER — RESOLVED — live-render impeccable pass on the Step-3 Variant-B page
+
+The Step-3 "Review & publish" Variant-B redesign (spec/plan `2026-07-04-step3-review-page-variant-b`) shipped its UI quality gate (invariant 8) via a real-browser static-harness (DI-1…DI-4, bite-verified), a manual DESIGN.md/PRODUCT.md/mock conformance review (close-out §12), and the whole-diff Codex cross-model review as external attestation. What it could NOT do: a `/impeccable critique` + `/impeccable audit` pass on the LIVE rendered page.
+
+**Harness inventory re-verified 2026-07-25 — the item's "no live render" framing was wrong, twice over.**
+
+First, "every Step-3 layout spec is a standalone static harness" is false: `tests/e2e/_step3ReviewModalLiveEntry.tsx:124` does `createRoot(rootEl).render(<LiveHarness />)` on the REAL `<Step3ReviewModal>` tree (esbuild-bundled, served over `node:http`), so drag, scroll-spy, and Tab traversal already run against real component JS in a real browser via `step3-review-modal.interactions.spec.ts`.
+
+Second — and this is what actually shrinks the item — **a seeded real-app Step-3 render already exists.** `tests/e2e/admin-phase2-surfaces.spec.ts:67-74` signs in and boots the real app at `/admin?step=3`, asserting a 200. `tests/e2e/helpers/devCaptureStaged.ts` seeds `pending_syncs` + `onboarding_scan_manifest` (`seedStagedRow`, `:94`), then `openStep3Modal` (`:216-230`) navigates the real `/admin?step=3`, clicks the real card, and waits for `[data-step3-review-panel]`; `tests/e2e/dev-capture.spec.ts:197-218` drives that path. So the app boots, the DB is seeded, and the real modal opens.
+
+**The residual gap is narrower than recorded:** the existing seed is a SINGLE row, and it already supplies the **clean/ready** state — `seedStagedRow` (`devCaptureStaged.ts:94-139`) inserts `status: "staged"` with a parsed `parse_result.show`, no review items and no finalize-failure code — and, importantly, **no resolved linked show**: it writes no `created_show_id` and uses a fresh Drive file ID, so `buildStep3Row` (`OnboardingWizard.tsx:285`) passes `linkedShow: null`. That null is what produces `ready`; a resolved linked show would return `live` / `ready_to_publish` / `held` at an earlier branch of `deriveStep3DisplayState` (`lib/admin/step3DisplayState.ts:44-77`). The show-resolution step that would have supplied one is the `driveFileIds` → `showsRows` lookup at `OnboardingWizard.tsx:477-519`, feeding the row build at `:598-638`. So **five** row states are missing, not six: needs-a-look, demoted, no-details, blocking, set-aside. And no `/impeccable critique` + `/impeccable audit` has been run against that render. This is _extend an existing seed helper and run the dual-gate_, not _stand up a live Step-3 seed from scratch_. Size it accordingly.
+
+Current surface files: `components/admin/wizard/Step3Review.tsx`, `Step3ReviewModal.tsx`, `step3ReviewSections.tsx`, `Step3ReviewWithFinalize.tsx`, `Step3SheetCard.tsx`, plus the live-tree shells `components/admin/review/ReviewModalShell.tsx` and `components/admin/review/ShowReviewSurface.tsx` (imported at `Step3ReviewModal.tsx:46,55`, bound in JSX at `:372,666`), and `components/admin/OnboardingWizard.tsx`, which mounts `Step3ReviewWithFinalize` at `:699` and `:731` (`:35` is only the import).
+
+**Fix (when prioritized):** extend `seedStagedRow` to cover the five missing states (the reserved wizard session already exists; add ≥1 needs-a-look, ≥1 demoted, ≥1 no-details, ≥1 blocking, ≥1 set-aside row alongside the ready row it already seeds), then run the impeccable v3 dual-gate against the live `/admin?step=3` render — including an explicit dark-mode warn-contrast check and the double-"Review" affordance on demoted RESCAN cards (close-out §12 finding 7).
+
+---
+
+## Test-safety hardening (2026-07-05)
+
+**RESOLVED (2026-08-02, `test/step3-live-render-cluster`).** Spec `docs/superpowers/specs/admin/2026-08-02-step3-live-render-cluster-design.md`, plan `docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md` Tasks 1-2 and 6. `seedStagedRow` gained per-variant options and a new `seedStep3StateGallery()` seeds all six card states into ONE wizard session under the per-show advisory lock, so `/admin?step=3` renders the whole gallery; `assembleStep3Row` was extracted from `OnboardingWizard.tsx` to give the matrix test a real executable seam. The impeccable v3 dual-gate then ran against that LIVE render at 390/1280px in light and dark. Results, full findings, and dispositions are in §12 of the plan; the marker is `impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded`. Both explicit checks this entry demanded were performed: dark-mode warn contrast PASSES at AAA (9.64:1 on the warn card, 9.68:1 for the chip on surface), and the demoted double-"Review" affordance was left alone as ratified. No P0; one P1 and four P2, all pre-existing and outside the diff, deferred under `STEP3-GALLERY-TAP-TARGETS-1` in `DEFERRED.md`.
+
+---
+
+## BL-SOURCE-NUL-BYTE-STEP3REVIEW — RESOLVED — a committed NUL byte makes one source file invisible to grep
+
+`components/admin/wizard/Step3Review.tsx` carries a raw U+0000 at byte offset 53375 — `uncheckedCleanNames.join("<NUL>")`, committed as a literal NUL instead of the two-character escape `\u0000` (commit `fc75a9bcd`). `file(1)` reports the file as `data`, so **`grep` skips it silently**: no match, no "Binary file matches" line, no error. Any grep-based audit of `components/**` under-reports by this file, and one such audit did exactly that while enumerating references for the Step-3 deletion guard. Guards that read with `readFileSync` are unaffected. **Fix (when prioritized):** replace the raw byte with the escape sequence. Deferred rather than fixed inline because `components/**` is a UI surface, so a zero-behavior byte change would trigger the invariant-8 impeccable dual-gate.
+
+**RESOLVED (2026-08-02, `test/step3-live-render-cluster`).** Plan `docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md` Task 3. The raw U+0000 in `components/admin/wizard/Step3Review.tsx` is now the escape `\u0000` (runtime-identical string), so `file(1)` reports text and `grep` no longer skips the file. Fixed red-first: a new assertion in `tests/admin/step3DeletionSafety.test.ts` fails on ANY scanned source file containing a raw NUL, so the class is closed rather than the instance. The entry's stated reason for deferring — that a `components/**` byte change would trigger the invariant-8 dual gate — was discharged by running that gate in the same branch (Task 6).
