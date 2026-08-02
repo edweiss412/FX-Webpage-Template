@@ -1821,6 +1821,71 @@ describe("spec registration detector (spec §3.1)", () => {
       { run: "echo inside", guarded: false, poisoned: true },
       { run: "echo after", guarded: false, poisoned: true },
     ]);
+    // Dirt in a LATER composite sibling (final review (a) R3): every other
+    // cell puts the dirty step first or alone, so a first-sibling-only
+    // regression — or recursion into only the first `uses:` — passed them all.
+    // Each fixture below has a CLEAN first sibling.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo dirty\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+          ),
+        },
+      ),
+      "late-run-sibling",
+    ).toEqual([
+      { run: "echo clean", guarded: false, poisoned: false },
+      { run: "echo dirty", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: actions/cache@v4\n      env:\n        PATH: fixtures/fake\n",
+          ),
+        },
+      ),
+      "late-uses-sibling",
+    ).toEqual([{ run: "echo after", guarded: false, poisoned: true }]);
+    // Dirt behind the SECOND `uses:`, one level down — kills first-use-only
+    // recursion, which no direct cell can see.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: ./.github/actions/b\n",
+          ),
+          "./.github/actions/b": parse(
+            "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+          ),
+        },
+      ),
+      "late-nested-local-uses",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
+    // Precision twin: a clean LATER sibling must stay clean.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo also-clean\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+          ),
+        },
+      ),
+      "clean-late-sibling",
+    ).toEqual([
+      { run: "echo clean", guarded: false, poisoned: false },
+      { run: "echo also-clean", guarded: false, poisoned: false },
+      { run: "echo after", guarded: false, poisoned: false },
+    ]);
     // Composite matrix (spec §7 R1): direct/nested × run/uses cells.
     const directRun = parse(
       "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",

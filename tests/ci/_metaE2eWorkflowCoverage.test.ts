@@ -1698,6 +1698,47 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
     }
   });
 
+  it("composite dirt in a LATER sibling still poisons (S1, sibling-position narrowing)", () => {
+    // Every other composite cell puts the dirty step FIRST or alone, so a
+    // regression that inspects only the first sibling — or recurses only into
+    // the first `uses:` — passed all of them while a late-dirty action went
+    // uncaught (final review (a) R3, probe-backed). Each fixture below has a
+    // CLEAN first sibling, so only genuine traversal past it can refuse.
+    const use = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${INVOKE}\n`;
+    const lateRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo dirty\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const lateUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: actions/cache@v4\n      env:\n        PATH: fixtures/fake\n",
+    };
+    // Dirt behind the SECOND `uses:`, one level down: kills first-use-only
+    // recursion, which the direct cells cannot see.
+    const lateNestedLocal = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    for (const [label, actions] of [
+      ["late-run-sibling", lateRun],
+      ["late-uses-sibling", lateUses],
+      ["late-nested-local-uses", lateNestedLocal],
+    ] as const) {
+      const r = S(use, actions);
+      expect(r.covered.has(spec), label).toBe(false);
+      expect(r.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+    // Precision twin: a clean LATER sibling must not poison — the cell cannot
+    // be satisfied by refusing every multi-step composite.
+    const allClean = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo also-clean\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    };
+    expect(S(use, allClean).covered.has(spec), "clean-late-sibling").toBe(true);
+  });
+
   it("composite matrix: direct/nested x run/uses step env dirt all poison (S1, R1 F1)", () => {
     const use = (ref: string) =>
       `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - ${INVOKE}\n`;
@@ -1754,6 +1795,29 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
     ] as const) {
       expect(S(use("./.github/actions/a"), actions).covered.has(spec), label).toBe(true);
     }
+  });
+
+  it("dirt is found in a LATER file and a LATER job step (S1, remaining traversal dimensions)", () => {
+    // Implementer class-sweep of the traversal-narrowing family the last
+    // three rounds walked one dimension at a time (ref kind, then sibling
+    // position): the two iteration axes with no positive cell were the
+    // workflow-FILE loop and the job's STEP loop. Both get one here so a
+    // first-file-only or first-step-only narrowing cannot escape either.
+    const clean = `name: c\non:\n  pull_request:\njobs:\n  c:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`;
+    const dirty = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - ${INVOKE}\n`;
+    const twoFiles = scanWorkflowCoverage({
+      workflows: { "a-clean.yml": clean, "z-dirty.yml": dirty },
+      packageScripts: {},
+      localActions: {},
+      envKeyAllowlist: ALLOW,
+    });
+    expect(twoFiles.covered.has(spec), "dirty second file").toBe(false);
+    expect(twoFiles.rejected[0]!.reason, "dirty second file").toBe(ENV_REASON(["PATH"]));
+    // Claiming step is the THIRD step of a job whose env is dirty.
+    const lateStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo one\n      - run: echo two\n      - ${INVOKE}\n`;
+    const r = S(lateStep);
+    expect(r.covered.has(spec), "claim at a later job step").toBe(false);
+    expect(r.rejected[0]!.reason, "claim at a later job step").toBe(ENV_REASON(["PATH"]));
   });
 
   it("allowlisted pairs stay covered at every direct scope (S3 clean cells)", () => {
