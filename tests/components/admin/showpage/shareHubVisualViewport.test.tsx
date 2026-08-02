@@ -192,6 +192,28 @@ describe("T-S8: the coalescer THROTTLES, it does not debounce", () => {
   });
 });
 
+describe("T-S9: unmount with a frame pending cancels it through the shared instance", () => {
+  test("a pan event mid-flight is cancelled when the hub unmounts", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    frames.clear();
+    cancelled = [];
+
+    vv.dispatchEvent(new Event("scroll"));
+    expect(frames.size, "precondition: one frame pending").toBe(1);
+    const pendingId = [...frames.keys()][0]!;
+
+    // Extraction hazard (spec §7): a consumer that adopts `schedule()` but keeps
+    // its own `cancelAnimationFrame(frame)` teardown still cancels the id it
+    // tracked itself — which is `null` once the local bookkeeping is gone, so the
+    // frame survives the unmount and `applyPlacement` runs against a dead tree.
+    cleanup();
+
+    expect(cancelled, "unmount left a pending frame uncancelled").toContain(pendingId);
+  });
+});
+
 describe("T-S5: WebKit is excluded for ShareHub too", () => {
   test("no visualViewport listener is attached", () => {
     const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);

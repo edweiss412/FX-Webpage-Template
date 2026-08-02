@@ -98,6 +98,7 @@ import { createPortal } from "react-dom";
 
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
@@ -371,19 +372,10 @@ export function ShareHub({
 
   useLayoutEffect(() => {
     if (!open) return;
-    // THROTTLE, not debounce. Cancel-and-reschedule was fine while the only
-    // source was `window.resize`. This effect now also subscribes to
-    // `visualViewport` scroll, ~80 events per pan, faster than a frame boundary
-    // -- a debounce would cancel its own pending frame on every event and the
-    // panel would not move until the gesture STOPPED.
-    let frame: number | null = null;
-    const schedule = () => {
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null; // cleared BEFORE running so later events can schedule anew
-        applyPlacement();
-      });
-    };
+    // Shared leading-edge throttle (lib/popover/rafCoalescer.ts) -- the
+    // throttle-vs-debounce rationale and the pending-flag ordering live there.
+    const coalescer = createRafCoalescer(applyPlacement);
+    const schedule = () => coalescer.schedule();
     applyPlacement();
     window.addEventListener("resize", schedule);
     // Pinch-zoom pan does not fire window scroll; gated on the ENGINE.
@@ -420,7 +412,7 @@ export function ShareHub({
     if (bodyObserver && panelRef.current) bodyObserver.observe(panelRef.current);
     return () => {
       bodyObserver?.disconnect();
-      if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      coalescer.cancel();
       window.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
       vv?.removeEventListener("resize", schedule);
