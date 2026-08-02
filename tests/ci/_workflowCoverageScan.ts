@@ -415,7 +415,7 @@ type Opts = {
    * steps execute in the CALLER's job env, so a local action that writes
    * GITHUB_ENV/GITHUB_PATH poisons the caller's later steps (cross-step-env
    * spec §2.2). A `./` ref ABSENT from this map is an opaque same-env
-   * executor and poisons fail-closed. A non-`./` ref is trusted ONLY when
+   * executor and poisons fail-closed. A non-local ref is trusted ONLY when
    * `usesKind` classifies it `remote` (a pinned `owner/repo[/path]@ref`);
    * setup-node writes GITHUB_PATH by design and remote action internals are
    * out of universe (spec §5 L1), but an unpinned or docker ref is invalid

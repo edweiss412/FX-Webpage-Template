@@ -317,7 +317,9 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
    * composite — spec R1's second escaping mutant), with a PATH-scoped cycle
    * guard (sequential reuse of one action is legit; a cycle is fail-closed
    * poison). Unknown or non-composite local refs poison fail-closed.
-   * Marketplace (non-./) refs stay trusted (spec §5 L1: setup-node writes
+   * PINNED marketplace refs (usesKind === "remote") stay trusted; every
+   * other non-local value — refless, docker, Git-invalid — is INVALID and
+   * poisons (spec §5 L8). (§5 L1: setup-node writes
    * GITHUB_PATH by design).
    */
   const walkSteps = (
@@ -1412,7 +1414,8 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(runBlocksOf(ghostUse, {})).toEqual([
       { run: "echo after-ghost", guarded: false, poisoned: true },
     ]);
-    // Marketplace (non-./) actions stay trusted (spec §1.1 / §5 L1):
+    // PINNED marketplace actions stay trusted (spec §1.1 / §5 L1); the
+    // unpinned and docker shapes are refused as invalid (§5 L8):
     // setup-node writes GITHUB_PATH by DESIGN; poisoning on remote uses:
     // would darken every workflow.
     const marketplaceUse = parse(
