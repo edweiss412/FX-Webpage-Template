@@ -95,6 +95,16 @@ const BACKLOG_GRADUATED = [
   // remaining type-erasure limit: string-mediated dynamic access (eval shape),
   // E-pinned; receiver laundering, widened keys, and Reflect.get are caught.
   { id: "BL-SOUND-REDIRECT-GUARD", provenance: "test/redirect-guard-type-aware" },
+  // test/ci-cross-step-env-guard (2026-08-01): job-scoped cross-step
+  // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
+  // splice + scanner per-job poison flag, closure families F1-F8).
+  { id: "BL-CI-GITHUB-ENV-CROSS-STEP-STATE", provenance: "test/ci-cross-step-env-guard" },
+  // feat/card-copy-parity-sync-job-names (2026-08-01): §4.2 helpfulContext
+  // byte-parity frozen for all 44 registry codes (rows 1-42 back-filled), and
+  // the sync job's Doug-facing name unified to "Auto sync" across the catalog,
+  // runSummary label, and the explainer mirror (§12.4 three-way lockstep).
+  { id: "BL-CARD-COPY-HELPFULCONTEXT-PARITY", provenance: "feat/card-copy-parity-sync-job-names" },
+  { id: "BL-SYNC-JOB-FOUR-NAMES", provenance: "feat/card-copy-parity-sync-job-names" },
   // test/invariant8-closeout-enforcement (2026-08-01): the closeout assertion
   // removed in a20b94457 returns as its own guard —
   // tests/docs/_metaInvariant8Closeout.test.ts (sound discovery, marker

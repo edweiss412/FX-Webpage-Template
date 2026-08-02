@@ -31,7 +31,7 @@ export type CronJobSpec = {
 export const CRON_JOBS: readonly CronJobSpec[] = [
   {
     jobName: "sync",
-    label: "Sheet sync",
+    label: "Auto sync",
     description: "Checks each show's Google Sheet for changes and updates the crew pages.",
     cadence: "every 5 min",
     staleAfterMs: 20 * 60_000,

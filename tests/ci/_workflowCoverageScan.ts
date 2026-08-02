@@ -26,7 +26,545 @@
  * than none).
  */
 
+import { parse, stringify } from "yaml";
+
 const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
+
+/**
+ * Canonicalize YAML before any regex sees it (R6 structural defense): parse
+ * with the same library the census trusts, re-stringify in plain block
+ * style with folding OFF (lineWidth: 0 — folding a long run command would
+ * split tokens across lines and silently un-cover live specs). Quoted keys,
+ * tags, anchors/aliases, explicit keys, flow mappings, and comments all
+ * collapse to the canonical spelling the line-anchored regexes actually
+ * read — the whole spelling class dies at the door instead of being
+ * enumerated (spec §7 R3–R6 chased five probe-backed instances; the
+ * calibration rule says ship the structure, not round seven). Returns null
+ * when the text does not parse — an unparseable workflow never runs on
+ * GitHub either, so the caller treats it as claim-nothing (safe-dark) or
+ * poison (manifests). stringify re-emits anchors only for genuinely shared
+ * nodes, which the anchor belt then refuses — fail-closed both ways.
+ */
+/**
+ * The ONE composite-manifest validator both guard layers use (R8): the layers
+ * had drifted — the scanner checked `using:`/`steps:` textually, the census
+ * only `Array.isArray(steps)` — and twelve step shapes escaped one or both.
+ * GitHub's runner schema (src/Runner.Worker/action_yaml.json) requires
+ * `runs.using === "composite"` and `runs.steps` to be a sequence of run-steps
+ * (`run` + `shell`, both non-empty strings) or uses-steps (non-empty `uses`,
+ * NO `shell`), never both and never neither, with only known step keys. An
+ * invalid manifest fails the job AT THE USE SITE, so downstream steps never
+ * run — reading one as a clean composite is false coverage. Returns the
+ * validated steps, or null meaning OPAQUE (caller poisons fail-closed).
+ */
+export type ActionStep = {
+  run?: unknown;
+  uses?: unknown;
+  if?: unknown;
+  shell?: unknown;
+};
+/**
+ * NARROW-ACCEPT profile (R9). The R8 version was a blacklist — it rejected
+ * enumerated defects and accepted whatever it had not thought of, so each
+ * round produced another accepted-but-invalid shape (extra `runs` keys,
+ * `with` on a run step, mapping-valued `name`/`id`/`if`/`env`/`with`, …).
+ * This version inverts the burden: a manifest is walkable ONLY if it matches
+ * this exact profile — the key sets are per-step-kind allowlists and every
+ * value must be a scalar of the declared shape. Anything else, VALID OR NOT,
+ * is opaque and poisons fail-closed. That terminates the enumeration: there
+ * is no "accepted but invalid" left to find, only "refused but valid", which
+ * costs a reasoned allowlist row and never false coverage.
+ */
+const RUNS_KEYS = new Set(["using", "steps"]);
+const RUN_STEP_KEYS = new Set([
+  "name",
+  "id",
+  "if",
+  "run",
+  "shell",
+  "working-directory",
+  "env",
+  "continue-on-error",
+]);
+const USES_STEP_KEYS = new Set(["name", "id", "if", "uses", "with", "env", "continue-on-error"]);
+const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim() !== "";
+/**
+ * The ONE `uses:` shape classifier (R10). GitHub requires a remote ref to be
+ * `{owner}/{repo}[/path]@{ref}`. As shipped (R10-R14) this accepts exactly
+ * two shapes: a local `./…` ref, and a pinned `owner/repo[/path]@ref` whose
+ * ref passes the narrow well-formed allowlist (or is a 40-hex SHA).
+ * Everything else — refless remotes, the whole `docker://` family, and
+ * Git-invalid refs — is INVALID, so callers poison fail-closed (spec §5 L8).
+ */
+/**
+ * The ONE `runs-on` validator both layers use (R17). R16 shipped textual /
+ * shape-counting heuristics in each layer separately, and the next round
+ * produced numeric scalars, sequences with non-string members, and
+ * group/labels mappings with wrong-typed or extra keys — all accepted,
+ * none schedulable. GitHub permits exactly: a non-empty string, a non-empty
+ * sequence of non-empty strings, or a mapping whose keys are a non-empty
+ * subset of {group, labels} with a non-empty string `group` and a `labels`
+ * that is a non-empty string or a non-empty array of non-empty strings.
+ * Narrow ACCEPT, typed (not textual): anything else is unschedulable, so
+ * the job's steps never run and any claim from them is false coverage.
+ */
+/**
+ * The ONE workflow-shape validator both layers use (R19). The narrow-accept
+ * profile had covered composite MANIFESTS but not workflow FILES, so unknown
+ * root/job/step keys, `with:` on a run step, and non-numeric timeouts all
+ * classified cleanly although GitHub rejects the file and runs nothing.
+ * Same posture as `validatedCompositeSteps`: key allowlists per mapping and
+ * typed values; anything off-profile is unschedulable, so the file claims
+ * nothing (scanner) and its blocks start poisoned (census).
+ */
+/**
+ * Workflow shape as a TYPE TABLE (R21). R19 shipped key allowlists and R20
+ * added per-kind sets, but each round still found values that passed
+ * unvalidated (sequence-valued `name`, `concurrency`, `permissions`,
+ * `continue-on-error`; empty or numeric `run`/`uses`; out-of-range
+ * timeouts). Enumerating those one round at a time is the losing game this
+ * arc retired for manifests at R9, so the burden is inverted here too:
+ * EVERY key of every mapping we walk declares a type predicate, and a key
+ * whose value fails its predicate — or a key with no entry at all — makes
+ * the file unschedulable. There is no "unvalidated key" left by
+ * construction; the residue is refused-but-valid (spec §5 L9), never
+ * accepted-but-invalid.
+ */
+type Pred = (v: unknown) => boolean;
+const str: Pred = (v) => nonEmptyString(v);
+const strOrBool: Pred = (v) => typeof v === "boolean" || nonEmptyString(v);
+const mapping: Pred = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const strOrMapping: Pred = (v) => nonEmptyString(v) || mapping(v);
+const strOrSeqOrMapping: Pred = (v) =>
+  nonEmptyString(v) || mapping(v) || (Array.isArray(v) && v.length > 0);
+const strOrSeq: Pred = (v) =>
+  nonEmptyString(v) || (Array.isArray(v) && v.every((x) => nonEmptyString(x)));
+/** GitHub: a positive integer of at most 360 minutes. */
+const timeout: Pred = (v) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 360;
+const scalars: Pred = (v) => scalarMap(v);
+
+/**
+ * Nested tables (R22): `mapping`/`strOrMapping` validated only the OUTER
+ * container, so `permissions: {contents: bogus}`, a keyless `concurrency`,
+ * an unknown `strategy` key, and similar nested junk still passed. The same
+ * inversion applies one level down — each container key declares the shape
+ * of its CONTENTS, and anything else makes the file unschedulable.
+ */
+const PERM_LEVELS = new Set(["read", "write", "none"]);
+const PERM_SCOPES = new Set([
+  "actions",
+  "attestations",
+  "checks",
+  "contents",
+  "deployments",
+  "discussions",
+  "id-token",
+  "issues",
+  "models",
+  "packages",
+  "pages",
+  "pull-requests",
+  "repository-projects",
+  "security-events",
+  "statuses",
+]);
+const permissions: Pred = (v) =>
+  v === "read-all" ||
+  v === "write-all" ||
+  (mapping(v) &&
+    Object.entries(v as Record<string, unknown>).every(
+      ([k, x]) => PERM_SCOPES.has(k) && typeof x === "string" && PERM_LEVELS.has(x),
+    ));
+const concurrency: Pred = (v) =>
+  nonEmptyString(v) ||
+  (mapping(v) &&
+    typedShape(v as Record<string, unknown>, {
+      group: str,
+      "cancel-in-progress": strOrBool,
+    }));
+const strategy: Pred = (v) =>
+  mapping(v) &&
+  typedShape(v as Record<string, unknown>, {
+    matrix: (x) => mapping(x) || nonEmptyString(x),
+    "fail-fast": strOrBool,
+    "max-parallel": (x) => typeof x === "number" || nonEmptyString(x),
+  });
+const environment: Pred = (v) =>
+  nonEmptyString(v) ||
+  (mapping(v) && typedShape(v as Record<string, unknown>, { name: str, url: str }));
+const services: Pred = (v) =>
+  mapping(v) &&
+  Object.values(v as Record<string, unknown>).every(
+    (svc) =>
+      mapping(svc) &&
+      typedShape(svc as Record<string, unknown>, {
+        image: str,
+        credentials: scalars,
+        env: scalars,
+        ports: (x) => Array.isArray(x),
+        volumes: (x) => Array.isArray(x),
+        options: str,
+      }),
+  );
+/** GitHub workflow events this guard models; anything else is unschedulable
+ *  for our purposes and refused (narrow accept, spec §5 L9). */
+const KNOWN_EVENTS = new Set([
+  "pull_request",
+  "pull_request_target",
+  "push",
+  "schedule",
+  "workflow_dispatch",
+  "workflow_call",
+  "workflow_run",
+  "merge_group",
+  "release",
+  "issues",
+  "issue_comment",
+  "create",
+  "delete",
+  "fork",
+  "watch",
+  "repository_dispatch",
+  "registry_package",
+  "check_run",
+  "check_suite",
+  "deployment",
+  "deployment_status",
+  "discussion",
+  "discussion_comment",
+  "label",
+  "milestone",
+  "page_build",
+  "project",
+  "project_card",
+  "project_column",
+  "public",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "status",
+  "gollum",
+]);
+/**
+ * Per-EVENT config tables (R29). A single 12-key union accepted
+ * `workflow_dispatch.branches` and `workflow_dispatch.inputs: 7` — GitHub
+ * permits only an `inputs` MAPPING there, and an invalid trigger config
+ * stops the workflow running. Each event declares its own keys and value
+ * shapes; an event with no entry accepts only `types`.
+ */
+const strSeq: Pred = (v) => Array.isArray(v) && v.every((x) => nonEmptyString(x));
+const FILTERS: Record<string, Pred> = {
+  types: strSeq,
+  branches: strSeq,
+  "branches-ignore": strSeq,
+  tags: strSeq,
+  "tags-ignore": strSeq,
+  paths: strSeq,
+  "paths-ignore": strSeq,
+};
+const EVENT_CFG: Record<string, Record<string, Pred>> = {
+  pull_request: {
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  pull_request_target: {
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  push: {
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    tags: FILTERS.tags!,
+    "tags-ignore": FILTERS["tags-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  workflow_dispatch: { inputs: mapping },
+  workflow_call: { inputs: mapping, outputs: mapping, secrets: mapping },
+  workflow_run: {
+    workflows: strSeq,
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+  },
+};
+const DEFAULT_EVENT_CFG: Record<string, Pred> = { types: FILTERS.types! };
+
+/** `on`: an event name, a list of them, or a mapping of event -> null|config. */
+const onTrigger: Pred = (v) =>
+  nonEmptyString(v) ||
+  (Array.isArray(v) && v.length > 0 && v.every((x) => nonEmptyString(x))) ||
+  (mapping(v) &&
+    Object.entries(v as Record<string, unknown>).every(
+      // `schedule:` is a SEQUENCE of cron mappings, not a mapping — the
+      // live x-audits/dev-gate/mutation-harness/screenshots-drift
+      // workflows carry it, and the live-tree tripwire caught the
+      // over-refusal immediately.
+      ([k, cfg]) =>
+        KNOWN_EVENTS.has(k) &&
+        (cfg === null ||
+          (k === "schedule"
+            ? Array.isArray(cfg) &&
+              cfg.length > 0 &&
+              cfg.every(
+                (x) =>
+                  mapping(x) &&
+                  Object.keys(x as Record<string, unknown>).every((ek) => ek === "cron") &&
+                  nonEmptyString((x as { cron?: unknown }).cron),
+              )
+            : mapping(cfg) &&
+              typedShape(cfg as Record<string, unknown>, EVENT_CFG[k] ?? DEFAULT_EVENT_CFG))),
+    ));
+
+const WF_ROOT: Record<string, Pred> = {
+  name: str,
+  "run-name": str,
+  on: onTrigger,
+  env: scalars,
+  defaults: mapping,
+  concurrency: concurrency,
+  permissions: permissions,
+  jobs: mapping,
+};
+const WF_STEPS_JOB: Record<string, Pred> = {
+  name: str,
+  needs: strOrSeq,
+  if: strOrBool,
+  // Presence is required below; the VALUE is validated by the dedicated
+  // `validRunsOn` gate so the refusal reports its own precise reason
+  // rather than a generic schema rejection (R16/R17 fixtures pin that).
+  "runs-on": () => true,
+  environment: environment,
+  concurrency: concurrency,
+  outputs: scalars,
+  env: scalars,
+  defaults: mapping,
+  steps: (v) => Array.isArray(v),
+  "timeout-minutes": timeout,
+  strategy: strategy,
+  "continue-on-error": strOrBool,
+  container: strOrMapping,
+  services: services,
+  permissions: permissions,
+};
+const WF_USES_JOB: Record<string, Pred> = {
+  name: str,
+  needs: strOrSeq,
+  if: strOrBool,
+  // A reusable-workflow ref: a local `./…​.yml` path or `owner/repo/path@ref`.
+  // R27: a reusable workflow lives at `.github/workflows/<name>.yml` — not
+  // elsewhere in the repo, not nested below that directory — and a remote
+  // one carries a ref the shared classifier accepts.
+  uses: (v) => {
+    if (typeof v !== "string") return false;
+    const s = v.trim();
+    if (/^\.\/\.github\/workflows\/[\w.-]+\.ya?ml$/.test(s)) return true;
+    const m = /^([\w.-]+\/[\w.-]+)\/\.github\/workflows\/[\w.-]+\.ya?ml@(.+)$/.exec(s);
+    return m !== null && usesKind(`${m[1]}/x@${m[2]}`) === "remote";
+  },
+  with: scalars,
+  secrets: (v) => v === "inherit" || scalars(v),
+  strategy: strategy,
+  concurrency: concurrency,
+  permissions: permissions,
+};
+const WF_RUN_STEP: Record<string, Pred> = {
+  name: str,
+  id: str,
+  if: strOrBool,
+  run: str,
+  shell: str,
+  "working-directory": str,
+  env: scalars,
+  "continue-on-error": strOrBool,
+  "timeout-minutes": timeout,
+};
+const WF_USES_STEP: Record<string, Pred> = {
+  name: str,
+  id: str,
+  if: strOrBool,
+  uses: str,
+  with: scalars,
+  env: scalars,
+  "continue-on-error": strOrBool,
+  "timeout-minutes": timeout,
+};
+/** Every present key must have an entry AND satisfy its predicate. */
+function typedShape(obj: Record<string, unknown>, table: Record<string, Pred>): boolean {
+  return Object.entries(obj).every(([k, v]) => table[k] !== undefined && table[k]!(v));
+}
+/** GitHub job IDs: start with a letter or _, then alphanumerics, - or _. */
+const JOB_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+export function validWorkflowShape(doc: unknown): boolean {
+  if (!mapping(doc)) return false;
+  const root = doc as Record<string, unknown>;
+  if (!typedShape(root, WF_ROOT)) return false;
+  const jobs = root.jobs;
+  if (!mapping(jobs)) return false;
+  for (const [jobId, job] of Object.entries(jobs as Record<string, unknown>)) {
+    if (!JOB_ID_RE.test(jobId)) return false;
+    if (!mapping(job)) return false;
+    const j = job as Record<string, unknown>;
+    const hasSteps = "steps" in j;
+    const hasUses = "uses" in j;
+    if (hasSteps === hasUses) return false; // a job is one kind or the other
+    if (!typedShape(j, hasSteps ? WF_STEPS_JOB : WF_USES_JOB)) return false;
+    if (hasUses) continue;
+    // `runs-on` presence AND value are owned by the dedicated gate, which
+    // reports the precise reason; a steps job missing it is refused there.
+    for (const step of j.steps as unknown[]) {
+      if (!mapping(step)) return false;
+      const s = step as Record<string, unknown>;
+      const hasRun = "run" in s;
+      const hasStepUses = "uses" in s;
+      if (hasRun === hasStepUses) return false;
+      if (!typedShape(s, hasRun ? WF_RUN_STEP : WF_USES_STEP)) return false;
+    }
+  }
+  return true;
+}
+
+export function validRunsOn(v: unknown): boolean {
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v))
+    return v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
+  if (v === null || typeof v !== "object") return false;
+  const keys = Object.keys(v as Record<string, unknown>);
+  if (keys.length === 0 || !keys.every((k) => k === "group" || k === "labels")) return false;
+  const { group, labels } = v as { group?: unknown; labels?: unknown };
+  if ("group" in (v as object) && !(typeof group === "string" && group.trim() !== "")) return false;
+  if ("labels" in (v as object)) {
+    const ok =
+      (typeof labels === "string" && labels.trim() !== "") ||
+      (Array.isArray(labels) &&
+        labels.length > 0 &&
+        labels.every((x) => typeof x === "string" && x.trim() !== ""));
+    if (!ok) return false;
+  }
+  return true;
+}
+
+export type UsesKind = "local" | "remote" | "invalid";
+export function usesKind(v: unknown): UsesKind {
+  if (typeof v !== "string") return "invalid";
+  const s = v.trim();
+  if (s.startsWith("./")) return "local";
+  // docker:// is refused WHOLESALE (R13). R12 replaced a `\S+` check with a
+  // hand-written image grammar, and the next round produced four more forms
+  // Docker rejects (hyphen-edged registry labels, >128-char tags, >255-char
+  // repository paths, bare 64-hex names) — each an invalid reference whose
+  // failed pull kills the job, so trusting it was false coverage. Docker's
+  // reference grammar is its own specification with length and character
+  // rules; re-implementing it here is the losing game this arc has retired
+  // twice already. Zero live workflows use docker:// (calibrated), so the
+  // whole family is opaque: it poisons fail-closed and costs a reasoned
+  // allowlist row if one ever appears (spec §5 L8).
+  // Remote GitHub actions: `owner/repo[/path]@ref` with a NARROW ref
+  // allowlist (R14). The previous character class admitted Git-INVALID refs
+  // — `..`, leading/trailing/repeated slashes, dot-leading components,
+  // `.lock` suffixes, a terminal dot — each unresolvable, so the action
+  // step fails before the claimed downstream test runs. Rather than
+  // re-implement git-check-ref-format (the same losing game the docker
+  // grammar just cost two rounds), accept only the shape this repo uses and
+  // that no ref rule can reject: a tag/branch of alphanumerics, dots,
+  // hyphens and underscores starting alphanumeric, with no `..`, no
+  // trailing dot, and no `.lock` ending — or a full 40-hex SHA. A valid but
+  // slash-bearing ref (`release/v1`) is REFUSED: conservative, documented
+  // in spec §5 L8, and zero live refs use one (live set: v1, v4, v7).
+  // R27: validate the COORDINATE segment by segment — `owner./repo`,
+  // `owner/..`, and `owner/repo//` all passed a lax character class while
+  // GitHub cannot resolve any of them.
+  const at = s.lastIndexOf("@");
+  const m = at > 0 ? ([s.slice(0, at), s.slice(at + 1)] as const) : null;
+  if (m) {
+    const segs = m[0].split("/");
+    const segOk = (x: string) =>
+      /^[A-Za-z0-9._-]+$/.test(x) && x !== "." && x !== ".." && !x.endsWith(".");
+    const ref = m[1]!;
+    if (segs.length < 2 || !segs.every(segOk)) return "invalid";
+    const wellFormed =
+      /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(ref) &&
+      !ref.includes("..") &&
+      !ref.endsWith(".") &&
+      !ref.endsWith(".lock");
+    if (wellFormed) return "remote";
+  }
+  return "invalid";
+}
+/** A scalar map (env/with): non-empty string keys, scalar values only. */
+const scalarMap = (v: unknown): boolean => {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (k.trim() === "") return false;
+    if (val !== null && typeof val === "object") return false;
+  }
+  return true;
+};
+/** R30: `continue-on-error` is a boolean or an expression token — a literal
+ *  like `nope` is runner-invalid, so any-non-empty-string was too loose. */
+const okFlag = (v: unknown): boolean =>
+  typeof v === "boolean" || (typeof v === "string" && /^\$\{\{.*\}\}$/.test(v.trim()));
+/** GitHub action-manifest root: typed, and only these keys (R30). */
+const ACTION_ROOT: Record<string, Pred> = {
+  name: str,
+  description: str,
+  author: str,
+  branding: mapping,
+  inputs: mapping,
+  outputs: mapping,
+  runs: mapping,
+};
+/** Step ids follow the runner's identifier syntax and must be unique. */
+const STEP_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+export function validatedCompositeSteps(doc: unknown): ActionStep[] | null {
+  if (!mapping(doc)) return null;
+  if (!typedShape(doc as Record<string, unknown>, ACTION_ROOT)) return null;
+  const runs = (doc as { runs?: unknown } | null | undefined)?.runs;
+  if (runs === null || typeof runs !== "object" || Array.isArray(runs)) return null;
+  for (const k of Object.keys(runs as Record<string, unknown>)) if (!RUNS_KEYS.has(k)) return null;
+  const { using, steps } = runs as { using?: unknown; steps?: unknown };
+  if (using !== "composite") return null;
+  if (!Array.isArray(steps)) return null;
+  const seenIds = new Set<string>();
+  for (const step of steps) {
+    if (step === null || typeof step !== "object" || Array.isArray(step)) return null;
+    const s = step as Record<string, unknown>;
+    if ("id" in s) {
+      if (typeof s.id !== "string" || !STEP_ID_RE.test(s.id) || seenIds.has(s.id)) return null;
+      seenIds.add(s.id);
+    }
+    const hasRun = "run" in s;
+    const hasUses = "uses" in s;
+    if (hasRun === hasUses) return null; // neither, or both
+    const allowed = hasRun ? RUN_STEP_KEYS : USES_STEP_KEYS;
+    for (const k of Object.keys(s)) if (!allowed.has(k)) return null;
+    if (hasRun && (!nonEmptyString(s.run) || !nonEmptyString(s.shell))) return null;
+    if (hasUses && usesKind(s.uses) === "invalid") return null;
+    for (const k of ["name", "id", "if", "working-directory"]) {
+      if (k in s && !nonEmptyString(s[k])) return null;
+    }
+    for (const k of ["env", "with"]) {
+      if (k in s && !scalarMap(s[k])) return null;
+    }
+    if ("continue-on-error" in s && !okFlag(s["continue-on-error"])) return null;
+  }
+  return steps as ActionStep[];
+}
+
+function canonicalYaml(text: string): string | null {
+  try {
+    const doc: unknown = parse(text);
+    if (doc === null || typeof doc !== "object") return null;
+    return stringify(doc, { lineWidth: 0, singleQuote: false });
+  } catch {
+    return null;
+  }
+}
 /**
  * Whether the line that invokes a spec can swallow a non-zero exit.
  *
@@ -85,7 +623,190 @@ type Opts = {
    * yields no whole-config claim.
    */
   configSpecs?: Record<string, string[]>;
+  /**
+   * Local composite-action ref exactly as written in `uses:` (e.g.
+   * "./.github/actions/setup") -> that action's raw YAML text. Composite
+   * steps execute in the CALLER's job env, so a local action that writes
+   * GITHUB_ENV/GITHUB_PATH poisons the caller's later steps (cross-step-env
+   * spec §2.2). A `./` ref ABSENT from this map is an opaque same-env
+   * executor and poisons fail-closed. A non-local ref is trusted ONLY when
+   * `usesKind` classifies it `remote` (a pinned `owner/repo[/path]@ref`);
+   * setup-node writes GITHUB_PATH by design and remote action internals are
+   * out of universe (spec §5 L1), but an unpinned or docker ref is invalid
+   * rather than trusted (spec §5 L8).
+   */
+  localActions?: Record<string, string>;
 };
+
+/**
+ * Cross-step env-state predicate (cross-step-env-guard spec §2.0): after
+ * dropping full-line `#` lines (they never execute, and the step-splitter
+ * glues BETWEEN-step comment prose onto the preceding chunk), any mention of
+ * GITHUB_ENV or GITHUB_PATH marks the environment of every LATER same-job
+ * step untrusted — `echo "PATH=/fake:$PATH" >> "$GITHUB_PATH"` makes a
+ * textually clean downstream `pnpm exec playwright test` run a fake pnpm
+ * that exits 0. Deliberately NO write-shape grammar (>> vs > vs tee vs
+ * heredoc) and no read/write distinction: that is shell modeling, the losing
+ * game. Matched against the WHOLE step chunk (name:/with:/env: lines
+ * included) — broader than the census's run-block match, in the safe
+ * direction (spec §5 L5).
+ */
+/**
+ * The env-file mention family (R31): the uppercase variables AND the
+ * documented `github.env` / `github.path` context properties, which name
+ * the same files — a step writing through either mutates every later
+ * step in the job, so recognizing only the variables missed a real
+ * charter-surface vector (not a constructed-name obfuscation). R32: GitHub
+ * documents INDEX syntax as equivalent to property dereference, so
+ * `github['env']` / `github["path"]` are first-class spellings too.
+ */
+const ENV_FILE_MENTION =
+  // The quote class tolerates a leading backslash: the census and the
+  // scanner both test JSON-serialized step values, where an inner quote
+  // arrives escaped (`github[\\"path\\"]`).
+  /GITHUB_ENV|GITHUB_PATH|github\s*(?:\.\s*(?:env|path)\b|\[\s*\\?['"](?:env|path)\\?['"]\s*\])/i;
+
+function writesJobEnv(chunk: string): boolean {
+  return ENV_FILE_MENTION.test(
+    chunk
+      .split("\n")
+      .filter((l) => !/^[ \t]*#/.test(l))
+      .join("\n"),
+  );
+}
+
+/**
+ * Whether a step chunk's `uses:` refs make the job env untrusted. Shapes are
+ * decided by the shared `usesKind` (pinned remote trusted; local resolved;
+ * everything else, docker included, invalid). Local
+ * (`./`) refs resolve through `localActions` and RECURSE — a composite may
+ * `uses:` another local composite (spec R1's escaping mutant #2). Poison
+ * fail-closed when the ref is unknown, cyclic (PATH-scoped guard;
+ * sequential reuse is legit), NOT `using: composite` (a javascript/docker
+ * action's entry code can call core.addPath / core.exportVariable with
+ * nothing for a text scan to see — spec R1's escaping mutant #1), or when
+ * any resolved manifest mentions GITHUB_ENV/GITHUB_PATH outside comments.
+ * Quotes around the ref are stripped first — `uses: "./x"` must not dodge
+ * the `./` test into the trusted-marketplace branch. Non-`./` refs stay
+ * trusted (spec §5 L1: setup-node writes GITHUB_PATH by design).
+ */
+/** Comment-stripped text (full-line `#` lines never execute). */
+function stripCommentLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((l) => !/^[ \t]*#/.test(l))
+    .join("\n");
+}
+
+/**
+ * YAML spellings that re-key or re-shape a mapping so a line-anchored regex
+ * scan reads a DIFFERENT document than the YAML parser does (R3: quoted keys
+ * `"uses":`, flow-mapping steps `- {uses: x}`, anchored/aliased values
+ * `uses: &a ./x` / `uses: *a` — all parse to the same `uses` the typed
+ * census resolves, while a plain-spelling regex sees nothing). The doctrine
+ * is refuse-what-you-cannot-model: any of these in step METADATA or a job
+ * head rejects the step/job's claims and poisons the job env fail-closed.
+ * Applied to metadata only — the run VALUE is stripped first, so JSON
+ * payloads or prose inside run bodies (and the live single-line JSON `env:`
+ * values, which sit mid-line after a plain key) cannot false-dark a step.
+ * One mechanism closes the whole spelling class for every key the scanner
+ * reads (`uses`, `if`, `continue-on-error`, `run`, …).
+ */
+const UNMODELLED_SPELLING_RE =
+  /(^|\n)\s*(?:-\s*)?["'][\w-]+["']\s*:|(^|\n)\s*(?:-\s*)?\{|(^|\n)[^\n]*:\s*[&*][\w-]|(^|\n)\s*-?\s*[&*][\w-]|(^|\n)[ \t]*(?:-[ \t]+)?\?(?=[ \t]|\r?\n|$)|(^|\n)[ \t]*:(?=[ \t]|\r?\n|$)|(^|\n)[ \t]*(?:-[ \t]+)?!/;
+
+/** A step chunk minus its run VALUE — the metadata the spelling refusal reads. */
+function stepMetaOf(chunk: string): string {
+  const runMatch = chunk.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
+  return runMatch ? chunk.replace(runMatch[2]!, "") : chunk;
+}
+
+/**
+ * Strict `uses:` VALUE extraction (R3): the value must be a plain scalar —
+ * optionally quoted — that is either a local `./` ref, a `docker://` image,
+ * or a PINNED marketplace `owner/repo[/path]@ref` token whose ref passes
+ * the narrow allowlist. Anything else — refless, `docker://` in any form,
+ * Git-invalid refs (empty →
+ * block/folded scalar on the next line, `&`/`*` → anchor/alias, stray
+ * tokens) is unprovable by a line scan and poisons fail-closed.
+ */
+/**
+ * Poison decision for a PARSED `uses:` VALUE (R28). Reconstructing
+ * `uses: <value>` and re-scanning it as text meant a block-scalar value was
+ * classified on its first line only — the runner consumes the whole scalar.
+ * This takes the value itself: local refs resolve through the manifest
+ * profile (recursively), pinned remotes are trusted, everything else
+ * poisons fail-closed.
+ */
+export function usesValuePoisons(
+  value: unknown,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): boolean {
+  const kind = usesKind(value);
+  if (kind === "invalid") return true;
+  if (kind === "remote") return false;
+  const ref = (value as string).trim();
+  if (seen.has(ref)) return true;
+  const raw = localActions[ref];
+  if (raw === undefined) return true;
+  let doc: unknown;
+  try {
+    doc = parse(raw);
+  } catch {
+    return true;
+  }
+  const steps = validatedCompositeSteps(doc);
+  if (steps === null) return true;
+  const text = canonicalYaml(raw);
+  if (text === null || writesJobEnv(text)) return true;
+  const next = new Set(seen).add(ref);
+  return steps.some((s) => "uses" in s && usesValuePoisons(s.uses, localActions, next));
+}
+
+function localActionPoisons(
+  chunk: string,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): boolean {
+  for (const m of stripCommentLines(chunk).matchAll(/(^|\n)\s*(?:-\s*)?uses\s*:([^\n]*)/g)) {
+    const rawValue = (m[2] ?? "").trim();
+    const unquoted = rawValue.replace(/^(["'])(.*)\1$/, "$2").trim();
+    if (unquoted.startsWith("./")) {
+      const ref = unquoted;
+      if (seen.has(ref)) return true;
+      const raw = localActions[ref];
+      if (raw === undefined) return true;
+      // Manifests are PARSED and schema-validated (R8) through the ONE
+      // shared validator both layers use — a text scan cannot see step
+      // SHAPE, and twelve invalid shapes escaped the textual checks.
+      // Unparseable or invalid => opaque, fail-closed.
+      let doc: unknown;
+      try {
+        doc = parse(raw);
+      } catch {
+        return true;
+      }
+      const steps = validatedCompositeSteps(doc);
+      if (steps === null) return true;
+      const text = canonicalYaml(raw);
+      if (text === null || writesJobEnv(text)) return true;
+      // Child uses: recurse through the VALIDATED steps (typed values, so
+      // prose outside runs: can neither masquerade nor false-poison).
+      const next = new Set(seen).add(ref);
+      for (const s of steps) {
+        if (typeof s.uses !== "string") continue;
+        if (localActionPoisons(`uses: ${s.uses}`, localActions, next)) return true;
+      }
+      continue;
+    }
+    // Remote refs must carry @ref (R10) — a refless owner/repo fails GitHub's
+    // validation before any step runs, so it is INVALID, not trusted.
+    if (usesKind(unquoted) === "remote") continue; // trusted (spec §5 L1)
+    return true; // refless, anchored, aliased, folded/block, empty, or unmodelable
+  }
+  return false;
+}
 
 /** The `on:` block (from the `on:` line to the next top-level key). */
 function onBlock(yaml: string): string {
@@ -210,7 +931,12 @@ const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container
 const UNMODELLED_SHELL_RE =
   /[$`]|(?:^|[\n;&|])[ \t]*[{}]|(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.[ \t]|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[^\s;&|(){}]+[ \t]*\([ \t]*\))/;
 
-export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = {} }: Opts): {
+export function scanWorkflowCoverage({
+  workflows,
+  packageScripts,
+  configSpecs = {},
+  localActions = {},
+}: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
 } {
@@ -244,7 +970,17 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
     return out;
   };
 
-  for (const [file, yaml] of Object.entries(workflows)) {
+  for (const [file, rawYaml] of Object.entries(workflows)) {
+    // Everything below reads the CANONICAL text; an unparseable workflow
+    // never runs on GitHub, so it claims nothing (safe-dark).
+    const yaml = canonicalYaml(rawYaml);
+    if (yaml === null) continue;
+    let parsedDoc: unknown = null;
+    try {
+      parsedDoc = parse(yaml);
+    } catch {
+      continue;
+    }
     const on = onBlock(yaml);
     const pr = pullRequestBlock(on);
     const hasPr = pr !== null || /(^|\n)on\s*:\s*\[[^\]\n]*pull_request/.test(yaml);
@@ -253,54 +989,210 @@ export function scanWorkflowCoverage({ workflows, packageScripts, configSpecs = 
     // its specs "covered" even though the job does not run on every PR (found while
     // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
     const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
+    // R24: a `pull_request` trigger counts as per-PR ONLY when it is BARE.
+    // Enumerating filter keys one round at a time (paths, paths-ignore,
+    // types, then branches, branches-ignore) is the losing shape this arc
+    // has retired repeatedly, so the rule inverts: ANY configuration under
+    // `pull_request` — any key at all, or a sequence form — means the
+    // workflow does not run on every PR, exactly like the paths filter this
+    // guard has always refused. A future filter key needs no new code.
+    const parsedOn = (parsedDoc as { on?: unknown } | null)?.on;
+    const parsedPr = mapping(parsedOn)
+      ? (parsedOn as Record<string, unknown>)["pull_request"]
+      : undefined;
+    const prIsBare =
+      parsedPr === null ||
+      (mapping(parsedPr) && Object.keys(parsedPr as Record<string, unknown>).length === 0);
+    const prActivityFilter = parsedPr !== undefined && !prIsBare;
     // Checked against the WHOLE file: `shell:`/`working-directory:`/`defaults:`
     // apply at workflow, job, or step level, and `needs:` can point at a job
     // that is skipped. Any of them anywhere means this scanner cannot say what
     // ran, so it says nothing.
     const unmodelled = UNMODELLED_RE.test(yaml);
+    // Document markers: retained as an INERT belt. R6 canonicalization
+    // strips markers before this test sees them, and a genuine
+    // multi-document file fails `parse()` above (claim-nothing), so the
+    // parse failure is what refuses. Kept because it costs nothing and
+    // documents the intent (whole-diff R5/R9).
+    const docMarkers = /(^|\n)(---|\.\.\.|%YAML|%TAG)/.test(yaml);
+    // R4: EXPLICIT-KEY syntax (`? key` / `: value` lines) resolves to
+    // ordinary scanner-read keys in the parser while every line-anchored
+    // regex here is blind to it — probe showed false coverage through
+    // explicit-key paths filters, if:, needs:, container:, shell:,
+    // working-directory:, continue-on-error:, and uses: at every level. The
+    // check reads METADATA segments only (the pre-jobs head here; job heads
+    // and step metas below) — run VALUES legitimately start lines with the
+    // shell `:` builtin (the census R13 fixtures do), so a file-level test
+    // would false-dark them.
+    const jobsIdx = yaml.search(/(^|\n)jobs\s*:/);
+    const wfSpelling = UNMODELLED_SPELLING_RE.test(
+      stripCommentLines(jobsIdx === -1 ? yaml : yaml.slice(0, jobsIdx)),
+    );
 
+    // R15 (file-level; typed at R18): a step carrying BOTH `run:` and
+    // `uses:` is schema-invalid, so GitHub rejects the WHOLE workflow.
+    // Read from the PARSED document — a text scan that truncated at
+    // `run:` missed the run-first mapping order, and a scan that did not
+    // truncate would false-positive on `uses:` inside a run body.
+    const parsedJobsAll = (parsedDoc as { jobs?: Record<string, { steps?: unknown }> })?.jobs;
+    const schemaInvalid = !validWorkflowShape(parsedDoc);
+    const mixedStepAnywhere = Object.values(parsedJobsAll ?? {}).some((jb) =>
+      (Array.isArray(jb?.steps) ? (jb.steps as Array<Record<string, unknown>>) : []).some(
+        (st) => st !== null && typeof st === "object" && "run" in st && "uses" in st,
+      ),
+    );
     for (const job of jobs(yaml)) {
-      const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
-      const jobCoe = hasContinueOnError(job.head);
-      for (const step of job.steps) {
-        const runMatch = step.match(/(^|\n)\s*run\s*:([\s\S]*)$/);
-        if (!runMatch) continue;
-        // Full-line YAML/shell comments never execute, and the step-splitter
-        // glues BETWEEN-step comment lines onto the preceding step's chunk —
-        // prose there routinely carries backticks/$/braces that would trip
-        // the shell-construct refusal on an innocent step. Inline comments
-        // are NOT stripped (the pre-# part executes; conservative).
-        const cmd = runMatch[2]!
-          .split("\n")
-          .filter((l) => !/^[ \t]*#/.test(l))
-          .join("\n");
-        const stepIf = /(^|\n)\s*if\s*:/.test(step);
-        const stepCoe = hasContinueOnError(step);
-        // Whole-config claim. Evaluated against the ENTIRE run block, and
-        // deliberately NOT through alias resolution: an adversarial round
-        // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
-        // `set +e` block, and for a backgrounded `… &`, because alias
-        // recursion applied the exact match to the package-script BODY while
-        // qualification only ever saw the outer command. Requiring the whole
-        // run block to BE the literal removes the shell reasoning entirely —
-        // there is no surrounding context left to smuggle anything into.
-        const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
-        const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
-
-        for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
-          if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
-          else if (unmodelled)
-            rejected.push({ file, spec, reason: "unmodelled execution override" });
-          else if (hasPathsFilter)
-            rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
-          else if (jobIf || stepIf) rejected.push({ file, spec, reason: "if: condition present" });
-          else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
-          else if (suppressesExit(cmd))
-            rejected.push({ file, spec, reason: "exit-code suppression" });
-          else if (UNMODELLED_SHELL_RE.test(cmd))
-            rejected.push({ file, spec, reason: "unmodelled shell construct" });
-          else covered.add(spec);
+      // R16/R17: `runs-on` decided by the SHARED TYPED validator against
+      // the PARSED document — the R16 textual heuristics accepted numeric
+      // scalars, non-string sequence members, and wrong-typed group/labels.
+      const jobName = /^[ \t]*([\w-]+)[ \t]*:/.exec(job.head)?.[1];
+      const parsedJobs = (parsedDoc as { jobs?: Record<string, { "runs-on"?: unknown }> })?.jobs;
+      const validRunsOnJob =
+        jobName !== undefined && parsedJobs !== undefined && jobName in parsedJobs
+          ? validRunsOn(parsedJobs[jobName]!["runs-on"])
+          : false;
+      const parsedJob =
+        jobName !== undefined && parsedJobs !== undefined ? parsedJobs[jobName] : undefined;
+      // R18: keys placed AFTER `steps:` are invisible to the head text, so
+      // read job-level if:/continue-on-error: from the parsed job too.
+      const jobIf =
+        /(^|\n)\s*if\s*:/.test(job.head) ||
+        (parsedJob !== undefined && "if" in (parsedJob as Record<string, unknown>));
+      const parsedJobCoe = (parsedJob as { "continue-on-error"?: unknown } | undefined)?.[
+        "continue-on-error"
+      ];
+      const jobCoe =
+        hasContinueOnError(job.head) ||
+        (parsedJobCoe !== undefined &&
+          String(parsedJobCoe)
+            .trim()
+            .replace(/^["']|["']$/g, "")
+            .toLowerCase() !== "false");
+      // R3: a quoted-key/flow/anchor spelling in the job HEAD could hide an
+      // `if:`/`continue-on-error:` this scanner reads by plain spelling only.
+      const headSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(job.head));
+      // Cross-step env state, threaded across ALL step chunks of this job in
+      // order (uses: and other run-less steps included — bookkeeping must not
+      // sit behind the run:-presence early-continue). Qualification runs
+      // BEFORE this step's own bookkeeping: a step that both invokes and
+      // writes poisons only LATER steps — its own within-block write is the
+      // R12 class ($GITHUB_ENV trips UNMODELLED_SHELL_RE if the block
+      // claims). Per-job flag: env state does not cross jobs, and
+      // over-poisoning would force reason-free allowlist rows.
+      let envPoisoned = false;
+      // R25: iterate the PARSED steps, not the regex-split chunks — an
+      // indented `- run:` inside a shell BODY made the splitter invent a
+      // phantom claiming step, so text GitHub runs as one shell command was
+      // read as a second step and covered specs it never executed. The
+      // typed steps are exactly what the runner executes; each chunk is
+      // still used for the text-level gates that need raw source.
+      const parsedSteps: Array<Record<string, unknown>> =
+        parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
+          ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
+          : [];
+      for (const parsedStep of parsedSteps) {
+        // R26: NO pairing with regex chunks. Index-pairing shifted whenever
+        // a block-scalar line looked like a step, which silently moved a
+        // later step's if:/continue-on-error:/env/uses gates onto the wrong
+        // text. Every per-step gate below reads the PARSED step, so there is
+        // no association to drift.
+        const runValue = typeof parsedStep.run === "string" ? parsedStep.run : null;
+        const runMatch: [string, string, string] | null =
+          runValue === null ? null : ["", "", runValue];
+        // Canonical stringify double-quotes scalars that plain style cannot
+        // carry (e.g. a shell command ending in a colon). Unquote the
+        // single-line double-quoted form (JSON-compatible by construction —
+        // singleQuote: false is pinned) so the command text is scanned and
+        // its suppression/shell constructs stay REPORTED rather than the
+        // claim silently vanishing behind a quote character.
+        if (runMatch) {
+          const q = runMatch[2]!.match(/^[ \t]*("(?:[^"\\\n]|\\.)*")\s*$/);
+          if (q) {
+            try {
+              runMatch[2] = ` ${JSON.parse(q[1]!) as string}`;
+            } catch {
+              /* leave quoted — belt refusals see the quote characters */
+            }
+          }
         }
+        // R3: spelling refusal reads step METADATA only (run value stripped),
+        // so JSON/prose inside a run body cannot false-dark the step. A bad
+        // spelling rejects this step's own claims AND poisons the job env —
+        // the unreadable metadata may hide a `uses:`/`run:` that mutates it.
+        // A parsed step needs no spelling refusal: the parser already
+        // resolved whatever spelling produced these keys (that refusal
+        // remains for the workflow head and job heads, which are still read
+        // as text).
+        const stepSpelling = false;
+        if (runMatch) {
+          // Full-line YAML/shell comments never execute, and the step-splitter
+          // glues BETWEEN-step comment lines onto the preceding step's chunk —
+          // prose there routinely carries backticks/$/braces that would trip
+          // the shell-construct refusal on an innocent step. Inline comments
+          // are NOT stripped (the pre-# part executes; conservative).
+          const cmd = runMatch[2]!
+            .split("\n")
+            .filter((l) => !/^[ \t]*#/.test(l))
+            .join("\n");
+          const stepIf = "if" in parsedStep;
+          const coeValue = parsedStep["continue-on-error"];
+          const stepCoe =
+            coeValue !== undefined &&
+            String(coeValue)
+              .trim()
+              .replace(/^["']|["']$/g, "")
+              .toLowerCase() !== "false";
+          // Whole-config claim. Evaluated against the ENTIRE run block, and
+          // deliberately NOT through alias resolution: an adversarial round
+          // claimed full coverage for `echo pnpm test:e2e:standalone`, for a
+          // `set +e` block, and for a backgrounded `… &`, because alias
+          // recursion applied the exact match to the package-script BODY while
+          // qualification only ever saw the outer command. Requiring the whole
+          // run block to BE the literal removes the shell reasoning entirely —
+          // there is no surrounding context left to smuggle anything into.
+          const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+          const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+
+          for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
+            if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
+            else if (unmodelled)
+              rejected.push({ file, spec, reason: "unmodelled execution override" });
+            else if (
+              docMarkers ||
+              wfSpelling ||
+              headSpelling ||
+              stepSpelling ||
+              mixedStepAnywhere ||
+              schemaInvalid
+            )
+              rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
+            else if (!validRunsOnJob)
+              rejected.push({ file, spec, reason: "job has no valid runs-on" });
+            else if (envPoisoned)
+              rejected.push({
+                file,
+                spec,
+                reason: "earlier same-job step writes GITHUB_ENV/GITHUB_PATH",
+              });
+            else if (hasPathsFilter || prActivityFilter)
+              rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
+            else if (jobIf || stepIf)
+              rejected.push({ file, spec, reason: "if: condition present" });
+            else if (jobCoe || stepCoe) rejected.push({ file, spec, reason: "continue-on-error" });
+            else if (suppressesExit(cmd))
+              rejected.push({ file, spec, reason: "exit-code suppression" });
+            else if (UNMODELLED_SHELL_RE.test(cmd))
+              rejected.push({ file, spec, reason: "unmodelled shell construct" });
+            else covered.add(spec);
+          }
+        }
+        if (stepSpelling) envPoisoned = true;
+        // Env-write and local-action bookkeeping read the PARSED step too:
+        // every scalar the step carries is serialized for the mention
+        // predicate, and the uses value goes through the shared classifier.
+        if (writesJobEnv(JSON.stringify(parsedStep))) envPoisoned = true;
+        if ("uses" in parsedStep && usesValuePoisons(parsedStep.uses, localActions, new Set()))
+          envPoisoned = true;
       }
     }
   }
