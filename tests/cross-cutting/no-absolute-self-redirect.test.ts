@@ -407,6 +407,16 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(existsSync("lib/__audit_fixture__")).toBe(false);
   });
 
+  it.each([
+    ["outside both roots", "tests/__audit_fixture__/outside.ts"],
+    ["non-segment lookalike", "app/not__audit_fixture__suffix/outside.ts"],
+    ["traversal escape", "app/__audit_fixture__/../api/outside.ts"],
+  ])("rejects a fixture path %s", (_label, path) => {
+    // The namespace is an exact segment prefix under app/ or lib/, no `..` —
+    // anything else could shadow or masquerade as a real file.
+    expect(() => auditSource(path, "export {};")).toThrow(/__audit_fixture__/);
+  });
+
   it("every allow-list row states a reason and pins the argument it was granted for", () => {
     for (const [site, row] of Object.entries(EXTERNAL_REDIRECT_ALLOWLIST)) {
       expect(row.reason.length, `${site} has no reason`).toBeGreaterThan(20);

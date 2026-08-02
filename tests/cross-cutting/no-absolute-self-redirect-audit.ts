@@ -33,11 +33,14 @@
  * have NO such backstop (tsconfig `include` is TS-only, `checkJs` off), which
  * is why the companion test's sentinel keeps the walked roots free of them.
  *
- * KNOWN RESIDUAL (spec §7, pinned as behavior by the E1/E2 fixtures): a
- * receiver laundered BEFORE the member access (`(NextResponse as any).redirect`),
- * a computed key widened past a literal type, and reflection/eval are invisible
- * to any static analysis — each requires a deliberate, review-loud cast on the
- * NextResponse/Response receiver itself. Local runtime mimics named
+ * KNOWN RESIDUAL (spec §7): a receiver laundered BEFORE the member access
+ * (`(NextResponse as any).redirect`) and a computed key widened past a literal
+ * type each require a deliberate, review-loud cast on the NextResponse/Response
+ * receiver itself, and are pinned AS BEHAVIOR by the E1/E2 fixtures.
+ * Reflection and eval (`Reflect.get(NextResponse, k)`, `eval`) escape WITHOUT
+ * any cast — they bypass static analysis entirely, cannot be pinned by a
+ * fixture, and are covered only by their greppable spellings being loud in
+ * review. Local runtime mimics named
  * `NextResponse` either delegate to the real method (their internal reference
  * is in a walked file and flags there) or hand-roll a Location header without
  * it (outside this guard's claim). `node_modules` wrappers are outside the
@@ -317,11 +320,18 @@ function assertFixturePath(repoRelativePath: string): void {
   // Allow-list tests may mirror an allowlisted route path (the argument-pin
   // fixture must land on the row's exact path:line); everything else stays in
   // the __audit_fixture__ namespace so fixtures can never shadow real files.
-  if (repoRelativePath.includes("__audit_fixture__")) return;
+  // Exact segment prefix, no traversal — a substring test accepted paths
+  // outside both roots, non-segment lookalikes, and `..` escapes (whole-diff
+  // review r1, probe-demonstrated).
   if (ALLOWLISTED_PATHS.has(repoRelativePath)) return;
+  const inNamespace =
+    (repoRelativePath.startsWith("app/__audit_fixture__/") ||
+      repoRelativePath.startsWith("lib/__audit_fixture__/")) &&
+    !repoRelativePath.split("/").includes("..");
+  if (inNamespace) return;
   throw new Error(
-    `fixture path ${repoRelativePath} must sit under an __audit_fixture__/ segment ` +
-      `(or mirror an EXTERNAL_REDIRECT_ALLOWLIST path for allow-list tests)`,
+    `fixture path ${repoRelativePath} must sit directly under app/__audit_fixture__/ or ` +
+      `lib/__audit_fixture__/ (or mirror an EXTERNAL_REDIRECT_ALLOWLIST path for allow-list tests)`,
   );
 }
 
