@@ -90,11 +90,11 @@ const USES_STEP_KEYS = new Set(["name", "id", "if", "uses", "with", "env", "cont
 const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim() !== "";
 /**
  * The ONE `uses:` shape classifier (R10). GitHub requires a remote ref to be
- * `{owner}/{repo}[/path]@{ref}` or `docker://…`; a REFLESS `owner/repo` fails
- * validation before any step executes, so treating it as a trusted remote
- * was false coverage at workflow, composite-child, and nested sites. Local
- * refs (`./…`) take no `@ref`. Anything else is INVALID → callers poison
- * fail-closed, matching the narrow-accept posture.
+ * `{owner}/{repo}[/path]@{ref}`. As shipped (R10-R14) this accepts exactly
+ * two shapes: a local `./…` ref, and a pinned `owner/repo[/path]@ref` whose
+ * ref passes the narrow well-formed allowlist (or is a 40-hex SHA).
+ * Everything else — refless remotes, the whole `docker://` family, and
+ * Git-invalid refs — is INVALID, so callers poison fail-closed (spec §5 L8).
  */
 /**
  * The ONE `runs-on` validator both layers use (R17). R16 shipped textual /
@@ -278,9 +278,11 @@ type Opts = {
    * steps execute in the CALLER's job env, so a local action that writes
    * GITHUB_ENV/GITHUB_PATH poisons the caller's later steps (cross-step-env
    * spec §2.2). A `./` ref ABSENT from this map is an opaque same-env
-   * executor and poisons fail-closed; non-`./` (marketplace) refs stay
-   * trusted — setup-node writes GITHUB_PATH by design, and modeling remote
-   * action internals is out of universe (spec §5 L1).
+   * executor and poisons fail-closed. A non-`./` ref is trusted ONLY when
+   * `usesKind` classifies it `remote` (a pinned `owner/repo[/path]@ref`);
+   * setup-node writes GITHUB_PATH by design and remote action internals are
+   * out of universe (spec §5 L1), but an unpinned or docker ref is invalid
+   * rather than trusted (spec §5 L8).
    */
   localActions?: Record<string, string>;
 };
@@ -308,7 +310,9 @@ function writesJobEnv(chunk: string): boolean {
 }
 
 /**
- * Whether a step chunk's `uses:` refs make the job env untrusted. Local
+ * Whether a step chunk's `uses:` refs make the job env untrusted. Shapes are
+ * decided by the shared `usesKind` (pinned remote trusted; local resolved;
+ * everything else, docker included, invalid). Local
  * (`./`) refs resolve through `localActions` and RECURSE — a composite may
  * `uses:` another local composite (spec R1's escaping mutant #2). Poison
  * fail-closed when the ref is unknown, cyclic (PATH-scoped guard;
