@@ -2,103 +2,167 @@
 
 **Date:** 2026-08-02 · **Spec:** `docs/superpowers/specs/2026-08-01-admin-popover-overlay-cluster.md` (RATIFIED 2026-08-02, Codex APPROVE R7) · **Implementer:** Opus / Claude Code (UI surface — hard routing rule) · **Branch:** `fix/admin-popover-overlay-cluster`
 
-TDD per task, commit per task (`fix(...)`/`test(...)`/`refactor(...)` scopes below). Spec section references are normative; this plan sequences them.
+Execution contract: one task = failing test observed → minimal implementation → passing test observed → ONE commit (`--no-verify`). RED and GREEN land in the same commit; the RED failure is OBSERVED and its decisive line quoted in the commit body. All commands run from the worktree root.
 
 ## 0. Pre-draft verification + declarations
 
-- **Code-verification pass:** every file/symbol/line named below was verified against this worktree during spec drafting and re-verified at plan time where load-bearing: ShareHub trigger/backdrop/toggle/busy (`components/admin/showpage/ShareHub.tsx:186-209`, `components/admin/showpage/ShareHub.tsx:528-540`, `components/admin/showpage/ShareHub.tsx:651-724`), StatusStrip props + ShareHub render (`components/admin/showpage/StatusStrip.tsx:98`, `components/admin/showpage/StatusStrip.tsx:414-422`), PublishedReviewModal `menuOpen`/`menuEffectivelyOpen`/StatusStrip render (`components/admin/showpage/PublishedReviewModal.tsx:301`, `components/admin/showpage/PublishedReviewModal.tsx:356`, `components/admin/showpage/PublishedReviewModal.tsx:905-912`), AttentionMenu panel/scroller/listeners (`components/admin/showpage/AttentionMenu.tsx:76-105`, `components/admin/showpage/AttentionMenu.tsx:120-147`), fit hook + pure core (`components/admin/ReSyncButton.tsx:79-146`, `lib/layout/fitWithinClip.ts:21-67`), coalescers (`ShareHub.tsx:379-386`, `components/admin/HoverHelp.tsx:309-316`), ArchiveShowButton row variant (`components/admin/ArchiveShowButton.tsx:115-156`, `components/admin/ArchiveShowButton.tsx:244-324`), registry + detector (`tests/components/admin/showpage/popoverOverlayRegistry.ts`, `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:26-47`), z pins (`tests/components/admin/showpage/shareHub.test.tsx:217`, `tests/components/admin/showpage/shareHub.test.tsx:280`, `tests/components/admin/showpage/shareHub.test.tsx:873`), T-S8 (`tests/components/admin/showpage/shareHubVisualViewport.test.tsx:164`), T-BACKDROP (`tests/e2e/admin-lifecycle-layout.spec.ts:623-666`), standalone baseline gates (`scripts/check-standalone-baseline.mjs`, `tests/ci/_metaSpecRegistration.test.ts:74`).
-- **Meta-test inventory:** this milestone EXTENDS `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` (tightened `IMPORT_FOR_DISPOSITION["fit-within-clip"]` regex; two registry-row changes) and CREATES `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` (AST-level adoption pins, spec §11 closure set). No other registries apply: no Supabase call boundary, no admin alert catalog, no email normalization, no advisory lock (**no `pg_advisory*` surface is touched — holder topology N/A**), no mutation surface (zero server-action/route edits, so invariant 10 is untouched).
-- **e2e harness readiness (mandatory declaration):** boot = standalone config self-hosted harness (esbuild-bundled live entry served over `node:http`, no dev server, no Supabase — the `attention-pill-focus.spec.ts:38-99` preamble is the template); readiness gate = `window.__hydrated` flag (never `networkidle`); detach safety = all state driving via `window.__setItems` React state, and every measurement `evaluate` runs on elements re-queried inside the callback (no held locators across re-renders).
-- **Impeccable gate:** section 12 below carries the closeout marker.
+- **Code-verification pass:** every file/symbol/line below verified against this worktree at plan time: ShareHub busy/toggle/backdrop/triggers/coalescer/focus-effect/ArchiveShowButton call site (`components/admin/showpage/ShareHub.tsx:186-209`, `components/admin/showpage/ShareHub.tsx:528-540`, `components/admin/showpage/ShareHub.tsx:651-724`, `components/admin/showpage/ShareHub.tsx:379-386`, `components/admin/showpage/ShareHub.tsx:629-631`, `components/admin/showpage/ShareHub.tsx:962-982`), StatusStrip props + ShareHub render (`components/admin/showpage/StatusStrip.tsx:98`, `components/admin/showpage/StatusStrip.tsx:414-422`), PublishedReviewModal menu state + strip render (`components/admin/showpage/PublishedReviewModal.tsx:301`, `components/admin/showpage/PublishedReviewModal.tsx:356`, `components/admin/showpage/PublishedReviewModal.tsx:905-912`), AttentionMenu (`components/admin/showpage/AttentionMenu.tsx:76-105`, `components/admin/showpage/AttentionMenu.tsx:120-147`), fit hook + pure core (`components/admin/ReSyncButton.tsx:79-146`, `lib/layout/fitWithinClip.ts:21-67`), HoverHelp coalescer (`components/admin/HoverHelp.tsx:309-316`), ArchiveShowButton (`components/admin/ArchiveShowButton.tsx:115-156`, `components/admin/ArchiveShowButton.tsx:244-324`), registry + detector (`tests/components/admin/showpage/popoverOverlayRegistry.ts:42-79`, `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:26-47`), pins (`tests/components/admin/showpage/shareHub.test.tsx:217`, `tests/components/admin/showpage/shareHub.test.tsx:280`, `tests/components/admin/showpage/shareHub.test.tsx:846-894`), armed-copy pins (`tests/components/admin/ArchiveShowButton.test.tsx:239-249`), toggle tests (`tests/components/admin/PublishedToggle.test.tsx`), T-S8 (`tests/components/admin/showpage/shareHubVisualViewport.test.tsx:164`), T-BACKDROP (`tests/e2e/admin-lifecycle-layout.spec.ts:623-666`), harness (`tests/e2e/_publishedReviewModalHarness.tsx:223`, `tests/e2e/_publishedReviewModalHarness.tsx:376`, `tests/e2e/_pillFocusLiveEntry.tsx:68-87`), baseline gates (`scripts/check-standalone-baseline.mjs:129-143`, `tests/ci/_metaSpecRegistration.test.ts:74`). Script names: `pnpm test` = `vitest run`, `pnpm typecheck` = `tsc --noEmit`, `pnpm lint` = `eslint`.
+- **Meta-test inventory:** EXTENDS `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` (tightened import regex; two registry rows). CREATES `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` (AST adoption pins). No Supabase call boundary, no admin-alert catalog, no email normalization, **no `pg_advisory*` (holder topology N/A)**, no mutation surface (no server-action/route edits — invariant 10 untouched).
+- **e2e harness readiness:** boot = standalone self-hosted harness (esbuild live entry + `node:http`, template `tests/e2e/attention-pill-focus.spec.ts:38-99`); readiness gate = `window.__hydrated` (never `networkidle`); detach safety = drive via `window.__setItems` React state; every measurement re-queries elements inside the `evaluate` callback.
+- **Worktree hygiene pre-step (before T1):** revert the two draft-time probe artifacts so no later step can capture them: `rm -f tests/e2e/popover-probe.spec.ts tests/components/admin/showpage/timerLeakProbe.test.tsx && git checkout -- tests/e2e/standalone.config.ts` (removes the temp `popover-probe` testMatch branch). Verify `git status --porcelain` shows only intended files.
+- **Impeccable gate marker:** §12 below.
 
-## 1. Task list
+## 1. Tasks
 
-### T1 — `lib/popover/rafCoalescer.ts (new)` + unit tests (`test(popover)` then `refactor(popover)`)
+Each task block: **RED** (write test, run command, quote expected failing line) → **GREEN** (implementation) → **VERIFY** (run command, expected pass) → **COMMIT** (exact message).
 
-1. RED: new `tests/popover/rafCoalescer.test.ts (new)` (node env, mock rAF): (a) burst of N `schedule()` calls before the frame fires → exactly one `run`; (b) `schedule()` during `run` → second frame scheduled (throttle, not debounce — the T-S8 failure mode); (c) `cancel()` → pending frame cancelled, later `schedule()` works. Failure mode caught: a debounce implementation (cancel-and-reschedule) fails (a)+(b) counts.
-2. GREEN: create `lib/popover/rafCoalescer.ts (new)` exporting `createRafCoalescer(run: () => void): { schedule(): void; cancel(): void }` with the pending-flag-cleared-BEFORE-run semantics and the "cleared BEFORE running" marker comment (moves here; must end up in exactly one source file).
-3. Adopt in `ShareHub.tsx` (placement effect: local `frame`/`schedule` → helper; `cancel()` in the same effect cleanup) and `HoverHelp.tsx` (open-gate stays at the call site: `if (!open) return;` wraps `schedule()`). Delete both local coalescers and both local marker comments.
-4. Verify: T-S8 (`pnpm vitest run tests/components/admin/showpage/shareHubVisualViewport.test.tsx`) green unchanged; new unit green; HoverHelp suites green.
+### T1 — shared rAF coalescer, adopted by both consumers, with adoption pins
 
-### T2 — extract `useFitWithinClip` with contract extension (`refactor(admin)` + `test(admin)`)
+Spec §7, §11 (adoption closure i–iv for the coalescer pairs).
 
-1. RED: new `tests/components/admin/useFitWithinClip.test.tsx (new)` (jsdom): (a) no clipping ancestor → no-op (style.maxHeight cleared/untouched); (b) with a fake clip ancestor rect, cap write = `floor(clipBottom − top − 8)` via mocked `getBoundingClientRect`; (c) `reapplyKey` change re-runs `apply` (assert second style write after key flip); (d) jsdom-no-ResizeObserver path does not throw. Failure modes: missing re-apply channel (c) is the spec R1-F1/R3-F4 defect class.
-2. GREEN: create `components/admin/useFitWithinClip.ts (new)` (`"use client"`): body moved from `ReSyncButton.tsx:79-146` plus the spec §4.1/§4.2 extensions — ResizeObserver additionally observes the fitted element's `offsetParent`; `transitionend` listener on the `offsetParent` re-applies; optional `reapplyKey?: unknown` dep re-runs apply. Export `useFitWithinClip`; keep `findClippingAncestor` module-private (not re-exported — same-name-local pin below covers it).
-3. `ReSyncButton.tsx` imports the hook; local definitions of `useFitWithinClip` + `findClippingAncestor` deleted.
-4. Verify: existing ReSync suites green; new unit green.
+- [ ] RED 1: write `tests/popover/rafCoalescer.test.ts (new)`:
+  - burst: stub `requestAnimationFrame` to capture callbacks; `schedule()` ×5 → exactly 1 rAF registered; fire it → `run` called once.
+  - throttle-not-debounce: inside `run`, call `schedule()` → a SECOND rAF is registered (pending flag cleared BEFORE run). Catches: a debounce implementation (cancel-and-reschedule) registers ≠ counts.
+  - cancel: `cancel()` after `schedule()` → `cancelAnimationFrame` called with the pending id; subsequent `schedule()` registers anew.
+  - Run: `pnpm vitest run tests/popover/rafCoalescer.test.ts` → expected: `Cannot find module '@/lib/popover/rafCoalescer'` (or equivalent resolve error).
+- [ ] RED 2: write `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` (TypeScript compiler API — `import ts from "typescript"`), table-driven registry of (consumerFile, helperName, sharedModule) rows; T1 seeds the two coalescer rows ({ShareHub, HoverHelp} × `createRafCoalescer` from `@/lib/popover/rafCoalescer`). Per row assert: (i) import binding from the shared module; (ii) ≥1 `ts.isCallExpression` whose callee identifier text equals the LOCAL import binding name (alias-aware: an aliased-and-called import passes; an unused alias fails); (iii) no local declaration named `createRafCoalescer` / `useFitWithinClip` / `findClippingAncestor` in any consumer file, in any form (`ts.isFunctionDeclaration`, `ts.isVariableDeclaration`, `ts.isClassDeclaration`); (iv) the string `cleared BEFORE running` appears in exactly one source file repo-wide (the new shared coalescer module).
+  - Run: `pnpm vitest run tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` → expected: both rows fail (module missing; imports absent).
+- [ ] GREEN: create `lib/popover/rafCoalescer.ts (new)` exporting `createRafCoalescer(run: () => void): { schedule(): void; cancel(): void }` with pending-flag-cleared-BEFORE-run semantics and the marker comment (moves here); adopt in `components/admin/showpage/ShareHub.tsx:379-386` (helper instance in the placement effect; `cancel()` in the cleanup that currently calls `cancelAnimationFrame`) and `components/admin/HoverHelp.tsx:309-316` (open-gate `if (!open ...) return` stays at the call site wrapping `schedule()`); delete both local coalescers + local marker comments.
+- [ ] VERIFY: `pnpm vitest run tests/popover/rafCoalescer.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts tests/components/admin/showpage/shareHubVisualViewport.test.tsx` → green (T-S8 unchanged); plus any HoverHelp suites (locate: `rg -l "HoverHelp" tests/components/admin --max-depth 1`).
+- [ ] COMMIT: `refactor(popover): extract shared leading-edge rAF coalescer; adopt in ShareHub + HoverHelp with AST adoption pins`
 
-### T3 — AttentionMenu fit + a11y contract (`fix(admin)`)
+### T2 — extract `useFitWithinClip` with the spec §4.1/§4.2 contract extensions
 
-1. RED: extend `tests/components/admin/showpage/attentionMenu.test.tsx`: scroller queried via `getByRole("group", { name: "Show issues" })`, has `tabIndex={0}`; with mocked clip geometry the scroller receives a fitted `style.maxHeight`. Transition-audit sub-check (mandatory — spec §8 inventory pasted into the test file header): enumerate the file's conditional renders (`entered` ternary, `hasNeedsYou` heading, monitoring block) and assert entrance props/classes per inventory (instant close = no exit classes).
-2. GREEN: scroller div (`AttentionMenu.tsx:147`) gains `role="group"`, `aria-label="Show issues"`, `tabIndex={0}`, the fit ref, `reapplyKey={entered}`.
-3. Registry: flip AttentionMenu row `unverified-gap` → `fit-within-clip` (reason cites spec §2.2 probe numbers); meta-test green.
-4. Verify: attentionMenu + pillFocusReconcile + attentionMenuGroups suites green.
+- [ ] RED: write `tests/components/admin/useFitWithinClip.test.tsx (new)` (jsdom pragma `// @vitest-environment jsdom`). Harness: positioned ancestor div, mocked `getComputedStyle` (`overflow: clip`) and `getBoundingClientRect` (ancestor bottom 560; fitted-element top 230; declared CSS cap 384). Cases:
+  - (a) fitted write: `style.maxHeight === computeFittedMaxHeight({elementTop, clipBottom, cap}) + "px"` — derived in-test from the mocked rects via the exported pure core (`lib/layout/fitWithinClip.ts:56`), never hardcoded.
+  - (b) no clipping ancestor → no write.
+  - (c) `reapplyKey` flip after changing mocked rects → fresh write with the new value.
+  - (d) `offsetParent` observation: stub global `ResizeObserver` capturing `observe()` targets → the fitted element's `offsetParent` is among them. Catches: extension omitted (only clip ancestor observed).
+  - (e) `transitionend` re-apply: dispatch `new Event("transitionend")` on the `offsetParent` after changing mocked rects → fresh write. Catches: listener omitted.
+  - (f) no `ResizeObserver` global → renders without throwing.
+  - Run: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` → expected: module-not-found for `@/components/admin/useFitWithinClip`.
+- [ ] RED (adoption row): append the ReSyncButton row (`useFitWithinClip` from `@/components/admin/useFitWithinClip`) to the T1 registry. Run the meta-test → expected: ReSyncButton row fails (still local definition). (AttentionMenu / PublishedToggle rows are added by T3 / T4 in the same commit as their adoption, so every commit stays green.)
+- [ ] GREEN: create `components/admin/useFitWithinClip.ts (new)` (`"use client"`): body from `components/admin/ReSyncButton.tsx:79-146` + extensions — ResizeObserver additionally observes `nodeRef.current.offsetParent` (Element-typed guard); `transitionend` listener on the `offsetParent` re-runs `apply`; optional `reapplyKey?: unknown` in the effect deps. `findClippingAncestor` moves as module-private. `ReSyncButton.tsx` imports the hook; both local definitions deleted.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` green; plus ReSync suites (locate: `rg -l "ReSyncButton" tests/components/admin --max-depth 1`).
+- [ ] COMMIT: `refactor(admin): extract useFitWithinClip with offsetParent + transitionend + reapplyKey re-measure contract`
 
-### T4 — PublishedToggle banner cap + a11y (`fix(admin)`)
+### T3 — AttentionMenu: fitted scroller + scrollable-region a11y + registry flip
 
-1. RED: extend `tests/components/admin/publishedToggle` suite (locate existing file via `rg "PublishedToggle" tests/components -l`): error banner has `overflow-y-auto`, `tabIndex={0}`, `aria-label="Publish error details"`, keeps `role="alert"`; fitted maxHeight written under mocked clip.
-2. GREEN: `POPOVER_POSITION` (`PublishedToggle.tsx:59`) gains `overflow-y-auto`; rendered error banner takes the fit ref + `tabIndex` + `aria-label`.
-3. Registry: add `components/admin/PublishedToggle.tsx` `fit-within-clip` row (file now matches the detector — fail-by-default proof: run meta-test BEFORE adding the row, observe the failure, then add).
-4. Verify: toggle suites + meta-test green.
+Spec §4.2, §8, §11. **Transition-audit body (spec §8, verbatim obligations):** states absent / pre-frame (`scale-95 opacity-0`) / entered (`scale-100 opacity-100`); O1↔O2 group axis. Pairs: absent→pre-frame instant mount; pre-frame→entered existing `transition-[opacity,transform] duration-fast`, reduced-motion instant; entered/pre-frame→absent instant unmount (no exit animation); O1↔O2 instant heading mount/unmount (re-fires fit observer). Compounds: O1↔O2 mid-entrance (fit re-measure independent of entrance progress); busy-window compounds are T6's.
 
-### T5 — shared-helper adoption pins (`test(admin)`) 
+- [ ] RED: extend `tests/components/admin/showpage/attentionMenu.test.tsx`:
+  - scroller located via `screen.getByRole("group", { name: "Show issues" })`; the same node has `tabIndex === 0` and the `max-h-96 overflow-y-auto` classes (role sits ON the scroller, not the panel).
+  - fitted write under the T2 mock-rect pattern, expectation derived via `computeFittedMaxHeight`.
+  - transition audit: panel carries the entrance classes per the inventory above; after `open=false` rerender, `queryByTestId("published-show-review-attention-menu")` is null (instant unmount, no exit classes).
+  - Run: `pnpm vitest run tests/components/admin/showpage/attentionMenu.test.tsx` → expected: `getByRole("group", { name: "Show issues" })` finds nothing.
+- [ ] RED (registry): flip the AttentionMenu row `unverified-gap` → `fit-within-clip` (`tests/components/admin/showpage/popoverOverlayRegistry.ts:74-78`; reason cites spec §2.2 probe: 55px overhang at 390×560, 54px stranded tail) and add the AttentionMenu adoption row. Run both meta-tests → expected: import assertions fail (component not importing yet).
+- [ ] GREEN: `components/admin/showpage/AttentionMenu.tsx:147` scroller gains `role="group"`, `aria-label="Show issues"`, `tabIndex={0}`, the fit ref, `reapplyKey={entered}`.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/attentionMenu.test.tsx tests/components/admin/showpage/attentionMenuGroups.test.tsx tests/components/admin/showpage/pillFocusReconcile.test.tsx tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` → green.
+- [ ] COMMIT: `fix(admin): cap AttentionMenu scroller against the panel clip; scrollable-region a11y contract`
 
-1. New `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` using the TypeScript compiler API (`typescript` is a devDependency): for each (consumer, helper) pair — {ReSyncButton, AttentionMenu, PublishedToggle} × `useFitWithinClip` from `@/components/admin/useFitWithinClip`, {ShareHub, HoverHelp} × `createRafCoalescer` from `@/lib/popover/rafCoalescer` — assert: (i) import binding from the shared module; (ii) ≥1 CallExpression whose callee identifier resolves to that import binding; (iii) no local declaration of `useFitWithinClip` / `findClippingAncestor` / `createRafCoalescer` in ANY form (function/const/let/var/class/import-alias-shadow); (iv) "cleared BEFORE running" marker in exactly one file repo-wide (`lib/popover/rafCoalescer.ts (new)`).
-2. Tighten `IMPORT_FOR_DISPOSITION["fit-within-clip"]` to `/from\s+"@\/components\/admin\/useFitWithinClip"/`.
-3. Declared closure boundary (spec §11): renamed-reimplementation-with-decoy is outside the set; a new family needs a live escaping mutant.
+### T4 — PublishedToggle error banner: cap + scroll + a11y + registry row
 
-### T6 — ShareHub trigger elevation, three-term gate + prop threading (`fix(crew-page)` scope `admin`… use `fix(admin)`)
+Spec §4.3, §8 (inventory rows: none↔error instant; none↔finalize-chip instant; error-wins swap instant — existing treatments unchanged, pinned).
 
-1. RED (unit, `shareHub.test.tsx`): open+idle → both triggers' `maxZLevel` ≥ 21 (reuse the `tests/components/admin/showpage/shareHub.test.tsx:280` helper); closed → < 20 (existing test stays green); open+busy → < 20; `attentionMenuOpen` prop true → < 20 through settle of EACH of `rotateBusy` (resolver pattern at `tests/components/admin/showpage/shareHub.test.tsx:846`), `resetBusy`, `lifecycleBusy`, and the `busyStuck` 15s timeout (fake timers) → stays < 20; prop flips false → ≥ 21; prop absent → identical to today (existing suites are the pin).
-2. RED (composed, new case in the PublishedReviewModal test suite): real composition, public surfaces only — open hub, child in flight, open menu via pill, settle → triggers < 20; close menu → ≥ 21. Fails if either hop drops the prop.
-3. GREEN: `ShareHub` gains `attentionMenuOpen?: boolean` (default false); trigger className branches gain `relative z-30` under `open && !busy && !attentionMenuOpen`; `StatusStrip` gains the passthrough prop; `PublishedReviewModal` passes `menuEffectivelyOpen` (`components/admin/showpage/PublishedReviewModal.tsx:356`) at the `components/admin/showpage/PublishedReviewModal.tsx:908` render.
-4. Update the `tests/components/admin/showpage/shareHub.test.tsx:280` closed-state test only if its class-parse helper needs export; assertions unchanged.
+- [ ] RED: extend `tests/components/admin/PublishedToggle.test.tsx`: drive an error via the suite's existing pattern (`setPublished` resolving a known refusal, click); banner assertions: keeps `role="alert"`; gains `tabIndex === 0`, `aria-label === "Publish error details"`, className contains `overflow-y-auto`; fitted `style.maxHeight` written under the mocked clip ancestor; finalize chip + none-state rows pinned unchanged (instant, classes as today).
+  - Run: `pnpm vitest run tests/components/admin/PublishedToggle.test.tsx` → expected: `overflow-y-auto` / `tabIndex` assertions fail.
+- [ ] GREEN step 1: `components/admin/PublishedToggle.tsx:59` `POPOVER_POSITION` gains `overflow-y-auto`.
+- [ ] Registry fail-by-default proof: run `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` NOW → observe "has a row for every detected anchored scroller" fail naming PublishedToggle; quote the line in the commit body; then add the `fit-within-clip` registry row + the adoption row.
+- [ ] GREEN step 2: banner takes the fit ref + `tabIndex={0}` + `aria-label="Publish error details"`.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/PublishedToggle.test.tsx tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` → green.
+- [ ] COMMIT: `fix(admin): clip-cap + keyboard-scroll contract for PublishedToggle error banner`
 
-### T7 — focus-leave light dismiss (`fix(admin)`)
+### T5 — tighten the registry mechanism regex
 
-1. RED (unit): AttentionMenu — dispatch `focusin` on an element outside panel+pill → `onClose` called; inside → not called. ShareHub — hub open idle, `focusin` outside panel/backdrop/triggers → closes WITHOUT focus restore; while busy → stays open; `focusin` inside popover/triggers → stays open.
-2. GREEN: AttentionMenu adds `focusin` handling to the existing document-listener effect (`AttentionMenu.tsx:81-105`, same outside predicate as `pointerdown`); ShareHub adds a document `focusin` listener effect while `open` (busy-exempt, no focus restore).
-3. Verify: full showpage unit suites green (focus-restore tests must not regress).
+- [ ] Change `IMPORT_FOR_DISPOSITION["fit-within-clip"]` (`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`) to `/from\s+"@\/components\/admin\/useFitWithinClip"/`.
+- [ ] Bite proof: temporarily restore a local hook copy in `ReSyncButton.tsx` (working-tree only), run the meta-test, observe the failure line ("registered as fit-within-clip but does not import it"), quote it in the commit body, revert the temporary change.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` → green.
+- [ ] COMMIT: `test(admin): registry fit-within-clip disposition requires the shared-module import`
 
-### T8 — ArchiveShowButton `showName` + ratified copy (`fix(admin)`)
+### T6 — ShareHub trigger elevation: three-term gate + prop threading + composed proof
 
-1. RED (`shareHub.test.tsx` armed-state cases): with `showName` — armed prose is exactly `Crew links for “{showName}” stop working now and won’t come back until you re-publish and issue a new link.` and group `aria-label` is `Confirm archiving “{showName}”`; without — byte-identical to today's strings. Curly quotes U+201C/U+201D; existing apostrophe U+2019.
-2. GREEN: `ArchiveShowButton` gains `showName?: string` consumed ONLY in the `asRow` armed branch (`components/admin/ArchiveShowButton.tsx:279` aria-label, `components/admin/ArchiveShowButton.tsx:284-287` prose); `ShareHub` threads `showTitle` (`components/admin/showpage/ShareHub.tsx:153`) at the `components/admin/showpage/ShareHub.tsx:962-982` call site.
-3. Verify: `_metaRowWrapperInert` + destructive-confirm suites green.
+Spec §3.1/§3.2, §8 compound rows (busy flip while open → elevation drops instantly, returns only when the FULL gate holds; busy settles while menu open → stays suppressed; menu closes while idle-open → returns instantly).
 
-### T9 — e2e: popover-clip-fit + T-BACKDROP restore (`test(admin)`)
+- [ ] RED (unit, `tests/components/admin/showpage/shareHub.test.tsx`; reuse the `maxZLevel` helper at `tests/components/admin/showpage/shareHub.test.tsx:280` — lift it to file scope):
+  - open+idle: both triggers `maxZLevel ≥ 21`.
+  - open+busy (resolver pattern, `tests/components/admin/showpage/shareHub.test.tsx:846`): `< 20`.
+  - `attentionMenuOpen={true}` + open: `< 20` through settle of EACH of rotate / reset / lifecycle busy AND through the `busyStuck` timeout (fake timers, `BUSY_GATE_MAX_MS`); rerender `attentionMenuOpen={false}` → `≥ 21`.
+  - prop-absent: existing closed-state pin (`tests/components/admin/showpage/shareHub.test.tsx:280`) stays untouched-green.
+  - Run → expected failing line: open+idle z assertion (`expected 0 to be at least 21`).
+- [ ] RED (composed, in the PublishedReviewModal jsdom suite — locate: `rg -l "PublishedReviewModal" tests/components/admin/showpage --max-depth 1`; public surfaces only): open hub via `share-hub-primary` → drive a lifecycle child in flight → open menu via the pill → settle → triggers `< 20`; close menu (Escape) → `≥ 21`. Injecting the prop directly here is FORBIDDEN (tautology — bypasses both hops). Run → fails.
+- [ ] GREEN: `ShareHub` gains `attentionMenuOpen?: boolean` (absent → false); trigger classNames add `relative z-30` under `open && !busy && !attentionMenuOpen`; `StatusStrip` passthrough (`components/admin/showpage/StatusStrip.tsx:98` type, `components/admin/showpage/StatusStrip.tsx:414-422` forward); `PublishedReviewModal` passes `menuEffectivelyOpen` (`components/admin/showpage/PublishedReviewModal.tsx:356`) at `components/admin/showpage/PublishedReviewModal.tsx:905-912`.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/` → green (broadest-blast-radius task: whole directory).
+- [ ] COMMIT: `fix(admin): open-gated trigger elevation above the hub backdrop (three-term gate, menu-state threaded)`
 
-1. New `tests/e2e/popover-clip-fit.spec.ts (new)` (standalone; boot per §0 declaration, reusing `_pillFocusLiveEntry.tsx`): at 390×{844,667,560}, reduced motion — settled fit equality ±0.5px (§9.1, overflow fixture 10/10/10); menu.bottom ≤ panel.bottom at 560; last INTERACTIVE needs-you row ≥ 44px effective tap height + activatable; monitoring tail read-reachable via `elementFromPoint` at max scroll; held-open monitoring-only → needs-you flip at 560 → containment + reachability re-assert; keyboard: Tab focuses `group "Show issues"` scroller, ArrowDown increases `scrollTop`; idle-state mutual-exclusion walks both directions (§3.4); PublishedToggle long-error containment (drive via the harness's error path or a dedicated minimal entry if the modal harness cannot force it — decide in-task, prefer harness).
-2. Register: add the `popover-clip-fit` name to `tests/e2e/standalone.config.ts` `testMatch`; regenerate `tests/e2e/standalone-baseline.json` (`node scripts/check-standalone-baseline.mjs --write`), verify `--list-check` green.
-3. T-BACKDROP (`tests/e2e/admin-lifecycle-layout.spec.ts:623-666`): restore trigger assertions — hub open (idle), `elementFromPoint` at each trigger center resolves into the trigger; primary-trigger click closes popover with `document.activeElement` on the trigger.
-4. Local runs: full standalone config once (`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts`); lifecycle-layout spec via its documented invocation.
+### T7 — focus-leave light dismiss on both surfaces
 
-### T10 — timer-leak documentation close (`docs(test)` → use `test(admin)` comment-only commit)
+Spec §3.4. Predicate closure, ALL pinned: AttentionMenu inside-set {panel descendant, pill}; ShareHub inside-set {popover panel descendant, backdrop, primary trigger, kebab trigger}; outside → dismiss; ShareHub busy → no dismiss; no focus restore on focus-leave dismissal.
 
-Replace the delta-baseline rationale comment in `tests/components/admin/showpage/shareHubFlashState.test.tsx` with the spec §2.3 root cause (jsdom `Selection._associateRange` `setTimeout(0)` armed by the `ShareHub.tsx:630` focus effect). No assertion changes. (BACKLOG row graduates in T12.)
+- [ ] RED (unit): AttentionMenu — `focusin` on outside element → `onClose` called; on panel descendant → not called; on the pill → not called. ShareHub — open idle: `focusin` outside all four → closes AND `document.activeElement` NOT restored to a trigger; on each inside-set member (four separate cases) → stays open; busy: outside `focusin` → stays open.
+  - Run → expected: dismiss cases fail (no listener).
+- [ ] GREEN: AttentionMenu adds `focusin` to the existing document-listener effect (`components/admin/showpage/AttentionMenu.tsx:81-105`, same outside predicate as `pointerdown`); ShareHub adds a while-open document `focusin` effect (busy-exempt, no restore).
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/` → green (focus-restore suites must not regress).
+- [ ] COMMIT: `fix(admin): focus-leave light dismiss on ShareHub + AttentionMenu (keyboard-inclusive idle mutual exclusion)`
+
+### T8 — ArchiveShowButton `showName` + ratified copy + threading proof
+
+Spec §5.1/§5.2 (owner-ratified byte-exact strings).
+
+- [ ] RED (direct, `tests/components/admin/ArchiveShowButton.test.tsx`, beside the armed-copy pin at `tests/components/admin/ArchiveShowButton.test.tsx:239-249`): row variant with `showName="Spring Gala"` → prose is exactly `Crew links for “Spring Gala” stop working now and won’t come back until you re-publish and issue a new link.`; armed group `aria-label` is `Confirm archiving “Spring Gala”`; with `showName` absent, `""`, and `"   "` → prose + label byte-identical to today's strings (copied from source at test-write time); confirm button label `Confirm archive` in all cases.
+  - Run → expected: with-`showName` copy cases fail.
+- [ ] RED (threading, `tests/components/admin/showpage/shareHub.test.tsx`): hub with `showTitle="Spring Gala"`, open, arm Archive → armed prose contains `“Spring Gala”`. Run → fails.
+- [ ] GREEN: `ArchiveShowButton` gains `showName?: string` consumed ONLY in the `asRow` armed branch (`components/admin/ArchiveShowButton.tsx:279` aria-label, `components/admin/ArchiveShowButton.tsx:284-287` prose; trim-guard per spec §5.1); `ShareHub` threads `showTitle` (`components/admin/showpage/ShareHub.tsx:153`) at `components/admin/showpage/ShareHub.tsx:962-982`.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/ArchiveShowButton.test.tsx tests/components/admin/showpage/shareHub.test.tsx` → green.
+- [ ] COMMIT: `fix(admin): armed Archive confirm names the show (owner-ratified copy)`
+
+### T9 — real-browser layout/a11y spec + baseline + T-BACKDROP restore
+
+**Dimensional-invariants body (spec §9, verbatim obligations):** (1) overflow content + `floor(panel.bottom − scroller.top − 8) < 384` → scroller rendered height `= floor(panel.bottom − scroller.top − 8)` ±0.5px SETTLED; ≥384 afforded → height ≤ 384; floor regime (<48px available) exempt, unreachable at asserted viewports. (2) `menu.bottom ≤ panel.bottom` at 390×560, including after the held-open O2→O1 flip. (3) PublishedToggle `banner.bottom ≤ clip.bottom` (≥48px available); overflow scrolls.
+
+- [ ] Pre-check: `rg popover-probe tests/e2e/standalone.config.ts` → no match (the §0 hygiene pre-step ran).
+- [ ] RED: write `tests/e2e/popover-clip-fit.spec.ts (new)` (boot per §0; menu cases reuse `tests/e2e/_pillFocusLiveEntry.tsx`). Cases:
+  - settled fit at 390×{844,667,560}, reduced-motion emulation, expectations derived in-page from measured rects; PLUS one NON-reduced-motion case at 390×560 that awaits `transitionend` on the panel before asserting the same ±0.5px equality (animated settle path — spec R6/R1-F4 class).
+  - containment at 560; last INTERACTIVE needs-you row: visible height ≥ 44px at max scroll AND `elementFromPoint` at its center resolves into the row button; monitoring tail read-reachable (`elementFromPoint` into row text at max scroll).
+  - held-open O2→O1 flip at 560: `__setItems(0,0,10)` → open → `__setItems(10,10,10)` → containment + reachability re-assert.
+  - keyboard: Tab until `document.activeElement` is the `group "Show issues"` node; `ArrowDown` → `scrollTop` strictly increases.
+  - idle mutual exclusion, both directions (spec §3.4): hub open → Tab to pill → Enter → menu open AND hub closed; menu open → Tab to a hub trigger → Enter → hub open AND menu closed.
+  - PublishedToggle via a NEW minimal live entry `tests/e2e/_publishedToggleClipLiveEntry.tsx (new)`: mounts `PublishedToggle` (inline variant) inside a replica clip panel (fixed-height `overflow-clip` div under the real compiled CSS) with `setPublished: async () => ({ ok: false, code: "FINALIZE_OWNED_SHOW" })`; click toggle → banner appears. Assert: `role="alert"` with accessible name `Publish error details`; containment `banner.bottom ≤ clip.bottom`; overflow scrolls (`scrollHeight > clientHeight` with a long catalog string); Tab-focus + `ArrowDown` `scrollTop` delta. (Decided here: the shared modal harness hardcodes `setPublished: NOOP_OK` — `tests/e2e/_publishedReviewModalHarness.tsx:376` — so the dedicated entry is the vehicle.)
+  - RED observation: run `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` BEFORE registration → expected "no tests" (testMatch gate observed). Register the `popover-clip-fit` name in `tests/e2e/standalone.config.ts` `testMatch`; re-run → spec executes. Because T3/T4 already landed, assertions may pass first-try: prove harness sensitivity by one deliberate local mutation of a derived expectation (fail observed, quoted in commit body), then revert. 
+- [ ] Baseline: `pnpm vitest run tests/ci/_metaSpecRegistration.test.ts` → observe the `--list-check` FAIL (membership changed); `node scripts/check-standalone-baseline.mjs --write`; re-run → green.
+- [ ] T-BACKDROP restore (`tests/e2e/admin-lifecycle-layout.spec.ts:623-666`): add trigger assertions — hub open idle: `elementFromPoint` at each trigger's center resolves into that trigger; click primary → popover closed AND `document.activeElement` is the primary trigger. Local run: `node_modules/.bin/playwright test tests/e2e/admin-lifecycle-layout.spec.ts --project=mobile-safari` (app-backed; `playwright.config.ts` `webServer` boots it; one retry tolerated for the documented placement flake).
+- [ ] VERIFY: full standalone config: `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts` → green.
+- [ ] COMMIT: `test(admin): real-browser clip-fit/a11y/mutual-exclusion spec; standalone baseline; T-BACKDROP trigger assertions restored`
+
+### T10 — timer-leak documentation close
+
+- [ ] Edit the delta-baseline comment in `tests/components/admin/showpage/shareHubFlashState.test.tsx` to record the spec §2.3 root cause (jsdom `Selection._associateRange` `setTimeout(0)` armed by the `components/admin/showpage/ShareHub.tsx:629-631` open-focus effect). Comment-only. RED N/A — declared: documentation disposition per spec §6; the behavioral guard is the existing delta assertion staying green.
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/shareHubFlashState.test.tsx` → green.
+- [ ] COMMIT: `test(admin): record jsdom Selection timer root cause at the flash-state delta baseline`
 
 ### T11 — impeccable dual gate (invariant 8)
 
-`/impeccable critique` + `/impeccable audit` on the affected diff with canonical v3 setup gates; P0/P1 fixed or `DEFERRED.md`-deferred; findings + dispositions recorded in §12 below. Runs AFTER T1–T10, BEFORE the whole-diff Codex review. Pre-code mechanical checklist applied during T3/T4/T6/T8 (tap targets, apostrophes, token classes).
+- [ ] `/impeccable critique` then `/impeccable audit` on the affected diff, canonical v3 setup gates (context load of PRODUCT.md + DESIGN.md → register reference read). P0/P1 fixed or `DEFERRED.md`-deferred; findings + dispositions recorded in §12; marker updated to the RAN form. Runs BEFORE the whole-diff review.
+- [ ] COMMIT: per-fix `fix(admin)` commits as needed; `docs(plan)` for the marker/dispositions.
 
-### T12 — close-out sweeps (`docs(plan)`)
+### T12 — close-out
 
-- BACKLOG graduation: move all six item bodies to `BACKLOG-archive.md` with resolution notes (timer-leak row records the jsdom root cause; attention-clip row records the probe verdict). Expect the routine three-way BACKLOG conflict at merge — keep both sides' rows.
-- Registry sanity: zero `unverified-gap` rows remain; `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts`.
-- Probe artifact cleanup: delete the two untracked draft-time probe files (popover-probe e2e spec, timerLeakProbe unit probe) and the temp `popover-probe` testMatch entry (superseded by T9's permanent spec).
-- Whole-suite: `pnpm vitest run` + full standalone config + lifecycle-layout spec + `pnpm lint` + `pnpm typecheck` (exact scripts per package.json).
+- [ ] BACKLOG graduation: move all six item bodies from `BACKLOG.md` to `BACKLOG-archive.md` with resolution notes (timer-leak row: jsdom root cause; attention-clip row: probe verdict + fit fix). Expect the routine three-way BACKLOG conflict at merge — keep both sides' rows.
+- [ ] Registry sanity: `rg "unverified-gap" tests/components/admin/showpage/popoverOverlayRegistry.ts` → no matches (plan-time output: 1 match, the AttentionMenu row; T3 removes it).
+- [ ] Whole-suite gate: `pnpm test && pnpm typecheck && pnpm lint`; full standalone config; lifecycle-layout local run.
+- [ ] COMMIT: `docs(plan): popover cluster close-out — backlog graduation, closeout marker`
 
-## 2. Anti-tautology notes (per test task)
+### Pipeline stages after T12 (sequenced, not waived)
 
-- T1(b) catches debounce-vs-throttle (the shipped P1 class), not "function called".
-- T3/T9 fitted-height expectations derive from probe geometry via the formula, never hardcoded 322 (recompute from measured `panel.bottom`/`scroller.top` in-test).
-- T6 composed test drives ONLY public surfaces — injecting the prop directly into ShareHub in that test would be tautological; forbidden in-task.
-- T8 without-`showName` case pins byte-identity against the CURRENT strings (copied from source at test-write time), so the guard fails if the guarded default drifts.
-- T9 keyboard-scroll asserts `scrollTop` delta, not focus alone; mutual-exclusion walks assert the FIRST surface closed, not merely the second open.
+Whole-diff Codex cross-model review (fresh-eyes, REVIEWER ONLY) iterated to APPROVE → push → PR → real GitHub Actions green → `gh pr merge --merge` → fast-forward local `main`, verify `git rev-list --left-right --count main...origin/main` = `0  0`.
 
-## 3. Commit map
+## 2. Anti-tautology notes
 
-T1 `test(popover)` + `refactor(popover)`; T2 `test(admin)` + `refactor(admin)`; T3–T4, T6–T8 `test(admin)` + `fix(admin)` pairs (RED commit optional per repo TDD convention — squash test+impl per task, one commit per task); T5 `test(admin)`; T9 `test(admin)`; T10 `test(admin)`; T12 `docs(plan)`.
+- T1 throttle case counts rAF registrations — a debounce cannot pass; never "function was called".
+- T2/T3/T9 fitted expectations derived from mocked/measured rects via `computeFittedMaxHeight` or in-page math — the literal 322 appears nowhere in tests.
+- T6 composed test drives ONLY public surfaces; direct prop injection there is forbidden (bypasses both hops).
+- T8 absent/blank-prop cases pin today's strings byte-exact so default drift fails.
+- T9 asserts `scrollTop` deltas and FIRST-surface-closed; first-try-green is answered with a deliberate reverted mutation, quoted in the commit body.
+- T5's tightened regex bite is observed via a temporary local revert, quoted in the commit body.
 
 ## 12. Closeout
 
