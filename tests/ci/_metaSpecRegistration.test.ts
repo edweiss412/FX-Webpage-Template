@@ -1757,6 +1757,70 @@ describe("spec registration detector (spec §3.1)", () => {
         "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          PATH: fixtures/fake\n      - run: echo later\n",
       ),
     ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
+    // A LOCAL uses: invocation carrying dirty env poisons the same way (final
+    // review (a) finding 1): the shipped cell above pins only a REMOTE ref, so
+    // `usesKind(s.uses) !== "local"` on the poison condition escaped it. The
+    // resolved manifest is CLEAN, so only the invoking step's env can poison.
+    const cleanBody = parse(
+      "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          PATH: fixtures/fake\n      - run: echo later\n",
+        { "./.github/actions/a": cleanBody },
+      ),
+      "local-uses-invocation",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo later", guarded: false, poisoned: true },
+    ]);
+    // Precision twin: an allowlisted pair on the same local invocation stays
+    // clean, so the cell cannot be satisfied by darking local invocations.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          GOOD_KEY: v\n      - run: echo later\n",
+        { "./.github/actions/a": cleanBody },
+      ),
+      "local-uses-invocation-clean",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: false },
+      { run: "echo later", guarded: false, poisoned: false },
+    ]);
+    // Same shape INSIDE a manifest: a composite step invoking a LOCAL action
+    // while carrying dirty env, at direct and nested depth.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n      env:\n        PATH: fixtures/fake\n",
+          ),
+          "./.github/actions/b": cleanBody,
+        },
+      ),
+      "composite-direct-local-uses",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        {
+          "./.github/actions/a": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+          ),
+          "./.github/actions/b": parse(
+            "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/c\n      env:\n        PATH: fixtures/fake\n",
+          ),
+          "./.github/actions/c": cleanBody,
+        },
+      ),
+      "composite-nested-local-uses",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
     // Composite matrix (spec §7 R1): direct/nested × run/uses cells.
     const directRun = parse(
       "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",

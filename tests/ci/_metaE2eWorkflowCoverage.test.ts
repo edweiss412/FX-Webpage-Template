@@ -1647,6 +1647,50 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
     expect(r.rejected[0]!.reason).toBe(POISON_REASON);
   });
 
+  it("a LOCAL uses: invocation handed an off-list env key poisons fail-closed (S1, kind-narrowing)", () => {
+    // The shipped matrix pinned the INVOCATION cell only with a REMOTE ref,
+    // so `usesKind(step.uses) !== "local"` added to the dirty-env condition
+    // escaped every fixture (final review (a) finding 1, probe-backed). Each
+    // cell below keeps the resolved manifest CLEAN, so the refusal can only
+    // come from the invoking step's own env — a fixture that poisoned via
+    // the manifest would pass for the wrong reason.
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    const clean = { "./.github/actions/a": cleanBody };
+    const invoke = (envBlock: string) =>
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n${envBlock}      - ${INVOKE}\n`;
+    const r = S(invoke("        env:\n          PATH: fixtures/fake\n"), clean);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(POISON_REASON);
+    // Precision twin (S3): an allowlisted pair on the same local invocation
+    // stays covered, so the cell cannot be satisfied by darking local refs.
+    expect(S(invoke("        env:\n          GOOD_KEY: v\n"), clean).covered.has(spec)).toBe(true);
+    // Class-sweep of the same shape INSIDE a manifest: a composite step that
+    // invokes a LOCAL action while carrying dirty env, at direct AND nested
+    // depth. The shipped composite cells pinned only remote refs there.
+    const use = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${INVOKE}\n`;
+    const directLocalUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n      env:\n        PATH: fixtures/fake\n",
+      "./.github/actions/b": cleanBody,
+    };
+    const nestedLocalUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/c\n      env:\n        PATH: fixtures/fake\n",
+      "./.github/actions/c": cleanBody,
+    };
+    for (const [label, actions] of [
+      ["composite-direct-local-uses", directLocalUses],
+      ["composite-nested-local-uses", nestedLocalUses],
+    ] as const) {
+      const c = S(use, actions);
+      expect(c.covered.has(spec), label).toBe(false);
+      expect(c.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+  });
+
   it("composite matrix: direct/nested x run/uses step env dirt all poison (S1, R1 F1)", () => {
     const use = (ref: string) =>
       `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - ${INVOKE}\n`;
@@ -1842,6 +1886,45 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
       "gated.yml": `on:\n  pull_request:\n    paths:\n      - docs/**\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`,
     };
     expect(governanceViolations(row, gv(substituted))).toHaveLength(1);
+  });
+
+  it("governance is credited at workflow-root, run-step, and whole-config sites (S8 scope cells)", () => {
+    // Every shipped governance positive used JOB-level env and passed no
+    // configSpecs, so deleting the workflow-root credit, deleting the
+    // run-step credit, or dropping configSpecs from the wrapper each escaped
+    // all of them (final review (a) finding 2, probe-backed). A regressed
+    // credit makes a mechanically derived row declare `governs: []`, and a
+    // relocation of that pair then passes both hygiene directions.
+    const CFG = "tests/e2e/standalone.config.ts";
+    const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
+    const bare = { K: { values: ["v"], reason: "r", governs: [] } };
+    const gv = (
+      workflows: Record<string, string>,
+      configSpecs: Record<string, string[]> = {},
+      allowlist: Record<string, { values: string[]; reason: string; governs: string[] }> = row,
+    ) => envPairGovernance(workflows, {}, configSpecs, allowlist);
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    // Workflow-root env governs the claims below it.
+    const root = `env:\n  K: v\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n`;
+    expect(governanceViolations(row, gv({ "w.yml": root })), "root credit").toEqual([]);
+    expect(governanceViolations(bare, gv({ "w.yml": root }, {}, bare)), "root gain").toHaveLength(
+      1,
+    );
+    // Run-step env on the claiming step itself governs that step's claims.
+    const step = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n        env:\n          K: v\n`;
+    expect(governanceViolations(row, gv({ "w.yml": step })), "step credit").toEqual([]);
+    expect(governanceViolations(bare, gv({ "w.yml": step }, {}, bare)), "step gain").toHaveLength(
+      1,
+    );
+    // Whole-config recognition: the config's MEMBERS are the governed claims,
+    // so a wrapper that drops configSpecs derives nothing at this site.
+    const cfg = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test --config ${CFG}\n`;
+    const members = { [CFG]: ["tests/e2e/x.spec.ts"] };
+    expect(governanceViolations(row, gv({ "w.yml": cfg }, members)), "config credit").toEqual([]);
+    expect(
+      governanceViolations(bare, gv({ "w.yml": cfg }, members, bare)),
+      "config gain",
+    ).toHaveLength(1);
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
