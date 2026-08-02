@@ -1,6 +1,6 @@
 # Plan — job-scoped cross-step GITHUB_ENV/GITHUB_PATH grouping for both CI guard layers
 
-**Spec:** `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` (canonical; §3 is the mutation-family closure set, §5 the documented limits). **Branch:** `test/ci-cross-step-env-guard`. **Backlog item:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` (repo-root `BACKLOG.md`).
+**Spec:** `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` (canonical; §3 is the mutation-family closure set, §5 the documented limits). **Branch:** `test/ci-cross-step-env-guard`. **Backlog item:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` (graduated by this branch: now in repo-root `BACKLOG-archive.md`).
 
 Every task: failing test → minimal implementation → passing test → one conventional commit (`test(ci): …`). No task touches UI, DB, locks, or mutation surfaces — invariants 2/3/5/8/9/10 are N/A.
 
@@ -79,7 +79,7 @@ The only embedded snippet is the T1 signature sketch; it was typechecked at draf
 - F1 positive + F4 + F5: catch the exact probe-demonstrated false-coverage/false-silence bug — a mutant deleting grouping, splice, or fail-closed unknown-ref handling reverts to probe behavior and fails these.
 - F2 triple: catches write-shape narrowing (any grammar tighter than the substring predicate fails at least one shape).
 - F7 + F8 (added at spec R1 via live escaping mutants, refined R7-R10): catch map-presence-treated-as-modeled and recursion deletion — in-memory mutants of each produce `covered=true, reasons=[]`, and the fixtures red them at direct AND nested sites; the R8-R10 additions (typed validator, narrow accept profile, uses classifier) each carry their own shape tables.
-- R11 closes the last uses-shape instance: the census walker shares `usesKind` with the scanner and the manifest profile, so a refless remote ref poisons census-side too — mutant check: reverting the walker branch to "any non-local ref is neutral" makes the refless fixtures record a clean invocation again.
+- The uses-shape family (R10-R14): each round's escaping instance is pinned by its own fixtures — refless remote refs at all three sites (R10/R11), the docker family refused wholesale (R12/R13), and nine Git-invalid ref shapes (R14). Mutant check for the shared-authority property: reverting any one consumer (scanner branch, manifest accept profile, census walker) to "any non-local ref is neutral" makes the refless fixtures record a clean invocation again in that layer. Spec §7 carries the per-round record.
 - Reason-string assertions: catch silent dropping (the `_rowWrapperScan` lesson — a scanner that matches nothing is worse than none).
 
 ## Review + ship

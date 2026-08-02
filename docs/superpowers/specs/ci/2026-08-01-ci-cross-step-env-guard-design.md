@@ -2,11 +2,11 @@
 
 **Date:** 2026-08-01 · **Branch:** `test/ci-cross-step-env-guard` · **Class:** CI guard soundness (detector/guard surface — probe-before-argue and mutation-family closure apply, `docs/agents/adversarial-round-economy-2026-07-31.md`)
 
-**Backlog item closed:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` (repo-root `BACKLOG.md`, heading token BL-CI-GITHUB-ENV-CROSS-STEP-STATE)
+**Backlog item closed:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` — graduated by this branch, so it now lives in repo-root `BACKLOG-archive.md` (heading token BL-CI-GITHUB-ENV-CROSS-STEP-STATE) with `test/ci-cross-step-env-guard` as provenance; it is absent from the active `BACKLOG.md` queue.
 
 <!-- spec-lint: not-ui — no UI surface; the only files touched are tests/ci/** guard modules and their callers. -->
 
-Files this spec MODIFIES: `tests/ci/_metaSpecRegistration.test.ts` (census), `tests/ci/_workflowCoverageScan.ts` (scanner), `tests/ci/_metaE2eWorkflowCoverage.test.ts` (scanner caller + self-suite). It CREATES no production files and no new dependencies.
+Files this spec MODIFIES: the two guard layers and their caller — `tests/ci/_metaSpecRegistration.test.ts` (census), `tests/ci/_workflowCoverageScan.ts` (scanner), `tests/ci/_metaE2eWorkflowCoverage.test.ts` (scanner caller + self-suite) — plus the registry and ledger fan-out those changes require: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` (one reasoned row for the scanner's comment strip), `tests/docs/_metaDeferralLedgerGraduation.test.ts` (one `BACKLOG_GRADUATED` row), `BACKLOG.md` + `BACKLOG-archive.md` (the graduation, and the newly filed `BL-CI-STATIC-ENV-INJECTION`), and the `docs/superpowers/{specs,plans}/ci/README.md` index tables. It CREATES no production files and no new dependencies.
 
 ---
 
@@ -30,8 +30,8 @@ Both layers pass the poisoned workflow today. Zero LIVE workflows write `GITHUB_
 
 | Decision | Ratification |
 | --- | --- |
-| The WITHIN-run-block shell-state class is CLOSED (R12/R13: `controlFlowRe`, `cmdPos`, `UNMODELLED_SHELL_RE`). This spec adds the cross-step variant only; no re-design of the within-block machinery. | Repo-root `BACKLOG.md` entry body (the R12-closed-the-within-block-class clause is explicit there); dispatch charter |
-| Existing mitigations are NOT re-added: `standalone-e2e.yml` liveness is owned by the §4 run-report comparator; the `PLAYWRIGHT_` raw-text sweep already covers that env-var family. | Repo-root `BACKLOG.md` entry body; `tests/ci/_metaSpecRegistration.test.ts` ("no env: at any level" it-block ~line 125) |
+| The WITHIN-run-block shell-state class is CLOSED (R12/R13: `controlFlowRe`, `cmdPos`, `UNMODELLED_SHELL_RE`). This spec adds the cross-step variant only; no re-design of the within-block machinery. | Repo-root `BACKLOG-archive.md` entry body, original-entry half (the R12-closed-the-within-block-class clause is explicit there); dispatch charter |
+| Existing mitigations are NOT re-added: `standalone-e2e.yml` liveness is owned by the §4 run-report comparator; the `PLAYWRIGHT_` raw-text sweep already covers that env-var family. | Repo-root `BACKLOG-archive.md` entry body, original-entry half; `tests/ci/_metaSpecRegistration.test.ts` ("no env: at any level" it-block ~line 125) |
 | Marketplace (non-`./`) actions stay TRUSTED. `actions/setup-node` legitimately writes `GITHUB_PATH` at runtime; treating remote actions as poisoners darkens every workflow. Same posture as the census universe (local run blocks only) and the `PLAYWRIGHT_` sweep (`.github/actions` local files only). | Existing census universe contract (`runBlocksOf` doc comment, R7 F4); §5 L1 |
 | Detection is the literal substring family `GITHUB_ENV` / `GITHUB_PATH` over comment-stripped text. Perfect obfuscation detection is impossible by the file's own ratified axiom (the `playwr` fuzzy-gate comment, `censusInvocations` ~line 466: "perfect obfuscation detection is impossible … the enumerated families are the ones review produced"). Constructed-name evasions file to §5 L2 without a round. | Ratified axiom in `tests/ci/_metaSpecRegistration.test.ts`; round-economy contract (a hypothetical evasion is a finding only with a live escaping mutant probe) |
 | Fail-closed direction everywhere: false "poisoned" costs a registry/allowlist row with a reason; false "clean" silently deletes real coverage. Reads of `$GITHUB_ENV` poison like writes (§5 L4). | Header contract of `_workflowCoverageScan.ts` ("errs toward REJECTING"); same direction as every prior round |
