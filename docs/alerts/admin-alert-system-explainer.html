@@ -924,7 +924,7 @@
             <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>The prior attempt raced an Apply, so recovery backs off for this snapshot to bound retry storms while the show keeps changing. It resumes on its own after the cooldown.</p></details>
           </td>
         </tr>
-        <tr class="crow" data-aud="doug" data-res="auto" data-text="watch_channel_orphaned live updates need attention app-wide (never in show modal) the instant-updates connection to google drive needs to reconnect. shows still sync automatically every few minutes, so nothing is lost.  at worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. it keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use retry now. only worth attention if it keeps failing.">
+        <tr class="crow" data-aud="doug" data-res="auto" data-text="watch_channel_orphaned live updates need attention app-wide (never in show modal) the instant-updates connection to google drive needs to reconnect. shows still sync automatically every few minutes, so nothing is lost.  at worst, edits take a few minutes to appear instead of instantly, since auto sync still runs. it keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use retry now. only worth attention if it keeps failing.">
           <td class="cc">
             <code>WATCH_CHANNEL_ORPHANED</code>
             <div class="cbadges"><span class="cb doug">Doug</span><span class="cb auto">self-clears</span></div>
@@ -933,7 +933,7 @@
           <td class="cw">App-wide (never in show modal)</td>
           <td class="cx">
             <p class="cx-line"><span class="cx-tag">Admin</span> The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.</p>
-            <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>At worst, edits take a few minutes to appear instead of instantly, since the scheduled sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.</p></details>
+            <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>At worst, edits take a few minutes to appear instead of instantly, since Auto sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing.</p></details>
           </td>
         </tr>
         <tr class="crow" data-aud="health" data-res="auto" data-text="webhook_token_invalid drive webhook failed verification modal: overview (top) · health panel a push notification from google drive failed verification: possible spoofing or misconfiguration. the developer has been notified.  the bad token usually means a stale drive subscription is still firing, occasionally a spoof attempt. the developer is notified and rotates it if needed; no admin action.">
@@ -1048,7 +1048,7 @@
             <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>Fewer fields or sections came through than last time, so parts of the page thinned out even though the sync went through. The parse panel flags what dropped; fix the sheet and a clean sync restores it.</p></details>
           </td>
         </tr>
-        <tr class="crow" data-aud="doug" data-res="auto" data-text="sync_stalled syncing has stalled app-wide (never in show modal) automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. if this keeps happening, check the drive connection or re-run setup.  already-published pages stay up; only new edits are waiting. it usually recovers on its own, but if it sticks the drive connection may have lapsed, so re-run setup or check the connection.">
+        <tr class="crow" data-aud="doug" data-res="auto" data-text="sync_stalled syncing has stalled app-wide (never in show modal) auto sync hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. if this keeps happening, check the drive connection or re-run setup.  already-published pages stay up; only new edits are waiting. it usually recovers on its own, but if it sticks the drive connection may have lapsed, so re-run setup or check the connection.">
           <td class="cc">
             <code>SYNC_STALLED</code>
             <div class="cbadges"><span class="cb doug">Doug</span><span class="cb auto">self-clears</span></div>
@@ -1056,7 +1056,7 @@
           </td>
           <td class="cw">App-wide (never in show modal)</td>
           <td class="cx">
-            <p class="cx-line"><span class="cx-tag">Admin</span> Automatic syncing hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.</p>
+            <p class="cx-line"><span class="cx-tag">Admin</span> Auto sync hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.</p>
             <details class="cx-help"><summary>Why it shows &amp; what to do</summary><p>Already-published pages stay up; only new edits are waiting. It usually recovers on its own, but if it sticks the Drive connection may have lapsed, so re-run setup or check the connection.</p></details>
           </td>
         </tr>
