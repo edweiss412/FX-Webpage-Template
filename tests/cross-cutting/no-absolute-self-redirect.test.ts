@@ -747,6 +747,17 @@ describe("no absolute self-redirect under the walked roots", () => {
     }
   });
 
+  it("does not flag awaited non-extracting positions (N19)", () => {
+    // whole-diff r27: await joins the transparent climb — awaited receivers and
+    // new-callees classify by their real position.
+    expect(
+      auditSource(
+        fixturePath(),
+        `import { NextResponse } from "next/server";\nexport async function GET() {\n  const a = (await NextResponse).json({ ok: 1 });\n  const b = new (await NextResponse)(null, { status: 302, headers: { Location: "/x" } });\n  return [a, b];\n}`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag a safe outer helper containing nested carrier scopes (N18)", () => {
     // r17/r18 FP: return scanning is owned-returns-only, incl. accessors and
     // class expressions. The sink IS redirect-shaped, so a misclassification

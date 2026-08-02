@@ -267,7 +267,9 @@ function effectivePosition(node: Node): { child: Node; parent: Node | undefined 
   let parent = child.getParent();
   while (parent !== undefined) {
     const transparent =
-      (Node.isParenthesizedExpression(parent) || Node.isNonNullExpression(parent)) &&
+      (Node.isParenthesizedExpression(parent) ||
+        Node.isNonNullExpression(parent) ||
+        Node.isAwaitExpression(parent)) &&
       parent.getExpression() === child;
     // An `as`/`satisfies` wrapper climbs ONLY while the asserted type still
     // carries — a cast that ERASES the carry (`as any`, `as unknown as …`) is

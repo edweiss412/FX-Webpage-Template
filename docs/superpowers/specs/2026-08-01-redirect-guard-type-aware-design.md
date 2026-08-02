@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R26 — whole-diff round-26 repaired (await in every unwrap/climb; corpus/doc sync) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R27 — whole-diff round-27 repaired (await in the transparent position climb; N19) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R27 disposition (2026-08-02):** one P2 — `effectivePosition`'s transparent climb lacked `await`, so awaited receivers/new-callees (`(await NextResponse).json(…)`) false-flagged. Await joins the carry-preserving transparent branch; N19 pins awaited receiver and new-callee shapes quiet.
 
 **Whole-diff R26 disposition (2026-08-02):** one P1 + two P2. `await` joins every unwrap and climb site (alias RHS, helper callees, outer-destination walks) — awaited carrier promises and `await globalThis` flag (R106, in-grammar promise shapes: async-helper call → promise variable → await). The §5.2/§5.3 root-glob text and the audit-module header read the WALKED_ROOT_GLOBS surfaces; the importing corpus gains R102–R106 rows.
 
@@ -372,6 +374,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N16 | Ordinary global-object uses (`globalThis.structuredClone(…)`, `typeof globalThis`, member receivers) and erasing polyfill casts | destination shape exposes no callable `redirect` (r14) |
 | N17 | Shadowing parameter named `environment`; local `const global = { Response: { redirect: safeFn } }` | symbol-based provenance — neither resolves to an ambient global (r16) |
 | N18 | Safe outer helper containing a NESTED carrier-returning function | return scanning is owned-returns-only (r17 false-positive fix) |
+| N19 | Awaited non-extracting positions (`(await NextResponse).json(…)`, `new (await NextResponse)(…)`) | await is carry-preserving in the transparent position climb (r27) |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -390,7 +393,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R106, N1–N18, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R106, N1–N19, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
