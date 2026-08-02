@@ -1,0 +1,84 @@
+21  |- Each crew member gets a personalized URL. Opening it (signed in or via signed link) shows a phone-shaped page tailored to their identity and role.
+22  |- The page reflects the sheet within ~5 minutes of any edit Doug makes (poll-based sync; not realtime push at the source level, but realtime push from server to viewer once sync completes).
+23*|- Financial fields (PO#, Proposal $, Invoice, Invoice Notes) are server-side filtered out of non-LEAD views — they're billing details with no role onsite. COI status is shown to every crew viewer beca
+24  |- Doug can preview the exact page each crew member sees, flag parse warnings, and report issues directly to the developer (Eric) via GitHub Issues with structured context attached.
+25  |- The parser handles all four template versions in the corpus (v1 2024-05 → v4 2026-05) with v4 as the canonical target.
+----
+176  |  -- so they are physically impossible to read with non-admin RLS. Note: ONLY
+177  |  -- the financial fields (PO#, Proposal $, Invoice, Invoice Notes) are
+178*|  -- LEAD-gated; COI is now public on shows.coi_status because it's noise to
+179  |  -- techs only when financial; insurance status is genuinely operational.
+180  |  -- See §4.4 for the policy rationale.
+----
+197  |create table shows_internal (
+198  |  show_id          uuid primary key references shows(id) on delete cascade,
+199*|  financials       jsonb,                           -- LEAD-only: { po, proposal, invoice, invoiceNotes }. COI moved to shows.coi_status because it's operational, not financial.
+200  |  parse_warnings   jsonb default '[]'::jsonb,       -- [{ severity, code, message, blockRef? }]
+201  |  raw_unrecognized jsonb default '[]'::jsonb        -- [{ block, key, value }] — see §6
+----
+630  |
+631  |1. They have version-gated fields (e.g., `ops.invoice` is v4-only) and forcing a schema migration for every new template field is the wrong direction given §6's resilience strategy.
+632*|2. They are read whole, never partial — the page renders all of `ops` for a LEAD or none of it for a non-LEAD; there's no `WHERE ops.po = ?` query.
+633  |3. New fields surface immediately without a migration; the parser writes them, the renderer either knows them or surfaces them as part of the "More from sheet" disclosure (per §6).
+634  |
+----
+638  |
+639  |- `shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`: readable by signed-in users whose email matches a `crew_members.email` for that show, OR by users with the `admi
+640*|- **`shows_internal`: admin-only** for both read and write — no end-user session ever has any RLS path that returns a row from this table. LEAD crew see this table's columns only because the server-si
+641  |- **Admin-only tables (no crew/end-user access at all):** `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces` (login-
+642  |
+----
+651  |1. **Physical separation** — `financials`, `parse_warnings`, and `raw_unrecognized` live in `shows_internal`, not `shows`. A `SELECT * FROM shows` cannot return them because they aren't there. This is
+652  |2. **RLS** — `shows_internal` has admin-only RLS policies. Even if an end-user session somehow gets the row's primary key, no policy admits the read.
+653*|3. **Server-side filter at fetch** — the LEAD-aware fetch helper (`lib/data/getShowForViewer(showId, viewer)`) accepts **identity only** — `viewer` is `{ kind: 'crew'; crewMemberId: string }` or `{ ki
+654  |
+655 L|A non-LEAD crew member querying directly via the Supabase client cannot reach financials. They CAN read `shows.coi_status` along with the rest of the public show data, which is the intended outcome. U
+----
+1485  |   - Unknown tokens not in the canonical list are dropped from `role_flags` and surface as a `UNKNOWN_ROLE_TOKEN` warning. Plan-side capability predicates (Task 4.6 / 4.12) read atomic-flag membership
+1486  |     The raw role string is preserved in `crew_members.role` for display; `role_flags` is the authorization-safe representation.
+1487*|5. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees `shows_internal.financials` (PO/Proposal/Invoice). All crew see `shows.coi_status` regardless of role (§7.4 / §4.4).
+1488  |
+1489  |<!-- spec-id: -parsedsheet-parseresult-split -->
+----
+2370  |Server-side, in the data layer. **Role is always derived fresh from the current `crew_members.role_flags`, never from a token claim.**
+2371  |
+2372*|- The matched `crew_members` row has `LEAD` in `role_flags`, OR the viewer is admin → `viewerRole === 'lead'`. The data fetcher joins `shows_internal` and includes `financials` in the response.
+2373  |- Otherwise: the data fetcher does not query `shows_internal` at all; `financials` is absent from the response by construction. **`shows.coi_status` is in the response for every crew viewer regardless
+2374  |
+----
+2458  |- **Transport tile** — visibility is the OR of two branches over the canonical TransportationRow contract: (a) `transportation.driver_name === viewer.name` (the assigned driver), OR (b) `viewer.name ∈
+2459  |- **Show status tile** — visible to every crew viewer. Carries `shows.coi_status`, dress code, venue notes, and other always-public operational signals. COI lives here, not in Financials, because it's
+2460*|- **Financials tile** — LEAD only. PO#, Proposal, Invoice, Invoice Notes from `shows_internal.financials`. Hidden entirely for non-LEAD (omitted from data fetch per §7.4 — the JSONB column isn't even 
+2461  |- **Pack list tile** — visible to every crew viewer **on set day, strike day, and the travel-out day** when `shows.pull_sheet IS NOT NULL`. Hidden on show days (techs are running the show, not packing
+2462  |- **Notes tile** — any block-level `notes` content, aggregated into a single "Things to know" card.
+----
+3725  |2. **Schema + DB migrations.** Supabase Postgres tables per §4, RLS policies, seed script that loads parsed fixtures. **Demo:** "run `pnpm db:seed` and query the rows in Supabase Studio."
+3726  |3. **Admin upload-test (admin-gated, dev-build only).** An `/admin/dev` page that accepts a fixture filename, parses through the full production pipeline (`parseSheet → enrichWithDrivePins → runInvari
+3727*|4. **Crew page (identity-only mock).** `/show/<slug>?crew=<seeded-crewMemberId>` renders the page from DB; `getShowForViewer` re-derives role flags from `crew_members.role_flags` exactly as production
+3728 L|5. **Auth.** Supabase Google OAuth + signed-link JWT (per-request authz against current `crew_members`, no role claim in token, `revoked_links` table). RLS enabled. Role-based hiding always derived fr
+3729  |6. **Drive sync (cron).** Vercel Cron → Drive API → parser → upsert → Realtime publish. **Demo:** "edit a sheet, see the page update within 5 min."
+----
+3726  |3. **Admin upload-test (admin-gated, dev-build only).** An `/admin/dev` page that accepts a fixture filename, parses through the full production pipeline (`parseSheet → enrichWithDrivePins → runInvari
+3727 L|4. **Crew page (identity-only mock).** `/show/<slug>?crew=<seeded-crewMemberId>` renders the page from DB; `getShowForViewer` re-derives role flags from `crew_members.role_flags` exactly as production
+3728*|5. **Auth.** Supabase Google OAuth + signed-link JWT (per-request authz against current `crew_members`, no role claim in token, `revoked_links` table). RLS enabled. Role-based hiding always derived fr
+3729  |6. **Drive sync (cron).** Vercel Cron → Drive API → parser → upsert → Realtime publish. **Demo:** "edit a sheet, see the page update within 5 min."
+3730  |7. **Linked content (B).** Diagrams gallery, agenda PDF embed, opening reel inline. **Demo:** "tap diagrams, see the gallery; tap agenda, see the embed."
+----
+3745  |- ~~**Vercel cron 5-min cadence vs Drive push notifications.**~~ Resolved: push is in v1 per §5.5. Cron stays as the reconciliation fallback. Combined latency is sub-second on the happy path, ≤5 min o
+3746  |- ~~**Crew-side "report a problem" button.**~~ Resolved: in v1 per §13.1 surface 4. Per-crew rate limit 3/hr; reports go to GitHub Issues with reporter identity withheld from the issue body but record
+3747*|- ~~**Should ops fields ever be visible to non-LEAD?**~~ Resolved: financials (PO/Proposal/Invoice/InvoiceNotes) stay LEAD-only because they're billing details and noise to onsite techs. COI is operat
+3748  |- ~~**Slug generation strategy.**~~ Resolved in §6.9: deterministic `<YYYY-MM>-<title-slug>` derived on first successful parse, immutable thereafter, collisions resolved by `-2`/`-3` suffix.
+3749  |- **Date-restriction sanity check.** When `date_restriction.kind === 'explicit'`, should the parser warn if any of the listed dates fall outside the show's `dates.travelIn → dates.travelOut` span? (e.
+----
+3829  |- AC-5.7 `validateGoogleSession` rejects a Supabase Auth user whose email doesn't match any crew row in the show (403).
+3830  |- AC-5.8 `validateGoogleSession` rejects on multi-match (`AMBIGUOUS_EMAIL_BINDING`, 500). Synthesize a fixture with duplicate emails and seed it bypassing MI-5b.
+3831*|- AC-5.9 LEAD viewer's response includes `shows_internal.financials`; non-LEAD viewer's response omits it. Both viewers' responses include `shows.coi_status`. (Verify via response-payload introspectio
+3832 L|- AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: Financials tile disappears within one sync cycle without any token rotation. Show status tile (including COI) is
+3833  |- AC-5.11 `?t=` URL compromise-event handler covers ALL THREE branches per §7.2:
+----
+3830  |- AC-5.8 `validateGoogleSession` rejects on multi-match (`AMBIGUOUS_EMAIL_BINDING`, 500). Synthesize a fixture with duplicate emails and seed it bypassing MI-5b.
+3831 L|- AC-5.9 LEAD viewer's response includes `shows_internal.financials`; non-LEAD viewer's response omits it. Both viewers' responses include `shows.coi_status`. (Verify via response-payload introspectio
+3832*|- AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: Financials tile disappears within one sync cycle without any token rotation. Show status tile (including COI) is
+3833  |- AC-5.11 `?t=` URL compromise-event handler covers ALL THREE branches per §7.2:
+3834  |  - **Branch A** (`jwt.tokenVersion === current_token_version`): middleware returns 410, inserts `revoked_links` row at the exact version (idempotent), AND sets `revoked_below_version = current_token_
+----

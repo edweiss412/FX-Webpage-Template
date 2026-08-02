@@ -1,0 +1,49 @@
+== docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md
+  FAIL CITATION_FILE_MISSING 34:12 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+  FAIL CITATION_FILE_MISSING 352:6 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+  FAIL COPY_EM_DASH 64:77 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 211:46 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 258:40 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 284:11 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 285:46 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 298:75 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 709:36 em-dash (as `—`) in user-visible copy
+  FAIL COPY_EM_DASH 714:31 em-dash (as `—`) in user-visible copy
+    1231:156 mobile-stacked-band-closeout.md` with: §1 shipped-scope summary; §12 impeccable f
+    1231:182 ut.md` with: §1 shipped-scope summary; §12 impeccable findings + dispositions tab
+summary: 10 hard, 2 advisory
+== docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md
+  FAIL CITATION_FILE_MISSING 102:198 cited file not tracked: modal-header-layout-e2e.yml
+summary: 1 hard, 5 advisory
+== docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md
+  FAIL CITATION_MALFORMED 28:46 malformed citation `:root` (empty path)
+  FAIL CITATION_FILE_MISSING 86:204 cited file not tracked: modal-header-layout-e2e.yml
+  FAIL CITATION_FILE_MISSING 125:242 cited file not tracked: ~/.codex/models_cache.json
+summary: 3 hard, 1 advisory
+== docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md
+  FAIL CITATION_FILE_MISSING 30:624 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+  FAIL CITATION_FILE_MISSING 30:1033 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+summary: 2 hard, 30 advisory
+== docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md
+  FAIL CITATION_FILE_MISSING 128:1708 cited file not tracked: modal-header-layout-e2e.yml
+summary: 1 hard, 39 advisory
+== docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md
+  FAIL CITATION_FILE_MISSING 24:308 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+  FAIL CITATION_FILE_MISSING 326:88 cited file not tracked: .github/workflows/modal-header-layout-e2e.yml
+summary: 2 hard, 18 advisory
+== docs/superpowers/plans/2026-07-22-hoverhelp-caret-blur-close.md
+  FAIL CITATION_FILE_MISSING 20:237 cited file not tracked: .github/workflows/hoverhelp-geometry-e2e.yml
+  FAIL CITATION_FILE_MISSING 1136:86 cited file not tracked: context.mjs
+summary: 2 hard, 1 advisory
+== docs/superpowers/plans/2026-07-24-attention-index.md
+  FAIL CITATION_FILE_MISSING 269:40 cited file not tracked: .github/workflows/attention-anchor-e2e.yml
+  FAIL CITATION_LINE_OUT_OF_RANGE 286:232 cited line beyond EOF in tests/e2e/_step3ReviewModalBundle.mjs
+  FAIL CITATION_FILE_MISSING 288:2 cited file not tracked: .github/workflows/attention-anchor-e2e.yml
+summary: 3 hard, 55 advisory
+== docs/superpowers/specs/2026-07-22-hoverhelp-caret-blur-close.md
+  FAIL CITATION_FILE_MISSING 30:686 cited file not tracked: .github/workflows/hoverhelp-geometry-e2e.yml
+summary: 1 hard, 2 advisory
+== docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md
+  FAIL CITATION_FILE_MISSING 63:8 cited file not tracked: .github/workflows/hoverhelp-geometry-e2e.yml
+  FAIL CITATION_FILE_MISSING 251:33 cited file not tracked: .github/workflows/hoverhelp-geometry-e2e.yml
+summary: 2 hard, 13 advisory

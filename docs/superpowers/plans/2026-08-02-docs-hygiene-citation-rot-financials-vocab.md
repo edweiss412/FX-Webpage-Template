@@ -1,6 +1,6 @@
 # Plan — docs hygiene: retired-workflow citation rot + master-spec financials vocabulary
 
-**Spec:** `docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md` (canonical; this plan implements it and does not override it).
+**Spec:** `docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md` (canonical; converged APPROVE at spec review R3; this plan implements it and does not override it).
 **Branch:** `docs/citation-rot-financials-vocab` (worktree off origin/main at 2509f1452).
 **Preflight:** skipped — docs + one test-registry file; no env, no DB, no app code. Declared in the PR body.
 
@@ -10,15 +10,20 @@ impeccable-gate: N/A — no UI surface
 
 None created or extended, with one convention-mandated exception: two `{ id, provenance }` rows appended to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (the graduation ledger's own registry — required by the existing guard, not a new guard). No other registry applies: no Supabase calls, no locks, no alerts, no tiles, no e2e.
 
+## Plan artifacts (measured at plan time, committed beside this plan)
+
+- `2026-08-02-docs-hygiene-baseline-lint.txt` — unfiltered all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base).
+- `2026-08-02-docs-hygiene-adjacency-sweep.txt` — the ±2-line context dump around all 14 probe-visible master-spec edit lines with LEAD-token flags (plan review R1 finding 4: the sweep is run at plan time, not deferred). Result: the only LEAD-bearing lines in any window are edit sites themselves or the ratified no-edit line 655 — no stragglers.
+
 ## TDD framing (docs tasks)
 
-Each task's red state is a measured failing check (a lint count, a grep hit-set, a stale literal), captured before the edit; green is the same command's pinned expected output after. The checks are the spec's §2.3 / §3.3 acceptance items.
+Each task's red state is a measured failing check (a lint count, a grep hit-set, a stale literal), captured before the edit; green is the same command's pinned expected output after.
 
 ---
 
 ## Task 1 — strip dangling workflow citations (spec §2)
 
-**Red (measured at merge-base):** `pnpm spec:lint <file>` target-class (`CITATION_FILE_MISSING` naming a deleted `*-e2e.yml`) hard counts: see spec §2.2 table — 15 findings across 10 files.
+**Red (measured, unfiltered — see baseline artifact):** target-class `CITATION_FILE_MISSING` findings naming a deleted `*-e2e.yml`: 15 across 10 files. Per-file hard counts before → after: strip-mobile plan 10→8; destruct-thumb plan 1→0; modal-header CLOSE-OUT 3→2; share-link-chrome spec 2→0; archive-row-menu spec 1→0; destruct-thumb spec 2→0; caret-blur plan 2→1; attention-index plan 3→1; caret-blur spec 1→0; hoverhelp-viewport spec 2→0. Residual total 12, five classes, inventoried in spec §1.1 item 3.
 
 **Edits (per-site disposition; style per spec §2.1):**
 
@@ -37,21 +42,19 @@ Each task's red state is a measured failing check (a lint count, a grep hit-set,
 | attention-index plan :269 | "(backticked attention-anchor path is the closest template, a standalone-config job with a path filter)" (source uses a dash separator) | "(the since-retired attention-anchor-e2e workflow was the closest template, …)" (source's dash separator stays as-is) |
 | attention-index plan :288 | "backticked attention-anchor path:19-32 is the structural template, but **it does not demonstrate every class**" | "lines 19-32 of the since-retired attention-anchor-e2e workflow were the structural template, but **they did not demonstrate every class**" |
 | hoverhelp-viewport spec :63 | "CI: backticked hoverhelp-geometry path lists … It does NOT list ShareHub" | "CI: the since-retired hoverhelp-geometry-e2e workflow listed … It did NOT list ShareHub" |
-| hoverhelp-viewport spec :251 | "Three entries MUST be added to backticked path's `pull_request` path filter" | "Three entries MUST be added to the since-retired hoverhelp-geometry-e2e workflow's `pull_request` path filter" |
+| hoverhelp-viewport spec :251 | "Three entries MUST be added to backticked path's `pull_request` path filter in the same commit that creates or changes them, or a later edit will not fire…" | "Three entries had to be added to the hoverhelp-geometry-e2e workflow's `pull_request` path filter in the same commit that created or changed them, or a later edit would not fire… (workflow since retired; the requirement was satisfied while it lived)" — past tense per plan review R1 finding 5: the imperative asserted an impossible live-CI action |
 
-Wording latitude: the implementer may vary the qualifier ("retired" / "since-retired" / "now-deleted") to read naturally in each sentence; the binding constraints are (a) no backticks around any deleted workflow name or path, (b) no `.yml`-suffixed backticked token pointing at a deleted file, (c) sentence meaning preserved, (d) no em-dash introduced, (e) tense adjusted only where the sentence otherwise asserts live CI behavior.
+Wording latitude: the implementer may vary the qualifier ("retired" / "since-retired" / "now-deleted") to read naturally; binding constraints: (a) no backticks around any deleted workflow name or path, (b) no `.yml`-suffixed backticked token pointing at a deleted file, (c) sentence meaning preserved, (d) no em-dash introduced, (e) tense adjusted where the sentence otherwise asserts live CI behavior.
 
-**Green:** the three spec §2.3 acceptance items — (1) per-file `pnpm spec:lint` matches spec §2.2's expected-after column exactly (0 target-class; residuals unchanged: 8 / 0 / 1 / 0 / 0 / 0 / 1 / 1 / 0 / 0); (2) all-severity delta: each file's full finding list captured before editing is identical after except for the removed target findings; (3) the spec §2.3 tree-wide `rg` loop (exact command there), every hit confirmed against `spec:lint`, reports zero target-class citations.
+**Green:** spec §2.3's three items — (1) per-file lint matches the counts above with zero target-class findings; (2) all-severity delta: per-file `pnpm spec:lint` output diffed against the baseline artifact is identical except the removed target findings; (3) the spec §2.3 tree-wide `rg` loop, hits confirmed against `spec:lint`, reports zero target-class citations.
 
 **Commit:** `docs: strip dangling citations to the seven retired e2e workflows`
 
-## Task 2 — master-spec financials vocabulary (spec §3)
+## Task 2 — master-spec financials vocabulary + specs-README count (spec §3, §1.1 item 8)
 
-**Red (measured):** the seed (spec §3.2, exact command in spec) returns 15 lines, 11 carrying stale LEAD-only entitlement claims; the discovery-mode window probe below returns the full 14-line edit-site set (spec §3.2.1). 14 claims total (line 177 pairs with probe-visible 178 as one claim).
+**Red (measured):** the seed (spec §3.2) returns 15 lines, 11 stale; the discovery-mode window probe below returns the 14-line edit-site set (spec §3.2.1); `docs/superpowers/specs/README.md` claims "3769 lines" while the file is 4027.
 
-**Edits:** spec §3.2 (11 seed-visible) + §3.2.1 (3 seed-blind) are the disposition tables — 11 rule-a rewrites, 3 rule-b bracketed amendment notes. Constraints: line-count-neutral (each edit stays on its line); no em-dash introduced; entitlement phrasing matches `financialsEntitled` (`lib/data/getShowForViewer.ts:380`); the line-640 edit is COLUMN-scoped (`financials` only — spec §3.2 row 640, R1 finding 1); inline vocab-extension marker `(… 2026-07-15 vocab extension)` where a bare rewrite would read as drift from the v1 ratification.
-
-**Window probe (canonical script; discovery mode — the edit sites are deliberately NOT excluded, so a missed edit keeps it red; spec review R2 finding 2):**
+**Window probe (canonical script; discovery mode — edit sites deliberately NOT excluded, so a missed edit keeps it red; spec review R2 finding 2):**
 
 ```sh
 python3 - <<'EOF'
@@ -72,52 +75,80 @@ print("hits:",hits)
 EOF
 ```
 
-Measured pre-edit output: `hits: [23, 178, 199, 632, 640, 653, 1487, 2372, 2460, 3727, 3728, 3747, 3831, 3832]` — exactly the 14 edit-site lines, nothing beyond (measured this branch, merge-base master spec). Post-edit acceptance: `hits: []` — every edited line then names `FINANCIALS` on-line (rule-a and rule-b both introduce the token) or no longer matches the LEAD pattern (line 3831's rewrite drops the flag name).
+Measured pre-edit: `hits: [23, 178, 199, 632, 640, 653, 1487, 2372, 2460, 3727, 3728, 3747, 3831, 3832]` — exactly the 14 edit-site lines. Post-edit acceptance: `hits: []` (every edited line then names `FINANCIALS` on-line).
+
+**Edits — exact clause substitutions, one per line unless noted (line-count-neutral; no em-dash introduced; existing dashes stay):**
+
+| Line | Old clause (verbatim) | New clause |
+| --- | --- | --- |
+| 23 | `filtered out of non-LEAD views` | `filtered out of non-financials-entitled views (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension)` |
+| 178 | `-- LEAD-gated;` | `-- gated on financials entitlement (LEAD or FINANCIALS flag, or admin);` |
+| 199 | `-- LEAD-only:` | `-- financials-entitled (LEAD/FINANCIALS/admin; 2026-07-15 vocab extension):` |
+| 632 | `for a LEAD or none of it for a non-LEAD;` | `for a financials-entitled viewer (LEAD or FINANCIALS, or admin) or none of it otherwise;` |
+| 640 | `LEAD crew see this table's columns only because` | `Financials-entitled crew (LEAD or FINANCIALS) see this table's` `financials` `column only because` (the backticked column name is a tracked-concept token, not a file citation) |
+| 653 (i) | `the LEAD-aware fetch helper` | `the entitlement-aware fetch helper` |
+| 653 (ii) | `it joins only when the freshly-derived role is LEAD (or` `viewer.kind === 'admin'` `)` | `it joins only when the freshly-derived flags grant financials (LEAD or FINANCIALS, or` `viewer.kind === 'admin'` `; 2026-07-15 vocab extension)` |
+| 653 (iii) | `For non-LEAD viewers, it does not query` | `For non-entitled viewers, it does not query` |
+| 1487 | `**LEAD detection.** ` `role_flags` ` contains ` `LEAD` ` ⇒` | `**Financials entitlement.** ` `role_flags` ` contains ` `LEAD` ` or ` `FINANCIALS` ` (or the viewer is admin; 2026-07-15 vocab extension) ⇒` |
+| 2372 | `has ` `LEAD` ` in ` `role_flags` `, OR the viewer is admin → ` `viewerRole === 'lead'` `.` | `has ` `LEAD` ` or ` `FINANCIALS` ` in ` `role_flags` `, OR the viewer is admin: financials-entitled (2026-07-15 vocab extension).` (pseudo-label dropped per spec §3.2 row 2372) |
+| 2460 (i) | `— LEAD only.` | `— financials-entitled only (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension).` |
+| 2460 (ii) | `Hidden entirely for non-LEAD (omitted` | `Hidden entirely for non-entitled viewers (omitted` |
+| 3727 | `role_flags don't include LEAD.` | `role_flags don't include LEAD (or FINANCIALS; 2026-07-15 vocab extension).` |
+| 3728 | append at line end | ` [2026-07-15 vocab extension: the demo assumes the member holds no FINANCIALS flag.]` |
+| 3747 | append at line end | ` [Amended 2026-07-15 (extend-role-scope-vocab): the FINANCIALS role flag now also grants; entitlement is LEAD or FINANCIALS or admin.]` |
+| 3831 | `AC-5.9 LEAD viewer's response includes` … `non-LEAD viewer's response omits it.` | `AC-5.9 A financials-entitled viewer's (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension) response includes` … `a non-entitled viewer's response omits it.` |
+| 3832 | append at line end | ` [2026-07-15 vocab extension: assumes the member holds no FINANCIALS flag.]` |
+
+README: `3769 lines` → `4027 lines` (one word; rides this commit — folded per plan review R1 finding 3 rather than standing as a red-less task).
+
+**Adjacency sweep (run at plan time — artifact above):** the only LEAD-bearing lines within ±2 of any edit site are other edit sites or ratified line 655. Dispositions for context lines: 2373's "Otherwise:" reads correctly against the rewritten 2372 entitlement condition; no other context line carries an entitlement claim.
 
 **Green (spec §3.3):**
-1. Seed re-run returns exactly lines 193, 655, 657, 1418.
+1. Seed re-run returns exactly lines 193, 655, 657, 1418; window probe returns `hits: []`.
 2. `wc -l docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` = 4027.
-3. `pnpm spec:lint` on the master spec: no new findings of any severity vs the merge-base baseline run (baseline captured before editing).
-4. Manual read of the §4.1 / §4.4 / §7.4-area prose around each edited line for multi-line LEAD-only phrasing the seed cannot see; stragglers join rule-a with the same treatment and are recorded in the PR body.
+3. `pnpm spec:lint` on the master spec: findings identical to the pre-edit baseline run (no new findings of any severity; baseline captured in the same session before editing).
+4. The plan-time adjacency sweep stands in for the spec §3.3 item-4 manual pass; any straggler found while editing joins rule-(a) and is recorded in the PR body.
 
 **Commit:** `docs: reconcile master-spec financials prose to LEAD/FINANCIALS/admin entitlement`
 
-## Task 3 — specs README stale line-count (spec §1.1 item 8)
+## Task 3 — ledger graduation (spec §5; red-first order per plan review R1 finding 1)
 
-**Red:** `docs/superpowers/specs/README.md` says "3769 lines"; the file is 4027 lines at merge-base and stays 4027 after Task 2.
-**Green:** the note reads 4027. One-word edit, same commit as Task 2.
+1. **Registry first (red):** append two rows to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` with the conventional comment: `{ id: "BL-DANGLING-CITATIONS-RETIRED-WORKFLOW", provenance: "docs/citation-rot-financials-vocab" }` and `{ id: "BL-MASTERSPEC-FINANCIALS-VOCAB", provenance: "docs/citation-rot-financials-vocab" }`. Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — **FAILS** (registry rows present, archive sections absent; the test iterates `BACKLOG_GRADUATED` and asserts the archive carries each id + provenance). This is the task's red state — the inverse order (archive first) is green throughout and proves nothing.
+2. **Archive move (green):** move both entries from BACKLOG.md's open queue to `BACKLOG-archive.md`, each with a close-out note naming the provenance branch `docs/citation-rot-financials-vocab`, what shipped (item 1: 15 citations across 10 files rendered as prose, class-swept per AGENTS.md; item 2: 14 master-spec claims reconciled — 11 seed-visible + 3 window-probe — with 4 seed exclusions + 8 probe non-claims ratified), and the two backlog-entry corrections measured en route (the retiring spec is second-to-last in the entry's list and already clean; the seed returns 15 hits).
+3. Update BACKLOG.md's "Last reconciled" header line.
+4. **New deferral row** — insert verbatim into BACKLOG.md's open queue (level-2 heading, `BL-` prefix, per the `tests/docs/_ledgerMdast.ts` walker's `BACKLOG_OPTS` heading contract — plan review R1 finding 6):
 
-## Task 4 — ledger graduation (spec §5)
+   ```markdown
+   ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
 
-1. Move both entries (`BL-DANGLING-CITATIONS-RETIRED-WORKFLOW`, `BL-MASTERSPEC-FINANCIALS-VOCAB`) from BACKLOG.md's open queue to `BACKLOG-archive.md`, each with a close-out note naming the provenance branch `docs/citation-rot-financials-vocab`, what shipped (item 1: 15 citations across 10 files rendered as prose, class-swept per AGENTS.md; item 2: 14 master-spec claims reconciled (11 seed-visible + 3 window-probe), 4 seed exclusions + 8 probe non-claims ratified), and the two backlog-entry corrections measured en route (retiring spec is second-to-last in its list and already clean; the seed returns 15 hits, not "~15 claims all needing edits").
-2. Update BACKLOG.md's "Last reconciled" header line.
-3. Append two `{ id, provenance: "docs/citation-rot-financials-vocab" }` rows to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` with the conventional explanatory comment.
-4. `BL-HELP-STRIP-COPYLINK-STALE` untouched.
-5. **New row filed:** `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT` — master spec :3356 (`ROLE_FLAGS_NOTICE` §12.4 helpfulContext) says LEAD or FINANCIALS are "the roles that unlock internal financials and admin access"; FINANCIALS unlocks financials only (vocab authority Effect row; master :1627 states the distinction correctly). Fix requires the §12.4 three-way lockstep (spec prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, one commit) and touches the frozen helpfulContext byte-parity contract, so it is deferred out of this docs-only branch per spec §1.1 item 10. Class: docs/copy. Severity: low (explanatory copy over-states; no access is actually granted). Trigger: next §12.4 copy pass.
+   **Filed:** 2026-08-02 (docs/citation-rot-financials-vocab, spec review R2 finding 3) · **Class:** docs/copy (§12.4 catalog) · **Severity:** low · **Effort:** S
 
-**Red:** `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` fails after step 1 alone (archived id without registry row) — run it mid-task to observe, then step 3 turns it green.
-**Green:** that test passes; the full docs suite (`pnpm vitest run tests/docs/`) passes.
-**Commit:** `docs: graduate BL-DANGLING-CITATIONS-RETIRED-WORKFLOW + BL-MASTERSPEC-FINANCIALS-VOCAB`
+   Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3356`) reads "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access". FINANCIALS unlocks the `financials` column only ("Nothing else", the Effect row of `docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md`); LEAD alone additionally grants the admin/ops surface, stated correctly at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`. Explanatory copy only, so no access is actually granted, but it is Doug-visible text. Fix requires the §12.4 three-way lockstep in ONE commit (spec §12.4 prose edit + `pnpm gen:spec-codes` regen + `lib/messages/catalog.ts` row) and touches the frozen helpfulContext byte-parity contract (BL-CARD-COPY-HELPFULCONTEXT-PARITY, graduated 2026-08-01) — re-freeze parity after the edit. Trigger: next §12.4 copy pass.
+   ```
 
-## Task 5 — verification sweep + gates
+5. `BL-HELP-STRIP-COPYLINK-STALE` untouched.
 
-- All Task 1/2/3 acceptance commands re-run from clean tree; outputs recorded for the PR body.
-- Full pre-push gates (repo memory contract): `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
+**Green:** `pnpm vitest run tests/docs/` passes (graduation test + ledger walker + README parity + invariant-8 closeout).
+**Commit:** `docs: graduate BL-DANGLING-CITATIONS-RETIRED-WORKFLOW + BL-MASTERSPEC-FINANCIALS-VOCAB; file BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`
+
+## Task 4 — verification sweep + gates
+
+- All Task 1/2 acceptance commands re-run from clean tree; outputs recorded for the PR body.
+- Full pre-push gates: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 - `pnpm spec:lint` on this plan and on the spec: 0 hard each.
 
-## Task 6 — adversarial review (cross-model), then ship
+## Task 5 — adversarial review (cross-model), then ship
 
-- Whole-diff Codex review via `scripts/codex-guard.mjs` (tight scope: the diff is ~14 files; inline the file list in the brief; REVIEWER ONLY; verdict marker; do-not-relitigate list from spec §1.1).
-- Push, PR with body: scope summary, preflight-skip declaration, acceptance-command outputs, deferred-item note.
-- Real CI green (all checks, not just required) → `gh pr merge --merge` → fast-forward local main → `git rev-list --left-right --count main...origin/main` = `0  0`.
+- Whole-diff Codex review via `scripts/codex-guard.mjs` (file list inlined in the brief; REVIEWER ONLY; verdict marker; do-not-relitigate = spec §1.1 all 10 items + spec §9 review log).
+- Push, PR body: scope summary, preflight-skip declaration, acceptance outputs, deferred-item notes (BL-HELP-STRIP-COPYLINK-STALE; BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT).
+- Real CI green (all checks) → `gh pr merge --merge` → fast-forward local main → `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 ## Checklist
 
-- [ ] Task 1 strip + lint deltas
-- [ ] Task 2 master-spec vocab + seed/wc/lint checks
-- [ ] Task 3 README count
-- [ ] Task 4 graduation (archive + header + registry)
-- [ ] Task 5 verification sweep + full gates
+- [ ] Task 1 strip + lint deltas (all-severity, vs committed baseline artifact)
+- [ ] Task 2 master-spec vocab + README count + seed/probe/wc/lint checks
+- [ ] Task 3 graduation (registry-first red, archive, header, new deferral row)
+- [ ] Task 4 verification sweep + full gates
 - [ ] Self-review (this plan) against docs/agents/writing-plans.md
 - [ ] Adversarial review (cross-model) — plan, then whole-diff
 - [ ] Execution handoff (same session; autonomous pipeline)
