@@ -8,6 +8,59 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
+
+Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
+six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
+and dispositions are recorded in §12 of
+`docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md`.
+
+**Every item is PRE-EXISTING and outside that branch's diff.** The branch changes exactly two
+UI-surface files and neither changes a pixel: `components/admin/OnboardingWizard.tsx` (mechanical
+`assembleStep3Row` extraction, no markup added) and `components/admin/wizard/Step3Review.tsx` (one
+string literal respelled from a raw NUL byte to its escape, runtime-identical). They are deferred
+rather than fixed here because fixing them would put unreviewed visual change into a
+test-and-docs branch.
+
+**(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.** On the hard-failed card's
+help disclosure (`components/admin/wizard/step3ReviewSections.tsx`, the HelpAffordance block).
+Measured live at 390px: own box 274.0x20.3, no `<label>` wrapper, no positioned `::before`/`::after`
+hit expansion. Its PARENT is `min-h-12` (48px), so roughly 28px of the band looks tappable and is
+not. Fails the project's stated 44px floor (`PRODUCT.md` accessibility floor) and also WCAG 2.5.8
+Target Size (Minimum, AA), which requires 24px — the vertical axis is under that too. **Fix when
+prioritized:** give the `<summary>` the height its parent already reserves (`min-h-tap-min`, or
+`flex h-full items-center`) so the whole 48px band toggles it. **Un-defer trigger:** the next
+milestone that touches `step3ReviewSections.tsx` chrome, or any a11y sweep of the wizard.
+
+**(b) [P2] Four 28x28 chrome targets.** The three step-indicator pills ("Go back to step 1",
+"Go back to step 2", "Step 3, current step") and the page-header help trigger ("Help: Review and
+publish your sheets") are all `size-7` (28x28) with no hit expansion — verified by
+`document.elementFromPoint` at each element's centre returning a box no larger than the element.
+These CLEAR WCAG 2.5.8 (AA, 24px) but fail the project's own 44px floor and WCAG 2.5.5 (AAA).
+**Fix when prioritized:** the `before:absolute before:-inset-*` hit-expansion idiom, which keeps
+the 28px visual pill while giving it a 44px target. **Un-defer trigger:** same as (a), or the
+first report of a mis-tap on the step rail from a phone.
+
+**(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.** Probed live: the
+heading sequence is `1,3,3` at every viewport (320/390/768/1280) and `document.querySelectorAll("h2")`
+returns empty. WCAG 1.3.1 (Info and Relationships) — a screen-reader user tabbing the outline hears
+a level that was never opened. **Fix when prioritized:** demote the section headings to `h2` (they
+are the page's top-level sections) or introduce the missing `h2`. **Un-defer trigger:** any
+screen-reader pass on the wizard, or the next change to the Step-3 section headers.
+
+**(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.** Recorded in §12
+of the plan with the reasoning; both are design-consistency findings rather than standards
+violations, and both are pre-existing. **Un-defer trigger:** the next deliberate visual pass on
+the Step-3 row, where they should be resolved together rather than piecemeal.
+
+**Verified NOT findings (recorded so a future gate does not re-raise them):** the three
+`INPUT.peer.sr-only` checkboxes measure 1x1 but sit inside `<label>` wrappers of 44.0x44.0 and
+87.4x44.0 — the effective tap target meets the floor and the pattern is correct. The eight
+`broken-image` hits from `detect.mjs` (7 in `VenueMapTile.tsx`, 1 at `step3ReviewSections.tsx:3641`)
+are false positives: raw `<img>` with a required runtime `src` prop and an `onError` placeholder,
+a documented deliberate revert from `next/image` (which drops cookies), mirroring
+`components/diagrams/Gallery.tsx:130-144`.
+
 ### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
 
 Ratified as accepted limits in spec §6.4 of

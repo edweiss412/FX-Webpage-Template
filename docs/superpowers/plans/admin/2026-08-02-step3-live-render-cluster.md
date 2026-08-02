@@ -359,3 +359,94 @@ rg -l 'agendaBreakdown\\?\.layout' --glob '!docs/**' --glob '!BACKLOG.md' --glob
 ## 12. Impeccable gate closeout (filled at Task 6)
 
 Marker mechanics (corrected after a live probe of `tests/docs/_metaInvariant8Closeout.test.ts`): the TEMPLATE form is non-conferring and template registration FORBIDS valid markers, so a registered template file can never satisfy the declaring-unit check — the registry route is a catch-22, not a fix. This plan therefore carries NO marker line until Task 6 completes; Task 6 Step 5 writes the filled RAN-form line (grammar `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:52`) directly below this paragraph. The docs guard (`pnpm exec vitest run tests/docs/`) is deliberately NOT part of any pre-Task-6 verification command; it runs at Task 7 Step 2 and in final full-suite verification, both after the marker exists. Findings and dispositions land here.
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
+
+### 12.1 How the gate was run
+
+Both halves ran against the LIVE seeded render, not a static harness: `seedStep3StateGallery()`
+wrote all six variants into one wizard session and `/admin?step=3` rendered them together, which
+is the whole point of the gallery. Captures at 390px and 1280px in light and dark. Setup gates
+were the canonical v3 pair — `context.mjs` context load (PRODUCT.md + DESIGN.md) then the
+`reference/product.md` register read (admin UI: design SERVES the product).
+
+**Why both halves are `RAN-DEGRADED`.** The critique reference mandates two isolated sub-agents
+for Assessment A and Assessment B; this session operates under a standing instruction not to
+dispatch sub-agents unless the user asks for them. The skill's own sanctioned sequential fallback
+was used and the degraded banner was emitted rather than the degradation being taken silently.
+Nothing else was skipped: the deterministic detector ran in full, and the audit half's
+measurements were taken from the real DOM in a real browser at four viewports.
+
+**Local-render trap worth recording.** `.env.local` points `TEST_DATABASE_URL` at the validation
+pooler, and `lib/onboarding/sessionLifecycle.ts:95` resolves `TEST_DATABASE_URL ?? DATABASE_URL`.
+A dev server booted without pinning it therefore reads app_settings for the wizard dispatch from
+VALIDATION while the seed helper writes to LOCAL, so `/admin?step=3` silently renders the
+Dashboard and the gallery looks like it failed to seed. Boot with both `TEST_DATABASE_URL` and
+`DATABASE_URL` set to `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. This is the same
+split-target hazard the plan already closed on the TEST side via `galleryDatabaseUrl()` (R4 P1);
+the app side needs the same pin for a coherent local render.
+
+### 12.2 Scores
+
+- **Critique (Nielsen 10):** 34/40 — Good. Weakest heuristic: Consistency and Standards (2/4).
+- **Audit (5 dimensions):** 16/20 — Good. A11y 3, Performance 4, Responsive 3, Theming 4,
+  Anti-Patterns 4 (see 12.4).
+
+### 12.3 Plan-mandated checks
+
+- **Dark-mode warn contrast on the warn card — PASS at AAA.** Computed from `app/globals.css`
+  runtime tokens: warn card text `#ffd68a` on `#3a2e14` = **9.64:1**; "Needs another look" chip
+  text `#f0b454` on surface `#16171C` = **9.68:1**, on page bg `#0F1014` = **10.29:1**. Light mode
+  for the same pairs: 8.79:1 and 8.42:1. Both modes clear the 7:1 AAA body floor, not merely AA.
+- **Demoted card's double "Review" — NOT RELITIGATED.** Ratified intentional per spec §1.1;
+  recorded here only so a later reviewer does not re-derive it.
+
+### 12.4 Findings and dispositions
+
+The diff contains NO visual change: the branch's only two UI-surface files are
+`components/admin/OnboardingWizard.tsx` (mechanical extraction, no markup added — grep for added
+`className` or added JSX tags returns nothing) and `components/admin/wizard/Step3Review.tsx` (one
+string literal respelled from a raw NUL to ` `, runtime-identical). Every finding below is
+therefore a PRE-EXISTING property of the surface that the six-variant gallery made visible for the
+first time. **No P0.** Per the plan's disposition rule, P0 would be fixed inline and P1+ deferred;
+with zero P0 nothing was fixed inline, and everything below is deferred under
+`STEP3-GALLERY-TAP-TARGETS-1` in `DEFERRED.md` with per-item un-defer triggers.
+
+| # | Sev | Finding | Disposition |
+| - | --- | ------- | ----------- |
+| 1 | P1 | `<summary>` "What does this mean?" measures 274.0x20.3 with no label wrapper and no positioned pseudo hit expansion, inside a `min-h-12` parent. Fails the 44px project floor AND WCAG 2.5.8 (AA, 24px) on the vertical axis. | DEFERRED (a) |
+| 2 | P2 | Four `size-7` (28x28) chrome targets: three step-indicator pills + the header help trigger. Clear WCAG 2.5.8 AA; fail the 44px project floor and WCAG 2.5.5 AAA. | DEFERRED (b) |
+| 3 | P2 | Heading levels run `1,3,3` at every viewport and the page renders no `<h2>`. WCAG 1.3.1. | DEFERRED (c) |
+| 4 | P2 | Three affordance vocabularies in one row slot: bare-text "View", bordered "Review" button, and two inline buttons under an error line. Product-register consistency ban. | DEFERRED (d) |
+| 5 | P2 | Nested card chrome — the blocking row is a bordered card inside the bordered "Needs your attention" plate. Costs real width at 390px. | DEFERRED (d) |
+
+**A correction worth recording.** The critique half first logged finding 1 as a P3, describing
+"What does this mean?" as inert text sitting above a "Learn more" link that did its job. The audit
+half's DOM probe refuted that: the element is a `<summary>`, so it IS the disclosure control, and
+the real defect is a 20.3px target — smaller in scope and more severe in consequence. The
+persisted critique snapshot was corrected in place rather than left to disagree with this section.
+
+**Verified NOT findings** (recorded so a future gate does not re-raise them):
+
+- The three `INPUT.peer.sr-only` checkboxes measure 1x1, but their `<label>` wrappers measure
+  44.0x44.0 and 87.4x44.0. The effective tap target meets the floor; the pattern is correct.
+- All eight `detect.mjs` hits are `broken-image` false positives — 7 in
+  `components/admin/wizard/VenueMapTile.tsx`, 1 at `components/admin/wizard/step3ReviewSections.tsx:3641`
+  (`DiagramTile`). Each is a raw `<img>` whose `src` is a required runtime prop with an `onError`
+  placeholder, a documented deliberate revert from `next/image` (which drops cookies), mirroring
+  `components/diagrams/Gallery.tsx:130-144`. None is in this diff.
+- Zero horizontal document overflow at 320 / 390 / 768 / 1280px.
+- Zero unlabeled interactive controls at any viewport.
+- No hardcoded hex / `rgb()` / `hsl()` added by this diff (token discipline holds).
+
+### 12.5 Positive findings
+
+- Copy carries the surface: every state explains itself in a human sentence, and no error code
+  reaches the UI on any of the six variants (invariant 5 holds under live seeding, including the
+  hard-failed card, which renders "We couldn't turn that sheet into a show." rather than
+  `STAGED_PARSE_FAILED`).
+- No state is carried by color alone on any variant in either mode — every chip pairs its tint
+  with a word, and warn rows add a glyph plus a count.
+- Dark mode reads as designed rather than derived, at both 390px and 1280px.
+- The two variants most likely to have been dark — no-details (empty parse result) and set-aside —
+  both render explanatory copy instead of an empty card.
