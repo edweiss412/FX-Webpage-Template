@@ -4,13 +4,12 @@
 // Structural meta-test for warning-card copy: every registry code carries a
 // title + condensed helpfulContext (inline card guidance) + triggerContext
 // (? popover), within caps, free of reader-facing jargon. Byte-identity to the
-// spec §4.2 table is frozen for triggerContext on EVERY registry code, for the
-// four changed titles, and for the helpfulContext of the codes listed in
-// EXPECTED_HELPFUL_CONTEXT (rows added from 2026-07-27 on) — not for every
-// code's helpfulContext: the pre-existing HOTEL_GUEST_SPLIT_AMBIGUOUS divergence
-// is shipped copy, tracked as BL-CARD-COPY-HELPFULCONTEXT-PARITY. The corpus oracle parses the
+// spec §4.2 table is frozen for triggerContext AND helpfulContext on EVERY
+// registry code (rows 1-42 back-filled by spec
+// 2026-08-01-card-copy-parity-sync-job-name; BL-CARD-COPY-HELPFULCONTEXT-PARITY
+// graduated), and for the six changed titles. The corpus oracle parses the
 // committed fixture corpus and requires every emitted warn-severity code to be
-// registered — behavioral fails-by-default for corpus-exercised parser codes
+// registered, behavioral fails-by-default for corpus-exercised parser codes
 // (spec §3.5.4 scope: sync/enrichment producers rely on the AGENTS.md
 // new-code checklist instead; a code slipping both layers renders today's
 // title-only card, never a raw code).
@@ -94,10 +93,10 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
 
   it("canonical §4.2 rows and the catalog agree, read from the DOCUMENT itself", () => {
     // A fixture that duplicates the table's strings cannot detect the table changing:
-    // editing canonical row 43 or 44 alone would leave the suite green while the doc
+    // editing a canonical row alone would leave the suite green while the doc
     // and the shipped copy diverge. This reads the document, so either side moving
-    // fails. Scoped to EXPECTED_HELPFUL_CONTEXT's codes for the same reason that map
-    // is scoped (BL-CARD-COPY-HELPFULCONTEXT-PARITY covers rows 1-42).
+    // fails. Covers every registry code: EXPECTED_HELPFUL_CONTEXT is total (see
+    // key-set assertion below).
     const doc = readFileSync(
       join(process.cwd(), "docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md"),
       "utf8",
@@ -105,7 +104,7 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
     const rowFor = (code: string): { helpfulContext: string; triggerContext: string } => {
       const line = doc
         .split("\n")
-        .find((l) => l.startsWith("| ") && l.split("|")[2]?.trim() === code);
+        .find((l) => l.startsWith("| ") && l.split("|")[2]?.trim().split(/\s/)[0] === code);
       expect(line, `no §4.2 row for ${code}`).toBeDefined();
       const cells = line!.split("|");
       return { helpfulContext: cells[3]!.trim(), triggerContext: cells[4]!.trim() };
@@ -118,10 +117,12 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
   });
 
   it("frozen copy fixture: helpfulContext matches spec §4.2 byte-for-byte", () => {
-    // Scoped to EXPECTED_HELPFUL_CONTEXT, not the whole registry: the pre-existing
-    // HOTEL_GUEST_SPLIT_AMBIGUOUS divergence is shipped copy (BL-CARD-COPY-
-    // HELPFULCONTEXT-PARITY). For the codes listed there, a typo in EITHER the
-    // canonical §4.2 row or the catalog entry fails here.
+    // Covers every registry code: EXPECTED_HELPFUL_CONTEXT is total (key-set
+    // assertion below). A typo in EITHER the canonical §4.2 row or the catalog
+    // entry fails here.
+    expect(Object.keys(EXPECTED_HELPFUL_CONTEXT).sort()).toEqual(
+      [...WARNING_CARD_COPY_CODES].sort(),
+    );
     for (const [code, helpfulContext] of Object.entries(EXPECTED_HELPFUL_CONTEXT)) {
       expect(WARNING_CARD_COPY_CODES.has(code), `${code} registered`).toBe(true);
       expect(CATALOG[code]?.helpfulContext, `${code}.helpfulContext`).toBe(helpfulContext);
