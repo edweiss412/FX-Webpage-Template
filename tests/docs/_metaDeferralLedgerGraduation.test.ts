@@ -90,8 +90,9 @@ const GRADUATED = [
 const BACKLOG_GRADUATED = [
   // test/agenda-fold-seeded-e2e (2026-08-02): the per-viewer agenda day fold exercised
   // through the REAL crew page — seeded agenda_links + two complementary date-restricted
-  // picker-cookie viewers in stage-restricted-crew-schedule.spec.ts, wired into crew-e2e.yml
-  // behind a run-command wiring guard.
+  // viewers (email-matched Google sessions, one seeded show each) in
+  // stage-restricted-crew-schedule.spec.ts, wired into crew-e2e.yml behind a run-command
+  // wiring guard.
   { id: "BL-AGENDA-FOLD-NO-SEEDED-E2E", provenance: "test/agenda-fold-seeded-e2e" },
   // test/agenda-fold-seeded-e2e (2026-08-02): the fold's a11y proof on WebKit — grep-scoped
   // standalone-webkit-a11y project (exactly one test, structurally pinned) + webkit installs.

@@ -65,6 +65,19 @@ against the shipped guard (AGENTS.md round-economy contract):
   `use.defaultBrowserType` off the RESOLVED config object (not the source text) in
   `tests/ci/standalone-webkit-a11y-wiring.test.ts`.
 
+- **MF9 — non-`testMatch` selection controls (whole-diff review R2 live mutant):** a
+  `testIgnore: /(picker-flow|stage-restricted-crew-schedule)\.spec\.ts/` on the very project the
+  command selects made both suites collect ZERO tests while both guards, which parsed only
+  `testMatch`, stayed green. `grep`, `grepInvert`, `testDir` and every future control are the same
+  hole with different spellings, so the guards no longer parse ANY single control: they ask
+  Playwright to resolve the real command (`--list --reporter=json`) and require > 0 tests. Closes
+  the class rather than the instance.
+- **MF10 — non-acting subcommand modes (whole-diff review R2 live mutants):** `playwright test
+  --help` prints usage and exits 0 (test-run guards), and `playwright install --dry-run` /
+  `install-deps --dry-run` print what they would do and install nothing (install guards) — all
+  wiring-shaped, all zero-effect. Closed by denylisting `--help`/`-h` in the test-run segments and
+  `--dry-run`/`--help`/`-h` in the install segments, alongside MF6's `--list`/`--ui`.
+
 Out of scope by declaration: YAML anchors/aliases and multi-line `run: |` blocks — crew-e2e.yml
 and standalone-e2e.yml use neither today; the guards read the live files, so introducing one
 that hides wiring would surface as a guard FAILURE (fail-closed direction), not a silent pass.
@@ -713,9 +726,10 @@ Then Stage 4.4 cleanup: CronDelete the nudge job, clear the herdr pane + agent l
 ## 11. Post-plan amendment — the fold suite runs on desktop-chromium, not mobile-safari
 
 Ratified by measurement on 2026-08-02, after Task 2 wired the spec in and the FIRST real crew-e2e
-run (30754740917) failed. Task 1-3 bodies above still spell `mobile-safari` and the picker-cookie
-staging they were written against; this section supersedes them, and the shipped code is the
-authority.
+run (30754740917) failed. **The canonical record of this change is spec §1.2** — the plan does not
+supersede the spec (AGENTS.md invariant 7); the spec was amended first and this section restates
+its consequences for the task bodies above, which still spell `mobile-safari` and the picker-cookie
+staging they were written against.
 
 **What the run measured.** Four cases failed, all of them the non-admin viewers — including the two
 pre-existing SFS-1 cases that had never run in CI before this branch wired the file in. Every

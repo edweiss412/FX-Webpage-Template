@@ -103,6 +103,12 @@ describe("standalone WebKit a11y leg wiring", () => {
         })
         .join("\n");
     const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+    // Non-INSTALLING modes (whole-diff review R2 HIGH live mutant): `playwright install
+    // --dry-run … webkit` and `install-deps --dry-run … webkit` print what they would do and
+    // exit 0 having installed nothing, so a cold runner gets neither the WebKit binary nor its
+    // system dependencies while the segment stays install-shaped. `--help`/`-h` are the same
+    // exit-0-without-acting shape. Segments carrying any of these are not installs.
+    const NON_INSTALLING = new Set(["--dry-run", "--help", "-h"]);
     const installSegments = (subcommand: "install" | "install-deps"): string[][] =>
       [
         ...stripYaml(
@@ -115,7 +121,10 @@ describe("standalone WebKit a11y leg wiring", () => {
         .filter((t) => {
           const i = t.indexOf("playwright");
           return (
-            i !== -1 && t[i + 1] === subcommand && t.slice(0, i).every((w) => RUNNER_PREFIX.has(w))
+            i !== -1 &&
+            t[i + 1] === subcommand &&
+            t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
+            !t.some((w) => NON_INSTALLING.has(w))
           );
         });
     expect(

@@ -27,7 +27,9 @@ all four answers = the recommended option):
 2. **Placement: extend `tests/e2e/stage-restricted-crew-schedule.spec.ts`** with a second,
    self-contained `describe` block (own seeded show, own teardown). NOT a new spec file. The file
    is already in the `mobile-safari` project's `testMatch` (`playwright.config.ts:63-66`), so
-   there is no new config entry and no new coverage-registry row.
+   there is no new config entry and no new coverage-registry row. **Superseded by §1.2 item 4:**
+   the file moved to `desktop-chromium`, which IS a config entry; the registry-row prediction
+   held.
 3. **CI wiring: add the file to the crew-e2e run command** (`.github/workflows/crew-e2e.yml:143`)
    and transition its registry row in `tests/ci/_metaE2eWorkflowCoverage.test.ts:109` from
    `UNSEEN` to `PATH_GATED_BY_EXCLUSION` — NOT a deletion. `crew-e2e.yml` carries
@@ -61,6 +63,41 @@ Also settled, cited so review verifies instead of re-deriving:
   — no component, no visual state, no flag, no DB object changes. Guard conditions for the one
   new helper option are in §3.1.
 
+## 1.2 Ratified amendment (2026-08-02) — staging mechanism, project, show count
+
+Measured, not preferred. Task 2 wired the spec into `crew-e2e.yml`; the FIRST real run
+(30754740917) failed four cases — every non-admin viewer in the file, including two pre-existing
+SFS-1 cases that had never run in CI before. The trace screencast shows the first-contact Welcome
+gate: Linux WebKit drops the injected Secure `__Host-fxav_picker` cookie (the prefix requires
+Secure, and that build does not extend the localhost/127.0.0.1 secure-context exemption to it).
+macOS WebKit does store it, which is why the mechanism passed locally for months. Every `signInAs`
+case in the same file passed, which is what isolated the cookie rather than the fold.
+
+This section AMENDS §1.1 items 2-3, §2 (U1), §3.3, §3.5, §3.6 and §6 T2 wherever they say
+picker-cookie, one show, or `mobile-safari`. Those passages describe the pre-measurement design and
+are retained for the decision record; where they conflict, THIS section governs.
+
+1. **Staging: email-matched Google session, not an injected cookie.** The seeded crew row carries
+   `NON_ADMIN_CREW_FIXTURE.email`, so `validateGoogleSession` resolves the generic fixture TO the
+   restricted row (unclaimed is fine — the `sign-in-page.spec.ts:126-137` pattern). The restriction
+   lives on the row, not the fixture. `seedPickerCookie` is no longer used by this file.
+2. **Two shows, one per fold viewer.** The single fixture email can identify only ONE row per show
+   (two rows sharing it would make the match ambiguous), so each complementary viewer gets an
+   otherwise IDENTICAL show — same dates, same agenda links, same two crew rows — differing only in
+   which row carries the email. The anti-tautology property of §3.4 is preserved unchanged: the
+   same fixture sees row 0 open in one show and row 1 in the other, so neither result can be a
+   constant of the fixture or the agenda payload. The admin control runs against Fiona's show,
+   whose fold it must not reproduce.
+3. **Two-step navigation.** Bootstrap on the BARE show URL, then re-navigate with the still
+   load-bearing `?s=schedule`. `/api/auth/picker-bootstrap` rejects a `next` carrying a query
+   string and renders "Sign-in unavailable" — measured on BOTH engines, so it is not a cookie
+   artifact. Filed as `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`; worked around here, not fixed.
+4. **Project: `desktop-chromium`, not `mobile-safari`.** The file's `testMatch` membership moves,
+   joining `picker-flow.spec.ts` for exactly the reason that spec already lives there. This is a
+   config entry after all (§1.1 item 2 predicted none); the coverage-registry row is unaffected.
+   The crew-e2e run command already passes both projects, so no command change follows from it.
+   Measured after the move: `--list` resolves 23 tests in 4 files (6 + 7 + 4 + 6).
+
 ## 2. What ships
 
 Two independent units, one PR:
@@ -68,9 +105,10 @@ Two independent units, one PR:
 - **U1 — seeded fold e2e:** `seedShowWithCrew` gains `agendaLinks`; a new `describe` in
   `stage-restricted-crew-schedule.spec.ts` seeds a show whose `agenda_links` carry a
   high-confidence extraction with parseable day labels plus TWO date-restricted crew members
-  with complementary day assignments, loads the real share-link route as each viewer
-  (picker-cookie path), and asserts each viewer's own day row is open and marked while the
-  other day folds. Wired into `crew-e2e.yml`.
+  with complementary day assignments, loads the real share-link route as each viewer, and
+  asserts each viewer's own day row is open and marked while the other day folds. Wired into
+  `crew-e2e.yml`. **Per §1.2:** one show PER VIEWER, staged by an email-matched Google session
+  rather than the picker-cookie path.
 - **U2 — WebKit a11y leg:** a `standalone-webkit-a11y` project in `standalone.config.ts` scoped
   to exactly the a11y test, webkit browser install lines in `standalone-e2e.yml`, and the
   regenerated `tests/e2e/standalone-baseline.json`.
@@ -165,10 +203,11 @@ Each viewer test navigates `/show/<slug>/<shareToken>?s=schedule` — the `?s=sc
 LOAD-BEARING: an absent `s` resolves to `"today"` (`lib/crew/resolveActiveSection.ts:16`) and
 `CrewSections` renders ONLY the active section (`components/crew/CrewSections.tsx:103`), so
 without it the agenda area never mounts and assertion 1 fails vacuously. The template's tests
-carry the same query (`stage-restricted-crew-schedule.spec.ts:144`). Cookie state: a seeded
-`__Host-fxav_picker` cookie for the crew member id and NO Google session (template mechanism,
-`seedPickerCookie` helper). With V = the viewer's own row index (Fiona 0, Theo 1) and F = the
-other row:
+carry the same query (`stage-restricted-crew-schedule.spec.ts:144`). Auth state: **per §1.2**, an
+email-matched Google session for the seeded row, reached by bootstrapping on the bare show URL
+first (the query-bearing `next` is rejected by the bootstrap). The pre-measurement design seeded a
+`__Host-fxav_picker` cookie with no Google session; that mechanism is dark on Linux WebKit. With
+V = the viewer's own row index (Fiona 0, Theo 1) and F = the other row:
 
 1. Composition proof: `[data-testid="agenda-schedule"]` visible (real jsonb round-trip survived
    `normalizeAgendaExtraction` on the real page).
@@ -197,9 +236,9 @@ Two independent controls:
 ### 3.5 CI wiring
 
 - `.github/workflows/crew-e2e.yml:143`: append `tests/e2e/stage-restricted-crew-schedule.spec.ts`
-  to the existing single `playwright test` invocation. The file is claimed by `mobile-safari`
-  only (absent from `desktop-chromium`'s testMatch, `playwright.config.ts:76-80`), which is the
-  project whose webkit binary the job already installs (`crew-e2e.yml:125-126`).
+  to the existing single `playwright test` invocation. **Per §1.2 item 4** the file is claimed by
+  `desktop-chromium` only (it moved out of `mobile-safari`'s testMatch); the run command already
+  passes both projects, so the command text is unchanged by the move.
 - **Stale-comment sweep, same commit as the yml edit** (class-swept per review R1 finding 5 —
   every prose surface asserting the three-spec inventory or Chromium-only coverage):
   - `crew-e2e.yml:2-4` header ("client-side section-toggle suite … and the crew picker flow"):
@@ -243,9 +282,9 @@ Two independent controls:
   `agenda-day-marker-${di}` span). A copy change breaks the test loudly; acceptable — the
   testid-based locators carry the structural weight, the text assertion pins the user-visible
   contract.
-- The picker-cookie path asserts the cookie-selection viewer identity, not the Google-OAuth
-  bootstrap (identical to the template's ratified trade; OAuth-side coverage lives in
-  `picker-flow.spec.ts` on desktop-chromium).
+- **Per §1.2**, the viewer identity is reached through the picker BOOTSTRAP hop with a test-auth
+  session, not the real Google OAuth handshake — the provider round trip stays uncovered here, as
+  in `picker-flow.spec.ts`.
 
 ## 4. U2 — WebKit a11y leg
 
@@ -339,8 +378,8 @@ diff only asserts the INITIAL open/closed state the server renders.
 2. **T2 (U1 spec):** the three tests of §3.3/§3.4 (Fiona viewer, Theo viewer, admin control),
    red against a stub (option present but not written to the insert → agenda area absent →
    assertion 1 fails), green once the insert carries the column. Run locally:
-   `pnpm exec playwright test --project=mobile-safari
-   tests/e2e/stage-restricted-crew-schedule.spec.ts`.
+   `pnpm exec playwright test --project=desktop-chromium
+   tests/e2e/stage-restricted-crew-schedule.spec.ts` (project per §1.2 item 4).
 3. **T3 (U1 CI):** RED FIRST — extend `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`
    (the established anti-dark wiring-guard pattern: comment-stripped YAML, run-command
    assertion) to pin `tests/e2e/stage-restricted-crew-schedule.spec.ts` named in the

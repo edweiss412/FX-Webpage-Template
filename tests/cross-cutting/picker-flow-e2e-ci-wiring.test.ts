@@ -25,10 +25,9 @@
  * The rest of the mobile-safari project stays dark under
  * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import ts from "typescript";
 
-import { stripCommentsSafely } from "../_shared/stripComments";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -92,11 +91,11 @@ const read = (wf: string): string => stripYamlComments(readRaw(wf));
  */
 function playwrightTestSegments(yaml: string): string[][] {
   const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
-  // Non-executing Playwright modes (MF6, agenda-fold plan-review R2 live mutant):
-  // `playwright test --list …` collects and exits 0 without running anything, so a segment
-  // carrying it is wiring-shaped but proves zero execution. `--ui` is the trivially adjacent
-  // interactive mode. Segments with either token are not wiring.
-  const NON_EXECUTING = new Set(["--list", "--ui"]);
+  // Non-executing Playwright modes (MF6, agenda-fold plan-review R2 live mutant; extended by
+  // whole-diff review R2's `--help` mutant): each of these exits 0 having executed nothing.
+  // `--list` collects only, `--ui` is the interactive mode, and `--help`/`-h` print usage — a
+  // segment carrying any of them is wiring-shaped and proves zero execution.
+  const NON_EXECUTING = new Set(["--list", "--ui", "--help", "-h"]);
   return [...stripYamlComments(yaml).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
     .map((m) => m[1]!)
     .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
@@ -115,6 +114,46 @@ function playwrightTestSegments(yaml: string): string[][] {
 /** Token-exact containment — `--project=mobile-safari-shadow` must NOT satisfy a
  *  `--project=mobile-safari` requirement, nor a longer path a file requirement (MF3). */
 const hasToken = (tokens: string[], token: string): boolean => tokens.includes(token);
+
+/**
+ * The tests a command's project actually RESOLVES for a spec, from Playwright itself.
+ *
+ * Whole-diff review R2 (HIGH) escaping mutant: both assertions used to parse `testMatch` out of
+ * playwright.config.ts, which reads only ONE of the several controls that decide collection. A
+ * `testIgnore: /(picker-flow|stage-restricted-crew-schedule)\.spec\.ts/` on the very project the
+ * command selects made both suites collect ZERO tests while both guards stayed green (probe:
+ * `Total: 0 tests in 0 files`, guards PASS). `grep`, `testDir` and `--grep-invert` are the same
+ * hole with different spellings, and no amount of added parsing closes the class — asking
+ * Playwright to resolve the real command does, for every present and future selection control at
+ * once. `--list` starts no webServer, so this stays a unit-speed check.
+ */
+function resolvedTestCount(project: string, spec: string): number {
+  let out: string;
+  try {
+    out = execFileSync(
+      "pnpm",
+      ["exec", "playwright", "test", `--project=${project}`, spec, "--list", "--reporter=json"],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    // Playwright exits non-zero when a project resolves nothing for the file (and when the
+    // project name is unknown). Both mean "this project does not run this spec" — the command
+    // legitimately selects several projects and only one needs to claim it. Fail-closed: a
+    // config that cannot be loaded at all counts as zero everywhere and fails the assertion.
+    return 0;
+  }
+  const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
+  let count = 0;
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as { suites?: unknown[]; specs?: unknown[] };
+      count += (s.specs ?? []).length;
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  return count;
+}
 
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
 function pathsIgnoreBlock(wf: string): string {
@@ -165,34 +204,20 @@ describe("picker-flow e2e CI wiring", () => {
         "Un-skipped cases that no workflow runs are dark: CI would report green without executing them.",
     ).toBeGreaterThan(0);
 
-    // Naming the file is not enough: a command selecting only mobile-safari while
-    // naming picker-flow collects ZERO tests and still passes. Split the config on
-    // project boundaries first — one lazy regex could pair a project's name with a
-    // LATER project's testMatch.
-    // Comments stripped first: a commented-out `// testMatch: /(picker-flow|…)/`
-    // above a live one marked the project as claiming the spec, while the real
-    // run collected zero picker tests.
-    const config = stripCommentsSafely(
-      readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
-      ts.ScriptKind.TS,
+    // Naming the file is not enough: a command selecting only a project that does not
+    // resolve it collects ZERO tests and still passes. Ask Playwright, per selected
+    // project, instead of parsing any one config control (see resolvedTestCount).
+    const selected = naming.flatMap((t) =>
+      t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
     );
-    const claiming = config
-      .split(/\n\s*name:\s*"/)
-      .slice(1)
-      .map((block) => {
-        const project = block.slice(0, block.indexOf('"'));
-        const match = /testMatch:\s*\n?\s*\/\(([^/]+)\)/.exec(block);
-        return match !== null && match[1]!.split("|").includes("picker-flow") ? project : null;
-      })
-      .filter((p): p is string => p !== null);
     expect(
-      claiming.length,
-      "no playwright.config.ts project's testMatch includes picker-flow",
+      selected.length,
+      `the segment naming ${SPEC} selects no --project at all`,
     ).toBeGreaterThan(0);
     expect(
-      naming.some((t) => claiming.some((project) => hasToken(t, `--project=${project}`))),
-      `the segment naming ${SPEC} selects no project whose testMatch claims it (claiming: ` +
-        `${claiming.join(", ")}). It would collect zero tests and still report green.`,
+      selected.some((project) => resolvedTestCount(project, SPEC) > 0),
+      `no project the segment selects (${selected.join(", ")}) RESOLVES any test in ${SPEC}. ` +
+        "It would collect zero tests and still report green.",
     ).toBe(true);
   });
 
@@ -210,29 +235,17 @@ describe("picker-flow e2e CI wiring", () => {
         "token — the seeded agenda-fold suite would be dark",
     ).toBeGreaterThan(0);
 
-    const config = stripCommentsSafely(
-      readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
-      ts.ScriptKind.TS,
+    const selected = naming.flatMap((t) =>
+      t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
     );
-    const claiming = config
-      .split(/\n\s*name:\s*"/)
-      .slice(1)
-      .map((block) => {
-        const project = block.slice(0, block.indexOf('"'));
-        const match = /testMatch:\s*\n?\s*\/\(([^/]+)\)/.exec(block);
-        return match !== null && match[1]!.split("|").includes("stage-restricted-crew-schedule")
-          ? project
-          : null;
-      })
-      .filter((p): p is string => p !== null);
     expect(
-      claiming.length,
-      "no playwright.config.ts project's testMatch includes stage-restricted-crew-schedule",
+      selected.length,
+      `the segment naming ${STAGE_SPEC} selects no --project at all`,
     ).toBeGreaterThan(0);
     expect(
-      naming.some((t) => claiming.some((project) => hasToken(t, `--project=${project}`))),
-      `the segment naming ${STAGE_SPEC} selects no project whose testMatch claims it (claiming: ` +
-        `${claiming.join(", ")}). It would collect zero tests and still report green.`,
+      selected.some((project) => resolvedTestCount(project, STAGE_SPEC) > 0),
+      `no project the segment selects (${selected.join(", ")}) RESOLVES any test in ` +
+        `${STAGE_SPEC}. The seeded agenda-fold suite would be dark.`,
     ).toBe(true);
   });
 
