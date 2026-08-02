@@ -26,10 +26,10 @@
  * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { execFileSync } from "node:child_process";
-import { parse as parseYaml } from "yaml";
 import ts from "typescript";
 
 import { stripCommentsSafely } from "../_shared/stripComments";
+import { activatedRunScalars } from "../_shared/workflowActivation";
 import { readFileSync } from "node:fs";
 
 import { join } from "node:path";
@@ -75,38 +75,6 @@ function stripYamlComments(yaml: string): string {
 }
 
 const read = (wf: string): string => stripYamlComments(readRaw(wf));
-
-/**
- * Every `run:` scalar that is ACTIVATED — i.e. whose step and job carry no gate that can switch
- * them off — parsed structurally rather than by regex.
- *
- * Whole-diff review R6 (HIGH) escaping mutant: `if: false` on the one Playwright step left both
- * suites dark while the job, the guards and the coverage meta-test all stayed green (the specs
- * carry dark-spec allowlist rows, so nothing else backstops it). Text scanning cannot see step
- * structure at all, so this reads the workflow with the `yaml` parser the repo already depends on
- * and drops any run whose step or job is conditional or failure-tolerant:
- *
- *   - `if:` at step OR job level — an expression this guard cannot evaluate is, by definition, not
- *     proof of execution. Fail-closed: legitimate gating reads as unwired.
- *   - `continue-on-error: true` at step OR job level — the step may run and fail while CI reports
- *     success, which is the same green-while-dark outcome by a different route.
- */
-function activatedRunScalars(yamlText: string): string[] {
-  const doc = parseYaml(yamlText) as {
-    jobs?: Record<string, { if?: unknown; "continue-on-error"?: unknown; steps?: unknown[] }>;
-  };
-  const runs: string[] = [];
-  for (const job of Object.values(doc.jobs ?? {})) {
-    if (job.if !== undefined || job["continue-on-error"] === true) continue;
-    for (const raw of job.steps ?? []) {
-      const step = raw as { run?: unknown; if?: unknown; "continue-on-error"?: unknown };
-      if (typeof step.run !== "string") continue;
-      if (step.if !== undefined || step["continue-on-error"] === true) continue;
-      runs.push(step.run);
-    }
-  }
-  return runs;
-}
 
 /**
  * Shell segments of every `run:` scalar that actually INVOKE `playwright test` — split on

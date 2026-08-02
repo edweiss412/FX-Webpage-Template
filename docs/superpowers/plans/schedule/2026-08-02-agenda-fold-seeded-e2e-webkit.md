@@ -2,11 +2,32 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ## ⚠️ SUPERSEDED TASK BODIES — read §11 before replaying anything below
+>
+> This plan was written before the branch's first real CI run, and Tasks 1-3 below still describe
+> the architecture that run disproved. **The shipped code and spec §1.2 are authoritative; the task
+> bodies are retained as the decision record, not as instructions.** Superseded throughout,
+> everywhere it appears and not only where flagged inline:
+>
+> - **`mobile-safari` → `desktop-chromium`** for `stage-restricted-crew-schedule.spec.ts`, in the
+>   architecture note, the meta-test inventory, the Task 1/2 bodies, and EVERY
+>   `--project=mobile-safari` verification command (Tasks 2, 5 and the closeout).
+> - **Injected picker cookie → email-matched Google session**, with **one seeded show per viewer**
+>   and **two-step navigation** (bare URL to bootstrap, then `?s=schedule`).
+> - **The Task 1 fixture payload** — two sessions, no rooms — is unproducible by the real extractor
+>   (MF17); the shipped fixture carries six timed, titled, roomed sessions.
+> - **The Task 2/3 guard implementations** — the shipped guards resolve the workflow's own argv
+>   through Playwright, require count equality against `EXPECTED_SKIPS`, ban project-gate
+>   identifiers and file-scoped engine overrides, and take activation from
+>   `tests/_shared/workflowActivation`. The snippets below predate all of that (MF9-MF18).
+>
+> Sections 11 and 12, the mutation-family list, and the spec are current.
+
 **Goal:** Exercise the per-viewer agenda day fold through the real crew page with seeded data, and run the fold's accessibility proof on WebKit — closing `BL-AGENDA-FOLD-NO-SEEDED-E2E` and `BL-AGENDA-A11Y-WEBKIT-COVERAGE`.
 
 **Spec:** `docs/superpowers/specs/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit-design.md` (adversarial-review APPROVE at R5, 2026-08-02). The spec is canonical; §1.1 lists the ratified scope decisions — do not relitigate them here.
 
-**Architecture:** Two independent units in one PR. U1: a new `describe` in `tests/e2e/stage-restricted-crew-schedule.spec.ts` (already claimed by the `mobile-safari` project) seeds a show with `agenda_links` + two complementary date-restricted crew members via an extended `seedShowWithCrew`, wired into `crew-e2e.yml` behind a wiring-guard red. U2: a grep-scoped `standalone-webkit-a11y` project in `tests/e2e/standalone.config.ts` behind a new `tests/ci/` wiring-guard red, plus webkit installs and a regenerated baseline.
+**Architecture:** Two independent units in one PR. U1: a new `describe` in `tests/e2e/stage-restricted-crew-schedule.spec.ts` (claimed by the `desktop-chromium` project — see the banner) seeds a show with `agenda_links` + two complementary date-restricted crew members via an extended `seedShowWithCrew`, wired into `crew-e2e.yml` behind a wiring-guard red. U2: a grep-scoped `standalone-webkit-a11y` project in `tests/e2e/standalone.config.ts` behind a new `tests/ci/` wiring-guard red, plus webkit installs and a regenerated baseline.
 
 **Tech Stack:** Playwright 1.59.1, vitest, local Supabase (service-role seed helpers), GitHub Actions.
 
@@ -22,7 +43,7 @@
 ## Meta-test inventory (writing-plans mandatory declaration)
 
 - **CREATES:** `tests/ci/standalone-webkit-a11y-wiring.test.ts` (Task 3) — pins the WebKit project's exactly-one-test resolution + webkit install lines.
-- **EXTENDS:** `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` (Task 2) — stage-restricted run-command + claiming-project assertions; `tests/docs/_metaDeferralLedgerGraduation.test.ts` `BACKLOG_GRADUATED` registry (Task 4) — two rows; `tests/ci/_metaE2eWorkflowCoverage.test.ts` registry row transition UNSEEN → PATH_GATED_BY_EXCLUSION (Task 2).
+- **EXTENDS:** `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` (Task 2) — stage-restricted run-command + resolved-collection assertions (see §11 and the mutation-family list for the shipped shape); `tests/docs/_metaDeferralLedgerGraduation.test.ts` `BACKLOG_GRADUATED` registry (Task 4) — two rows; `tests/ci/_metaE2eWorkflowCoverage.test.ts` registry row transition UNSEEN → PATH_GATED_BY_EXCLUSION (Task 2).
 - Advisory-lock topology: N/A — no `pg_advisory*` surface touched.
 - Invariant 9/10 registries: N/A per spec §5 (no new Supabase call site; no mutation surface).
 
@@ -89,6 +110,18 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF19 — activation-parser gaps + file-scoped engine override (whole-diff review R7 live
+  mutants):** four escapes against the first structural version — `continue-on-error: ${{ true }}`
+  parses as a STRING so an `=== true` test misses it; `needs:` a gate job carrying `if: false`
+  skips the job implicitly; a custom `shell: echo {0}` prints the generated script path and exits 0
+  without running it; and `test.use({ browserName: "chromium" })` at spec-file scope beats the
+  project's engine while the config still reads "webkit". Closed by adopting
+  `_workflowCoverageScan.ts`'s hard-won REFUSAL policy in one shared module
+  (`tests/_shared/workflowActivation.ts`, imported by both guards so a fix to one is a fix to
+  both): any `if:`/`needs:`/`defaults:`/`container:` on the job, any `if:`/`shell:`/
+  `working-directory:` on the step, and any `continue-on-error` that is not literally `false`,
+  yields no activated runs at all. Plus a ban on `test.use(`/`browserName` in the spec the WebKit
+  leg selects.
 - **MF18 — step/job activation gating (whole-diff review R6 live mutant):** `if: false` on the one
   Playwright step left both suites dark with the job, both guards and the coverage meta-test green
   (the specs carry dark-spec allowlist rows, so nothing else backstops it). Text scanning cannot see
@@ -334,7 +367,7 @@ Expected: exactly ONE error — `tests/e2e/stage-restricted-crew-schedule.spec.t
 ```
 
 - [ ] **Step 4: Typecheck green, behavioral red.** Run: `pnpm typecheck` → zero errors. Then run:
-`pnpm exec playwright test --project=mobile-safari tests/e2e/stage-restricted-crew-schedule.spec.ts`
+`pnpm exec playwright test --project=desktop-chromium tests/e2e/stage-restricted-crew-schedule.spec.ts`
 Expected: the 3 pre-existing tests PASS; the 3 NEW tests FAIL on `agenda-schedule` visibility (the option is accepted but never written, so `shows.agenda_links` is NULL → `hasAgenda` false → no agenda area). This is the spec §6 T2 red — the fold assertions fail for the RIGHT reason (missing data, page otherwise healthy). Requires the local stack: `supabase start` state as for any crew e2e run (preflight already green in this worktree).
 
 - [ ] **Step 5: Write the insert.** In `seedShowWithCrew`, extend the `shows` insert object (directly under the `dates:` line):
@@ -346,7 +379,7 @@ Expected: the 3 pre-existing tests PASS; the 3 NEW tests FAIL on `agenda-schedul
 ```
 
 - [ ] **Step 6: Run to green.**
-`pnpm exec playwright test --project=mobile-safari tests/e2e/stage-restricted-crew-schedule.spec.ts`
+`pnpm exec playwright test --project=desktop-chromium tests/e2e/stage-restricted-crew-schedule.spec.ts`
 Expected: all 6 tests PASS.
 
 - [ ] **Step 7: Commit.**
@@ -731,7 +764,7 @@ pnpm test
 pnpm typecheck
 pnpm lint
 pnpm format:check
-pnpm exec playwright test --project=mobile-safari tests/e2e/stage-restricted-crew-schedule.spec.ts
+pnpm exec playwright test --project=desktop-chromium tests/e2e/stage-restricted-crew-schedule.spec.ts
 pnpm exec playwright test --config tests/e2e/standalone.config.ts
 ```
 

@@ -11,12 +11,15 @@
  * too — both regress THIS assertion, not just coverage intent.
  */
 import { execFileSync } from "node:child_process";
-import { parse as parseYaml } from "yaml";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import standaloneConfig from "../e2e/standalone.config";
+import ts from "typescript";
+
+import { stripCommentsSafely } from "../_shared/stripComments";
+import { activatedRunScalars } from "../_shared/workflowActivation";
 
 const ROOT = process.cwd();
 const PROJECT = "standalone-webkit-a11y";
@@ -36,6 +39,23 @@ describe("standalone WebKit a11y leg wiring", () => {
     // `defaultBrowserType` reading "webkit" while the worker fixture launched Chromium.
     // `browserName` is an overridable worker option that merely DEFAULTS from
     // `defaultBrowserType`, so the override is what decides.
+    // The spec itself can override the project too. R7 (HIGH) escaping mutant:
+    // `test.use({ browserName: "chromium" })` at file scope makes the selected test launch
+    // Chromium while this config read still says "webkit" — Playwright applies project options
+    // first, then parent/file `test.use` overrides. Nothing downstream notices: project name,
+    // test title and spec id are all unchanged, so the baseline stays green too. Refuse the
+    // construct in the file this leg selects rather than trying to model its precedence.
+    const specSrc = stripCommentsSafely(
+      readFileSync(join(ROOT, "tests/e2e/agendaScheduleLayout.spec.ts"), "utf8"),
+      ts.ScriptKind.TS,
+    );
+    expect(
+      [/test\.use\s*\(/, /\bbrowserName\b/].filter((re) => re.test(specSrc)).map(String),
+      "tests/e2e/agendaScheduleLayout.spec.ts declares test.use/browserName. A file- or " +
+        "describe-scoped override wins over the project's engine, so this leg could report a " +
+        "green WebKit run while executing Chromium. Put engine selection in the project only.",
+    ).toEqual([]);
+
     const engine = project!.use?.browserName ?? project!.use?.defaultBrowserType;
     expect(
       engine,
@@ -110,38 +130,17 @@ describe("standalone WebKit a11y leg wiring", () => {
           return line;
         })
         .join("\n");
-    // ACTIVATED steps only (whole-diff review R6 HIGH, class-swept from the crew-e2e guard): a
-    // step-level or job-level `if:` can switch the install off entirely, and
-    // `continue-on-error: true` lets it fail while CI reports success — both leave a cold runner
-    // without WebKit while the text still reads as an install. Parsed structurally with the `yaml`
-    // dependency; fail-closed, so legitimate gating reads as uninstalled.
-    const activatedRuns = (): string[] => {
-      const doc = parseYaml(
-        readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"),
-      ) as {
-        jobs?: Record<string, { if?: unknown; "continue-on-error"?: unknown; steps?: unknown[] }>;
-      };
-      const runs: string[] = [];
-      for (const job of Object.values(doc.jobs ?? {})) {
-        if (job.if !== undefined || job["continue-on-error"] === true) continue;
-        for (const raw of job.steps ?? []) {
-          const step = raw as { run?: unknown; if?: unknown; "continue-on-error"?: unknown };
-          if (typeof step.run !== "string") continue;
-          if (step.if !== undefined || step["continue-on-error"] === true) continue;
-          runs.push(step.run);
-        }
-      }
-      return runs;
-    };
     const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
     // Non-INSTALLING modes (whole-diff review R2 HIGH live mutant): `playwright install
-    // --dry-run … webkit` and `install-deps --dry-run … webkit` print what they would do and
-    // exit 0 having installed nothing, so a cold runner gets neither the WebKit binary nor its
-    // system dependencies while the segment stays install-shaped. `--help`/`-h` are the same
+    // --dry-run … webkit` and `install-deps --dry-run … webkit` print what they would do and exit
+    // 0 having installed nothing, so a cold runner gets neither the WebKit binary nor its system
+    // dependencies while the segment stays install-shaped. `--help`/`-h` are the same
     // exit-0-without-acting shape. Segments carrying any of these are not installs.
     const NON_INSTALLING = new Set(["--dry-run", "--help", "-h"]);
+    // Activation (R6/R7) is decided by the shared tests/_shared/workflowActivation module, which
+    // both wiring guards import so a fix to one is a fix to both.
     const installSegments = (subcommand: "install" | "install-deps"): string[][] =>
-      activatedRuns()
+      activatedRunScalars(readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"))
         .map((c) => stripYaml(c))
         .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
         .map((seg) => seg.trim().split(/\s+/))
