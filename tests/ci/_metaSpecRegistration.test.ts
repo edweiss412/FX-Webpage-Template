@@ -19,7 +19,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
-import { validatedCompositeSteps } from "./_workflowCoverageScan";
+import { usesKind, validatedCompositeSteps } from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
 // Playwright resolves a reporter's relative `outputFile` against the CONFIG
@@ -295,8 +295,12 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   // opaque, fail-closed.
   const compositeStepsOf = (action: unknown): StepShape[] | null =>
     validatedCompositeSteps(action) as StepShape[] | null;
+  // R11: the walker's own uses-branch routes through the SHARED classifier
+  // too — treating any non-`./` value as neutral let a REFLESS remote ref
+  // (which GitHub rejects before any step runs) pass silently here while the
+  // scanner and the manifest profile both refused it. "invalid" poisons.
   const localRef = (s: StepShape): string | null =>
-    typeof s.uses === "string" && s.uses.startsWith("./") ? s.uses : null;
+    usesKind(s.uses) === "local" ? (s.uses as string).trim() : null;
   /**
    * One walker for workflow jobs, spliced composite actions, and the
    * standalone composite-doc entry: per job, IN ORDER, an earlier
@@ -328,7 +332,13 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
         continue;
       }
       const ref = localRef(s);
-      if (ref === null) continue;
+      if (ref === null) {
+        // Remote refs are trusted; an INVALID uses value (refless remote,
+        // non-string, malformed) fails the job at this step, so everything
+        // after it is unreachable — poison fail-closed.
+        if ("uses" in s && usesKind(s.uses) === "invalid") state.poisoned = true;
+        continue;
+      }
       const action = localActions[ref];
       const inner = action === undefined ? null : compositeStepsOf(action);
       if (inner === null || seen.has(ref)) {
@@ -1200,7 +1210,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // raw-text sweep already treats actions as execution surface; the census
     // must see the same universe or the two guards disagree.
     const wfDoc = parse(
-      "jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y\n      - run: echo guarded-step\n        if: failure()\n",
+      "jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y@v1\n      - run: echo guarded-step\n        if: failure()\n",
     );
     const actionDoc = parse(
       "name: setup\nruns:\n  using: composite\n  steps:\n    - run: echo action-step\n      shell: bash\n",
@@ -1354,6 +1364,29 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(runBlocksOf(marketplaceUse, {})).toEqual([
       { run: "echo after-checkout", guarded: false, poisoned: false },
     ]);
+    // R11: a REFLESS remote ref is INVALID, not trusted — GitHub rejects it
+    // before any step runs, so everything after is unreachable. The walker's
+    // own uses-branch shares the classifier with the scanner and the
+    // manifest profile, so all three agree.
+    for (const ref of ["actions/checkout", "owner/repo/path"]) {
+      expect(
+        runBlocksOf(
+          parse(`jobs:\n  j:\n    steps:\n      - uses: ${ref}\n      - run: echo after-refless\n`),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo after-refless", guarded: false, poisoned: true }]);
+    }
+    // …and the valid remote forms stay trusted.
+    for (const ref of ["owner/repo/sub@v1", "docker://alpine:3"]) {
+      expect(
+        runBlocksOf(
+          parse(`jobs:\n  j:\n    steps:\n      - uses: ${ref}\n      - run: echo after-ok\n`),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo after-ok", guarded: false, poisoned: false }]);
+    }
     // Standalone composite walk threads the same internal ordering.
     expect(runBlocksOf(setupWrites)).toEqual([
       { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
