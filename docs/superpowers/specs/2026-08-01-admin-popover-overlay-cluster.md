@@ -92,19 +92,38 @@ below any positive-z positioned box regardless of DOM order.
 
 ### 3.1 Change
 
-While `open && !busy` is true, both trigger buttons (`share-hub-primary`
+The elevation gate is `open && !busy && !attentionMenuOpen`: while it holds,
+both trigger buttons (`share-hub-primary`
 `components/admin/showpage/ShareHub.tsx:672`, `share-hub-kebab` `components/admin/showpage/ShareHub.tsx:707`) carry
-`relative z-30`; while closed OR busy they carry no z utility (unchanged
-classes). The busy half of the gate (review R4 F1): while a child action is
-in flight, `toggle()` is inert anyway (`components/admin/showpage/ShareHub.tsx:534`
-"every dismissal path is inert"), so an elevated trigger buys nothing — and
-because the §3.4 focus dismiss is busy-exempt, busy is exactly the window
-where a keyboard-opened AttentionMenu CAN coexist with the open hub; dropping
-the elevation there means the cluster introduces no new paint order in that
-state (triggers return to the shipped below-backdrop behavior, and the menu's
-`z-20` panel is not overpainted by any trigger). The pre-existing
-busy-hub + keyboard-menu concurrency itself is shipped behavior on `main`
-today and out of this cluster's scope (§10).
+`relative z-30`; otherwise they carry no z utility (unchanged classes).
+
+The `!busy` term (review R4 F1): while a child action is in flight,
+`toggle()` is inert anyway (`components/admin/showpage/ShareHub.tsx:534`
+"every dismissal path is inert"), so an elevated trigger buys nothing there.
+
+The `!attentionMenuOpen` term (review R5 F1): the §3.4 focus dismiss is
+busy-exempt, so during an in-flight action a keyboard user CAN open the
+AttentionMenu over the open hub — and when the action settles, no `focusin`
+fires, so BOTH surfaces remain open (the hub deliberately stays open to show
+its outcome banner, `components/admin/showpage/ShareHub.tsx:590`). A purely
+local `open && !busy` gate would re-elevate the triggers at that settle
+moment, over the still-open menu — and every busy source has that settle edge
+(`rotateBusy`, `resetBusy`, `lifecycleBusy`, plus the `busyStuck` 15s timeout,
+`components/admin/showpage/ShareHub.tsx:186-209`). The gate therefore takes
+the menu's state as an input: `PublishedReviewModal` owns `menuOpen`
+(`components/admin/showpage/PublishedReviewModal.tsx:301`; effective form
+`menuEffectivelyOpen`, `components/admin/showpage/PublishedReviewModal.tsx:356`)
+and already renders the strip, so it threads a new optional
+`attentionMenuOpen?: boolean` prop through `StatusStrip`
+(`components/admin/showpage/StatusStrip.tsx:98`) into `ShareHub`. Elevation is
+suppressed the whole time the menu is open and returns instantly when the menu
+closes. Guard condition: prop absent/undefined → `false` (non-modal callers
+and existing tests behave exactly as before).
+
+The pre-existing busy-hub + keyboard-menu concurrency itself is shipped
+behavior on `main` today and out of this cluster's scope (§10) — with this
+gate, the cluster introduces no new paint order in ANY reachable interleaving
+of it.
 The backdrop (`components/admin/showpage/ShareHub.tsx:651-661`) is untouched.
 
 Result: with the hub open, a tap on either trigger hits the trigger, which runs
@@ -180,9 +199,15 @@ directions).
   triggers' parsed max z-level (same `maxZLevel` helper) is **> 20** and the
   backdrop stays `z-20` (`tests/components/admin/showpage/shareHub.test.tsx:217` pin unchanged).
 - Busy companion pin: with the hub open AND a child reporting busy, both
-  triggers' parsed max z-level is < 20 again (the `!busy` half of the gate),
+  triggers' parsed max z-level is < 20 again (the `!busy` term),
   alongside the existing busy-dismissal coverage in
   `tests/components/admin/showpage/shareHub.test.tsx:873`.
+- Busy-settle reconciliation pins (review R5 F1): with the hub open and
+  `attentionMenuOpen` true, settle EACH busy reporter (`rotateBusy` via the
+  rotate resolver, `resetBusy`, `lifecycleBusy`) and separately fire the
+  `busyStuck` timeout — after every settle path, triggers' max z-level stays
+  < 20 while the prop is true, and flips to ≥ 21 when the prop goes false
+  (menu closed). Prop-absent case pinned as identical to today.
 - Restore the deliberately-scoped-out trigger assertions in T-BACKDROP
   (`tests/e2e/admin-lifecycle-layout.spec.ts:630-638`): with the hub open,
   `elementFromPoint` at each trigger's center resolves into that trigger, and
@@ -417,7 +442,9 @@ trigger label/weight, prop-driven): live ("Share link"), paused
 | Pair | Treatment |
 |---|---|
 | closed ↔ open | Instant class swap; this cluster adds `relative z-30` on open-and-not-busy — z/position changes do not animate (matches the existing instant `bg-surface-sunken` kebab swap, `components/admin/showpage/ShareHub.tsx:719-721`) |
-| Compound: busy flips while open | Elevation drops/returns instantly with the `open && !busy` gate (§3.1); no animation; while busy the triggers sit below the backdrop exactly as shipped today |
+| Compound: busy flips while open | Elevation drops/returns instantly with the §3.1 gate; no animation; while busy the triggers sit below the backdrop exactly as shipped today |
+| Compound: busy settles while the attention menu is open (any of the three busy reporters, or the `busyStuck` timeout) | Elevation stays suppressed (`!attentionMenuOpen` term) — no re-elevation over the open menu; instant |
+| Compound: menu closes while hub open + not busy | Elevation returns instantly (gate flips true); no animation |
 | live ↔ paused ↔ archived (any pair) | Server-prop re-render, instant label/weight swap (existing; no animation) |
 | Compound: lifecycle change while open | Existing immediate-or-busy-deferred close machinery (`components/admin/showpage/ShareHub.tsx:548-602`) — untouched by this cluster; the open-gated `z-30` unmounts with the same close, so no state where the backdrop is gone but the elevation remains |
 
@@ -525,10 +552,12 @@ standalone spec asserting 1-2 at 390×{560,667,844} plus last-row
   that focuses an element; tests must keep using delta baselines rather than
   global zero-count assertions.
 - Busy-window concurrency: while a hub child action is in flight (dismissal
-  gated), a keyboard user can open the AttentionMenu over the open hub. This
-  state exists on `main` today; this cluster neither fixes nor worsens it —
-  the `!busy` elevation gate (§3.1) keeps the busy-window paint order
-  byte-identical to shipped behavior. Filed observation, not a regression.
+  gated), a keyboard user can open the AttentionMenu over the open hub, and
+  after settle both surfaces remain open until one is dismissed. This state
+  exists on `main` today; this cluster neither fixes nor worsens it — the
+  §3.1 gate (`!busy` and `!attentionMenuOpen` terms) keeps the paint order
+  byte-identical to shipped behavior through every interleaving, including
+  busy-settle. Filed observation, not a regression.
 - Focus-leave light dismiss (§3.4) deliberately does not fire on window blur
   or focus moving to browser chrome (no in-document `focusin` target) — the
   surface stays open across an app switch, matching backdrop behavior.
