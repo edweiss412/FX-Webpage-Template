@@ -88,6 +88,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/redirect-guard-type-aware (2026-08-01): the self-redirect guard's
+  // syntactic 19-spelling matcher replaced by two-prong type-checker resolution
+  // (calls by resolved signature; every other reference type-decided, incl.
+  // destructuring-assignment members and naked class-object flows). Sole
+  // remaining type-erasure limit: string-mediated dynamic access (eval shape),
+  // E-pinned; receiver laundering, widened keys, and Reflect.get are caught.
+  { id: "BL-SOUND-REDIRECT-GUARD", provenance: "test/redirect-guard-type-aware" },
   // test/ci-cross-step-env-guard (2026-08-01): job-scoped cross-step
   // GITHUB_ENV/GITHUB_PATH state in both CI guard layers (census walker
   // splice + scanner per-job poison flag, closure families F1-F8).
