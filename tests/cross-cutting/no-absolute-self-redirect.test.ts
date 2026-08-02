@@ -605,6 +605,17 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  it("does not flag an app-local class merely named Response (N14)", () => {
+    // Provenance pin (whole-diff r11): only node_modules-declared containers
+    // are banned; a local domain model sharing the name is not.
+    expect(
+      auditSource(
+        fixturePath(),
+        `class Response2 {}\nclass Response { redirect(u: string) { return u; } }\nconst r = new Response();\nconst m = r.redirect;\nexport function GET() { return [m.call(r, "/x"), new Response2()]; }`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag type-only typeof member references (N13)", () => {
     // `typeof NextResponse.json` etc. parse as QualifiedName chains — pure type
     // space (whole-diff r9 false-positive fix).

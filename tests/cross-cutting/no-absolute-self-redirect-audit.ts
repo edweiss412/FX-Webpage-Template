@@ -149,7 +149,14 @@ function isBannedDecl(decl: Node | undefined): boolean {
   if (decl === undefined) return false;
   if (declaredName(decl) !== "redirect") return false;
   const container = containerName(decl);
-  return container === "NextResponse" || container === "Response";
+  if (container !== "NextResponse" && container !== "Response") return false;
+  // Provenance pin (whole-diff r11): only the REAL classes — declared under
+  // node_modules (next/dist, typescript/lib, undici-types) — are banned. An
+  // app-local class that merely shares the name is a plausible domain model;
+  // a local class with a genuinely host-flipping redirect either delegates to
+  // the real method (flagged at that reference) or hand-rolls the Location
+  // header (the ratified concession).
+  return decl.getSourceFile().getFilePath().includes("node_modules/");
 }
 
 function typeCarriesBannedSignature(t: Type): boolean {
@@ -318,7 +325,8 @@ function rawIsBannedDecl(decl: ts.Node | undefined): boolean {
   if (decl === undefined) return false;
   if (rawDeclaredName(decl) !== "redirect") return false;
   const container = rawContainerName(decl);
-  return container === "NextResponse" || container === "Response";
+  if (container !== "NextResponse" && container !== "Response") return false;
+  return decl.getSourceFile().fileName.includes("node_modules/");
 }
 
 function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boolean {

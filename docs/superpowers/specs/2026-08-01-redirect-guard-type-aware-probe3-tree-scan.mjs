@@ -5,8 +5,11 @@
  *
  * Run: pnpm exec tsx docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe3-tree-scan.mjs
  *
- * This is the implementation-ready core (pure ts-morph API; the raw-`typescript`
- * variant fails strict tsc against ts-morph's vendored compiler types).
+ * HISTORICAL PIN — the call-prong-only candidate matcher as probed at spec R1,
+ * kept as evidence for §2 probe 3. The SHIPPED construction grew far beyond it
+ * (two prongs, carriers, provenance pins); the live harness that can never
+ * drift is tests/cross-cutting/redirect-guard-probes/mutant-corpus.mjs, which
+ * imports the real auditor.
  */
 import { Node, Project, SyntaxKind } from "ts-morph";
 

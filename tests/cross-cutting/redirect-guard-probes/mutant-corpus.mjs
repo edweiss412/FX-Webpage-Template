@@ -6,7 +6,10 @@
  * never drift from the guard it validates (whole-diff r10 finding 2 retired
  * the mirrored-detector version that lived beside the spec).
  *
- * Run: pnpm exec tsx tests/cross-cutting/redirect-guard-probes/mutant-corpus.mjs
+ * Run (the auditor is TypeScript, so a TS-capable loader is REQUIRED):
+ *   pnpm exec tsx tests/cross-cutting/redirect-guard-probes/mutant-corpus.mjs
+ *   node --import tsx tests/cross-cutting/redirect-guard-probes/mutant-corpus.mjs
+ * Bare `node` fails with ERR_MODULE_NOT_FOUND — not a harness defect.
  *
  * Sections: A) the R/N/E mutant corpus through auditSource; B) the real-tree
  * scan through auditTree. Expected: ALL CLOSED; tree = exactly the allowlisted
