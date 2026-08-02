@@ -112,6 +112,35 @@ function audit(sf) {
       hits.push({ line: call.getStartLineNumber(), kind: "call", text: call.getText().split("\n")[0] ?? "" });
       continue;
     }
+    // CommonJS require carrier (whole-diff r7): callee's Require type + resolved specifier
+    {
+      const callee = call.getExpression();
+      const arg0 = call.getArguments()[0];
+      if (
+        arg0 !== undefined && Node.isStringLiteral(arg0) && Node.isIdentifier(callee) &&
+        callee.getType().getSymbol()?.getName() === "Require"
+      ) {
+        const res = ts.resolveModuleName(arg0.getLiteralText(), sf.getFilePath(), sf.getProject().getCompilerOptions(), sf.getProject().getModuleResolutionHost());
+        const rfn = res.resolvedModule?.resolvedFileName;
+        if (rfn !== undefined) {
+          const msf = sf.getProject().getSourceFile(rfn) ?? sf.getProject().addSourceFileAtPathIfExists(rfn);
+          if (msf !== undefined) {
+            const msym = raw2.getSymbolAtLocation(msf.compilerNode);
+            if (msym !== undefined) {
+              const mt = raw2.getTypeOfSymbolAtLocation(msym, msf.compilerNode);
+              for (const cp of mt.getProperties()) {
+                const cpt = raw2.getTypeOfSymbolAtLocation(cp, msf.compilerNode);
+                const rp = cpt.getProperty("redirect");
+                if ((rp !== undefined && rawTypeCarries(raw2, raw2.getTypeOfSymbolAtLocation(rp, msf.compilerNode))) || rawTypeCarries(raw2, cpt)) {
+                  hits.push({ line: call.getStartLineNumber(), kind: "reference", text: call.getText().split("\n")[0] ?? "" });
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     // import-call carrier (whole-diff r4): decide on the awaited module type
     if (call.getExpression().getKind() === SyntaxKind.ImportKeyword) {
       const awaited = raw2.getAwaitedType(raw2.getTypeAtLocation(call.compilerNode));
@@ -326,6 +355,10 @@ const MUTANTS = [
   ["R87 renamed-export namespace stuffing", `import * as NSr from "./reexp-named";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { Redirector: { redirect: RedirectFn } } = NSr;\nexport function GET() { return R.Redirector.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R88 default-export namespace stuffing", `import * as NSd from "./reexp-default";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { default: { redirect: RedirectFn } } = NSd;\nexport function GET() { return R.default.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R89 dynamic import of renamed-export helper", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const m: { Redirector: { redirect: RedirectFn } } = await import("./reexp-named");\n  return m.Redirector.redirect(new URL("/x", request.url));\n}`, "flag"],
+  ["R90 untyped require carrier", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSr2 = require("next/server");\nconst R: { NextResponse: { redirect: RedirectFn } } = NSr2;\nexport function GET() { return R.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R91 as-cast require carrier", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSc = require("next/server") as typeof import("next/server");\nconst R: { redirect: RedirectFn } = NSc.NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R92 renamed require carrier", `declare const request: Request;\nconst r2 = require;\nconst NS2 = r2("next/server");\nexport function GET() { return NS2; }`, "flag"],
+  ["N11 require of unrelated module", `const p = require("react");\nexport function GET() { return typeof p; }`, "clean"],
   ["N10 unrelated import bindings untracked", `import { join } from "node:path";\nconst j = join;\nexport function GET() { return j("a", "b"); }`, "clean"],
   ["NEG dynamic import of unrelated module", `export async function GET() {\n  const m = await import("node:path");\n  return m.join("a", "b");\n}`, "clean"],
   ["N9 ordinary namespace uses", `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`, "clean"],
