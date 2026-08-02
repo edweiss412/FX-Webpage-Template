@@ -15,7 +15,16 @@ None created or extended, with one convention-mandated exception: two `{ id, pro
 - `2026-08-02-docs-hygiene-baseline-lint.txt` — all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base). Canonical (re)generation command — the post-edit delta MUST re-run exactly this, then `diff` against the artifact (plan review R3: the pnpm/header chrome is stripped by the same filter both times, so the diff is deterministic):
 
   ```sh
-  for f in <the ten files, same order as the artifact>; do
+  for f in docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md \
+           docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md \
+           docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md \
+           docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md \
+           docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md \
+           docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md \
+           docs/superpowers/plans/2026-07-22-hoverhelp-caret-blur-close.md \
+           docs/superpowers/plans/2026-07-24-attention-index.md \
+           docs/superpowers/specs/2026-07-22-hoverhelp-caret-blur-close.md \
+           docs/superpowers/specs/2026-07-24-hoverhelp-visual-viewport.md; do
     echo "===== $f"
     pnpm spec:lint "$f" 2>&1 | grep -v "^> \|^$\|^pnpm\|ELIFECYCLE\|spec:lint docs"
   done
