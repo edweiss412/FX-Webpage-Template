@@ -1006,6 +1006,7 @@ export function ShareHub({
                       />
                     ) : (
                       <ArchiveShowButton
+              showName={showTitle}
                         archiveAction={archiveAction}
                         compact
                         onBusyChange={onLifecycleBusy}

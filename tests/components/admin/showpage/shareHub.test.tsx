@@ -1453,3 +1453,24 @@ describe("ShareHub — focus-leave dismiss (spec §3.4)", () => {
     expect(queryPopover()).not.toBeNull();
   });
 });
+
+/**
+ * Threading proof for the self-describing armed confirm (spec §5.1/§5.3).
+ * The hub already knows the show's title; the armed Archive confirm is where it
+ * matters, because that is the destructive decision.
+ */
+describe("ShareHub — armed Archive confirm names the show", () => {
+  it("threads showTitle into the row-variant ArchiveShowButton", () => {
+    renderHub({ showTitle: "Spring Gala" });
+    fireEvent.click(primary());
+    fireEvent.click(screen.getByTestId("archive-show-button"));
+    const confirm = screen.getByTestId("archive-show-confirm-button");
+    const prose = document.getElementById(confirm.getAttribute("aria-describedby")!)!;
+    expect(prose.textContent).toBe(
+      "Crew links for “Spring Gala” stop working now and won’t come back until you re-publish and issue a new link.",
+    );
+    expect(screen.getByTestId("archive-show-confirm-row").getAttribute("aria-label")).toBe(
+      "Confirm archiving “Spring Gala”",
+    );
+  });
+});
