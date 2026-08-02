@@ -96,3 +96,5 @@ Standing observations from every run so far (ladders 2, 5, 6, 7, 8): typecheck, 
 **Latest run:** re-run at each repaired HEAD through the review train; every run has produced the same shape — typecheck, lint and format:check green, `pnpm test` ~1696 passed with a rotating single failure among DB-touching and process-spawning specs that passes in isolation. One run under heavy concurrent load (four sessions) produced 39 such failures with per-file durations of 220-290s, and the same files passed in 4s isolated — the contention diagnosis is a measurement, not an excuse. The authoritative signal remains real CI on PR #650, which is green.
 
 **Final ladder before merge (HEAD `a04f20a11`):** typecheck, lint, format:check green; `pnpm test` 1696 passed / 1 failed (`tests/scripts/runExcludedTest.test.ts`, green isolated) — the same shape as every prior run, and PR #650's CI is green 19/19 on a dedicated runner, which is the authoritative signal per the contract above.
+
+**Ladder at HEAD `0a43c1e03` (post-R26):** typecheck, lint, format:check green; `pnpm test` 1696 passed / 1 failed (the contention spec, green isolated). Eight consecutive ladders, one shape.
