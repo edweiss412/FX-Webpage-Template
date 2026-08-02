@@ -561,6 +561,31 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // r14): the naked flow flags only when the contextual/asserted destination
   // type still carries the banned method.
   const globalCarrierNames = new Set(["globalThis", "window", "self", "global"]);
+  // Provenance survives ordinary local aliases (`const environment = globalThis`)
+  // to a fixpoint — an alias of an alias spells a tracked name at ITS
+  // declaration, so each pass extends the set until stable (whole-diff r15).
+  let carrierSetGrew = true;
+  while (carrierSetGrew) {
+    carrierSetGrew = false;
+    for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      const nameNode = vd.getNameNode();
+      if (!Node.isIdentifier(nameNode)) continue;
+      const localName = nameNode.getText();
+      if (globalCarrierNames.has(localName)) continue;
+      let init = vd.getInitializer();
+      while (
+        init !== undefined &&
+        (Node.isParenthesizedExpression(init) || Node.isNonNullExpression(init)) &&
+        true
+      ) {
+        init = init.getExpression();
+      }
+      if (init !== undefined && Node.isIdentifier(init) && globalCarrierNames.has(init.getText())) {
+        globalCarrierNames.add(localName);
+        carrierSetGrew = true;
+      }
+    }
+  }
   for (const imp of sf.getImportDeclarations()) {
     const clause = imp.getImportClause();
     if (clause === undefined) continue;

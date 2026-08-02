@@ -615,6 +615,15 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  it("flags R95 aliased global carrier into a structural parameter", () => {
+    // whole-diff r15: provenance survives ordinary local aliases to a fixpoint.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst environment = globalThis;\nconst env2 = environment;\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
   it("does not flag ordinary global-object receiver/typeof uses (N16)", () => {
     expect(
       auditSource(
