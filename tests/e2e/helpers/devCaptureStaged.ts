@@ -43,6 +43,18 @@ const databaseUrl =
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
 
+/** The local Supabase database port (`supabase/config.toml:29`). The gallery pins
+ *  to it so the SQL transport and the `supabaseAdmin` client (loopback API on
+ *  54321) can only ever be two doors onto the SAME instance. */
+const LOCAL_SUPABASE_DB_PORT = "54322";
+
+/** libpq connection parameters that RE-TARGET a URI regardless of its authority.
+ *  `psql "postgresql://…@127.0.0.1:54322/postgres?host=192.0.2.1"` connects to
+ *  192.0.2.1: the authority a URL parser reads is NOT the effective target, so a
+ *  hostname-only guard is bypassable. `service` is worse — it pulls host, port,
+ *  and database from an external service file the guard never sees. */
+const LIBPQ_TARGET_OVERRIDE_PARAMS = ["host", "hostaddr", "service", "port", "dbname"];
+
 /**
  * The ONE database the state-gallery path binds to — seed, cleanup, lock probe,
  * readback and the live `/admin` render all target it.
@@ -50,24 +62,57 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0
  * Deliberately IGNORES `TEST_DATABASE_URL`: the canonical `.env.local` points
  * that at the validation pooler (scripts/preflight-env.mjs:121) while
  * `supabaseAdmin` and the app resolve the loopback `SUPABASE_URL`, so honoring
- * it would seed validation and read local. Throws on a non-loopback host —
- * fail-loud rather than silently mutating a remote fixture (same posture as the
- * observe CLI's `--env` guardrail).
+ * it would seed validation and read local.
+ *
+ * Fail-loud rather than silently mutating a remote fixture (same posture as the
+ * observe CLI's `--env` guardrail). Three independent rejections, because a
+ * hostname check alone closes none of the other two:
+ *
+ *   1. a non-loopback hostname;
+ *   2. ANY libpq target-override query parameter — these beat the authority, so
+ *      an accepted-looking loopback URI can still connect to a remote host;
+ *   3. a loopback host on a port that is NOT the local Supabase database. That
+ *      is not a remote-write hazard, it is a SPLIT-TARGET hazard: DML would land
+ *      in some other local Postgres while the wizard session, the readback, and
+ *      the rendered page stay on the Supabase instance, and the gallery would
+ *      come up empty with nothing to point at.
  */
 export function galleryDatabaseUrl(): string {
   const url = process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-  let host: string;
+  let parsed: URL;
   try {
-    host = new URL(url).hostname;
+    parsed = new URL(url);
   } catch {
     throw new Error(`devCaptureStaged: DATABASE_URL is not a parseable URL`);
   }
-  if (!LOOPBACK_HOSTS.has(host)) {
+
+  const overrides = LIBPQ_TARGET_OVERRIDE_PARAMS.filter((p) => parsed.searchParams.has(p));
+  if (overrides.length > 0) {
     throw new Error(
-      `devCaptureStaged: the Step-3 state gallery refuses a non-loopback database host (${host}). ` +
-        `Point DATABASE_URL at the local Supabase instance, or unset it to use the 127.0.0.1:54322 default.`,
+      `devCaptureStaged: the Step-3 state gallery refuses a DATABASE_URL carrying libpq ` +
+        `target-override parameter(s) (${overrides.join(", ")}). They override the URI's own host ` +
+        `and port, so the loopback check below cannot see where the connection actually goes. ` +
+        `Remove them, or unset DATABASE_URL to use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default.`,
     );
   }
+
+  if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
+    throw new Error(
+      `devCaptureStaged: the Step-3 state gallery refuses a non-loopback database host (${parsed.hostname}). ` +
+        `Point DATABASE_URL at the local Supabase instance, or unset it to use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default.`,
+    );
+  }
+
+  if (parsed.port !== LOCAL_SUPABASE_DB_PORT) {
+    throw new Error(
+      `devCaptureStaged: the Step-3 state gallery refuses a loopback database on port ` +
+        `${parsed.port || "(default)"}; it must be the local Supabase database on ` +
+        `${LOCAL_SUPABASE_DB_PORT}. Seeding another local Postgres would split the gallery: the ` +
+        `rows land there while the wizard session, the readback, and the rendered page stay on ` +
+        `Supabase.`,
+    );
+  }
+
   return url;
 }
 

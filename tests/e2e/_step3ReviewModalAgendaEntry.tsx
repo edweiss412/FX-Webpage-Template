@@ -48,17 +48,34 @@ const READY_ITEMS: AdminAgendaItem[] = [
   },
 ];
 
-/** Intercepts ONLY the agenda extract route
- *  (`/api/admin/onboarding/extract-agenda/<wizardSessionId>/<driveFileId>`,
- *  POSTed by AgendaBreakdown) and answers the deterministic 200 body. Every
- *  OTHER request passes through to the real fetch — in this dev-server-less
- *  harness such a request fails loudly rather than being silently absorbed. */
-const EXTRACT_ROUTE_PREFIX = "/api/admin/onboarding/extract-agenda/";
+/** Intercepts ONLY a POST to the FULLY-FORMED agenda extract route
+ *  (`/api/admin/onboarding/extract-agenda/<wizardSessionId>/<driveFileId>`, both
+ *  segments non-empty) and answers the deterministic 200 body. Every OTHER
+ *  request passes through to the real fetch — in this dev-server-less harness
+ *  such a request fails loudly rather than being silently absorbed.
+ *
+ *  Method and shape are BOTH checked, not just the prefix (whole-diff review):
+ *  a prefix-only stub answers `GET` and answers a truncated path with no
+ *  driveFileId, so a regression that changed the verb or dropped a segment would
+ *  still receive the ready-state payload and the spec would stay green while the
+ *  real route was never exercised in that shape. */
+const EXTRACT_ROUTE = /^\/api\/admin\/onboarding\/extract-agenda\/[^/?#]+\/[^/?#]+$/;
 const realFetch = window.fetch.bind(window);
 window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const url =
     typeof input === "string" ? input : input instanceof URL ? input.href : (input?.url ?? "");
-  if (url.startsWith(EXTRACT_ROUTE_PREFIX)) {
+  const method = (
+    init?.method ??
+    (typeof input === "object" && input !== null && "method" in input ? input.method : "GET")
+  ).toUpperCase();
+  // Relative or absolute: compare the PATH, never the raw string.
+  let path: string;
+  try {
+    path = new URL(url, window.location.origin).pathname;
+  } catch {
+    path = "";
+  }
+  if (method === "POST" && EXTRACT_ROUTE.test(path)) {
     return Promise.resolve(
       new Response(JSON.stringify({ items: READY_ITEMS }), {
         status: 200,

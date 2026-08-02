@@ -406,7 +406,7 @@ the app side needs the same pin for a coherent local render.
 The diff contains NO visual change: the branch's only two UI-surface files are
 `components/admin/OnboardingWizard.tsx` (mechanical extraction, no markup added — grep for added
 `className` or added JSX tags returns nothing) and `components/admin/wizard/Step3Review.tsx` (one
-string literal respelled from a raw NUL to ` `, runtime-identical). Every finding below is
+string literal respelled from a raw NUL to `\u0000`, runtime-identical). Every finding below is
 therefore a PRE-EXISTING property of the surface that the six-variant gallery made visible for the
 first time. **No P0.** Per the plan's disposition rule, P0 would be fixed inline and P1+ deferred;
 with zero P0 nothing was fixed inline, and everything below is deferred under
