@@ -37,14 +37,17 @@
  * have NO such backstop (tsconfig `include` is TS-only, `checkJs` off), which
  * is why the companion test's sentinel keeps the walked roots free of them.
  *
- * KNOWN RESIDUAL (spec §7): string-mediated dynamic access — `eval`, or any
- * construct where the name reaches the method only inside a string literal —
- * is the one remaining type-erasure escape; it cannot be pinned by a fixture
- * (the E1 fixture pins the eval shape at 0 findings) and is covered only by
- * its greppable spelling being loud in review. Receiver laundering
- * (`(NextResponse as any).redirect`), widened computed keys, and
- * `Reflect.get(NextResponse, k)` are all CAUGHT at the naked class-object
- * reference they must spell (whole-diff r2 closure). Local runtime mimics named
+ * THREAT MODEL AND RESIDUAL (spec §7; ratified whole-diff r8): the guard's
+ * claim is against INADVERTENT use — direct calls, honest indirection, and the
+ * ninety-plus probed laundering families pinned as fixtures (regression floor,
+ * spec §6). It does NOT claim to stop deliberate evasion, and never has: an
+ * author contrived enough to route the class object through an adapter,
+ * computed specifier, nested re-export namespace, or eval string can equally
+ * hand-roll `new NextResponse(null, { headers: { Location } })`, which is
+ * permanently outside the redirect-call claim. Receiver laundering, widened
+ * keys, and Reflect.get ARE caught (they arise from plausible refactors);
+ * exotic module-object flows beyond the pinned families file to the evasion
+ * concession, not to the finding queue. Local runtime mimics named
  * `NextResponse` either delegate to the real method (their internal reference
  * is in a walked file and flags there) or hand-roll a Location header without
  * it (outside this guard's claim). `node_modules` wrappers are outside the
@@ -320,6 +323,19 @@ function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boo
     .some((s) => rawIsBannedDecl(s.getDeclaration()));
 }
 
+/**
+ * The callee is Node's `require` — pinned to the @types/node DECLARATION, not
+ * a symbol-name comparison (a local callable `interface Require` produced a
+ * false finding under the name check; whole-diff r8 finding 4).
+ */
+function isNodeRequireType(callee: Node): boolean {
+  const sym = callee.getType().getSymbol();
+  if (sym === undefined || sym.getName() !== "Require") return false;
+  return sym
+    .getDeclarations()
+    .some((d) => d.getSourceFile().getFilePath().includes("node_modules/@types/node/"));
+}
+
 /** Per-project cache: `dir|specifier` → carrier verdict (require-call checks). */
 const specifierVerdicts = new Map<string, boolean>();
 
@@ -436,7 +452,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       arg0 !== undefined &&
       Node.isStringLiteral(arg0) &&
       Node.isIdentifier(callee) &&
-      callee.getType().getSymbol()?.getName() === "Require" &&
+      isNodeRequireType(callee) &&
       specifierResolvesToCarrier(sf, arg0.getLiteralText())
     ) {
       findings.push(findingFor(call, "reference", ""));
@@ -566,7 +582,16 @@ const AUDIT_PROJECT_OPTIONS = {
  */
 let fixtureProject: Project | undefined;
 function getFixtureProject(): Project {
-  fixtureProject ??= new Project(AUDIT_PROJECT_OPTIONS);
+  if (fixtureProject === undefined) {
+    fixtureProject = new Project(AUDIT_PROJECT_OPTIONS);
+    // Types anchor: @types/node (and next's types) enter the program only via
+    // some import — without this seed, a fixture using bare `require` resolves
+    // no `Require` symbol when it happens to run first/alone (order-dependence
+    // of the r7 require branch, caught by the r8 repair's own probe).
+    fixtureProject.createSourceFile("app/__audit_fixture__/__seed__.ts", `import "next/server";`, {
+      overwrite: true,
+    });
+  }
   return fixtureProject;
 }
 

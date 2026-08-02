@@ -118,7 +118,8 @@ function audit(sf) {
       const arg0 = call.getArguments()[0];
       if (
         arg0 !== undefined && Node.isStringLiteral(arg0) && Node.isIdentifier(callee) &&
-        callee.getType().getSymbol()?.getName() === "Require"
+        callee.getType().getSymbol()?.getName() === "Require" &&
+        (callee.getType().getSymbol()?.getDeclarations() ?? []).some((d) => d.getSourceFile().getFilePath().includes("node_modules/@types/node/"))
       ) {
         const res = ts.resolveModuleName(arg0.getLiteralText(), sf.getFilePath(), sf.getProject().getCompilerOptions(), sf.getProject().getModuleResolutionHost());
         const rfn = res.resolvedModule?.resolvedFileName;
@@ -358,6 +359,7 @@ const MUTANTS = [
   ["R90 untyped require carrier", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSr2 = require("next/server");\nconst R: { NextResponse: { redirect: RedirectFn } } = NSr2;\nexport function GET() { return R.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R91 as-cast require carrier", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSc = require("next/server") as typeof import("next/server");\nconst R: { redirect: RedirectFn } = NSc.NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
   ["R92 renamed require carrier", `declare const request: Request;\nconst r2 = require;\nconst NS2 = r2("next/server");\nexport function GET() { return NS2; }`, "flag"],
+  ["N12 local callable interface named Require", `interface Require { (id: string): unknown }\ndeclare const lookup: Require;\nexport function GET() { return lookup("next/server"); }`, "clean"],
   ["N11 require of unrelated module", `const p = require("react");\nexport function GET() { return typeof p; }`, "clean"],
   ["N10 unrelated import bindings untracked", `import { join } from "node:path";\nconst j = join;\nexport function GET() { return j("a", "b"); }`, "clean"],
   ["NEG dynamic import of unrelated module", `export async function GET() {\n  const m = await import("node:path");\n  return m.join("a", "b");\n}`, "clean"],

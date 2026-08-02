@@ -595,6 +595,17 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
+  it("does not flag a local callable interface named Require (N12)", () => {
+    // The require branch pins Node's declaration; a same-named local callable
+    // was a probed false positive (whole-diff r8 finding 4).
+    expect(
+      auditSource(
+        fixturePath(),
+        `interface Require { (id: string): unknown }\ndeclare const lookup: Require;\nexport function GET() { return lookup("next/server"); }`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag require of an unrelated module (N11)", () => {
     expect(
       auditSource(
