@@ -51,12 +51,27 @@ const LOCAL_SUPABASE_DB_PORT = "54322";
 /** The database every other gallery consumer reads through `supabaseAdmin`. */
 const LOCAL_SUPABASE_DB_NAME = "postgres";
 
-/** libpq connection parameters that RE-TARGET a URI regardless of its authority.
+/** libpq connection parameters that OVERRIDE the URI's own authority.
  *  `psql "postgresql://…@127.0.0.1:54322/postgres?host=192.0.2.1"` connects to
  *  192.0.2.1: the authority a URL parser reads is NOT the effective target, so a
  *  hostname-only guard is bypassable. `service` is worse — it pulls host, port,
- *  and database from an external service file the guard never sees. */
-const LIBPQ_TARGET_OVERRIDE_PARAMS = ["host", "hostaddr", "service", "port", "dbname"];
+ *  and database from an external service file the guard never sees.
+ *
+ *  `user` and `password` belong to the same class even though they do not move
+ *  the target (whole-diff review R4): libpq resolves them over the authority's
+ *  credentials while postgres.js — the lock probe's transport — keeps the
+ *  authority's, so the seed and the probe would authenticate as DIFFERENT roles
+ *  against the same database, and any role-dependent behavior would diverge
+ *  between them silently. */
+const LIBPQ_AUTHORITY_OVERRIDE_PARAMS = [
+  "host",
+  "hostaddr",
+  "service",
+  "port",
+  "dbname",
+  "user",
+  "password",
+];
 
 /**
  * The ONE database the state-gallery path binds to — seed, cleanup, lock probe,
@@ -68,17 +83,26 @@ const LIBPQ_TARGET_OVERRIDE_PARAMS = ["host", "hostaddr", "service", "port", "db
  * it would seed validation and read local.
  *
  * Fail-loud rather than silently mutating a remote fixture (same posture as the
- * observe CLI's `--env` guardrail). Three independent rejections, because a
- * hostname check alone closes none of the other two:
+ * observe CLI's `--env` guardrail). FIVE independent rejections — each one was
+ * an escape that a live probe drove past the guard as it stood, so none of them
+ * is implied by the others:
  *
- *   1. a non-loopback hostname;
- *   2. ANY libpq target-override query parameter — these beat the authority, so
- *      an accepted-looking loopback URI can still connect to a remote host;
- *   3. a loopback host on a port that is NOT the local Supabase database. That
- *      is not a remote-write hazard, it is a SPLIT-TARGET hazard: DML would land
- *      in some other local Postgres while the wizard session, the readback, and
- *      the rendered page stay on the Supabase instance, and the gallery would
- *      come up empty with nothing to point at.
+ *   1. ANY libpq authority-override query parameter. These beat the URI's own
+ *      authority, so an accepted-looking loopback URI can still connect to a
+ *      remote host, a different database, or as a different role.
+ *   2. a non-loopback hostname;
+ *   3. a loopback host on a port that is NOT the local Supabase database. Not a
+ *      remote-write hazard — a SPLIT-TARGET hazard: DML would land in some other
+ *      local Postgres while the wizard session, the readback, and the rendered
+ *      page stay on the Supabase instance, and the gallery would come up empty
+ *      with nothing to point at;
+ *   4. the right host and port on the wrong DATABASE (the URI path);
+ *   5. a DSN that is not self-contained, since `galleryPsqlEnv()` strips
+ *      PGPASSWORD and an ambient-credential DSN would fail far from here.
+ *
+ * The transport is hardened alongside the DSN: `galleryPsqlEnv()` removes every
+ * PG* variable, and psql runs with `-X`. A validated DSN is necessary but not
+ * sufficient — libpq also reads the environment and startup files.
  */
 export function galleryDatabaseUrl(): string {
   const url = process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -89,12 +113,13 @@ export function galleryDatabaseUrl(): string {
     throw new Error(`devCaptureStaged: DATABASE_URL is not a parseable URL`);
   }
 
-  const overrides = LIBPQ_TARGET_OVERRIDE_PARAMS.filter((p) => parsed.searchParams.has(p));
+  const overrides = LIBPQ_AUTHORITY_OVERRIDE_PARAMS.filter((p) => parsed.searchParams.has(p));
   if (overrides.length > 0) {
     throw new Error(
       `devCaptureStaged: the Step-3 state gallery refuses a DATABASE_URL carrying libpq ` +
-        `target-override parameter(s) (${overrides.join(", ")}). They override the URI's own host ` +
-        `and port, so the loopback check below cannot see where the connection actually goes. ` +
+        `authority-override parameter(s) (${overrides.join(", ")}). libpq resolves these OVER the ` +
+        `URI's own authority — host, port, database, or role — so every check below would be ` +
+        `inspecting something other than the connection psql actually makes. ` +
         `Remove them, or unset DATABASE_URL to use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default.`,
     );
   }

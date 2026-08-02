@@ -49,6 +49,11 @@ describe("galleryDatabaseUrl", () => {
     ["service", "postgresql://postgres:postgres@127.0.0.1:54322/postgres?service=some-remote"],
     ["port", "postgresql://postgres:postgres@127.0.0.1:54322/postgres?port=6543"],
     ["dbname", "postgresql://postgres:postgres@127.0.0.1:54322/postgres?dbname=elsewhere"],
+    // R4: these do not move the TARGET, they move the ROLE. libpq resolves them
+    // over the authority while postgres.js (the lock probe's transport) keeps
+    // the authority's, so seed and probe would authenticate differently.
+    ["user", "postgresql://postgres:postgres@127.0.0.1:54322/postgres?user=other"],
+    ["password", "postgresql://postgres:postgres@127.0.0.1:54322/postgres?password=other"],
   ])("a libpq %s override is refused even though the authority is loopback", (param, dsn) => {
     process.env[KEY] = dsn;
     // Sanity: the authority really is loopback, so this case would pass a
@@ -56,7 +61,7 @@ describe("galleryDatabaseUrl", () => {
     // reason (e.g. a DSN that is rejected as non-loopback anyway).
     expect(new URL(dsn).hostname).toBe("127.0.0.1");
     expect(() => galleryDatabaseUrl()).toThrow(
-      new RegExp(`target-override parameter\\(s\\) \\(${param}`),
+      new RegExp(`authority-override parameter\\(s\\) \\(${param}`),
     );
   });
 
