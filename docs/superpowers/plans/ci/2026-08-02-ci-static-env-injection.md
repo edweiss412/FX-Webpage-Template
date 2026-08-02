@@ -24,7 +24,7 @@ impeccable-gate: N/A — no UI surface
 
 ## Meta-test inventory (mandatory declaration)
 
-This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` (value-pinned rows) with its three hygiene `it`-blocks (pair-level stale-row; governance equality via `envPairGovernance` + `governanceViolations`; non-empty-reason/value — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
+This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` (value-pinned rows) with its hygiene `it`-blocks (pair-level stale-row; live-completeness inverse direction via `unreviewedLivePairs` with its extra-key/extra-value doctored twins, plan-R2; nested-manifest loader depth fixture over the shared `localActionTextsUnder` loader, plan-R3; governance equality via `envPairGovernance` + `governanceViolations`; non-empty-reason/value — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
 
 ## T1 — scanner: allowlist + predicate + per-scope rejection + caller
 
@@ -36,7 +36,7 @@ This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_met
 - S2: `PATH`, `TOTALLY_NOVEL_KEY`, and prototype-named `constructor` each red; fixture-allowlisted key stays covered;
 - S3 twins: off-list key in job B → job A covered; off-list env on a non-claiming sibling run-step → claiming step covered; allowlisted keys at every scope → covered;
 - S4/S5: exact reason string pinned; two off-list keys in one scope → reason lists both, sorted;
-- S6: hygiene blocks (below) exercised with a doctored allowlist via direct invocation of the pure checker `envAllowlistHygieneProblems` — the live gate and the twin run the SAME assertion logic;
+- S6: hygiene blocks (below) exercised with a doctored allowlist via direct invocation of the pure checker `envAllowlistHygieneProblems` — the live gate and the twin run the SAME assertion logic; live-completeness twin (plan-R2 red: `unreviewedLivePairs` absent → TypeError, then the live gate red on the unseeded `GH_APP_TOKEN` pair until its row landed) and the nested-manifest depth fixture (plan-R3) alongside;
 - S7 (folded in at spec R2): novel value on an allowlisted key reds, pinned value stays covered;
 - S8 (folded in at spec R3–R5): governance twins through pure `envPairGovernance`/`governanceViolations` — relocation, prose-park, silent gain, and path-gated duplicate each red; faithful + alias-resolved pass.
 

@@ -19,7 +19,16 @@
  * the procedural enforcement. Measurement: spec
  * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -32,6 +41,27 @@ import {
   scanWorkflowCoverage,
 } from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
+
+/** ONE loader for live local-action manifests, shared by the scan call, the
+ *  env-pair census, and the governance gate (plan-R3 F1: a shallow sibling
+ *  walk in any one consumer silently drops NESTED manifests the scanner
+ *  discovers, re-opening the unreviewed-pair class at exactly that depth).
+ *  Recursive; GitHub manifest preference (action.yml over action.yaml under
+ *  one directory key); keys in the `./.github/actions/<relpath>` ref form. */
+function localActionTextsUnder(actionsDir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!existsSync(actionsDir)) return out;
+  const manifestByDir = new Map<string, string>();
+  for (const f of readdirSync(actionsDir, { recursive: true }) as string[]) {
+    if (!/(^|[\\/])action\.ya?ml$/.test(f)) continue;
+    const dir = `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`;
+    const prev = manifestByDir.get(dir);
+    if (prev === undefined || f.endsWith("action.yml")) manifestByDir.set(dir, f);
+  }
+  for (const [dir, f] of manifestByDir) out[dir] = readFileSync(join(actionsDir, f), "utf8");
+  return out;
+}
+const liveLocalActions = () => localActionTextsUnder(join(process.cwd(), ".github/actions"));
 
 /** Every env: (key, value-text) pair a live workflow or local action
  *  manifest carries, read from the PARSED documents (spec §2.3 — a grep
@@ -58,19 +88,9 @@ function liveEnvPairs(): Map<string, Set<string>> {
       for (const s of Array.isArray(j?.steps) ? j.steps : []) collect(s?.env);
     }
   }
-  const actionsDir = join(process.cwd(), ".github/actions");
-  if (existsSync(actionsDir)) {
-    for (const d of readdirSync(actionsDir)) {
-      for (const base of ["action.yml", "action.yaml"]) {
-        const p = join(actionsDir, d, base);
-        if (!existsSync(p)) continue;
-        const doc = parse(readFileSync(p, "utf8")) as {
-          runs?: { steps?: Array<{ env?: unknown }> };
-        } | null;
-        for (const s of Array.isArray(doc?.runs?.steps) ? doc.runs.steps : []) collect(s?.env);
-        break;
-      }
-    }
+  for (const text of Object.values(liveLocalActions())) {
+    const doc = parse(text) as { runs?: { steps?: Array<{ env?: unknown }> } } | null;
+    for (const s of Array.isArray(doc?.runs?.steps) ? doc.runs.steps : []) collect(s?.env);
   }
   return pairs;
 }
@@ -195,19 +215,7 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // must be complete for the live tree. ONLY GitHub-recognized manifests key
   // the map, action.yml preferred over action.yaml (spec R2: a supplemental
   // YAML must never overwrite the manifest under the same directory key).
-  const localActions: Record<string, string> = {};
-  {
-    const manifestByDir = new Map<string, string>();
-    for (const f of readdirSync(join(ROOT, ".github/actions"), { recursive: true }) as string[]) {
-      if (!/(^|[\\/])action\.ya?ml$/.test(f)) continue;
-      const dir = `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`;
-      const prev = manifestByDir.get(dir);
-      if (prev === undefined || f.endsWith("action.yml")) manifestByDir.set(dir, f);
-    }
-    for (const [dir, f] of manifestByDir) {
-      localActions[dir] = readFileSync(join(ROOT, ".github/actions", f), "utf8");
-    }
-  }
+  const localActions = liveLocalActions();
 
   const { covered } = scanWorkflowCoverage({
     workflows,
@@ -1742,6 +1750,26 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     expect(envAllowlistHygieneProblems(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
   });
 
+  it("the action-manifest loader discovers NESTED manifests and prefers action.yml (plan-R3)", () => {
+    // Shallow-walk mutant: a nested action's env pair escapes the live
+    // completeness census while the scanner (which resolves any uses: path)
+    // still executes it. One shared loader + this fixture pins the depth.
+    const base = mkdtempSync(join(tmpdir(), "actions-depth-"));
+    try {
+      mkdirSync(join(base, "group/nested"), { recursive: true });
+      writeFileSync(
+        join(base, "group/nested/action.yml"),
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        NESTED_KEY: x\n",
+      );
+      writeFileSync(join(base, "group/nested/action.yaml"), "runs:\n  using: composite\n");
+      const found = localActionTextsUnder(base);
+      expect(Object.keys(found)).toEqual(["./.github/actions/group/nested"]);
+      expect(found["./.github/actions/group/nested"]).toContain("NESTED_KEY");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("every LIVE env pair has a reviewed row — the seed cannot drift over-tight (plan-R2)", () => {
     // The inverse direction of the stale-row check: hygiene that only asserts
     // declared→live lets a NEW live pair sit unreviewed forever (the plan-R2
@@ -1767,18 +1795,7 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     const configSpecs = {
       "tests/e2e/standalone.config.ts": listedSpecFiles().map((f) => `tests/e2e/${f}`),
     };
-    const localActions: Record<string, string> = {};
-    const actionsDir = join(process.cwd(), ".github/actions");
-    if (existsSync(actionsDir)) {
-      for (const d of readdirSync(actionsDir)) {
-        for (const base of ["action.yml", "action.yaml"]) {
-          const mp = join(actionsDir, d, base);
-          if (!existsSync(mp)) continue;
-          localActions[`./.github/actions/${d}`] = readFileSync(mp, "utf8");
-          break;
-        }
-      }
-    }
+    const localActions = liveLocalActions();
     expect(
       governanceViolations(
         ENV_KEY_ALLOWLIST,
