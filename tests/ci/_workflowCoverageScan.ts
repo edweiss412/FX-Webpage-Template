@@ -88,6 +88,23 @@ const RUN_STEP_KEYS = new Set([
 ]);
 const USES_STEP_KEYS = new Set(["name", "id", "if", "uses", "with", "env", "continue-on-error"]);
 const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim() !== "";
+/**
+ * The ONE `uses:` shape classifier (R10). GitHub requires a remote ref to be
+ * `{owner}/{repo}[/path]@{ref}` or `docker://…`; a REFLESS `owner/repo` fails
+ * validation before any step executes, so treating it as a trusted remote
+ * was false coverage at workflow, composite-child, and nested sites. Local
+ * refs (`./…`) take no `@ref`. Anything else is INVALID → callers poison
+ * fail-closed, matching the narrow-accept posture.
+ */
+export type UsesKind = "local" | "remote" | "invalid";
+export function usesKind(v: unknown): UsesKind {
+  if (typeof v !== "string") return "invalid";
+  const s = v.trim();
+  if (s.startsWith("./")) return "local";
+  if (/^docker:\/\/\S+$/.test(s)) return "remote";
+  if (/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[\w./-]+$/.test(s)) return "remote";
+  return "invalid";
+}
 /** A scalar map (env/with): non-empty string keys, scalar values only. */
 const scalarMap = (v: unknown): boolean => {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
@@ -114,7 +131,7 @@ export function validatedCompositeSteps(doc: unknown): ActionStep[] | null {
     const allowed = hasRun ? RUN_STEP_KEYS : USES_STEP_KEYS;
     for (const k of Object.keys(s)) if (!allowed.has(k)) return null;
     if (hasRun && (!nonEmptyString(s.run) || !nonEmptyString(s.shell))) return null;
-    if (hasUses && !nonEmptyString(s.uses)) return null;
+    if (hasUses && usesKind(s.uses) === "invalid") return null;
     for (const k of ["name", "id", "if", "working-directory"]) {
       if (k in s && !nonEmptyString(s[k])) return null;
     }
@@ -329,9 +346,10 @@ function localActionPoisons(
       }
       continue;
     }
-    if (/^docker:\/\/\S+$/.test(unquoted)) continue; // remote image — trusted (spec §5 L1)
-    if (/^[\w.-]+\/[\w./-]+(@[\w./-]+)?$/.test(unquoted)) continue; // marketplace — trusted
-    return true; // anchored, aliased, folded/block, empty, or otherwise unmodelable
+    // Remote refs must carry @ref (R10) — a refless owner/repo fails GitHub's
+    // validation before any step runs, so it is INVALID, not trusted.
+    if (usesKind(unquoted) === "remote") continue; // trusted (spec §5 L1)
+    return true; // refless, anchored, aliased, folded/block, empty, or unmodelable
   }
   return false;
 }

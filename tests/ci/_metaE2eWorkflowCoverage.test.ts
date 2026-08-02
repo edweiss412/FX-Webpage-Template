@@ -452,6 +452,38 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
   it("marketplace (non-./) actions stay trusted (spec §5 L1)", () => {
     const r = S(two("uses: actions/checkout@v4"));
     expect(r.covered.has(spec)).toBe(true);
+    // …including owner/repo/path@ref and docker:// images.
+    expect(S(two("uses: owner/repo/sub@v1")).covered.has(spec)).toBe(true);
+    expect(S(two("uses: docker://alpine:3")).covered.has(spec)).toBe(true);
+  });
+
+  it("a REFLESS remote uses: is invalid, not trusted — every site (R10)", () => {
+    // GitHub requires {owner}/{repo}[/path]@{ref}; a refless ref fails
+    // validation before any step runs, so the downstream invocation never
+    // executes — trusting it was false coverage at all three sites.
+    for (const ref of ["actions/checkout", "owner/repo/path"]) {
+      const direct = S(two(`uses: ${ref}`));
+      expect(direct.covered.has(spec), `workflow ${ref}`).toBe(false);
+      expect(direct.rejected[0]!.reason, `workflow ${ref}`).toBe(REASON);
+      const child = S(two("uses: ./.github/actions/c1"), {
+        "./.github/actions/c1": `runs:\n  using: composite\n  steps:\n    - uses: ${ref}\n`,
+      });
+      expect(child.covered.has(spec), `composite child ${ref}`).toBe(false);
+      expect(child.rejected[0]!.reason, `composite child ${ref}`).toBe(REASON);
+      const nested = S(two("uses: ./.github/actions/p3"), {
+        "./.github/actions/p3":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/c1\n",
+        "./.github/actions/c1": `runs:\n  using: composite\n  steps:\n    - uses: ${ref}\n`,
+      });
+      expect(nested.covered.has(spec), `nested ${ref}`).toBe(false);
+      expect(nested.rejected[0]!.reason, `nested ${ref}`).toBe(REASON);
+    }
+    // …and a properly pinned remote ref inside a composite stays clean.
+    const ok = S(two("uses: ./.github/actions/c2"), {
+      "./.github/actions/c2":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n",
+    });
+    expect(ok.covered.has(spec)).toBe(true);
   });
 
   it("invalid composite manifests are opaque: inexact using values, missing steps (R7)", () => {
