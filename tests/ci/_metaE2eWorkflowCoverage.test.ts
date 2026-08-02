@@ -788,6 +788,35 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     ).toBe(true);
   });
 
+  it("malformed action coordinates and misplaced reusable workflows are refused (R27)", () => {
+    const job = `    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    // Step action coordinates: every path segment must be a real segment.
+    for (const ref of ["owner./repo@v1", "owner/..@v1", "owner/repo//@v1", "owner@v1"]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - run: pnpm exec playwright test ${spec}\n`;
+      expect(S(w).covered.has(spec), ref).toBe(false);
+    }
+    // Reusable-workflow jobs: only .github/workflows/<name>.yml, one level.
+    for (const ref of [
+      "./other.yml",
+      "./.github/workflows/nested/other.yml",
+      "owner/repo/other.yml@v1",
+      "owner/repo/.github/workflows/other.yml@..",
+    ]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  a:\n    uses: ${ref}\n  j:\n${job}`;
+      expect(S(w).covered.has(spec), ref).toBe(false);
+    }
+    // …and the well-formed forms still count.
+    const okStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm exec playwright test ${spec}\n`;
+    expect(S(okStep).covered.has(spec)).toBe(true);
+    for (const ref of [
+      "./.github/workflows/other.yml",
+      "owner/repo/.github/workflows/other.yml@v1",
+    ]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  a:\n    uses: ${ref}\n  j:\n${job}`;
+      expect(S(w).covered.has(spec), ref).toBe(true);
+    }
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

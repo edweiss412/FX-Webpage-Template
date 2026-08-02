@@ -320,10 +320,16 @@ const WF_USES_JOB: Record<string, Pred> = {
   needs: strOrSeq,
   if: strOrBool,
   // A reusable-workflow ref: a local `./…​.yml` path or `owner/repo/path@ref`.
-  uses: (v) =>
-    typeof v === "string" &&
-    (/^\.\/[\w./-]+\.ya?ml$/.test(v.trim()) ||
-      /^[\w.-]+\/[\w.-]+\/[\w./-]+\.ya?ml@[\w./-]+$/.test(v.trim())),
+  // R27: a reusable workflow lives at `.github/workflows/<name>.yml` — not
+  // elsewhere in the repo, not nested below that directory — and a remote
+  // one carries a ref the shared classifier accepts.
+  uses: (v) => {
+    if (typeof v !== "string") return false;
+    const s = v.trim();
+    if (/^\.\/\.github\/workflows\/[\w.-]+\.ya?ml$/.test(s)) return true;
+    const m = /^([\w.-]+\/[\w.-]+)\/\.github\/workflows\/[\w.-]+\.ya?ml@(.+)$/.exec(s);
+    return m !== null && usesKind(`${m[1]}/x@${m[2]}`) === "remote";
+  },
   with: scalars,
   secrets: (v) => v === "inherit" || scalars(v),
   strategy: strategy,
@@ -433,9 +439,17 @@ export function usesKind(v: unknown): UsesKind {
   // trailing dot, and no `.lock` ending — or a full 40-hex SHA. A valid but
   // slash-bearing ref (`release/v1`) is REFUSED: conservative, documented
   // in spec §5 L8, and zero live refs use one (live set: v1, v4, v7).
-  const m = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@([^\s@]+)$/.exec(s);
+  // R27: validate the COORDINATE segment by segment — `owner./repo`,
+  // `owner/..`, and `owner/repo//` all passed a lax character class while
+  // GitHub cannot resolve any of them.
+  const at = s.lastIndexOf("@");
+  const m = at > 0 ? ([s.slice(0, at), s.slice(at + 1)] as const) : null;
   if (m) {
+    const segs = m[0].split("/");
+    const segOk = (x: string) =>
+      /^[A-Za-z0-9._-]+$/.test(x) && x !== "." && x !== ".." && !x.endsWith(".");
     const ref = m[1]!;
+    if (segs.length < 2 || !segs.every(segOk)) return "invalid";
     const wellFormed =
       /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(ref) &&
       !ref.includes("..") &&
