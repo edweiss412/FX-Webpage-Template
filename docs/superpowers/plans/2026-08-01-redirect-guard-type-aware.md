@@ -62,7 +62,7 @@ This task is a single "failing test → minimal implementation → passing test 
 TDD order (the graduation meta-test is the failing test):
 
 1. **RED:** add the one `BACKLOG_GRADUATED` registry row (`{ id: "BL-SOUND-REDIRECT-GUARD", provenance: "test/redirect-guard-type-aware" }`) to `tests/docs/_metaDeferralLedgerGraduation.test.ts` FIRST, then run `pnpm exec vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — the mdast walker fails: the registry row exists but the entry still sits in BACKLOG.md's open queue with no archive record. Record the failure.
-2. **GREEN:** move the BACKLOG.md entry to `BACKLOG-archive.md` (house format; provenance `test/redirect-guard-type-aware`; note: the four R1-residual classes plus the typed value-flow, literal-typed-key, and assignment-pattern families are now caught. Precise residual boundary: receiver laundering (E1-pinned), WIDENED non-literal-typed computed keys (E2-pinned), and reflection/eval (documented limit, no E-pin — not statically expressible); literal-typed computed keys are CLOSED, not residual). Re-run the meta-test to green.
+2. **GREEN:** move the BACKLOG.md entry to `BACKLOG-archive.md` (house format; provenance `test/redirect-guard-type-aware`; residual boundary as finally ratified after the whole-diff rounds: string-mediated dynamic access is the sole type-erasure limit, E1-pinned — receiver laundering, widened keys, and Reflect.get are CAUGHT at the naked class-object reference, R68–R70). Re-run the meta-test to green.
 3. Commit once with the RED output in the body.
 
 ## Close-out gates (before push)

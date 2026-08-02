@@ -129,28 +129,39 @@ function audit(sf) {
       }
     }
   }
+  const checkerW = sf.getProject().getTypeChecker();
   const candidates = [
     ...sf.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.ElementAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.BindingElement),
   ];
+  // Type-decided import-binding tracking (whole-diff r5); dynamic-import
+  // variable tracking removed — the import CALL is flagged in prong 1 (r4).
   const objectNames = new Set(["NextResponse", "Response"]);
-  for (const imp of sf.getImportDeclarations()) {
-    for (const spec of imp.getNamedImports()) {
-      if (spec.getNameNode().getText() === "NextResponse") {
-        objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
-      }
+  function bindingCarries(b) {
+    const t = b.getType();
+    if (typeCarries(t)) return true;
+    const prop = t.getProperty("redirect");
+    if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, b))) return true;
+    for (const carrier of ["NextResponse", "Response"]) {
+      const cp = t.getProperty(carrier);
+      if (cp === undefined) continue;
+      const cpt = checkerW.getTypeOfSymbolAtLocation(cp, b);
+      const rp = cpt.getProperty("redirect");
+      if (rp !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(rp, b))) return true;
     }
-    const nsi = imp.getNamespaceImport();
-    if (nsi !== undefined) objectNames.add(nsi.getText());
+    return false;
   }
-  for (const vd of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
-    const init = vd.getInitializer();
-    const inner = init !== undefined && Node.isAwaitExpression(init) ? init.getExpression() : init;
-    if (inner !== undefined && Node.isCallExpression(inner) && inner.getExpression().getKind() === SyntaxKind.ImportKeyword) {
-      const nn = vd.getNameNode();
-      if (Node.isIdentifier(nn)) objectNames.add(nn.getText());
-    }
+  for (const imp of sf.getImportDeclarations()) {
+    const clause = imp.getImportClause();
+    if (clause === undefined) continue;
+    const bindings = [];
+    const def = clause.getDefaultImport();
+    if (def !== undefined) bindings.push(def);
+    const nb = clause.getNamedBindings();
+    if (nb !== undefined && Node.isNamespaceImport(nb)) bindings.push(nb.getNameNode());
+    for (const spec of imp.getNamedImports()) bindings.push(spec.getAliasNode() ?? spec.getNameNode());
+    for (const b of bindings) if (bindingCarries(b)) objectNames.add(b.getText());
   }
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
     if (!objectNames.has(id.getText())) continue;
@@ -177,7 +188,6 @@ function audit(sf) {
     if (Node.isTypeOfExpression(parent)) return true;
     return false;
   }
-  const checkerW = sf.getProject().getTypeChecker();
   for (const node of candidates) {
     const t = node.getType();
     if (typeCarries(t)) {
@@ -230,6 +240,12 @@ function audit(sf) {
 }
 
 const PRE = `import { NextResponse } from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\n`;
+
+// Re-export helper modules for the R83-R86 rows (whole-diff r5)
+project.createSourceFile("app/__audit_fixture__/reexp-named.ts", `export { NextResponse as Redirector } from "next/server";`, { overwrite: true });
+project.createSourceFile("app/__audit_fixture__/reexp-default.ts", `import { NextResponse } from "next/server";\nexport default NextResponse;`, { overwrite: true });
+project.createSourceFile("app/__audit_fixture__/reexp-ns.ts", `export * as SrvNS from "next/server";`, { overwrite: true });
+project.createSourceFile("app/__audit_fixture__/reexp-hop2.ts", `export { Redirector as Hop } from "./reexp-named";`, { overwrite: true });
 
 const MUTANTS = [
   // --- R1/F1 typed value-flow families ---
@@ -301,6 +317,11 @@ const MUTANTS = [
   ["R80 dynamic-import assignment destructuring", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nlet R80: { redirect: RedirectFn };\nexport async function GET() {\n  ({ NextResponse: R80 } = await import("next/server"));\n  return R80.redirect(new URL("/x", request.url));\n}`, "flag"],
   ["R81 promise-carried namespace", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport async function GET() {\n  const pr = import("next/server");\n  const m: { NextResponse: { redirect: RedirectFn } } = await pr;\n  return m.NextResponse.redirect(new URL("/x", request.url));\n}`, "flag"],
   ["R82 .then callback stuffing", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nexport function GET() {\n  return import("next/server").then((m) => (m.NextResponse as { redirect: RedirectFn }).redirect(new URL("/x", request.url)));\n}`, "flag"],
+  ["R83 renamed re-export + laundering", `import { Redirector } from "./reexp-named";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Redirector;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R84 default re-export + laundering", `import Def from "./reexp-default";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Def;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R85 namespace re-export + laundering", `import { SrvNS } from "./reexp-ns";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { ns: { NextResponse: { redirect: RedirectFn } } } = { ns: SrvNS };\nexport function GET() { return R.ns.NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R86 two-hop re-export + laundering", `import { Hop } from "./reexp-hop2";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Hop;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["N10 unrelated import bindings untracked", `import { join } from "node:path";\nconst j = join;\nexport function GET() { return j("a", "b"); }`, "clean"],
   ["NEG dynamic import of unrelated module", `export async function GET() {\n  const m = await import("node:path");\n  return m.join("a", "b");\n}`, "clean"],
   ["N9 ordinary namespace uses", `import * as NS from "next/server";\ndeclare const req2: NS.NextRequest;\nexport function GET() { return NS.NextResponse.json({ url: String(req2.url) }); }`, "clean"],
   ["N8 non-extracting whole-object positions", `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`, "clean"],

@@ -383,23 +383,34 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     ...sf.getDescendantsOfKind(SyntaxKind.ElementAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.BindingElement),
   ];
+  // Tracked locals are decided by TYPE, not by spelling (whole-diff r5): a
+  // renamed static re-export (`export { NextResponse as Redirector }`), a
+  // default re-export, a re-exported namespace, or a multi-hop chain all
+  // deliver a carrier under an arbitrary local name — so EVERY import binding
+  // (default, namespace, named) whose type carries the banned method (directly,
+  // via its `redirect` property, or one namespace hop) joins the candidate
+  // name set. Purely-local aliases (`const X = NextResponse`) need no entry:
+  // their creation site spells a tracked name and is itself flagged.
+  // (Dynamic-import namespaces need no name tracking either: the import CALL
+  // is flagged in the prong-1 loop above — whole-diff r4.)
   const objectNames = new Set(["NextResponse", "Response"]);
   for (const imp of sf.getImportDeclarations()) {
-    for (const spec of imp.getNamedImports()) {
-      if (spec.getNameNode().getText() === "NextResponse") {
-        objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
-      }
+    const clause = imp.getImportClause();
+    if (clause === undefined) continue;
+    const bindings: Node[] = [];
+    const defaultImport = clause.getDefaultImport();
+    if (defaultImport !== undefined) bindings.push(defaultImport);
+    const namedBindings = clause.getNamedBindings();
+    if (namedBindings !== undefined && Node.isNamespaceImport(namedBindings)) {
+      bindings.push(namedBindings.getNameNode());
     }
-    // Namespace objects CARRY the class one property deep — their locals are
-    // candidates too (whole-diff r3: `({ NextResponse: R } = NS)` and
-    // object-rest spellings launder without a class-name expression).
-    const nsImport = imp.getNamespaceImport();
-    if (nsImport !== undefined) objectNames.add(nsImport.getText());
+    for (const spec of imp.getNamedImports()) {
+      bindings.push(spec.getAliasNode() ?? spec.getNameNode());
+    }
+    for (const binding of bindings) {
+      if (carriesBanned(binding, binding.getType())) objectNames.add(binding.getText());
+    }
   }
-  // (Dynamic-import namespaces need no name tracking here: the import CALL
-  // itself is flagged in the prong-1 loop above, which covers every downstream
-  // binding/destructure/promise/.then shape at the one site that must spell
-  // the module specifier — whole-diff r4.)
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
     if (!objectNames.has(id.getText())) continue;
     if (!identifierIsExpressionUse(id)) continue;
