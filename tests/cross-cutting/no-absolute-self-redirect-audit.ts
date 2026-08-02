@@ -254,6 +254,7 @@ function identifierIsExpressionUse(id: Node): boolean {
   if (Node.isImportSpecifier(parent) || Node.isExportSpecifier(parent)) return false;
   if (Node.isImportClause(parent) || Node.isNamespaceImport(parent)) return false;
   if (Node.isVariableDeclaration(parent) && parent.getNameNode() === id) return false;
+  if (Node.isImportEqualsDeclaration(parent)) return false;
   if (Node.isBindingElement(parent)) return false;
   if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) return false;
   if (
@@ -504,6 +505,14 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     for (const binding of bindings) {
       if (carriesBanned(binding, binding.getType())) objectNames.add(binding.getText());
     }
+  }
+  // `import NR = NS.NextResponse` is VALUE-space alias syntax (whole-diff r10):
+  // the binding joins the tracked set type-decidedly, so its naked uses flag —
+  // the QualifiedName inside the import line itself stays skipped like any
+  // other import statement.
+  for (const ie of sf.getDescendantsOfKind(SyntaxKind.ImportEqualsDeclaration)) {
+    const nameNode = ie.getNameNode();
+    if (carriesBanned(nameNode, nameNode.getType())) objectNames.add(nameNode.getText());
   }
   for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
     if (!objectNames.has(id.getText())) continue;

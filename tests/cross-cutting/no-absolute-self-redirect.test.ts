@@ -595,6 +595,16 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
+  it("flags R93 import-equals alias + structural receiver", () => {
+    // `import NR = NS.NextResponse` is value space (whole-diff r10): the
+    // binding is tracked type-decidedly and its naked use flags.
+    const findings = auditSource(
+      fixturePath(),
+      `import * as NSie from "next/server";\nimport NRie = NSie.NextResponse;\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = NRie;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+    );
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
   it("does not flag type-only typeof member references (N13)", () => {
     // `typeof NextResponse.json` etc. parse as QualifiedName chains — pure type
     // space (whole-diff r9 false-positive fix).

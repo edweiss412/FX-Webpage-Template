@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R12 — whole-diff round-9 repaired (type-space false positive; specifier-cache invalidation; staleness sweep) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R13 — whole-diff round-10 repaired (import-equals value aliases; harness now imports the shipped auditor) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R10 disposition (2026-08-01):** two findings. (1) `import NR = NS.NextResponse` is VALUE-space QualifiedName — ImportEqualsDeclaration bindings now join the tracked-name set type-decidedly, so the alias's naked structural use flags (R93); the blanket QualifiedName skip stands for candidates (the import line itself is a binding, like any import statement). (2) The mirrored-detector harness beside the spec could drift from the shipped module (it lacked the r9 branches) — RETIRED: the mutant corpus now lives at `tests/cross-cutting/redirect-guard-probes/mutant-corpus.mjs` and IMPORTS `auditSource`/`addFixtureModule`/`auditTree` from the real audit module, so the harness validates the guard by construction and this drift class is closed permanently.
 
 **Whole-diff R9 disposition (2026-08-01):** evasion concession HELD (not relitigated). Three repairs: (1) `typeof X.member` QualifiedName chains are type space — identifier candidates now skip QualifiedName parents (probe 14; N13 pins eight shapes quiet); (2) require-specifier verdicts are dropped whenever `addFixtureModule` overwrites a module and at every tree-scan start — a fixture test pins the safe→carrier→safe flip in both directions; (3) staleness swept: §5.1 mechanism now names the require branch, §5.6 header prescription names the evasion concession, archive round-count corrected, RED-harness HEAD labels reworded (the flip prints as expected, not UNEXPECTED).
 
@@ -321,6 +323,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N11 | `require` of an unrelated module | resolved specifier's namespace carries nothing banned (probe 12 NEG) |
 | N12 | Local callable `interface Require` | the require branch pins Node's DECLARATION, not the symbol name (r8 false-positive fix, probe 13) |
 | N13 | Type-only `typeof X.member` chains (`typeof NextResponse.json`, namespace/globalThis variants) | QualifiedName parents are type space (r9 false-positive fix, probe 14) |
+| R93 | `import NR = NS.NextResponse` value alias + structural receiver (whole-diff r10) | ImportEqualsDeclaration bindings tracked type-decidedly; flags at the naked alias use |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -339,7 +342,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R92, N1–N13, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R93, N1–N13, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.
