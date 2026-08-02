@@ -10,9 +10,9 @@ impeccable-gate: N/A — no UI surface
 
 None created or extended, with one convention-mandated exception: two `{ id, provenance }` rows appended to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (the graduation ledger's own registry — required by the existing guard, not a new guard). No other registry applies: no Supabase calls, no locks, no alerts, no tiles, no e2e.
 
-## Plan artifacts (measured at plan time, committed beside this plan)
+## Plan artifacts (measured at plan time, committed under `docs/superpowers/artifacts/` — the plans tree is walked content-wise by the invariant-8 closeout guard, which would misread the baseline's quoted advisory snippets as a gate declaration)
 
-- `2026-08-02-docs-hygiene-baseline-lint.txt` — all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base). Canonical (re)generation command — the post-edit delta MUST re-run exactly this, then `diff` against the artifact (plan review R3: the pnpm/header chrome is stripped by the same filter both times, so the diff is deterministic):
+- `docs/superpowers/artifacts/2026-08-02-docs-hygiene-baseline-lint.txt` — all-severity `pnpm spec:lint` output for all ten Task-1 files (plan review R1 finding 2: an earlier narrow-grep baseline hid CLOSE-OUT's `CITATION_MALFORMED` at :28; this artifact is the delta base). Canonical (re)generation command — the post-edit delta MUST re-run exactly this, then `diff` against the artifact (plan review R3: the pnpm/header chrome is stripped by the same filter both times, so the diff is deterministic):
 
   ```sh
   for f in docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md \
@@ -29,7 +29,7 @@ None created or extended, with one convention-mandated exception: two `{ id, pro
     pnpm spec:lint "$f" 2>&1 | grep -v "^> \|^$\|^pnpm\|ELIFECYCLE\|spec:lint docs"
   done
   ```
-- `2026-08-02-docs-hygiene-adjacency-sweep.txt` — the ±2-line context dump around all 14 probe-visible master-spec edit lines with LEAD-token flags (plan review R1 finding 4: the sweep is run at plan time, not deferred). Result: the only LEAD-bearing lines in any window are edit sites themselves or the ratified no-edit line 655 — no stragglers.
+- `docs/superpowers/artifacts/2026-08-02-docs-hygiene-adjacency-sweep.txt` — the ±2-line context dump around all 14 probe-visible master-spec edit lines with LEAD-token flags (plan review R1 finding 4: the sweep is run at plan time, not deferred). Result: the only LEAD-bearing lines in any window are edit sites themselves or the ratified no-edit line 655 — no stragglers.
 
 ## TDD framing (docs tasks)
 

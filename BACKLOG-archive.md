@@ -8,6 +8,46 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
+
+### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+
+**Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
+
+`origin/main` deleted `.github/workflows/modal-header-layout-e2e.yml` when it retired seven per-feature
+e2e workflows. Backticked references to that path are citations to `spec:lint`, so every doc still
+naming it now hard-fails `CITATION_FILE_MISSING`. Note the linter keys on the `.yml` extension, not on
+the directory separator — shortening to a bare filename does NOT clear it; the backticks have to go.
+
+PR #610 swept its own three docs (5 + 3 hard findings → 0 each) by rendering the name as prose. Seven
+others were left alone deliberately, to avoid pulling unrelated specs into an in-review diff:
+
+- `docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md`
+- `docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+- `docs/superpowers/plans/2026-07-18-modal-header-reconciliation/CLOSE-OUT.md`
+- `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md`
+- `docs/superpowers/specs/2026-07-24-archive-row-menu-idiom.md`
+- `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md`
+- `docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md`
+
+**Not urgent:** `spec:lint` is not wired into any workflow (verified — no `.github/workflows/**` match),
+so nothing is merge-blocked. It fails only for whoever runs it by hand on one of those files.
+
+**Fix (when prioritized):** one mechanical pass stripping the backticks; the last entry is the
+retiring spec itself, where the old name is legitimate history.
+
+**CLOSED 2026-08-02** — resolved on docs/citation-rot-financials-vocab: all 15 backticked citations to the seven deleted workflows rendered as prose (the entry's seven-file list was class-swept to 10 files; the retiring spec — second-to-last in the entry's list, not last — was measured already clean and needed no edit). Residual non-target lint findings (12, five classes) deliberately left, inventoried in the batch spec §1.1.
+
+## BL-MASTERSPEC-FINANCIALS-VOCAB — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
+
+## BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec
+
+**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug, owner scope decision) · **Class:** docs (canonical-spec consistency) · **Effort:** S (doc-only grep-sweep)
+
+Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FINANCIALS` role flag but did not reconcile the master spec's (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) ~15 financials-access prose claims, which still describe financials/`shows_internal`/FinancialsTile access as LEAD-only. Live code (`lib/data/getShowForViewer.ts:380` `financialsEntitled = isAdmin || includes("LEAD") || includes("FINANCIALS")`, `lib/visibility/scopeTiles.ts:141`) grants on LEAD ∪ FINANCIALS ∪ admin. Reconcile every financials-entitlement claim to `LEAD ∪ FINANCIALS` (or admin). Grep seed: `rg -n "financ|shows_internal|FinancialsTile|financialsEntitled|Proposal|Invoice|PO#" <masterspec> | rg -i "LEAD" | rg -v "FINANCIALS"` (the final exclude is CASE-SENSITIVE — drops only lines already naming the all-caps FINANCIALS role flag). Exclude RLS-admin-only denial and `raw_unrecognized`/`parse_warnings` (admin/LEAD-only — FINANCIALS grants only the `financials` column). Trigger: next master-spec pass or an audit flagging the drift. (This capability-narrow change already corrected the §6.8 MI-9 "LEAD is the only capability element" claim; the rest is out of its scope.)
+
+**CLOSED 2026-08-02** — resolved on docs/citation-rot-financials-vocab: 14 claims reconciled (11 of the seed's 15 hits + 3 seed-blind instances found by a whole-file window probe), line-count-neutral, entitlement phrased as LEAD or FINANCIALS or admin per the live financialsEntitled mechanism. The 4 seed no-edit lines and 8 probe non-claims are ratified in the batch spec §3.2/§3.2.1. One same-vocabulary residue found during review — the §12.4 ROLE_FLAGS_NOTICE helpfulContext over-grant — is filed separately as BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (needs the §12.4 three-way lockstep).
+
 ## BL-SOUND-REDIRECT-GUARD — RESOLVED (2026-08-01, `test/redirect-guard-type-aware`)
 
 **Resolution:** the syntactic 19-spelling matcher in `tests/cross-cutting/no-absolute-self-redirect-audit.ts` is replaced by TWO-PRONG type-checker resolution over walked roots extended to `app/** + lib/**` plus the permitted root middleware/proxy surfaces (ts/tsx/js): prong 1 flags every call whose resolved signature's declaration is `redirect` on a container named `NextResponse`/`Response`; prong 2 flags every OTHER reference to that method OR to the class object carrying it — property/element access, binding elements, destructuring-assignment members (via the vendored compiler's `getTypeOfAssignmentPattern`), and naked `NextResponse`/`Response` value flows — type-decided, never allow-listable. All four residual classes this entry filed (helper return, class field, re-export, dynamic dispatch) are caught, plus the families the spec/plan reviews and the whole-diff rounds (each recorded in the spec's disposition blocks) surfaced on the way: twelve typed value-flow shapes, ten literal-typed computed-key extraction shapes, union-typed keys, eight destructuring-assignment forms, ten whole-receiver structural-laundering shapes, namespace carriers, import-call carriers, re-export carriers, CommonJS require and import-equals carriers, and global-object carriers (symbol-based provenance over direct references, local aliases, and single-file helper returns; deeper environment indirection stays under the deliberate-evasion concession) — the spec §6 closure tables are the canonical enumeration (grown across the whole-diff rounds), pinned by fixtures + the E1 escape pin in `tests/cross-cutting/no-absolute-self-redirect.test.ts`. Former limits receiver-as-any, widened computed keys, and `Reflect.get` are CAUGHT at the naked class-object reference their erasure must spell; the sole remaining type-erasure limit, pinned AS BEHAVIOR (E1), is string-mediated dynamic access (eval shape). Plain-JS modules are fenced out of the walked roots by a sentinel (tsconfig `include` is TS-only + `checkJs` off, so `tsc --noEmit` gives JS no backstop). Spec: docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md (spec APPROVE r4, plan APPROVE r3, then whole-diff-driven closures recorded in the spec's disposition blocks; probe harness committed: self-contained probes beside the spec, the importing mutant corpus under tests/cross-cutting/redirect-guard-probes/). Original entry below.
