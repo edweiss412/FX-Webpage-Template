@@ -183,6 +183,27 @@ describe("useFitWithinClip", () => {
     expect(fitted.style.maxHeight).toBe(expectedPx());
   });
 
+  test("(e2) a DESCENDANT's transitionend does NOT re-measure", () => {
+    const { inner, fitted } = withOffsetParent(() => mount());
+    const before = fitted.style.maxHeight;
+
+    // transitionend BUBBLES. The offsetParent here is the menu panel, whose
+    // descendants include ~20 rows each carrying `transition-colors`, so an
+    // unscoped listener re-measures — forcing a synchronous reflow — on every
+    // hover fade. The signal this hook wants is the POSITIONED ANCESTOR's own
+    // transition settling, not any descendant's.
+    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+    const child = document.createElement("div");
+    inner.appendChild(child);
+    fireEvent(child, new Event("transitionend", { bubbles: true }));
+
+    expect(fitted.style.maxHeight, "a descendant transition forced a re-measure").toBe(before);
+
+    // ...and the offsetParent's OWN transitionend still does re-measure.
+    fireEvent(inner, new Event("transitionend"));
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+  });
+
   test("(f) no ResizeObserver: measures once and still re-applies on window resize", () => {
     vi.stubGlobal("ResizeObserver", undefined);
     expect(typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver).not.toBe("function");

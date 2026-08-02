@@ -106,11 +106,22 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     }
     // A resize observation fires while a transition is still running, when the
     // geometry is mid-flight; the settle is when the final numbers exist.
-    if (positioned instanceof Element) positioned.addEventListener("transitionend", apply);
+    //
+    // Scoped to the positioned ancestor's OWN transition: transitionend bubbles,
+    // and this ancestor's descendants are ordinary UI (the AttentionMenu panel
+    // holds ~20 rows carrying `transition-colors`), so an unscoped listener
+    // re-measures — forcing a synchronous reflow — on every hover fade.
+    const onTransitionEnd = (event: Event) => {
+      if (event.target !== positioned) return;
+      apply();
+    };
+    if (positioned instanceof Element)
+      positioned.addEventListener("transitionend", onTransitionEnd);
     window.addEventListener("resize", apply);
     return () => {
       observer?.disconnect();
-      if (positioned instanceof Element) positioned.removeEventListener("transitionend", apply);
+      if (positioned instanceof Element)
+        positioned.removeEventListener("transitionend", onTransitionEnd);
       window.removeEventListener("resize", apply);
     };
   }, [attachCount, apply, reapplyKey]);
