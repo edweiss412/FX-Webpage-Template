@@ -297,20 +297,6 @@ function stripCommentLines(text: string): string {
 }
 
 /**
- * The manifest's top-level `runs:` block — its own indented lines only, same
- * bounded-block shape as onBlock/pullRequestBlock. Scoping matters (spec R2
- * BLOCKING): `using: composite` matched ANYWHERE in the manifest let a
- * node20 action masquerade as composite via that line in a multiline
- * `description:` scalar. `runs.using` / child `uses:` live under `runs:`, so
- * both checks read this block and nothing else. An inline-flow `runs: {...}`
- * yields null, which callers treat as not-composite — fail-closed.
- */
-function runsBlockOf(text: string): string | null {
-  const m = stripCommentLines(text).match(/(^|\n)runs\s*:\s*\n([\s\S]*?)(?=\n\S|$)/);
-  return m ? m[2]! : null;
-}
-
-/**
  * YAML spellings that re-key or re-shape a mapping so a line-anchored regex
  * scan reads a DIFFERENT document than the YAML parser does (R3: quoted keys
  * `"uses":`, flow-mapping steps `- {uses: x}`, anchored/aliased values
@@ -584,7 +570,39 @@ export function scanWorkflowCoverage({
       stripCommentLines(jobsIdx === -1 ? yaml : yaml.slice(0, jobsIdx)),
     );
 
+    // R15 (file-level, corrected at whole-diff R3): a step carrying BOTH
+    // `run:` and `uses:` is schema-invalid, and GitHub rejects the WHOLE
+    // workflow — so no job in the file runs. Computed across every step
+    // before the job loop; a step-local refusal left claims before the
+    // mixed step, after it, and in other jobs falsely covered.
+    const mixedStepAnywhere = jobs(yaml).some((jb) =>
+      jb.steps.some(
+        (st) =>
+          /(^|\n)\s*run\s*:/.test(stripCommentLines(st)) &&
+          /(^|\n)\s*(?:-\s*)?uses\s*:/.test(stripCommentLines(stepMetaOf(st))),
+      ),
+    );
     for (const job of jobs(yaml)) {
+      // R16: `runs-on` is REQUIRED and must name a runner — absent, null,
+      // empty, boolean, or an empty sequence means the job cannot execute,
+      // so its steps never run and any claim from them is false coverage.
+      // Narrow-accept (same posture as every other shape gate): a non-empty
+      // scalar that is not a YAML null/boolean, a non-empty sequence, or a
+      // mapping carrying a non-empty `group:`/`labels:`.
+      const runsOnLine = /(^|\n)[ \t]*runs-on[ \t]*:([^\n]*)((?:\n[ \t]+[^\n]*)*)/.exec(
+        stripCommentLines(job.head),
+      );
+      const validRunsOn = (() => {
+        if (!runsOnLine) return false;
+        const inline = (runsOnLine[2] ?? "").trim().replace(/^["']|["']$/g, "");
+        const block = runsOnLine[3] ?? "";
+        if (inline !== "") {
+          if (/^(?:null|~|true|false|\[\]|\{\})$/i.test(inline)) return false;
+          return true;
+        }
+        if (/\n[ \t]+-[ \t]*\S/.test(block)) return true; // sequence of labels
+        return /\n[ \t]+(?:group|labels)[ \t]*:[ \t]*\S/.test(block); // runner group
+      })();
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
       const jobCoe = hasContinueOnError(job.head);
       // R3: a quoted-key/flow/anchor spelling in the job HEAD could hide an
@@ -622,14 +640,6 @@ export function scanWorkflowCoverage({
         // spelling rejects this step's own claims AND poisons the job env —
         // the unreadable metadata may hide a `uses:`/`run:` that mutates it.
         const stepSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(stepMetaOf(step)));
-        // R15: a step carrying BOTH `run:` and `uses:` is schema-invalid —
-        // the runner defines a step as one or the other, so GitHub rejects
-        // the WORKFLOW and nothing in it executes. Claiming the run also
-        // bypassed every usesKind refusal, since qualification ran before
-        // the uses bookkeeping. Treated like a doc marker: file-level.
-        const mixedStep =
-          /(^|\n)\s*run\s*:/.test(stripCommentLines(step)) &&
-          /(^|\n)\s*(?:-\s*)?uses\s*:/.test(stripCommentLines(stepMetaOf(step)));
         if (runMatch) {
           // Full-line YAML/shell comments never execute, and the step-splitter
           // glues BETWEEN-step comment lines onto the preceding step's chunk —
@@ -657,8 +667,10 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
-            else if (docMarkers || wfSpelling || headSpelling || stepSpelling || mixedStep)
+            else if (docMarkers || wfSpelling || headSpelling || stepSpelling || mixedStepAnywhere)
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
+            else if (!validRunsOn)
+              rejected.push({ file, spec, reason: "job has no valid runs-on" });
             else if (envPoisoned)
               rejected.push({
                 file,

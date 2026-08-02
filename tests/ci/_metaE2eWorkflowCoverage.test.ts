@@ -531,6 +531,28 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("a job without a valid runs-on claims nothing (R16)", () => {
+    // runs-on is REQUIRED and must name a runner: absent, null, empty,
+    // boolean, or an empty sequence means the job never executes, so any
+    // claim from its steps is false coverage.
+    for (const head of ["", "    runs-on:\n", "    runs-on: null\n", "    runs-on: []\n"]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n${head}    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+      const r = S(w);
+      expect(r.covered.has(spec), JSON.stringify(head)).toBe(false);
+      expect(r.rejected[0]!.reason, JSON.stringify(head)).toBe("job has no valid runs-on");
+    }
+    // …and the valid runner shapes still count: scalar, label sequence, and
+    // a runner group mapping.
+    for (const head of [
+      "    runs-on: ubuntu-latest\n",
+      "    runs-on:\n      - self-hosted\n      - linux\n",
+      "    runs-on:\n      group: my-group\n",
+    ]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n${head}    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+      expect(S(w).covered.has(spec), head).toBe(true);
+    }
+  });
+
   it("a step carrying BOTH run: and uses: claims nothing (R15)", () => {
     // The runner defines a step as run-step XOR regular-step, so GitHub
     // rejects the whole workflow — and claiming the run also bypassed every
@@ -546,6 +568,12 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.covered.has(spec), ref).toBe(false);
       expect(r.rejected[0]!.reason, ref).toBe("unmodelled YAML spelling");
     }
+    // File-level (whole-diff R3): a mixed step anywhere voids claims BEFORE
+    // it, AFTER it, and in OTHER jobs — GitHub rejects the whole workflow.
+    const before = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n      - uses: actions/checkout@v4\n        run: echo mixed\n`;
+    expect(S(before).covered.has(spec)).toBe(false);
+    const otherJob = `name: x\non:\n  pull_request:\njobs:\n  bad:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        run: echo mixed\n  good:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    expect(S(otherJob).covered.has(spec)).toBe(false);
     // …a clean separated pair still counts.
     const ok = S(
       `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm exec playwright test ${spec}\n`,

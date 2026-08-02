@@ -364,11 +364,37 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
       >;
     }
   )?.jobs;
+  // R15, corrected to FILE level at whole-diff R3: a step carrying BOTH
+  // `run:` and `uses:` is schema-invalid, so GitHub rejects the WHOLE
+  // workflow — every job in it is unreachable, not just the steps after the
+  // offending one.
+  const mixedStepAnywhere = Object.values(jobs ?? {}).some((jb) =>
+    (jb.steps ?? []).some((st) => typeof st.run === "string" && "uses" in st),
+  );
   for (const j of Object.values(jobs ?? {})) {
     // needs: a failed/skipped dependency skips the whole job; strategy: an
     // empty matrix executes nothing — both are execution context (R10).
     const jobGuarded = j.if !== undefined || j.needs !== undefined || j.strategy !== undefined;
-    walkSteps(j.steps ?? [], jobGuarded, { poisoned: false }, new Set());
+    // R16: `runs-on` is REQUIRED and must name a runner — absent, null,
+    // empty, boolean, or an empty sequence means the job never executes, so
+    // its blocks start poisoned rather than clean (narrow-accept: non-empty
+    // string, non-empty array, or a mapping with a non-empty group/labels).
+    const ro = (j as { "runs-on"?: unknown })["runs-on"];
+    const validRunsOn =
+      (typeof ro === "string" && ro.trim() !== "") ||
+      (Array.isArray(ro) && ro.length > 0) ||
+      (ro !== null &&
+        typeof ro === "object" &&
+        !Array.isArray(ro) &&
+        Object.values(ro as Record<string, unknown>).some(
+          (v) => (typeof v === "string" && v.trim() !== "") || (Array.isArray(v) && v.length > 0),
+        ));
+    walkSteps(
+      j.steps ?? [],
+      jobGuarded,
+      { poisoned: !validRunsOn || mixedStepAnywhere },
+      new Set(),
+    );
   }
   // Standalone composite-doc walk: same walker, same in-order threading
   // (nested local uses: resolve through the map; absent => fail-closed).
@@ -1218,7 +1244,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // raw-text sweep already treats actions as execution surface; the census
     // must see the same universe or the two guards disagree.
     const wfDoc = parse(
-      "jobs:\n  j:\n    steps:\n      - run: echo wf-step\n      - uses: x/y@v1\n      - run: echo guarded-step\n        if: failure()\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo wf-step\n      - uses: x/y@v1\n      - run: echo guarded-step\n        if: failure()\n",
     );
     const actionDoc = parse(
       "name: setup\nruns:\n  using: composite\n  steps:\n    - run: echo action-step\n      shell: bash\n",
@@ -1231,27 +1257,41 @@ describe("spec registration detector (spec §3.1)", () => {
       { run: "echo action-step", guarded: false, poisoned: false },
     ]);
     // Job-level if: guards every step in the job (R9 G1).
-    const guardedJob = parse("jobs:\n  j:\n    if: false\n    steps:\n      - run: echo x\n");
+    const guardedJob = parse(
+      "jobs:\n  j:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+    );
     expect(runBlocksOf(guardedJob)).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     // R10: needs (dependency may fail → job skipped), strategy (matrix may
     // be empty), and a custom shell (reinterprets the block) are execution
     // context too. bash/sh shells stay unguarded; composite actions REQUIRE
     // an explicit shell, so bash there is not context.
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    needs: build\n    steps:\n      - run: echo x\n")),
-    ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
-    expect(
       runBlocksOf(
         parse(
-          "jobs:\n  j:\n    strategy:\n      matrix:\n        s: [1]\n    steps:\n      - run: echo x\n",
+          "jobs:\n  j:\n    needs: build\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
         ),
       ),
     ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: python\n")),
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    strategy:\n      matrix:\n        s: [1]\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+        ),
+      ),
     ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
     expect(
-      runBlocksOf(parse("jobs:\n  j:\n    steps:\n      - run: echo x\n        shell: bash\n")),
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        shell: python\n",
+        ),
+      ),
+    ).toEqual([{ run: "echo x", guarded: true, poisoned: false }]);
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        shell: bash\n",
+        ),
+      ),
     ).toEqual([{ run: "echo x", guarded: false, poisoned: false }]);
     expect(
       runBlocksOf(
@@ -1272,14 +1312,14 @@ describe("spec registration detector (spec §3.1)", () => {
     // PATH COMPONENT to prepend, so the corrupting form is a directory
     // holding a fake pnpm; a PATH= assignment corrupts via GITHUB_ENV.)
     const poisonFirst = parse(
-      'jobs:\n  j:\n    steps:\n      - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      - run: echo later\n',
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "/fake-bin" >> "$GITHUB_PATH"\n      - run: echo later\n',
     );
     expect(runBlocksOf(poisonFirst)).toEqual([
       { run: 'echo "/fake-bin" >> "$GITHUB_PATH"', guarded: false, poisoned: false },
       { run: "echo later", guarded: false, poisoned: true },
     ]);
     const poisonLast = parse(
-      'jobs:\n  j:\n    steps:\n      - run: echo first\n      - run: echo "X=1" >> "$GITHUB_ENV"\n',
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo first\n      - run: echo "X=1" >> "$GITHUB_ENV"\n',
     );
     expect(runBlocksOf(poisonLast)).toEqual([
       { run: "echo first", guarded: false, poisoned: false },
@@ -1295,7 +1335,9 @@ describe("spec registration detector (spec §3.1)", () => {
     ]) {
       expect(
         runBlocksOf(
-          parse(`jobs:\n  j:\n    steps:\n      - run: ${write}\n      - run: echo later\n`),
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${write}\n      - run: echo later\n`,
+          ),
         ),
         write,
       ).toEqual([
@@ -1306,7 +1348,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // F1 precision twin: env state is JOB-scoped — a write in job a must not
     // poison job b (over-poisoning forces reason-free registry rows).
     const crossJob = parse(
-      'jobs:\n  a:\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n  b:\n    steps:\n      - run: echo clean\n',
+      'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo clean\n',
     );
     expect(runBlocksOf(crossJob)).toEqual([
       { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
@@ -1315,7 +1357,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // F6: a full-line # comment mentioning GITHUB_ENV never executes and
     // must not poison (same non-execution rule as the census's comment skip).
     const commentOnly = parse(
-      "jobs:\n  j:\n    steps:\n      - run: |\n          # GITHUB_ENV is not written here\n          echo hi\n      - run: echo later\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          # GITHUB_ENV is not written here\n          echo hi\n      - run: echo later\n",
     );
     expect(runBlocksOf(commentOnly)).toEqual([
       { run: "# GITHUB_ENV is not written here\necho hi\n", guarded: false, poisoned: false },
@@ -1330,7 +1372,7 @@ describe("spec registration detector (spec §3.1)", () => {
     );
     const actions = { "./.github/actions/w": setupWrites };
     const actionThenRun = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/w\n      - run: echo after-action\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/w\n      - run: echo after-action\n",
     );
     expect(runBlocksOf(actionThenRun, actions)).toEqual([
       { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
@@ -1341,7 +1383,7 @@ describe("spec registration detector (spec §3.1)", () => {
       "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n",
     );
     const writeThenAction = parse(
-      'jobs:\n  j:\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n      - uses: ./.github/actions/clean\n',
+      'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"\n      - uses: ./.github/actions/clean\n',
     );
     expect(runBlocksOf(writeThenAction, { "./.github/actions/clean": cleanAction })).toEqual([
       { run: 'echo "X=1" >> "$GITHUB_ENV"', guarded: false, poisoned: false },
@@ -1350,7 +1392,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // Spliced action steps compose guards: a use-site if: guards them the
     // same way a step-level if: guards a run step.
     const guardedUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/clean\n        if: failure()\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/clean\n        if: failure()\n",
     );
     expect(runBlocksOf(guardedUse, { "./.github/actions/clean": cleanAction })).toEqual([
       { run: "echo inside", guarded: true, poisoned: false },
@@ -1358,7 +1400,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // F5: an unresolvable local action is an opaque same-env executor —
     // fail-closed, later steps are poisoned.
     const ghostUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/ghost\n      - run: echo after-ghost\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/ghost\n      - run: echo after-ghost\n",
     );
     expect(runBlocksOf(ghostUse, {})).toEqual([
       { run: "echo after-ghost", guarded: false, poisoned: true },
@@ -1367,7 +1409,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // setup-node writes GITHUB_PATH by DESIGN; poisoning on remote uses:
     // would darken every workflow.
     const marketplaceUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo after-checkout\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo after-checkout\n",
     );
     expect(runBlocksOf(marketplaceUse, {})).toEqual([
       { run: "echo after-checkout", guarded: false, poisoned: false },
@@ -1379,11 +1421,31 @@ describe("spec registration detector (spec §3.1)", () => {
     for (const ref of ["actions/checkout", "owner/repo/path"]) {
       expect(
         runBlocksOf(
-          parse(`jobs:\n  j:\n    steps:\n      - uses: ${ref}\n      - run: echo after-refless\n`),
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - run: echo after-refless\n`,
+          ),
           {},
         ),
         ref,
       ).toEqual([{ run: "echo after-refless", guarded: false, poisoned: true }]);
+    }
+    // R16: a job without a valid runs-on never executes, so its blocks are
+    // poisoned rather than clean; the valid runner shapes stay clean.
+    for (const head of ["", "    runs-on:\n", "    runs-on: null\n", "    runs-on: []\n"]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo no-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo no-runner", guarded: false, poisoned: true }]);
+    }
+    for (const head of [
+      "    runs-on: ubuntu-latest\n",
+      "    runs-on:\n      - self-hosted\n",
+      "    runs-on:\n      group: my-group\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo runner-ok\n`), {}),
+        head,
+      ).toEqual([{ run: "echo runner-ok", guarded: false, poisoned: false }]);
     }
     // R15: a step carrying BOTH run: and uses: is schema-invalid — GitHub
     // rejects the workflow, so the run block must not be emitted clean (it
@@ -1392,7 +1454,7 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(
         runBlocksOf(
           parse(
-            `jobs:\n  j:\n    steps:\n      - uses: ${ref}\n        run: echo mixed\n      - run: echo later\n`,
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n        run: echo mixed\n      - run: echo later\n`,
           ),
           {},
         ),
@@ -1405,7 +1467,7 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(
       runBlocksOf(
         parse(
-          "jobs:\n  j:\n    steps:\n      - uses: docker://alpine:3\n      - run: echo after-docker\n",
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine:3\n      - run: echo after-docker\n",
         ),
         {},
       ),
@@ -1414,7 +1476,9 @@ describe("spec registration detector (spec §3.1)", () => {
     for (const ref of ["owner/repo/sub@v1", "actions/checkout@v4"]) {
       expect(
         runBlocksOf(
-          parse(`jobs:\n  j:\n    steps:\n      - uses: ${ref}\n      - run: echo after-ok\n`),
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - run: echo after-ok\n`,
+          ),
           {},
         ),
         ref,
@@ -1431,7 +1495,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // "modeled". Opaque, fail-closed.
     const jsAction = parse("runs:\n  using: node20\n  main: index.js\n");
     const jsUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/js\n      - run: echo after-js\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/js\n      - run: echo after-js\n",
     );
     expect(runBlocksOf(jsUse, { "./.github/actions/js": jsAction })).toEqual([
       { run: "echo after-js", guarded: false, poisoned: true },
@@ -1441,7 +1505,7 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(
       runBlocksOf(
         parse(
-          "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/pjs\n      - run: echo after-nested-js\n",
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/pjs\n      - run: echo after-nested-js\n",
         ),
         {
           "./.github/actions/pjs": parse(
@@ -1473,7 +1537,7 @@ describe("spec registration detector (spec §3.1)", () => {
       expect(
         runBlocksOf(
           parse(
-            "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/bad\n      - run: echo after-bad\n",
+            "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/bad\n      - run: echo after-bad\n",
           ),
           { "./.github/actions/bad": parse(body) },
         ),
@@ -1494,7 +1558,7 @@ describe("spec registration detector (spec §3.1)", () => {
       "runs:\n  using: composite\n  steps:\n    - run: echo child-ok\n      shell: bash\n",
     );
     const nestedUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/parent\n      - run: echo wf-after\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/parent\n      - run: echo wf-after\n",
     );
     expect(
       runBlocksOf(nestedUse, {
@@ -1523,14 +1587,14 @@ describe("spec registration detector (spec §3.1)", () => {
       "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/cycle\n    - run: echo after-cycle\n      shell: bash\n",
     );
     const cycleUse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/cycle\n      - run: echo wf-after\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/cycle\n      - run: echo wf-after\n",
     );
     expect(runBlocksOf(cycleUse, { "./.github/actions/cycle": selfCycle })).toEqual([
       { run: "echo after-cycle", guarded: false, poisoned: true },
       { run: "echo wf-after", guarded: false, poisoned: true },
     ]);
     const reuse = parse(
-      "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/clean\n      - uses: ./.github/actions/clean\n      - run: echo wf-after\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/clean\n      - uses: ./.github/actions/clean\n      - run: echo wf-after\n",
     );
     expect(runBlocksOf(reuse, { "./.github/actions/clean": cleanAction })).toEqual([
       { run: "echo inside", guarded: false, poisoned: false },
