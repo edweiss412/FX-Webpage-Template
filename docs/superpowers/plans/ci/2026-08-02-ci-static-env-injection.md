@@ -10,6 +10,10 @@ impeccable-gate: N/A — no UI surface
 
 **Round-record discipline (adopted from the cross-step plan, its R3 lesson):** this plan does NOT enumerate adversarial rounds or repair SHAs — the spec's §7 (one entry per round) and `git log --oneline origin/main..HEAD` are the authoritative records; both are generated from the work and cannot drift.
 
+**Execution-order note (honesty, mirroring the cross-step plan):** T1 and T2 were implemented red-first during the spec review train's waits (the cross-step arc's precedent), with each spec round's repair folded into the guard as it landed — the R2 value-pinning repair reshaped T1's allowlist in place. This document is therefore part as-built record; §7 of the spec and the commit log carry the round-by-round truth.
+
+**Hygiene fixture-key note:** fixtures needing an allowlisted pair under the DEFAULT allowlist use `CREW_E2E_ONLY: '1'` (a literal live pair); `REPEATS` pins an expression text and is unsuitable for literal fixtures.
+
 ## Pre-draft verification (run 2026-08-02 in this worktree)
 
 - Probe at origin/main 2509f1452: both layers pass a static-env-poisoned workflow at all three scopes (spec §1.0) — probe file tests/ci/probe-static-env.test.ts (untracked, deleted in T3).
@@ -20,7 +24,7 @@ impeccable-gate: N/A — no UI surface
 
 ## Meta-test inventory (mandatory declaration)
 
-This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` with its two hygiene `it`-blocks (stale-row, non-empty-reason — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
+This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` (value-pinned rows) with its two hygiene `it`-blocks (pair-level stale-row, non-empty-reason/value — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
 
 ## T1 — scanner: allowlist + predicate + per-scope rejection + caller
 
@@ -34,19 +38,25 @@ This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_met
 - S4/S5: exact reason string pinned; two off-list keys in one scope → reason lists both, sorted;
 - S6: hygiene blocks (below) exercised with a doctored allowlist via direct invocation.
 
-**Green:** in `tests/ci/_workflowCoverageScan.ts`: `export const ENV_KEY_ALLOWLIST: Record<string, string>` seeded from the live tree (35 keys, re-derived at implementation); `export function offAllowlistEnvKeys(env: unknown, allowlist = ENV_KEY_ALLOWLIST): string[]` using `Object.hasOwn` membership (spec §2.0); `Opts` gains `envKeyAllowlist?: Record<string, string>`; `ActionStep` gains `env?: unknown`. In `scanWorkflowCoverage`: compute `wfEnvOff` once per file from the parsed root `env`, `jobEnvOff` per job from the parsed job, `stepEnvOff` per run-step; insert the rejection branch after the cross-step `envPoisoned` reason and before the paths-filter reason, reason string carrying the sorted union of the governing scopes' off-list keys; in the bookkeeping tail, a `uses:`-step whose parsed `env` is dirty sets `envPoisoned = true` BEFORE `usesValuePoisons` runs; `usesValuePoisons` gains an allowlist parameter and poisons on any validated composite step (either kind, any depth) whose `env` is dirty. Caller in `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes nothing new (default allowlist). Hygiene `it`-blocks per spec §2.3: every `ENV_KEY_ALLOWLIST` key appears in at least one live workflow/action parsed `env:` map, else red; every reason non-empty.
+**Green:** in `tests/ci/_workflowCoverageScan.ts`: `export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist` (`Record<string, { values: string[]; reason: string }>` — VALUE-PINNED rows per spec §7 R2) seeded from the live tree (35 keys, pairs re-derived at implementation); `export function offAllowlistEnvKeys(env: unknown, allowlist = ENV_KEY_ALLOWLIST): string[]` using `Object.hasOwn` membership plus pinned-value-text membership (spec §2.0); `Opts` gains `envKeyAllowlist?: EnvKeyAllowlist`; `ActionStep` gains `env?: unknown`. In `scanWorkflowCoverage`: compute `wfEnvOff` once per file from the parsed root `env`, `jobEnvOff` per job from the parsed job, `stepEnvOff` per run-step; insert the rejection branch after the cross-step `envPoisoned` reason and before the paths-filter reason, reason string carrying the sorted union of the governing scopes' off-list keys; in the bookkeeping tail, a `uses:`-step whose parsed `env` is dirty sets `envPoisoned = true` BEFORE `usesValuePoisons` runs; `usesValuePoisons` gains an allowlist parameter and poisons on any validated composite step (either kind, any depth) whose `env` is dirty. Caller in `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes nothing new (default allowlist). Hygiene `it`-blocks per spec §2.3: every `ENV_KEY_ALLOWLIST` key appears in at least one live workflow/action parsed `env:` map, else red; every reason non-empty.
 
 Signature sketch (typechecked at draft time, see Snippet-typecheck note):
 
 ```ts
-export const ENV_KEY_ALLOWLIST: Record<string, string> = {};
+export type EnvKeyAllowlist = Record<string, { values: string[]; reason: string }>;
+export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {};
 export function offAllowlistEnvKeys(
   env: unknown,
-  allowlist: Record<string, string> = ENV_KEY_ALLOWLIST,
+  allowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
 ): string[] {
   if (env === null || typeof env !== "object" || Array.isArray(env)) return [];
-  return Object.keys(env)
-    .filter((k) => !Object.hasOwn(allowlist, k))
+  return Object.entries(env)
+    .filter(([k, v]) => {
+      if (!Object.hasOwn(allowlist, k)) return true;
+      const text = typeof v === "string" ? v : String(v);
+      return !allowlist[k]!.values.includes(text);
+    })
+    .map(([k]) => k)
     .sort();
 }
 ```
