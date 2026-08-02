@@ -668,6 +668,21 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     }
     return false;
   };
+  /** Unwrap parens/non-null/as/satisfies from an alias RHS — runtime identity
+   * survives all of them (whole-diff r20). */
+  const unwrapAliasRhs = (exprIn: Node): Node => {
+    let e: Node = exprIn;
+    while (
+      (Node.isParenthesizedExpression(e) ||
+        Node.isNonNullExpression(e) ||
+        Node.isAsExpression(e) ||
+        Node.isSatisfiesExpression(e)) &&
+      e.getExpression() !== undefined
+    ) {
+      e = e.getExpression();
+    }
+    return e;
+  };
   let carrierSetGrew = true;
   while (carrierSetGrew) {
     carrierSetGrew = false;
@@ -676,7 +691,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (!Node.isIdentifier(nameNode)) continue;
       const init = vd.getInitializer();
       if (init === undefined) continue;
-      if (isCarrierExpression(init)) {
+      if (isCarrierExpression(unwrapAliasRhs(init))) {
         if (!carrierDecls.has(vd)) {
           carrierDecls.add(vd);
           carrierSetGrew = true;
@@ -692,10 +707,11 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         carrierSetGrew = true;
         continue;
       }
-      // Helper ALIAS: `const choose = pick` (whole-diff r19).
+      // Helper ALIAS: `const choose = pick` — wrapped forms included (r19/r20).
+      const unwrappedInit = unwrapAliasRhs(init);
       if (
-        Node.isIdentifier(init) &&
-        symbolDeclsIn(init, carrierFnDecls) &&
+        Node.isIdentifier(unwrappedInit) &&
+        symbolDeclsIn(unwrappedInit, carrierFnDecls) &&
         !carrierFnDecls.has(vd)
       ) {
         carrierFnDecls.add(vd);
@@ -714,7 +730,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
       const lhs = bin.getLeft();
       if (!Node.isIdentifier(lhs)) continue;
-      const rhs = bin.getRight();
+      const rhs = unwrapAliasRhs(bin.getRight());
       const target = isCarrierExpression(rhs)
         ? carrierDecls
         : Node.isIdentifier(rhs) && symbolDeclsIn(rhs, carrierFnDecls)

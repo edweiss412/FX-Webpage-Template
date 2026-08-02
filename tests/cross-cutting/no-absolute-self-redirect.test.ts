@@ -657,12 +657,24 @@ describe("no absolute self-redirect under the walked roots", () => {
       "R100 conditional-return helper with parenthesized invocation",
       `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return typeof window === "undefined" ? globalThis : window; }\nexport function GET() { return viaEnvironment((pick)(), new URL("/x", request.url)); }`,
     ],
-    [
-      "R101 helper aliases (initializer and staged)",
-      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nconst choose = pick;\nlet later: typeof pick;\nlater = choose;\nexport function GET() {\n  const a = viaEnvironment((choose)(), new URL("/x", request.url));\n  const b = viaEnvironment(later(), new URL("/y", request.url));\n  return [a, b];\n}`,
-    ],
   ])("flags %s", (_label, source) => {
     expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
+  });
+
+  it("flags R101 initializer helper alias (each path pinned separately)", () => {
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nconst choose = (pick)!;\nexport function GET() { return viaEnvironment(choose(), new URL("/x", request.url)); }`,
+    );
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags R101b staged helper alias through a type-asserted RHS", () => {
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nlet later: typeof pick;\nlater = pick as typeof pick;\nexport function GET() { return viaEnvironment(later(), new URL("/y", request.url)); }`,
+    );
+    expect(findings).toHaveLength(1);
   });
 
   it("does not flag a safe outer helper containing nested carrier scopes (N18)", () => {

@@ -454,6 +454,71 @@ const MUTANTS = [
     "flag",
   ],
   [
+    "R94 global-object carrier into structural param",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(globalThis, new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R95 reverse-ordered alias chain",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nexport function GET() { return viaEnvironment(env2, new URL("/x", request.url)); }\nconst env2 = pick();\nfunction pick() { return environment; }\nconst environment = globalThis;`,
+    "flag",
+  ],
+  [
+    "R96 helper-return carriers",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction currentEnvironment() { return globalThis; }\nconst pickEnvironment = () => globalThis;\nexport function GET() {\n  const a = viaEnvironment(currentEnvironment(), new URL("/x", request.url));\n  const b = viaEnvironment(pickEnvironment(), new URL("/y", request.url));\n  return [a, b];\n}`,
+    "flag",
+  ],
+  [
+    "R97 function-expression helper",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst pickFE = function () { return globalThis; };\nexport function GET() { return viaEnvironment(pickFE(), new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R98 async helper awaited",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nasync function pickAsync() { return globalThis; }\nexport async function GET() { return viaEnvironment(await pickAsync(), new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R99 staged-initialization alias",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nlet environment: typeof globalThis | undefined;\nenvironment = globalThis;\nexport function GET() { return viaEnvironment(environment!, new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R100 conditional-return helper + (pick)()",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return typeof window === "undefined" ? globalThis : window; }\nexport function GET() { return viaEnvironment((pick)(), new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R101 helper aliases (initializer + staged, wrapped RHS)",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nconst choose = (pick)!;\nlet later: typeof pick;\nlater = pick as typeof pick;\nexport function GET() {\n  const a = viaEnvironment(choose(), new URL("/x", request.url));\n  const b = viaEnvironment(later(), new URL("/y", request.url));\n  return [a, b];\n}`,
+    "flag",
+  ],
+  [
+    "N14 app-local class named Response",
+    `class Response2 {}\nclass Response { redirect(u: string) { return u; } }\nconst r = new Response();\nconst m = r.redirect;\nexport function GET() { return [m.call(r, "/x"), new Response2()]; }`,
+    "clean",
+  ],
+  [
+    "N15 wrapped non-extracting positions",
+    `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const a = (NextResponse).json({ ok: 1 });\n  const b = NextResponse!.json({ ok: 2 });\n  const c = new (NextResponse)(null, { status: 302, headers: { Location: "/x" } });\n  const d = x instanceof (Response);\n  const e = typeof (Response);\n  return [a, b, c, d, e];\n}`,
+    "clean",
+  ],
+  [
+    "N16 ordinary global uses + erasing casts",
+    `export function GET() {\n  const g = globalThis as Record<string, unknown>;\n  const a = globalThis.structuredClone({ ok: 1 });\n  const b = typeof globalThis;\n  const c = globalThis.Response.json({ ok: 2 });\n  return [g, a, b, c];\n}`,
+    "clean",
+  ],
+  [
+    "N17 shadowing/same-named locals",
+    `type RedirectFn = (url: string | URL, status?: number) => Response;\nconst safeLocalRedirect: RedirectFn = (u) => new Response(String(u));\nconst environment = globalThis;\nfunction useShadow(environment: { Response: { redirect: RedirectFn } }) {\n  return environment;\n}\nconst global = { Response: { redirect: safeLocalRedirect } };\nfunction take(g: { Response: { redirect: RedirectFn } }) { return g; }\nexport function GET() { return [useShadow(global), take(global), environment.location]; }`,
+    "clean",
+  ],
+  [
+    "N18 safe outer helper, nested carrier scopes",
+    `type RedirectFn = (url: string | URL, status?: number) => Response;\nconst safeRedirect: RedirectFn = (u) => new Response(String(u));\nfunction take(g: { Response: { redirect: RedirectFn } }) { return g; }\nfunction outerSafe() {\n  function nested() { return globalThis; }\n  const withGetter = { get env() { return globalThis; } };\n  const K = class { pick() { return globalThis; } };\n  void nested; void withGetter; void K;\n  return { Response: { redirect: safeRedirect } };\n}\nexport function GET() { return take(outerSafe()); }`,
+    "clean",
+  ],
+  [
     "N12 local callable interface named Require",
     `interface Require { (id: string): unknown }\ndeclare const lookup: Require;\nexport function GET() { return lookup("next/server"); }`,
     "clean",
