@@ -46,8 +46,11 @@ function walk(dir: string, pattern = /\.(ts|tsx|js|jsx|mjs|cjs)$/): string[] {
 // is allowed to name it in code (spec 2026-07-24-test-safety-hardening-batch §3.3).
 //
 // readFileSync, never a shelled-out grep: components/admin/wizard/Step3Review.tsx
-// carries a raw NUL byte, so `file(1)` reports it as `data` and grep skips it
-// silently — it holds one of the ratified references below (spec §3.2a).
+// USED to carry a raw NUL byte, which made `file(1)` report it as `data` and
+// ripgrep skip its matches silently while it held one of the ratified references
+// below (spec §3.2a). The byte is now spelled as an escape
+// (BL-SOURCE-NUL-BYTE-STEP3REVIEW), and the no-raw-NUL test below is the standing
+// guard; reading the bytes directly keeps this walker independent of that fix.
 const SOURCES = [...ROOTS.flatMap((r) => walk(r)), "next.config.ts"].map((path) => ({
   path,
   src: readFileSync(path, "utf8"),
@@ -77,6 +80,18 @@ describe("Step-3 consolidation deletion safety (spec §11)", () => {
       }
     }
     expect(offenders, `retired-surface import(s) survived:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  // BL-SOURCE-NUL-BYTE-STEP3REVIEW. A raw control byte in source is
+  // tool-hostile: `file(1)` classifies the file as `data` and ripgrep
+  // SUPPRESSES its match lines (it prints a binary-file notice instead), so
+  // every rg-based sweep this repo's discipline relies on goes blind on that
+  // file. The delimiter is spelled "\u0000" instead — an identical runtime
+  // string. Concrete failure mode caught: any future raw NUL landing in
+  // app/ + components/ + lib/ source and silently blinding those sweeps.
+  test("no scanned source file contains a raw NUL byte (BL-SOURCE-NUL-BYTE-STEP3REVIEW)", () => {
+    const offenders = SOURCES.filter(({ src }) => src.includes("\u0000")).map(({ path }) => path);
+    expect(offenders, `raw NUL byte(s) in source:\n${offenders.join("\n")}`).toEqual([]);
   });
 
   // Layer A — every occurrence of the retired path, pinned by POSITION KIND rather
