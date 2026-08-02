@@ -133,7 +133,7 @@ const hasToken = (tokens: string[], token: string): boolean => tokens.includes(t
  * in CI. `--list` starts no webServer, so this stays a unit-speed check. Fail-closed — a command
  * that cannot be loaded or collects nothing yields an empty map, which fails the callers.
  */
-function resolvedByCommand(segment: string[]): { file: string; project: string }[] {
+function resolvedByCommand(segment: string[], spec: string): number {
   const i = segment.indexOf("playwright");
   const argv = segment.slice(i + 1);
   let out: string;
@@ -145,55 +145,83 @@ function resolvedByCommand(segment: string[]): { file: string; project: string }
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch {
-    return [];
+    return 0;
   }
-  const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
-  const found: { file: string; project: string }[] = [];
+  return countTests(out, spec);
+}
+
+/**
+ * Every test the spec file defines, resolved WITHOUT the workflow's own filters — the baseline the
+ * workflow command is measured against.
+ *
+ * Whole-diff review R4 (HIGH) escaping mutant: requiring "at least one test from the file" let
+ * `--grep-invert=BL-AGENDA-FOLD-NO-SEEDED-E2E` collect the file's other 3 cases and ZERO
+ * agenda-fold cases with both guards green — the primary backlog item dark behind its own wiring
+ * guard. `--grep=admin` was the same hole from the other side (1/7 and 2/6 collected). Counting is
+ * the fix and it maintains itself: adding a case to the spec raises both sides together, while any
+ * filter that drops one fails the comparison.
+ */
+function definedTestCount(spec: string, projects: string[]): number {
+  const projectFlags = projects.map((p) => `--project=${p}`);
+  let out: string;
+  try {
+    out = execFileSync(
+      "pnpm",
+      ["exec", "playwright", "test", ...projectFlags, spec, "--list", "--reporter=json"],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    return 0;
+  }
+  return countTests(out, spec);
+}
+
+function countTests(json: string, spec: string): number {
+  const parsed = JSON.parse(json.slice(json.indexOf("{"))) as { suites?: unknown[] };
+  const base = spec.split("/").pop()!;
+  let n = 0;
   const walk = (suites: unknown[]): void => {
     for (const suite of suites) {
       const s = suite as {
         suites?: unknown[];
-        specs?: { file?: string; tests?: { projectName?: string }[] }[];
+        specs?: { file?: string; tests?: unknown[] }[];
       };
-      for (const spec of s.specs ?? []) {
-        for (const t of spec.tests ?? []) {
-          found.push({ file: spec.file ?? "", project: t.projectName ?? "" });
-        }
+      for (const sp of s.specs ?? []) {
+        if ((sp.file ?? "").endsWith(base)) n += (sp.tests ?? []).length;
       }
       if (s.suites) walk(s.suites);
     }
   };
   walk(parsed.suites ?? []);
-  return found;
+  return n;
 }
 
 /**
- * The project name a spec file GATES ITS OWN CASES ON, if it gates at all.
+ * No spec guarded here may carry a project-name guard clause.
  *
- * R3 (HIGH) escaping mutant: `stage-restricted-crew-schedule.spec.ts` opens every hook and case
- * with `if (testInfo.project.name !== "desktop-chromium") return;` (the single-writer convention),
- * so moving the file's testMatch membership to the other project the command already selects left
- * the guard green while all six cases became assertion-free passes. Collection under SOME selected
- * project is therefore not enough — it has to be collected under the project the file was written
- * for. Reading the literal out of the spec keeps the two in lockstep without the guard hardcoding
- * a project of its own: change the gate and the guard follows it.
+ * Whole-diff review R4 (HIGH): the file used to open every hook and case with
+ * `if (testInfo.project.name !== "desktop-chromium") return;`. An earlier version of this guard
+ * read that literal and required collection under it, which the reviewer defeated by respelling
+ * ONE of the nine sites (`if (!["mobile-safari"].includes(testInfo.project.name)) return;`) —
+ * eight literals still answered "desktop-chromium", all six tests still collected, and two cases
+ * silently asserted nothing. Parsing gate SPELLINGS is unwinnable; banning the property access is
+ * not, because every project-based gate must read `project.name` to exist. These files are matched
+ * by exactly one project, so the clause has no purpose here beyond creating that silent-pass class.
  */
-function selfGatedProject(spec: string): string | null {
+function expectNoProjectGate(spec: string): void {
   const src = readFileSync(join(process.cwd(), spec), "utf8");
-  const names = new Set(
-    [...src.matchAll(/testInfo\.project\.name\s*!==\s*"([^"]+)"/g)].map((m) => m[1]!),
-  );
+  const code = src.slice(src.indexOf("*/") + 2); // the header comment discusses the ban
   expect(
-    names.size,
-    `${spec} gates its cases on more than one project name (${[...names].join(", ")}) — the ` +
-      "single-writer convention cannot hold and this guard cannot know which one to require",
-  ).toBeLessThan(2);
-  return names.size === 1 ? [...names][0]! : null;
+    /project\.name/.test(code),
+    `${spec} reads project.name outside its header. A project guard clause makes every case a ` +
+      "silent assertion-free PASS under any other project, so a one-word testMatch move turns the " +
+      "suite into a no-op that still reports green. Let it run and fail loudly instead.",
+  ).toBe(false);
 }
 
 /**
- * Every executing segment must collect the spec, under the project the spec gates on when it
- * gates. Shared by both guarded specs so a fix to one is a fix to both (class-sweep).
+ * Every executing segment must collect the spec, and must collect ALL of it. Shared by both
+ * guarded specs so a fix to one is a fix to both (class-sweep).
  */
 function expectWired(segments: string[][], spec: string, what: string): void {
   const naming = segments.filter((t) => hasToken(t, spec));
@@ -203,23 +231,24 @@ function expectWired(segments: string[][], spec: string, what: string): void {
       `${what} that no workflow runs are dark: CI would report green without executing them.`,
   ).toBeGreaterThan(0);
 
-  const required = selfGatedProject(spec);
-  const collected = naming.flatMap((segment) =>
-    resolvedByCommand(segment).filter((t) => t.file.endsWith(spec.split("/").pop()!)),
-  );
-  expect(
-    collected.length,
-    `replaying crew-e2e.yml's own \`playwright test\` command with --list collects NO test from ` +
-      `${spec}. Its filters (--grep/--grep-invert/--shard/a project testIgnore) select it away, ` +
-      "so the job would exit 0 having executed none of it.",
-  ).toBeGreaterThan(0);
-  if (required !== null) {
+  expectNoProjectGate(spec);
+
+  for (const segment of naming) {
+    const projects = segment
+      .filter((w) => w.startsWith("--project="))
+      .map((w) => w.slice("--project=".length));
+    const expected = definedTestCount(spec, projects);
     expect(
-      collected.map((t) => t.project),
-      `${spec} gates every case on project "${required}", but the workflow command collects it ` +
-        `only under ${[...new Set(collected.map((t) => t.project))].join(", ")} — every case ` +
-        "would return early and pass without asserting anything.",
-    ).toContain(required);
+      expected,
+      `no project the segment selects (${projects.join(", ")}) resolves any test in ${spec}`,
+    ).toBeGreaterThan(0);
+    expect(
+      resolvedByCommand(segment, spec),
+      `replaying crew-e2e.yml's own \`playwright test\` command with --list collects a DIFFERENT ` +
+        `number of tests from ${spec} than the file defines. Its filters (--grep/--grep-invert/` +
+        "--shard/a project testIgnore) select part or all of the file away, so the job would exit " +
+        "0 having executed less of it than the guard claims.",
+    ).toBe(expected);
   }
 }
 

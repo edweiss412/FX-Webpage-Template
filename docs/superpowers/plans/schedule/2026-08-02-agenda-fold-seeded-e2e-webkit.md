@@ -74,7 +74,23 @@ against the shipped guard (AGENTS.md round-economy contract):
   the real command's own flags, so `--grep-invert=. --pass-with-no-tests` appended to the workflow
   collected nothing, exited 0, and both guards stayed green. The guards now replay the segment's
   EXACT argv with `--list --reporter=json` appended and require the spec to appear in the result.
-- **MF11 — self-gate / project drift (whole-diff review R3 live mutant):**
+- **MF12 — partial-file selection (whole-diff review R4 live mutants):** requiring "at least one
+  test from the named file" let `--grep-invert=BL-AGENDA-FOLD-NO-SEEDED-E2E` collect the file's
+  other three cases and ZERO agenda-fold cases with both guards green — the primary backlog item
+  dark behind its own wiring guard; `--grep=admin` was the same hole from the other side (1/7 and
+  2/6 collected). Closed by COUNT EQUALITY: the replayed command must collect exactly as many tests
+  from the file as the file defines (resolved without the workflow's filters). Self-maintaining —
+  adding a case raises both sides together.
+- **MF13 — gate respelling (whole-diff review R4 live mutant):** MF11's guard read the gated
+  project literal out of the spec, and respelling ONE of the nine sites
+  (`if (!["mobile-safari"].includes(testInfo.project.name)) return;`) left the other eight
+  answering `desktop-chromium` while two cases silently asserted nothing. Parsing gate spellings is
+  unwinnable. Closed at the SOURCE instead: the nine clauses are deleted (the file is matched by
+  exactly one project, so they only ever created the silent-pass class), and the guard bans any
+  read of `project.name` in these specs — every project-based gate must read that property to
+  exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF11 — self-gate / project drift (whole-diff review R3 live mutant; SUPERSEDED by MF13, which
+  removed the gates the pin was reading):**
   `stage-restricted-crew-schedule.spec.ts` opens every hook and case with
   `if (testInfo.project.name !== "desktop-chromium") return;`, so moving its `testMatch` membership
   to the other project the command already selects left the guard green while all six cases became

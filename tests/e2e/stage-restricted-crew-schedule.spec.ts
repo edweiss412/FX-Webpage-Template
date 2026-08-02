@@ -67,9 +67,17 @@
  * the restricted viewer's single show card is Day 2, not Day 1) + 04-24
  * ("Travel Out"). Every value below is derived from this table.
  *
- * Single-writer: gated to the desktop-chromium project (its testMatch is the
- * only one carrying this file); each test builds its OWN BrowserContext + tears
- * down its seeded show, so no cross-test cookie/session/row leakage. The project
+ * Single-writer: exactly ONE project's testMatch carries this file (desktop-chromium), so the
+ * cases run once per CI invocation and each builds its OWN BrowserContext + tears down its seeded
+ * show — no cross-test cookie/session/row leakage.
+ *
+ * There is deliberately NO `if (testInfo.project.name !== …) return;` guard clause here, and
+ * `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` fails if one reappears. Whole-diff
+ * review R4 (HIGH) showed why: nine such clauses made every case a silent assertion-free PASS
+ * under any other project, so a one-word `testMatch` move turned the whole suite into a no-op that
+ * still reported green. With no clause, the same move makes the cases RUN and FAIL loudly on the
+ * wrong engine, which is the direction a coverage regression should fail in. The convention exists
+ * for files matched by two or more projects; this file is matched by one. The project
  * is desktop-chromium and not mobile-safari for the reason picker-flow.spec.ts
  * already lives there: every non-admin viewer here needs the `__Host-` picker
  * cookie the bootstrap mints, and Linux WebKit refuses to store it over plain
@@ -120,8 +128,7 @@ async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect
 test.describe("stage-restricted crew schedule (SFS-1)", () => {
   let show: SeededShow;
 
-  test.beforeAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return; // single-writer
+  test.beforeAll(async () => {
     show = await seedShowWithCrew({
       title: "Stage-Restricted E2E Show",
       dates: { ...DATES, showDays: [...DATES.showDays] },
@@ -137,15 +144,13 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
     });
   });
 
-  test.afterAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  test.afterAll(async () => {
     if (show) await deleteSeededShow(show.driveFileId);
   });
 
   test("restricted crew sees ONLY their worked day cards; non-worked days are absent", async ({
     browser,
-  }, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  }) => {
     const ctx = await browser.newContext({ baseURL: BASE_URL });
     try {
       const page = await ctx.newPage();
@@ -200,8 +205,7 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
 
   test("admin (unrestricted) sees the FULL schedule — proves the stage filter narrows", async ({
     browser,
-  }, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  }) => {
     const ctx = await browser.newContext({ baseURL: BASE_URL });
     try {
       const page = await ctx.newPage();
@@ -232,8 +236,7 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
 
   test("§5.5 DayCard dimensional invariant holds for the stage-restricted render (≥720px)", async ({
     browser,
-  }, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  }) => {
     const ctx = await browser.newContext({
       baseURL: BASE_URL,
       viewport: { width: 1000, height: 1200 },
@@ -381,14 +384,12 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
       ],
     });
 
-  test.beforeAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return; // single-writer, template convention
+  test.beforeAll(async () => {
     shows.fiona = await seedFoldShow("fiona");
     shows.theo = await seedFoldShow("theo");
   });
 
-  test.afterAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  test.afterAll(async () => {
     for (const s of [shows.fiona, shows.theo]) {
       if (s) await deleteSeededShow(s.driveFileId);
     }
@@ -398,10 +399,7 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
     { label: "Fiona (day 1)", key: "fiona" as const, own: 0, other: 1 },
     { label: "Theo (day 2)", key: "theo" as const, own: 1, other: 0 },
   ]) {
-    test(`${viewer.label}: own agenda day open+marked, other day folded`, async ({
-      browser,
-    }, testInfo) => {
-      if (testInfo.project.name !== "desktop-chromium") return;
+    test(`${viewer.label}: own agenda day open+marked, other day folded`, async ({ browser }) => {
       const seeded = shows[viewer.key]!;
       const ctx = await browser.newContext({ baseURL: BASE_URL });
       try {
@@ -449,8 +447,7 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
     });
   }
 
-  test("admin (unrestricted) sees both days open, no markers", async ({ browser }, testInfo) => {
-    if (testInfo.project.name !== "desktop-chromium") return;
+  test("admin (unrestricted) sees both days open, no markers", async ({ browser }) => {
     const ctx = await browser.newContext({ baseURL: BASE_URL });
     try {
       const page = await ctx.newPage();
