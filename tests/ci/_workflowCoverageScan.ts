@@ -143,14 +143,76 @@ const strOrSeq: Pred = (v) =>
 const timeout: Pred = (v) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 360;
 const scalars: Pred = (v) => scalarMap(v);
 
+/**
+ * Nested tables (R22): `mapping`/`strOrMapping` validated only the OUTER
+ * container, so `permissions: {contents: bogus}`, a keyless `concurrency`,
+ * an unknown `strategy` key, and similar nested junk still passed. The same
+ * inversion applies one level down — each container key declares the shape
+ * of its CONTENTS, and anything else makes the file unschedulable.
+ */
+const PERM_LEVELS = new Set(["read", "write", "none"]);
+const permissions: Pred = (v) =>
+  (typeof v === "string" && (v === "read-all" || v === "write-all" || v.trim() !== "")) ||
+  (mapping(v) &&
+    Object.values(v as Record<string, unknown>).every(
+      (x) => typeof x === "string" && PERM_LEVELS.has(x),
+    ));
+const concurrency: Pred = (v) =>
+  nonEmptyString(v) ||
+  (mapping(v) &&
+    typedShape(v as Record<string, unknown>, {
+      group: str,
+      "cancel-in-progress": strOrBool,
+    }));
+const strategy: Pred = (v) =>
+  mapping(v) &&
+  typedShape(v as Record<string, unknown>, {
+    matrix: (x) => mapping(x) || nonEmptyString(x),
+    "fail-fast": strOrBool,
+    "max-parallel": (x) => typeof x === "number" || nonEmptyString(x),
+  });
+const environment: Pred = (v) =>
+  nonEmptyString(v) ||
+  (mapping(v) && typedShape(v as Record<string, unknown>, { name: str, url: str }));
+const services: Pred = (v) =>
+  mapping(v) &&
+  Object.values(v as Record<string, unknown>).every(
+    (svc) =>
+      mapping(svc) &&
+      typedShape(svc as Record<string, unknown>, {
+        image: str,
+        credentials: scalars,
+        env: scalars,
+        ports: (x) => Array.isArray(x),
+        volumes: (x) => Array.isArray(x),
+        options: str,
+      }),
+  );
+/** `on`: an event name, a list of them, or a mapping of event -> null|config. */
+const onTrigger: Pred = (v) =>
+  nonEmptyString(v) ||
+  (Array.isArray(v) && v.length > 0 && v.every((x) => nonEmptyString(x))) ||
+  (mapping(v) &&
+    Object.entries(v as Record<string, unknown>).every(
+      // `schedule:` is a SEQUENCE of cron mappings, not a mapping — the
+      // live x-audits/dev-gate/mutation-harness/screenshots-drift
+      // workflows carry it, and the live-tree tripwire caught the
+      // over-refusal immediately.
+      ([k, cfg]) =>
+        k.trim() !== "" &&
+        (cfg === null ||
+          mapping(cfg) ||
+          (Array.isArray(cfg) && cfg.length > 0 && cfg.every((x) => mapping(x)))),
+    ));
+
 const WF_ROOT: Record<string, Pred> = {
   name: str,
   "run-name": str,
-  on: strOrSeqOrMapping,
+  on: onTrigger,
   env: scalars,
   defaults: mapping,
-  concurrency: strOrMapping,
-  permissions: strOrMapping,
+  concurrency: concurrency,
+  permissions: permissions,
   jobs: mapping,
 };
 const WF_STEPS_JOB: Record<string, Pred> = {
@@ -161,18 +223,18 @@ const WF_STEPS_JOB: Record<string, Pred> = {
   // `validRunsOn` gate so the refusal reports its own precise reason
   // rather than a generic schema rejection (R16/R17 fixtures pin that).
   "runs-on": () => true,
-  environment: strOrMapping,
-  concurrency: strOrMapping,
+  environment: environment,
+  concurrency: concurrency,
   outputs: scalars,
   env: scalars,
   defaults: mapping,
   steps: (v) => Array.isArray(v),
   "timeout-minutes": timeout,
-  strategy: mapping,
+  strategy: strategy,
   "continue-on-error": strOrBool,
   container: strOrMapping,
-  services: mapping,
-  permissions: strOrMapping,
+  services: services,
+  permissions: permissions,
 };
 const WF_USES_JOB: Record<string, Pred> = {
   name: str,
@@ -185,9 +247,9 @@ const WF_USES_JOB: Record<string, Pred> = {
       /^[\w.-]+\/[\w.-]+\/[\w./-]+\.ya?ml@[\w./-]+$/.test(v.trim())),
   with: scalars,
   secrets: (v) => v === "inherit" || scalars(v),
-  strategy: mapping,
-  concurrency: strOrMapping,
-  permissions: strOrMapping,
+  strategy: strategy,
+  concurrency: concurrency,
+  permissions: permissions,
 };
 const WF_RUN_STEP: Record<string, Pred> = {
   name: str,

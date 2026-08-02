@@ -659,6 +659,44 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(okReusable).covered.has(spec)).toBe(true);
   });
 
+  it("container VALUES are typed too, one level down (R22)", () => {
+    // `mapping`/`strOrMapping` validated only the outer container, so nested
+    // junk passed: unknown permission levels, a keyless concurrency, unknown
+    // strategy/environment/services keys.
+    const wf = (root: string, jobExtra: string) =>
+      `name: x\n${root}on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n${jobExtra}    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    const bad = [
+      wf("permissions:\n  contents: bogus\n", ""),
+      wf("concurrency:\n  bogus: 1\n", ""),
+      wf("", "    permissions:\n      contents: bogus\n"),
+      wf("", "    concurrency:\n      group: ''\n"),
+      wf("", "    strategy:\n      bogus: 1\n"),
+      wf("", "    environment:\n      bogus: x\n"),
+      wf("", "    services:\n      db:\n        bogus: x\n"),
+    ];
+    for (const w of bad) {
+      const r = S(w);
+      expect(r.covered.has(spec), w).toBe(false);
+      if (r.rejected.length > 0) {
+        expect(r.rejected[0]!.reason, w).toBe("unmodelled YAML spelling");
+      }
+    }
+    // …and the well-formed nested shapes still count, including the live
+    // `schedule:` SEQUENCE form that the live-tree tripwire caught when an
+    // earlier draft refused it.
+    const ok = [
+      wf("permissions:\n  contents: read\n", ""),
+      wf("concurrency:\n  group: g\n  cancel-in-progress: true\n", ""),
+      wf("", "    strategy:\n      fail-fast: false\n"),
+      wf("", "    environment:\n      name: prod\n      url: https://example.com\n"),
+      wf("", "    services:\n      db:\n        image: postgres:16\n"),
+      `name: x\non:\n  pull_request:\n  schedule:\n    - cron: '0 9 * * 1'\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`,
+    ];
+    for (const w of ok) {
+      expect(S(w).covered.has(spec), w).toBe(true);
+    }
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any
