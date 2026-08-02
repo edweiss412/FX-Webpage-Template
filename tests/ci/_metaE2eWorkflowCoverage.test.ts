@@ -28,6 +28,7 @@ import {
   envAllowlistHygieneProblems,
   envPairGovernance,
   governanceViolations,
+  unreviewedLivePairs,
   scanWorkflowCoverage,
 } from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
@@ -1741,6 +1742,14 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     expect(envAllowlistHygieneProblems(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
   });
 
+  it("every LIVE env pair has a reviewed row — the seed cannot drift over-tight (plan-R2)", () => {
+    // The inverse direction of the stale-row check: hygiene that only asserts
+    // declared→live lets a NEW live pair sit unreviewed forever (the plan-R2
+    // probe: GH_APP_TOKEN landed in x-audits.yml with no row, every gate
+    // green). Live→declared closes the drift class, not the one instance.
+    expect(unreviewedLivePairs(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
+  });
+
   it("every row's governs equals the live derivation — relocation reds (S8, spec §7 R3)", () => {
     const wfDir = join(process.cwd(), ".github/workflows");
     const workflows = Object.fromEntries(
@@ -1834,5 +1843,14 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
       /stale pinned value/,
     );
     expect(envAllowlistHygieneProblems(row({ reason: "  " }), live)[0]).toMatch(/reason-less/);
+    // Completeness twin (plan-R2): a live pair with no row, and a live VALUE
+    // outside its row's pins, each red through the same live→declared checker.
+    expect(unreviewedLivePairs(row({}), live)).toEqual([]);
+    const extraKey = new Map([...live, ["NEW_LIVE_KEY", new Set(["x"])]]);
+    expect(unreviewedLivePairs(row({}), extraKey)).toHaveLength(1);
+    expect(unreviewedLivePairs(row({}), extraKey)[0]).toMatch(/unreviewed live env pair/);
+    const extraValue = new Map([["K", new Set(["v", "v2"])]]);
+    expect(unreviewedLivePairs(row({}), extraValue)).toHaveLength(1);
+    expect(unreviewedLivePairs(row({}), extraValue)[0]).toMatch(/NEW_LIVE|K=v2/);
   });
 });

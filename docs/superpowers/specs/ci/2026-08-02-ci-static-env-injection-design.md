@@ -100,6 +100,7 @@ New `it`-blocks in `tests/ci/_metaE2eWorkflowCoverage.test.ts`:
 - **Stale rows red:** every `ENV_KEY_ALLOWLIST` (key, value-text) pair must appear in at least one live workflow/action `env:` block (parsed, not grepped); a row whose key vanished — or a pinned value no live site carries — fails with a remove-the-stale-row message. Mirrors the stale/shadowing checks on `LOCAL_ONLY_ALLOWLIST`.
 - **Governance equality (R3; recognizer-corrected R4; qualification-corrected R5):** every row's `governs` equals the live derivation (`envPairGovernance` + `governanceViolations`, pure module exports so §3 S8 can feed doctored trees). Relocating a pair away from the claims it gates, or a pair silently gaining governance of new claims, reds with the mismatch named. Governance IS the scan: `scanWorkflowCoverage` credits `governance` at its `covered.add` site (the env keys in scope at each COVERED claiming step), and `envPairGovernance` is a thin wrapper reading that map — so the derivation shares the recognizer (`claimedSpecsOf`, extracted R4: command-position `INVOKER_SEG`, pnpm alias resolution, whole-config literal on the TOP-LEVEL run block only, never through alias bodies) AND the entire qualification chain (R5: a recognition-only derivation credited a path-gated DUPLICATE of the real invocation, laundering relocation through a claim the scan rejects). Specs the scan does not cover confer no governance — §5 LS7.
 - **Reasoned rows only:** every row's reason is a non-empty string and every row pins at least one value.
+- **Live completeness (plan-R2):** every LIVE (key, value-text) pair has a reviewed row — the inverse direction of the stale-row check (`unreviewedLivePairs`, pure like its sibling). Stale-row alone is declared→live; a NEW live pair that governs no covered claim would otherwise sit unreviewed with every gate green (probe: `GH_APP_TOKEN` landed in `x-audits.yml` post-seed and nothing red). Both directions together make "the seed covers exactly the live tree" (§4.3) machine-checked, not a drafting-time snapshot claim.
 - (No shadowing analogue exists — an allowlisted key that is also used is the normal state.)
 
 ### §2.4 What deliberately does NOT change
@@ -184,6 +185,8 @@ Consequence bound per limit. LS1 is the single trust assumption; LS2/LS3 err in 
 ---
 
 ## §7 Review record (triage — findings and dispositions, so later rounds do not re-derive)
+
+**Plan R2 (Codex, 2026-08-02, VERDICT: NEEDS-ATTENTION; one finding, probe-backed, ACCEPTED — recorded here because the disposition extends §2.3):** the live seed had drifted over-tight (`GH_APP_TOKEN=${{ secrets.GH_APP_TOKEN }}` live in `x-audits.yml` with no row) and no gate reported it: stale-row hygiene is declared→live only, and an off-list pair governing no covered claim never reaches the scanner's rejection path. **Disposition — close the drift class:** §2.3 gains the live-completeness direction (`unreviewedLivePairs`); the missing row is seeded. Plan R1 (NEEDS-ATTENTION, four findings — S6 twin tautology, stale S1–S7 fan-out text, TDD/review representation, untracked-probe absence check) is recorded in the plan-repair commits; its S6 disposition (one pure checker for live gate + doctored twin) is now the §2.3/§3 S6 contract.
 
 **R1 (Codex, 2026-08-02, VERDICT: NEEDS-ATTENTION; both findings probe-backed and ACCEPTED):**
 

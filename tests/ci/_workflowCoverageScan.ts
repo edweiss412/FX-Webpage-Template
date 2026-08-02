@@ -847,6 +847,11 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     reason: "GitHub token read by audit scripts",
     governs: [],
   },
+  GH_APP_TOKEN: {
+    values: ["${{ secrets.GH_APP_TOKEN }}"],
+    reason: "GitHub App token read by the branch-protection drift detector",
+    governs: [],
+  },
 };
 
 /**
@@ -1283,6 +1288,26 @@ export function envAllowlistHygieneProblems(
     if (row.reason.trim().length === 0) out.push(`reason-less env-key row: ${key}`);
   }
   return out;
+}
+
+/** Completeness direction of pair-level hygiene (plan-R2): every LIVE
+ *  (key, value) pair must have a reviewed allowlist row. The stale-row check
+ *  alone is declared→live only, so a NEW live pair (the plan-R2 probe:
+ *  GH_APP_TOKEN landed in x-audits.yml with no row) sits unreviewed while
+ *  every gate stays green — an over-tight seed the live-green gate claims
+ *  to exclude. Pure over (allowlist, live pairs) like its sibling checker. */
+export function unreviewedLivePairs(
+  allowlist: EnvKeyAllowlist,
+  livePairs: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, values] of livePairs) {
+    const row = Object.hasOwn(allowlist, key) ? allowlist[key] : undefined;
+    for (const v of values)
+      if (!row || !row.values.includes(v))
+        out.push(`unreviewed live env pair: ${key}=${v} — add a reasoned row`);
+  }
+  return out.sort();
 }
 
 export function scanWorkflowCoverage({
