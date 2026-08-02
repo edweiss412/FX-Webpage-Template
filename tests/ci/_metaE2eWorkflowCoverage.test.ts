@@ -1590,7 +1590,7 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
   const POISON_REASON =
     "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
   // Fixture-local allowlist: fixtures must not couple to live seed rows.
-  const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair" } };
+  const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] } };
   const S = (w: string, localActions: Record<string, string> = {}) =>
     scanWorkflowCoverage({
       workflows: { "w.yml": w },
@@ -1644,7 +1644,8 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
         "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
     };
     const nested = (childSteps: string) => ({
-      "./.github/actions/a": "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
       "./.github/actions/b": `runs:\n  using: composite\n  steps:\n${childSteps}`,
     });
     const nestedRun = nested(
@@ -1697,6 +1698,61 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
   });
 });
 
+/** Key → spec paths its env scope governs, derived from a workflows map the
+ *  same way the seed's `governs` arrays were: a key at workflow-root, job, or
+ *  claiming-step env scope governs every spec named in that job's claiming
+ *  run text. Pure so the S8 fixtures can feed doctored trees. */
+function envPairGovernance(workflows: Record<string, string>): Map<string, Set<string>> {
+  const SPEC_PATH_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
+  const gov = new Map<string, Set<string>>();
+  const keysOf = (env: unknown): string[] =>
+    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
+  for (const raw of Object.values(workflows)) {
+    let doc: unknown;
+    try {
+      doc = parse(raw);
+    } catch {
+      continue;
+    }
+    const root = keysOf((doc as { env?: unknown } | null)?.env);
+    for (const j of Object.values(
+      (doc as { jobs?: Record<string, { env?: unknown; steps?: unknown }> } | null)?.jobs ?? {},
+    )) {
+      const job = keysOf(j?.env);
+      for (const st of Array.isArray(j?.steps)
+        ? (j.steps as Array<{ run?: unknown; env?: unknown }>)
+        : []) {
+        const specs =
+          typeof st?.run === "string" ? [...new Set(st.run.match(SPEC_PATH_RE) ?? [])] : [];
+        if (specs.length === 0) continue;
+        for (const k of [...root, ...job, ...keysOf(st?.env)]) {
+          const set = gov.get(k) ?? new Set<string>();
+          for (const sp of specs) set.add(sp);
+          gov.set(k, set);
+        }
+      }
+    }
+  }
+  return gov;
+}
+
+/** governs-equality check (S8): every row's declared governs must equal the
+ *  derived set — relocation OR new governance both force a registry edit. */
+function governanceViolations(
+  allowlist: typeof ENV_KEY_ALLOWLIST,
+  derived: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, row] of Object.entries(allowlist)) {
+    const want = [...(derived.get(key) ?? [])].sort();
+    if (JSON.stringify(want) !== JSON.stringify([...row.governs].sort()))
+      out.push(
+        `${key}: declared governs ${JSON.stringify(row.governs)} != live ${JSON.stringify(want)}`,
+      );
+  }
+  return out;
+}
+
 describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
   it("every allowlist row pins live (key, value) pairs only, with a non-empty reason (S6)", () => {
     const live = liveEnvPairs();
@@ -1707,6 +1763,29 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
         expect(live.get(key)!.has(v), `stale pinned value for ${key}: ${v} — remove it`).toBe(true);
       expect(row.reason.trim().length > 0, `reason-less env-key row: ${key}`).toBe(true);
     }
+  });
+
+  it("every row's governs equals the live derivation — relocation reds (S8, spec §7 R3)", () => {
+    const wfDir = join(process.cwd(), ".github/workflows");
+    const workflows = Object.fromEntries(
+      readdirSync(wfDir)
+        .filter((n) => /\.ya?ml$/.test(n))
+        .map((f) => [f, readFileSync(join(wfDir, f), "utf8")]),
+    );
+    expect(governanceViolations(ENV_KEY_ALLOWLIST, envPairGovernance(workflows))).toEqual([]);
+  });
+
+  it("the governance checker reds a relocated pair and a silently-gained one (S8 doctored twins)", () => {
+    const claiming = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`;
+    const relocated = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
+    const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
+    // The R3 mutant: pair parked at a non-claiming site — pair-level presence
+    // still holds, governance does not.
+    expect(governanceViolations(row, envPairGovernance({ "w.yml": claiming }))).toEqual([]);
+    expect(governanceViolations(row, envPairGovernance({ "w.yml": relocated }))).toHaveLength(1);
+    // The inverse drift: a pair silently GAINING governance must also red.
+    const bare = { K: { values: ["v"], reason: "r", governs: [] } };
+    expect(governanceViolations(bare, envPairGovernance({ "w.yml": claiming }))).toHaveLength(1);
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {

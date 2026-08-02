@@ -1720,7 +1720,9 @@ describe("spec registration detector (spec §3.1)", () => {
   });
 
   it("runBlocksOf poisons blocks governed by an off-allowlist static env: pair (static-env spec §2.2)", () => {
-    const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair" } };
+    const ALLOW = {
+      GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] },
+    };
     const rb = (yamlText: string, actions: Record<string, unknown> = {}) =>
       runBlocksOf(parse(yamlText), actions, ALLOW);
     // Workflow-root env governs every job (S1).
