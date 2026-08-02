@@ -88,6 +88,39 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/admin-popover-overlay-cluster (2026-08-02): the six-item popover /
+  // overlay-clip cluster, closed against the ratified spec
+  // 2026-08-01-admin-popover-overlay-cluster.
+  //
+  // The hub backdrop (fixed inset-0 z-20) painted over its own NON-POSITIONED
+  // triggers and swallowed their taps; closes with a three-term elevation gate
+  // (open && !busy && !attentionMenuOpen), the menu term threaded
+  // PublishedReviewModal -> StatusStrip -> ShareHub.
+  { id: "BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS", provenance: "fix/admin-popover-overlay-cluster" },
+  // Filed as unverified-gap by the popover-overlay registry, then MEASURED: at
+  // 390x560 the menu overhung the clipping panel by 55px with a 54px stranded
+  // tail. The scroller now takes the shared useFitWithinClip and gains a named,
+  // tabbable scrollable-region role.
+  { id: "BL-ATTENTION-MENU-PANEL-CLIP", provenance: "fix/admin-popover-overlay-cluster" },
+  // Same class on the anchored refusal banner (measured overhang 43.7px past a
+  // 220px clip): capped against the clip edge, made a real scroll container,
+  // and given a name plus tab reachability.
+  { id: "BL-PUBLISHED-TOGGLE-OVERLAY-CLIP", provenance: "fix/admin-popover-overlay-cluster" },
+  // The armed Archive confirm now names the show (owner-ratified copy), with a
+  // blank-safe guard so every non-hub call site renders today's strings
+  // byte-identically, and a no-truncation pin so a long title is never elided
+  // on a destructive decision.
+  { id: "BL-SHAREHUB-CONFIRM-NAMES-SHOW", provenance: "fix/admin-popover-overlay-cluster" },
+  // Closed as a MEASURED ARTIFACT, not a product leak: the open-focus effect
+  // makes jsdom run Selection._associateRange, which arms a setTimeout(0) that
+  // fake timers never drain. No component change; the root cause is recorded at
+  // the delta baseline so the next reader does not re-bisect it.
+  { id: "BL-SHAREHUB-OPEN-TIMER-LEAK", provenance: "fix/admin-popover-overlay-cluster" },
+  // The duplicated leading-edge rAF throttle extracted to
+  // lib/popover/rafCoalescer.ts and adopted by both consumers, with an AST
+  // adoption pin that resolves callees through the type checker so a same-named
+  // local, a shadowing parameter, or a decoy-module import cannot satisfy it.
+  { id: "BL-POPOVER-SHARED-RAF-COALESCER", provenance: "fix/admin-popover-overlay-cluster" },
   // test/redirect-guard-type-aware (2026-08-01): the self-redirect guard's
   // syntactic 19-spelling matcher replaced by two-prong type-checker resolution
   // (calls by resolved signature; every other reference type-decided, incl.

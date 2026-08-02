@@ -123,7 +123,11 @@ function importSpecifiers(source: ts.SourceFile): ts.ImportSpecifier[] {
   return out;
 }
 
-function specifierMatches(spec: ts.ImportSpecifier, importedName: string, moduleText: string): boolean {
+function specifierMatches(
+  spec: ts.ImportSpecifier,
+  importedName: string,
+  moduleText: string,
+): boolean {
   if ((spec.propertyName ?? spec.name).text !== importedName) return false;
   const decl = spec.parent.parent.parent;
   return ts.isStringLiteral(decl.moduleSpecifier) && decl.moduleSpecifier.text === moduleText;
@@ -248,36 +252,39 @@ function walkSources(dir: string, out: string[] = []): string[] {
 }
 
 describe("shared helper adoption (spec §7, §11 closure)", () => {
-  describe.each(ROWS.map((r) => [`${r.consumer} → ${r.helper}`, r] as const))("%s", (_label, row) => {
-    it("(i) imports the helper from the shared module", () => {
-      const source = sourceOf(row.consumer);
-      const matching = importSpecifiers(source).filter((s) =>
-        specifierMatches(s, row.helper, row.module),
-      );
-      expect(
-        matching.length,
-        `${row.consumer} must import { ${row.helper} } from "${row.module}"`,
-      ).toBeGreaterThan(0);
-    });
+  describe.each(ROWS.map((r) => [`${r.consumer} → ${r.helper}`, r] as const))(
+    "%s",
+    (_label, row) => {
+      it("(i) imports the helper from the shared module", () => {
+        const source = sourceOf(row.consumer);
+        const matching = importSpecifiers(source).filter((s) =>
+          specifierMatches(s, row.helper, row.module),
+        );
+        expect(
+          matching.length,
+          `${row.consumer} must import { ${row.helper} } from "${row.module}"`,
+        ).toBeGreaterThan(0);
+      });
 
-    it("(ii) CALLS the imported helper (checker-resolved, not by name)", () => {
-      const source = sourceOf(row.consumer);
-      expect(
-        callResolvesToImport(source, row.helper, row.module),
-        `${row.consumer} has no call whose callee resolves to its "${row.module}" import of ${row.helper} — a same-named local, parameter, or decoy-module import does not count`,
-      ).toBe(true);
-    });
-
-    if (row.requiresCancelAdoption) {
-      it("(v) cleanup cancels through the shared instance, not a raw frame id", () => {
+      it("(ii) CALLS the imported helper (checker-resolved, not by name)", () => {
         const source = sourceOf(row.consumer);
         expect(
-          cancelRoutesThroughSharedInstance(source, row.helper, row.module),
-          `${row.consumer} never calls .cancel() on a value produced by ${row.helper}() — the local cancelAnimationFrame teardown survived the extraction`,
+          callResolvesToImport(source, row.helper, row.module),
+          `${row.consumer} has no call whose callee resolves to its "${row.module}" import of ${row.helper} — a same-named local, parameter, or decoy-module import does not count`,
         ).toBe(true);
       });
-    }
-  });
+
+      if (row.requiresCancelAdoption) {
+        it("(v) cleanup cancels through the shared instance, not a raw frame id", () => {
+          const source = sourceOf(row.consumer);
+          expect(
+            cancelRoutesThroughSharedInstance(source, row.helper, row.module),
+            `${row.consumer} never calls .cancel() on a value produced by ${row.helper}() — the local cancelAnimationFrame teardown survived the extraction`,
+          ).toBe(true);
+        });
+      }
+    },
+  );
 
   it("(iii) no consumer re-declares a shared helper name in any form", () => {
     const offences: string[] = [];

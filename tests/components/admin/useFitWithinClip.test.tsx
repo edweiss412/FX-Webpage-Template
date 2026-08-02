@@ -115,9 +115,7 @@ beforeEach(() => {
       maxHeight: data?.["testid"] === "fitted" ? `${DECLARED_CAP}px` : "none",
     } as unknown as CSSStyleDeclaration;
   });
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
-    this: Element,
-  ) {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     return rectFor(this);
   });
 });

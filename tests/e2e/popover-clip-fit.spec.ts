@@ -65,7 +65,12 @@ test.beforeAll(async () => {
   ] as const) {
     execFileSync(
       process.execPath,
-      [join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"), entry, out, join(REPO_ROOT, "tsconfig.json")],
+      [
+        join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
+        entry,
+        out,
+        join(REPO_ROOT, "tsconfig.json"),
+      ],
       { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
     );
   }
@@ -127,7 +132,8 @@ type SetItems = (a: number, n: number, s: number, degraded: boolean) => void;
 
 async function setItems(page: Page, a: number, n: number, s: number) {
   await page.evaluate(
-    ([aa, nn, ss]) => (window as unknown as { __setItems: SetItems }).__setItems(aa!, nn!, ss!, false),
+    ([aa, nn, ss]) =>
+      (window as unknown as { __setItems: SetItems }).__setItems(aa!, nn!, ss!, false),
     [a, n, s],
   );
 }
@@ -135,7 +141,9 @@ async function setItems(page: Page, a: number, n: number, s: number) {
 /** Boots the modal page and leaves the attention menu OPEN. */
 async function openMenu(page: Page, a: number, n: number, s: number) {
   await page.goto(baseUrl);
-  await page.waitForFunction(() => (window as unknown as { __hydrated?: boolean }).__hydrated === true);
+  await page.waitForFunction(
+    () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+  );
   await setItems(page, a, n, s);
   // §5.2 auto-open fires once per mount when actionable items exist.
   if ((await page.locator(MENU).count()) === 0) await page.locator(PILL).click();
@@ -182,11 +190,18 @@ async function fittedGeometry(page: Page) {
 /** Boots the toggle page and drives the refusal so the banner renders. */
 async function openToggleBanner(page: Page) {
   await page.goto(`${baseUrl}toggle.html`);
-  await page.waitForFunction(() => (window as unknown as { __hydrated?: boolean }).__hydrated === true);
+  await page.waitForFunction(
+    () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
+  );
   // Wait for a rendered toggle BEFORE driving it: a boot throw is an entry
   // defect, not a RED.
   await expect(page.locator('[data-testid="published-toggle-inline"]')).toBeVisible();
-  await page.locator('[data-testid="published-toggle-inline"] button, [data-testid="published-toggle-inline"] input').first().click();
+  await page
+    .locator(
+      '[data-testid="published-toggle-inline"] button, [data-testid="published-toggle-inline"] input',
+    )
+    .first()
+    .click();
   await expect(page.locator(TOGGLE_BANNER)).toBeVisible();
 }
 
@@ -223,7 +238,10 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       if (m.capped) {
         expect(m.height).toBeLessThanOrEqual(CSS_CAP + 0.5);
       } else {
-        expect(Math.abs(m.height - m.available), `height ${m.height} vs available ${m.available}`).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(m.height - m.available),
+          `height ${m.height} vs available ${m.available}`,
+        ).toBeLessThanOrEqual(0.5);
       }
     });
   }
@@ -263,10 +281,15 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       },
       [PANEL, MENU] as const,
     );
-    expect(m.menuBottom, `menu.bottom ${m.menuBottom} > panel.bottom ${m.panelBottom}`).toBeLessThanOrEqual(m.panelBottom + 0.5);
+    expect(
+      m.menuBottom,
+      `menu.bottom ${m.menuBottom} > panel.bottom ${m.panelBottom}`,
+    ).toBeLessThanOrEqual(m.panelBottom + 0.5);
   });
 
-  test("every interactive row is reachable, and the monitoring tail is readable", async ({ page }) => {
+  test("every interactive row is reachable, and the monitoring tail is readable", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openMenu(page, 10, 10, 10);
 
@@ -276,14 +299,19 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     const interactive = await page.evaluate(
       ([scrollerSel]) => {
         const scroller = document.querySelector(scrollerSel as string)!;
-        const rows = scroller.querySelectorAll<HTMLElement>('button[data-testid^="attention-menu-row-"]');
+        const rows = scroller.querySelectorAll<HTMLElement>(
+          'button[data-testid^="attention-menu-row-"]',
+        );
         const last = rows[rows.length - 1]!;
         last.scrollIntoView({ block: "nearest" });
         const r = last.getBoundingClientRect();
         const sc = scroller.getBoundingClientRect();
         const visibleTop = Math.max(r.top, sc.top);
         const visibleBottom = Math.min(r.bottom, sc.bottom);
-        const hit = document.elementFromPoint((r.left + r.right) / 2, (visibleTop + visibleBottom) / 2);
+        const hit = document.elementFromPoint(
+          (r.left + r.right) / 2,
+          (visibleTop + visibleBottom) / 2,
+        );
         return {
           count: rows.length,
           visibleHeight: visibleBottom - visibleTop,
@@ -293,14 +321,21 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       [SCROLLER] as const,
     );
     expect(interactive.count).toBe(20); // 10 actionable + 10 needs-look
-    expect(interactive.visibleHeight, "last interactive row is not a full tap target").toBeGreaterThanOrEqual(44);
-    expect(interactive.hitInsideRow, "last interactive row is not hittable at its centre").toBe(true);
+    expect(
+      interactive.visibleHeight,
+      "last interactive row is not a full tap target",
+    ).toBeGreaterThanOrEqual(44);
+    expect(interactive.hitInsideRow, "last interactive row is not hittable at its centre").toBe(
+      true,
+    );
 
     const monitoring = await page.evaluate(
       ([scrollerSel]) => {
         const scroller = document.querySelector(scrollerSel as string)!;
         scroller.scrollTop = scroller.scrollHeight;
-        const rows = scroller.querySelectorAll<HTMLElement>('[data-testid^="attention-monitoring-row-"]');
+        const rows = scroller.querySelectorAll<HTMLElement>(
+          '[data-testid^="attention-monitoring-row-"]',
+        );
         const last = rows[rows.length - 1]!;
         const r = last.getBoundingClientRect();
         const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
@@ -327,14 +362,19 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     const reachable = await page.evaluate(
       ([scrollerSel]) => {
         const scroller = document.querySelector(scrollerSel as string)!;
-        const rows = scroller.querySelectorAll<HTMLElement>('button[data-testid^="attention-menu-row-"]');
+        const rows = scroller.querySelectorAll<HTMLElement>(
+          'button[data-testid^="attention-menu-row-"]',
+        );
         const lastRow = rows[rows.length - 1]!;
         lastRow.scrollIntoView({ block: "nearest" });
         const r = lastRow.getBoundingClientRect();
         const sc = scroller.getBoundingClientRect();
         const visibleTop = Math.max(r.top, sc.top);
         const visibleBottom = Math.min(r.bottom, sc.bottom);
-        const hit = document.elementFromPoint((r.left + r.right) / 2, (visibleTop + visibleBottom) / 2);
+        const hit = document.elementFromPoint(
+          (r.left + r.right) / 2,
+          (visibleTop + visibleBottom) / 2,
+        );
         return hit !== null && lastRow.contains(hit);
       },
       [SCROLLER] as const,
@@ -342,7 +382,9 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     expect(reachable, "last interactive row unreachable after the flip").toBe(true);
   });
 
-  test("compound: the O2 -> O1 flip lands MID-ENTRANCE and still settles fitted", async ({ page }) => {
+  test("compound: the O2 -> O1 flip lands MID-ENTRANCE and still settles fitted", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     // Frame-hold precedent: attention-pill-focus.spec.ts. Holding frames keeps
     // the entrance pre-flip while the structural change happens, which is the
@@ -374,9 +416,13 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     await openMenu(page, 0, 0, 10);
     await setItems(page, 10, 10, 10);
     expect(
-      await page.evaluate(() => (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount()),
+      await page.evaluate(() =>
+        (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount(),
+      ),
     ).toBeGreaterThan(0);
-    await page.evaluate(() => (window as unknown as { __releaseFrames: () => void }).__releaseFrames());
+    await page.evaluate(() =>
+      (window as unknown as { __releaseFrames: () => void }).__releaseFrames(),
+    );
 
     await expect
       .poll(() => fittedGeometry(page), {
@@ -418,18 +464,30 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     }
     const scrollerAt = seen.indexOf("SCROLLER");
     const firstRowAt = seen.findIndex((s) => s.startsWith("attention-menu-row-"));
-    expect(scrollerAt, `Tab from the pill never reached the scroller (saw ${seen.join(" -> ")})`).toBeGreaterThanOrEqual(0);
+    expect(
+      scrollerAt,
+      `Tab from the pill never reached the scroller (saw ${seen.join(" -> ")})`,
+    ).toBeGreaterThanOrEqual(0);
     if (firstRowAt >= 0) {
-      expect(scrollerAt, `a row took focus before the scrollable region (${seen.join(" -> ")})`).toBeLessThan(firstRowAt);
+      expect(
+        scrollerAt,
+        `a row took focus before the scrollable region (${seen.join(" -> ")})`,
+      ).toBeLessThan(firstRowAt);
     }
 
-    const before = await page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [SCROLLER] as const);
+    const before = await page.evaluate(
+      ([sel]) => document.querySelector(sel as string)!.scrollTop,
+      [SCROLLER] as const,
+    );
     await page.keyboard.press("ArrowDown");
     // Chromium animates keyboard scrolling, so the value immediately after the
     // keypress is still the pre-animation one — poll for the settled position.
     await expect
       .poll(
-        () => page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [SCROLLER] as const),
+        () =>
+          page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [
+            SCROLLER,
+          ] as const),
         { message: `scrollTop never advanced from ${before}` },
       )
       .toBeGreaterThan(before);
@@ -458,7 +516,10 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
       },
       [TOGGLE_CLIP, TOGGLE_BANNER] as const,
     );
-    expect(m.bannerBottom, `banner.bottom ${m.bannerBottom} > clip.bottom ${m.clipBottom}`).toBeLessThanOrEqual(m.clipBottom + 0.5);
+    expect(
+      m.bannerBottom,
+      `banner.bottom ${m.bannerBottom} > clip.bottom ${m.clipBottom}`,
+    ).toBeLessThanOrEqual(m.clipBottom + 0.5);
   });
 
   test("the capped banner scrolls rather than stranding its tail", async ({ page }) => {
@@ -476,7 +537,9 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
       [TOGGLE_BANNER] as const,
     );
     expect(m.overflowY, "banner is not a scroll container").toMatch(/auto|scroll/);
-    expect(m.scrollHeight, "fixture geometry must overflow the capped banner").toBeGreaterThan(m.clientHeight);
+    expect(m.scrollHeight, "fixture geometry must overflow the capped banner").toBeGreaterThan(
+      m.clientHeight,
+    );
   });
 
   test("keyboard: the banner is tabbable and ArrowDown scrolls it", async ({ page }) => {
@@ -493,12 +556,18 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
     }
     expect(onBanner, "Tab never reached the banner").toBe(true);
 
-    const before = await page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [TOGGLE_BANNER] as const);
+    const before = await page.evaluate(
+      ([sel]) => document.querySelector(sel as string)!.scrollTop,
+      [TOGGLE_BANNER] as const,
+    );
     await page.keyboard.press("ArrowDown");
     // Chromium animates keyboard scrolling — poll for the settled position.
     await expect
       .poll(
-        () => page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [TOGGLE_BANNER] as const),
+        () =>
+          page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [
+            TOGGLE_BANNER,
+          ] as const),
         { message: `scrollTop never advanced from ${before}` },
       )
       .toBeGreaterThan(before);
@@ -527,7 +596,9 @@ test.describe("§3.4 — opening one overlay dismisses the other, by keyboard to
     await expect(page.locator(HUB_POPOVER), "the hub survived the menu opening").toHaveCount(0);
   });
 
-  test("menu open, then Enter on a hub trigger: hub opens and the menu closes", async ({ page }) => {
+  test("menu open, then Enter on a hub trigger: hub opens and the menu closes", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openMenu(page, 10, 10, 10);
 

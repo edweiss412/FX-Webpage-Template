@@ -214,19 +214,21 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     // this contract is about: Testing Library computes accessible roles through
     // getComputedStyle too, and a plain object literal loses getPropertyValue.
     const realComputedStyle = window.getComputedStyle.bind(window);
-    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
-      const real = realComputedStyle(el, pseudo ?? undefined);
-      const isClip = el.hasAttribute?.("data-clip-ancestor") ?? false;
-      const isScroller = (el as HTMLElement).className?.includes?.("overflow-y-auto") ?? false;
-      return new Proxy(real, {
-        get(target, key) {
-          if (key === "overflowX" || key === "overflowY") return isClip ? "clip" : "visible";
-          if (key === "maxHeight" && isScroller) return `${CAP_PX}px`;
-          const value = Reflect.get(target, key) as unknown;
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
-    });
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) => {
+        const real = realComputedStyle(el, pseudo ?? undefined);
+        const isClip = el.hasAttribute?.("data-clip-ancestor") ?? false;
+        const isScroller = (el as HTMLElement).className?.includes?.("overflow-y-auto") ?? false;
+        return new Proxy(real, {
+          get(target, key) {
+            if (key === "overflowX" || key === "overflowY") return isClip ? "clip" : "visible";
+            if (key === "maxHeight" && isScroller) return `${CAP_PX}px`;
+            const value = Reflect.get(target, key) as unknown;
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    );
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
       this: Element,
     ) {
@@ -271,7 +273,10 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   }
 
   /** Renders the menu INSIDE the clip ancestor so the hook walk lands on it. */
-  function renderMenuInto(clip: HTMLElement, over: Partial<Parameters<typeof AttentionMenu>[0]> = {}) {
+  function renderMenuInto(
+    clip: HTMLElement,
+    over: Partial<Parameters<typeof AttentionMenu>[0]> = {},
+  ) {
     const pillRef = createRef<HTMLButtonElement>();
     const pill = document.createElement("button");
     document.body.appendChild(pill);

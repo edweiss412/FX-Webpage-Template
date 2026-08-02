@@ -1357,9 +1357,7 @@ describe("PublishedReviewModal — attention-menu state reaches the hub triggers
     // red against a correct implementation.
     await screen.findByTestId(`${TB}-attention-menu`);
     fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
-    await waitFor(() =>
-      expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull());
 
     // Hub open + idle + menu closed → elevated.
     fireEvent.click(screen.getByTestId("share-hub-primary"));
@@ -1382,9 +1380,7 @@ describe("PublishedReviewModal — attention-menu state reaches the hub triggers
     // surfaces hold capture-phase document Escape listeners and the hub's would
     // close the hub too, which would make the restore assertion meaningless.
     fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
-    await waitFor(() =>
-      expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull());
     for (const el of hubTriggers()) {
       expect(maxZLevel(el.className)).toBeGreaterThanOrEqual(21);
     }

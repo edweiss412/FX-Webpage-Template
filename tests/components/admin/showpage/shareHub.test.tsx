@@ -886,7 +886,6 @@ describe("ShareHub — §9 composition rules", () => {
 });
 
 describe("ShareHub — busy gating (spec §6)", () => {
-
   it("ALL FOUR dismissal paths are inert while a child is resolving", async () => {
     const shellSpy = vi.fn();
     document.addEventListener("keydown", shellSpy);

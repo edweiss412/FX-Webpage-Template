@@ -287,7 +287,11 @@ export function ArchiveShowButton({
         ) : (
           <div
             role="group"
-            aria-label={namedShow ? `Confirm archiving \u201C${namedShow}\u201D` : "Confirm archiving this show"}
+            aria-label={
+              namedShow
+                ? `Confirm archiving \u201C${namedShow}\u201D`
+                : "Confirm archiving this show"
+            }
             data-testid="archive-show-confirm-row"
             className="flex flex-col gap-2 py-3"
           >
