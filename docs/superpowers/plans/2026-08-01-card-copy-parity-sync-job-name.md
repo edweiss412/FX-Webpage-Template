@@ -106,7 +106,7 @@ Failure mode this catches: a future code added to `WARNING_CARD_COPY_CODES` with
 - [ ] **Step 3: Run to verify the red state**
 
 Run: `pnpm exec vitest run tests/messages/_metaWarningCardCopy.test.ts`
-Expected: FAIL — the doc-reading test reports §4.2 mismatches for exactly `HOTEL_GUEST_SPLIT_AMBIGUOUS` (helpfulContext + triggerContext) and `AGENDA_PDF_UNREADABLE` (helpfulContext + triggerContext). No other code may fail; if any other does, STOP — the probe in spec §2.1 said 42/44 already match, so a third failure means the catalog moved since 2026-08-01. Quote the red output in the task log.
+Expected: FAIL. The doc-reading test uses hard assertions in a loop, so it stops at the FIRST mismatch: with the sorted registry that is `AGENDA_PDF_UNREADABLE §4.2 helpfulContext` (the "frozen copy fixture: helpfulContext" test fails fast the same way). The full divergence census (two codes × two fields each) was established by the spec §2.1 probe, not by this red run. If the first failure names any code other than `AGENDA_PDF_UNREADABLE` or `HOTEL_GUEST_SPLIT_AMBIGUOUS`, STOP — the catalog moved since 2026-08-01. Quote the red output in the task log.
 
 - [ ] **Step 4: Reconcile the canonical document (implementation half)**
 
@@ -171,12 +171,24 @@ git commit --no-verify -m "test(messages): freeze §4.2 helpfulContext byte-pari
 "At worst, edits take a few minutes to appear instead of instantly, since Auto sync still runs. It keeps trying to reconnect on its own, waiting longer between attempts the longer it fails, or use Retry now. Only worth attention if it keeps failing."
 ```
 
-`tests/app/admin/telemetryPage.test.tsx:76` — `label: "Sheet sync",` becomes `label: "Auto sync",`.
+`tests/app/admin/telemetryPage.test.tsx:76` — `label: "Sheet sync",` becomes `label: "Auto sync",`. NOTE: this line is mocked input (`loadCronHealth` is mocked; no assertion reads the label), so this edit alone produces no red — it is a consistency edit. The genuine label pin is a NEW assertion added to the same file (data-source assertion against the real registry, not the mock — anti-tautology rule; the concrete failure mode it catches is the registry label regressing to any non-unified name while all mocks stay green):
+
+```ts
+import { CRON_JOBS } from "@/lib/cron/runSummary";
+```
+
+and a new top-level test alongside the existing ones:
+
+```ts
+it("the sync job's registry label is the unified name (BL-SYNC-JOB-FOUR-NAMES)", () => {
+  expect(CRON_JOBS.find((j) => j.jobName === "sync")?.label).toBe("Auto sync");
+});
+```
 
 - [ ] **Step 2: Run to verify red**
 
 Run: `pnpm exec vitest run tests/messages/popoverContextCopy.test.ts tests/app/admin/telemetryPage.test.tsx`
-Expected: FAIL on both (old strings still shipped). Quote output.
+Expected: FAIL on both files — popoverContextCopy on the pinned WATCH_CHANNEL_ORPHANED string (old copy still shipped), telemetryPage on the new registry-label assertion (`CRON_JOBS` still says "Sheet sync"). Quote output.
 
 - [ ] **Step 3: Master spec §12.4 edits (7 sites)**
 
@@ -193,7 +205,7 @@ In `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, apply exactly thes
 - [ ] **Step 4: Regenerate spec-codes**
 
 Run: `pnpm gen:spec-codes`
-Expected: `lib/messages/__generated__/spec-codes.ts` diff shows exactly the 6 changed strings (7 fields: SYNC_DELAYED_SEVERE has dougFacing + helpfulContext). `git diff --stat lib/messages/__generated__/` = 1 file.
+Expected: `lib/messages/__generated__/spec-codes.ts` diff shows exactly seven changed string fields across six codes — `WATCH_CHANNEL_ORPHANED.helpfulContext`, `STAGED_PARSE_SUPERSEDED.helpfulContext`, `NO_FOLDER_CONFIGURED.helpfulContext`, `MISSING_PENDING_INGESTION_MODTIME.helpfulContext`, `SYNC_DELAYED_SEVERE.dougFacing`, `SYNC_DELAYED_SEVERE.helpfulContext`, `SYNC_STALLED.dougFacing`. `git diff --stat lib/messages/__generated__/` = 1 file.
 
 - [ ] **Step 5: Catalog + label + explainer edits**
 
@@ -217,13 +229,25 @@ Expected: `lib/messages/__generated__/spec-codes.ts` diff shows exactly the 6 ch
 - [ ] **Step 6: Run to verify green + lockstep gate**
 
 Run: `pnpm test:audit:x1-catalog-parity && pnpm exec vitest run tests/messages tests/app/admin/telemetryPage.test.tsx tests/api/cron-sync.test.ts`
-Expected: PASS. Then the acceptance-criterion-3 sweep — expect ZERO hits:
+Expected: PASS. Then the acceptance-criterion-3 sweep, two scopes (authored and RUN at plan time, 2026-08-01; the regex uses bare `automatic sync`, which also substring-matches `automatic syncing`):
+
+Scope 1 — copy surfaces, expect ZERO hits (pre-edit baseline was 16: 11 catalog fields + 1 runSummary label + 4 explainer lines, every one edited by this task):
 
 ```bash
-rg -n -i "sheet sync|the scheduled sync|an automatic sync|the automatic sync|automatic syncing" lib/messages/catalog.ts lib/cron/runSummary.ts components app docs/alerts/admin-alert-system-explainer.html
+rg -n -i "sheet sync|scheduled sync|automatic sync" lib/messages/catalog.ts lib/cron/runSummary.ts docs/alerts/admin-alert-system-explainer.html components/
 ```
 
-(`lib/messages/__generated__/spec-codes.ts` is excluded by listing only the surfaces above; it regenerates from the already-edited spec. Remaining repo-wide hits are the §1.1 out-of-scope verb phrases, comments, and historical docs.)
+Scope 2 — `app/` tree, expect EXACTLY these four survivor lines, all ratified out-of-scope in spec §1.1 (per-hit disposition: 1 = onboarding-help verb gerund pinned by `tests/help/page-onboarding-wizard.test.tsx:64`; 2-4 = code comments, not user-visible copy):
+
+```bash
+rg -n -i "sheet sync|scheduled sync|automatic sync" app/
+# app/help/admin/onboarding-wizard/page.mdx:117   (verb phrase "starts automatic syncing of the folder")
+# app/api/cron/sync/route.ts:10                   (comment)
+# app/admin/show/[slug]/_actions/useRaw.ts:158    (comment)
+# app/admin/show/[slug]/_actions/useRaw.ts:188    (comment)
+```
+
+Any hit outside these four is a missed rename site — fix before committing. (`lib/messages/__generated__/spec-codes.ts` is deliberately outside both scopes; it regenerates from the already-edited spec and is proven by the x1 gate instead.)
 
 - [ ] **Step 7: Commit**
 
@@ -295,7 +319,7 @@ Expected: full unit suite green (loopback-guarded DB tests may skip per prefligh
 
 - [ ] **Step 2: Acceptance sweep (spec §5)**
 
-Re-run the Task 2 Step 6 `rg` sweep (zero hits) and `pnpm exec tsx`-check that `EXPECTED_HELPFUL_CONTEXT` has 44 keys:
+Re-run both Task 2 Step 6 sweeps (Scope 1 zero hits; Scope 2 exactly the four ratified survivors) and `pnpm exec tsx`-check that `EXPECTED_HELPFUL_CONTEXT` has 44 keys:
 
 ```bash
 pnpm exec tsx -e 'import { EXPECTED_HELPFUL_CONTEXT } from "./tests/messages/warningCardCopyRegistry"; console.log(Object.keys(EXPECTED_HELPFUL_CONTEXT).length)'
