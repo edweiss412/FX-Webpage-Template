@@ -612,16 +612,15 @@ export function scanWorkflowCoverage({
       stripCommentLines(jobsIdx === -1 ? yaml : yaml.slice(0, jobsIdx)),
     );
 
-    // R15 (file-level, corrected at whole-diff R3): a step carrying BOTH
-    // `run:` and `uses:` is schema-invalid, and GitHub rejects the WHOLE
-    // workflow — so no job in the file runs. Computed across every step
-    // before the job loop; a step-local refusal left claims before the
-    // mixed step, after it, and in other jobs falsely covered.
-    const mixedStepAnywhere = jobs(yaml).some((jb) =>
-      jb.steps.some(
-        (st) =>
-          /(^|\n)\s*run\s*:/.test(stripCommentLines(st)) &&
-          /(^|\n)\s*(?:-\s*)?uses\s*:/.test(stripCommentLines(stepMetaOf(st))),
+    // R15 (file-level; typed at R18): a step carrying BOTH `run:` and
+    // `uses:` is schema-invalid, so GitHub rejects the WHOLE workflow.
+    // Read from the PARSED document — a text scan that truncated at
+    // `run:` missed the run-first mapping order, and a scan that did not
+    // truncate would false-positive on `uses:` inside a run body.
+    const parsedJobsAll = (parsedDoc as { jobs?: Record<string, { steps?: unknown }> })?.jobs;
+    const mixedStepAnywhere = Object.values(parsedJobsAll ?? {}).some((jb) =>
+      (Array.isArray(jb?.steps) ? (jb.steps as Array<Record<string, unknown>>) : []).some(
+        (st) => st !== null && typeof st === "object" && "run" in st && "uses" in st,
       ),
     );
     for (const job of jobs(yaml)) {
@@ -634,8 +633,23 @@ export function scanWorkflowCoverage({
         jobName !== undefined && parsedJobs !== undefined && jobName in parsedJobs
           ? validRunsOn(parsedJobs[jobName]!["runs-on"])
           : false;
-      const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
-      const jobCoe = hasContinueOnError(job.head);
+      const parsedJob =
+        jobName !== undefined && parsedJobs !== undefined ? parsedJobs[jobName] : undefined;
+      // R18: keys placed AFTER `steps:` are invisible to the head text, so
+      // read job-level if:/continue-on-error: from the parsed job too.
+      const jobIf =
+        /(^|\n)\s*if\s*:/.test(job.head) ||
+        (parsedJob !== undefined && "if" in (parsedJob as Record<string, unknown>));
+      const parsedJobCoe = (parsedJob as { "continue-on-error"?: unknown } | undefined)?.[
+        "continue-on-error"
+      ];
+      const jobCoe =
+        hasContinueOnError(job.head) ||
+        (parsedJobCoe !== undefined &&
+          String(parsedJobCoe)
+            .trim()
+            .replace(/^["']|["']$/g, "")
+            .toLowerCase() !== "false");
       // R3: a quoted-key/flow/anchor spelling in the job HEAD could hide an
       // `if:`/`continue-on-error:` this scanner reads by plain spelling only.
       const headSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(job.head));

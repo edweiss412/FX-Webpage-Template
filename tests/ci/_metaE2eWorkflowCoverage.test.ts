@@ -531,6 +531,33 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("mapping order and post-steps job keys cannot hide refusals (R18)", () => {
+    // run-first mixed steps: a text scan truncating at `run:` missed the
+    // `uses:` that follows it; the typed read is order-independent.
+    for (const ref of [
+      "actions/checkout@v4",
+      "actions/checkout",
+      "./.github/actions/ghost",
+      "docker://alpine:3",
+    ]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mixed\n        uses: ${ref}\n      - run: pnpm exec playwright test ${spec}\n`;
+      const r = S(w);
+      expect(r.covered.has(spec), `run-first ${ref}`).toBe(false);
+      expect(r.rejected[0]!.reason, `run-first ${ref}`).toBe("unmodelled YAML spelling");
+    }
+    // job-level if:/continue-on-error: placed AFTER steps: are invisible to
+    // the head TEXT, so they are read from the parsed job as well.
+    const ifAfter = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n    if: false\n`;
+    expect(S(ifAfter).covered.has(spec)).toBe(false);
+    expect(S(ifAfter).rejected[0]!.reason).toBe("if: condition present");
+    const coeAfter = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n    continue-on-error: true\n`;
+    expect(S(coeAfter).covered.has(spec)).toBe(false);
+    expect(S(coeAfter).rejected[0]!.reason).toBe("continue-on-error");
+    // …and an explicit false after steps: still counts.
+    const coeFalse = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n    continue-on-error: false\n`;
+    expect(S(coeFalse).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

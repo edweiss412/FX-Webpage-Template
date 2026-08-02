@@ -369,7 +369,7 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   // workflow — every job in it is unreachable, not just the steps after the
   // offending one.
   const mixedStepAnywhere = Object.values(jobs ?? {}).some((jb) =>
-    (jb.steps ?? []).some((st) => typeof st.run === "string" && "uses" in st),
+    (jb.steps ?? []).some((st) => "run" in st && "uses" in st),
   );
   for (const j of Object.values(jobs ?? {})) {
     // needs: a failed/skipped dependency skips the whole job; strategy: an
@@ -1438,6 +1438,16 @@ describe("spec registration detector (spec §3.1)", () => {
         head,
       ).toEqual([{ run: "echo runner-ok", guarded: false, poisoned: false }]);
     }
+    // R18: mixed detection is key-presence based, so mapping ORDER cannot
+    // hide it (run-first was invisible to a truncating text scan).
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo mixed\n        uses: actions/checkout@v4\n      - run: echo later\n",
+        ),
+        {},
+      ),
+    ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
     // R17: the census shares the typed validator, so the same shapes that
     // the scanner refuses poison here (non-string sequence members and
     // wrong-typed/extra-keyed group-labels mappings were accepted before).
