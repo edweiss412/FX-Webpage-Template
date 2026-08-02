@@ -586,6 +586,32 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(ok).covered.has(spec)).toBe(true);
   });
 
+  it("job KIND and typed values are enforced, not a union allowlist (R20)", () => {
+    // A steps-job and a reusable-workflow (uses) job have DIFFERENT keyword
+    // sets; a union allowlist accepted uses+steps together, with:/secrets:
+    // on a steps job, and untyped name/id/with values.
+    const wf = (jobBody: string) => `name: x\non:\n  pull_request:\njobs:\n  j:\n${jobBody}`;
+    const bad = [
+      // uses + steps on one job
+      `    uses: ./.github/workflows/other.yml\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`,
+      // with:/secrets: on a steps job
+      `    runs-on: ubuntu-latest\n    with:\n      a: b\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`,
+      `    runs-on: ubuntu-latest\n    secrets: inherit\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`,
+      // non-string step name / id, non-mapping with:
+      `    runs-on: ubuntu-latest\n    steps:\n      - name: 42\n        run: pnpm exec playwright test ${spec}\n`,
+      `    runs-on: ubuntu-latest\n    steps:\n      - id: []\n        run: pnpm exec playwright test ${spec}\n`,
+      `    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with: nope\n      - run: pnpm exec playwright test ${spec}\n`,
+    ];
+    for (const body of bad) {
+      const r = S(wf(body));
+      expect(r.covered.has(spec), body).toBe(false);
+      expect(r.rejected[0]!.reason, body).toBe("unmodelled YAML spelling");
+    }
+    // …and a well-formed steps job with typed optional keys still counts.
+    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      A: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
+    expect(S(wf(ok)).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

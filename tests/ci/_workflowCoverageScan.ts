@@ -127,7 +127,14 @@ const WF_ROOT_KEYS = new Set([
   "permissions",
   "jobs",
 ]);
-const WF_JOB_KEYS = new Set([
+/**
+ * Job key sets are per KIND (R20): a normal job runs `steps:` on a runner; a
+ * reusable-workflow job carries `uses:` and may only add a small keyword set.
+ * A union allowlist accepted `uses:`+`steps:` together, `with:`/`secrets:` on
+ * a steps job, and similar cross-kind mixes — all rejected by GitHub, so the
+ * file runs nothing.
+ */
+const WF_STEPS_JOB_KEYS = new Set([
   "name",
   "needs",
   "if",
@@ -143,9 +150,17 @@ const WF_JOB_KEYS = new Set([
   "continue-on-error",
   "container",
   "services",
+  "permissions",
+]);
+const WF_USES_JOB_KEYS = new Set([
+  "name",
+  "needs",
+  "if",
   "uses",
   "with",
   "secrets",
+  "strategy",
+  "concurrency",
   "permissions",
 ]);
 const WF_RUN_STEP_KEYS = new Set([
@@ -169,28 +184,48 @@ const WF_USES_STEP_KEYS = new Set([
   "continue-on-error",
   "timeout-minutes",
 ]);
+/** GitHub job IDs: start with a letter or _, then alphanumerics, - or _. */
+const JOB_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export function validWorkflowShape(doc: unknown): boolean {
   if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return false;
   const root = doc as Record<string, unknown>;
   if (!Object.keys(root).every((k) => WF_ROOT_KEYS.has(k))) return false;
   const jobs = root.jobs;
   if (jobs === null || typeof jobs !== "object" || Array.isArray(jobs)) return false;
-  for (const job of Object.values(jobs as Record<string, unknown>)) {
+  for (const [jobId, job] of Object.entries(jobs as Record<string, unknown>)) {
+    if (!JOB_ID_RE.test(jobId)) return false;
     if (job === null || typeof job !== "object" || Array.isArray(job)) return false;
     const j = job as Record<string, unknown>;
-    if (!Object.keys(j).every((k) => WF_JOB_KEYS.has(k))) return false;
+    const hasSteps = "steps" in j;
+    const hasUses = "uses" in j;
+    if (hasSteps === hasUses) return false; // a job is one kind or the other
+    if (!Object.keys(j).every((k) => (hasSteps ? WF_STEPS_JOB_KEYS : WF_USES_JOB_KEYS).has(k)))
+      return false;
     if ("timeout-minutes" in j && typeof j["timeout-minutes"] !== "number") return false;
-    if (!("steps" in j)) continue; // a reusable-workflow job carries `uses:`
+    if ("name" in j && !nonEmptyString(j.name)) return false;
+    if ("env" in j && !scalarMap(j.env)) return false;
+    if (hasUses) {
+      if (!nonEmptyString(j.uses)) return false;
+      if ("with" in j && !scalarMap(j.with)) return false;
+      continue;
+    }
     if (!Array.isArray(j.steps)) return false;
     for (const step of j.steps) {
       if (step === null || typeof step !== "object" || Array.isArray(step)) return false;
       const s = step as Record<string, unknown>;
       const hasRun = "run" in s;
-      const hasUses = "uses" in s;
-      if (hasRun === hasUses) return false;
+      const hasStepUses = "uses" in s;
+      if (hasRun === hasStepUses) return false;
       const allowed = hasRun ? WF_RUN_STEP_KEYS : WF_USES_STEP_KEYS;
       if (!Object.keys(s).every((k) => allowed.has(k))) return false;
       if ("timeout-minutes" in s && typeof s["timeout-minutes"] !== "number") return false;
+      for (const k of ["name", "id", "shell", "working-directory"]) {
+        if (k in s && !nonEmptyString(s[k])) return false;
+      }
+      // `if` may be a boolean or an expression string — both are legal.
+      if ("if" in s && !(typeof s.if === "boolean" || nonEmptyString(s.if))) return false;
+      if ("env" in s && !scalarMap(s.env)) return false;
+      if ("with" in s && !scalarMap(s.with)) return false;
     }
   }
   return true;
