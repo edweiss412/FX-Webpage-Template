@@ -1721,7 +1721,7 @@ describe("spec registration detector (spec §3.1)", () => {
 
   it("runBlocksOf poisons blocks governed by an off-allowlist static env: pair (static-env spec §2.2)", () => {
     const ALLOW = {
-      GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] },
+      GOOD_KEY: { values: [{ text: "v", governs: [] }], reason: "fixture-reviewed test pair" },
     };
     const rb = (yamlText: string, actions: Record<string, unknown> = {}) =>
       runBlocksOf(parse(yamlText), actions, ALLOW);
@@ -1950,7 +1950,7 @@ describe("spec registration detector (spec §3.1)", () => {
     // census does it — a dirty job's classifying line is a problem naming
     // the generalized why (not silently classified, not the write-only why).
     const ALLOW = {
-      GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] },
+      GOOD_KEY: { values: [{ text: "v", governs: [] }], reason: "fixture-reviewed test pair" },
     };
     const blocks = runBlocksOf(
       parse(

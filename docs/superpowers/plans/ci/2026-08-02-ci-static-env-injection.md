@@ -32,7 +32,7 @@ This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_met
 
 **Red:** scanner self-suite additions in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, driven through `scanWorkflowCoverage` with a fixture-local `envKeyAllowlist` (spec §4.2):
 
-- S1 positive per scope cell: workflow-root / job / run-step dirty → claim rejected with reason `` env block sets unmodelled key(s): <sorted keys> ``; `uses:`-step dirty and all four composite matrix cells (direct/nested × run/uses, each a local manifest step carrying an off-list `env:` key) → later claim rejected via the poison reason (spec §2.1, LS3);
+- S1 positive per scope cell: workflow-root / job / run-step dirty → claim rejected with reason `` env block sets unmodelled key(s): <sorted keys> ``; `uses:`-step dirty (REMOTE ref AND a LOCAL `./…` ref resolving a clean manifest, so only the invoking step's env can refuse — final review (a) F1) and every composite matrix cell (direct/nested × run/uses, each a local manifest step carrying an off-list `env:` key, plus the direct/nested cells whose composite step invokes a LOCAL ref) → later claim rejected via the poison reason (spec §2.1, LS3);
 - S2: `PATH`, `TOTALLY_NOVEL_KEY`, and prototype-named `constructor` each red; fixture-allowlisted key stays covered;
 - S3 twins: off-list key in job B → job A covered; off-list env on a non-claiming sibling run-step → claiming step covered; allowlisted keys at every scope → covered;
 - S4/S5: exact reason string pinned; two off-list keys in one scope → reason lists both, sorted;
@@ -69,9 +69,9 @@ export function offAllowlistEnvKeys(
 
 **Red:** census fixture additions in `_metaSpecRegistration.test.ts` (every fixture job declares a `runs-on`; fixture-local allowlist):
 
-- S1 cells: workflow-root dirty → all blocks poisoned; job dirty → that job only (cross-job twin); run-step dirty → that block only, sibling blocks clean; `uses:`-step dirty → that splice and all later same-job blocks poisoned; composite direct-run / direct-uses / nested-run / nested-uses dirty → poisoned; standalone composite-doc entry with a dirty-env step → poisoned;
+- S1 cells: workflow-root dirty → all blocks poisoned; job dirty → that job only (cross-job twin); run-step dirty → that block only, sibling blocks clean; `uses:`-step dirty → that splice and all later same-job blocks poisoned, for a REMOTE ref AND a LOCAL `./…` ref over a clean manifest (final review (a) F1); composite direct-run / direct-uses / nested-run / nested-uses dirty → poisoned, plus the direct/nested cells whose composite step invokes a LOCAL ref; standalone composite-doc entry with a dirty-env step → poisoned;
 - S2: `constructor` key poisons; allowlisted key clean; S7 novel value poisons;
-- S3 clean twins at EVERY modeled scope: root/job/run-step, `uses:`-step, all four composite cells (a missing clean cell lets a coarsening mutant escape at exactly that scope);
+- S3 clean twins at EVERY modeled scope: root/job/run-step, `uses:`-step (remote and local refs), all four composite cells (a missing clean cell lets a coarsening mutant escape at exactly that scope);
 - `censusInvocations`: an integration fixture feeds `runBlocksOf` output of a static-env-dirty job into `censusInvocations` and pins the problem to the generalized why-string; existing cross-step poisoned-why fixture assertions updated to the new string in the same edit.
 
 **Green:** `runBlocksOf(doc, localActions = {}, envKeyAllowlist = ENV_KEY_ALLOWLIST)` (import extended); `StepShape` gains `env?: unknown`; job seed ORs `offAllowlistEnvKeys(jobEnv, allowlist).length > 0 || wfEnvDirty`; `walkSteps` gains an `inComposite: boolean` — run-branch emits `poisoned: state.poisoned || stepDirty`, and `if (stepDirty && inComposite) state.poisoned = true` (workflow run-step dirt is block-local; composite step dirt poisons onward per LS3); uses-branch sets `state.poisoned = true` when the step's `env` is dirty, before resolution; standalone entry walks with `inComposite: true`. `contextWhy` poisoned why-string becomes `environment poisoned by a same-job GITHUB_ENV/GITHUB_PATH write or an unmodelled static env: key` (spec §2.2).

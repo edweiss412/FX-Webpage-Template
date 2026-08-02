@@ -678,179 +678,196 @@ const DEMO_SERVICE_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 export type EnvKeyAllowlist = Record<
   string,
-  { values: string[]; reason: string; governs: string[] }
+  { values: Array<{ text: string; governs: string[] }>; reason: string }
 >;
+
+/** The derived-governance map key: a (key, value-text) PAIR, not a bare key.
+ *  Keying by key alone drops value identity, and the final review (a) R2
+ *  probe showed what that costs: a row pinning two live values keeps
+ *  `governs` identical when those values SWAP between the claiming site and a
+ *  non-claiming one, so a value-gated spec self-skips with pair hygiene,
+ *  completeness, and governance equality all green. NUL is the separator
+ *  because it cannot occur in YAML scalar text. */
+export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   SUPABASE_URL: {
-    values: ["${{ secrets.SUPABASE_URL }}", "http://127.0.0.1:54321"],
+    values: [
+      { text: "${{ secrets.SUPABASE_URL }}", governs: [] },
+      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
     reason: "Supabase endpoint read by app/test code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_URL: {
-    values: ["http://127.0.0.1:54321"],
+    values: [
+      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
     reason: "Supabase endpoint read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_SECRET_KEY: {
-    values: ["${{ secrets.SUPABASE_SECRET_KEY }}", DEMO_SERVICE_JWT],
+    values: [
+      { text: "${{ secrets.SUPABASE_SECRET_KEY }}", governs: [] },
+      { text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
     reason: "Supabase credential read by app/test code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_ANON_KEY: {
-    values: [DEMO_ANON_JWT],
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "Supabase credential read by app/test code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_SERVICE_ROLE_KEY: {
-    values: [DEMO_SERVICE_JWT],
+    values: [{ text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "Supabase credential read by app/test code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
-    values: [DEMO_ANON_JWT],
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "Supabase credential read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   NEXT_PUBLIC_SUPABASE_ANON_KEY: {
-    values: [DEMO_ANON_JWT],
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "Supabase credential read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_JWT_SECRET: {
-    values: ["super-secret-jwt-token-with-at-least-32-characters-long"],
+    values: [
+      {
+        text: "super-secret-jwt-token-with-at-least-32-characters-long",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
     reason: "local-stack JWT secret read by test bridge code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_REALTIME_ISS: {
-    values: ["supabase-demo"],
+    values: [{ text: "supabase-demo", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "realtime issuer read by test bridge code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   SUPABASE_TEST_REST_URL: {
-    values: ["${{ vars.SUPABASE_TEST_REST_URL }}"],
+    values: [{ text: "${{ vars.SUPABASE_TEST_REST_URL }}", governs: [] }],
     reason: "test-project endpoint read by test code",
-    governs: [],
   },
   SUPABASE_TEST_JWT_SECRET: {
-    values: ["${{ secrets.SUPABASE_TEST_JWT_SECRET }}"],
+    values: [{ text: "${{ secrets.SUPABASE_TEST_JWT_SECRET }}", governs: [] }],
     reason: "test-project secret read by test code",
-    governs: [],
   },
   SUPABASE_TEST_PUBLISHABLE_KEY: {
-    values: ["${{ vars.SUPABASE_TEST_PUBLISHABLE_KEY }}"],
+    values: [{ text: "${{ vars.SUPABASE_TEST_PUBLISHABLE_KEY }}", governs: [] }],
     reason: "test-project credential read by test code",
-    governs: [],
   },
   VALIDATION_SUPABASE_PROJECT_REF: {
-    values: ["vzakgrxqwcalbmagufjh"],
+    values: [{ text: "vzakgrxqwcalbmagufjh", governs: [] }],
     reason: "validation project ref read by audit scripts",
-    governs: [],
   },
   TEST_DATABASE_URL: {
-    values: ["${{ secrets.SUPABASE_TEST_DATABASE_URL }}"],
+    values: [{ text: "${{ secrets.SUPABASE_TEST_DATABASE_URL }}", governs: [] }],
     reason: "database URL read by test code via postgres client",
-    governs: [],
   },
   HASH_FOR_LOG_PEPPER: {
-    values: ["fxav-r41-test-pepper-32-chars-min-deterministic"],
+    values: [
+      {
+        text: "fxav-r41-test-pepper-32-chars-min-deterministic",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
     reason: "log-hash pepper read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   ENABLE_TEST_AUTH: {
-    values: ["true"],
+    values: [{ text: "true", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "test-auth toggle read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   TEST_AUTH_SECRET: {
-    values: ["fxav-m3-test-auth-2026-DO-NOT-SHIP", "test-secret-fixture"],
+    values: [
+      {
+        text: "fxav-m3-test-auth-2026-DO-NOT-SHIP",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+      { text: "test-secret-fixture", governs: [] },
+    ],
     reason: "test-auth secret read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   JWT_SIGNING_SECRET: {
-    values: ["redeem-link-test-secret-32-bytes-min"],
+    values: [
+      {
+        text: "redeem-link-test-secret-32-bytes-min",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
     reason: "JWT secret read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   PICKER_COOKIE_SIGNING_KEY: {
-    values: ["7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"],
+    values: [
+      {
+        text: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
     reason: "cookie-signing key read by app code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   GOOGLE_SERVICE_ACCOUNT_JSON: {
-    values: ['{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'],
+    values: [
+      {
+        text: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
     reason: "service-account JSON read by sync code",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   BASELINE_SERVER_ONLY: {
-    values: ["1"],
+    values: [{ text: "1", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
     reason: "capture-mode flag read by screenshot scripts",
-    governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
   },
   VITEST_EXCLUDE_ENV_BOUND: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by vitest config",
-    governs: [],
   },
   VITEST_INCLUDE_MUTATION_HARNESS: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by vitest config",
-    governs: [],
   },
   DEV_GATE_ONLY: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by playwright config",
-    governs: [],
   },
   CREW_E2E_ONLY: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by playwright config",
-    governs: [],
   },
   STEP3_LIVE_BUNDLE_ONLY: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by playwright config",
-    governs: [],
   },
   HELP_DOCS_WALKER_ONLY: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag read by playwright config",
-    governs: [],
   },
   MODAL_PREFETCH_E2E: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
-    governs: [],
   },
   MODAL_REALTIME_E2E: {
-    values: ["1"],
+    values: [{ text: "1", governs: [] }],
     reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
-    governs: [],
   },
   REPEATS: {
-    values: ["${{ github.event.inputs.transitions_repeats || '1' }}"],
+    values: [{ text: "${{ github.event.inputs.transitions_repeats || '1' }}", governs: [] }],
     reason: "repeat-count input read by test scripts",
-    governs: [],
   },
   BRANCH: {
-    values: ["${{ github.ref_name }}"],
+    values: [{ text: "${{ github.ref_name }}", governs: [] }],
     reason: "branch name read by regen scripts",
-    governs: [],
   },
   PG_CRON_COVERAGE_TARGET: {
-    values: ["validation"],
+    values: [{ text: "validation", governs: [] }],
     reason: "coverage target read by audit scripts",
-    governs: [],
   },
-  GH_TOKEN: { values: ["${{ github.token }}"], reason: "GitHub token read by gh CLI", governs: [] },
+  GH_TOKEN: {
+    values: [{ text: "${{ github.token }}", governs: [] }],
+    reason: "GitHub token read by gh CLI",
+  },
   BRANCH_PROTECTION_PAT: {
-    values: ["${{ secrets.BRANCH_PROTECTION_PAT }}"],
+    values: [{ text: "${{ secrets.BRANCH_PROTECTION_PAT }}", governs: [] }],
     reason: "GitHub token read by audit scripts",
-    governs: [],
   },
   GH_APP_TOKEN: {
-    values: ["${{ secrets.GH_APP_TOKEN }}"],
+    values: [{ text: "${{ secrets.GH_APP_TOKEN }}", governs: [] }],
     reason: "GitHub App token read by the branch-protection drift detector",
-    governs: [],
   },
 };
 
@@ -872,7 +889,7 @@ export function offAllowlistEnvKeys(
     .filter(([k, v]) => {
       if (!Object.hasOwn(allowlist, k)) return true;
       const text = typeof v === "string" ? v : String(v);
-      return !allowlist[k]!.values.includes(text);
+      return !allowlist[k]!.values.some((entry) => entry.text === text);
     })
     .map(([k]) => k)
     .sort();
@@ -1259,9 +1276,13 @@ export function governanceViolations(
 ): string[] {
   const out: string[] = [];
   for (const [key, row] of Object.entries(allowlist)) {
-    const want = JSON.stringify([...(derived.get(key) ?? [])].sort());
-    if (want !== JSON.stringify([...row.governs].sort()))
-      out.push(`${key}: declared governs ${JSON.stringify(row.governs)} != live ${want}`);
+    for (const entry of row.values) {
+      const want = JSON.stringify([...(derived.get(govKey(key, entry.text)) ?? [])].sort());
+      if (want !== JSON.stringify([...entry.governs].sort()))
+        out.push(
+          `${key}=${entry.text}: declared governs ${JSON.stringify(entry.governs)} != live ${want}`,
+        );
+    }
   }
   return out;
 }
@@ -1283,8 +1304,8 @@ export function envAllowlistHygieneProblems(
       continue;
     }
     if (row.values.length === 0) out.push(`value-less env-key row: ${key}`);
-    for (const v of row.values)
-      if (!live.has(v)) out.push(`stale pinned value for ${key}: ${v} — remove it`);
+    for (const { text } of row.values)
+      if (!live.has(text)) out.push(`stale pinned value for ${key}: ${text} — remove it`);
     if (row.reason.trim().length === 0) out.push(`reason-less env-key row: ${key}`);
   }
   return out;
@@ -1304,7 +1325,7 @@ export function unreviewedLivePairs(
   for (const [key, values] of livePairs) {
     const row = Object.hasOwn(allowlist, key) ? allowlist[key] : undefined;
     for (const v of values)
-      if (!row || !row.values.includes(v))
+      if (!row || !row.values.some((entry) => entry.text === v))
         out.push(`unreviewed live env pair: ${key}=${v} — add a reasoned row`);
   }
   return out.sort();
@@ -1323,15 +1344,20 @@ export function scanWorkflowCoverage({
 } {
   const covered = new Set<string>();
   const rejected: Array<{ file: string; spec: string; reason: string }> = [];
-  // Static-env spec §2.3 (R5): env-key -> specs it governs, credited ONLY at
-  // the covered.add site — governance shares the scan's full qualification
-  // chain by construction, so a duplicate claim the scan REJECTS (path
-  // filter, if:, non-PR trigger, poison) confers nothing. R5's live mutant
-  // parked the pair on a path-gated duplicate of the real invocation; a
+  // Static-env spec §2.3 (R5): env (key, value-text) PAIR -> specs it governs,
+  // credited ONLY at the covered.add site — governance shares the scan's full
+  // qualification chain by construction, so a duplicate claim the scan REJECTS
+  // (path filter, if:, non-PR trigger, poison) confers nothing. R5's live
+  // mutant parked the pair on a path-gated duplicate of the real invocation; a
   // recognition-only derivation credited it while the real job ran flagless.
+  // Keyed by PAIR, not by key (final review (a) R2): a key-keyed map cannot
+  // see two live values of one row SWAP between the claiming site and a
+  // non-claiming one, which leaves a value-gated spec self-skipping green.
   const governance = new Map<string, Set<string>>();
-  const envKeysOf = (env: unknown): string[] =>
-    env !== null && typeof env === "object" && !Array.isArray(env) ? Object.keys(env) : [];
+  const envPairsOf = (env: unknown): Array<[string, string]> =>
+    env !== null && typeof env === "object" && !Array.isArray(env)
+      ? Object.entries(env).map(([k, v]) => [k, typeof v === "string" ? v : String(v)])
+      : [];
 
   // R13: a claim requires COMMAND POSITION. SPEC_RE and the alias grammar
   // used to grep the whole run block, so `echo tests/e2e/foo.spec.ts` — or a
@@ -1590,14 +1616,15 @@ export function scanWorkflowCoverage({
               rejected.push({ file, spec, reason: "unmodelled shell construct" });
             else {
               covered.add(spec);
-              for (const k of [
-                ...envKeysOf((parsedDoc as { env?: unknown } | null)?.env),
-                ...envKeysOf((parsedJob as { env?: unknown } | undefined)?.env),
-                ...envKeysOf(parsedStep.env),
+              for (const [k, text] of [
+                ...envPairsOf((parsedDoc as { env?: unknown } | null)?.env),
+                ...envPairsOf((parsedJob as { env?: unknown } | undefined)?.env),
+                ...envPairsOf(parsedStep.env),
               ]) {
-                const set = governance.get(k) ?? new Set<string>();
+                const pair = govKey(k, text);
+                const set = governance.get(pair) ?? new Set<string>();
                 set.add(spec);
-                governance.set(k, set);
+                governance.set(pair, set);
               }
             }
           }

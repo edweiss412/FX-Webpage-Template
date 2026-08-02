@@ -39,6 +39,7 @@ import {
   governanceViolations,
   unreviewedLivePairs,
   scanWorkflowCoverage,
+  type EnvKeyAllowlist,
 } from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
 
@@ -1609,7 +1610,9 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
   const POISON_REASON =
     "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
   // Fixture-local allowlist: fixtures must not couple to live seed rows.
-  const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] } };
+  const ALLOW = {
+    GOOD_KEY: { values: [{ text: "v", governs: [] }], reason: "fixture-reviewed test pair" },
+  };
   const S = (w: string, localActions: Record<string, string> = {}) =>
     scanWorkflowCoverage({
       workflows: { "w.yml": w },
@@ -1855,18 +1858,18 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
   it("the governance checker reds a relocated pair and a silently-gained one (S8 doctored twins)", () => {
     const claiming = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`;
     const relocated = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
-    const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
+    const row = { K: { values: [{ text: "v", governs: ["tests/e2e/x.spec.ts"] }], reason: "r" } };
     const gv = (
       workflows: Record<string, string>,
       packageScripts: Record<string, string> = {},
-      allowlist: Record<string, { values: string[]; reason: string; governs: string[] }> = row,
+      allowlist: EnvKeyAllowlist = row,
     ) => envPairGovernance(workflows, packageScripts, {}, allowlist);
     // The R3 mutant: pair parked at a non-claiming site — pair-level presence
     // still holds, governance does not.
     expect(governanceViolations(row, gv({ "w.yml": claiming }))).toEqual([]);
     expect(governanceViolations(row, gv({ "w.yml": relocated }))).toHaveLength(1);
     // The inverse drift: a pair silently GAINING governance must also red.
-    const bare = { K: { values: ["v"], reason: "r", governs: [] } };
+    const bare = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
     expect(governanceViolations(bare, gv({ "w.yml": claiming }, {}, bare))).toHaveLength(1);
     // R4 launder twin: prose is not a claim. A pair parked on an echo step
     // that PRINTS the spec path confers no governance — the declared row
@@ -1892,6 +1895,45 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     expect(governanceViolations(row, gv(substituted))).toHaveLength(1);
   });
 
+  it("a VALUE swap between a claiming and a parked site reds (S8 pair-keyed governance)", () => {
+    // Key-keyed governance could not see this: a row pinning two live values
+    // keeps one `governs` list, so swapping which value sits at the claiming
+    // site leaves pair presence, completeness, and equality all green while a
+    // value-gated spec self-skips (final review (a) R2 probe, live-
+    // representable — SUPABASE_URL, SUPABASE_SECRET_KEY and TEST_AUTH_SECRET
+    // each pin multiple live values). Governance is keyed by (key, value).
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const tree = (claimingValue: string, parkedValue: string) => ({
+      "w.yml": `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${claimingValue}\n    steps:\n      - ${CLAIM}\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: ${parkedValue}\n    steps:\n      - run: echo parked\n`,
+    });
+    // Declared: "required" gates the spec, "inert" gates nothing.
+    const row: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: ["tests/e2e/x.spec.ts"] },
+          { text: "inert", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    const gv = (workflows: Record<string, string>) => envPairGovernance(workflows, {}, {}, row);
+    // Faithful tree: the claiming job carries the gating value.
+    expect(governanceViolations(row, gv(tree("required", "inert"))), "faithful").toEqual([]);
+    // Swapped: BOTH values are still live and still allowlisted, and a
+    // key-keyed derivation is byte-identical here — only the pair-keyed one
+    // sees that "required" no longer governs and "inert" now does.
+    const swapped = governanceViolations(row, gv(tree("inert", "required")));
+    expect(swapped, "swapped").toHaveLength(2);
+    expect(swapped.join("\n")).toMatch(/K=required/);
+    expect(swapped.join("\n")).toMatch(/K=inert/);
+    // Pair-level hygiene stays green across the swap — it is exactly the
+    // check that cannot catch this, which is why governance must be keyed by
+    // the pair rather than the key.
+    const live = new Map([["K", new Set(["required", "inert"])]]);
+    expect(envAllowlistHygieneProblems(row, live), "stale hygiene blind").toEqual([]);
+    expect(unreviewedLivePairs(row, live), "completeness blind").toEqual([]);
+  });
+
   it("governance is credited at workflow-root, run-step, and whole-config sites (S8 scope cells)", () => {
     // Every shipped governance positive used JOB-level env and passed no
     // configSpecs, so deleting the workflow-root credit, deleting the
@@ -1900,12 +1942,12 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     // credit makes a mechanically derived row declare `governs: []`, and a
     // relocation of that pair then passes both hygiene directions.
     const CFG = "tests/e2e/standalone.config.ts";
-    const row = { K: { values: ["v"], reason: "r", governs: ["tests/e2e/x.spec.ts"] } };
-    const bare = { K: { values: ["v"], reason: "r", governs: [] } };
+    const row = { K: { values: [{ text: "v", governs: ["tests/e2e/x.spec.ts"] }], reason: "r" } };
+    const bare = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
     const gv = (
       workflows: Record<string, string>,
       configSpecs: Record<string, string[]> = {},
-      allowlist: Record<string, { values: string[]; reason: string; governs: string[] }> = row,
+      allowlist: EnvKeyAllowlist = row,
     ) => envPairGovernance(workflows, {}, configSpecs, allowlist);
     const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
     // Workflow-root env governs the claims below it.
@@ -1935,17 +1977,27 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     // Each doctored allowlist must red through the SAME checker the live
     // gate invokes — deleting a live assertion cannot leave this twin green.
     const live = new Map([["K", new Set(["v"])]]);
-    const row = (over: Partial<{ values: string[]; reason: string }>) => ({
-      K: { values: ["v"], reason: "r", governs: [], ...over },
+    const row = (over: Partial<EnvKeyAllowlist[string]>): EnvKeyAllowlist => ({
+      K: { values: [{ text: "v", governs: [] }], reason: "r", ...over },
     });
     expect(envAllowlistHygieneProblems(row({}), live)).toEqual([]);
-    const ghost = { GHOST_KEY_NEVER_LIVE: { values: ["v"], reason: "r", governs: [] } };
+    const ghost = {
+      GHOST_KEY_NEVER_LIVE: { values: [{ text: "v", governs: [] }], reason: "r" },
+    };
     expect(envAllowlistHygieneProblems(ghost, live)).toHaveLength(1);
     expect(envAllowlistHygieneProblems(ghost, live)[0]).toMatch(/stale env-key row/);
     expect(envAllowlistHygieneProblems(row({ values: [] }), live)[0]).toMatch(/value-less/);
-    expect(envAllowlistHygieneProblems(row({ values: ["v", "__NEVER_LIVE__"] }), live)[0]).toMatch(
-      /stale pinned value/,
-    );
+    expect(
+      envAllowlistHygieneProblems(
+        row({
+          values: [
+            { text: "v", governs: [] },
+            { text: "__NEVER_LIVE__", governs: [] },
+          ],
+        }),
+        live,
+      )[0],
+    ).toMatch(/stale pinned value/);
     expect(envAllowlistHygieneProblems(row({ reason: "  " }), live)[0]).toMatch(/reason-less/);
     // Completeness twin (plan-R2): a live pair with no row, and a live VALUE
     // outside its row's pins, each red through the same live→declared checker.
