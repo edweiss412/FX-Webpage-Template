@@ -144,12 +144,32 @@ one T-HUB-ZORDER guards — is byte-identical.
 inside `components/admin/ReSyncButton.tsx` (`components/admin/ReSyncButton.tsx:79`, `components/admin/ReSyncButton.tsx:100`); the pure math
 `computeFittedMaxHeight` is already shared at `lib/layout/fitWithinClip.ts:56`.
 Move the hook + `findClippingAncestor` to a new client module
-`components/admin/useFitWithinClip.ts (new)` (exact body move — observer wiring,
-feature-detected `ResizeObserver`, callback-ref + attach-counter shape all
-unchanged); `ReSyncButton` imports it. The registry's mechanism assertion is an
-import-regex on `useFitWithinClip`
-(`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`),
-which continues to match both the moved module's consumers and `ReSyncButton`.
+`components/admin/useFitWithinClip.ts (new)`. The body moves with ONE contract
+extension (below); observer wiring, feature-detected `ResizeObserver`,
+callback-ref + attach-counter shape are otherwise unchanged. `ReSyncButton`
+imports it and its local copies are DELETED.
+
+**Contract extension — re-measure on structural moves (review R1 F1):** the
+hook's `ResizeObserver` today watches only the clipping ancestor (plus window
+resize; `components/admin/ReSyncButton.tsx:142-146`), so a fitted element that
+is PUSHED DOWN without the clip ancestor resizing — e.g. the AttentionMenu
+"Needs you" heading mounting above the persistent scroller on a live
+monitoring-only → needs-you items update while the menu stays open
+(`components/admin/showpage/AttentionMenu.tsx:120`,
+`tests/components/admin/showpage/pillFocusReconcile.test.tsx:307`) — would keep
+a stale (too-large) cap. The moved hook therefore ALSO observes the fitted
+element's `offsetParent` (for AttentionMenu: the menu panel, whose border-box
+height grows when the heading mounts, firing the observer and re-running
+`apply()`). `ReSyncButton`'s overlays are unaffected (their offsetParent is
+inside the same band the clip observer already covers; observing it is
+harmless). Structural adoption pins for the extraction are in §11.
+
+Registry mechanism assertion: the current import-regex `/useFitWithinClip/`
+(`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`)
+also matches a LOCAL definition (verified by the R1 reviewer's live probe), so
+this cluster tightens it to require the shared-module import
+(`from "@/components/admin/useFitWithinClip"`), which a local copy cannot
+satisfy.
 
 ### 4.2 AttentionMenu
 
@@ -159,12 +179,24 @@ the `max-h-96 overflow-y-auto` element). The hook caps `style.maxHeight` at
 so at 390×560 the scroller gets ≈ `560 − 230 − 8 = 322px` and the whole menu
 bottom lands inside the clip edge; at 667/844 the CSS `max-h-96` (384px)
 continues to govern (fitted value ≥ 384 → `computeFittedMaxHeight` returns the
-declared cap). Entrance animation note: the panel's `scale-95` entrance
-(`AttentionMenu.tsx:128-130`, `origin-top-right`) can shrink the measured
-`elementTop` by ≤5% for one frame; the hook's clip-ancestor `ResizeObserver` +
-resize listener re-apply, and the plan's real-browser assertion measures the
-settled state (`prefers-reduced-motion: reduce`, the standalone-layout-spec
-idiom).
+declared cap).
+
+Live-update re-measure: covered by the §4.1 contract extension — the heading
+mounting/unmounting on a group-structure change (`hasNeedsYou` flip,
+`components/admin/showpage/AttentionMenu.tsx:120`) resizes the observed menu
+panel and re-fires `apply()`. The real-browser regression for this exact
+transition (monitoring-only → needs-you at 390×560 with the menu held open,
+asserting containment + last-row reachability after the flip) is a REQUIRED
+case in the §11 standalone spec.
+
+Entrance-transform error bound: the panel's `scale-95` entrance
+(`AttentionMenu.tsx:128-130`, `origin-top-right`) distorts
+`getBoundingClientRect` for ~1 frame; the scroller-top mis-measure is bounded
+by (1−0.95) × (scroller.top − panel.top) ≈ 0.05 × 47 ≈ 2.4px (probe §2.2
+geometry), strictly less than `DEFAULT_CLIP_GUTTER` (8px,
+`lib/layout/fitWithinClip.ts:21`), so a cap computed mid-entrance still cannot
+cross the clip edge; the settled state is what the layout spec asserts
+(`prefers-reduced-motion: reduce`, the standalone-layout-spec idiom).
 
 Registry row flips: `components/admin/showpage/AttentionMenu.tsx` disposition
 `unverified-gap` → `fit-within-clip`
@@ -230,8 +262,12 @@ the button is `aria-describedby`-bound to, unchanged mechanism. Absent
 
 Long titles: the prose paragraph wraps (`text-sm text-text-subtle`, no
 truncation) — a popover-width title wraps to more lines rather than truncating
-context on a destructive decision; no cap needed (show titles are sheet tab
-names, bounded in practice; Documented limits §9).
+context on a destructive decision. `show.title` is parser-derived
+(`extractTitleFromMarkdown`, `lib/parser/index.ts:189` — banner cells /
+`Event Name` / other sheet cells, filename as last resort) with NO
+application-level length cap, so pathological lengths are possible; the
+ShareHub placement cap + body-content observer bound the popover against the
+panel regardless (Documented limits §10).
 
 ### 5.3 Pins
 
@@ -285,15 +321,44 @@ No other rAF sites change: the double-rAF settle helper
 
 ## 8. Transition inventory
 
-No new visual states are introduced anywhere in the cluster. Affected
-components' existing inventories:
+No new visual states are introduced anywhere in the cluster; this inventory
+enumerates ALL pairs of the touched components' existing states (review R1 F3).
 
-| Component | States touched | Treatment |
-|---|---|---|
-| ShareHub triggers | closed ↔ open (existing) | Class swap adds `relative z-30` on open — z/position changes do not animate; instant, no animation needed (matches the existing instant `bg-surface-sunken` kebab swap at `ShareHub.tsx:719-721`) |
-| AttentionMenu panel | entrance (scale-95→100, existing) | Unchanged; fitted max-height applies to the SCROLLER (child), not the animated panel, and is re-applied by observers after the entrance settles (§4.2) |
-| PublishedToggle banner | absent ↔ error (existing, instant) | Unchanged; cap+scroll only affects overflow behavior |
-| ArchiveShowButton row | resting ↔ armed (existing, instant morph) | Copy-only change in the armed branch |
+**ShareHub triggers** — states: closed, open.
+| Pair | Treatment |
+|---|---|
+| closed ↔ open | Instant class swap; this cluster adds `relative z-30` on open — z/position changes do not animate (matches the existing instant `bg-surface-sunken` kebab swap, `components/admin/showpage/ShareHub.tsx:719-721`) |
+
+**AttentionMenu panel** — states: absent, pre-frame (mounted, `scale-95
+opacity-0`), entered (`scale-100 opacity-100`); orthogonal axis: group
+structure O1 (needs-you present) / O2 (monitoring-only)
+(`components/admin/showpage/AttentionMenu.tsx:66`, `components/admin/showpage/AttentionMenu.tsx:120`, `components/admin/showpage/AttentionMenu.tsx:128-130`).
+| Pair | Treatment |
+|---|---|
+| absent → pre-frame | Instant mount (existing) |
+| pre-frame → entered | Existing `transition-[opacity,transform] duration-fast`; reduced-motion instant. Unchanged |
+| entered/pre-frame → absent | Instant unmount (existing; close has no exit animation by contract) |
+| O1 ↔ O2 while open | Instant heading mount/unmount (existing, pinned by the O1↔O2 collapse coverage in `tests/e2e/attention-pill-focus.spec.ts`). NEW interaction: the flip re-fires the fit observer (§4.1 extension); no animation |
+| Compound: O1↔O2 while entrance mid-flight | Both instant vs animated axes compose; fit re-measure fires on the panel resize regardless of entrance progress; mid-entrance measurement error bounded < gutter (§4.2) |
+
+**PublishedToggle inline surfaces** — states: none, error banner, finalize
+chip; error wins over finalize (`components/admin/PublishedToggle.tsx:126-127`).
+| Pair | Treatment |
+|---|---|
+| none ↔ error | Instant (existing); this cluster adds cap+scroll to the error banner only — overflow behavior, no transition change |
+| none ↔ finalize chip | Instant, in-flow chip (existing, `components/admin/PublishedToggle.tsx:69`). Untouched |
+| error ↔ finalize chip | Priority swap, instant (existing `showFinalize = !showError && finalizeOwned`). Untouched |
+
+**ArchiveShowButton row variant** — states: resting, armed, armed-submitting
+(`pending`/`submitting`, `components/admin/ArchiveShowButton.tsx:115`),
+post-failure (refusal / not-found / generic banners via `banners`,
+`components/admin/ArchiveShowButton.tsx:209`).
+| Pair | Treatment |
+|---|---|
+| resting ↔ armed | Instant morph (existing). Copy-only change in the armed branch (§5.2) |
+| armed → armed-submitting | Instant disable/`aria-busy` (existing). Untouched |
+| armed-submitting → post-failure | Instant banner mount (existing). Untouched |
+| post-failure → resting/armed | Instant (existing re-arm clears banners, `onArmClick`). Untouched |
 
 Compound cases: arming Archive while the hub popover is mid-placement is
 already covered by the body-content `ResizeObserver`
@@ -303,16 +368,24 @@ already covered by the body-content `ResizeObserver`
 
 Fixed-dimension parent → child relationships this cluster creates:
 
-1. **AttentionMenu scroller inside the clip panel:** at every viewport where
-   `panel.bottom − scroller.top − 8px < 384px`, the scroller's rendered height
-   equals `panel.bottom − scroller.top − 8px` (±0.5px; floor 48px), guaranteed
-   by the hook's `style.maxHeight` write (`lib/layout/fitWithinClip.ts:56`).
-   Where the panel affords ≥384px, rendered height ≤ 384px (`max-h-96`).
-2. **Menu bottom vs clip edge:** `menu.bottom ≤ panel.bottom` at 390×560 after
-   the fix (probe showed 615 > 560 before).
+1. **AttentionMenu scroller inside the clip panel:** when content OVERFLOWS
+   the fitted cap (`scrollHeight > fitted max-height` — the probe's 10/10/10
+   fixture guarantees it) and `floor(panel.bottom − scroller.top − 8) < 384`,
+   the scroller's rendered height equals
+   `floor(panel.bottom − scroller.top − 8)` px (±0.5px), guaranteed by the
+   hook's `style.maxHeight` write (`lib/layout/fitWithinClip.ts:56`). Where the
+   panel affords ≥384px, rendered height ≤ 384px (`max-h-96`). Short content
+   renders at natural height (max-height is an upper bound only, §4.4). Floor
+   regime: when available space < `MIN_FITTED_HEIGHT` (48px), the floor wins
+   BY DESIGN and the overlay may overhang (`lib/layout/fitWithinClip.ts:28-35`
+   rationale comment) — inherited contract, documented in §10, unreachable for
+   AttentionMenu at the asserted viewports (available is 322px at 390×560).
+2. **Menu bottom vs clip edge:** `menu.bottom ≤ panel.bottom` at 390×560 with
+   the overflow fixture (probe showed 615 > 560 before), including after a
+   monitoring-only → needs-you group flip with the menu held open (§4.2).
 3. **PublishedToggle banner:** `banner.bottom ≤ panel.bottom` whenever the
-   banner renders inside the clipping panel; content beyond scrolls
-   (`overflow-y-auto`).
+   banner renders inside the clipping panel AND available space ≥ 48px (same
+   floor exemption as 1); content beyond scrolls (`overflow-y-auto`).
 
 Real-browser Playwright assertions required (jsdom computes no layout); the
 plan's layout-dimensions task graduates the §2 probe into a permanent
@@ -325,11 +398,20 @@ standalone spec asserting 1-2 at 390×{560,667,844} plus last-row
   (322px at 390×560); with 10+ items that is more scrolling, never stranding.
   Accepted: preparedness posture is "reachable or signaled, never silently
   unreachable."
-- `showName` prose wraps unbounded in the armed confirm; pathological
-  multi-hundred-char titles produce a tall popover, which the ShareHub
-  placement cap already bounds against the panel (`ShareHub.tsx:401-406`
-  body-observer + placement cap). No truncation by design (destructive-confirm
-  context beats compactness).
+- `showName` prose wraps unbounded in the armed confirm; `show.title` is
+  parser-derived with no length cap (§5.2), so pathological multi-hundred-char
+  titles produce a tall popover, which the ShareHub placement cap already
+  bounds against the panel (`ShareHub.tsx:401-406` body-observer + placement
+  cap). No truncation by design (destructive-confirm context beats
+  compactness).
+- `MIN_FITTED_HEIGHT` floor regime (inherited, `lib/layout/fitWithinClip.ts:28-35`):
+  when the space between an overlay's top and the clip edge is under 48px, the
+  48px floor wins and the overlay overhangs rather than collapsing to
+  unusable height. Pre-existing contract for ReSync overlays; unreachable for
+  AttentionMenu at phone viewports (§9.1); reachable in principle for the
+  PublishedToggle banner only if the strip bottom sits within 48px of the
+  panel bottom, a layout that does not occur in the shipped modal (strip is
+  sticky near the panel top).
 - The jsdom Selection timer (§2.3) remains observable in any fake-timer test
   that focuses an element; tests must keep using delta baselines rather than
   global zero-count assertions.
@@ -345,6 +427,24 @@ Unit (jsdom): open-state trigger-z companion pin; armed-confirm copy pins
 `rafCoalescer` throttle/cancel/reschedule unit tests; T-S8 unchanged-green;
 shareHubFlashState comment update (no assertion change).
 
+Structural adoption pins (review R1 F2 — behavioral pins alone pass with the
+shared helpers unadopted):
+- Tighten `IMPORT_FOR_DISPOSITION["fit-within-clip"]`
+  (`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`)
+  from `/useFitWithinClip/` to a shared-module import regex
+  (`from "@/components/admin/useFitWithinClip"`), so a local definition no
+  longer satisfies the registry (the R1 reviewer's probe showed the current
+  regex passes `ReSyncButton`'s local copy). Rows bound: `ReSyncButton`,
+  `AttentionMenu`, `PublishedToggle`.
+- Source-form assertions (same test file or a sibling structural test):
+  `components/admin/ReSyncButton.tsx` no longer DEFINES `useFitWithinClip` or
+  `findClippingAncestor` (import only); `components/admin/showpage/ShareHub.tsx`
+  and `components/admin/HoverHelp.tsx` both import
+  `@/lib/popover/rafCoalescer` and neither contains a local
+  `requestAnimationFrame` coalescer with the pending-flag idiom (grep target:
+  the "cleared BEFORE running" marker comment, which moves to the shared
+  module and must appear in exactly one source file).
+
 Real browser (standalone config): new `tests/e2e/popover-clip-fit.spec.ts (new)` (name added to
 `tests/e2e/standalone.config.ts` `testMatch`, R7) — §9 invariants 1-2, last-row
 reachability + tap height at 390×560, `PublishedToggle` banner containment with
@@ -356,6 +456,23 @@ restored in `tests/e2e/admin-lifecycle-layout.spec.ts` (§3.3).
 Registry/meta: `popoverOverlayRegistry.ts` — AttentionMenu row
 `unverified-gap` → `fit-within-clip`; new PublishedToggle `fit-within-clip`
 row; zero remaining `unverified-gap` rows after this cluster.
+
+## 11.1 UI quality gate (invariant 8 — mandatory closeout, review R1 F4)
+
+This cluster edits `components/**`, so the impeccable dual gate applies in
+full (AGENTS.md plan-wide invariant 8): `/impeccable critique` AND
+`/impeccable audit` on the affected diff, each with the canonical v3 setup
+gates (the impeccable context script's load of PRODUCT.md + DESIGN.md, then the register
+reference read), run AFTER implementation and BEFORE the whole-diff
+cross-model review. P0/P1 findings are fixed or explicitly deferred via a
+`DEFERRED.md` entry; findings + dispositions recorded in the plan's closeout.
+The plan directory carries the machine-checkable marker line
+(`impeccable-gate: …`, grammar per the 2026-08-01
+invariant-8-closeout-enforcement spec §3.3), enforced by
+`tests/docs/_metaInvariant8Closeout.test.ts`. The §3.1 trigger-elevation and
+§5.2 copy changes additionally observe the pre-code mechanical checklist
+(44px tap targets, apostrophe literals, canonical token classes) before the
+gate runs.
 
 ## 12. Out of scope
 
