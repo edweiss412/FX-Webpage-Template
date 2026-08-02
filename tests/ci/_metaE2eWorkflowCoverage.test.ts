@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   ENV_KEY_ALLOWLIST,
+  envAllowlistHygieneProblems,
   envPairGovernance,
   governanceViolations,
   scanWorkflowCoverage,
@@ -1669,12 +1670,42 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
       expect(r.covered.has(spec), label).toBe(false);
       expect(r.rejected[0]!.reason, label).toBe(POISON_REASON);
     }
-    // Precision twin: the same composites with an ALLOWLISTED key stay covered.
-    const cleanDirect = {
+    // Precision twins (S3): the same composites with an ALLOWLISTED key stay
+    // covered — every matrix cell, not one representative (plan-R1 F1).
+    const cleanDirectRun = {
       "./.github/actions/a":
         "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
     };
-    expect(S(use("./.github/actions/a"), cleanDirect).covered.has(spec)).toBe(true);
+    const cleanDirectUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        GOOD_KEY: v\n",
+    };
+    const cleanNestedRun = nested(
+      "    - run: echo hi\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    );
+    const cleanNestedUses = nested(
+      "    - uses: actions/checkout@v4\n      env:\n        GOOD_KEY: v\n",
+    );
+    for (const [label, actions] of [
+      ["clean-direct-run", cleanDirectRun],
+      ["clean-direct-uses", cleanDirectUses],
+      ["clean-nested-run", cleanNestedRun],
+      ["clean-nested-uses", cleanNestedUses],
+    ] as const) {
+      expect(S(use("./.github/actions/a"), actions).covered.has(spec), label).toBe(true);
+    }
+  });
+
+  it("allowlisted pairs stay covered at every direct scope (S3 clean cells)", () => {
+    // Workflow-root, run-step, and uses:-step clean twins — the job-scope
+    // twin lives in the S2 block. A scope whose clean cell is missing lets
+    // an allowlist-ignoring coarsening mutant escape at exactly that scope.
+    const root = `env:\n  GOOD_KEY: v\nname: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    expect(S(root).covered.has(spec), "workflow-root").toBe(true);
+    const ownStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n        env:\n          GOOD_KEY: v\n`;
+    expect(S(ownStep).covered.has(spec), "run-step").toBe(true);
+    const usesStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          GOOD_KEY: v\n      - ${INVOKE}\n`;
+    expect(S(usesStep).covered.has(spec), "uses-step").toBe(true);
   });
 
   it("unknown keys fail closed including prototype-named ones; allowlisted stay covered (S2)", () => {
@@ -1705,14 +1736,9 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
 
 describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
   it("every allowlist row pins live (key, value) pairs only, with a non-empty reason (S6)", () => {
-    const live = liveEnvPairs();
-    for (const [key, row] of Object.entries(ENV_KEY_ALLOWLIST)) {
-      expect(live.has(key), `stale env-key row: ${key} — remove it`).toBe(true);
-      expect(row.values.length > 0, `value-less env-key row: ${key}`).toBe(true);
-      for (const v of row.values)
-        expect(live.get(key)!.has(v), `stale pinned value for ${key}: ${v} — remove it`).toBe(true);
-      expect(row.reason.trim().length > 0, `reason-less env-key row: ${key}`).toBe(true);
-    }
+    // Through the pure checker, so the doctored twin below exercises the SAME
+    // assertion logic this live gate runs — not a parallel re-implementation.
+    expect(envAllowlistHygieneProblems(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
   });
 
   it("every row's governs equals the live derivation — relocation reds (S8, spec §7 R3)", () => {
@@ -1793,11 +1819,20 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
-    const live = liveEnvPairs();
-    expect(live.has("GHOST_KEY_NEVER_LIVE")).toBe(false);
-    expect(live.size > 0).toBe(true);
-    // Doctored value: a live key with a never-live pinned value must read stale.
-    const anyKey = [...live.keys()][0]!;
-    expect(live.get(anyKey)!.has("__NEVER_A_LIVE_VALUE__")).toBe(false);
+    // Each doctored allowlist must red through the SAME checker the live
+    // gate invokes — deleting a live assertion cannot leave this twin green.
+    const live = new Map([["K", new Set(["v"])]]);
+    const row = (over: Partial<{ values: string[]; reason: string }>) => ({
+      K: { values: ["v"], reason: "r", governs: [], ...over },
+    });
+    expect(envAllowlistHygieneProblems(row({}), live)).toEqual([]);
+    const ghost = { GHOST_KEY_NEVER_LIVE: { values: ["v"], reason: "r", governs: [] } };
+    expect(envAllowlistHygieneProblems(ghost, live)).toHaveLength(1);
+    expect(envAllowlistHygieneProblems(ghost, live)[0]).toMatch(/stale env-key row/);
+    expect(envAllowlistHygieneProblems(row({ values: [] }), live)[0]).toMatch(/value-less/);
+    expect(envAllowlistHygieneProblems(row({ values: ["v", "__NEVER_LIVE__"] }), live)[0]).toMatch(
+      /stale pinned value/,
+    );
+    expect(envAllowlistHygieneProblems(row({ reason: "  " }), live)[0]).toMatch(/reason-less/);
   });
 });

@@ -1824,13 +1824,88 @@ describe("spec registration detector (spec §3.1)", () => {
       ),
       "novel value",
     ).toEqual([{ run: "echo a", guarded: false, poisoned: true }]);
-    // Precision twin: the pinned pair at every scope stays clean.
+    // Precision twins: the pinned pair at every scope stays clean —
+    // root/job/run-step, uses:-step, and the composite cells (plan-R1 F1:
+    // a missing clean cell lets a coarsening mutant escape at that scope).
     expect(
       rb(
         "env:\n  GOOD_KEY: v\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      GOOD_KEY: v\n    steps:\n      - run: echo a\n        env:\n          GOOD_KEY: v\n",
       ),
       "pinned pair",
     ).toEqual([{ run: "echo a", guarded: false, poisoned: false }]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          GOOD_KEY: v\n      - run: echo later\n",
+      ),
+      "clean uses-step",
+    ).toEqual([{ run: "echo later", guarded: false, poisoned: false }]);
+    const cleanDirectRun = parse(
+      "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": cleanDirectRun },
+      ),
+      "clean direct-run",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: false },
+      { run: "echo after", guarded: false, poisoned: false },
+    ]);
+    const cleanDirectUses = parse(
+      "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        GOOD_KEY: v\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": cleanDirectUses },
+      ),
+      "clean direct-uses",
+    ).toEqual([{ run: "echo after", guarded: false, poisoned: false }]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": parentDoc, "./.github/actions/b": cleanDirectRun },
+      ),
+      "clean nested-run",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: false },
+      { run: "echo after", guarded: false, poisoned: false },
+    ]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": parentDoc, "./.github/actions/b": cleanDirectUses },
+      ),
+      "clean nested-uses",
+    ).toEqual([{ run: "echo after", guarded: false, poisoned: false }]);
+  });
+
+  it("a static-env-poisoned classifying line routes registry-or-loud with the generalized why-string (static-env spec §2.2)", () => {
+    // Integration: runBlocksOf output feeds censusInvocations exactly as the
+    // census does it — a dirty job's classifying line is a problem naming
+    // the generalized why (not silently classified, not the write-only why).
+    const ALLOW = {
+      GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair", governs: [] },
+    };
+    const blocks = runBlocksOf(
+      parse(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: pnpm exec playwright test tests/e2e/foo.spec.ts\n",
+      ),
+      {},
+      ALLOW,
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.poisoned).toBe(true);
+    const { invoked, problems } = censusInvocations(
+      blocks.map((b) => ({ text: b.run, guarded: b.guarded, poisoned: b.poisoned })),
+      [],
+    );
+    expect(invoked.size).toBe(0);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(
+      "environment poisoned by a same-job GITHUB_ENV/GITHUB_PATH write or an unmodelled static env: key",
+    );
   });
 
   it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {

@@ -1261,6 +1261,30 @@ export function governanceViolations(
   return out;
 }
 
+/** Pair-level allowlist hygiene (S6, static-env spec §2.3): stale keys,
+ *  value-less rows, stale pinned values, and empty reasons, as problem
+ *  strings. Pure over (allowlist, live pairs) so the live gate and the
+ *  doctored twin run the SAME assertion logic — a deleted live assertion
+ *  cannot leave the twin green (plan-R1 F1 tautology repair). */
+export function envAllowlistHygieneProblems(
+  allowlist: EnvKeyAllowlist,
+  livePairs: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, row] of Object.entries(allowlist)) {
+    const live = livePairs.get(key);
+    if (!live) {
+      out.push(`stale env-key row: ${key} — remove it`);
+      continue;
+    }
+    if (row.values.length === 0) out.push(`value-less env-key row: ${key}`);
+    for (const v of row.values)
+      if (!live.has(v)) out.push(`stale pinned value for ${key}: ${v} — remove it`);
+    if (row.reason.trim().length === 0) out.push(`reason-less env-key row: ${key}`);
+  }
+  return out;
+}
+
 export function scanWorkflowCoverage({
   workflows,
   packageScripts,
