@@ -43,7 +43,7 @@
 - Modify: `tests/admin/step3UnifiedRead.test.ts` (imports `buildStep3Row` from the old module at `tests/admin/step3UnifiedRead.test.ts:2` — its import moves to the new module in the same commit; no re-export shim is left behind)
 
 **Interfaces:**
-- Produces: `assembleStep3Row(manifest: ManifestRowForBuild, pending: PendingSyncRowForBuild | null, candidates: CandidateShow[], staged: StagedEnrichment | undefined, ingestion: { id: string; code: string | null } | undefined, wizardSessionId: string): Step3Row` — the FULL per-row assembly: `buildStep3Row` + clean-row parse/title enrichment (`isCleanReviewRow` branch, ex-`components/admin/OnboardingWizard.tsx:616`) + hard-fail ingestion enrichment (ex-`components/admin/OnboardingWizard.tsx:641`). Exact input type names copied from `OnboardingWizard.tsx` during the move (they are defined adjacent to `buildStep3Row`; move them too if not exported).
+- Produces: `assembleStep3Row(manifest, pending, candidates: ShowCandidate[], staged, ingestion: { id: string; code: string | null } | undefined, wizardSessionId: string): Step3Row` (`ShowCandidate` is the live export at `components/admin/OnboardingWizard.tsx:257`; the manifest/pending/staged param types are the EXISTING adjacent types moved verbatim with `buildStep3Row` — the plan deliberately does not re-name them here) — the FULL per-row assembly: `buildStep3Row` + clean-row parse/title enrichment (`isCleanReviewRow` branch, ex-`components/admin/OnboardingWizard.tsx:616`) + hard-fail ingestion enrichment (ex-`components/admin/OnboardingWizard.tsx:641`). Exact input type names copied from `OnboardingWizard.tsx` during the move (they are defined adjacent to `buildStep3Row`; move them too if not exported).
 - Consumed by: Task 2's gallery test; `OnboardingWizard.tsx`'s `fetchStep3Data` loop.
 
 - [ ] **Step 1: Write the failing test** — tests/admin/assembleStep3Row.test.ts (new), pure unit (no DB): three fixture rows exercising the three branches. Concrete failure mode caught: enrichment logic diverging from the pre-extraction behavior (parse attached to a non-clean row, ingestion id attached without `hard_failed`).
@@ -52,9 +52,11 @@
 import { describe, expect, test } from "vitest";
 import { assembleStep3Row } from "@/lib/admin/assembleStep3Row";
 
-const mani = (over: Record<string, unknown>) => ({
+import type { Step3ManifestStatus } from "@/components/admin/wizard/Step3Review";
+
+const mani = (over: Partial<{ status: Step3ManifestStatus }> & Record<string, unknown> = {}) => ({
   drive_file_id: "dfid-1",
-  status: "staged",
+  status: "staged" as Step3ManifestStatus,
   name: "Mani Name",
   publish_intent: null,
   created_show_id: null,
@@ -84,6 +86,18 @@ describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop b
   test("hard_failed row WITHOUT ingestion stays bare (no phantom controls)", () => {
     const row = assembleStep3Row(mani({ status: "hard_failed" }), null, [], undefined, undefined, "s1");
     expect(row.pendingIngestionId).toBeUndefined();
+  });
+  test("NEGATIVE GATE: clean row ignores a supplied ingestion; hard_failed ignores supplied staged", () => {
+    // Kills the attach-everything mutant the positive cases cannot see.
+    const staged = {
+      parseResult: { show: { title: "T" }, warnings: [] },
+      sourceAnchors: null, adminAgendaPreview: [], agendaStateKey: "k",
+      useRawDecisions: [], title: "T",
+    };
+    const clean = assembleStep3Row(mani(), null, [], staged, { id: "ing-x", code: null }, "s1");
+    expect(clean.pendingIngestionId).toBeUndefined(); // ingestion gated to hard_failed only
+    const hard = assembleStep3Row(mani({ status: "hard_failed" }), null, [], staged, { id: "ing-1", code: null }, "s1");
+    expect(hard.parseResult).toBeUndefined(); // parse enrichment gated to clean rows only
   });
 });
 ```
@@ -117,7 +131,6 @@ import {
   type GalleryRow,
 } from "../e2e/helpers/devCaptureStaged";
 import { assembleStep3Row } from "@/lib/admin/assembleStep3Row";
-import { deriveStep3DisplayState } from "@/lib/admin/step3DisplayState";
 import { nonAmbiguityGapTotal } from "@/lib/admin/step3Buckets";
 
 const EXPECTED: Record<string, string> = {
@@ -138,7 +151,10 @@ test("six variants derive the matrix's states through the real assembly path", a
   // assemble via the real exported seam, and check the matrix literals.
   for (const row of seeded.rows) {
     const assembled = await assembleFromDb(row); // helper below: queries the three tables, calls assembleStep3Row
-    expect(deriveStep3DisplayState(inputsOf(assembled)), row.variant).toBe(EXPECTED[row.variant]);
+    // Assert the field the UI consumes (Step3SheetCard reads row.displayState),
+    // NOT a re-derivation — a mutant stamping the wrong displayState with
+    // correct inputs must fail.
+    expect(assembled.displayState, row.variant).toBe(EXPECTED[row.variant]);
     if (row.variant === "needs_a_look") expect(nonAmbiguityGapTotal(assembled)).toBeGreaterThan(0);
     if (row.variant === "blocking") {
       expect(assembled.pendingIngestionId).toBeTruthy();
@@ -173,7 +189,7 @@ test("seed mutations hold the per-show advisory lock (behavioral, advisory-lock.
     await seedOneVariantWithHook("blocking", async (driveFileId) => {
       const got = await probe.begin(async (tx) => {
         const [tryRow] = await tx`select pg_try_advisory_xact_lock(hashtext(${"show:" + driveFileId})) as got`;
-        return tryRow.got as boolean;
+        return tryRow?.got === true; // noUncheckedIndexedAccess: tryRow may be undefined
       });
       expect(got).toBe(false); // competing try-lock refused while holder lives
       const holders = await probe`
@@ -284,7 +300,7 @@ for (const width of [320, 390, 720]) {
 - [ ] **Step 3: Oracle** — run and paste output into the commit body:
 
 ```bash
-rg -l "agendaBreakdown\.layout" --glob '!docs/**' # expected: no matches
+rg -l "agendaBreakdown\.layout" --glob '!docs/**' --glob '!BACKLOG.md' --glob '!BACKLOG-archive.md' # expected: no matches (BACKLOG mentions live until Task 7's graduation sweep; the final-verification re-run drops the BACKLOG excludes)
 ```
 
 - [ ] **Step 4: Green** — `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` PASS; standalone config still parses (`set -o pipefail; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --list | head -3`).
@@ -298,7 +314,7 @@ rg -l "agendaBreakdown\.layout" --glob '!docs/**' # expected: no matches
 - [ ] **Step 2:** Run `/impeccable critique` with canonical v3 setup gates (context.mjs → register read); both themes, mobile + desktop widths; explicit checks: dark-mode warn-contrast on the warn card; demoted double-"Review" renders correctly (intentionality ratified — spec §1.1).
 - [ ] **Step 3:** Run `/impeccable audit` same setup.
 - [ ] **Step 4:** Disposition findings — P0 fixed inline (re-run affected gate half per fix), P1+ → DEFERRED.md entries with trigger; record ALL findings + dispositions in §12 below. Then `cleanupStep3StateGallery(rows)` + verify `app_settings` restored (no stranded wizard-pending state on the shared DB) — the driver script runs cleanup in a `finally`.
-- [ ] **Step 5:** Commit any fixes per-finding (`fix(admin): <finding>`) + `docs(plan): record impeccable dual-gate findings + marker` — this commit fills the RAN-form marker in §12 AND deletes this plan's `MARKER_TEMPLATE_FILES` row (see §12 note); `pnpm exec vitest run tests/docs/` green.
+- [ ] **Step 5:** Commit any fixes per-finding (`fix(admin): <finding>`) + `docs(plan): record impeccable dual-gate findings + marker` — this commit fills the RAN-form marker in §12 (no registry involvement — see §12 mechanics note); `pnpm exec vitest run tests/docs/` green.
 
 ### Task 7: Graduations + closeout
 
