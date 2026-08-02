@@ -60,6 +60,10 @@
  * one carrying this file); each test builds its OWN BrowserContext + tears down
  * its seeded show, so no cross-test cookie/session/row leakage.
  */
+// Load .env.local into the RUNNER process (loadTestEnv side-effect import): seedPickerCookie
+// signs with PICKER_COOKIE_SIGNING_KEY from process.env, which the webServer loads but the
+// runner does not. CI is unaffected (no .env.local on runners; @next/env preserves job env).
+import "./helpers/loadTestEnv";
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
@@ -264,6 +268,162 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
       // to render): the badge alone forces ≥30px of content height.
       expect(contentH, "day-card content box must be laid out (badge height)").toBeGreaterThan(30);
       expect(Math.abs(vlineH - contentH)).toBeLessThanOrEqual(0.5);
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+// ── BL-AGENDA-FOLD-NO-SEEDED-E2E: the per-viewer agenda day fold through the REAL crew page ──
+//
+// Spec docs/superpowers/specs/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit-design.md §3.
+// Two date-restricted viewers with COMPLEMENTARY day assignments (Fiona → row 0, Theo →
+// row 1) over one two-day extraction: a seam regression that returns a constant subset for
+// every explicit viewer fails one of the two tests, so the suite pins the
+// viewerDates/restrictionDays → row composition, not just "some row folded" (spec §3.4).
+// The admin control proves the fold is a narrowing (admins bypass the matcher entirely).
+// `?s=schedule` is LOAD-BEARING (spec §3.3): absent `s` resolves to "today"
+// (lib/crew/resolveActiveSection.ts) and CrewSections mounts ONLY the active section.
+
+const FOLD_DATES = {
+  travelIn: "2026-05-04",
+  set: "2026-05-05",
+  showDays: ["2026-05-06", "2026-05-07"],
+  travelOut: "2026-05-08",
+} as const;
+
+// Shape per lib/agenda/normalizeAgendaExtraction.ts: confidence high|low, numeric
+// corrections + extractorVersion, days[].dayLabel string, date string|null, sessions with
+// non-empty time and string|null title/room/drift, tracks array. Labels parse to exactly one
+// date each (weekday-accurate: 2026-05-06 IS a Wednesday), so the matcher's completeness,
+// ambiguity, and every-row-parses gates all pass (probe: rows [0] / rows [1]).
+const FOLD_AGENDA_LINKS = [
+  {
+    label: "AGENDA",
+    // Fake fileId: AgendaEmbed renders buttons only; the PDF proxy is fetched solely on
+    // click (components/agenda/AgendaEmbed.tsx), which these tests never perform.
+    fileId: "agenda-fold-e2e-fileid",
+    extracted: {
+      confidence: "high" as const,
+      corrections: 0,
+      extractorVersion: 1,
+      days: [
+        {
+          dayLabel: "Wednesday, May 6, 2026",
+          date: null,
+          sessions: [{ time: "9:00 AM", title: "Keynote", room: null, tracks: [], drift: null }],
+        },
+        {
+          dayLabel: "Thursday, May 7, 2026",
+          date: null,
+          sessions: [{ time: "10:00 AM", title: "Breakouts", room: null, tracks: [], drift: null }],
+        },
+      ],
+    },
+  },
+];
+
+test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () => {
+  let show: SeededShow;
+  let fionaId: string;
+  let theoId: string;
+
+  test.beforeAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer, template convention
+    show = await seedShowWithCrew({
+      title: "Agenda Fold E2E Show",
+      dates: { ...FOLD_DATES, showDays: [...FOLD_DATES.showDays] },
+      agendaLinks: FOLD_AGENDA_LINKS,
+      crew: [
+        {
+          name: "Fold Fiona",
+          role: "- Video",
+          dateRestriction: { kind: "explicit", days: ["2026-05-06"] },
+        },
+        {
+          name: "Thursday Theo",
+          role: "- Audio",
+          dateRestriction: { kind: "explicit", days: ["2026-05-07"] },
+        },
+      ],
+    });
+    fionaId = show.crew[0]!.id;
+    theoId = show.crew[1]!.id;
+  });
+
+  test.afterAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    if (show) await deleteSeededShow(show.driveFileId);
+  });
+
+  for (const viewer of [
+    { label: "Fiona (day 1)", crewIdRef: () => fionaId, own: 0, other: 1 },
+    { label: "Theo (day 2)", crewIdRef: () => theoId, own: 1, other: 0 },
+  ]) {
+    test(`${viewer.label}: own agenda day open+marked, other day folded`, async ({
+      browser,
+    }, testInfo) => {
+      if (testInfo.project.name !== "mobile-safari") return;
+      const ctx = await browser.newContext({ baseURL: BASE_URL });
+      try {
+        await seedPickerCookie(
+          ctx,
+          [{ showId: show.showId, crewMemberId: viewer.crewIdRef(), epoch: show.pickerEpoch }],
+          { url: BASE_URL },
+        );
+        const page = await ctx.newPage();
+        await page.setExtraHTTPHeaders({
+          "X-Screenshot-Frozen-Now": FROZEN_NOW,
+          Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+        });
+        const res = await page.goto(`/show/${show.slug}/${show.shareToken}?s=schedule`, {
+          waitUntil: "domcontentloaded",
+        });
+        expect(res?.status(), "crew route must render (picker cookie)").toBe(200);
+        await expect(page.getByTestId("crew-shell")).toBeVisible();
+        await expect(page.getByTestId("section-schedule")).toBeVisible();
+
+        // Spec §3.3 assertions 1-5. `open` is asserted as the DOM property (toHaveJSProperty),
+        // not attribute string-matching — <details>.open is the live boolean either way.
+        await expect(page.getByTestId("agenda-schedule")).toBeVisible();
+        await expect(page.getByTestId(`agenda-day-${viewer.own}`)).toHaveJSProperty("open", true);
+        const marker = page.getByTestId(`agenda-day-marker-${viewer.own}`);
+        await expect(marker).toBeVisible();
+        await expect(marker).toHaveText("Your day");
+        await expect(page.getByTestId(`agenda-day-${viewer.other}`)).toHaveJSProperty(
+          "open",
+          false,
+        );
+        // Folded ≠ hidden: the summary stays visible (fold is de-emphasis, not the day-card
+        // privacy boundary).
+        await expect(page.getByTestId(`agenda-day-summary-${viewer.other}`)).toBeVisible();
+        await expect(page.getByTestId(`agenda-day-marker-${viewer.other}`)).toHaveCount(0);
+      } finally {
+        await ctx.close();
+      }
+    });
+  }
+
+  test("admin (unrestricted) sees both days open, no markers", async ({ browser }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const ctx = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      const page = await ctx.newPage();
+      await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
+      await page.setExtraHTTPHeaders({
+        "X-Screenshot-Frozen-Now": FROZEN_NOW,
+        Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+      });
+      const res = await page.goto(`/show/${show.slug}/${show.shareToken}?s=schedule`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), "admin resolves the same show").toBe(200);
+      // Admin resolves {kind:'none'} → viewerDays {kind:'all'} → nothing folds, nothing marks
+      // (marker renders only when it DISTINGUISHES — spec §3.4).
+      await expect(page.getByTestId("agenda-schedule")).toBeVisible();
+      await expect(page.getByTestId("agenda-day-0")).toHaveJSProperty("open", true);
+      await expect(page.getByTestId("agenda-day-1")).toHaveJSProperty("open", true);
+      await expect(page.locator('[data-testid^="agenda-day-marker-"]')).toHaveCount(0);
     } finally {
       await ctx.close();
     }
