@@ -319,7 +319,7 @@ diff only asserts the INITIAL open/closed state the server renders.
 |---|---|
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | row transition UNSEEN → PATH_GATED_BY_EXCLUSION + provenance comment (§3.5) |
 | `tests/e2e/standalone-baseline.json` | regenerate + commit (§4.2) |
-| Stale-comment sweep: `crew-e2e.yml:2-4` header, `crew-e2e.yml:142` step name, `crew-e2e.yml:132-136` --list count comment; `agendaScheduleLayout.spec.ts:463-466` Chromium-only note | all refreshed in the same commits as the edits that stale them (§3.5) |
+| Stale-comment sweep | §3.5's bullet list is the SINGLE canonical inventory (six surfaces, grep-closed) — deliberately not duplicated here; all refreshed in the same commits as the edits that stale them |
 | `tests/docs/_metaDeferralLedgerGraduation.test.ts` | add BOTH graduated IDs to the graduation registry (`BACKLOG_GRADUATED`, `_metaDeferralLedgerGraduation.test.ts:90`) — the registry drives the archive-only and per-section provenance checks; graduation without the rows leaves those protections dark |
 | `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` | extend with the stage-restricted run-command assertion (§6 T3 red) |
 | new `tests/ci/` wiring guard for the WebKit leg | created by §6 T4 (project resolves exactly 1 a11y test; standalone-e2e.yml installs webkit) — note: a NEW test file in `tests/` must satisfy the spec-registration detector (`tests/ci/_metaSpecRegistration.test.ts`); vitest include globs cover `tests/ci/*.test.ts` already, plan verifies |
