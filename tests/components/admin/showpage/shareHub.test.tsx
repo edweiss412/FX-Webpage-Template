@@ -53,6 +53,7 @@ type Opts = {
   pickerCrew?: typeof CREW;
   archiveAction?: () => Promise<{ ok: true } | { ok: false; code: string }>;
   unarchiveAction?: (showId: string) => Promise<void>;
+  attentionMenuOpen?: boolean | undefined;
 };
 
 /** The hub's tree WITHOUT rendering it, so a caller can wrap it in a
@@ -68,6 +69,7 @@ function hubTree({
   pickerCrew = CREW,
   archiveAction = async () => ({ ok: true }) as const,
   unarchiveAction = async () => {},
+  attentionMenuOpen,
 }: Opts = {}) {
   return (
     <ShareTokenProvider key={SHOW_ID} initialToken={token} initialEpoch={1}>
@@ -82,6 +84,7 @@ function hubTree({
         pickerCrew={pickerCrew}
         archiveAction={archiveAction}
         unarchiveAction={unarchiveAction}
+        attentionMenuOpen={attentionMenuOpen}
       />
     </ShareTokenProvider>
   );
@@ -91,11 +94,64 @@ function renderHub(opts: Opts = {}) {
   return render(hubTree(opts));
 }
 
+/**
+ * The MAX positive z across ALL tokens of a className. Not a single .exec
+ * (`z-10 z-30` must read as 30), and NOT by stripping the variant prefix (its
+ * grammar is open-ended — `sm:`, `dark:`, `data-[state=open]:`, `[&:hover]:`,
+ * `supports-[display:grid]:` …). The z-utility is matched as a SUFFIX instead:
+ * every Tailwind z token ends in `z-<n>` / `z-[<n>]` at token start or right
+ * after a colon, whatever precedes it. Negatives never raise the max, so a
+ * trigger carrying only `-z-10` reads 0.
+ */
+const maxZLevel = (cls: string): number => {
+  let max = 0;
+  for (const tok of cls.split(/\s+/).filter(Boolean)) {
+    // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
+    // plausible way to force an elevation, so allow it before the anchor.
+    const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
+    if (!m) continue;
+    const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
+    if (n > max) max = n;
+  }
+  return max;
+};
+
 const primary = () => screen.getByTestId("share-hub-primary") as HTMLButtonElement;
 const kebab = () => screen.getByTestId("share-hub-kebab") as HTMLButtonElement;
 const popover = () => screen.getByTestId("share-hub-popover");
 const queryPopover = () => screen.queryByTestId("share-hub-popover");
 const backdrop = () => screen.getByTestId("share-hub-backdrop");
+
+/**
+ * Opens the hub and leaves rotate mid-flight so `busy` stays true, RETURNING the
+ * resolver. The caller MUST settle it, in a `finally`: a test that abandons an
+ * in-flight transition leaks a pending React transition into the next test in
+ * this file (observed — abandoning it made the lifecycle-deferral test fail
+ * while passing in isolation). A timed-out gate does not settle the promise on
+ * its own, so the busyStuck cases need the same discipline.
+ */
+const openAndHangWith = async (opts: Opts = {}) => {
+  let settle: ((v: unknown) => void) | null = null;
+  rotateMock.mockImplementation(
+    () =>
+      new Promise((res) => {
+        settle = res;
+      }),
+  );
+  renderHub(opts);
+  fireEvent.click(primary());
+  fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
+  });
+  return async () => {
+    await act(async () => {
+      settle?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    });
+  };
+};
+
+const openAndHang = () => openAndHangWith();
 
 beforeEach(() => {
   rotateMock.mockReset();
@@ -296,18 +352,6 @@ describe("ShareHub — z-order (spec §3)", () => {
     // or immediately after a colon, whatever precedes it. That closes the whole
     // prefix class rather than enumerating spellings. Negatives never raise the
     // max, so a trigger with only `-z-10` reads 0 and passes.
-    const maxZLevel = (cls: string): number => {
-      let max = 0;
-      for (const tok of cls.split(/\s+/).filter(Boolean)) {
-        // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
-        // plausible way to force an elevation, so allow it before the anchor.
-        const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
-        if (!m) continue;
-        const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
-        if (n > max) max = n;
-      }
-      return max;
-    };
     for (const el of [primary(), kebab()]) {
       expect(
         maxZLevel(el.className),
@@ -842,33 +886,6 @@ describe("ShareHub — §9 composition rules", () => {
 });
 
 describe("ShareHub — busy gating (spec §6)", () => {
-  /**
-   * Leaves rotate mid-flight so busy stays true, and RETURNS the resolver. The
-   * caller must settle it: a test that abandons an in-flight transition leaks a
-   * pending React transition into the next test in this file (observed —
-   * abandoning it made the lifecycle-deferral test below fail while passing in
-   * isolation).
-   */
-  const openAndHang = async () => {
-    let settle: ((v: unknown) => void) | null = null;
-    rotateMock.mockImplementation(
-      () =>
-        new Promise((res) => {
-          settle = res;
-        }),
-    );
-    renderHub();
-    fireEvent.click(primary());
-    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("admin-rotate-share-token-confirm-button"));
-    });
-    return async () => {
-      await act(async () => {
-        settle?.({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
-      });
-    };
-  };
 
   it("ALL FOUR dismissal paths are inert while a child is resolving", async () => {
     const shellSpy = vi.fn();
@@ -1229,6 +1246,121 @@ describe("ShareHub — Archive row copy (spec §2.2)", () => {
       fireEvent.click(primary());
       expect(describedText()).not.toMatch(/permanent|forever|cannot be undone/i);
       unmount();
+    }
+  });
+});
+
+/**
+ * Open-gated trigger elevation (spec §3.1/§3.2, BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS).
+ *
+ * The backdrop is `fixed inset-0 z-20` inside the hub root and the triggers are
+ * NON-POSITIONED siblings, so the backdrop paints over them and swallows their
+ * taps. The fix elevates the triggers ABOVE the backdrop while the hub is open —
+ * but only when nothing else is competing for the same band, hence a THREE-TERM
+ * gate: open AND not busy AND the attention menu not open. The menu's panel is
+ * z-20; an unconditional elevation here is exactly the regression that once
+ * stole the menu's clicks (share-hub-fidelity-fixes §3).
+ */
+describe("ShareHub — trigger elevation (spec §3.1)", () => {
+  const bothTriggers = () => [primary(), kebab()];
+
+  it("open + idle: both triggers clear the z-20 backdrop", () => {
+    renderHub();
+    fireEvent.click(primary());
+    expect(queryPopover()).not.toBeNull();
+    for (const el of bothTriggers()) {
+      expect(
+        maxZLevel(el.className),
+        `${el.className} must clear the backdrop's z-20`,
+      ).toBeGreaterThanOrEqual(21);
+    }
+  });
+
+  it("open + busy: elevation drops instantly", async () => {
+    let settle: (() => Promise<void>) | null = null;
+    try {
+      settle = await openAndHang();
+      expect(queryPopover()).not.toBeNull();
+      for (const el of bothTriggers()) {
+        expect(
+          maxZLevel(el.className),
+          "a busy hub must not raise its triggers over the backdrop",
+        ).toBeLessThan(20);
+      }
+    } finally {
+      // Never abandon an in-flight transition (see openAndHangWith).
+      await settle?.();
+    }
+  });
+
+  it("attentionMenuOpen: suppressed while open, restored on the prop flip", () => {
+    const { rerender } = render(hubTree({ attentionMenuOpen: true }));
+    fireEvent.click(primary());
+    expect(queryPopover()).not.toBeNull();
+    for (const el of bothTriggers()) {
+      expect(
+        maxZLevel(el.className),
+        "a trigger at z >= 20 overpaints the attention menu's z-20 panel",
+      ).toBeLessThan(20);
+    }
+
+    rerender(hubTree({ attentionMenuOpen: false }));
+    for (const el of bothTriggers()) {
+      expect(maxZLevel(el.className)).toBeGreaterThanOrEqual(21);
+    }
+  });
+
+  it("attentionMenuOpen stays suppressed through a busy settle", async () => {
+    let settle: (() => Promise<void>) | null = null;
+    try {
+      settle = await openAndHangWith({ attentionMenuOpen: true });
+      for (const el of bothTriggers()) {
+        expect(maxZLevel(el.className)).toBeLessThan(20);
+      }
+    } finally {
+      await settle?.();
+    }
+    // Busy is over, but the menu is STILL open — the gate has three terms, so
+    // one of them clearing must not restore the elevation.
+    for (const el of bothTriggers()) {
+      expect(
+        maxZLevel(el.className),
+        "busy settled but the menu is still open — elevation must stay suppressed",
+      ).toBeLessThan(20);
+    }
+  });
+
+  it("attentionMenuOpen stays suppressed through the busyStuck timeout", async () => {
+    vi.useFakeTimers();
+    let settle: (() => Promise<void>) | null = null;
+    try {
+      settle = await openAndHangWith({ attentionMenuOpen: true });
+      // busyStuck hands dismissal back to the operator after BUSY_GATE_MAX_MS,
+      // which clears `busy` — the menu term must still hold the gate shut.
+      await act(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+      for (const el of bothTriggers()) {
+        expect(
+          maxZLevel(el.className),
+          "busyStuck released the gate while the menu was open",
+        ).toBeLessThan(20);
+      }
+    } finally {
+      vi.useRealTimers();
+      await settle?.();
+    }
+  });
+
+  it("prop absent behaves as false (closed state pin is unchanged)", () => {
+    renderHub();
+    // Closed: no elevation at all — the backdrop does not exist yet.
+    for (const el of bothTriggers()) {
+      expect(maxZLevel(el.className)).toBeLessThan(20);
+    }
+    fireEvent.click(primary());
+    for (const el of bothTriggers()) {
+      expect(maxZLevel(el.className)).toBeGreaterThanOrEqual(21);
     }
   });
 });

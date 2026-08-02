@@ -627,16 +627,14 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   // siblings in one stacking context, so the ordering that used to be local is
   // now cross-subtree. jsdom does no hit-testing, so it can only be checked here.
   //
-  // Deliberately NOT asserted: whether the TRIGGERS clear the backdrop. They do
-  // not, and they did not before this branch either — verified by running this
-  // same probe against origin/main's ShareHub.tsx, where the backdrop equally
-  // swallows a trigger tap. The root's open-gated `z-30` elevates the whole root
-  // (backdrop included) and does not order the backdrop against its
-  // non-positioned trigger siblings, so shareHub.test.tsx's class-level pin does
-  // not mean what its comment claims. Pre-existing, near-invisible in use (the
-  // backdrop's own handler closes the popover, so a trigger tap still dismisses,
-  // just without focus restore), and out of scope here: filed as
-  // BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS rather than entrenched as expected.
+  // The TRIGGERS clearing the backdrop is asserted separately below. It used to
+  // be an explicit non-assertion here: the backdrop swallowed trigger taps on
+  // this branch and on origin/main alike, because the root's open-gated `z-30`
+  // elevated the whole root (backdrop included) without ordering the backdrop
+  // against its non-positioned trigger siblings — so shareHub.test.tsx's
+  // class-level pin never meant what its comment claimed. That was filed as
+  // BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS rather than entrenched as expected, and
+  // spec 2026-08-01-admin-popover-overlay-cluster §3.1/§3.3 closes it.
   test("T-BACKDROP: the popover surface stays above the backdrop", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await ensureWatchedFolder();
@@ -665,6 +663,93 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
 
     expect(hits.hitIsBackdrop, "backdrop is swallowing popover clicks").toBe(false);
     expect(hits.bodyWins, "popover surface is not hit-testable").toBe(true);
+  });
+
+  // T-BACKDROP-TRIGGERS (spec §3.1/§3.3, BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS):
+  // while the hub is open and IDLE, both triggers must clear the backdrop. Two
+  // independent halves, because a fix that only raises paint order without
+  // reaching the click would pass the first and fail the second:
+  //   (a) hit-test — elementFromPoint at each trigger's centre resolves INTO
+  //       that trigger, not into the backdrop;
+  //   (b) behaviour — a REAL click on the primary trigger closes the popover AND
+  //       LEAVES FOCUS ON THAT TRIGGER. The focus half is what discriminates the
+  //       toggle path from the backdrop path: the backdrop also closes, but it
+  //       deliberately does not restore focus (spec §3.3), so a still-swallowed
+  //       tap would close the popover and satisfy a close-only assertion.
+  // Two SEPARATE tests, not two halves of one: with both in a single body the
+  // hit-test failure short-circuits the behavioural half, so the click contract
+  // could never be observed failing on its own.
+  async function openHubOnHeldShow(page: Page) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ensureWatchedFolder();
+    await page.goto(`/admin?show=${held.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+    return { modal, popover };
+  }
+
+  test("T-BACKDROP-TRIGGERS (a): both triggers win the hit test while open and idle", async ({
+    page,
+  }) => {
+    await openHubOnHeldShow(page);
+
+    const hits = await page.evaluate(() => {
+      const at = (testid: string) => {
+        const el = document.querySelector(`[data-testid="${testid}"]`);
+        if (!el) return { found: false, ownHit: false, hitTestId: null as string | null };
+        const r = el.getBoundingClientRect();
+        const node = document.elementFromPoint(
+          Math.round(r.left + r.width / 2),
+          Math.round(r.top + r.height / 2),
+        );
+        return {
+          found: true,
+          ownHit: !!node && (node === el || el.contains(node)),
+          hitTestId: node instanceof Element ? node.getAttribute("data-testid") : null,
+        };
+      };
+      return { primary: at("share-hub-primary"), kebab: at("share-hub-kebab") };
+    });
+    expect(hits.primary.found, "primary trigger not rendered").toBe(true);
+    expect(hits.kebab.found, "kebab trigger not rendered").toBe(true);
+    expect(
+      hits.primary.ownHit,
+      `backdrop swallows the primary trigger (hit: ${hits.primary.hitTestId})`,
+    ).toBe(true);
+    expect(
+      hits.kebab.ownHit,
+      `backdrop swallows the kebab trigger (hit: ${hits.kebab.hitTestId})`,
+    ).toBe(true);
+  });
+
+  test("T-BACKDROP-TRIGGERS (b): a real click reaches the primary trigger and toggles the hub closed", async ({
+    page,
+  }) => {
+    const { modal, popover } = await openHubOnHeldShow(page);
+
+    // The behavioural half. Pre-fix this could not merely fail an assertion —
+    // it could not RUN: Playwright's actionability check refused to dispatch,
+    //   <button ... data-testid="share-hub-backdrop"
+    //    class="fixed inset-0 z-20 cursor-default"> intercepts pointer events
+    // and the case died on a 60s timeout. A click that lands AND closes the
+    // popover is therefore proof the event reached the trigger itself, not the
+    // backdrop sitting over it.
+    await modal.getByTestId("share-hub-primary").click();
+    await expect(popover).toHaveCount(0);
+    await expect(modal.getByTestId("share-hub-backdrop")).toHaveCount(0);
+
+    // Deliberately NOT asserted: that focus stays on the trigger. It cannot be,
+    // in this engine. Probed on mobile-safari after a successful click with the
+    // fix in place: document.activeElement is {"tag":"BODY","isBody":true} —
+    // WebKit does not focus a <button> on click (macOS/iOS platform behaviour),
+    // so focus retention here would fail for a reason unrelated to the backdrop.
+    // The toggle-vs-backdrop discrimination is carried by (a)'s hit test plus
+    // the interception timeout described above, both of which are engine-neutral.
   });
 
   // ── T-FOCUS (spec §2.1.2c) ───────────────────────────────────────────────

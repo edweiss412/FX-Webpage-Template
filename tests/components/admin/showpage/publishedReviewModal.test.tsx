@@ -1314,3 +1314,87 @@ describe("the warning-surface trim is live end to end from this modal", () => {
     expect(screen.queryByTestId("section-warning-controls-warnings")).toBeNull();
   });
 });
+
+/**
+ * Composed proof for the trigger-elevation prop thread
+ * (spec §3.1/§3.2, plan T6): PublishedReviewModal -> StatusStrip -> ShareHub.
+ *
+ * Drives PUBLIC surfaces only. Injecting `attentionMenuOpen` straight into
+ * ShareHub here would be tautological — it bypasses both hops, which is exactly
+ * what this test exists to exercise.
+ */
+describe("PublishedReviewModal — attention-menu state reaches the hub triggers", () => {
+  const maxZLevel = (cls: string): number => {
+    let max = 0;
+    for (const tok of cls.split(/\s+/).filter(Boolean)) {
+      const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
+      if (!m) continue;
+      const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
+      if (n > max) max = n;
+    }
+    return max;
+  };
+  const hubTriggers = () => [
+    screen.getByTestId("share-hub-primary"),
+    screen.getByTestId("share-hub-kebab"),
+  ];
+
+  it("menu open suppresses the elevation; closing it restores it, across the two-hop thread", async () => {
+    let settleArchive: ((v: { ok: true }) => void) | null = null;
+    renderModal({
+      attentionItems: [alertItem({ id: "alert:z1" }), alertItem({ id: "alert:z2" })],
+      archiveAction: vi.fn(
+        () =>
+          new Promise<{ ok: true }>((res) => {
+            settleArchive = res;
+          }),
+      ),
+    });
+
+    // §5.2 auto-open fires on arrival when actionable items exist. Neutralise it
+    // FIRST: without this, the pill click later in the walk TOGGLES the already
+    // open menu CLOSED and inverts the rest of the assertions, leaving the test
+    // red against a correct implementation.
+    await screen.findByTestId(`${TB}-attention-menu`);
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
+    await waitFor(() =>
+      expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull(),
+    );
+
+    // Hub open + idle + menu closed → elevated.
+    fireEvent.click(screen.getByTestId("share-hub-primary"));
+    expect(screen.queryByTestId("share-hub-popover")).not.toBeNull();
+    for (const el of hubTriggers()) {
+      expect(maxZLevel(el.className)).toBeGreaterThanOrEqual(21);
+    }
+
+    // Open the menu through its own PUBLIC pill.
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
+    await screen.findByTestId(`${TB}-attention-menu`);
+    for (const el of hubTriggers()) {
+      expect(
+        maxZLevel(el.className),
+        "menu state never reached the hub through StatusStrip",
+      ).toBeLessThan(20);
+    }
+
+    // Close it via the SAME public pill toggle. Deliberately not Escape: both
+    // surfaces hold capture-phase document Escape listeners and the hub's would
+    // close the hub too, which would make the restore assertion meaningless.
+    fireEvent.click(screen.getByTestId(`${TB}-alert-pill`));
+    await waitFor(() =>
+      expect(screen.queryByTestId(`${TB}-attention-menu`)).toBeNull(),
+    );
+    for (const el of hubTriggers()) {
+      expect(maxZLevel(el.className)).toBeGreaterThanOrEqual(21);
+    }
+
+    // Never abandon an in-flight transition (the archive promise was never armed
+    // in this walk, but settle defensively if it was).
+    if (settleArchive) {
+      await act(async () => {
+        (settleArchive as (v: { ok: true }) => void)({ ok: true });
+      });
+    }
+  });
+});

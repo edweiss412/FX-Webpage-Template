@@ -140,6 +140,12 @@ export const SHARE_LINK_FLASH_MS = 1600;
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 export type ShareHubProps = {
+  /** Whether the header's attention menu is open. Absent means closed.
+   *  Third term of the trigger-elevation gate (spec §3.1): the menu's panel is
+   *  z-20 and overlaps this band, so a trigger raised above it would steal the
+   *  menu's clicks — the regression share-hub-fidelity-fixes §3 already fixed
+   *  once. */
+  attentionMenuOpen?: boolean | undefined;
   slug: string;
   showId: string;
   /** Drives the paused presentation and the crew-link arm; NOT a security gate. */
@@ -176,6 +182,7 @@ export function ShareHub({
   archiveAction,
   unarchiveAction,
   devCaptureSnapshot,
+  attentionMenuOpen = false,
 }: ShareHubProps) {
   const { token, applyRotated, remoteTokenChanges } = useShareToken();
   const [open, setOpen] = useState(false);
@@ -197,6 +204,22 @@ export function ShareHub({
   const [busyStuck, setBusyStuck] = useState(false);
   const inFlight = rotateBusy || resetBusy || lifecycleBusy;
   const busy = inFlight && !busyStuck;
+  /**
+   * Trigger elevation over the hub's own `fixed inset-0 z-20` backdrop
+   * (spec §3.1, BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS). The triggers are
+   * NON-POSITIONED siblings of that backdrop, so it paints over them and
+   * swallows their taps — a trigger click closed the popover only because the
+   * backdrop's own handler did it, which is why focus was never restored.
+   *
+   * THREE terms, all required:
+   *   open  — closed means no backdrop, so nothing to clear;
+   *   !busy — a busy hub's dismissal paths are deliberately inert (§6), and an
+   *           elevated trigger would look actionable while doing nothing;
+   *   !attentionMenuOpen — the menu's panel is z-20 in the same band, and a
+   *           trigger at z >= 20 overpaints it and steals its clicks.
+   */
+  const elevateTriggers = open && !busy && !attentionMenuOpen;
+  const triggerElevation = elevateTriggers ? " relative z-30" : "";
 
   useEffect(() => {
     if (!inFlight) return;
@@ -683,9 +706,9 @@ export function ShareHub({
         // when the dev-capture status competes for the row; border color drops
         // to border-border below sm (the §3 R3 skin; width stays 1px).
         className={
-          published && !archived
+          (published && !archived
             ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden") + triggerElevation
         }
       >
         {archived ? (
@@ -710,7 +733,7 @@ export function ShareHub({
         onClick={() => toggle("kebab")}
         className={`inline-flex size-tap-min items-center justify-center rounded-sm text-text-strong transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:min-h-tap-min max-sm:min-w-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border ${
           open ? "bg-surface-sunken" : "bg-transparent"
-        }`}
+        }${triggerElevation}`}
       >
         <MoreVertical aria-hidden="true" size={18} />
       </button>
