@@ -652,12 +652,23 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
-  it("does not flag a safe outer helper containing a nested carrier helper (N18)", () => {
-    // r17 FP: return statements are scoped to the OWNING function.
+  it.each([
+    [
+      "R100 conditional-return helper with parenthesized invocation",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return typeof window === "undefined" ? globalThis : window; }\nexport function GET() { return viaEnvironment((pick)(), new URL("/x", request.url)); }`,
+    ],
+  ])("flags %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
+  });
+
+  it("does not flag a safe outer helper containing nested carrier scopes (N18)", () => {
+    // r17/r18 FP: return scanning is owned-returns-only, incl. accessors and
+    // class expressions. The sink IS redirect-shaped, so a misclassification
+    // of outerSafe as a carrier WOULD flag — that is the pin.
     expect(
       auditSource(
         fixturePath(),
-        `type RedirectFn = (url: string | URL, status?: number) => Response;\nfunction take(g: { info: string }) { return g; }\nfunction outerSafe() {\n  function nested() { return globalThis; }\n  void nested;\n  return { info: "safe" };\n}\nexport function GET() { return take(outerSafe()); }`,
+        `type RedirectFn = (url: string | URL, status?: number) => Response;\nconst safeRedirect: RedirectFn = (u) => new Response(String(u));\nfunction take(g: { Response: { redirect: RedirectFn } }) { return g; }\nfunction outerSafe() {\n  function nested() { return globalThis; }\n  const withGetter = { get env() { return globalThis; } };\n  const K = class { pick() { return globalThis; } };\n  void nested; void withGetter; void K;\n  return { Response: { redirect: safeRedirect } };\n}\nexport function GET() { return take(outerSafe()); }`,
       ),
     ).toEqual([]);
   });

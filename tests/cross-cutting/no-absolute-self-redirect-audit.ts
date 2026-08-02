@@ -601,8 +601,30 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (isAmbientGlobalIdentifier(expr)) return true;
       return symbolDeclsIn(expr, carrierDecls);
     }
+    // `cond ? globalThis : window`, `window ?? globalThis` — carrier if either
+    // branch is (whole-diff r18).
+    if (Node.isConditionalExpression(expr)) {
+      return isCarrierExpression(expr.getWhenTrue()) || isCarrierExpression(expr.getWhenFalse());
+    }
+    if (Node.isBinaryExpression(expr)) {
+      const op = expr.getOperatorToken().getKind();
+      if (
+        op === SyntaxKind.QuestionQuestionToken ||
+        op === SyntaxKind.BarBarToken ||
+        op === SyntaxKind.AmpersandAmpersandToken
+      ) {
+        return isCarrierExpression(expr.getLeft()) || isCarrierExpression(expr.getRight());
+      }
+      return false;
+    }
     if (Node.isCallExpression(expr)) {
-      const callee = expr.getExpression();
+      let callee: Node = expr.getExpression();
+      while (
+        (Node.isParenthesizedExpression(callee) || Node.isNonNullExpression(callee)) &&
+        callee.getExpression() !== undefined
+      ) {
+        callee = callee.getExpression();
+      }
       if (Node.isIdentifier(callee)) return symbolDeclsIn(callee, carrierFnDecls);
     }
     return false;
@@ -616,7 +638,11 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         Node.isFunctionExpression(n) ||
         Node.isArrowFunction(n) ||
         Node.isMethodDeclaration(n) ||
-        Node.isClassDeclaration(n)
+        Node.isClassDeclaration(n) ||
+        Node.isClassExpression(n) ||
+        Node.isGetAccessorDeclaration(n) ||
+        Node.isSetAccessorDeclaration(n) ||
+        Node.isConstructorDeclaration(n)
       ) {
         return;
       }
@@ -737,7 +763,13 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // Helper CALLS producing a carrier get the same destination-shape decision;
   // an awaiting wrapper inherits the carrier and is judged at ITS destination.
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const callee = call.getExpression();
+    let callee: Node = call.getExpression();
+    while (
+      (Node.isParenthesizedExpression(callee) || Node.isNonNullExpression(callee)) &&
+      callee.getExpression() !== undefined
+    ) {
+      callee = callee.getExpression();
+    }
     if (!Node.isIdentifier(callee)) continue;
     if (!symbolDeclsIn(callee, carrierFnDecls)) continue;
     let outer: Node = call;
