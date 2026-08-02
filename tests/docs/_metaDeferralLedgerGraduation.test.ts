@@ -88,6 +88,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/agenda-fold-seeded-e2e (2026-08-02): the per-viewer agenda day fold exercised
+  // through the REAL crew page — seeded agenda_links + two complementary date-restricted
+  // picker-cookie viewers in stage-restricted-crew-schedule.spec.ts, wired into crew-e2e.yml
+  // behind a run-command wiring guard.
+  { id: "BL-AGENDA-FOLD-NO-SEEDED-E2E", provenance: "test/agenda-fold-seeded-e2e" },
+  // test/agenda-fold-seeded-e2e (2026-08-02): the fold's a11y proof on WebKit — grep-scoped
+  // standalone-webkit-a11y project (exactly one test, structurally pinned) + webkit installs.
+  { id: "BL-AGENDA-A11Y-WEBKIT-COVERAGE", provenance: "test/agenda-fold-seeded-e2e" },
   // test/redirect-guard-type-aware (2026-08-01): the self-redirect guard's
   // syntactic 19-spelling matcher replaced by two-prong type-checker resolution
   // (calls by resolved signature; every other reference type-decided, incl.

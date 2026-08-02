@@ -107,6 +107,57 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **What IS covered, cumulatively:** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 10 real-route width-chain cases (all five widths × 2 loops), green in CI; 18 mutations mapped to distinct catchers; the transition sweep both themes × five widths × three states with per-channel duration AND delay; pusher absence at three widths with a pixel-level paint test; chain coverage anchored on the canonical `SectionId` list; and the 50-baseline visual gate above.
 
+## BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+
+**Status:** GRADUATED — test/agenda-fold-seeded-e2e, 2026-08-02 · **Severity:** low · **Class:** TEST COVERAGE
+
+**Resolution:** `test/agenda-fold-seeded-e2e` (2026-08-02) seeds the fold end to end. `seedShowWithCrew` gained an `agendaLinks` option writing `agenda_links` with a parseable `extracted` payload, and `tests/e2e/stage-restricted-crew-schedule.spec.ts` now drives the REAL crew page as two complementary date-restricted viewers (each sees their own agenda day open and marked, the other folded) plus an unrestricted admin control that sees both days open with no markers — so `effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered fold is verified as one composition rather than in pieces. The spec is wired into `crew-e2e.yml` under mobile-safari behind a run-command wiring guard in `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` (token-exact, executing-position, segment-scoped), and its coverage-registry row moved from `UNSEEN` to `PATH_GATED_BY_EXCLUSION`. Spec: docs/superpowers/specs/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit-design.md; plan: docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md. `BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` stays OPEN — the admin side is untouched. Original entry below.
+
+Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
+self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
+fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
+`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`node:http` server rather than the app.
+
+**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
+`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
+member, loading a real share link, sees their day expanded — the composition of
+`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
+fold is only ever verified in pieces.
+
+**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
+extraction with parseable day labels, plus a date-restricted crew member and a share link.
+`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
+fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
+one PR.
+
+**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
+viewer's row is `open` and marked while another day is folded. Related:
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
+`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+
+## BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
+
+**Status:** GRADUATED — test/agenda-fold-seeded-e2e, 2026-08-02 · **Severity:** very low · **Class:** TEST COVERAGE
+
+**Resolution:** `test/agenda-fold-seeded-e2e` (2026-08-02) adds a `standalone-webkit-a11y` project to `tests/e2e/standalone.config.ts` (Desktop Safari) scoped by `testMatch` to `agendaScheduleLayout.spec.ts` and an UNANCHORED `grep: /a11y:/` — Playwright matches grep against the joined "<project> <file> <title>" string, so an anchored `/^a11y:/` would select zero tests. It resolves exactly ONE test, structurally pinned by `tests/ci/standalone-webkit-a11y-wiring.test.ts` against `--list --reporter=json` (zero = the joined-title trap; more = the dimensional suite leaking onto WebKit), which also asserts `standalone-e2e.yml` installs webkit in executing position. The standalone baseline is regenerated with the one added identity; the dimensional tests stay chromium-only by design, so the feared second full 439-spec run does not happen. Original entry below.
+
+`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
+accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
+matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
+is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
+claim per engine.
+
+**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
+ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
+hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
+
+**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
+second time and would surface unrelated engine differences mid-review.
+
+**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
+`--project` matrix leg in `standalone-e2e.yml`.
+
 ## BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
 
 **Graduated:** 2026-07-27 (reconciliation) — shipped by `feat/agenda-perday-viewer-fold` (PR #610, 2026-07-26); the entry had been annotated SHIPPED in place and retained "for the decision record", which this archive is the home for. Originally a `###` sub-entry of the BL-NULLCODE-STAMP-BATCH-2 residuals section.
