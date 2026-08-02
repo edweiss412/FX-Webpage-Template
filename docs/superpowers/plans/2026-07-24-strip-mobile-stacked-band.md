@@ -31,7 +31,7 @@
 - Modify: `tests/e2e/statusStripToggleLayout.spec.ts` (migrate (a)/(c) to ≥sm; add 390 finalize test)
 - Modify: `tests/e2e/standalone.config.ts` (allow-list — line ~36 regex)
 - Modify: `package.json` (line 52 `test:e2e:modal-header` script)
-- Modify: `.github/workflows/modal-header-layout-e2e.yml` (path filter, if it names spec files individually — mirror the `skeletonBandParity` entries)
+- Modify: the now-deleted modal-header-layout-e2e workflow (path filter, if it names spec files individually — mirror the `skeletonBandParity` entries)
 
 **Interfaces:**
 - Produces: the executable definition of done. RED/GREEN matrix below is the task's deliverable.
@@ -349,7 +349,7 @@ If `_statusStripToggleHarness.tsx` renders `variant="inline"` for its strip stat
 - [ ] **Step 4: CI wiring (verified-live config, plan R1 finding 4):**
   - `tests/e2e/standalone.config.ts` testMatch regex: add `|stackedBandLayout` inside the alternation (e.g. after `statusStripToggleLayout`).
   - `package.json` line 52 `test:e2e:modal-header`: append ` tests/e2e/stackedBandLayout.spec.ts`.
-  - `.github/workflows/modal-header-layout-e2e.yml`: grep for `skeletonBandParity`; mirror every per-file entry (path filters and/or run lines) for `stackedBandLayout.spec.ts`.
+  - The now-deleted modal-header-layout-e2e workflow: grep for `skeletonBandParity`; mirror every per-file entry (path filters and/or run lines) for `stackedBandLayout.spec.ts`.
 
 ```bash
 grep -n "skeletonBandParity" .github/workflows/modal-header-layout-e2e.yml
