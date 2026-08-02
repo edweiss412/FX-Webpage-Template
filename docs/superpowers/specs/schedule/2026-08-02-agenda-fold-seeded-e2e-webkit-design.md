@@ -214,6 +214,18 @@ Two independent controls:
   - `tests/e2e/agendaScheduleLayout.spec.ts:463-466` a11y-test comment ("runs Chromium only …
     filed as BL-AGENDA-A11Y-WEBKIT-COVERAGE"): rewrite to state the WebKit leg exists
     (`standalone-webkit-a11y` project) and the backlog item is closed.
+  - `playwright.config.ts:393-396` webServer-filter comment ("That job runs
+    crew-section-toggle.spec under mobile-safari, plus picker-flow.spec and
+    alert-action-links.spec under desktop-chromium … one server serves all three"): extend to
+    the four-spec inventory (review R3).
+  - `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:22-24` header ("both specs carry
+    PATH_GATED_BY_EXCLUSION allowlist rows … The REST of the mobile-safari project stays
+    dark"): update for the third exclusion-rowed crew spec and the stage-restricted file no
+    longer being dark (review R3).
+  - Sweep closure: a tree-wide grep for the three-spec inventory
+    (`grep -rn "crew-section-toggle" --include="*.ts" --include="*.yml"` excluding spec files
+    and registry rows, run 2026-08-02) surfaced exactly the surfaces listed here — the
+    inventory above is the complete set, not examples.
 - `tests/ci/_metaE2eWorkflowCoverage.test.ts:109`: transition the stage-restricted spec's
   registry row from `UNSEEN` to `PATH_GATED_BY_EXCLUSION` (see §1.1 item 3 for why not a
   deletion), and update the row's preceding provenance comment. TDD shape: the transition is prose-accuracy, not
