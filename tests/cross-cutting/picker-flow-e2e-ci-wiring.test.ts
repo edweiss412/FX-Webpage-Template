@@ -26,6 +26,9 @@
  * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { execFileSync } from "node:child_process";
+import ts from "typescript";
+
+import { stripCommentsSafely } from "../_shared/stripComments";
 import { readFileSync } from "node:fs";
 
 import { join } from "node:path";
@@ -209,8 +212,13 @@ function countTests(json: string, spec: string): number {
  * by exactly one project, so the clause has no purpose here beyond creating that silent-pass class.
  */
 function expectNoProjectGate(spec: string): void {
-  const src = readFileSync(join(process.cwd(), spec), "utf8");
-  const code = src.slice(src.indexOf("*/") + 2); // the header comment discusses the ban
+  // Shared stripper, not a local idiom (tests/cross-cutting/_metaStripCommentsSingleSource):
+  // the header comment below the ban DISCUSSES `project.name`, so comments must come out before
+  // the scan or the guard fails on its own documentation.
+  const code = stripCommentsSafely(
+    readFileSync(join(process.cwd(), spec), "utf8"),
+    ts.ScriptKind.TS,
+  );
   expect(
     /project\.name/.test(code),
     `${spec} reads project.name outside its header. A project guard clause makes every case a ` +
