@@ -60,7 +60,7 @@ Pinch-zoom does not change the layout viewport (§3.1, measured). It changes the
 - Popover boxes: HoverHelp `p-3.5` + `border` :576; ShareHub `w-[308px]`, `p-2.5` + `border` :699 (the R9 floors).
 - Pure core: `computePopoverPlacement` :100; `bounds` documented :46; `VIEWPORT_INSET = 8` :17; `GAP = 6` :16; hidden gates :104-115 (`overlapsPositively` :112); width-first sizing :118-121; x-clamp :138-139; `intersectRects` exported :65; `Rect` :30-37.
 - Harness: `tests/e2e/hoverhelp-geometry.spec.ts` + `tests/e2e/_hoverHelpGeometryLiveEntry.tsx`, standalone via `tests/e2e/standalone.config.ts` (`standalone-chromium`, `devices["Desktop Chrome"]` — no touch), script `pnpm test:e2e:hoverhelp-geometry` (package.json:60). Allow-list already contains `hoverhelp-geometry`. Body-host cases and panel-host cases both exist (`PaneCase` :112, `NarrowPaneCase` :83). Helpers: `open(page, case, triggerId)`, `box(page, testid)`, `TOL = 0.5`.
-- CI: `.github/workflows/hoverhelp-geometry-e2e.yml` lists `components/admin/HoverHelp.tsx` and `lib/popover/position.ts`, plus `workflow_dispatch`. It does NOT list ShareHub or the new module (§6).
+- CI: the since-retired hoverhelp-geometry-e2e workflow listed `components/admin/HoverHelp.tsx` and `lib/popover/position.ts`, plus `workflow_dispatch`. It did NOT list ShareHub or the new module (§6).
 
 ## §3 Empirical probe (ran 2026-07-24, pre-spec)
 
@@ -248,7 +248,7 @@ Three harness constraints, each measured after a wrong assumption. **Round 6 F4 
 
 ## §6 CI wiring
 
-Three entries MUST be added to `.github/workflows/hoverhelp-geometry-e2e.yml`'s `pull_request` path filter in the same commit that creates or changes them, or a later edit will not fire the only gate that can catch a zoom-geometry regression:
+Three entries had to be added to the hoverhelp-geometry-e2e workflow's `pull_request` path filter in the same commit that created or changed them, or a later edit would not fire the only gate that could catch a zoom-geometry regression (workflow since retired; the requirement was satisfied while it lived):
 
 <!-- spec-lint: ignore — file created BY this spec; not tracked until implementation lands -->
 - `lib/popover/viewport.ts`

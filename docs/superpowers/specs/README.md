@@ -14,7 +14,7 @@ Per AGENTS.md invariant #7: the spec is canonical. Plans implement specs; they d
 
 | Role | Path | Notes |
 | --- | --- | --- |
-| **Master spec** | [`2026-04-30-fxav-crew-pages-v1.md`](./2026-04-30-fxav-crew-pages-v1.md) | Core product spec. Three ratified body amendments in §13.2.3 (recovery contract, retention horizon, lease-holder protocol). 3769 lines. |
+| **Master spec** | [`2026-04-30-fxav-crew-pages-v1.md`](./2026-04-30-fxav-crew-pages-v1.md) | Core product spec. Three ratified body amendments in §13.2.3 (recovery contract, retention horizon, lease-holder protocol). 4027 lines. |
 | **Amendment — M11** | [`v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md`](./v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md) | In-app `/help` wiki. Companion stakeholder HTML at [`2026-05-12-user-facing-docs-design.html`](./v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.html). |
 | **Amendment — M11.5** | [`v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md`](./v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md) | Crew auth pivot — supersedes master §5.2 / §7.2 / §7.2.1 / §7.2.2 / §7.2.3 / §9.2 in full. The master spec's pre-amendment block remains as historical context. |
 | **Amendment — M12** | [`v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md`](./v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md) | Solo-dev UX validation gate before launch. Includes M11.5 picker-pivot rebase (§15.26). |
