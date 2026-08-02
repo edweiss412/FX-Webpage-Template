@@ -25,7 +25,8 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-e02420c1848a9022e848\",[\"agendaScheduleLayout.spec.ts\",\"fold: the native disclosure triangle is suppressed @ 390px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-e849e8bf247fa7352435\",[\"agendaScheduleLayout.spec.ts\",\"chevron: reduced motion collapses a duration that is otherwise NON-zero (§5.2)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f751e397c85064036877\",[\"agendaScheduleLayout.spec.ts\",\"fold: the marker is VISIBLE, not merely present @ 390px\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f9384252b8dbaf7b44c2\",[\"agendaScheduleLayout.spec.ts\",\"fold: the session count is hidden on an OPEN row and survives toggling (§5.2)\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f9384252b8dbaf7b44c2\",[\"agendaScheduleLayout.spec.ts\",\"fold: the session count is hidden on an OPEN row and survives toggling (§5.2)\"]]",
+      "[\"standalone-webkit-a11y\",\"standalone-webkit-a11y\",\"c504403095b8df15cc5b-dfe97eb1fd267edd9cfe\",[\"agendaScheduleLayout.spec.ts\",\"a11y: the disclosure keeps BOTH its expandable state and its heading\"]]"
     ],
     "tests/e2e/appHealthIndicator.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b5069c66b80a758456e-270bd82dc93a732cb1bf\",[\"appHealthIndicator.layout.spec.ts\",\"Admin topbar mobile overflow with the health indicator (Codex R1)\",\"(480px) wordmark and pill both present, still fits\"]]",
@@ -514,5 +515,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 449
+  "totalTests": 450
 }

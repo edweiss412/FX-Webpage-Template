@@ -460,10 +460,12 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   // outside the model the spec assumed. Whether a browser still exposes the heading AND the
   // disclosure is therefore empirical. The impeccable audit's P1 was this exact class: the fold
   // silently dropped every day from the document outline while roles and geometry stayed green.
-  // ENGINE COVERAGE: this runs Chromium only (standalone.config.ts defines one project), and
-  // Safari is a crew target. Measured by hand during review R5 with a temporary Desktop Safari
-  // project: green in 5.0s, config then reverted. A hand-run measurement is not coverage --
-  // filed as BL-AGENDA-A11Y-WEBKIT-COVERAGE.
+  // ENGINE COVERAGE: this runs on Chromium AND, since Safari is a crew target and the exposure
+  // claim is per-engine empirical, under the `standalone-webkit-a11y` project (Desktop Safari)
+  // in the same config -- which greps this one test and is pinned to exactly-one-test resolution
+  // by tests/ci/standalone-webkit-a11y-wiring.test.ts. That closes
+  // BL-AGENDA-A11Y-WEBKIT-COVERAGE, filed when review R5's Desktop Safari measurement (green in
+  // 5.0s) was hand-run rather than wired.
   await page.goto(baseUrl);
 
   // 0. The DISCLOSURE ROLE is exposed. Review R8 (MEDIUM) was right that this file asserted
