@@ -20,10 +20,13 @@ import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
 import {
+  ENV_KEY_ALLOWLIST,
+  offAllowlistEnvKeys,
   usesKind,
   validRunsOn,
   validWorkflowShape,
   validatedCompositeSteps,
+  type EnvKeyAllowlist,
 } from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
@@ -263,7 +266,7 @@ function walkFiles(dir: string, skip: Set<string> = WALK_SKIP): string[] {
  * conditionally executed regardless of shell content (R9 G1).
  */
 export type RunBlock = { run: string; guarded: boolean; poisoned: boolean };
-type StepShape = { run?: unknown; if?: unknown; shell?: unknown; uses?: unknown };
+type StepShape = { run?: unknown; if?: unknown; shell?: unknown; uses?: unknown; env?: unknown };
 // bash and sh are the semantics the census models; any other shell
 // reinterprets the block (R10 — `shell: python {0}` can discard it).
 const customShell = (s: StepShape) =>
@@ -301,8 +304,17 @@ const writesJobEnv = (text: string): boolean =>
       .filter((l) => !/^[ \t]*#/.test(l))
       .join("\n"),
   );
-export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> = {}): RunBlock[] {
+export function runBlocksOf(
+  doc: unknown,
+  localActions: Record<string, unknown> = {},
+  envKeyAllowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
+): RunBlock[] {
   const out: RunBlock[] = [];
+  // Static-env spec §2.2: an off-allowlist (key, value) pair in a static
+  // env: block. Scope decides the effect below — workflow root seeds every
+  // job, job env seeds its job, a workflow run-step's env poisons its own
+  // block only, and uses-/composite-step env poisons onward (LS3 coarse).
+  const envDirty = (env: unknown): boolean => offAllowlistEnvKeys(env, envKeyAllowlist).length > 0;
   // A local action is walkable ONLY when it declares `using: composite` —
   // a javascript (node20/node16) or docker action has no runs.steps, and its
   // ENTRY CODE can mutate the caller's env (core.addPath /
@@ -342,6 +354,7 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     outerGuard: boolean,
     state: { poisoned: boolean },
     seen: ReadonlySet<string>,
+    inComposite: boolean,
   ): void => {
     for (const s of steps) {
       // R15: a step carrying BOTH run: and uses: is schema-invalid — the
@@ -353,14 +366,25 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
         continue;
       }
       if (typeof s.run === "string") {
+        // Static-env spec §2.2: a workflow run-step's dirty env is BLOCK-
+        // local (GitHub scoping — step env does not leak to siblings, and
+        // over-poisoning forces reason-free rows). Inside a composite the
+        // dirt poisons onward too (LS3 coarse — same treatment as the
+        // uses-step that invoked the action).
+        const stepDirty = envDirty(s.env);
         out.push({
           run: s.run,
           guarded: outerGuard || s.if !== undefined || customShell(s),
-          poisoned: state.poisoned,
+          poisoned: state.poisoned || stepDirty,
         });
+        if (stepDirty && inComposite) state.poisoned = true;
         if (writesJobEnv(s.run)) state.poisoned = true;
         continue;
       }
+      // Static-env spec §2.2 (LS3): a uses: step handed a dirty env is an
+      // untrusted action invocation — poison BEFORE resolution so spliced
+      // blocks and every later same-job block read poisoned.
+      if ("uses" in s && envDirty(s.env)) state.poisoned = true;
       const ref = localRef(s);
       if (ref === null) {
         // Remote refs are trusted; an INVALID uses value (refless remote,
@@ -374,7 +398,7 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
       if (inner === null || seen.has(ref)) {
         state.poisoned = true;
       } else {
-        walkSteps(inner, outerGuard || s.if !== undefined, state, new Set(seen).add(ref));
+        walkSteps(inner, outerGuard || s.if !== undefined, state, new Set(seen).add(ref), true);
       }
     }
   };
@@ -382,10 +406,12 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     doc as {
       jobs?: Record<
         string,
-        { if?: unknown; needs?: unknown; strategy?: unknown; steps?: StepShape[] }
+        { if?: unknown; needs?: unknown; strategy?: unknown; env?: unknown; steps?: StepShape[] }
       >;
     }
   )?.jobs;
+  // Static-env spec §2.2: workflow-root env governs every job in the file.
+  const wfEnvDirty = envDirty((doc as { env?: unknown } | null)?.env);
   // R15, corrected to FILE level at whole-diff R3: a step carrying BOTH
   // `run:` and `uses:` is schema-invalid, so GitHub rejects the WHOLE
   // workflow — every job in it is unreachable, not just the steps after the
@@ -410,8 +436,12 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     walkSteps(
       j.steps ?? [],
       jobGuarded,
-      { poisoned: !validRunsOnJob || mixedStepAnywhere || schemaInvalid },
+      {
+        poisoned:
+          !validRunsOnJob || mixedStepAnywhere || schemaInvalid || wfEnvDirty || envDirty(j.env),
+      },
       new Set(),
+      false,
     );
   }
   // Standalone composite-doc walk: same walker, same in-order threading
@@ -423,7 +453,7 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   if ((doc as { runs?: unknown })?.runs !== undefined) {
     const standaloneSteps = compositeStepsOf(doc);
     if (standaloneSteps !== null) {
-      walkSteps(standaloneSteps, false, { poisoned: false }, new Set());
+      walkSteps(standaloneSteps, false, { poisoned: false }, new Set(), true);
     }
   }
   return out;
@@ -705,7 +735,7 @@ export function censusInvocations(
     const contextWhy = guarded
       ? "context-guarded step (if:/needs/strategy/custom shell)"
       : poisoned
-        ? "environment poisoned by an earlier same-job GITHUB_ENV/GITHUB_PATH write"
+        ? "environment poisoned by a same-job GITHUB_ENV/GITHUB_PATH write or an unmodelled static env: key"
         : logical.some(({ line }) => controlFlowRe.test(line))
           ? "shell control-flow or state-change context"
           : logical.some(({ line }) => endsInOpenQuote(line))
@@ -1687,6 +1717,118 @@ describe("spec registration detector (spec §3.1)", () => {
       { run: "echo inside", guarded: false, poisoned: false },
       { run: "echo wf-after", guarded: false, poisoned: false },
     ]);
+  });
+
+  it("runBlocksOf poisons blocks governed by an off-allowlist static env: pair (static-env spec §2.2)", () => {
+    const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair" } };
+    const rb = (yamlText: string, actions: Record<string, unknown> = {}) =>
+      runBlocksOf(parse(yamlText), actions, ALLOW);
+    // Workflow-root env governs every job (S1).
+    expect(
+      rb(
+        "env:\n  PATH: fixtures/fake\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo a\n",
+      ),
+    ).toEqual([{ run: "echo a", guarded: false, poisoned: true }]);
+    // Job env governs its own job only (S1 + cross-job precision twin).
+    expect(
+      rb(
+        "jobs:\n  a:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo dirty\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo clean\n",
+      ),
+    ).toEqual([
+      { run: "echo dirty", guarded: false, poisoned: true },
+      { run: "echo clean", guarded: false, poisoned: false },
+    ]);
+    // A workflow run-step's env is BLOCK-local: GitHub scoping says step env
+    // does not leak to siblings, and over-poisoning forces reason-free rows.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo dirty\n        env:\n          PATH: fixtures/fake\n      - run: echo later\n",
+      ),
+    ).toEqual([
+      { run: "echo dirty", guarded: false, poisoned: true },
+      { run: "echo later", guarded: false, poisoned: false },
+    ]);
+    // A uses: step handed dirty env poisons from that step onward (LS3
+    // coarse — the action can do unmodellable things with a hostile env).
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          PATH: fixtures/fake\n      - run: echo later\n",
+      ),
+    ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
+    // Composite matrix (spec §7 R1): direct/nested × run/uses cells.
+    const directRun = parse(
+      "runs:\n  using: composite\n  steps:\n    - run: echo inside\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": directRun },
+      ),
+      "direct-run",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
+    const directUses = parse(
+      "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": directUses },
+      ),
+      "direct-uses",
+    ).toEqual([{ run: "echo after", guarded: false, poisoned: true }]);
+    const parentDoc = parse(
+      "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+    );
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": parentDoc, "./.github/actions/b": directRun },
+      ),
+      "nested-run",
+    ).toEqual([
+      { run: "echo inside", guarded: false, poisoned: true },
+      { run: "echo after", guarded: false, poisoned: true },
+    ]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - run: echo after\n",
+        { "./.github/actions/a": parentDoc, "./.github/actions/b": directUses },
+      ),
+      "nested-uses",
+    ).toEqual([{ run: "echo after", guarded: false, poisoned: true }]);
+    // Standalone composite-doc entry — the ninth modeled site (spec §7 R1
+    // class-sweep): a dirty step poisons itself AND the rest of the action.
+    expect(
+      rb(
+        "runs:\n  using: composite\n  steps:\n    - run: echo x\n      shell: bash\n      env:\n        PATH: fixtures/fake\n    - run: echo y\n      shell: bash\n",
+      ),
+    ).toEqual([
+      { run: "echo x", guarded: false, poisoned: true },
+      { run: "echo y", guarded: false, poisoned: true },
+    ]);
+    // S2 prototype-named key; S7 novel value for an allowlisted key.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      constructor: v\n    steps:\n      - run: echo a\n",
+      ),
+      "constructor",
+    ).toEqual([{ run: "echo a", guarded: false, poisoned: true }]);
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      GOOD_KEY: other\n    steps:\n      - run: echo a\n",
+      ),
+      "novel value",
+    ).toEqual([{ run: "echo a", guarded: false, poisoned: true }]);
+    // Precision twin: the pinned pair at every scope stays clean.
+    expect(
+      rb(
+        "env:\n  GOOD_KEY: v\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      GOOD_KEY: v\n    steps:\n      - run: echo a\n        env:\n          GOOD_KEY: v\n",
+      ),
+      "pinned pair",
+    ).toEqual([{ run: "echo a", guarded: false, poisoned: false }]);
   });
 
   it("wrapper closure sees runner global options and run-script; forwarding through them is loud (R7 F3)", () => {
