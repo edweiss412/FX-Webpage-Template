@@ -40,6 +40,7 @@
 - Create: lib/admin/assembleStep3Row.ts (new)
 - Create: tests/admin/assembleStep3Row.test.ts (new)
 - Modify: `components/admin/OnboardingWizard.tsx` (the `buildStep3Row` definition at `components/admin/OnboardingWizard.tsx:285-392` and the assembly loop body `components/admin/OnboardingWizard.tsx:598-648` move out; the loop calls the new export)
+- Modify: `tests/admin/step3UnifiedRead.test.ts` (imports `buildStep3Row` from the old module at `tests/admin/step3UnifiedRead.test.ts:2` — its import moves to the new module in the same commit; no re-export shim is left behind)
 
 **Interfaces:**
 - Produces: `assembleStep3Row(manifest: ManifestRowForBuild, pending: PendingSyncRowForBuild | null, candidates: CandidateShow[], staged: StagedEnrichment | undefined, ingestion: { id: string; code: string | null } | undefined, wizardSessionId: string): Step3Row` — the FULL per-row assembly: `buildStep3Row` + clean-row parse/title enrichment (`isCleanReviewRow` branch, ex-`components/admin/OnboardingWizard.tsx:616`) + hard-fail ingestion enrichment (ex-`components/admin/OnboardingWizard.tsx:641`). Exact input type names copied from `OnboardingWizard.tsx` during the move (they are defined adjacent to `buildStep3Row`; move them too if not exported).
@@ -91,7 +92,7 @@ describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop b
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm exec vitest run tests/admin/assembleStep3Row.test.ts`. Expected: FAIL (module not found).
 - [ ] **Step 3: Perform the move** — cut `buildStep3Row` + its input types + the loop-body enrichment branches from `OnboardingWizard.tsx` into lib/admin/assembleStep3Row.ts (new) (server-safe module: no React imports; `isCleanReviewRow` moves or is imported from its current home — verify with grep at move time). The wizard loop becomes `assembleStep3Row(...)` per row. NO logic edits — verbatim relocation.
-- [ ] **Step 4: Verify green + no behavior drift** — `pnpm exec vitest run tests/admin/assembleStep3Row.test.ts` PASS; then `pnpm exec vitest run tests/admin/ tests/components/admin/wizard/ 2>&1 | tail -5` — all pre-existing suites stay green (behavior pin).
+- [ ] **Step 4: Verify green + no behavior drift** — `pnpm exec vitest run tests/admin/assembleStep3Row.test.ts` PASS; then `set -o pipefail; pnpm exec vitest run tests/admin/ tests/components/admin/wizard/ 2>&1 | tail -5` — all pre-existing suites stay green (behavior pin; pipefail so the tail cannot mask a red run).
 - [ ] **Step 5: Typecheck** — `pnpm exec tsc --noEmit`. Expected: clean.
 - [ ] **Step 6: Commit** — `refactor(admin): extract assembleStep3Row (row build + enrichment) for the gallery test seam`
 
@@ -109,7 +110,7 @@ describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop b
 
 ```ts
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
-import { Client } from "pg";
+import postgres from "postgres"; // repo dependency; there is NO "pg" package here
 import {
   seedStep3StateGallery,
   cleanupStep3StateGallery,
@@ -144,28 +145,48 @@ test("six variants derive the matrix's states through the real assembly path", a
       expect(assembled.errorCode).toBe("STAGED_PARSE_FAILED");
     }
   }
+  // Completeness against AC1 (not subset-vacuous):
+  expect(seeded.rows).toHaveLength(6);
+  expect(new Set(seeded.rows.map((r) => r.variant))).toEqual(
+    new Set(["ready", "needs_a_look", "demoted_rescan", "no_details", "blocking", "set_aside"]),
+  );
+  expect(new Set(seeded.rows.map((r) => r.driveFileId)).size).toBe(6);
   const titles = seeded.rows.slice(0, 3).map((r) => titleOf(r));
   expect(new Set(titles).size).toBe(3); // variants 1-3 distinct parsed titles
+  const names = seeded.rows.slice(3).map((r) => manifestNameOf(r));
+  expect(new Set(names).size).toBe(3); // variants 4-6 distinct manifest names
+  for (const row of seeded.rows) {
+    if (row.variant !== "blocking") {
+      const assembled = await assembleFromDb(row);
+      expect(assembled.pendingIngestionId).toBeUndefined(); // only variant 5 carries an ingestion row
+    }
+  }
 });
 
 test("seed mutations hold the per-show advisory lock (behavioral, advisory-lock.test.ts:50 pattern)", async () => {
   // seedStagedRow gains a test-only onMutating hook: while the seed's psql tx
   // holds the lock, a second pg connection's try-lock on the same key fails.
-  const probe = new Client({ connectionString: process.env.TEST_DATABASE_URL });
-  await probe.connect();
+  const probe = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
   try {
-    await seedOneVariantWithHook(async (driveFileId) => {
-      const { rows } = await probe.query(
-        "select pg_try_advisory_xact_lock(hashtext('show:' || $1)) as got",
-        [driveFileId],
-      );
-      expect(rows[0].got).toBe(false); // holder is live during DML
+    // Hook fires INSIDE the seed transaction for BOTH the blocking-variant
+    // seed (pending_ingestions insert included) AND its cleanup delete.
+    await seedOneVariantWithHook("blocking", async (driveFileId) => {
+      const got = await probe.begin(async (tx) => {
+        const [tryRow] = await tx`select pg_try_advisory_xact_lock(hashtext(${"show:" + driveFileId})) as got`;
+        return tryRow.got as boolean;
+      });
+      expect(got).toBe(false); // competing try-lock refused while holder lives
+      const holders = await probe`
+        select granted from pg_locks
+        where locktype = 'advisory' and granted
+          and objid = (select hashtext(${"show:" + driveFileId}))::bit(32)::int::oid`;
+      expect(holders.length).toBeGreaterThan(0); // matching GRANTED holder (advisory-lock.test.ts:50 pattern; exact pg_locks predicate copied from that file at impl time)
     });
   } finally { await probe.end(); }
 });
 ```
 
-The `assembleFromDb` / `inputsOf` / `titleOf` / `seedOneVariantWithHook` helpers are written in this task with `{ data, error }` destructuring on every Supabase read (invariant 9); `seedOneVariantWithHook` wraps the variant seed with a callback invoked between lock acquisition and commit (the seed helper's psql transport gains an optional `midTransactionProbe` seam for exactly this — implemented as a `pg_sleep`-free two-phase: open tx via `pg` client instead of one-shot psql for the hooked path).
+The `assembleFromDb` / `inputsOf` / `titleOf` / `seedOneVariantWithHook` helpers are written in this task with `{ data, error }` destructuring on every Supabase read (invariant 9); `seedOneVariantWithHook(variant, probe)` wraps the variant seed AND its cleanup delete, invoking the callback between lock acquisition and commit in EACH transaction (the seed helper's transport gains an optional `midTransactionProbe` seam: for the hooked path the transaction opens via the `postgres` client instead of one-shot psql). The blocking variant is the hooked one, so the `pending_ingestions` insert/delete are pinned inside the held-lock window too.
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm exec vitest run tests/admin/step3StateGallery.test.ts`. Expected: FAIL (`seedStep3StateGallery` not exported).
 - [ ] **Step 3: Implement the seed extension** — in `devCaptureStaged.ts`:
@@ -174,7 +195,7 @@ The `assembleFromDb` / `inputsOf` / `titleOf` / `seedOneVariantWithHook` helpers
   - **Lock unification:** the `onboarding_scan_manifest` insert (`tests/e2e/helpers/devCaptureStaged.ts:132`) and delete (`tests/e2e/helpers/devCaptureStaged.ts:176-177`) move from PostgREST into the `runLockedSql` SQL bodies (same transaction as the `pending_syncs` DML). The PostgREST manifest calls are deleted.
   - `seedStep3StateGallery` seeds all six variants into ONE session (one `assertWizardSettings` call), distinct `drive_file_id` per row, titles `Gallery Ready` / `Gallery Needs A Look` / `Gallery Demoted` and names `Gallery No Details` / `Gallery Blocking` / `Gallery Set Aside`.
 - [ ] **Step 4: Run to verify green** — `pnpm exec vitest run tests/admin/step3StateGallery.test.ts` PASS; existing `dev-capture` consumers unbroken: `pnpm exec tsc --noEmit`.
-- [ ] **Step 5: Verify serial-project membership** — `pnpm exec vitest list --project serial 2>/dev/null | grep step3StateGallery` (exact project flag per `vitest.projects.ts` — verify the project name at implementation time; the test MUST run in the DB-serial project, not parallel).
+- [ ] **Step 5: Verify serial-project membership** — `set -o pipefail; pnpm exec vitest list --project serial | grep step3StateGallery` (exact project flag per `vitest.projects.ts` — verify the project name at implementation time; the test MUST run in the DB-serial project, not parallel).
 - [ ] **Step 6: Commit** — `test(admin): six-variant step3 state gallery seed + matrix test + advisory-lock unification`
 
 ### Task 3: NUL guard + byte fix (one commit)
@@ -214,7 +235,7 @@ Concrete failure mode caught: any future raw control byte landing in source and 
 - Consumes: `AGENDA_DAYS` + `LONG_TITLE` from `tests/e2e/_agendaFixture.ts` (88-char token); `buildSectionData(prOverrides?, showOverrides?, agendaBaseline?)`.
 - Produces: the containment spec later referenced by Task 5's re-home claim.
 
-- [ ] **Step 1: Extend `buildSectionData`** — third optional param `agendaBaseline: AdminAgendaItem[] = []`, passed through at the `tests/e2e/_step3ReviewModalHarness.tsx:158` call site (replacing the hardcoded `[]`). Existing callers compile unchanged (`pnpm exec tsc --noEmit`).
+- [ ] **Step 1: Wire routing FIRST** (scaffolding folded into this task so the RED run is discoverable): add the regex alternative to BOTH config testMatch regexes (playwright.config desktop-chromium; standalone.config), append the filename to the workflow positional list, add the workflow paths entries.
 - [ ] **Step 2: Write the failing spec** — step3-review-modal.agenda.spec.ts (new), boot pattern copied from `step3-review-modal.interactions.spec.ts` (esbuild via `_step3ReviewModalBundle.mjs`, tailwind CSS from `app/globals.css`, `node:http` serve). Fixture: one `AdminAgendaItem` whose `block.fullExtraction` embeds `AGENDA_DAYS` (row 0 carries `LONG_TITLE` as a session title). The entry stubs `window.fetch` for the extract POST route (exact route string read from `step3ReviewSections.tsx:3374` at implementation time) returning `{ ok: true }` payload carrying the same extraction, so the block reaches `ready`. Assertions (all inside `toPass`, after a `ready`-marker gate):
 
 ```ts
@@ -237,13 +258,14 @@ for (const width of [320, 390, 720]) {
 }
 ```
 
-(Selectors: use the REAL attributes/classes present at `step3ReviewSections.tsx:3239`; if no `data-*` hook exists, scope by the `li.min-w-0` class chain within the agenda section — never a page-global scan. The wrapped-height expectation is derived at impl time from the measured single-line height, not hardcoded 20.) Concrete failure mode caught: real modal chrome losing `min-w-0`/`wrap-break-word` so an unbroken token widens the card — the exact regression the hand-written harness could not see.
+(Selectors: use the REAL attributes/classes present at `step3ReviewSections.tsx:3239`; if no `data-*` hook exists, scope by the `li.min-w-0` class chain within the agenda section — never a page-global scan. The wrapped-height expectation is derived at impl time from the measured single-line height, not hardcoded 20.)
 
-- [ ] **Step 3: Run to verify it fails usefully** — `node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.agenda.spec.ts`. Expected: FAIL (entry file missing) — proving routing executes the spec.
-- [ ] **Step 4: Write the entry** — _step3ReviewModalAgendaEntry.tsx (new) per `_step3ReviewModalLiveEntry.tsx:124` pattern (createElement, no JSX; fetch stub for the extract route; renders the modal with `buildSectionData({}, {}, agendaFixtureBaseline)`).
-- [ ] **Step 5: Wire routing (all three layers + baseline)** — playwright.config regex, standalone.config regex, workflow positional list + paths, standalone-baseline.json row.
-- [ ] **Step 6: Run green locally** — same command PASS, 3 viewports.
-- [ ] **Step 7: Typecheck + commit** — `pnpm exec tsc --noEmit`; `test(e2e): agenda real-wrapper containment spec on the live modal tree (agendaBaseline override + entry + routing)`
+**Full re-home contract (Task 5's deletion precondition):** the new spec also carries the deleted spec's remaining assertion families from `tests/e2e/agendaBreakdown.layout.spec.ts:203-268` — (a) session COUNT derived from `AGENDA_DAYS` (sum of `sessions.length`, never a literal), asserted against the rendered session rows; (b) EVERY session row's bounding box within its card/schedule bounds (loop over all rows, not nth=0 only); (c) document-level overflow (`document.documentElement.scrollWidth <= innerWidth`). Concrete failure modes caught: real modal chrome losing `min-w-0`/`wrap-break-word` so an unbroken token widens the card, and any single session row escaping its card.
+
+- [ ] **Step 3: Run to verify it fails** — `set -o pipefail; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.agenda.spec.ts`. Expected: FAIL (entry + harness param missing) — RED obtained with routing already live, so the failure is the spec's, not discovery's.
+- [ ] **Step 4: Implement** — (a) `buildSectionData` third optional param `agendaBaseline: AdminAgendaItem[] = []` passed through at the `tests/e2e/_step3ReviewModalHarness.tsx:158` call site; (b) the entry _step3ReviewModalAgendaEntry.tsx (new) per `_step3ReviewModalLiveEntry.tsx:124` pattern (createElement, no JSX; fetch stub for the extract route; renders the modal with `buildSectionData({}, {}, agendaFixtureBaseline)`); (c) baseline row via the repository's regeneration command `node scripts/check-standalone-baseline.mjs --write` (never hand-edited).
+- [ ] **Step 5: Run green locally** — same command PASS, 3 viewports.
+- [ ] **Step 6: Typecheck + commit** — `pnpm exec tsc --noEmit`; `test(e2e): agenda real-wrapper containment spec on the live modal tree (agendaBaseline override + entry + routing)`
 
 ### Task 5: Delete transcribed chrome spec + reconcile consumers
 
@@ -256,7 +278,8 @@ for (const width of [320, 390, 720]) {
 - Modify: `tests/e2e/_agendaFixture.ts:9` (re-point the doc comment at the new spec)
 - Modify: `tests/e2e/pendingDiscardReflow.layout.spec.ts:23` (update cross-reference comment)
 
-- [ ] **Step 1: Red first** — run `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` AFTER deleting the spec file but BEFORE reconciling: expected FAIL (dangling row) — proves the meta-test actually guards the registry.
+- [ ] **Step 0: Precondition** — Task 4 is complete and green on the branch: the full re-home contract (all three assertion families) is live BEFORE any deletion, satisfying the delete-only-after-re-home ratification.
+- [ ] **Step 1: Red** — delete the spec file, then run `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts`: expected FAIL (dangling row) — the red proving the meta-test guards the registry; reconciliation turns it green in this same task.
 - [ ] **Step 2: Reconcile all six consumers** per the table above.
 - [ ] **Step 3: Oracle** — run and paste output into the commit body:
 
@@ -264,7 +287,7 @@ for (const width of [320, 390, 720]) {
 rg -l "agendaBreakdown\.layout" --glob '!docs/**' # expected: no matches
 ```
 
-- [ ] **Step 4: Green** — `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` PASS; standalone config still parses (`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --list | head -3`).
+- [ ] **Step 4: Green** — `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` PASS; standalone config still parses (`set -o pipefail; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --list | head -3`).
 - [ ] **Step 5: Commit** — `test(e2e): retire hand-transcribed agendaBreakdown.layout spec; assertions re-homed on the real wrapper`
 
 ### Task 6: Impeccable dual-gate on the live gallery render
@@ -274,7 +297,7 @@ rg -l "agendaBreakdown\.layout" --glob '!docs/**' # expected: no matches
 - [ ] **Step 1:** Boot the app (dev server per `pnpm dev`, port per repo default), seed via `seedStep3StateGallery()` (small driver script under the scratchpad), sign in, open `/admin?step=3` — verify all six card variants render (ready / warn-card / demoted RESCAN with RescanReviewBanner + Review / no-details inline controls / blocking with HardFailedActions + HelpAffordance / set-aside).
 - [ ] **Step 2:** Run `/impeccable critique` with canonical v3 setup gates (context.mjs → register read); both themes, mobile + desktop widths; explicit checks: dark-mode warn-contrast on the warn card; demoted double-"Review" renders correctly (intentionality ratified — spec §1.1).
 - [ ] **Step 3:** Run `/impeccable audit` same setup.
-- [ ] **Step 4:** Disposition findings — P0 fixed inline (re-run affected gate half per fix), P1+ → DEFERRED.md entries with trigger; record ALL findings + dispositions in §12 below.
+- [ ] **Step 4:** Disposition findings — P0 fixed inline (re-run affected gate half per fix), P1+ → DEFERRED.md entries with trigger; record ALL findings + dispositions in §12 below. Then `cleanupStep3StateGallery(rows)` + verify `app_settings` restored (no stranded wizard-pending state on the shared DB) — the driver script runs cleanup in a `finally`.
 - [ ] **Step 5:** Commit any fixes per-finding (`fix(admin): <finding>`) + `docs(plan): record impeccable dual-gate findings + marker` — this commit fills the RAN-form marker in §12 AND deletes this plan's `MARKER_TEMPLATE_FILES` row (see §12 note); `pnpm exec vitest run tests/docs/` green.
 
 ### Task 7: Graduations + closeout
@@ -298,6 +321,4 @@ rg -l "agendaBreakdown\.layout" --glob '!docs/**' # expected: no matches
 
 ## 12. Impeccable gate closeout (filled at Task 6)
 
-impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
-
-TEMPLATE form is legal only for `MARKER_TEMPLATE_FILES` rows (`tests/docs/_metaInvariant8Closeout.test.ts:26`; grammar `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:54`, §4.5). The commit that lands THIS plan document therefore also adds this file's row to `MARKER_TEMPLATE_FILES`; Task 6 Step 5 replaces the line above with the filled RAN form AND removes the registry row in the same commit. Findings and dispositions land here.
+Marker mechanics (corrected after a live probe of `tests/docs/_metaInvariant8Closeout.test.ts`): the TEMPLATE form is non-conferring and template registration FORBIDS valid markers, so a registered template file can never satisfy the declaring-unit check — the registry route is a catch-22, not a fix. This plan therefore carries NO marker line until Task 6 completes; Task 6 Step 5 writes the filled RAN-form line (grammar `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:52`) directly below this paragraph. The docs guard (`pnpm exec vitest run tests/docs/`) is deliberately NOT part of any pre-Task-6 verification command; it runs at Task 7 Step 2 and in final full-suite verification, both after the marker exists. Findings and dispositions land here.
