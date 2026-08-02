@@ -295,6 +295,78 @@ const NEW_FAMILY_ROWS: Array<[string, string]> = [
     PRE +
       `let f: RedirectFn;\nfor ({ redirect: f } of [NextResponse]) { break; }\nexport function GET() { return f(new URL("/x", request.url)); }`,
   ],
+  // Whole-receiver structural laundering (whole-diff r2): the class OBJECT
+  // flows into a differently-typed slot with no cast at all; the naked
+  // reference is the finding.
+  [
+    "R58 whole-receiver annotated variable",
+    PRE +
+      `const R: { redirect: RedirectFn } = NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R59 whole-receiver interface-typed variable",
+    PRE +
+      `interface Ish { redirect: RedirectFn }\nconst R: Ish = NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R60 whole-receiver parameter",
+    PRE +
+      `function go(r: { redirect: RedirectFn }, u: URL) { return r.redirect(u); }\nexport function GET() { return go(NextResponse, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R61 whole-receiver helper return",
+    PRE +
+      `function pick(): { redirect: RedirectFn } { return NextResponse; }\nexport function GET() { return pick().redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R62 whole-receiver class field",
+    PRE +
+      `class Holder { r: { redirect: RedirectFn } = NextResponse; }\nexport function GET() { return new Holder().r.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R63 whole-receiver generic constraint",
+    PRE +
+      `function go<T extends { redirect: RedirectFn }>(r: T, u: URL) { return r.redirect(u); }\nexport function GET() { return go(NextResponse, new URL("/x", request.url)); }`,
+  ],
+  [
+    "R64 whole-receiver typed array",
+    PRE +
+      `const arr: Array<{ redirect: RedirectFn }> = [NextResponse];\nexport function GET() { return arr[0]!.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R65 whole-receiver Response twin",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Response;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R66 whole-receiver aliased-import naked flow",
+    `import { NextResponse as NR } from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = NR;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R67 whole-receiver namespace-import naked flow",
+    `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = NS.NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+  ],
+  // Former documented limits, closed by the naked-reference prong: each spells
+  // the class object in a value position before erasing its type.
+  [
+    "R68 receiver-as-any laundering (former E1)",
+    PRE +
+      `export function GET() { return (NextResponse as any).redirect(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R69 widened computed key (former E2)",
+    PRE +
+      `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R70 Reflect.get",
+    PRE +
+      `declare const k2: string;\nexport function GET() { const f = Reflect.get(NextResponse, k2); return f(new URL("/x", request.url)); }`,
+  ],
+  [
+    "R71 bare .call adapter with no naked thisArg",
+    PRE +
+      `export function GET() { return NextResponse.redirect.call(undefined, new URL("/x", request.url)); }`,
+  ],
 ];
 
 /** N-rows (spec §6.2): constructions that must stay quiet. */
@@ -328,22 +400,23 @@ const NEGATIVE_ROWS: Array<[string, string]> = [
     PRE +
       `const safe = (u: string | URL) => new Response(String(u));\nconst o = { redirect: safe };\nexport function GET() { return o.redirect(new URL("/x", request.url)); }`,
   ],
+  [
+    "N8 non-extracting whole-object positions (new, member receiver, instanceof, typeof)",
+    `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`,
+  ],
 ];
 
 /**
- * E-pins (spec §6.3 / §7 limit 1): the documented limits asserted AS BEHAVIOR,
- * so a change to the boundary trips a test and updates the header deliberately.
+ * E-pin (spec §6.3 / §7 limit 1): the one remaining type-erasure escape,
+ * asserted AS BEHAVIOR so a change to the boundary trips a test and updates
+ * the header deliberately. Receiver laundering, widened keys, and Reflect.get
+ * are no longer here — they are positives (R68–R70).
  */
 const ESCAPE_PINS: Array<[string, string]> = [
   [
-    "E1 receiver-as-any laundering",
+    "E1 string-mediated dynamic access (eval)",
     PRE +
-      `export function GET() { return (NextResponse as any).redirect(new URL("/x", request.url)); }`,
-  ],
-  [
-    "E2 widened computed key",
-    PRE +
-      `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`,
+      `declare function evil(code: string): unknown;\nexport function GET() { const f = evil("NextResponse.redirect") as RedirectFn; return f(new URL("/x", request.url)); }`,
   ],
 ];
 
@@ -395,8 +468,8 @@ describe("no absolute self-redirect under the walked roots", () => {
   it.each(ESCAPE_PINS)(
     "documented limit stays a deliberate boundary: %s produces 0 findings",
     (_label, source) => {
-      // Spec §7 limit 1: receiver laundering and widened computed keys erase the
-      // declaration before the member resolves. If this assertion starts
+      // Spec §7 limit 1: a name that reaches the method only inside a string
+      // literal is invisible to every static prong. If this assertion starts
       // failing, the guard got stronger — update the module header and spec.
       expect(auditSource(fixturePath(), source)).toEqual([]);
     },

@@ -6,6 +6,12 @@
  * live, so at HEAD this runs the NEW two-prong module and every ESCAPES row
  * reports caught instead: the flip is the arc's point.
  *
+ * R22 caveat (whole-diff r2): this harness inlines only the IMPORTING side of
+ * the re-export family, so its `./helper` import never resolves and the row
+ * demonstrates the unresolved-import boundary in BOTH eras — it stays 0 at
+ * HEAD too. The R22 catch proof is the test file's real two-module fixture
+ * (addFixtureModule + auditSource), not this row.
+ *
  * Run: pnpm exec tsx docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-red-harness.mjs
  */
 import { auditSource } from "../../../tests/cross-cutting/no-absolute-self-redirect-audit";

@@ -89,9 +89,9 @@ const BACKLOG_GRADUATED = [
   // test/redirect-guard-type-aware (2026-08-01): the self-redirect guard's
   // syntactic 19-spelling matcher replaced by two-prong type-checker resolution
   // (calls by resolved signature; every other reference type-decided, incl.
-  // destructuring-assignment members). Receiver laundering and widened keys
-  // stay documented limits E-pinned as behavior; reflection/eval stay
-  // documented limits with no pin (not statically expressible).
+  // destructuring-assignment members and naked class-object flows). Sole
+  // remaining type-erasure limit: string-mediated dynamic access (eval shape),
+  // E-pinned; receiver laundering, widened keys, and Reflect.get are caught.
   { id: "BL-SOUND-REDIRECT-GUARD", provenance: "test/redirect-guard-type-aware" },
   // test/ledger-guard-mdast-rewrite (2026-08-01): this guard's own rewrite —
   // the regex lanes replaced by the _ledgerMdast walker, the r22-r41

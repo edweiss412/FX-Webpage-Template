@@ -20,12 +20,14 @@
  *      `redirect` on a container named `NextResponse` or `Response`, however
  *      the callee value flowed there (aliases, helper returns, class fields,
  *      re-exports, typed dispatch tables, literal-typed computed keys).
- *   2. REFERENCES — every OTHER reference to that method: property/element
- *      access, binding elements, and destructuring-assignment members whose
- *      type (or source property-symbol type, for assignment patterns) carries
- *      a call signature declared by the banned method. Extracting, storing,
- *      passing, or adapting the method is a finding at the site where the
- *      member name is spelled, and is NEVER allow-listable.
+ *   2. REFERENCES — every OTHER reference to that method OR to the class
+ *      object carrying it: property/element access, binding elements,
+ *      destructuring-assignment members (via the source property-symbol type),
+ *      and naked `NextResponse`/`Response` value flows (whole-object
+ *      laundering — `const R: { redirect: RedirectFn } = NextResponse` — needs
+ *      no cast, so the object reference itself is the finding). Extracting,
+ *      storing, passing, or adapting the method or its carrier is a finding at
+ *      the site where the name is spelled, and is NEVER allow-listable.
  *
  * The claim is conditional on the program resolving its imports: for
  * TypeScript files the `typecheck` merge gate (`tsc --noEmit`,
@@ -33,14 +35,14 @@
  * have NO such backstop (tsconfig `include` is TS-only, `checkJs` off), which
  * is why the companion test's sentinel keeps the walked roots free of them.
  *
- * KNOWN RESIDUAL (spec §7): a receiver laundered BEFORE the member access
- * (`(NextResponse as any).redirect`) and a computed key widened past a literal
- * type each require a deliberate, review-loud cast on the NextResponse/Response
- * receiver itself, and are pinned AS BEHAVIOR by the E1/E2 fixtures.
- * Reflection and eval (`Reflect.get(NextResponse, k)`, `eval`) escape WITHOUT
- * any cast — they bypass static analysis entirely, cannot be pinned by a
- * fixture, and are covered only by their greppable spellings being loud in
- * review. Local runtime mimics named
+ * KNOWN RESIDUAL (spec §7): string-mediated dynamic access — `eval`, or any
+ * construct where the name reaches the method only inside a string literal —
+ * is the one remaining type-erasure escape; it cannot be pinned by a fixture
+ * (the E1 fixture pins the eval shape at 0 findings) and is covered only by
+ * its greppable spelling being loud in review. Receiver laundering
+ * (`(NextResponse as any).redirect`), widened computed keys, and
+ * `Reflect.get(NextResponse, k)` are all CAUGHT at the naked class-object
+ * reference they must spell (whole-diff r2 closure). Local runtime mimics named
  * `NextResponse` either delegate to the real method (their internal reference
  * is in a walked file and flags there) or hand-roll a Location header without
  * it (outside this guard's claim). `node_modules` wrappers are outside the
@@ -149,6 +151,82 @@ function typeCarriesBannedSignature(t: Type): boolean {
   return t.getCallSignatures().some((s) => isBannedDecl(s.getDeclaration()));
 }
 
+/**
+ * Widened carry (whole-diff r2): a value is banned-carrying when its type's
+ * call signatures include the banned declaration OR its `redirect` property's
+ * type does — the class OBJECT carries the method inside it, so a naked
+ * `NextResponse`/`Response` value flowing into ANY differently-typed slot
+ * (annotated variable, parameter, return, field, array, generic, any-cast) is
+ * itself the laundering step, and it must spell one of those names.
+ */
+function carriesBanned(node: Node, t: Type): boolean {
+  if (typeCarriesBannedSignature(t)) return true;
+  const prop = t.getProperty("redirect");
+  if (prop === undefined) return false;
+  const checker = node.getProject().getTypeChecker();
+  return typeCarriesBannedSignature(checker.getTypeOfSymbolAtLocation(prop, node));
+}
+
+/**
+ * Positions that never yield the class object onward, so a banned-carrying
+ * node there is not an extraction: direct member-access receiver (the member
+ * access is separately a candidate), direct `new` callee (yields an instance),
+ * the callee of a call prong 1 already flagged, instanceof RHS, and the
+ * `typeof` value operand.
+ */
+function inNonExtractingPosition(node: Node, bannedCalls: ReadonlySet<Node>): boolean {
+  const parent = node.getParent();
+  if (parent === undefined) return false;
+  if (
+    (Node.isPropertyAccessExpression(parent) || Node.isElementAccessExpression(parent)) &&
+    parent.getExpression() === node
+  ) {
+    return true;
+  }
+  if (Node.isNewExpression(parent) && parent.getExpression() === node) return true;
+  if (Node.isCallExpression(parent) && parent.getExpression() === node && bannedCalls.has(parent)) {
+    return true;
+  }
+  if (
+    Node.isBinaryExpression(parent) &&
+    parent.getOperatorToken().getKind() === SyntaxKind.InstanceOfKeyword &&
+    parent.getRight() === node
+  ) {
+    return true;
+  }
+  if (Node.isTypeOfExpression(parent)) return true;
+  return false;
+}
+
+/** An identifier candidate must be a value USE, not a name/import/type position. */
+function identifierIsExpressionUse(id: Node): boolean {
+  const parent = id.getParent();
+  if (parent === undefined) return false;
+  if (Node.isImportSpecifier(parent) || Node.isExportSpecifier(parent)) return false;
+  if (Node.isImportClause(parent) || Node.isNamespaceImport(parent)) return false;
+  if (Node.isVariableDeclaration(parent) && parent.getNameNode() === id) return false;
+  if (Node.isBindingElement(parent)) return false;
+  if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) return false;
+  if (
+    (Node.isPropertyAssignment(parent) ||
+      Node.isPropertySignature(parent) ||
+      Node.isMethodDeclaration(parent)) &&
+    parent.getNameNode() === id
+  ) {
+    return false;
+  }
+  if (Node.isTypeQuery(parent) || Node.isTypeReference(parent)) return false;
+  if (
+    Node.isFunctionDeclaration(parent) ||
+    Node.isClassDeclaration(parent) ||
+    Node.isInterfaceDeclaration(parent)
+  ) {
+    return false;
+  }
+  if (Node.isParameterDeclaration(parent) && parent.getNameNode() === id) return false;
+  return true;
+}
+
 // Raw-side twins for the assignment-pattern prong. These run against nodes and
 // types from `checker.compilerObject`, so they are written against ts-morph's
 // exported `ts` namespace — the SAME vendored compiler world (mixing the
@@ -243,18 +321,52 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   // or name prefilter: literal-TYPED keys defeat literal-NODE filters). A
   // candidate in direct-callee position is skipped only when prong 1 already
   // flagged that call — otherwise it is checked too, which closes union-typed
-  // keys that defeat signature resolution.
+  // keys that defeat signature resolution. Identifier candidates cover naked
+  // class-OBJECT flows (`const R: { redirect: RedirectFn } = NextResponse`),
+  // which launder the receiver without any cast: the whole-object flow must
+  // spell NextResponse/Response (or an import alias of NextResponse) once, so
+  // the name set below is complete — a further local alias's CREATION site is
+  // itself a flagged naked reference.
   const candidates: Node[] = [
     ...sf.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.ElementAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.BindingElement),
   ];
+  const objectNames = new Set(["NextResponse", "Response"]);
+  for (const imp of sf.getImportDeclarations()) {
+    for (const spec of imp.getNamedImports()) {
+      if (spec.getNameNode().getText() === "NextResponse") {
+        objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
+      }
+    }
+  }
+  for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    if (!objectNames.has(id.getText())) continue;
+    if (!identifierIsExpressionUse(id)) continue;
+    candidates.push(id);
+  }
   for (const node of candidates) {
-    const parent = node.getParent();
-    const inCalleePosition =
-      parent !== undefined && Node.isCallExpression(parent) && parent.getExpression() === node;
-    if (inCalleePosition && bannedCalls.has(parent)) continue;
-    if (typeCarriesBannedSignature(node.getType())) {
+    const t = node.getType();
+    if (typeCarriesBannedSignature(t)) {
+      // The node's value IS the method (direct carry) — flag in ANY position
+      // except the exact call prong 1 already reported. Receiver position is
+      // NOT exempt here: `NextResponse.redirect.call(undefined, u)` must flag
+      // at the inner access even though it is the receiver of `.call`.
+      const parent = node.getParent();
+      const calleeOfBanned =
+        parent !== undefined &&
+        Node.isCallExpression(parent) &&
+        parent.getExpression() === node &&
+        bannedCalls.has(parent);
+      if (!calleeOfBanned) findings.push(findingFor(node, "reference", ""));
+      continue;
+    }
+    // Whole-OBJECT carry (the type's `redirect` property is the banned method):
+    // skip positions that never yield the object onward — direct member-access
+    // receiver (naming the container to reach some member, which is itself a
+    // candidate), `new` callee, instanceof RHS, typeof operand.
+    if (inNonExtractingPosition(node, bannedCalls)) continue;
+    if (carriesBanned(node, t)) {
       findings.push(findingFor(node, "reference", ""));
     }
   }

@@ -1,13 +1,18 @@
 /**
- * Probe 4 (spec §2; rewritten in the R2 repair): the FINAL two-prong matcher —
- * prong 1 resolved-signature calls; prong 2 TYPE-DECIDED non-callee references
- * (every PropertyAccess / ElementAccess / BindingElement, no syntactic key
- * prefilter; callee-position skipped only when prong 1 flagged that call).
+ * Probe 4 (spec §2; rewritten in the R2 repair, extended in the whole-diff r2
+ * closure): the FINAL two-prong matcher — prong 1 resolved-signature calls;
+ * prong 2 TYPE-DECIDED references over every PropertyAccess / ElementAccess /
+ * BindingElement PLUS assignment-pattern members PLUS naked class-object
+ * identifiers (whole-receiver laundering needs no cast). Direct method-carry
+ * flags in every position except a prong-1-owned callee; whole-object carry
+ * skips only non-extracting positions (member receiver, new callee,
+ * instanceof RHS, typeof operand).
  *
  * Sections:
  *   A. mutant closure — R1/F1 twelve typed value-flow families, R37 const-literal
  *      key, R2/F1 ten literal-typed-key shapes, union-key call/extraction,
- *      negatives, E1/E2 documented-escape pins
+ *      whole-receiver shapes + former-limit flips (R58-R71), negatives incl.
+ *      N8 non-extracting positions, and the E1 eval-shape escape pin
  *   B. real-tree scan over app/ + lib/ + middleware glob (spec §5.3), timed
  *
  * Run: pnpm exec tsx docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe4-two-prong.mjs
@@ -111,12 +116,51 @@ function audit(sf) {
     ...sf.getDescendantsOfKind(SyntaxKind.ElementAccessExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.BindingElement),
   ];
-  for (const node of candidates) {
+  const objectNames = new Set(["NextResponse", "Response"]);
+  for (const imp of sf.getImportDeclarations()) {
+    for (const spec of imp.getNamedImports()) {
+      if (spec.getNameNode().getText() === "NextResponse") {
+        objectNames.add(spec.getAliasNode()?.getText() ?? "NextResponse");
+      }
+    }
+  }
+  for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    if (!objectNames.has(id.getText())) continue;
+    const parent = id.getParent();
+    if (parent === undefined) continue;
+    if (Node.isImportSpecifier(parent) || Node.isExportSpecifier(parent)) continue;
+    if (Node.isImportClause(parent) || Node.isNamespaceImport(parent)) continue;
+    if (Node.isVariableDeclaration(parent) && parent.getNameNode() === id) continue;
+    if (Node.isBindingElement(parent)) continue;
+    if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) continue;
+    if ((Node.isPropertyAssignment(parent) || Node.isPropertySignature(parent) || Node.isMethodDeclaration(parent)) && parent.getNameNode() === id) continue;
+    if (Node.isTypeQuery(parent) || Node.isTypeReference(parent)) continue;
+    if (Node.isFunctionDeclaration(parent) || Node.isClassDeclaration(parent) || Node.isInterfaceDeclaration(parent)) continue;
+    if (Node.isParameterDeclaration(parent) && parent.getNameNode() === id) continue;
+    candidates.push(id);
+  }
+  function nonExtracting(node) {
     const parent = node.getParent();
-    const inCalleePosition =
-      parent !== undefined && Node.isCallExpression(parent) && parent.getExpression() === node;
-    if (inCalleePosition && bannedCalls.has(parent)) continue; // prong 1 owns it
-    if (typeCarries(node.getType())) {
+    if (parent === undefined) return false;
+    if ((Node.isPropertyAccessExpression(parent) || Node.isElementAccessExpression(parent)) && parent.getExpression() === node) return true;
+    if (Node.isNewExpression(parent) && parent.getExpression() === node) return true;
+    if (Node.isCallExpression(parent) && parent.getExpression() === node && bannedCalls.has(parent)) return true;
+    if (Node.isBinaryExpression(parent) && parent.getOperatorToken().getKind() === SyntaxKind.InstanceOfKeyword && parent.getRight() === node) return true;
+    if (Node.isTypeOfExpression(parent)) return true;
+    return false;
+  }
+  const checkerW = sf.getProject().getTypeChecker();
+  for (const node of candidates) {
+    const t = node.getType();
+    if (typeCarries(t)) {
+      const parent = node.getParent();
+      const calleeOfBanned = parent !== undefined && Node.isCallExpression(parent) && parent.getExpression() === node && bannedCalls.has(parent);
+      if (!calleeOfBanned) hits.push({ line: node.getStartLineNumber(), kind: "reference", text: node.getText().split("\n")[0] ?? "" });
+      continue;
+    }
+    if (nonExtracting(node)) continue;
+    const prop = t.getProperty("redirect");
+    if (prop !== undefined && typeCarries(checkerW.getTypeOfSymbolAtLocation(prop, node))) {
       hits.push({ line: node.getStartLineNumber(), kind: "reference", text: node.getText().split("\n")[0] ?? "" });
     }
   }
@@ -191,9 +235,24 @@ const MUTANTS = [
   ["NEG unrelated container method + .call + element access", `class Router { redirect(u: string) { return u; } }\nconst rt = new Router();\nconst m = rt["redirect"];\nexport function GET() { return m.call(rt, "/x"); }`, "clean"],
   ["NEG ordinary array/element access + destructuring", `declare const xs: string[];\ndeclare const i: number;\nconst { length } = xs;\nexport function GET() { return xs[i] ?? String(length); }`, "clean"],
   ["NEG direct call = exactly one finding", PRE + `export function GET() { return NextResponse.redirect(new URL("/x", request.url)); }`, "flag"],
-  // --- documented-escape pins ---
-  ["E1 receiver-as-any (documented limit)", PRE + `export function GET() { return (NextResponse as any).redirect(new URL("/x", request.url)); }`, "clean"],
-  ["E2 widened computed key (documented limit)", PRE + `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`, "clean"],
+  // --- whole-receiver structural laundering (whole-diff r2, probe 7) ---
+  ["R58 whole-receiver annotated variable", PRE + `const R: { redirect: RedirectFn } = NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R59 whole-receiver interface-typed", PRE + `interface Ish { redirect: RedirectFn }\nconst R: Ish = NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R60 whole-receiver parameter", PRE + `function go(r: { redirect: RedirectFn }, u: URL) { return r.redirect(u); }\nexport function GET() { return go(NextResponse, new URL("/x", request.url)); }`, "flag"],
+  ["R61 whole-receiver helper return", PRE + `function pick(): { redirect: RedirectFn } { return NextResponse; }\nexport function GET() { return pick().redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R62 whole-receiver class field", PRE + `class Holder { r: { redirect: RedirectFn } = NextResponse; }\nexport function GET() { return new Holder().r.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R63 whole-receiver generic constraint", PRE + `function go<T extends { redirect: RedirectFn }>(r: T, u: URL) { return r.redirect(u); }\nexport function GET() { return go(NextResponse, new URL("/x", request.url)); }`, "flag"],
+  ["R64 whole-receiver typed array", PRE + `const arr: Array<{ redirect: RedirectFn }> = [NextResponse];\nexport function GET() { return arr[0]!.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R65 whole-receiver Response twin", `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = Response;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R66 whole-receiver aliased import", `import { NextResponse as NR } from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = NR;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R67 whole-receiver namespace import", `import * as NS from "next/server";\ndeclare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst R: { redirect: RedirectFn } = NS.NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R68 receiver-as-any (FORMER limit E1)", PRE + `export function GET() { return (NextResponse as any).redirect(new URL("/x", request.url)); }`, "flag"],
+  ["R69 widened computed key (FORMER limit E2)", PRE + `const kw: string = "redirect";\nexport function GET() { return (NextResponse as unknown as Record<string, Function>)[kw]!(new URL("/x", request.url)); }`, "flag"],
+  ["R70 Reflect.get", PRE + `declare const k2: string;\nexport function GET() { const f = Reflect.get(NextResponse, k2); return f(new URL("/x", request.url)); }`, "flag"],
+  ["R71 bare .call with no naked thisArg", PRE + `export function GET() { return NextResponse.redirect.call(undefined, new URL("/x", request.url)); }`, "flag"],
+  ["N8 non-extracting whole-object positions", `import { NextResponse } from "next/server";\ndeclare const x: unknown;\nexport function GET() {\n  const inst = new NextResponse(null, { status: 302, headers: { Location: "/x" } });\n  const j = NextResponse.json({ ok: true });\n  return x instanceof Response && typeof Response !== "undefined" ? inst : j;\n}`, "clean"],
+  // --- documented-escape pin (the one remaining type-erasure limit) ---
+  ["E1 string-mediated dynamic access (eval shape)", PRE + `declare function evil(code: string): unknown;\nexport function GET() { const f = evil("NextResponse.redirect") as RedirectFn; return f(new URL("/x", request.url)); }`, "clean"],
 ];
 
 let failures = 0;
