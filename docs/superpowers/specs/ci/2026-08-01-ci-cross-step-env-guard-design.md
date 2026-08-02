@@ -4,7 +4,7 @@
 
 **Backlog item closed:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` — graduated by this branch, so it now lives in repo-root `BACKLOG-archive.md` (heading token BL-CI-GITHUB-ENV-CROSS-STEP-STATE) with `test/ci-cross-step-env-guard` as provenance; it is absent from the active `BACKLOG.md` queue.
 
-<!-- spec-lint: not-ui — no UI surface; the only files touched are tests/ci/** guard modules and their callers. -->
+<!-- spec-lint: not-ui — no UI surface. The diff is the two tests/ci/** guard modules and their caller, plus the registry, ledger and index fan-out enumerated below. -->
 
 Files this spec MODIFIES: the two guard layers and their caller — `tests/ci/_metaSpecRegistration.test.ts` (census), `tests/ci/_workflowCoverageScan.ts` (scanner), `tests/ci/_metaE2eWorkflowCoverage.test.ts` (scanner caller + self-suite) — plus the registry and ledger fan-out those changes require: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` (one reasoned row for the scanner's comment strip), `tests/docs/_metaDeferralLedgerGraduation.test.ts` (one `BACKLOG_GRADUATED` row), `BACKLOG.md` + `BACKLOG-archive.md` (the graduation, and the newly filed `BL-CI-STATIC-ENV-INJECTION`), and the `docs/superpowers/{specs,plans}/ci/README.md` index tables. It CREATES no production files and no new dependencies.
 
@@ -69,7 +69,7 @@ A text "writes env" when, after dropping full-line `#` comment lines, it contain
 - `censusInvocations` item type gains `poisoned?: boolean`. The `contextWhy` chain (~line 562) gets a new branch — after `guarded`, before control-flow — with why-string: `environment poisoned by an earlier same-job GITHUB_ENV/GITHUB_PATH write`. Registry-or-loud, identical routing to every other context: a poisoned block's classifying lines must appear in `COMPLEX_INVOCATION_REGISTRY` with human-declared contributions, else the census reds. Non-classifying lines in a poisoned block stay silent (same rule as `guarded`).
 - Config-set tripwire (~line 1199): build the `localActions` doc map from `.github/actions/**` up front (keyed `./<dir>` — the shape `usedActionDirs` already computes); pass it to every workflow's `runBlocksOf` call; DELETE the separate "append used-action blocks" push (spliced blocks now arrive per use site, correctly guarded and poisoned per job). R2 BLOCKING refinement: ONLY the GitHub-recognized manifest (action.yml preferred, action.yaml fallback) keys the map — keying every yml under the dir let a supplemental clean YAML overwrite the parsed manifest under the same key. Non-manifest YAML under an action dir never executes, so playwright text there is dead text posing as surface: forbidden outright (extends the R9 G1 unreferenced-action rule, which itself now iterates manifests only).
 
-Duplication note: `./.github/actions/setup` is used by ~20 jobs, so its `pnpm install --frozen-lockfile` block is now censused once per use site instead of once total. Harmless by construction: `invoked` is a Set, `problems` only fire on classifying/problematic text, and that block contains no playwright token.
+Duplication note: `./.github/actions/setup` is used by 31 workflow steps across 17 files (measured at HEAD), so its `pnpm install --frozen-lockfile` block is now censused once per use site instead of once total. Harmless by construction: `invoked` is a Set, `problems` only fire on classifying/problematic text, and that block contains no playwright token.
 
 ### §2.2 Scanner: per-job poison flag + `localActions` opt
 
@@ -87,7 +87,7 @@ Duplication note: `./.github/actions/setup` is used by ~20 jobs, so its `pnpm in
 - `UNMODELLED_RE` / `UNMODELLED_SHELL_RE` / `controlFlowRe` / `cmdPos` — untouched (R12 closure, §1.1). (The comment-stripping single-source registry DID gain one reasoned row for the scanner's `stripCommentLines`, recorded in §6 and in the plan's meta-test inventory — it is a registry row, not a new stripping mechanism.)
 - Workflow/job-level `env:` blocks — a different (static, not cross-step-state) vector; §5 L3.
 - `suppressesExit`, whole-config literal rule, alias resolution — untouched.
-- No live workflow or action file changes; zero-writer state means no COVERAGE allowlist rows are added. One registry row IS added — the scanner's `stripCommentLines` row in the comment-stripping single-source registry (§6) — which is that registry's contract, not a coverage exemption.
+- No live workflow or action file changes; zero-writer state means no COVERAGE allowlist rows are added. Two registry rows ARE added — the `BACKLOG_GRADUATED` row for this item's graduation, and — the scanner's `stripCommentLines` row in the comment-stripping single-source registry (§6) — each being its registry's own contract, not a coverage exemption.
 
 ---
 
@@ -127,7 +127,7 @@ TDD per task (invariant 1): each fixture lands red against the pre-fix layer, th
 
 ### §4.3 Live-green gate
 
-`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/ci/_metaSpecRegistration.test.ts` green against the live tree — zero live writers means zero new allowlist/registry rows; any live red is a defect in this design, not a candidate row.
+`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/ci/_metaSpecRegistration.test.ts` green against the live tree — zero live writers means zero new COVERAGE allowlist rows (the two registry rows this arc adds are named in §2.3); any live red is a defect in this design, not a candidate row.
 
 ### §4.4 Cleanup
 
