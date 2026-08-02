@@ -747,6 +747,24 @@ describe("no absolute self-redirect under the walked roots", () => {
     }
   });
 
+  it("flags R107 legacy angle-bracket assertion carriers", () => {
+    // whole-diff r28: <T>x is the fifth wrapper kind — same semantics as `as`.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick() { return globalThis; }\nconst envAngle = <any>globalThis;\nexport function GET() {\n  const a = viaEnvironment(envAngle, new URL("/1", request.url));\n  const b = viaEnvironment((<typeof pick>pick)(), new URL("/2", request.url));\n  const c = viaEnvironment(<any>globalThis, new URL("/3", request.url));\n  return [a, b, c];\n}`,
+    );
+    expect(findings).toHaveLength(3);
+  });
+
+  it("does not flag angle-asserted non-extracting positions (N20)", () => {
+    expect(
+      auditSource(
+        fixturePath(),
+        `import { NextResponse } from "next/server";\nexport function GET() {\n  const a = (<typeof NextResponse>NextResponse).json({ ok: 1 });\n  const b = new (<typeof NextResponse>NextResponse)(null, { status: 302, headers: { Location: "/x" } });\n  return [a, b];\n}`,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not flag awaited non-extracting positions (N19)", () => {
     // whole-diff r27: await joins the transparent climb — awaited receivers and
     // new-callees classify by their real position.

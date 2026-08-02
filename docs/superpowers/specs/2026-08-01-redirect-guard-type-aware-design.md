@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R27 — whole-diff round-27 repaired (await in the transparent position climb; N19) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R28 — whole-diff round-28 repaired (legacy angle-bracket assertions at all five wrapper sites) · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R28 disposition (2026-08-02):** one P1 — TypeScript's legacy `<T>x` TypeAssertionExpression was absent from every wrapper site. It now rides alongside `as`/`satisfies` at all five (position climb with carry-preservation, alias RHS, carrier-expression entry, both outer-destination walks). R107 pins `<any>globalThis` flows and `(<typeof pick>pick)()`; N20 pins angle-asserted receivers/new-callees quiet. The wrapper-kind axis is now grammar-complete: {parens, non-null, await, as, satisfies, angle-assertion} — the full set of TS transparent/cast wrappers.
 
 **Whole-diff R27 disposition (2026-08-02):** one P2 — `effectivePosition`'s transparent climb lacked `await`, so awaited receivers/new-callees (`(await NextResponse).json(…)`) false-flagged. Await joins the carry-preserving transparent branch; N19 pins awaited receiver and new-callee shapes quiet.
 
@@ -278,7 +280,7 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R106 (§6.1).
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R107 (§6.1).
 - Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`, ordinary element access/destructuring (N6 — pins the no-prefilter widening quiet on normal code).
 - Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
 - Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
@@ -351,6 +353,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R104 | As-cast carrier provenance (whole-diff r24) | `const env = globalThis as any` and `return globalThis as any` — provenance survives; downstream redirect-shaped flow flags |
 | R105 | Cast callees and cast arguments (whole-diff r25) | `(pick as typeof pick)()`, `satisfies` twin, `globalThis as any` and `pick() as any` as arguments — judged at the outermost destination |
 | R106 | Awaited carriers (whole-diff r26) | async-helper promise awaited inline, via a resolved variable, and `await globalThis` |
+| R107 | Legacy angle-bracket assertion carriers (whole-diff r28) | `<any>globalThis` flows and `(<typeof pick>pick)()` — fifth wrapper kind, same semantics as `as` |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -375,6 +378,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N17 | Shadowing parameter named `environment`; local `const global = { Response: { redirect: safeFn } }` | symbol-based provenance — neither resolves to an ambient global (r16) |
 | N18 | Safe outer helper containing a NESTED carrier-returning function | return scanning is owned-returns-only (r17 false-positive fix) |
 | N19 | Awaited non-extracting positions (`(await NextResponse).json(…)`, `new (await NextResponse)(…)`) | await is carry-preserving in the transparent position climb (r27) |
+| N20 | Angle-asserted non-extracting positions | carry-preserving `<typeof NextResponse>` climbs like `as` (r28) |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -385,7 +389,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 7. Documented limits (residual after this work)
 
 1. **String-mediated dynamic access.** `eval("NextResponse.redirect")` or any construct where the name reaches the method only inside a string literal — the one remaining type-erasure escape (E1 pins the shape at 0 findings). Everything short of that now flags: VALUE laundering at the extraction reference (R36), receiver laundering / widened keys / `Reflect.get` at the naked class-object reference they must spell (R68–R70, whole-diff r2 closure). Consequence bound: hiding the name in a string is the loudest possible construct in review and greppable tree-wide.
-2. **Deliberate module-object laundering beyond the pinned families (ratified whole-diff r8).** Nested re-export namespaces, require/import adapters (`(require)(…)`, `require.call`, `module.require`, structurally-erased loader aliases), computed or literal-typed-variable specifiers, and whatever the next contrivance is — the carrier space is unbounded, and each such flow requires deliberate construction no plausible refactor produces. Conceded alongside the hand-rolled-Location limit: the same author writes `new NextResponse(null, { headers: { Location } })` and bypasses the redirect claim entirely. The §6 families (R58–R106) stay pinned as regression floor; review, not this guard, is the control for adversarial code.
+2. **Deliberate module-object laundering beyond the pinned families (ratified whole-diff r8).** Nested re-export namespaces, require/import adapters (`(require)(…)`, `require.call`, `module.require`, structurally-erased loader aliases), computed or literal-typed-variable specifiers, and whatever the next contrivance is — the carrier space is unbounded, and each such flow requires deliberate construction no plausible refactor produces. Conceded alongside the hand-rolled-Location limit: the same author writes `new NextResponse(null, { headers: { Location } })` and bypasses the redirect claim entirely. The §6 families (R58–R107) stay pinned as regression floor; review, not this guard, is the control for adversarial code.
 3. **Soundness is conditional on import resolution — TypeScript files only.** A TS file whose `NextResponse` reference does not resolve fails `tsc --noEmit` (TS2304) at the merge gate. Plain-JS files have NO such backstop (tsconfig `include` is TS-only, `checkJs` off — R1/F6 probe); the §5.5 sentinel therefore keeps the walked roots free of plain-JS modules, and a future JS adoption must extend the guard's JS story deliberately.
 4. **`node_modules` wrappers.** A third-party package calling `NextResponse.redirect` internally is outside the walked roots. Unchanged from today.
 5. **Hand-rolled absolute Location.** `new NextResponse(null, { headers: { Location: absoluteUrl } })` is not a `redirect` call and never was this guard's claim; `hostRelativeRedirect` is the sanctioned constructor-shaped emitter (N4 pins it clean).
@@ -393,7 +397,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R106, N1–N19, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R107, N1–N20, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.

@@ -276,7 +276,9 @@ function effectivePosition(node: Node): { child: Node; parent: Node | undefined 
     // itself the laundering step, and the naked reference must keep flagging
     // (R68/R69; the r13 wrapped-receiver shapes stay quiet via parens/non-null).
     const carryPreservingCast =
-      (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent)) &&
+      (Node.isAsExpression(parent) ||
+        Node.isTypeAssertion(parent) ||
+        Node.isSatisfiesExpression(parent)) &&
       parent.getExpression() === child &&
       carriesBanned(parent, parent.getType());
     if (!transparent && !carryPreservingCast) break;
@@ -600,6 +602,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         Node.isNonNullExpression(expr) ||
         Node.isAwaitExpression(expr) ||
         Node.isAsExpression(expr) ||
+        Node.isTypeAssertion(expr) ||
         Node.isSatisfiesExpression(expr)) &&
       expr.getExpression() !== undefined
     ) {
@@ -679,6 +682,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         Node.isNonNullExpression(e) ||
         Node.isAwaitExpression(e) ||
         Node.isAsExpression(e) ||
+        Node.isTypeAssertion(e) ||
         Node.isSatisfiesExpression(e)) &&
       e.getExpression() !== undefined
     ) {
@@ -808,6 +812,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
           Node.isNonNullExpression(parentId) ||
           Node.isAwaitExpression(parentId) ||
           Node.isAsExpression(parentId) ||
+          Node.isTypeAssertion(parentId) ||
           Node.isSatisfiesExpression(parentId)) &&
         parentId.getExpression() === outerId
       ) {
@@ -841,6 +846,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         Node.isParenthesizedExpression(parent) ||
         Node.isNonNullExpression(parent) ||
         Node.isAsExpression(parent) ||
+        Node.isTypeAssertion(parent) ||
         Node.isSatisfiesExpression(parent)) &&
       parent.getExpression() === outer
     ) {
