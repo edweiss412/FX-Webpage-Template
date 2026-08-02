@@ -641,81 +641,175 @@ type Opts = {
    * Env-key allowlist override for fixtures (static-env spec §2.1). Live
    * callers omit it and get ENV_KEY_ALLOWLIST.
    */
-  envKeyAllowlist?: Record<string, string>;
+  envKeyAllowlist?: EnvKeyAllowlist;
 };
 
 /**
- * Static env-block key allowlist (static-env spec §2.0). A static `env:`
- * block at workflow, job, or step level can set PATH (or any loader/
- * interpreter control variable) so a textually clean `pnpm exec playwright
- * test` runs a fake pnpm that exits 0 — no ordering to thread, the key is
- * simply there. The posture is a NARROW ACCEPT list of key NAMES measured
- * from the live tree, each row asserting name-inertness ("no execution
- * surface reads a variable of this name" — spec §5 LS1: values, including
- * expressions, are unexamined by construction; the NAME is what the shell/
- * loader reads). Unknown keys fail closed: `path`, `LD_PRELOAD`,
- * `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names are simply
- * absent — there is no dangerous-key enumeration to evade (the losing game
- * this arc's predecessors retired). The hygiene suite reds a row whose key
- * no live parsed env: map carries, so the list cannot rot.
+ * Static env-block allowlist (static-env spec §2.0). A static `env:` block
+ * at workflow, job, or step level can set PATH (or any loader/interpreter
+ * control variable) so a textually clean `pnpm exec playwright test` runs a
+ * fake pnpm that exits 0 — no ordering to thread, the key is simply there.
+ * Rows pin exact (key, value-TEXT) pairs, NOT key names (spec §7 R2: a
+ * key-name registry needed a name-inertness judgment per row, and
+ * MODAL_PREFETCH_E2E/MODAL_REALTIME_E2E failed it — their values gate
+ * test.skip, so a value-only flip was a green run with no tests). A novel
+ * key OR a novel value for a pinned key fails closed: `path`, `LD_PRELOAD`,
+ * `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names have no
+ * row, and `MODAL_PREFETCH_E2E: "0"` is off-list the same way — there is no
+ * dangerous-key enumeration and no per-key inertness debate left. Expression
+ * values pin as TEXT (`${{ secrets.X }}` is one pinned string); what an
+ * expression resolves to at runtime is out of universe (spec §5 LS1). The
+ * hygiene suite reds a row whose (key, value) pair no live parsed env: map
+ * carries, so the list cannot rot.
  */
-export const ENV_KEY_ALLOWLIST: Record<string, string> = {
-  // Supabase endpoints/credentials — read by the app or test code under
-  // test over HTTP clients, not by the shell, loader, or runner.
-  SUPABASE_URL: "Supabase endpoint read by app/test code",
-  NEXT_PUBLIC_SUPABASE_URL: "Supabase endpoint read by app code",
-  SUPABASE_SECRET_KEY: "Supabase credential read by app/test code",
-  SUPABASE_ANON_KEY: "Supabase credential read by app/test code",
-  SUPABASE_SERVICE_ROLE_KEY: "Supabase credential read by app/test code",
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "Supabase credential read by app code",
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: "Supabase credential read by app code",
-  SUPABASE_JWT_SECRET: "JWT secret read by test bridge code",
-  SUPABASE_REALTIME_ISS: "realtime issuer read by test bridge code",
-  SUPABASE_TEST_REST_URL: "test-project endpoint read by test code",
-  SUPABASE_TEST_JWT_SECRET: "test-project secret read by test code",
-  SUPABASE_TEST_PUBLISHABLE_KEY: "test-project credential read by test code",
-  VALIDATION_SUPABASE_PROJECT_REF: "validation project ref read by audit scripts",
-  TEST_DATABASE_URL: "database URL read by test code via postgres client",
-  // App/test secrets and flags — read inside Node application/test code.
-  HASH_FOR_LOG_PEPPER: "log-hash pepper read by app code",
-  ENABLE_TEST_AUTH: "test-auth toggle read by app code",
-  TEST_AUTH_SECRET: "test-auth secret read by app code",
-  JWT_SIGNING_SECRET: "JWT secret read by app code",
-  PICKER_COOKIE_SIGNING_KEY: "cookie-signing key read by app code",
-  GOOGLE_SERVICE_ACCOUNT_JSON: "service-account JSON read by sync code",
-  BASELINE_SERVER_ONLY: "capture-mode flag read by screenshot scripts",
-  // Suite-selection flags — read inside vitest/playwright config or specs.
-  VITEST_EXCLUDE_ENV_BOUND: "suite-selection flag read by vitest config",
-  VITEST_INCLUDE_MUTATION_HARNESS: "suite-selection flag read by vitest config",
-  DEV_GATE_ONLY: "suite-selection flag read by playwright config",
-  CREW_E2E_ONLY: "suite-selection flag read by playwright config",
-  STEP3_LIVE_BUNDLE_ONLY: "suite-selection flag read by playwright config",
-  HELP_DOCS_WALKER_ONLY: "suite-selection flag read by playwright config",
-  MODAL_PREFETCH_E2E: "suite-selection flag read by playwright config",
-  MODAL_REALTIME_E2E: "suite-selection flag read by playwright config",
-  REPEATS: "repeat-count input read by test scripts",
-  BRANCH: "branch name read by regen scripts",
-  PG_CRON_COVERAGE_TARGET: "coverage target read by audit scripts",
-  // GitHub API tokens — read by gh/scripts over HTTPS, not by the shell.
-  GH_TOKEN: "GitHub token read by gh CLI",
-  GH_APP_TOKEN: "GitHub token read by regen scripts",
-  BRANCH_PROTECTION_PAT: "GitHub token read by audit scripts",
+const DEMO_ANON_JWT =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+const DEMO_SERVICE_JWT =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
+export type EnvKeyAllowlist = Record<string, { values: string[]; reason: string }>;
+export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  SUPABASE_URL: {
+    values: ["${{ secrets.SUPABASE_URL }}", "http://127.0.0.1:54321"],
+    reason: "Supabase endpoint read by app/test code",
+  },
+  NEXT_PUBLIC_SUPABASE_URL: {
+    values: ["http://127.0.0.1:54321"],
+    reason: "Supabase endpoint read by app code",
+  },
+  SUPABASE_SECRET_KEY: {
+    values: ["${{ secrets.SUPABASE_SECRET_KEY }}", DEMO_SERVICE_JWT],
+    reason: "Supabase credential read by app/test code",
+  },
+  SUPABASE_ANON_KEY: {
+    values: [DEMO_ANON_JWT],
+    reason: "Supabase credential read by app/test code",
+  },
+  SUPABASE_SERVICE_ROLE_KEY: {
+    values: [DEMO_SERVICE_JWT],
+    reason: "Supabase credential read by app/test code",
+  },
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
+    values: [DEMO_ANON_JWT],
+    reason: "Supabase credential read by app code",
+  },
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: {
+    values: [DEMO_ANON_JWT],
+    reason: "Supabase credential read by app code",
+  },
+  SUPABASE_JWT_SECRET: {
+    values: ["super-secret-jwt-token-with-at-least-32-characters-long"],
+    reason: "local-stack JWT secret read by test bridge code",
+  },
+  SUPABASE_REALTIME_ISS: {
+    values: ["supabase-demo"],
+    reason: "realtime issuer read by test bridge code",
+  },
+  SUPABASE_TEST_REST_URL: {
+    values: ["${{ vars.SUPABASE_TEST_REST_URL }}"],
+    reason: "test-project endpoint read by test code",
+  },
+  SUPABASE_TEST_JWT_SECRET: {
+    values: ["${{ secrets.SUPABASE_TEST_JWT_SECRET }}"],
+    reason: "test-project secret read by test code",
+  },
+  SUPABASE_TEST_PUBLISHABLE_KEY: {
+    values: ["${{ vars.SUPABASE_TEST_PUBLISHABLE_KEY }}"],
+    reason: "test-project credential read by test code",
+  },
+  VALIDATION_SUPABASE_PROJECT_REF: {
+    values: ["vzakgrxqwcalbmagufjh"],
+    reason: "validation project ref read by audit scripts",
+  },
+  TEST_DATABASE_URL: {
+    values: ["${{ secrets.SUPABASE_TEST_DATABASE_URL }}"],
+    reason: "database URL read by test code via postgres client",
+  },
+  HASH_FOR_LOG_PEPPER: {
+    values: ["fxav-r41-test-pepper-32-chars-min-deterministic"],
+    reason: "log-hash pepper read by app code",
+  },
+  ENABLE_TEST_AUTH: { values: ["true"], reason: "test-auth toggle read by app code" },
+  TEST_AUTH_SECRET: {
+    values: ["fxav-m3-test-auth-2026-DO-NOT-SHIP", "test-secret-fixture"],
+    reason: "test-auth secret read by app code",
+  },
+  JWT_SIGNING_SECRET: {
+    values: ["redeem-link-test-secret-32-bytes-min"],
+    reason: "JWT secret read by app code",
+  },
+  PICKER_COOKIE_SIGNING_KEY: {
+    values: ["7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"],
+    reason: "cookie-signing key read by app code",
+  },
+  GOOGLE_SERVICE_ACCOUNT_JSON: {
+    values: ['{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'],
+    reason: "service-account JSON read by sync code",
+  },
+  BASELINE_SERVER_ONLY: { values: ["1"], reason: "capture-mode flag read by screenshot scripts" },
+  VITEST_EXCLUDE_ENV_BOUND: { values: ["1"], reason: "suite-selection flag read by vitest config" },
+  VITEST_INCLUDE_MUTATION_HARNESS: {
+    values: ["1"],
+    reason: "suite-selection flag read by vitest config",
+  },
+  DEV_GATE_ONLY: { values: ["1"], reason: "suite-selection flag read by playwright config" },
+  CREW_E2E_ONLY: { values: ["1"], reason: "suite-selection flag read by playwright config" },
+  STEP3_LIVE_BUNDLE_ONLY: {
+    values: ["1"],
+    reason: "suite-selection flag read by playwright config",
+  },
+  HELP_DOCS_WALKER_ONLY: {
+    values: ["1"],
+    reason: "suite-selection flag read by playwright config",
+  },
+  MODAL_PREFETCH_E2E: {
+    values: ["1"],
+    reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
+  },
+  MODAL_REALTIME_E2E: {
+    values: ["1"],
+    reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
+  },
+  REPEATS: {
+    values: ["${{ github.event.inputs.transitions_repeats || '1' }}"],
+    reason: "repeat-count input read by test scripts",
+  },
+  BRANCH: { values: ["${{ github.ref_name }}"], reason: "branch name read by regen scripts" },
+  PG_CRON_COVERAGE_TARGET: {
+    values: ["validation"],
+    reason: "coverage target read by audit scripts",
+  },
+  GH_TOKEN: { values: ["${{ github.token }}"], reason: "GitHub token read by gh CLI" },
+  GH_APP_TOKEN: {
+    values: ["${{ secrets.GH_APP_TOKEN }}"],
+    reason: "GitHub token read by regen scripts",
+  },
+  BRANCH_PROTECTION_PAT: {
+    values: ["${{ secrets.BRANCH_PROTECTION_PAT }}"],
+    reason: "GitHub token read by audit scripts",
+  },
 };
 
 /**
- * The SORTED off-allowlist keys of a static env: map (static-env spec §2.0).
- * Membership is OWN-property membership — `Object.hasOwn`, never `in`: the
- * prototype chain would silently allowlist keys named `constructor`,
- * `toString`, `__proto__`, `hasOwnProperty` (spec §7 R1 F2). Non-mapping
+ * The SORTED off-allowlist keys of a static env: map (static-env spec §2.0):
+ * keys with no row, plus keys whose VALUE TEXT is outside their row's pinned
+ * set. Membership is OWN-property membership — `Object.hasOwn`, never `in`:
+ * the prototype chain would silently allowlist keys named `constructor`,
+ * `toString`, `__proto__`, `hasOwnProperty` (spec §7 R1 F2). Scalar coercion
+ * mirrors the parser: strings as-is, other scalars via String(). Non-mapping
  * input returns [] — structural validity is validWorkflowShape's job.
  */
 export function offAllowlistEnvKeys(
   env: unknown,
-  allowlist: Record<string, string> = ENV_KEY_ALLOWLIST,
+  allowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
 ): string[] {
   if (env === null || typeof env !== "object" || Array.isArray(env)) return [];
-  return Object.keys(env)
-    .filter((k) => !Object.hasOwn(allowlist, k))
+  return Object.entries(env)
+    .filter(([k, v]) => {
+      if (!Object.hasOwn(allowlist, k)) return true;
+      const text = typeof v === "string" ? v : String(v);
+      return !allowlist[k]!.values.includes(text);
+    })
+    .map(([k]) => k)
     .sort();
 }
 
@@ -823,7 +917,7 @@ export function usesValuePoisons(
   value: unknown,
   localActions: Record<string, string>,
   seen: ReadonlySet<string>,
-  envKeyAllowlist: Record<string, string> = ENV_KEY_ALLOWLIST,
+  envKeyAllowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
 ): boolean {
   const kind = usesKind(value);
   if (kind === "invalid") return true;
@@ -1319,10 +1413,7 @@ export function scanWorkflowCoverage({
         // receives the hostile env (NODE_OPTIONS into a javascript action)
         // and what it does to the job is thereafter unmodellable. Coarse
         // poison, deliberately not step-local.
-        if (
-          "uses" in parsedStep &&
-          offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist).length > 0
-        )
+        if ("uses" in parsedStep && offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist).length > 0)
           envPoisoned = true;
         if (
           "uses" in parsedStep &&

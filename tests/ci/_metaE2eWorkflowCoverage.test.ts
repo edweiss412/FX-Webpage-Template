@@ -26,14 +26,18 @@ import { parse } from "yaml";
 import { ENV_KEY_ALLOWLIST, scanWorkflowCoverage } from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
 
-/** Every env: key a live workflow or local action manifest carries, read from
- *  the PARSED documents (spec §2.3 — a grep would count comments/prose as
- *  live usage, laundering stale allowlist rows). */
-function liveEnvKeys(): Set<string> {
-  const keys = new Set<string>();
+/** Every env: (key, value-text) pair a live workflow or local action
+ *  manifest carries, read from the PARSED documents (spec §2.3 — a grep
+ *  would count comments/prose as live usage, laundering stale rows). */
+function liveEnvPairs(): Map<string, Set<string>> {
+  const pairs = new Map<string, Set<string>>();
   const collect = (env: unknown) => {
     if (env !== null && typeof env === "object" && !Array.isArray(env))
-      for (const k of Object.keys(env as Record<string, unknown>)) keys.add(k);
+      for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+        const set = pairs.get(k) ?? new Set<string>();
+        set.add(typeof v === "string" ? v : String(v));
+        pairs.set(k, set);
+      }
   };
   const wfDir = join(process.cwd(), ".github/workflows");
   for (const f of readdirSync(wfDir).filter((n) => /\.ya?ml$/.test(n))) {
@@ -61,7 +65,7 @@ function liveEnvKeys(): Set<string> {
       }
     }
   }
-  return keys;
+  return pairs;
 }
 
 const ROOT = process.cwd();
@@ -648,9 +652,9 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.rejected[0]!.reason, body).toBe("unmodelled YAML spelling");
     }
     // …and a well-formed steps job with typed optional keys still counts.
-    // env key REPEATS: allowlisted live key — this fixture pins TYPED-value
+    // env key CREW_E2E_ONLY: allowlisted live pair ('1') — this fixture pins TYPED-value
     // acceptance, not key modeling (the static-env suite owns key fixtures).
-    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      REPEATS: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
+    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      CREW_E2E_ONLY: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
     expect(S(wf(ok)).covered.has(spec)).toBe(true);
   });
 
@@ -1199,7 +1203,7 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     // On-profile optional keys stay CLEAN — the profile is narrow, not empty.
     const rich = S(two("uses: ./.github/actions/rich"), {
       "./.github/actions/rich":
-        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        REPEATS: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
+        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        CREW_E2E_ONLY: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
     });
     expect(rich.covered.has(spec)).toBe(true);
   });
@@ -1586,7 +1590,7 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
   const POISON_REASON =
     "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
   // Fixture-local allowlist: fixtures must not couple to live seed rows.
-  const ALLOW = { GOOD_KEY: "fixture-inert test key" };
+  const ALLOW = { GOOD_KEY: { values: ["v"], reason: "fixture-reviewed test pair" } };
   const S = (w: string, localActions: Record<string, string> = {}) =>
     scanWorkflowCoverage({
       workflows: { "w.yml": w },
@@ -1681,20 +1685,36 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
     expect(r.covered.has(spec)).toBe(false);
     expect(r.rejected[0]!.reason).toBe(ENV_REASON(["AA_A", "ZZ_B"]));
   });
+
+  it("value pinning: an allowlisted key with a NOVEL value fails closed (S7, spec §7 R2)", () => {
+    // The R2 live mutant: MODAL_PREFETCH_E2E=0 gated test.skip into a green
+    // run with no tests while a key-name-only registry stayed clean. A row
+    // pins exact value TEXTS; anything else is off-list like a novel key.
+    const novel = S(job("    env:\n      GOOD_KEY: other\n"));
+    expect(novel.covered.has(spec)).toBe(false);
+    expect(novel.rejected[0]!.reason).toBe(ENV_REASON(["GOOD_KEY"]));
+    expect(S(job("    env:\n      GOOD_KEY: v\n")).covered.has(spec)).toBe(true);
+  });
 });
 
 describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
-  it("every allowlist row's key appears in a live parsed env: map, with a non-empty reason (S6)", () => {
-    const live = liveEnvKeys();
-    for (const [key, reason] of Object.entries(ENV_KEY_ALLOWLIST)) {
+  it("every allowlist row pins live (key, value) pairs only, with a non-empty reason (S6)", () => {
+    const live = liveEnvPairs();
+    for (const [key, row] of Object.entries(ENV_KEY_ALLOWLIST)) {
       expect(live.has(key), `stale env-key row: ${key} — remove it`).toBe(true);
-      expect(reason.trim().length > 0, `reason-less env-key row: ${key}`).toBe(true);
+      expect(row.values.length > 0, `value-less env-key row: ${key}`).toBe(true);
+      for (const v of row.values)
+        expect(live.get(key)!.has(v), `stale pinned value for ${key}: ${v} — remove it`).toBe(true);
+      expect(row.reason.trim().length > 0, `reason-less env-key row: ${key}`).toBe(true);
     }
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
-    const live = liveEnvKeys();
+    const live = liveEnvPairs();
     expect(live.has("GHOST_KEY_NEVER_LIVE")).toBe(false);
     expect(live.size > 0).toBe(true);
+    // Doctored value: a live key with a never-live pinned value must read stale.
+    const anyKey = [...live.keys()][0]!;
+    expect(live.get(anyKey)!.has("__NEVER_A_LIVE_VALUE__")).toBe(false);
   });
 });
