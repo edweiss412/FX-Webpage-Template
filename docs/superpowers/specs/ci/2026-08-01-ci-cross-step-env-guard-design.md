@@ -46,7 +46,7 @@ One shared predicate, two layer-specific groupings. Both layers keep their exist
 
 ### §2.0 The poison predicate
 
-A text "writes env" when, after dropping full-line `#` comment lines, it contains the substring `GITHUB_ENV` or `GITHUB_PATH` (case-sensitive — the runner exports exactly these names; bash variables are case-sensitive).
+A text "writes env" when, after dropping full-line `#` comment lines, it mentions the env-file family: the `GITHUB_ENV`/`GITHUB_PATH` variables OR the documented `github.env` / `github.path` context properties, which name the same files (R31) (case-sensitive — the runner exports exactly these names; bash variables are case-sensitive).
 
 - Census form: a small helper inside `tests/ci/_metaSpecRegistration.test.ts` applied to `run:` strings.
 - Scanner form: the same regex applied to the step CHUNK (everything the step-splitter produced, minus full-line-comment lines). The chunk includes `name:`/`with:`/`env:` lines — chunk-level matching is deliberately broader than the census's run-block matching (§5 L5); broader is the safe direction.
@@ -258,3 +258,6 @@ Consequence bound, stated per limit (R1 correction — the earlier draft claimed
 
 
 **R30 (Codex, 2026-08-01, VERDICT: BLOCKING; one finding, probe-backed, ACCEPTED):** `validatedCompositeSteps` accepted runner-invalid manifests — untyped action-root `name`/`description`/`inputs`/`outputs` (and unknown root keys), step `id`s that fail the runner's identifier syntax or repeat, and `continue-on-error` as any non-empty string — which refuted §5 L7's claim that its residue is exclusively refused-but-valid. **Disposition:** the manifest root is typed through the same `typedShape` helper, step ids must match the runner's identifier pattern and be unique within the action, and `continue-on-error` accepts a boolean or an expression token only. Eight invalid manifests are fixture-pinned (four root shapes, an unknown root key, a bad id, a duplicate id, a literal coe) with a well-typed manifest control. L7's wording is also corrected to carry the same honest boundary L9 does — the profile is repo-calibrated, and further action-schema-detail gaps are documented limits.
+
+
+**R31 (Codex, 2026-08-01, VERDICT: BLOCKING; one finding, probe-backed, ACCEPTED — and squarely on the CHARTER surface, unlike the schema thread):** GitHub exposes `github.env` and `github.path` as documented context properties naming the same files `GITHUB_ENV`/`GITHUB_PATH` name, so a step writing through either mutates every later step in the job — and both predicates recognized only the uppercase variables. This is not a constructed-name obfuscation under §5 L2; it is a first-class spelling of the very vector this guard exists to catch, and it escaped at workflow, direct-composite, and nested-composite sites. **Disposition:** both layers now share one `ENV_FILE_MENTION` family covering the variables and the context properties (whitespace-tolerant, case-insensitive). Fixtures pin both properties at all three scanner sites and census-side.

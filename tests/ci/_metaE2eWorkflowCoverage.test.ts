@@ -893,6 +893,28 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(okW, okActions).covered.has(spec)).toBe(true);
   });
 
+  it("github.env / github.path aliases poison like the variables (R31)", () => {
+    // These context properties NAME the same env files, so a write through
+    // either mutates later steps in the job — a charter-surface vector, not
+    // a constructed-name obfuscation.
+    for (const prop of ["github.env", "github.path"]) {
+      const direct = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "/fake-bin" >> "\${{ ${prop} }}"\n      - run: pnpm exec playwright test ${spec}\n`;
+      const r = S(direct);
+      expect(r.covered.has(spec), `direct ${prop}`).toBe(false);
+      expect(r.rejected[0]!.reason, `direct ${prop}`).toBe(REASON);
+      const viaAction = S(two("uses: ./.github/actions/w2"), {
+        "./.github/actions/w2": `runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "\${{ ${prop} }}"\n      shell: bash\n`,
+      });
+      expect(viaAction.covered.has(spec), `composite ${prop}`).toBe(false);
+      const nested = S(two("uses: ./.github/actions/p4"), {
+        "./.github/actions/p4":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/w2\n",
+        "./.github/actions/w2": `runs:\n  using: composite\n  steps:\n    - run: echo "/fake-bin" >> "\${{ ${prop} }}"\n      shell: bash\n`,
+      });
+      expect(nested.covered.has(spec), `nested ${prop}`).toBe(false);
+    }
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

@@ -279,8 +279,17 @@ const customShell = (s: StepShape) =>
  * runner exports exactly these names). Constructed-name evasions are the
  * ratified perfect-obfuscation-impossible axiom (spec §5 L2).
  */
+/**
+ * The env-file mention family (R31): the uppercase variables AND the
+ * documented `github.env` / `github.path` context properties, which name
+ * the same files — a step writing through either mutates every later
+ * step in the job, so recognizing only the variables missed a real
+ * charter-surface vector (not a constructed-name obfuscation).
+ */
+const ENV_FILE_MENTION = /GITHUB_ENV|GITHUB_PATH|github\s*\.\s*(?:env|path)\b/i;
+
 const writesJobEnv = (text: string): boolean =>
-  /GITHUB_ENV|GITHUB_PATH/.test(
+  ENV_FILE_MENTION.test(
     text
       .split(/\r?\n/)
       .filter((l) => !/^[ \t]*#/.test(l))
@@ -1515,6 +1524,22 @@ describe("spec registration detector (spec §3.1)", () => {
         ),
         ref,
       ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
+    }
+    // R31: github.env / github.path name the same env files, so a write
+    // through either poisons later blocks census-side too.
+    for (const prop of ["github.env", "github.path"]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "/fake-bin" >> "\${{ ${prop} }}"\n      - run: echo later\n`,
+          ),
+          {},
+        ),
+        prop,
+      ).toEqual([
+        { run: `echo "/fake-bin" >> "\${{ ${prop} }}"`, guarded: false, poisoned: false },
+        { run: "echo later", guarded: false, poisoned: true },
+      ]);
     }
     // R13: the docker:// family is refused wholesale (spec §5 L8) — its
     // reference grammar is its own spec and two rounds of modelling it

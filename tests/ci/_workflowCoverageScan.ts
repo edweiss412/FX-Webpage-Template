@@ -651,8 +651,17 @@ type Opts = {
  * included) — broader than the census's run-block match, in the safe
  * direction (spec §5 L5).
  */
+/**
+ * The env-file mention family (R31): the uppercase variables AND the
+ * documented `github.env` / `github.path` context properties, which name
+ * the same files — a step writing through either mutates every later
+ * step in the job, so recognizing only the variables missed a real
+ * charter-surface vector (not a constructed-name obfuscation).
+ */
+const ENV_FILE_MENTION = /GITHUB_ENV|GITHUB_PATH|github\s*\.\s*(?:env|path)\b/i;
+
 function writesJobEnv(chunk: string): boolean {
-  return /GITHUB_ENV|GITHUB_PATH/.test(
+  return ENV_FILE_MENTION.test(
     chunk
       .split("\n")
       .filter((l) => !/^[ \t]*#/.test(l))
