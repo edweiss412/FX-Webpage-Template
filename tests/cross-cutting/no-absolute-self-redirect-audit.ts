@@ -698,9 +698,10 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         }
         continue;
       }
+      const initFn = unwrapAliasRhs(init);
       if (
-        (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) &&
-        functionLikeReturnsCarrier(init) &&
+        (Node.isArrowFunction(initFn) || Node.isFunctionExpression(initFn)) &&
+        functionLikeReturnsCarrier(initFn) &&
         !carrierFnDecls.has(vd)
       ) {
         carrierFnDecls.add(vd);

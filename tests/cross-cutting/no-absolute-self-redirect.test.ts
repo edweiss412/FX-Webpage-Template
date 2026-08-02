@@ -669,6 +669,16 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings).toHaveLength(1);
   });
 
+  it("flags R102 wrapped inline helper initializer", () => {
+    // whole-diff r21: `const pick = (() => globalThis)!` — the function-like
+    // initializer classifies through the same RHS unwrap as aliases.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst pick = (() => globalThis)!;\nexport function GET() { return viaEnvironment(pick(), new URL("/x", request.url)); }`,
+    );
+    expect(findings).toHaveLength(1);
+  });
+
   it("flags R101b staged helper alias through a type-asserted RHS", () => {
     const findings = auditSource(
       fixturePath(),
