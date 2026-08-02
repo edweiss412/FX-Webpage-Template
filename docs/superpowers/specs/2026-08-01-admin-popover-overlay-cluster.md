@@ -119,8 +119,43 @@ menu cannot be open concurrently:
   backdrop (`fixed inset-0 z-20` paints above the header's in-flow content),
   which closes the hub without opening the menu.
 
-So there is no reachable state with both surfaces open. The closed state — the
-one T-HUB-ZORDER guards — is byte-identical.
+Those two arguments cover POINTER activation only. Keyboard activation fires
+no `pointerdown` and the backdrop does not block focus traversal: with the hub
+open, Tab reaches the attention pill and Enter toggles `menuOpen`
+(`components/admin/showpage/PublishedReviewModal.tsx:773`), and with the menu
+open, Tab reaches a hub trigger and Enter opens the hub (review R3 F1) — and
+T-HUB-ZORDER proves the trigger and menu boxes overlap, so a concurrent state
+would let the elevated triggers overpaint menu rows. The mutual exclusion is
+therefore made keyboard-inclusive (§3.4) rather than argued from pointer
+machinery alone. The closed state — the one T-HUB-ZORDER guards — is
+byte-identical.
+
+### 3.4 Focus-leave light dismiss (keyboard-inclusive mutual exclusion)
+
+Both surfaces adopt the standard non-modal light-dismiss-on-focus-leave
+contract, which closes each of the two keyboard routes into a concurrent-open
+state one Tab stop before it can occur:
+
+- **AttentionMenu:** the panel's existing document-listener effect
+  (`components/admin/showpage/AttentionMenu.tsx:81-105`) additionally closes
+  the menu on `focusin` events whose target is outside both the panel and the
+  pill (mirroring the `pointerdown` predicate at
+  `components/admin/showpage/AttentionMenu.tsx:89-98`). Tabbing from the menu
+  toward a hub trigger closes the menu before Enter can open the hub.
+- **ShareHub:** while `open`, a document-level `focusin` listener closes the
+  popover (without focus restore — focus is already where the user sent it)
+  when focus lands outside the popover panel, the backdrop, and both triggers,
+  EXCEPT while `busy` (the same gate every other dismissal path honors,
+  `components/admin/showpage/ShareHub.tsx:198`). Tabbing from the hub toward
+  the attention pill closes the hub before Enter can open the menu.
+
+Guard conditions: `focusin` fires only when focus lands on another DOCUMENT
+element, so window blur / focus to browser chrome (no `focusin` target inside
+the document) does NOT dismiss either surface — deliberate, matching the
+backdrop's behavior (documented in §10). Real-browser coverage (§11): from
+each surface held open, keyboard-walk to the other's trigger and activate it;
+assert the first surface is closed by the time the second opens (both
+directions).
 
 ### 3.3 Guard updates
 
@@ -189,24 +224,38 @@ transition (monitoring-only → needs-you at 390×560 with the menu held open,
 asserting containment + last-row reachability after the flip) is a REQUIRED
 case in the §11 standalone spec.
 
-Entrance-transform error bound: the panel's `scale-95` entrance
-(`AttentionMenu.tsx:128-130`, `origin-top-right`) distorts
-`getBoundingClientRect` for ~1 frame; the scroller-top mis-measure is bounded
-by (1−0.95) × (scroller.top − panel.top) ≈ 0.05 × 47 ≈ 2.4px (probe §2.2
-geometry), strictly less than `DEFAULT_CLIP_GUTTER` (8px,
-`lib/layout/fitWithinClip.ts:21`), so a cap computed mid-entrance still cannot
-cross the clip edge; the settled state is what the layout spec asserts
-(`prefers-reduced-motion: reduce`, the standalone-layout-spec idiom).
+Entrance-transform error + settled remeasure (review R3 F4): the panel's
+`scale-95` entrance (`AttentionMenu.tsx:128-130`, `origin-top-right`) distorts
+`getBoundingClientRect` while it is applied, and the mount-effect measurement
+runs BEFORE the entrance rAF flip, so with no further signal the cap would
+retain a mis-measure bounded by (1−0.95) × (scroller.top − panel.top) ≈
+0.05 × 47 ≈ 2.4px (probe §2.2 geometry) — contained (strictly less than the
+8px `DEFAULT_CLIP_GUTTER`, `lib/layout/fitWithinClip.ts:21`) but violating
+§9.1's ±0.5px equality. Transform completion does not change the observed
+offset-parent's layout box, so the §4.1 observer does not cover it. Two
+settled-remeasure signals close it deterministically: the hook accepts an
+optional `reapplyKey` dep (re-runs `apply()` when it changes) and AttentionMenu
+passes its `entered` state — under `prefers-reduced-motion: reduce` the flip
+IS the settle (transition collapses to none), so this alone makes the layout
+spec deterministic; and the hook listens for `transitionend` on the fitted
+element's `offsetParent` and re-applies, covering the animated path. The
+transient window between mount-measure and settle stays contained by the
+gutter (§10).
 
 Keyboard reachability (review R2 F3): the scroller can overflow with ZERO
 focusable descendants (monitoring-only lists render read-only rows,
 `components/admin/showpage/AttentionMenu.tsx:188-220`), and engines do not
 uniformly place scroll containers in sequential focus order. The scroller
-therefore gains `tabIndex={0}` plus an accessible name
-(`aria-label="Show issues"`) — the standard scrollable-region-focusable
-contract — so keyboard users can focus it and scroll with arrow keys. The §11
-standalone spec asserts it: focus the scroller via Tab, send `ArrowDown`,
-assert `scrollTop` increased.
+therefore gains `tabIndex={0}` AND an explicit nameable role with an
+accessible name: `role="group"` + `aria-label="Show issues"`. The role is
+load-bearing, not decorative (review R3 F3): a bare `div` maps to the
+`generic` role, which is naming-prohibited under W3C ARIA-in-HTML, so
+`aria-label` alone would be invalid. (`PublishedToggle`'s banner is already
+`role="alert"` — `components/admin/PublishedToggle.tsx:174` — which is
+nameable, so §4.3 needs only `tabIndex` + `aria-label`.) The §11 standalone
+spec asserts the accessibility tree AND the behavior: locate the scroller via
+`getByRole("group", { name: "Show issues" })`, focus it via Tab, send
+`ArrowDown`, assert `scrollTop` increased.
 
 Registry row flips: `components/admin/showpage/AttentionMenu.tsx` disposition
 `unverified-gap` → `fit-within-clip`
@@ -363,6 +412,7 @@ structure O1 (needs-you present) / O2 (monitoring-only)
 | entered/pre-frame → absent | Instant unmount (existing; close has no exit animation by contract) |
 | O1 ↔ O2 while open | Instant heading mount/unmount (existing, pinned by the O1↔O2 collapse coverage in `tests/e2e/attention-pill-focus.spec.ts`). NEW interaction: the flip re-fires the fit observer (§4.1 extension); no animation |
 | Compound: O1↔O2 while entrance mid-flight | Both instant vs animated axes compose; fit re-measure fires on the panel resize regardless of entrance progress; mid-entrance measurement error bounded < gutter (§4.2) |
+| Compound: menu open while hub open (keyboard route) | Prevented one Tab stop early by focus-leave light dismiss on both surfaces (§3.4); asserted both directions in the §11 e2e |
 
 **PublishedToggle inline surfaces** — states: none, error banner, finalize
 chip; error wins over finalize (`components/admin/PublishedToggle.tsx:126-127`).
@@ -403,7 +453,10 @@ Fixed-dimension parent → child relationships this cluster creates:
    fixture guarantees it) and `floor(panel.bottom − scroller.top − 8) < 384`,
    the scroller's rendered height equals
    `floor(panel.bottom − scroller.top − 8)` px (±0.5px), guaranteed by the
-   hook's `style.maxHeight` write (`lib/layout/fitWithinClip.ts:56`). Where the
+   hook's `style.maxHeight` write (`lib/layout/fitWithinClip.ts:56`),
+   asserted SETTLED — after the entrance flip/transition end, which re-fires
+   `apply()` per §4.2 (mid-entrance the cap may exceed the formula by ≤2.4px,
+   still inside the gutter). Where the
    panel affords ≥384px, rendered height ≤ 384px (`max-h-96`). Short content
    renders at natural height (max-height is an upper bound only, §4.4). Floor
    regime: when available space < `MIN_FITTED_HEIGHT` (48px), the floor wins
@@ -451,7 +504,10 @@ standalone spec asserting 1-2 at 390×{560,667,844} plus last-row
 - The jsdom Selection timer (§2.3) remains observable in any fake-timer test
   that focuses an element; tests must keep using delta baselines rather than
   global zero-count assertions.
-- Trigger elevation relies on the §3.2 mutual-exclusion argument; a FUTURE
+- Focus-leave light dismiss (§3.4) deliberately does not fire on window blur
+  or focus moving to browser chrome (no in-document `focusin` target) — the
+  surface stays open across an app switch, matching backdrop behavior.
+- Trigger elevation relies on the §3.2/§3.4 mutual-exclusion contract; a FUTURE
   surface that renders another `z≥30` positioned element inside the strip
   while the hub is open would need its own registry-style reasoning (T-HUB-ZORDER
   still guards the closed state; the open-state companion pin guards this one).
@@ -478,13 +534,16 @@ shared helpers unadopted):
   (i) IMPORT — each consumer imports the shared module
   (`@/components/admin/useFitWithinClip` for ReSyncButton/AttentionMenu/
   PublishedToggle; `@/lib/popover/rafCoalescer` for ShareHub/HoverHelp);
-  (ii) CALL — the same file contains a matching call expression
-  (`useFitWithinClip(` / `createRafCoalescer(`), so an unused aliased import
-  cannot satisfy the pin alone;
-  (iii) NO SAME-NAME LOCAL — no consumer defines a local
-  `function useFitWithinClip` / `findClippingAncestor` /
-  `createRafCoalescer`, and the "cleared BEFORE running" marker comment
-  appears in exactly one source file (the shared module).
+  (ii) CALL BOUND TO THE IMPORT — the structural test resolves, at the
+  TypeScript AST level (the compiler API the repo already ships; regex is
+  insufficient here, review R3 F2), that the file contains a call expression
+  whose callee identifier is the IMPORT BINDING from the shared module — an
+  unused aliased import plus a decoy call cannot satisfy it;
+  (iii) NO SAME-NAME LOCAL, ANY DECLARATION FORM — no consumer declares
+  `useFitWithinClip`, `findClippingAncestor`, or `createRafCoalescer` locally
+  in ANY form (`function`, `const`/`let`/`var`, `class`, import alias
+  shadowing), and the "cleared BEFORE running" marker comment appears in
+  exactly one source file (the shared module).
   Closure boundary, stated explicitly (review R2 F1): a local
   reimplementation under a DIFFERENT name with the imported helper consumed
   by a decoy call is outside this closure set — these are drift guards, not
@@ -497,8 +556,10 @@ Real browser (standalone config): new `tests/e2e/popover-clip-fit.spec.ts (new)`
 `tests/e2e/standalone.config.ts` `testMatch`, R7) — §9 invariants 1-2 with the
 assertion-targeting split above (last interactive needs-you row ≥44px;
 monitoring tail read-reachable), the held-open monitoring-only → needs-you
-group-flip containment case (§4.2), keyboard-scroll assertions for both
-focusable scrollers (§4.2/§4.3), and `PublishedToggle` banner containment with
+group-flip containment case (§4.2), keyboard-scroll + role/name
+accessibility-tree assertions for both focusable scrollers (§4.2/§4.3), the
+§3.4 keyboard mutual-exclusion walks (both directions), the settled-state
+±0.5px fit equality (§9.1), and `PublishedToggle` banner containment with
 a forced long error; runs on the existing whole-config standalone workflow.
 
 Standalone membership baseline (review R2 F4): the standalone workflow and
