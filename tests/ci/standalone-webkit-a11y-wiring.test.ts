@@ -11,6 +11,7 @@
  * too — both regress THIS assertion, not just coverage intent.
  */
 import { execFileSync } from "node:child_process";
+import { parse as parseYaml } from "yaml";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -109,6 +110,29 @@ describe("standalone WebKit a11y leg wiring", () => {
           return line;
         })
         .join("\n");
+    // ACTIVATED steps only (whole-diff review R6 HIGH, class-swept from the crew-e2e guard): a
+    // step-level or job-level `if:` can switch the install off entirely, and
+    // `continue-on-error: true` lets it fail while CI reports success — both leave a cold runner
+    // without WebKit while the text still reads as an install. Parsed structurally with the `yaml`
+    // dependency; fail-closed, so legitimate gating reads as uninstalled.
+    const activatedRuns = (): string[] => {
+      const doc = parseYaml(
+        readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"),
+      ) as {
+        jobs?: Record<string, { if?: unknown; "continue-on-error"?: unknown; steps?: unknown[] }>;
+      };
+      const runs: string[] = [];
+      for (const job of Object.values(doc.jobs ?? {})) {
+        if (job.if !== undefined || job["continue-on-error"] === true) continue;
+        for (const raw of job.steps ?? []) {
+          const step = raw as { run?: unknown; if?: unknown; "continue-on-error"?: unknown };
+          if (typeof step.run !== "string") continue;
+          if (step.if !== undefined || step["continue-on-error"] === true) continue;
+          runs.push(step.run);
+        }
+      }
+      return runs;
+    };
     const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
     // Non-INSTALLING modes (whole-diff review R2 HIGH live mutant): `playwright install
     // --dry-run … webkit` and `install-deps --dry-run … webkit` print what they would do and
@@ -117,12 +141,8 @@ describe("standalone WebKit a11y leg wiring", () => {
     // exit-0-without-acting shape. Segments carrying any of these are not installs.
     const NON_INSTALLING = new Set(["--dry-run", "--help", "-h"]);
     const installSegments = (subcommand: "install" | "install-deps"): string[][] =>
-      [
-        ...stripYaml(
-          readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"),
-        ).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g),
-      ]
-        .map((m) => m[1]!)
+      activatedRuns()
+        .map((c) => stripYaml(c))
         .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
         .map((seg) => seg.trim().split(/\s+/))
         .filter((t) => {

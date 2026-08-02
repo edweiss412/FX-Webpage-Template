@@ -89,6 +89,12 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF18 — step/job activation gating (whole-diff review R6 live mutant):** `if: false` on the one
+  Playwright step left both suites dark with the job, both guards and the coverage meta-test green
+  (the specs carry dark-spec allowlist rows, so nothing else backstops it). Text scanning cannot see
+  step structure, so both guards now parse the workflow with the `yaml` dependency and consider only
+  ACTIVATED runs: no `if:` at step or job level, no `continue-on-error: true` at either. Fail-closed
+  — legitimate gating reads as unwired.
 - **MF14 — effective-engine override (whole-diff review R5 live mutant):** an explicit
   `browserName: "chromium"` after the Desktop Safari spread left `defaultBrowserType` reading
   "webkit" while the worker fixture launched Chromium — `browserName` is an overridable worker
@@ -184,6 +190,12 @@ const FOLD_AGENDA_LINKS = [
     // click (components/agenda/AgendaEmbed.tsx), which these tests never perform.
     fileId: "agenda-fold-e2e-fileid",
     extracted: {
+      // SUPERSEDED BY MF17 — do NOT replay this payload. `confidence: "high"` is a claim about
+      // the producer, and the two-session, room-less shape below is one no extractor version can
+      // emit (n >= 5 sessions and >= 75% roomed, `lib/agenda/constants.ts`). The shipped fixture
+      // in tests/e2e/stage-restricted-crew-schedule.spec.ts carries 6 sessions across the two
+      // days, every one timed, titled and roomed; the day labels and row order below are the only
+      // parts that survived unchanged.
       confidence: "high" as const,
       corrections: 0,
       extractorVersion: 1,
