@@ -486,6 +486,36 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(ok.covered.has(spec)).toBe(true);
   });
 
+  it("a malformed docker:// image reference is invalid, not trusted (R12)", () => {
+    // The runner strips docker:// and pulls the remainder; `docker://@` is
+    // not a valid image reference, the pull fails, and the downstream step
+    // never runs — a \\S+ check trusted it at all three sites.
+    for (const ref of ["docker://@", "docker://", "docker://:tag", "docker://UPPER/img"]) {
+      const direct = S(two(`uses: ${ref}`));
+      expect(direct.covered.has(spec), `workflow ${ref}`).toBe(false);
+      expect(direct.rejected[0]!.reason, `workflow ${ref}`).toBe(REASON);
+      const child = S(two("uses: ./.github/actions/d1"), {
+        "./.github/actions/d1": `runs:\n  using: composite\n  steps:\n    - uses: ${ref}\n`,
+      });
+      expect(child.covered.has(spec), `composite child ${ref}`).toBe(false);
+      const nested = S(two("uses: ./.github/actions/d2"), {
+        "./.github/actions/d2":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/d1\n",
+        "./.github/actions/d1": `runs:\n  using: composite\n  steps:\n    - uses: ${ref}\n`,
+      });
+      expect(nested.covered.has(spec), `nested ${ref}`).toBe(false);
+    }
+    // …and real image references stay trusted (tag, digest, registry host).
+    for (const ref of [
+      "docker://alpine:3",
+      "docker://ghcr.io/owner/img:v1.2",
+      `docker://alpine@sha256:${"a".repeat(64)}`,
+      "docker://registry.example.com:5000/team/img",
+    ]) {
+      expect(S(two(`uses: ${ref}`)).covered.has(spec), ref).toBe(true);
+    }
+  });
+
   it("invalid composite manifests are opaque: inexact using values, missing steps (R7)", () => {
     // GitHub requires runs.using === "composite" VERBATIM and requires
     // runs.steps — composite!, composite/x, or a steps-less composite is an

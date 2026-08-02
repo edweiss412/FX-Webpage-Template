@@ -101,7 +101,21 @@ export function usesKind(v: unknown): UsesKind {
   if (typeof v !== "string") return "invalid";
   const s = v.trim();
   if (s.startsWith("./")) return "local";
-  if (/^docker:\/\/\S+$/.test(s)) return "remote";
+  // docker:// takes a real IMAGE REFERENCE (R12): `docker://@` passed a
+  // \S+ check and the runner then fails the pull, so the downstream step
+  // never runs. Narrow-accept grammar: optional registry host[:port], one
+  // or more lowercase path components, optional :tag or @sha256 digest.
+  // A registry HOST must contain a dot or a port, or be literal localhost —
+  // otherwise the first component is a namespace, which docker requires to
+  // be lowercase (so `docker://UPPER/img` is invalid, not a host).
+  const IMG_PATH = "[a-z0-9]+(?:[._-][a-z0-9]+)*";
+  const HOST = "(?:localhost|[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+)(?::\\d+)?";
+  if (
+    new RegExp(
+      `^docker://(?:${HOST}/)?${IMG_PATH}(?:/${IMG_PATH})*(?::[\\w][\\w.-]*|@sha256:[a-f0-9]{64})?$`,
+    ).test(s)
+  )
+    return "remote";
   if (/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[\w./-]+$/.test(s)) return "remote";
   return "invalid";
 }
