@@ -1,6 +1,6 @@
 # Plan — static env-block key allowlist for both CI guard layers
 
-**Spec:** `docs/superpowers/specs/ci/2026-08-02-ci-static-env-injection-design.md` (canonical; §3 = mutation-family closure set S1–S6; §5 = documented limits; §7 = review record). **Branch:** `test/ci-static-env-injection`. **Backlog item:** `BL-CI-STATIC-ENV-INJECTION` (graduates to repo-root `BACKLOG-archive.md` in T3).
+**Spec:** `docs/superpowers/specs/ci/2026-08-02-ci-static-env-injection-design.md` (canonical; §3 = mutation-family closure set S1–S8; §5 = documented limits; §7 = review record). **Branch:** `test/ci-static-env-injection`. **Backlog item:** `BL-CI-STATIC-ENV-INJECTION` (graduates to repo-root `BACKLOG-archive.md` in T3).
 
 Every task: failing test → minimal implementation → passing test → one conventional commit (`test(ci): …`). No task touches UI, DB, locks, or mutation surfaces — invariants 2/3/5/8/9/10 are N/A.
 
@@ -24,7 +24,7 @@ impeccable-gate: N/A — no UI surface
 
 ## Meta-test inventory (mandatory declaration)
 
-This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` (value-pinned rows) with its two hygiene `it`-blocks (pair-level stale-row, non-empty-reason/value — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
+This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`) and CREATES one new registry inside them: `ENV_KEY_ALLOWLIST` (value-pinned rows) with its three hygiene `it`-blocks (pair-level stale-row; governance equality via `envPairGovernance` + `governanceViolations`; non-empty-reason/value — spec §2.3). One `BACKLOG_GRADUATED` row is added to `tests/docs/_metaDeferralLedgerGraduation.test.ts` (T3). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. No new comment-stripping mechanism (predicate reads parsed maps; spec §2.4), so the comment-stripping registry is untouched.
 
 ## T1 — scanner: allowlist + predicate + per-scope rejection + caller
 
@@ -38,12 +38,12 @@ This arc EXTENDS the two existing structural meta-tests in place (`tests/ci/_met
 - S4/S5: exact reason string pinned; two off-list keys in one scope → reason lists both, sorted;
 - S6: hygiene blocks (below) exercised with a doctored allowlist via direct invocation.
 
-**Green:** in `tests/ci/_workflowCoverageScan.ts`: `export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist` (`Record<string, { values: string[]; reason: string; governs: string[] }>` — VALUE-PINNED rows per spec §7 R2, GOVERNANCE-BOUND per §7 R3: `governs` = derived spec set the key's env scope gates, hygiene asserts set equality via pure `envPairGovernance` + `governanceViolations`, S8 doctored twins) seeded from the live tree (35 keys, pairs + governance re-derived at implementation); `export function offAllowlistEnvKeys(env: unknown, allowlist = ENV_KEY_ALLOWLIST): string[]` using `Object.hasOwn` membership plus pinned-value-text membership (spec §2.0); `Opts` gains `envKeyAllowlist?: EnvKeyAllowlist`; `ActionStep` gains `env?: unknown`. In `scanWorkflowCoverage`: compute `wfEnvOff` once per file from the parsed root `env`, `jobEnvOff` per job from the parsed job, `stepEnvOff` per run-step; insert the rejection branch after the cross-step `envPoisoned` reason and before the paths-filter reason, reason string carrying the sorted union of the governing scopes' off-list keys; in the bookkeeping tail, a `uses:`-step whose parsed `env` is dirty sets `envPoisoned = true` BEFORE `usesValuePoisons` runs; `usesValuePoisons` gains an allowlist parameter and poisons on any validated composite step (either kind, any depth) whose `env` is dirty. Caller in `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes nothing new (default allowlist). Hygiene `it`-blocks per spec §2.3: every `ENV_KEY_ALLOWLIST` key appears in at least one live workflow/action parsed `env:` map, else red; every reason non-empty.
+**Green:** in `tests/ci/_workflowCoverageScan.ts`: `export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist` (`Record<string, { values: string[]; reason: string; governs: string[] }>` — VALUE-PINNED rows per spec §7 R2, GOVERNANCE-BOUND per §7 R3: `governs` = derived spec set the key's env scope gates, hygiene asserts set equality via pure `envPairGovernance` + `governanceViolations`, S8 doctored twins) seeded from the live tree (35 keys, pairs + governance re-derived at implementation); `export function offAllowlistEnvKeys(env: unknown, allowlist = ENV_KEY_ALLOWLIST): string[]` using `Object.hasOwn` membership plus pinned-value-text membership (spec §2.0); `Opts` gains `envKeyAllowlist?: EnvKeyAllowlist`; `ActionStep` gains `env?: unknown`. In `scanWorkflowCoverage`: compute `wfEnvOff` once per file from the parsed root `env`, `jobEnvOff` per job from the parsed job, `stepEnvOff` per run-step; insert the rejection branch after the cross-step `envPoisoned` reason and before the paths-filter reason, reason string carrying the sorted union of the governing scopes' off-list keys; in the bookkeeping tail, a `uses:`-step whose parsed `env` is dirty sets `envPoisoned = true` BEFORE `usesValuePoisons` runs; `usesValuePoisons` gains an allowlist parameter and poisons on any validated composite step (either kind, any depth) whose `env` is dirty. Caller in `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes nothing new (default allowlist). Hygiene `it`-blocks per spec §2.3: every `ENV_KEY_ALLOWLIST` (key, value-text) pair appears in at least one live workflow/action parsed `env:` map, else red; every row's `governs` equals the fresh live derivation (`envPairGovernance` over the scan's `covered.add`-site governance map, `governanceViolations` naming any mismatch); every reason non-empty and every row value-carrying.
 
 Signature sketch (typechecked at draft time, see Snippet-typecheck note):
 
 ```ts
-export type EnvKeyAllowlist = Record<string, { values: string[]; reason: string }>;
+export type EnvKeyAllowlist = Record<string, { values: string[]; reason: string; governs: string[] }>;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {};
 export function offAllowlistEnvKeys(
   env: unknown,
@@ -94,11 +94,13 @@ The T1 sketch was typechecked at draft time in a scratch module in this worktree
 - S3 twins: catch over-poisoning — file-wide coarsening or allowlist-ignore reds a twin, not just a positive (a guard that darkens the 13 live env-carrying workflows forces reason-free rows).
 - S4/S5 reason pins: catch silent dropping (`_rowWrapperScan` lesson) and first-key-only narrowing; the assertion is on `rejected` content, not on `covered` absence alone.
 - S6 hygiene: a stale or reason-less row is a live red, not drift — the doctored-allowlist invocation proves the hygiene test reads the allowlist it claims to (not a copy).
+- S7 novel-value twins: kill the key-name-only widening mutant (R2 live probe: `MODAL_PREFETCH_E2E=0` green run with no tests) — an allowlisted key with an unpinned value text must red in both layers while the pinned value stays clean.
+- S8 governance twins (doctored trees through pure `envPairGovernance`/`governanceViolations`): kill pair-presence-only hygiene (R3 relocation), recognizer-widened derivation (R4 echo-park prose launder), and qualification-blind derivation (R5 path-gated duplicate) — each mutant reds the declaring row; the faithful tree and alias-resolved claims pass.
 - Live-green gate (§4.3): proves the seeded allowlist covers exactly the live tree — an over-tight seed reds immediately rather than darkening coverage silently (the cross-step R22 lesson: the live gate caught an over-refusal before CI).
 
 ## Review + ship
 
-- Codex adversarial review of this plan (codex-guard, REVIEWER ONLY brief, finding-admissibility contract, §3 closure set S1–S6 as the convergence criterion) → APPROVE.
+- Codex adversarial review of this plan (codex-guard, REVIEWER ONLY brief, finding-admissibility contract, §3 closure set S1–S8 as the convergence criterion) → APPROVE.
 - TDD tasks T1–T3; whole-diff Codex review → APPROVE; push; PR; real CI green; `gh pr merge --merge`; ff-sync main to `0  0`.
 
 ## Pre-push ladder record (contract, not a transcript)
