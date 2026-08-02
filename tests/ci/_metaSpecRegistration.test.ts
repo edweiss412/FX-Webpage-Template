@@ -19,7 +19,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
-import { usesKind, validRunsOn, validatedCompositeSteps } from "./_workflowCoverageScan";
+import {
+  usesKind,
+  validRunsOn,
+  validWorkflowShape,
+  validatedCompositeSteps,
+} from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
 // Playwright resolves a reporter's relative `outputFile` against the CONFIG
@@ -368,6 +373,11 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   // `run:` and `uses:` is schema-invalid, so GitHub rejects the WHOLE
   // workflow — every job in it is unreachable, not just the steps after the
   // offending one.
+  // R19: a workflow whose SHAPE is schema-invalid (unknown root/job/step
+  // keys, `with:` on a run step, non-numeric timeouts) is rejected by
+  // GitHub, so nothing in it runs — same narrow-accept posture as the
+  // manifest profile, shared with the scanner.
+  const schemaInvalid = jobs !== undefined && !validWorkflowShape(doc);
   const mixedStepAnywhere = Object.values(jobs ?? {}).some((jb) =>
     (jb.steps ?? []).some((st) => "run" in st && "uses" in st),
   );
@@ -383,15 +393,21 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     walkSteps(
       j.steps ?? [],
       jobGuarded,
-      { poisoned: !validRunsOnJob || mixedStepAnywhere },
+      { poisoned: !validRunsOnJob || mixedStepAnywhere || schemaInvalid },
       new Set(),
     );
   }
   // Standalone composite-doc walk: same walker, same in-order threading
   // (nested local uses: resolve through the map; absent => fail-closed).
-  const standaloneSteps = (doc as { runs?: { steps?: StepShape[] } })?.runs?.steps;
-  if (standaloneSteps !== undefined) {
-    walkSteps(standaloneSteps, false, { poisoned: false }, new Set());
+  // R19: validated through the SAME narrow-accept profile as a spliced
+  // manifest — walking raw `runs.steps` let an OFF-PROFILE standalone action
+  // emit clean blocks, which the spec never claimed and the splice path has
+  // refused since R8.
+  if ((doc as { runs?: unknown })?.runs !== undefined) {
+    const standaloneSteps = compositeStepsOf(doc);
+    if (standaloneSteps !== null) {
+      walkSteps(standaloneSteps, false, { poisoned: false }, new Set());
+    }
   }
   return out;
 }
@@ -1437,6 +1453,18 @@ describe("spec registration detector (spec §3.1)", () => {
         runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo runner-ok\n`), {}),
         head,
       ).toEqual([{ run: "echo runner-ok", guarded: false, poisoned: false }]);
+    }
+    // R19: a schema-invalid workflow shape poisons every block — GitHub
+    // rejects the file, so nothing in it executes.
+    for (const wf of [
+      "bogus-root: 1\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    bogus-job: 1\n    steps:\n      - run: echo x\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo x\n        with:\n          a: b\n",
+      "jobs:\n  j:\n    runs-on: ubuntu-latest\n    timeout-minutes: fast\n    steps:\n      - run: echo x\n",
+    ]) {
+      expect(runBlocksOf(parse(wf), {}), wf).toEqual([
+        { run: "echo x", guarded: false, poisoned: true },
+      ]);
     }
     // R18: mixed detection is key-presence based, so mapping ORDER cannot
     // hide it (run-first was invisible to a truncating text scan).

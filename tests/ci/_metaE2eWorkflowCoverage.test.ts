@@ -558,6 +558,34 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(coeFalse).covered.has(spec)).toBe(true);
   });
 
+  it("workflow-schema-invalid files claim nothing (R19)", () => {
+    // GitHub rejects the FILE for unknown root/job/step keys, `with:` on a
+    // run step, or non-numeric timeouts — so no test runs and any claim is
+    // false coverage. Same narrow-accept posture as the manifest profile.
+    const base = (root: string, job: string, step: string) =>
+      `name: x\n${root}on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n${job}    steps:\n      - run: pnpm exec playwright test ${spec}\n${step}`;
+    const bad = [
+      base("bogus-root: 1\n", "", ""),
+      base("", "    bogus-job: 1\n", ""),
+      base("", "", "        bogus-step: 1\n"),
+      base("", "", "        with:\n          a: b\n"),
+      base("", "    timeout-minutes: fast\n", ""),
+      base("", "", "        timeout-minutes: fast\n"),
+    ];
+    for (const w of bad) {
+      const r = S(w);
+      expect(r.covered.has(spec), w).toBe(false);
+      expect(r.rejected[0]!.reason, w).toBe("unmodelled YAML spelling");
+    }
+    // …and the schedulable shape with legitimate optional keys still counts.
+    const ok = base(
+      "run-name: probe\n",
+      "    timeout-minutes: 30\n",
+      "        timeout-minutes: 5\n",
+    );
+    expect(S(ok).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any

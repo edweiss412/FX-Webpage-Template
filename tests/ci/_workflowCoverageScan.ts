@@ -108,6 +108,94 @@ const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim(
  * Narrow ACCEPT, typed (not textual): anything else is unschedulable, so
  * the job's steps never run and any claim from them is false coverage.
  */
+/**
+ * The ONE workflow-shape validator both layers use (R19). The narrow-accept
+ * profile had covered composite MANIFESTS but not workflow FILES, so unknown
+ * root/job/step keys, `with:` on a run step, and non-numeric timeouts all
+ * classified cleanly although GitHub rejects the file and runs nothing.
+ * Same posture as `validatedCompositeSteps`: key allowlists per mapping and
+ * typed values; anything off-profile is unschedulable, so the file claims
+ * nothing (scanner) and its blocks start poisoned (census).
+ */
+const WF_ROOT_KEYS = new Set([
+  "name",
+  "run-name",
+  "on",
+  "env",
+  "defaults",
+  "concurrency",
+  "permissions",
+  "jobs",
+]);
+const WF_JOB_KEYS = new Set([
+  "name",
+  "needs",
+  "if",
+  "runs-on",
+  "environment",
+  "concurrency",
+  "outputs",
+  "env",
+  "defaults",
+  "steps",
+  "timeout-minutes",
+  "strategy",
+  "continue-on-error",
+  "container",
+  "services",
+  "uses",
+  "with",
+  "secrets",
+  "permissions",
+]);
+const WF_RUN_STEP_KEYS = new Set([
+  "name",
+  "id",
+  "if",
+  "run",
+  "shell",
+  "working-directory",
+  "env",
+  "continue-on-error",
+  "timeout-minutes",
+]);
+const WF_USES_STEP_KEYS = new Set([
+  "name",
+  "id",
+  "if",
+  "uses",
+  "with",
+  "env",
+  "continue-on-error",
+  "timeout-minutes",
+]);
+export function validWorkflowShape(doc: unknown): boolean {
+  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return false;
+  const root = doc as Record<string, unknown>;
+  if (!Object.keys(root).every((k) => WF_ROOT_KEYS.has(k))) return false;
+  const jobs = root.jobs;
+  if (jobs === null || typeof jobs !== "object" || Array.isArray(jobs)) return false;
+  for (const job of Object.values(jobs as Record<string, unknown>)) {
+    if (job === null || typeof job !== "object" || Array.isArray(job)) return false;
+    const j = job as Record<string, unknown>;
+    if (!Object.keys(j).every((k) => WF_JOB_KEYS.has(k))) return false;
+    if ("timeout-minutes" in j && typeof j["timeout-minutes"] !== "number") return false;
+    if (!("steps" in j)) continue; // a reusable-workflow job carries `uses:`
+    if (!Array.isArray(j.steps)) return false;
+    for (const step of j.steps) {
+      if (step === null || typeof step !== "object" || Array.isArray(step)) return false;
+      const s = step as Record<string, unknown>;
+      const hasRun = "run" in s;
+      const hasUses = "uses" in s;
+      if (hasRun === hasUses) return false;
+      const allowed = hasRun ? WF_RUN_STEP_KEYS : WF_USES_STEP_KEYS;
+      if (!Object.keys(s).every((k) => allowed.has(k))) return false;
+      if ("timeout-minutes" in s && typeof s["timeout-minutes"] !== "number") return false;
+    }
+  }
+  return true;
+}
+
 export function validRunsOn(v: unknown): boolean {
   if (typeof v === "string") return v.trim() !== "";
   if (Array.isArray(v))
@@ -618,6 +706,7 @@ export function scanWorkflowCoverage({
     // `run:` missed the run-first mapping order, and a scan that did not
     // truncate would false-positive on `uses:` inside a run body.
     const parsedJobsAll = (parsedDoc as { jobs?: Record<string, { steps?: unknown }> })?.jobs;
+    const schemaInvalid = !validWorkflowShape(parsedDoc);
     const mixedStepAnywhere = Object.values(parsedJobsAll ?? {}).some((jb) =>
       (Array.isArray(jb?.steps) ? (jb.steps as Array<Record<string, unknown>>) : []).some(
         (st) => st !== null && typeof st === "object" && "run" in st && "uses" in st,
@@ -712,7 +801,14 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
-            else if (docMarkers || wfSpelling || headSpelling || stepSpelling || mixedStepAnywhere)
+            else if (
+              docMarkers ||
+              wfSpelling ||
+              headSpelling ||
+              stepSpelling ||
+              mixedStepAnywhere ||
+              schemaInvalid
+            )
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
             else if (!validRunsOnJob)
               rejected.push({ file, spec, reason: "job has no valid runs-on" });
