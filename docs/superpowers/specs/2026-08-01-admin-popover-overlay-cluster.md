@@ -137,8 +137,9 @@ The historical defect (`components/admin/showpage/ShareHub.tsx:60-68`): an
 UNCONDITIONAL root `z-30` painted the closed-state triggers above the header
 attention menu's `z-20` panel (`components/admin/showpage/AttentionMenu.tsx:128`)
 and stole its clicks. The new z is (a) on the triggers, not the root, and
-(b) applied ONLY while the hub popover is open — a state in which the attention
-menu cannot be open concurrently:
+(b) applied ONLY while the full §3.1 gate holds (`open && !busy &&
+!attentionMenuOpen`) — and in the IDLE (non-busy) hub state the attention menu
+cannot be open concurrently:
 
 - Opening the hub while the menu is open: the trigger tap's `pointerdown`
   reaches the menu's document-level outside-close listener
@@ -154,16 +155,19 @@ open, Tab reaches the attention pill and Enter toggles `menuOpen`
 (`components/admin/showpage/PublishedReviewModal.tsx:773`), and with the menu
 open, Tab reaches a hub trigger and Enter opens the hub (review R3 F1) — and
 T-HUB-ZORDER proves the trigger and menu boxes overlap, so a concurrent state
-would let the elevated triggers overpaint menu rows. The mutual exclusion is
-therefore made keyboard-inclusive (§3.4) rather than argued from pointer
+would let the elevated triggers overpaint menu rows. The idle-state mutual
+exclusion is therefore made keyboard-inclusive (§3.4), and the busy window —
+where dismissal is deliberately inert — is handled by the §3.1 gate instead rather than argued from pointer
 machinery alone. The closed state — the one T-HUB-ZORDER guards — is
 byte-identical.
 
 ### 3.4 Focus-leave light dismiss (keyboard-inclusive mutual exclusion)
 
 Both surfaces adopt the standard non-modal light-dismiss-on-focus-leave
-contract, which closes each of the two keyboard routes into a concurrent-open
-state one Tab stop before it can occur:
+contract, which — in the idle (non-busy) hub state — closes each of the two
+keyboard routes into a concurrent-open state one Tab stop before it can occur
+(the busy window is the ratified exception, handled by the §3.1 gate's
+`!attentionMenuOpen` term rather than by dismissal):
 
 - **AttentionMenu:** the panel's existing document-listener effect
   (`components/admin/showpage/AttentionMenu.tsx:81-105`) additionally closes
@@ -186,10 +190,11 @@ busy-exempt (dismissal would strand the outcome banner), so during an
 in-flight action a keyboard user CAN still open the menu over the open hub —
 that concurrency is pre-existing shipped behavior; the §3.1 `!busy` half of
 the elevation gate ensures this cluster adds no new paint-order consequence
-to it (review R4 F1). Real-browser coverage (§11): from
-each surface held open, keyboard-walk to the other's trigger and activate it;
-assert the first surface is closed by the time the second opens (both
-directions).
+to it (review R4 F1). Real-browser coverage (§11), idle state: from
+each surface held open with no action in flight, keyboard-walk to the other's
+trigger and activate it; assert the first surface is closed by the time the
+second opens (both directions). The busy-window exception is covered by the
+composed busy-settle test instead (§11).
 
 ### 3.3 Guard updates
 
@@ -208,6 +213,14 @@ directions).
   `busyStuck` timeout — after every settle path, triggers' max z-level stays
   < 20 while the prop is true, and flips to ≥ 21 when the prop goes false
   (menu closed). Prop-absent case pinned as identical to today.
+- COMPOSED pass-through proof (review R6 F1 — direct-prop tests cannot prove
+  the two hops): a jsdom test rendering the REAL composition
+  `PublishedReviewModal` → `StatusStrip` → `ShareHub` (the existing
+  PublishedReviewModal test harness), driving only public surfaces: open the
+  hub, put a child in flight, open the attention menu via the pill, settle the
+  action — assert the triggers' max z-level stays < 20 (prop traversed both
+  hops); close the menu — assert elevation returns (≥ 21). This fails if
+  EITHER hop drops the prop.
 - Restore the deliberately-scoped-out trigger assertions in T-BACKDROP
   (`tests/e2e/admin-lifecycle-layout.spec.ts:630-638`): with the hub open,
   `elementFromPoint` at each trigger's center resolves into that trigger, and
@@ -441,8 +454,8 @@ trigger label/weight, prop-driven): live ("Share link"), paused
 (`components/admin/showpage/ShareHub.tsx:693-705`).
 | Pair | Treatment |
 |---|---|
-| closed ↔ open | Instant class swap; this cluster adds `relative z-30` on open-and-not-busy — z/position changes do not animate (matches the existing instant `bg-surface-sunken` kebab swap, `components/admin/showpage/ShareHub.tsx:719-721`) |
-| Compound: busy flips while open | Elevation drops/returns instantly with the §3.1 gate; no animation; while busy the triggers sit below the backdrop exactly as shipped today |
+| closed ↔ open | Instant class swap; this cluster adds `relative z-30` under the three-term §3.1 gate — z/position changes do not animate (matches the existing instant `bg-surface-sunken` kebab swap, `components/admin/showpage/ShareHub.tsx:719-721`) |
+| Compound: busy flips while open | Elevation drops instantly on busy; returns only when the FULL §3.1 gate holds again (not busy AND menu closed); no animation; while busy the triggers sit below the backdrop exactly as shipped today |
 | Compound: busy settles while the attention menu is open (any of the three busy reporters, or the `busyStuck` timeout) | Elevation stays suppressed (`!attentionMenuOpen` term) — no re-elevation over the open menu; instant |
 | Compound: menu closes while hub open + not busy | Elevation returns instantly (gate flips true); no animation |
 | live ↔ paused ↔ archived (any pair) | Server-prop re-render, instant label/weight swap (existing; no animation) |
@@ -459,7 +472,7 @@ structure O1 (needs-you present) / O2 (monitoring-only)
 | entered/pre-frame → absent | Instant unmount (existing; close has no exit animation by contract) |
 | O1 ↔ O2 while open | Instant heading mount/unmount (existing, pinned by the O1↔O2 collapse coverage in `tests/e2e/attention-pill-focus.spec.ts`). NEW interaction: the flip re-fires the fit observer (§4.1 extension); no animation |
 | Compound: O1↔O2 while entrance mid-flight | Both instant vs animated axes compose; fit re-measure fires on the panel resize regardless of entrance progress; mid-entrance measurement error bounded < gutter (§4.2) |
-| Compound: menu open while hub open (keyboard route) | Prevented one Tab stop early by focus-leave light dismiss on both surfaces (§3.4); asserted both directions in the §11 e2e |
+| Compound: menu open while hub open (keyboard route, hub idle) | Prevented one Tab stop early by focus-leave light dismiss on both surfaces (§3.4); asserted both directions in the §11 e2e. Hub-busy route is the ratified exception: reachable, elevation suppressed (§3.1), covered by the composed busy-settle test |
 
 **PublishedToggle inline surfaces** — states: none, error banner, finalize
 chip; error wins over finalize (`components/admin/PublishedToggle.tsx:126-127`).
@@ -561,7 +574,9 @@ standalone spec asserting 1-2 at 390×{560,667,844} plus last-row
 - Focus-leave light dismiss (§3.4) deliberately does not fire on window blur
   or focus moving to browser chrome (no in-document `focusin` target) — the
   surface stays open across an app switch, matching backdrop behavior.
-- Trigger elevation relies on the §3.2/§3.4 mutual-exclusion contract; a FUTURE
+- Trigger elevation relies on the three-term §3.1 gate — idle-state mutual
+  exclusion (§3.2/§3.4) plus explicit suppression through the busy-window
+  exception; a FUTURE
   surface that renders another `z≥30` positioned element inside the strip
   while the hub is open would need its own registry-style reasoning (T-HUB-ZORDER
   still guards the closed state; the open-state companion pin guards this one).
@@ -612,7 +627,7 @@ assertion-targeting split above (last interactive needs-you row ≥44px;
 monitoring tail read-reachable), the held-open monitoring-only → needs-you
 group-flip containment case (§4.2), keyboard-scroll + role/name
 accessibility-tree assertions for both focusable scrollers (§4.2/§4.3), the
-§3.4 keyboard mutual-exclusion walks (both directions), the settled-state
+§3.4 idle-state keyboard mutual-exclusion walks (both directions), the settled-state
 ±0.5px fit equality (§9.1), and `PublishedToggle` banner containment with
 a forced long error; runs on the existing whole-config standalone workflow.
 
