@@ -45,6 +45,59 @@ const SPEC_RE = /tests\/e2e\/[\w.-]+\.spec\.ts/g;
  * poison (manifests). stringify re-emits anchors only for genuinely shared
  * nodes, which the anchor belt then refuses — fail-closed both ways.
  */
+/**
+ * The ONE composite-manifest validator both guard layers use (R8): the layers
+ * had drifted — the scanner checked `using:`/`steps:` textually, the census
+ * only `Array.isArray(steps)` — and twelve step shapes escaped one or both.
+ * GitHub's runner schema (src/Runner.Worker/action_yaml.json) requires
+ * `runs.using === "composite"` and `runs.steps` to be a sequence of run-steps
+ * (`run` + `shell`, both non-empty strings) or uses-steps (non-empty `uses`,
+ * NO `shell`), never both and never neither, with only known step keys. An
+ * invalid manifest fails the job AT THE USE SITE, so downstream steps never
+ * run — reading one as a clean composite is false coverage. Returns the
+ * validated steps, or null meaning OPAQUE (caller poisons fail-closed).
+ */
+export type ActionStep = {
+  run?: unknown;
+  uses?: unknown;
+  if?: unknown;
+  shell?: unknown;
+};
+const STEP_KEYS = new Set([
+  "name",
+  "id",
+  "if",
+  "run",
+  "shell",
+  "uses",
+  "with",
+  "env",
+  "working-directory",
+  "continue-on-error",
+]);
+const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim() !== "";
+export function validatedCompositeSteps(doc: unknown): ActionStep[] | null {
+  const runs = (doc as { runs?: unknown } | null | undefined)?.runs;
+  if (runs === null || typeof runs !== "object" || Array.isArray(runs)) return null;
+  const { using, steps } = runs as { using?: unknown; steps?: unknown };
+  if (using !== "composite") return null;
+  if (!Array.isArray(steps)) return null;
+  for (const step of steps) {
+    if (step === null || typeof step !== "object" || Array.isArray(step)) return null;
+    const s = step as Record<string, unknown>;
+    for (const k of Object.keys(s)) if (!STEP_KEYS.has(k)) return null;
+    const hasRun = "run" in s;
+    const hasUses = "uses" in s;
+    if (hasRun === hasUses) return null; // neither, or both
+    if (hasRun) {
+      if (!nonEmptyString(s.run) || !nonEmptyString(s.shell)) return null;
+    } else {
+      if (!nonEmptyString(s.uses) || "shell" in s) return null;
+    }
+  }
+  return steps as ActionStep[];
+}
+
 function canonicalYaml(text: string): string | null {
   try {
     const doc: unknown = parse(text);
@@ -225,28 +278,27 @@ function localActionPoisons(
       if (seen.has(ref)) return true;
       const raw = localActions[ref];
       if (raw === undefined) return true;
-      // Manifests canonicalize like workflows (R6 structural defense):
-      // unparseable => opaque, fail-closed.
-      const text = canonicalYaml(raw);
-      if (text === null) return true;
-      const runs = runsBlockOf(text);
-      if (runs === null) return true;
-      // EXACT value (R7): GitHub requires runs.using === "composite"
-      // verbatim — composite!, composite/x, composite extra are INVALID
-      // manifests that fail the job at this step, so downstream steps never
-      // run. \b matched before punctuation and covered them.
-      if (!/(^|\n)[ \t]*using:[ \t]*(?:"composite"|composite)[ \t]*(?:\r?\n|$)/.test(runs))
+      // Manifests are PARSED and schema-validated (R8) through the ONE
+      // shared validator both layers use — a text scan cannot see step
+      // SHAPE, and twelve invalid shapes escaped the textual checks.
+      // Unparseable or invalid => opaque, fail-closed.
+      let doc: unknown;
+      try {
+        doc = parse(raw);
+      } catch {
         return true;
-      // steps: is REQUIRED for composite actions (R7): a composite manifest
-      // without it is equally invalid — same job-killing consequence.
-      if (!/(^|\n)[ \t]*steps[ \t]*:/.test(runs)) return true;
-      // A manifest using an unmodelled spelling inside runs: could hide a
-      // child uses from the recursion below — refuse it whole.
-      if (UNMODELLED_SPELLING_RE.test(stripCommentLines(runs))) return true;
-      if (writesJobEnv(text)) return true;
-      // Child uses: are steps under runs: — recurse on the runs block only,
-      // so prose outside it can neither masquerade nor false-poison.
-      if (localActionPoisons(runs, localActions, new Set(seen).add(ref))) return true;
+      }
+      const steps = validatedCompositeSteps(doc);
+      if (steps === null) return true;
+      const text = canonicalYaml(raw);
+      if (text === null || writesJobEnv(text)) return true;
+      // Child uses: recurse through the VALIDATED steps (typed values, so
+      // prose outside runs: can neither masquerade nor false-poison).
+      const next = new Set(seen).add(ref);
+      for (const s of steps) {
+        if (typeof s.uses !== "string") continue;
+        if (localActionPoisons(`uses: ${s.uses}`, localActions, next)) return true;
+      }
       continue;
     }
     if (/^docker:\/\/\S+$/.test(unquoted)) continue; // remote image — trusted (spec §5 L1)

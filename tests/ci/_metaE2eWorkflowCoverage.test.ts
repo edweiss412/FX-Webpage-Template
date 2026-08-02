@@ -481,6 +481,49 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(nested.rejected[0]!.reason).toBe(REASON);
   });
 
+  it("every invalid composite STEP shape is opaque, direct and nested (R8)", () => {
+    // GitHub's runner schema: steps is a sequence of run-steps (run + shell,
+    // both non-empty) or uses-steps (non-empty uses, NO shell), never both
+    // or neither, only known keys. Each invalid shape fails the job at the
+    // use site, so the downstream invocation never runs — twelve escaped the
+    // textual checks before the shared typed validator landed.
+    const bodies: Record<string, string> = {
+      "steps-scalar": "runs:\n  using: composite\n  steps: nope\n",
+      "steps-mapping": "runs:\n  using: composite\n  steps:\n    a: b\n",
+      "steps-null": "runs:\n  using: composite\n  steps:\n",
+      "item-scalar": "runs:\n  using: composite\n  steps:\n    - just-a-string\n",
+      "missing-shell": "runs:\n  using: composite\n  steps:\n    - run: echo hi\n",
+      "neither-run-nor-uses": "runs:\n  using: composite\n  steps:\n    - name: idle\n",
+      "run-and-uses":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      uses: ./x\n",
+      "uses-with-shell":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./x\n      shell: bash\n",
+      "run-with-unknown-key":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      bogus: 1\n",
+      "run-null": "runs:\n  using: composite\n  steps:\n    - run:\n      shell: bash\n",
+      "shell-null": "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell:\n",
+      "uses-null": "runs:\n  using: composite\n  steps:\n    - uses:\n",
+    };
+    for (const [shape, body] of Object.entries(bodies)) {
+      const direct = S(two("uses: ./.github/actions/bad"), { "./.github/actions/bad": body });
+      expect(direct.covered.has(spec), `direct ${shape}`).toBe(false);
+      expect(direct.rejected[0]!.reason, `direct ${shape}`).toBe(REASON);
+      const nested = S(two("uses: ./.github/actions/parent"), {
+        "./.github/actions/parent":
+          "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/bad\n",
+        "./.github/actions/bad": body,
+      });
+      expect(nested.covered.has(spec), `nested ${shape}`).toBe(false);
+      expect(nested.rejected[0]!.reason, `nested ${shape}`).toBe(REASON);
+    }
+    // …and a VALID composite (both step kinds) still resolves clean.
+    const ok = S(two("uses: ./.github/actions/ok3"), {
+      "./.github/actions/ok3":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n    - uses: actions/checkout@v4\n",
+    });
+    expect(ok.covered.has(spec)).toBe(true);
+  });
+
   it("javascript/docker local actions are opaque even when provided (F7)", () => {
     // R1 escaping mutant #1: no runs.steps to inspect, and the entry code
     // can core.addPath / core.exportVariable — presence in the map is not

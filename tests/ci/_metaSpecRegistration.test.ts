@@ -19,6 +19,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
+import { validatedCompositeSteps } from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
 // Playwright resolves a reporter's relative `outputFile` against the CONFIG
@@ -288,16 +289,12 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   // core.exportVariable / direct env-file writes) with nothing for a YAML
   // walk to see. Spec R1 demonstrated the escaping mutant: presence in the
   // map is NOT "modeled". Non-composite => null => opaque, fail-closed.
-  const compositeStepsOf = (action: unknown): StepShape[] | null => {
-    const runs = (action as { runs?: { using?: unknown; steps?: unknown } })?.runs;
-    if (runs === undefined || String(runs.using) !== "composite") return null;
-    // steps: is REQUIRED for composite actions (spec R7): a manifest without
-    // it is INVALID — GitHub fails the job at the use site, so downstream
-    // steps never run. Treating it as an empty clean composite was false
-    // coverage; null => opaque, fail-closed.
-    if (!Array.isArray(runs.steps)) return null;
-    return runs.steps as StepShape[];
-  };
+  // R8: ONE shared validator with the scanner — the layers had drifted and
+  // twelve invalid step shapes escaped one or both. An invalid manifest
+  // fails the job at the use site, so downstream steps never run: null =>
+  // opaque, fail-closed.
+  const compositeStepsOf = (action: unknown): StepShape[] | null =>
+    validatedCompositeSteps(action) as StepShape[] | null;
   const localRef = (s: StepShape): string | null =>
     typeof s.uses === "string" && s.uses.startsWith("./") ? s.uses : null;
   /**
@@ -1373,18 +1370,35 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(runBlocksOf(jsUse, { "./.github/actions/js": jsAction })).toEqual([
       { run: "echo after-js", guarded: false, poisoned: true },
     ]);
-    // R7: `using: composite` WITHOUT the required runs.steps is an INVALID
-    // manifest — GitHub fails the job at the use site, downstream never
-    // runs. An empty-clean-composite reading was false coverage.
-    const stepsless = parse("runs:\n  using: composite\n");
-    expect(
-      runBlocksOf(
-        parse(
-          "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/empty\n      - run: echo after-empty\n",
+    // R7/R8: an INVALID composite manifest — no steps, or any step shape
+    // GitHub's runner schema rejects — fails the job at the use site, so
+    // downstream never runs. Clean-composite readings were false coverage;
+    // the shared validator makes both layers agree shape-for-shape.
+    for (const body of [
+      "runs:\n  using: composite\n",
+      "runs:\n  using: composite\n  steps: nope\n",
+      "runs:\n  using: composite\n  steps:\n    a: b\n",
+      "runs:\n  using: composite\n  steps:\n",
+      "runs:\n  using: composite\n  steps:\n    - just-a-string\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n",
+      "runs:\n  using: composite\n  steps:\n    - name: idle\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      uses: ./x\n",
+      "runs:\n  using: composite\n  steps:\n    - uses: ./x\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      bogus: 1\n",
+      "runs:\n  using: composite\n  steps:\n    - run:\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell:\n",
+      "runs:\n  using: composite\n  steps:\n    - uses:\n",
+    ]) {
+      expect(
+        runBlocksOf(
+          parse(
+            "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/bad\n      - run: echo after-bad\n",
+          ),
+          { "./.github/actions/bad": parse(body) },
         ),
-        { "./.github/actions/empty": stepsless },
-      ),
-    ).toEqual([{ run: "echo after-empty", guarded: false, poisoned: true }]);
+        body,
+      ).toEqual([{ run: "echo after-bad", guarded: false, poisoned: true }]);
+    }
     // F8 (R1 escaping mutant #2): a composite may `uses:` another LOCAL
     // composite — resolution recurses, so a writing grandchild poisons the
     // rest of the parent AND the rest of the workflow job; a clean chain
