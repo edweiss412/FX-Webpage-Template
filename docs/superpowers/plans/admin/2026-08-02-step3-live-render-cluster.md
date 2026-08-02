@@ -367,8 +367,8 @@ impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions
 Both halves ran against the LIVE seeded render, not a static harness: `seedStep3StateGallery()`
 wrote all six variants into one wizard session and `/admin?step=3` rendered them together, which
 is the whole point of the gallery. Captures at 390px and 1280px in light and dark. Setup gates
-were the canonical v3 pair — `context.mjs` context load (PRODUCT.md + DESIGN.md) then the
-`reference/product.md` register read (admin UI: design SERVES the product).
+were the canonical v3 pair: the skill's context-load script (which printed PRODUCT.md and
+DESIGN.md), then its product-register reference — admin UI, where design SERVES the product.
 
 **Why both halves are `RAN-DEGRADED`.** The critique reference mandates two isolated sub-agents
 for Assessment A and Assessment B; this session operates under a standing instruction not to
@@ -430,7 +430,7 @@ persisted critique snapshot was corrected in place rather than left to disagree 
 
 - The three `INPUT.peer.sr-only` checkboxes measure 1x1, but their `<label>` wrappers measure
   44.0x44.0 and 87.4x44.0. The effective tap target meets the floor; the pattern is correct.
-- All eight `detect.mjs` hits are `broken-image` false positives — 7 in
+- All eight deterministic-detector hits are `broken-image` false positives — 7 in
   `components/admin/wizard/VenueMapTile.tsx`, 1 at `components/admin/wizard/step3ReviewSections.tsx:3641`
   (`DiagramTile`). Each is a raw `<img>` whose `src` is a required runtime prop with an `onError`
   placeholder, a documented deliberate revert from `next/image` (which drops cookies), mirroring

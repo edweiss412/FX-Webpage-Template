@@ -302,51 +302,7 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
 
-**Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk and `BL-STEP3-IMPECCABLE-LIVE-RENDER` stays unscheduled — both deliberately, not by omission.
-
-### BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY — the admin layout harness hand-writes the wrapper it measures inside
-
-**Status:** OPEN — filed from PR #610 whole-diff review R2 (MEDIUM) · **Severity:** low · **Class:** TEST FIDELITY
-
-`tests/e2e/agendaBreakdown.layout.spec.ts` now renders the real `AgendaScheduleBlock` (PR #610 replaced
-that transcription), but still hand-writes the surrounding `article` / `section` / `ul` / `li.min-w-0`
-chrome. That `min-w-0` is load-bearing for the long-token overflow assertion, so the harness can stay
-green while the ACTUAL admin wrapper overflows. Production Step 3 renders `AgendaBreakdown`
-(`components/admin/wizard/step3ReviewSections.tsx:3300`), which has a modal-chrome branch the harness
-does not reproduce.
-
-**Why PR #610 did not close it — cost premise CORRECTED by review R3.** The first version of this
-entry said `AgendaBreakdown` had "~30 hooks" and needed a new seeded harness. Both were wrong, and the
-error is worth naming: the hook count came from `grep -c` over the whole 4000-line
-`step3ReviewSections.tsx` and was attributed to the component. Measured properly,
-`AgendaBreakdown` is **225 lines with 4 hook call sites in its own body** — `useContext` x1,
-`useEffect` x2, `useLayoutEffect` x1. Method, so the number is checkable rather than asserted:
-brace-match the function body from `export function AgendaBreakdown(` and count `use[A-Z]\w*(`.
-Review R4 reported nine (adding three `useState` and two `useRef`); those do not appear anywhere
-between this function and the next export, `PublishedAgendaList`. Child components it renders have
-their own hooks — the relevant number for harness cost is the ones this component owns.
-
-The machinery also already exists. `tests/e2e/_step3ReviewModalLiveEntry.tsx` browser-renders the REAL
-modal via an esbuild IIFE bundle served over `node:http`, and already stubs `fetch` (`:36-62`,
-pass-through for anything it does not intercept). The one thing standing between that harness and real
-coverage is a single line: `tests/e2e/_step3ReviewModalHarness.tsx:158` hands the modal
-`agendaBaseline: []`.
-
-**Still deferred, on the corrected grounds:** closing it needs a non-empty `AdminAgendaItem[]` fixture
-(`lib/agenda/agendaAdminPreview.ts:34`), an extract-route intercept, and its own bundle entry + spec —
-because `buildSectionData` is shared, so changing the default fixture in place would perturb every
-existing step3-review-modal spec. Additive work, not a new harness. Sized in hours, not the days the
-original entry implied.
-
-**Start here:** add an optional `agendaBaseline` override to `buildSectionData`
-(`tests/e2e/_step3ReviewModalHarness.tsx:128`) defaulting to `[]`, so existing callers are untouched.
-
-**Partially mitigated already:** since `standalone-e2e.yml` runs the whole standalone config unfiltered
-on every PR, a change to `step3ReviewSections.tsx` now triggers this spec. It did not when the finding
-was written, which assumed the retired path filter.
-
-**Fix (when prioritized):** drive the real Step 3 surface in a seeded e2e run and assert the wrapper's
-containment there, then delete the transcribed chrome. Overlaps `BL-STEP3-IMPECCABLE-LIVE-RENDER`.
+**Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
 ### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
 
@@ -413,7 +369,7 @@ trailing. What remains is prose that names a day without any of those tokens.
 Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
 self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
 fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
-`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`step3-review-modal.agenda.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
 `node:http` server rather than the app.
 
 **What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
@@ -430,8 +386,10 @@ one PR.
 
 **Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
 viewer's row is `open` and marked while another day is folded. Related:
-`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
-`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wanted the same thing on the admin side and SHIPPED
+2026-08-02 (see `BACKLOG-archive.md`) — the admin half is now covered through the real modal
+tree, so what remains here is strictly the crew-page half. `BL-AGENDA-A11Y-WEBKIT-COVERAGE`
+would ride along.
 
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
@@ -493,34 +451,6 @@ viewer reports seeing the whole show expanded when they expected their day marke
 **Re-verified 2026-07-24:** the grant is still live — `supabase/migrations/20260501002000_rls_policies.sql:147` reads `grant select, insert, update, delete on table public.admin_alerts to anon, authenticated;`. The acceptance below is unchanged, and this item was explicitly reviewed and left open during the 2026-07-24 residual sweep rather than overlooked. Do not re-raise it as a finding on an unrelated diff; it closes only as part of `BL-ADMIN-POSTGREST-DML-LOCKDOWN`.
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
-
-### BL-STEP3-IMPECCABLE-LIVE-RENDER — live-render impeccable pass on the Step-3 Variant-B page
-
-**Status:** OPEN · **Severity:** low · **Class:** UI EVALUATION
-
-The Step-3 "Review & publish" Variant-B redesign (spec/plan `2026-07-04-step3-review-page-variant-b`) shipped its UI quality gate (invariant 8) via a real-browser static-harness (DI-1…DI-4, bite-verified), a manual DESIGN.md/PRODUCT.md/mock conformance review (close-out §12), and the whole-diff Codex cross-model review as external attestation. What it could NOT do: a `/impeccable critique` + `/impeccable audit` pass on the LIVE rendered page.
-
-**Harness inventory re-verified 2026-07-25 — the item's "no live render" framing was wrong, twice over.**
-
-First, "every Step-3 layout spec is a standalone static harness" is false: `tests/e2e/_step3ReviewModalLiveEntry.tsx:124` does `createRoot(rootEl).render(<LiveHarness />)` on the REAL `<Step3ReviewModal>` tree (esbuild-bundled, served over `node:http`), so drag, scroll-spy, and Tab traversal already run against real component JS in a real browser via `step3-review-modal.interactions.spec.ts`.
-
-Second — and this is what actually shrinks the item — **a seeded real-app Step-3 render already exists.** `tests/e2e/admin-phase2-surfaces.spec.ts:67-74` signs in and boots the real app at `/admin?step=3`, asserting a 200. `tests/e2e/helpers/devCaptureStaged.ts` seeds `pending_syncs` + `onboarding_scan_manifest` (`seedStagedRow`, `:94`), then `openStep3Modal` (`:216-230`) navigates the real `/admin?step=3`, clicks the real card, and waits for `[data-step3-review-panel]`; `tests/e2e/dev-capture.spec.ts:197-218` drives that path. So the app boots, the DB is seeded, and the real modal opens.
-
-**The residual gap is narrower than recorded:** the existing seed is a SINGLE row, and it already supplies the **clean/ready** state — `seedStagedRow` (`devCaptureStaged.ts:94-139`) inserts `status: "staged"` with a parsed `parse_result.show`, no review items and no finalize-failure code — and, importantly, **no resolved linked show**: it writes no `created_show_id` and uses a fresh Drive file ID, so `buildStep3Row` (`OnboardingWizard.tsx:285`) passes `linkedShow: null`. That null is what produces `ready`; a resolved linked show would return `live` / `ready_to_publish` / `held` at an earlier branch of `deriveStep3DisplayState` (`lib/admin/step3DisplayState.ts:44-77`). The show-resolution step that would have supplied one is the `driveFileIds` → `showsRows` lookup at `OnboardingWizard.tsx:477-519`, feeding the row build at `:598-638`. So **five** row states are missing, not six: needs-a-look, demoted, no-details, blocking, set-aside. And no `/impeccable critique` + `/impeccable audit` has been run against that render. This is _extend an existing seed helper and run the dual-gate_, not _stand up a live Step-3 seed from scratch_. Size it accordingly.
-
-Current surface files: `components/admin/wizard/Step3Review.tsx`, `Step3ReviewModal.tsx`, `step3ReviewSections.tsx`, `Step3ReviewWithFinalize.tsx`, `Step3SheetCard.tsx`, plus the live-tree shells `components/admin/review/ReviewModalShell.tsx` and `components/admin/review/ShowReviewSurface.tsx` (imported at `Step3ReviewModal.tsx:46,55`, bound in JSX at `:372,666`), and `components/admin/OnboardingWizard.tsx`, which mounts `Step3ReviewWithFinalize` at `:699` and `:731` (`:35` is only the import).
-
-**Fix (when prioritized):** extend `seedStagedRow` to cover the five missing states (the reserved wizard session already exists; add ≥1 needs-a-look, ≥1 demoted, ≥1 no-details, ≥1 blocking, ≥1 set-aside row alongside the ready row it already seeds), then run the impeccable v3 dual-gate against the live `/admin?step=3` render — including an explicit dark-mode warn-contrast check and the double-"Review" affordance on demoted RESCAN cards (close-out §12 finding 7).
-
----
-
-## Test-safety hardening (2026-07-05)
-
-### BL-SOURCE-NUL-BYTE-STEP3REVIEW — a committed NUL byte makes one source file invisible to grep
-
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** SOURCE HYGIENE
-
-`components/admin/wizard/Step3Review.tsx` carries a raw U+0000 at byte offset 53375 — `uncheckedCleanNames.join("<NUL>")`, committed as a literal NUL instead of the two-character escape `\u0000` (commit `fc75a9bcd`). `file(1)` reports the file as `data`, so **`grep` skips it silently**: no match, no "Binary file matches" line, no error. Any grep-based audit of `components/**` under-reports by this file, and one such audit did exactly that while enumerating references for the Step-3 deletion guard. Guards that read with `readFileSync` are unaffected. **Fix (when prioritized):** replace the raw byte with the escape sequence. Deferred rather than fixed inline because `components/**` is a UI surface, so a zero-behavior byte change would trigger the invariant-8 impeccable dual-gate.
 
 ### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers
 
