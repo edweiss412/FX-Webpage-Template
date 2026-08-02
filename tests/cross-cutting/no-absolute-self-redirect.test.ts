@@ -29,6 +29,7 @@ import {
   auditTree,
   EXTERNAL_REDIRECT_ALLOWLIST,
   unallowedRedirects,
+  WALKED_ROOT_GLOBS,
   type TreeAudit,
 } from "./no-absolute-self-redirect-audit";
 
@@ -707,6 +708,24 @@ describe("no absolute self-redirect under the walked roots", () => {
       `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction carrierPick() { return globalThis; }\nfunction safePick() { return { Response: { redirect: ((u: string | URL) => new Response(String(u))) as RedirectFn } }; }\nlet pick = carrierPick;\npick = safePick;\nexport function GET() { return viaEnvironment(pick(), new URL("/x", request.url)); }`,
     );
     expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it("flags R104 as-cast carrier provenance (initializer and helper return)", () => {
+    // whole-diff r24: `globalThis as any` seeds provenance — runtime identity
+    // survives the cast; the redirect-shaped DOWNSTREAM flow is the finding.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst env = globalThis as any;\nfunction pickCast() { return globalThis as any; }\nexport function GET() {\n  const a = viaEnvironment(env, new URL("/1", request.url));\n  const b = viaEnvironment(pickCast(), new URL("/2", request.url));\n  return [a, b];\n}`,
+    );
+    expect(findings).toHaveLength(2);
+  });
+
+  it("walked root globs cover every root surface the vestigial-middleware guard permits", () => {
+    // whole-diff r24: middleware.js / proxy.ts / proxy.js are permitted
+    // production surfaces — the audit must walk them all.
+    for (const glob of ["middleware.{ts,tsx,js}", "proxy.{ts,tsx,js}"]) {
+      expect(WALKED_ROOT_GLOBS).toContain(glob);
+    }
   });
 
   it("does not flag a safe outer helper containing nested carrier scopes (N18)", () => {

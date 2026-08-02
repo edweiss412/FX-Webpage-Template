@@ -589,10 +589,15 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
   };
   const isCarrierExpression = (exprIn: Node): boolean => {
     let expr: Node = exprIn;
+    // as/satisfies unwrap too (r24): runtime identity survives every wrapper,
+    // so `globalThis as any` still seeds carrier provenance — its DOWNSTREAM
+    // redirect-shaped flows flag even though the cast site itself is shapeless.
     while (
       (Node.isParenthesizedExpression(expr) ||
         Node.isNonNullExpression(expr) ||
-        Node.isAwaitExpression(expr)) &&
+        Node.isAwaitExpression(expr) ||
+        Node.isAsExpression(expr) ||
+        Node.isSatisfiesExpression(expr)) &&
       expr.getExpression() !== undefined
     ) {
       expr = expr.getExpression();
@@ -973,15 +978,25 @@ export function auditSource(repoRelativePath: string, source: string): SelfRedir
   return findSelfRedirects(sf);
 }
 
+/**
+ * Root globs for the tree audit. The root-level entries mirror EVERY surface
+ * the vestigial-middleware companion guard permits — middleware and the
+ * Next 16 proxy successor, in ts/tsx/js spellings (whole-diff r24) — so a
+ * permitted root file cannot sit outside this audit; a plain-JS variant then
+ * trips the JS sentinel, which is the ratified fail-loud posture.
+ */
+export const WALKED_ROOT_GLOBS: readonly string[] = [
+  "app/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+  "lib/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+  "middleware.{ts,tsx,js}",
+  "proxy.{ts,tsx,js}",
+];
+
 /** Audit the real tree once; the companion test memoizes the result. */
 export function auditTree(): TreeAudit {
   specifierVerdicts.clear(); // fixture-era verdicts must not leak into the tree scan
   const project = new Project(AUDIT_PROJECT_OPTIONS);
-  project.addSourceFilesAtPaths([
-    "app/**/*.{ts,tsx,js,jsx,mjs,cjs}",
-    "lib/**/*.{ts,tsx,js,jsx,mjs,cjs}",
-    "middleware.{ts,tsx}",
-  ]);
+  project.addSourceFilesAtPaths([...WALKED_ROOT_GLOBS]);
   const findingsByFile = new Map<string, SelfRedirectFinding[]>();
   let visitedAppFiles = 0;
   let visitedLibFiles = 0;
