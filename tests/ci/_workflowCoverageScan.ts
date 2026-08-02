@@ -622,6 +622,14 @@ export function scanWorkflowCoverage({
         // spelling rejects this step's own claims AND poisons the job env —
         // the unreadable metadata may hide a `uses:`/`run:` that mutates it.
         const stepSpelling = UNMODELLED_SPELLING_RE.test(stripCommentLines(stepMetaOf(step)));
+        // R15: a step carrying BOTH `run:` and `uses:` is schema-invalid —
+        // the runner defines a step as one or the other, so GitHub rejects
+        // the WORKFLOW and nothing in it executes. Claiming the run also
+        // bypassed every usesKind refusal, since qualification ran before
+        // the uses bookkeeping. Treated like a doc marker: file-level.
+        const mixedStep =
+          /(^|\n)\s*run\s*:/.test(stripCommentLines(step)) &&
+          /(^|\n)\s*(?:-\s*)?uses\s*:/.test(stripCommentLines(stepMetaOf(step)));
         if (runMatch) {
           // Full-line YAML/shell comments never execute, and the step-splitter
           // glues BETWEEN-step comment lines onto the preceding step's chunk —
@@ -649,7 +657,7 @@ export function scanWorkflowCoverage({
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
-            else if (docMarkers || wfSpelling || headSpelling || stepSpelling)
+            else if (docMarkers || wfSpelling || headSpelling || stepSpelling || mixedStep)
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
             else if (envPoisoned)
               rejected.push({

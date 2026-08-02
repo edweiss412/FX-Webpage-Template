@@ -531,6 +531,28 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("a step carrying BOTH run: and uses: claims nothing (R15)", () => {
+    // The runner defines a step as run-step XOR regular-step, so GitHub
+    // rejects the whole workflow — and claiming the run also bypassed every
+    // usesKind refusal, since qualification ran before the uses bookkeeping.
+    for (const ref of [
+      "actions/checkout@v4",
+      "actions/checkout",
+      "./.github/actions/ghost",
+      "docker://alpine:3",
+    ]) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n        run: pnpm exec playwright test ${spec}\n`;
+      const r = S(w);
+      expect(r.covered.has(spec), ref).toBe(false);
+      expect(r.rejected[0]!.reason, ref).toBe("unmodelled YAML spelling");
+    }
+    // …a clean separated pair still counts.
+    const ok = S(
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm exec playwright test ${spec}\n`,
+    );
+    expect(ok.covered.has(spec)).toBe(true);
+  });
+
   it("Git-invalid action refs are invalid, not trusted — every site (R14)", () => {
     // git check-ref-format rejects each of these, so GitHub cannot resolve
     // the action and the step fails before the claimed downstream test

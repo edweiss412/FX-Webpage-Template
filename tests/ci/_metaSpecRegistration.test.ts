@@ -322,6 +322,14 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     seen: ReadonlySet<string>,
   ): void => {
     for (const s of steps) {
+      // R15: a step carrying BOTH run: and uses: is schema-invalid — the
+      // runner defines a step as one or the other, so GitHub rejects the
+      // workflow and nothing in it runs. Emitting the run block as clean
+      // also bypassed every usesKind refusal. Poison and emit nothing.
+      if (typeof s.run === "string" && "uses" in s) {
+        state.poisoned = true;
+        continue;
+      }
       if (typeof s.run === "string") {
         out.push({
           run: s.run,
@@ -1376,6 +1384,20 @@ describe("spec registration detector (spec §3.1)", () => {
         ),
         ref,
       ).toEqual([{ run: "echo after-refless", guarded: false, poisoned: true }]);
+    }
+    // R15: a step carrying BOTH run: and uses: is schema-invalid — GitHub
+    // rejects the workflow, so the run block must not be emitted clean (it
+    // also bypassed every usesKind refusal that way).
+    for (const ref of ["actions/checkout@v4", "actions/checkout", "./.github/actions/ghost"]) {
+      expect(
+        runBlocksOf(
+          parse(
+            `jobs:\n  j:\n    steps:\n      - uses: ${ref}\n        run: echo mixed\n      - run: echo later\n`,
+          ),
+          {},
+        ),
+        ref,
+      ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
     }
     // R13: the docker:// family is refused wholesale (spec §5 L8) — its
     // reference grammar is its own spec and two rounds of modelling it
