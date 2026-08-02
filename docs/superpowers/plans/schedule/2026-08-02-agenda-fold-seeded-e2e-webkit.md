@@ -26,6 +26,29 @@
 - Advisory-lock topology: N/A — no `pg_advisory*` surface touched.
 - Invariant 9/10 registries: N/A per spec §5 (no new Supabase call site; no mutation surface).
 
+## Mutation-family closure (writing-plans mandatory for guard work)
+
+The two structural guards this plan ships (Task 2 wiring assertion + Task 3 wiring guard)
+close these operator families up front — this enumeration is the convergence set; a
+reviewer-proposed NEW family is admissible only with a live escaping mutant demonstrated
+against the shipped guard (AGENTS.md round-economy contract):
+
+- **MF1 — comment-disabled wiring:** full-line and trailing YAML comments (`… # webkit`),
+  closed by quote-aware comment stripping before matching.
+- **MF2 — non-executing shell position:** `echo playwright test …` / string payloads, closed
+  by requiring a pnpm/npx/yarn/exec-prefixed `playwright` invocation per segment.
+- **MF3 — token-prefix collision:** `--project=mobile-safari-shadow`, longer paths containing
+  the spec path — closed by whole-token equality, never substring.
+- **MF4 — cross-segment leakage:** spec file in one `&&`-segment, project flag in another —
+  closed by splitting on shell operators (`&&`, `||`, `;`, `|`) and pairing WITHIN a segment.
+- **MF5 — grep-scope regression (Task 3 only):** the WebKit project resolving zero tests
+  (joined-title trap) or extra tests (dimensional leak), closed by the exactly-one-test pin
+  against `--list --reporter=json`.
+
+Out of scope by declaration: YAML anchors/aliases and multi-line `run: |` blocks — crew-e2e.yml
+and standalone-e2e.yml use neither today; the guards read the live files, so introducing one
+that hides wiring would surface as a guard FAILURE (fail-closed direction), not a silent pass.
+
 ## e2e harness-readiness (writing-plans mandatory checklist)
 
 - **Server boot:** the default `playwright.config.ts` `:3000` webServer (dev server, `127.0.0.1`), exactly as the template file already uses; CI boots it inside `crew-e2e.yml`'s single playwright invocation. No new server.
@@ -34,7 +57,7 @@
 
 ## Snippet provenance
 
-Every TS snippet below was pasted into the live worktree and passed `pnpm typecheck` (strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) on 2026-08-02, with exactly one expected error in the red state (`agendaLinks` not in `SeedShowWithCrewOptions`) and zero after the Task-1 option lands. The matcher derivation was probe-run: `visibleAgendaDaysForViewer` returns `{kind:"subset",rows:[0]}` for Fiona and `{kind:"subset",rows:[1]}` for Theo against the exact fixture below.
+Every TS snippet below was pasted into the live worktree and passed `pnpm typecheck` (strict tsconfig: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) on 2026-08-02, with exactly one expected error in the red state (`agendaLinks` not in `SeedShowWithCrewOptions`) and zero after the Task-1 option lands. The matcher derivation was probe-run: `visibleAgendaDaysForViewer` returns `{kind:"subset",rows:[0]}` for Fiona and `{kind:"subset",rows:[1]}` for Theo against the exact fixture below. The Task-2/Task-3 guard snippets (post plan-review-R1 hardening) were additionally probe-RUN against the current tree: the three new assertions fail exactly as their red steps predict (stage-restricted segment absent; `Project(s) "standalone-webkit-a11y" not found`; chromium-only installs) while all five pre-existing wiring tests stay green.
 
 ---
 
@@ -255,7 +278,37 @@ git commit --no-verify -m "test(crew-page): seeded e2e for the per-viewer agenda
 - Consumes: the file's existing helpers `read`, `stripCommentsSafely`, `ts` import (all top-of-file).
 - Produces: nothing consumed later; the guard itself is the deliverable.
 
-- [ ] **Step 1: Write the failing wiring assertion.** In `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`, inside the existing `describe("picker-flow e2e CI wiring", ...)`, add after the first `it` (the picker-flow claiming test):
+- [ ] **Step 1: Write the failing wiring assertion.** In `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`:
+
+First add two file-level helpers (below `stripYamlComments`), used by the new assertion AND by
+the hardened existing one (Step 1b):
+
+```ts
+/**
+ * Shell segments of every `run:` scalar that actually INVOKE `playwright test` — split on
+ * shell operators so an `echo …` payload after `&&` cannot satisfy wiring assertions, and
+ * required to start with a runner prefix (pnpm/npx/yarn/exec chain) so a non-executing
+ * position (`echo playwright test …`) cannot either. Comments are stripped first
+ * (plan-review R1 mutation families MF1/MF2/MF4).
+ */
+function playwrightTestSegments(yaml: string): string[][] {
+  const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+  return [...stripYamlComments(yaml).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
+    .map((m) => m[1]!)
+    .flatMap((c) => c.split(/&&|\|\||;|\|/))
+    .map((seg) => seg.trim().split(/\s+/))
+    .filter((t) => {
+      const i = t.indexOf("playwright");
+      return i !== -1 && t[i + 1] === "test" && t.slice(0, i).every((w) => RUNNER_PREFIX.has(w));
+    });
+}
+
+/** Token-exact containment — `--project=mobile-safari-shadow` must NOT satisfy a
+ *  `--project=mobile-safari` requirement, nor a longer path a file requirement (MF3). */
+const hasToken = (tokens: string[], token: string): boolean => tokens.includes(token);
+```
+
+Then add the new assertion after the first `it` (the picker-flow claiming test):
 
 ```ts
   it("crew-e2e.yml runs the stage-restricted crew spec under a project whose testMatch claims it", () => {
@@ -263,13 +316,13 @@ git commit --no-verify -m "test(crew-page): seeded e2e for the per-viewer agenda
     // provide this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any
     // workflow actually names it, so only a run-command assertion makes an unwired file fail.
     const STAGE_SPEC = "tests/e2e/stage-restricted-crew-schedule.spec.ts";
-    const commands = [...read("crew-e2e.yml").matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
-      .map((m) => m[1]!)
-      .filter((c) => c.includes("playwright test"));
-    const naming = commands.filter((c) => c.includes(STAGE_SPEC));
+    const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) =>
+      hasToken(t, STAGE_SPEC),
+    );
     expect(
       naming.length,
-      `no \`playwright test\` run: line in crew-e2e.yml names ${STAGE_SPEC} — the seeded agenda-fold suite would be dark`,
+      `no executing \`playwright test\` segment in crew-e2e.yml names ${STAGE_SPEC} as a whole ` +
+        "token — the seeded agenda-fold suite would be dark",
     ).toBeGreaterThan(0);
 
     const config = stripCommentsSafely(
@@ -292,12 +345,21 @@ git commit --no-verify -m "test(crew-page): seeded e2e for the per-viewer agenda
       "no playwright.config.ts project's testMatch includes stage-restricted-crew-schedule",
     ).toBeGreaterThan(0);
     expect(
-      naming.some((c) => claiming.some((project) => c.includes(`--project=${project}`))),
-      `the command naming ${STAGE_SPEC} selects no project whose testMatch claims it (claiming: ` +
+      naming.some((t) => claiming.some((project) => hasToken(t, `--project=${project}`))),
+      `the segment naming ${STAGE_SPEC} selects no project whose testMatch claims it (claiming: ` +
         `${claiming.join(", ")}). It would collect zero tests and still report green.`,
     ).toBe(true);
   });
 ```
+
+- [ ] **Step 1b: Class-sweep the pre-existing twin.** The original picker-flow `it` ("crew-e2e.yml
+runs the spec under a project whose testMatch claims it") has the same substring laxity
+(pre-existing, surfaced by plan-review R1). Rewrite its `commands`/`naming` computation to the
+same helpers — `const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) =>
+hasToken(t, SPEC));` and the final expectation to
+`naming.some((t) => claiming.some((project) => hasToken(t, \`--project=${project}\`)))` —
+keeping its messages and the claiming block otherwise unchanged. Same commit: leaving the lax
+twin beside the hardened copy re-opens the class.
 
 - [ ] **Step 2: Run to verify it fails.**
 Run: `pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`
@@ -406,16 +468,50 @@ describe("standalone WebKit a11y leg wiring", () => {
   });
 
   it("standalone-e2e.yml installs webkit alongside chromium", () => {
-    const yaml = readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8");
-    // run: lines only, comment lines excluded — a commented-out install must not satisfy this.
-    const runs = [...yaml.matchAll(/\n\s*-\s*run:\s*([^\n]*)/g)].map((m) => m[1]!);
+    // Executing-position, token-exact matching (plan-review R1 families MF1-MF4): YAML
+    // comments are stripped (quote-aware, trailing `# webkit` is a disabled token, not an
+    // install), run scalars split on shell operators, each segment must be a
+    // pnpm/npx-prefixed playwright invocation (an `echo playwright install webkit` payload
+    // is non-executing), and `webkit` must appear as a WHOLE token of that segment.
+    const stripYaml = (yaml: string): string =>
+      yaml
+        .split("\n")
+        .map((line) => {
+          let quote: string | null = null;
+          for (let i = 0; i < line.length; i += 1) {
+            const ch = line[i]!;
+            if (quote !== null) {
+              if (ch === quote) quote = null;
+              continue;
+            }
+            if (ch === '"' || ch === "'") quote = ch;
+            else if (ch === "#") return line.slice(0, i);
+          }
+          return line;
+        })
+        .join("\n");
+    const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+    const installSegments = (subcommand: "install" | "install-deps"): string[][] =>
+      [...stripYaml(readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"))
+        .matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
+        .map((m) => m[1]!)
+        .flatMap((c) => c.split(/&&|\|\||;|\|/))
+        .map((seg) => seg.trim().split(/\s+/))
+        .filter((t) => {
+          const i = t.indexOf("playwright");
+          return (
+            i !== -1 && t[i + 1] === subcommand && t.slice(0, i).every((w) => RUNNER_PREFIX.has(w))
+          );
+        });
     expect(
-      runs.some((c) => /playwright install-deps\b.*\bwebkit\b/.test(c)),
-      "no run: line installs webkit system deps — the WebKit project would fail in CI",
+      installSegments("install-deps").some((t) => t.includes("webkit")),
+      "no executing playwright install-deps segment carries webkit as a whole token — the " +
+        "WebKit project would fail on a cold CI runner",
     ).toBe(true);
     expect(
-      runs.some((c) => /playwright install\b(?!-deps).*\bwebkit\b/.test(c)),
-      "no run: line installs the webkit browser binary — the WebKit project would fail in CI",
+      installSegments("install").some((t) => t.includes("webkit")),
+      "no executing playwright install segment carries webkit as a whole token — the WebKit " +
+        "project would fail on a cold CI runner",
     ).toBe(true);
   });
 });
