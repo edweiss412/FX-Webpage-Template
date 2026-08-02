@@ -553,6 +553,41 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("runs-on accepts only schedulable shapes, typed (R17)", () => {
+    // R16 used textual/shape-counting heuristics per layer; R17 probed
+    // numeric scalars, non-string sequence members, and wrong-typed or
+    // extra-keyed group/labels mappings straight through. One shared typed
+    // validator now decides both layers.
+    const bad = [
+      "    runs-on: 42\n",
+      "    runs-on: '   '\n",
+      "    runs-on:\n      - 42\n",
+      "    runs-on:\n      - null\n",
+      "    runs-on:\n      group:\n",
+      "    runs-on:\n      group: []\n",
+      "    runs-on:\n      labels: []\n",
+      "    runs-on:\n      group: g\n      bogus: 1\n",
+      "    runs-on:\n      bogus: x\n",
+    ];
+    for (const head of bad) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n${head}    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+      const r = S(w);
+      expect(r.covered.has(spec), JSON.stringify(head)).toBe(false);
+      expect(r.rejected[0]!.reason, JSON.stringify(head)).toBe("job has no valid runs-on");
+    }
+    const good = [
+      "    runs-on: ubuntu-latest\n",
+      "    runs-on:\n      - self-hosted\n      - linux\n",
+      "    runs-on:\n      group: my-group\n",
+      "    runs-on:\n      group: my-group\n      labels: gpu\n",
+      "    runs-on:\n      labels:\n        - gpu\n        - linux\n",
+    ];
+    for (const head of good) {
+      const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n${head}    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+      expect(S(w).covered.has(spec), JSON.stringify(head)).toBe(true);
+    }
+  });
+
   it("a step carrying BOTH run: and uses: claims nothing (R15)", () => {
     // The runner defines a step as run-step XOR regular-step, so GitHub
     // rejects the whole workflow — and claiming the run also bypassed every

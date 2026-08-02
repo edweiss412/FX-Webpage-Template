@@ -19,7 +19,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { BASE_INCLUDE, MUTATION_TEST_GLOBS, PARALLEL_TEST_GLOBS } from "../../vitest.projects";
 import { probeConfig } from "./_standaloneConfigProbe";
-import { usesKind, validatedCompositeSteps } from "./_workflowCoverageScan";
+import { usesKind, validRunsOn, validatedCompositeSteps } from "./_workflowCoverageScan";
 
 const ROOT = process.cwd();
 // Playwright resolves a reporter's relative `outputFile` against the CONFIG
@@ -375,24 +375,15 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
     // needs: a failed/skipped dependency skips the whole job; strategy: an
     // empty matrix executes nothing — both are execution context (R10).
     const jobGuarded = j.if !== undefined || j.needs !== undefined || j.strategy !== undefined;
-    // R16: `runs-on` is REQUIRED and must name a runner — absent, null,
-    // empty, boolean, or an empty sequence means the job never executes, so
-    // its blocks start poisoned rather than clean (narrow-accept: non-empty
-    // string, non-empty array, or a mapping with a non-empty group/labels).
-    const ro = (j as { "runs-on"?: unknown })["runs-on"];
-    const validRunsOn =
-      (typeof ro === "string" && ro.trim() !== "") ||
-      (Array.isArray(ro) && ro.length > 0) ||
-      (ro !== null &&
-        typeof ro === "object" &&
-        !Array.isArray(ro) &&
-        Object.values(ro as Record<string, unknown>).some(
-          (v) => (typeof v === "string" && v.trim() !== "") || (Array.isArray(v) && v.length > 0),
-        ));
+    // R16/R17: `runs-on` decided by the SHARED TYPED validator, so both
+    // layers accept exactly the schedulable shapes (the R16 per-layer
+    // heuristics diverged: non-string sequence members and wrong-typed
+    // group/labels mappings were accepted census-side).
+    const validRunsOnJob = validRunsOn((j as { "runs-on"?: unknown })["runs-on"]);
     walkSteps(
       j.steps ?? [],
       jobGuarded,
-      { poisoned: !validRunsOn || mixedStepAnywhere },
+      { poisoned: !validRunsOnJob || mixedStepAnywhere },
       new Set(),
     );
   }
@@ -1446,6 +1437,29 @@ describe("spec registration detector (spec §3.1)", () => {
         runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo runner-ok\n`), {}),
         head,
       ).toEqual([{ run: "echo runner-ok", guarded: false, poisoned: false }]);
+    }
+    // R17: the census shares the typed validator, so the same shapes that
+    // the scanner refuses poison here (non-string sequence members and
+    // wrong-typed/extra-keyed group-labels mappings were accepted before).
+    for (const head of [
+      "    runs-on: 42\n",
+      "    runs-on:\n      - 42\n",
+      "    runs-on:\n      group: []\n",
+      "    runs-on:\n      bogus: x\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo bad-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo bad-runner", guarded: false, poisoned: true }]);
+    }
+    for (const head of [
+      "    runs-on:\n      group: my-group\n      labels: gpu\n",
+      "    runs-on:\n      labels:\n        - gpu\n",
+    ]) {
+      expect(
+        runBlocksOf(parse(`jobs:\n  j:\n${head}    steps:\n      - run: echo good-runner\n`), {}),
+        JSON.stringify(head),
+      ).toEqual([{ run: "echo good-runner", guarded: false, poisoned: false }]);
     }
     // R15: a step carrying BOTH run: and uses: is schema-invalid — GitHub
     // rejects the workflow, so the run block must not be emitted clean (it

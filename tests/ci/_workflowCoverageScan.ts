@@ -96,6 +96,38 @@ const nonEmptyString = (v: unknown): boolean => typeof v === "string" && v.trim(
  * refs (`./…`) take no `@ref`. Anything else is INVALID → callers poison
  * fail-closed, matching the narrow-accept posture.
  */
+/**
+ * The ONE `runs-on` validator both layers use (R17). R16 shipped textual /
+ * shape-counting heuristics in each layer separately, and the next round
+ * produced numeric scalars, sequences with non-string members, and
+ * group/labels mappings with wrong-typed or extra keys — all accepted,
+ * none schedulable. GitHub permits exactly: a non-empty string, a non-empty
+ * sequence of non-empty strings, or a mapping whose keys are a non-empty
+ * subset of {group, labels} with a non-empty string `group` and a `labels`
+ * that is a non-empty string or a non-empty array of non-empty strings.
+ * Narrow ACCEPT, typed (not textual): anything else is unschedulable, so
+ * the job's steps never run and any claim from them is false coverage.
+ */
+export function validRunsOn(v: unknown): boolean {
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v))
+    return v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "");
+  if (v === null || typeof v !== "object") return false;
+  const keys = Object.keys(v as Record<string, unknown>);
+  if (keys.length === 0 || !keys.every((k) => k === "group" || k === "labels")) return false;
+  const { group, labels } = v as { group?: unknown; labels?: unknown };
+  if ("group" in (v as object) && !(typeof group === "string" && group.trim() !== "")) return false;
+  if ("labels" in (v as object)) {
+    const ok =
+      (typeof labels === "string" && labels.trim() !== "") ||
+      (Array.isArray(labels) &&
+        labels.length > 0 &&
+        labels.every((x) => typeof x === "string" && x.trim() !== ""));
+    if (!ok) return false;
+  }
+  return true;
+}
+
 export type UsesKind = "local" | "remote" | "invalid";
 export function usesKind(v: unknown): UsesKind {
   if (typeof v !== "string") return "invalid";
@@ -537,6 +569,12 @@ export function scanWorkflowCoverage({
     // never runs on GitHub, so it claims nothing (safe-dark).
     const yaml = canonicalYaml(rawYaml);
     if (yaml === null) continue;
+    let parsedDoc: unknown = null;
+    try {
+      parsedDoc = parse(yaml);
+    } catch {
+      continue;
+    }
     const on = onBlock(yaml);
     const pr = pullRequestBlock(on);
     const hasPr = pr !== null || /(^|\n)on\s*:\s*\[[^\]\n]*pull_request/.test(yaml);
@@ -583,26 +621,15 @@ export function scanWorkflowCoverage({
       ),
     );
     for (const job of jobs(yaml)) {
-      // R16: `runs-on` is REQUIRED and must name a runner — absent, null,
-      // empty, boolean, or an empty sequence means the job cannot execute,
-      // so its steps never run and any claim from them is false coverage.
-      // Narrow-accept (same posture as every other shape gate): a non-empty
-      // scalar that is not a YAML null/boolean, a non-empty sequence, or a
-      // mapping carrying a non-empty `group:`/`labels:`.
-      const runsOnLine = /(^|\n)[ \t]*runs-on[ \t]*:([^\n]*)((?:\n[ \t]+[^\n]*)*)/.exec(
-        stripCommentLines(job.head),
-      );
-      const validRunsOn = (() => {
-        if (!runsOnLine) return false;
-        const inline = (runsOnLine[2] ?? "").trim().replace(/^["']|["']$/g, "");
-        const block = runsOnLine[3] ?? "";
-        if (inline !== "") {
-          if (/^(?:null|~|true|false|\[\]|\{\})$/i.test(inline)) return false;
-          return true;
-        }
-        if (/\n[ \t]+-[ \t]*\S/.test(block)) return true; // sequence of labels
-        return /\n[ \t]+(?:group|labels)[ \t]*:[ \t]*\S/.test(block); // runner group
-      })();
+      // R16/R17: `runs-on` decided by the SHARED TYPED validator against
+      // the PARSED document — the R16 textual heuristics accepted numeric
+      // scalars, non-string sequence members, and wrong-typed group/labels.
+      const jobName = /^[ \t]*([\w-]+)[ \t]*:/.exec(job.head)?.[1];
+      const parsedJobs = (parsedDoc as { jobs?: Record<string, { "runs-on"?: unknown }> })?.jobs;
+      const validRunsOnJob =
+        jobName !== undefined && parsedJobs !== undefined && jobName in parsedJobs
+          ? validRunsOn(parsedJobs[jobName]!["runs-on"])
+          : false;
       const jobIf = /(^|\n)\s*if\s*:/.test(job.head);
       const jobCoe = hasContinueOnError(job.head);
       // R3: a quoted-key/flow/anchor spelling in the job HEAD could hide an
@@ -669,7 +696,7 @@ export function scanWorkflowCoverage({
               rejected.push({ file, spec, reason: "unmodelled execution override" });
             else if (docMarkers || wfSpelling || headSpelling || stepSpelling || mixedStepAnywhere)
               rejected.push({ file, spec, reason: "unmodelled YAML spelling" });
-            else if (!validRunsOn)
+            else if (!validRunsOnJob)
               rejected.push({ file, spec, reason: "job has no valid runs-on" });
             else if (envPoisoned)
               rejected.push({
