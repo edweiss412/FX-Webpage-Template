@@ -1,9 +1,11 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs three e2e specs against a real browser + a seeded local Supabase: the
-# client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts, under
-# mobile-safari) and the crew picker flow (tests/e2e/picker-flow.spec.ts, under
+# Runs four e2e specs against a real browser + a seeded local Supabase: the
+# client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts) and the
+# seeded stage-restricted crew schedule suite, which carries the per-viewer agenda
+# day fold (tests/e2e/stage-restricted-crew-schedule.spec.ts) — both under
+# mobile-safari — plus the crew picker flow (tests/e2e/picker-flow.spec.ts, under
 # desktop-chromium — WebKit cannot store the server-set Secure picker cookie over
-# plain http, see the step comment). The rest of the
+# plain http, see the step comment) and alert-action-links.spec.ts. The rest of the
 # mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-in-CI;
 # lifting it wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface
 # latent failures in long-unran specs, so it is its own task). This job stays scoped
@@ -124,23 +126,25 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      # ONE invocation for all three specs, not one per project. Each Playwright
+      # ONE invocation for all four specs, not one per project. Each Playwright
       # process owns and tears down its own webServer, and in CI that server is a
       # cold `pnpm build && pnpm start` — so multiple steps would pay the heaviest
       # phase repeatedly inside this job's timeout. Passing both projects and the
       # file list lets each project's testMatch claim its own specs: mobile-safari
-      # runs crew-section-toggle; desktop-chromium runs picker-flow and
-      # alert-action-links (verified with --list: 6 + 6 + 4 tests, 3 files, no
-      # overlap; crew-section-toggle's sixth is the duration-token computed-value
-      # assertion added by fix/duration-tokens-emit-no-css).
+      # runs crew-section-toggle and stage-restricted-crew-schedule;
+      # desktop-chromium runs picker-flow and alert-action-links (measured with
+      # --list 2026-08-02: 6 + 6 + 7 + 4 = 23 tests in 4 files, no overlap;
+      # crew-section-toggle's sixth is the duration-token computed-value assertion
+      # added by fix/duration-tokens-emit-no-css, and stage-restricted's last three
+      # are the seeded agenda-fold cases).
       #
       # picker-flow is on desktop-chromium deliberately. Measured 2026-07-25: over
       # plain http WebKit refuses to STORE the server's Set-Cookie for the
       # `__Host-`-prefixed Secure picker envelope, so the first-contact bootstrap
       # and every real selection fail to persist there and a correct
       # implementation reads as broken; Chromium's localhost exemption stores it.
-      - name: Run crew section-toggle + picker-flow + alert-action-links e2e (:3000 only)
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts
+      - name: Run crew section-toggle + picker-flow + alert-action-links + stage-restricted e2e (:3000 only)
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

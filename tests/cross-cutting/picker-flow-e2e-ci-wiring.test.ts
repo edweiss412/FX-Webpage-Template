@@ -19,9 +19,11 @@
  * "genuinely PR-covered" because the scanner stopped classifying them as
  * path-gated; that was an artifact, not a fact: `_workflowCoverageScan.ts` matched
  * only `paths:`. The scanner now recognises `paths-ignore` as a filter (with its
- * own self-test), and both specs carry `PATH_GATED_BY_EXCLUSION` allowlist rows
- * that say what they actually are. The REST of the mobile-safari project stays
- * dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * own self-test), and every crew spec this job runs — including
+ * stage-restricted-crew-schedule.spec, wired here for the seeded agenda fold —
+ * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
+ * The rest of the mobile-safari project, stage-restricted excepted, stays dark
+ * under BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -71,6 +73,40 @@ function stripYamlComments(yaml: string): string {
 
 const read = (wf: string): string => stripYamlComments(readRaw(wf));
 
+/**
+ * Shell segments of every `run:` scalar that actually INVOKE `playwright test` — split on
+ * shell operators so an `echo …` payload after `&&` cannot satisfy wiring assertions, and
+ * required to start with a runner prefix (pnpm/npx/yarn/exec chain) so a non-executing
+ * position (`echo playwright test …`) cannot either. Comments are stripped first
+ * (agenda-fold plan-review R1 mutation families MF1/MF2/MF4; idempotent over `read`'s
+ * stripping).
+ */
+function playwrightTestSegments(yaml: string): string[][] {
+  const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+  // Non-executing Playwright modes (MF6, agenda-fold plan-review R2 live mutant):
+  // `playwright test --list …` collects and exits 0 without running anything, so a segment
+  // carrying it is wiring-shaped but proves zero execution. `--ui` is the trivially adjacent
+  // interactive mode. Segments with either token are not wiring.
+  const NON_EXECUTING = new Set(["--list", "--ui"]);
+  return [...stripYamlComments(yaml).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
+    .map((m) => m[1]!)
+    .flatMap((c) => c.split(/&&|\|\||;|\|/))
+    .map((seg) => seg.trim().split(/\s+/))
+    .filter((t) => {
+      const i = t.indexOf("playwright");
+      return (
+        i !== -1 &&
+        t[i + 1] === "test" &&
+        t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
+        !t.some((w) => NON_EXECUTING.has(w))
+      );
+    });
+}
+
+/** Token-exact containment — `--project=mobile-safari-shadow` must NOT satisfy a
+ *  `--project=mobile-safari` requirement, nor a longer path a file requirement (MF3). */
+const hasToken = (tokens: string[], token: string): boolean => tokens.includes(token);
+
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
 function pathsIgnoreBlock(wf: string): string {
   const yaml = read(wf);
@@ -113,14 +149,11 @@ describe("picker-flow e2e CI wiring", () => {
   it("crew-e2e.yml runs the spec under a project whose testMatch claims it", () => {
     // From `run:` lines only: a step `name:` mentioning the spec must not satisfy
     // this, which an earlier version accepted.
-    const commands = [...read("crew-e2e.yml").matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
-      .map((m) => m[1]!)
-      .filter((c) => c.includes("playwright test"));
-    const naming = commands.filter((c) => c.includes(SPEC));
+    const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) => hasToken(t, SPEC));
     expect(
       naming.length,
-      `no \`playwright test\` run: line in crew-e2e.yml names ${SPEC}. Un-skipped cases that no ` +
-        "workflow runs are dark: CI would report green without executing them.",
+      `no executing \`playwright test\` segment in crew-e2e.yml names ${SPEC} as a whole token. ` +
+        "Un-skipped cases that no workflow runs are dark: CI would report green without executing them.",
     ).toBeGreaterThan(0);
 
     // Naming the file is not enough: a command selecting only mobile-safari while
@@ -148,8 +181,48 @@ describe("picker-flow e2e CI wiring", () => {
       "no playwright.config.ts project's testMatch includes picker-flow",
     ).toBeGreaterThan(0);
     expect(
-      naming.some((c) => claiming.some((project) => c.includes(`--project=${project}`))),
-      `the command naming ${SPEC} selects no project whose testMatch claims it (claiming: ` +
+      naming.some((t) => claiming.some((project) => hasToken(t, `--project=${project}`))),
+      `the segment naming ${SPEC} selects no project whose testMatch claims it (claiming: ` +
+        `${claiming.join(", ")}). It would collect zero tests and still report green.`,
+    ).toBe(true);
+  });
+
+  it("crew-e2e.yml runs the stage-restricted crew spec under a project whose testMatch claims it", () => {
+    // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot
+    // provide this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any
+    // workflow actually names it, so only a run-command assertion makes an unwired file fail.
+    const STAGE_SPEC = "tests/e2e/stage-restricted-crew-schedule.spec.ts";
+    const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) =>
+      hasToken(t, STAGE_SPEC),
+    );
+    expect(
+      naming.length,
+      `no executing \`playwright test\` segment in crew-e2e.yml names ${STAGE_SPEC} as a whole ` +
+        "token — the seeded agenda-fold suite would be dark",
+    ).toBeGreaterThan(0);
+
+    const config = stripCommentsSafely(
+      readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
+      ts.ScriptKind.TS,
+    );
+    const claiming = config
+      .split(/\n\s*name:\s*"/)
+      .slice(1)
+      .map((block) => {
+        const project = block.slice(0, block.indexOf('"'));
+        const match = /testMatch:\s*\n?\s*\/\(([^/]+)\)/.exec(block);
+        return match !== null && match[1]!.split("|").includes("stage-restricted-crew-schedule")
+          ? project
+          : null;
+      })
+      .filter((p): p is string => p !== null);
+    expect(
+      claiming.length,
+      "no playwright.config.ts project's testMatch includes stage-restricted-crew-schedule",
+    ).toBeGreaterThan(0);
+    expect(
+      naming.some((t) => claiming.some((project) => hasToken(t, `--project=${project}`))),
+      `the segment naming ${STAGE_SPEC} selects no project whose testMatch claims it (claiming: ` +
         `${claiming.join(", ")}). It would collect zero tests and still report green.`,
     ).toBe(true);
   });

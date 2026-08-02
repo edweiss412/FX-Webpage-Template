@@ -391,9 +391,10 @@ export default defineConfig({
     // long comment above the webServer array).
     if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
     // Boot ONLY the :3000 baseline server for the crew-e2e CI job. That job runs
-    // crew-section-toggle.spec under mobile-safari, plus picker-flow.spec and
-    // alert-action-links.spec under desktop-chromium; every project points at
-    // :3000, so one server serves all three.
+    // crew-section-toggle.spec and stage-restricted-crew-schedule.spec under
+    // mobile-safari, plus picker-flow.spec and alert-action-links.spec under
+    // desktop-chromium; every project points at :3000, so one server serves all
+    // four.
     // Without this the :3001-:3004 servers
     // also cold-build (4 wasted builds contending on the with-admin-dev-flag
     // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
