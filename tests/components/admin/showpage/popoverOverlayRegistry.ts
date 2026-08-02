@@ -71,6 +71,12 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
       "Mounts in the nav bell (components/admin/nav/NotifBell.tsx), outside the review-modal panel, so no overflow-clip ancestor sits between it and the viewport.",
   },
   {
+    file: "components/admin/PublishedToggle.tsx",
+    disposition: "fit-within-clip",
+    reason:
+      "Detected 2026-08-02, the moment its anchored refusal banner became an internal scroller (BL-PUBLISHED-TOGGLE-OVERLAY-CLIP). The banner is absolutely anchored inside the sticky strip, which sits inside the review-modal panel (overflow-clip, NOT a scroll container), so an uncapped box strands the tail of its own scroll range below the clip edge. useFitWithinClip caps it against that edge. Placement-module migration buys nothing here: the banner is full-width inset-x-0, so flipping sides changes nothing.",
+  },
+  {
     file: "components/admin/showpage/AttentionMenu.tsx",
     disposition: "fit-within-clip",
     reason:

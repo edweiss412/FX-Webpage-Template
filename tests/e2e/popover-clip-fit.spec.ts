@@ -42,6 +42,7 @@ let baseUrl: string;
 let workDir: string;
 
 const PILL_ENTRY = join(REPO_ROOT, "tests", "e2e", "_pillFocusLiveEntry.tsx");
+const TOGGLE_ENTRY = join(REPO_ROOT, "tests", "e2e", "_publishedToggleClipLiveEntry.tsx");
 
 function html(bundle: string): string {
   return `<!doctype html>
@@ -53,12 +54,15 @@ function html(bundle: string): string {
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), "popover-clip-fit-"));
   writeFileSync(join(workDir, "live.html"), html("bundle.js"));
+  writeFileSync(join(workDir, "toggle.html"), html("toggle.js"));
 
   // The modal's import graph reaches "use server" actions + node builtins that
   // Next elides from client bundles; the pinned esbuild JS-API helper
   // replicates that elision (see _step3ReviewModalBundle.mjs rationale).
-  // T4 adds the PublishedToggle entry to this list together with its case block.
-  for (const [entry, out] of [[PILL_ENTRY, join(workDir, "bundle.js")]] as const) {
+  for (const [entry, out] of [
+    [PILL_ENTRY, join(workDir, "bundle.js")],
+    [TOGGLE_ENTRY, join(workDir, "toggle.js")],
+  ] as const) {
     execFileSync(
       process.execPath,
       [join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"), entry, out, join(REPO_ROOT, "tsconfig.json")],
@@ -73,6 +77,7 @@ test.beforeAll(async () => {
     [
       `@source "${join(REPO_ROOT, "components", "admin")}";`,
       `@source "${PILL_ENTRY}";`,
+      `@source "${TOGGLE_ENTRY}";`,
       globals,
     ].join("\n"),
   );
@@ -105,6 +110,8 @@ test.afterAll(async () => {
 const PILL = '[data-testid="published-show-review-alert-pill"]';
 const MENU = '[data-testid="published-show-review-attention-menu"]';
 const PANEL = "[data-review-modal-panel]";
+const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
+const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
 const SCROLLER = 'div[role="group"][aria-label="Show issues"]';
 
@@ -139,6 +146,17 @@ async function openMenu(page: Page, a: number, n: number, s: number) {
 // authored spec, whose REDs were all observed against pre-change production, is
 // held at .claude/t2b-handoff/popover-clip-fit.full.spec.txt.
 // ---------------------------------------------------------------------------
+
+/** Boots the toggle page and drives the refusal so the banner renders. */
+async function openToggleBanner(page: Page) {
+  await page.goto(`${baseUrl}toggle.html`);
+  await page.waitForFunction(() => (window as unknown as { __hydrated?: boolean }).__hydrated === true);
+  // Wait for a rendered toggle BEFORE driving it: a boot throw is an entry
+  // defect, not a RED.
+  await expect(page.locator('[data-testid="published-toggle-inline"]')).toBeVisible();
+  await page.locator('[data-testid="published-toggle-inline"] button, [data-testid="published-toggle-inline"] input').first().click();
+  await expect(page.locator(TOGGLE_BANNER)).toBeVisible();
+}
 
 // ---------------------------------------------------------------------------
 // T3 — AttentionMenu: fitted scroller, containment, reachability, keyboard
@@ -393,6 +411,75 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     await expect
       .poll(
         () => page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [SCROLLER] as const),
+        { message: `scrollTop never advanced from ${before}` },
+      )
+      .toBeGreaterThan(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T4 — PublishedToggle error banner: containment, overflow, keyboard, a11y
+// ---------------------------------------------------------------------------
+
+test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip panel", () => {
+  test("the banner is an alert named for what it is", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    await openToggleBanner(page);
+    await expect(page.getByRole("alert", { name: "Publish error details" })).toBeVisible();
+  });
+
+  test("containment: banner.bottom never crosses the clip edge", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    await openToggleBanner(page);
+    const m = await page.evaluate(
+      ([clipSel, bannerSel]) => {
+        const clip = document.querySelector(clipSel as string)!.getBoundingClientRect();
+        const banner = document.querySelector(bannerSel as string)!.getBoundingClientRect();
+        return { clipBottom: clip.bottom, bannerBottom: banner.bottom };
+      },
+      [TOGGLE_CLIP, TOGGLE_BANNER] as const,
+    );
+    expect(m.bannerBottom, `banner.bottom ${m.bannerBottom} > clip.bottom ${m.clipBottom}`).toBeLessThanOrEqual(m.clipBottom + 0.5);
+  });
+
+  test("the capped banner scrolls rather than stranding its tail", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    await openToggleBanner(page);
+    const m = await page.evaluate(
+      ([bannerSel]) => {
+        const el = document.querySelector(bannerSel as string)! as HTMLElement;
+        return {
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+          overflowY: getComputedStyle(el).overflowY,
+        };
+      },
+      [TOGGLE_BANNER] as const,
+    );
+    expect(m.overflowY, "banner is not a scroll container").toMatch(/auto|scroll/);
+    expect(m.scrollHeight, "fixture geometry must overflow the capped banner").toBeGreaterThan(m.clientHeight);
+  });
+
+  test("keyboard: the banner is tabbable and ArrowDown scrolls it", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    await openToggleBanner(page);
+
+    let onBanner = false;
+    for (let i = 0; i < 20 && !onBanner; i++) {
+      await page.keyboard.press("Tab");
+      onBanner = await page.evaluate(
+        ([sel]) => document.activeElement === document.querySelector(sel as string),
+        [TOGGLE_BANNER] as const,
+      );
+    }
+    expect(onBanner, "Tab never reached the banner").toBe(true);
+
+    const before = await page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [TOGGLE_BANNER] as const);
+    await page.keyboard.press("ArrowDown");
+    // Chromium animates keyboard scrolling — poll for the settled position.
+    await expect
+      .poll(
+        () => page.evaluate(([sel]) => document.querySelector(sel as string)!.scrollTop, [TOGGLE_BANNER] as const),
         { message: `scrollTop never advanced from ${before}` },
       )
       .toBeGreaterThan(before);

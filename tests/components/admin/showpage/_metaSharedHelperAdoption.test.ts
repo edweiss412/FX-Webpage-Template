@@ -47,6 +47,12 @@ const ROWS: readonly AdoptionRow[] = [
     requiresCancelAdoption: true,
   },
   {
+    consumer: "components/admin/PublishedToggle.tsx",
+    helper: "useFitWithinClip",
+    module: "@/components/admin/useFitWithinClip",
+    requiresCancelAdoption: false,
+  },
+  {
     consumer: "components/admin/showpage/AttentionMenu.tsx",
     helper: "useFitWithinClip",
     module: "@/components/admin/useFitWithinClip",
