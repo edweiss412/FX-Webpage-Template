@@ -128,6 +128,7 @@ import postgres from "postgres"; // repo dependency; there is NO "pg" package he
 import {
   seedStep3StateGallery,
   cleanupStep3StateGallery,
+  seedDatabaseUrl,
   type GalleryRow,
 } from "../e2e/helpers/devCaptureStaged";
 import { assembleStep3Row } from "@/lib/admin/assembleStep3Row";
@@ -182,7 +183,11 @@ test("six variants derive the matrix's states through the real assembly path", a
 test("seed mutations hold the per-show advisory lock (behavioral, advisory-lock.test.ts:50 pattern)", async () => {
   // seedStagedRow gains a test-only onMutating hook: while the seed's psql tx
   // holds the lock, a second pg connection's try-lock on the same key fails.
-  const probe = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
+  // SAME database as the seed transactions: the helper exports its resolved
+  // DSN (TEST_DATABASE_URL ?? DATABASE_URL ?? loopback:54322 chain,
+  // devCaptureStaged.ts:23-26) as `seedDatabaseUrl` in Task 2's impl — the
+  // probe must never resolve a DIFFERENT database than the holder it observes.
+  const probe = postgres(seedDatabaseUrl, { max: 1 });
   try {
     // Hook fires INSIDE the seed transaction for BOTH the blocking-variant
     // seed (pending_ingestions insert included) AND its cleanup delete.
@@ -208,6 +213,7 @@ The `assembleFromDb` / `inputsOf` / `titleOf` / `seedOneVariantWithHook` helpers
 - [ ] **Step 3: Implement the seed extension** — in `devCaptureStaged.ts`:
   - `SeedStagedRowOptions = { variant?: GalleryVariant; sessionId?: string; title?: string; name?: string }` with the variant switch writing exactly the spec §2.3 matrix: `manifestStatus` (`staged` | `hard_failed` | `permanent_ignore`), `last_finalize_failure_code` (null | `RESCAN_REVIEW_REQUIRED` | `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`), `parse_result` (well-formed with per-variant title + for `needs_a_look` a `warnings: [{ code: "FIELD_UNREADABLE", severity: "warn", message: "Seeded gap warning", ... }]` entry shaped per `ParseWarning` — copy the exact required fields from `lib/parser/types.ts` at implementation time | `'{}'::jsonb` for `no_details`).
   - Variant `blocking` additionally inserts `pending_ingestions` (`drive_file_id`, `wizard_session_id` = gallery session, `drive_file_name` = the row name, `last_error_code: 'STAGED_PARSE_FAILED'`, `last_error_message: 'Seeded hard fail'`) INSIDE the same `runLockedSql` transaction, and cleanup deletes it there too.
+  - Export the helper's resolved DSN: `export const seedDatabaseUrl = databaseUrl;` (the existing `devCaptureStaged.ts:23-26` chain) so the gallery test's lock probe connects to the SAME database as the seed transactions (plan review R3 P1).
   - **Lock unification:** the `onboarding_scan_manifest` insert (`tests/e2e/helpers/devCaptureStaged.ts:132`) and delete (`tests/e2e/helpers/devCaptureStaged.ts:176-177`) move from PostgREST into the `runLockedSql` SQL bodies (same transaction as the `pending_syncs` DML). The PostgREST manifest calls are deleted.
   - `seedStep3StateGallery` seeds all six variants into ONE session (one `assertWizardSettings` call), distinct `drive_file_id` per row, titles `Gallery Ready` / `Gallery Needs A Look` / `Gallery Demoted` and names `Gallery No Details` / `Gallery Blocking` / `Gallery Set Aside`.
 - [ ] **Step 4: Run to verify green** — `pnpm exec vitest run tests/admin/step3StateGallery.test.ts` PASS; existing `dev-capture` consumers unbroken: `pnpm exec tsc --noEmit`.
