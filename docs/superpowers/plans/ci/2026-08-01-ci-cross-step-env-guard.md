@@ -2,9 +2,11 @@
 
 **Spec:** `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` (canonical; §3 is the mutation-family closure set, §5 the documented limits). **Branch:** `test/ci-cross-step-env-guard`. **Backlog item:** `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` (repo-root `BACKLOG.md`).
 
-Every task: failing test → minimal implementation → passing test → one conventional commit (`test(ci): …`). No task touches UI, DB, locks, or mutation surfaces — invariants 2/3/5/8/9/10 are N/A; invariant 11 satisfied (this worktree).
+Every task: failing test → minimal implementation → passing test → one conventional commit (`test(ci): …`). No task touches UI, DB, locks, or mutation surfaces — invariants 2/3/5/8/9/10 are N/A.
 
-**Execution-order note (honesty):** T1 and T2 were implemented red-first during the spec-R1 review wait and repaired to the R1 verdict in the same pass (commits `ea9b0cb3e` census, `911662097` scanner, `6d6d155d0` spec-R2 repairs); the spec's §7 triage records the R1 findings and dispositions. This plan therefore reads as a verify-against-built record for T1/T2 and a forward task list for T3; the plan review gates the merge exactly as it would have gated execution.
+**Invariant 11 (recorded; plan-review R1 finding 3):** all work happens in the worktree `../FX-worktrees/ci-cross-step-env-guard`, created off `origin/main` before the first edit. Setup ran `pnpm install`, then `pnpm worktree:link-env` (`LINK .env.local -> main checkout`, "resolves ✓"), then `pnpm preflight` (`preflight: env ✓ local DB ✓`, with the standing WARN that `TEST_DATABASE_URL` is non-loopback). The main checkout was never written.
+
+**Execution-order note (honesty), corrected at plan-review R1:** every task is SHIPPED — this document is an as-built record, not a forward list. T1/T2 were implemented red-first during the spec-R1 review wait; T3 (probe retirement + backlog graduation) landed in `91249b04d`. Ten adversarial spec rounds then produced repair commits on top: `6d6d155d0` (R2), `ff9c1e333` + `fc4d7e800` (R3 and its same-vector audit), `29fd27ded` + `f91bcd2c7` (R4 and its tag preempt), `322156912` (R5), `769dbd538` + `779a11ec6` (R6 and the canonicalization structural defense), `625fd538e` (R7), `e3576138e` (R8), `85b3589f9` (R9), `724247742` (R10). The spec's §7 carries every round's findings and dispositions.
 
 ## Pre-draft verification (run 2026-08-01 in this worktree)
 
@@ -15,7 +17,7 @@ Every task: failing test → minimal implementation → passing test → one con
 
 ## Meta-test inventory (mandatory declaration)
 
-This arc EXTENDS two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. The comment-stripping registry (`tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`) already carries a `marker-skip-regex` row for the census file; T2 verifies whether the scanner-side chunk strip needs a row wording touch and updates it in the same commit if so (spec §6).
+This arc EXTENDS two existing structural meta-tests in place (`tests/ci/_metaSpecRegistration.test.ts`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` + the pure module `tests/ci/_workflowCoverageScan.ts`). No auth/DB/alert/tile registry applies: the diff is test-only CI guard surface — the touched files ARE the meta-tests. The comment-stripping registry (`tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`) already carries a `marker-skip-regex` row for the census file; the scanner-side `stripCommentLines` needed its own reasoned row, which landed with the R3 repair commit `ff9c1e333` (not in T2 as originally planned) — the registry now carries both rows (spec §6).
 
 ## T1 — census: poison predicate + `runBlocksOf` job grouping + composite splice + poisoned context (SHIPPED: ea9b0cb3e)
 
@@ -60,12 +62,12 @@ The census-core fixture additions (same commit): poisoned classifying item → p
 
 **Commit (shipped):** `test(ci): scanner rejects claims after an earlier same-job GITHUB_ENV/GITHUB_PATH write (spec §2.2)`
 
-## T3 — probe graduation, live-green gate, backlog graduation
+## T3 — probe graduation, live-green gate, backlog graduation (SHIPPED: 91249b04d)
 
-- Delete tests/ci/probe-cross-step-poison.test.ts (its assertions now live inverted in the suites).
-- Gates (all must pass locally): `pnpm vitest run tests/ci/_metaSpecRegistration.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`; then the full pre-push ladder: `pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm lint`, `pnpm format:check`.
+- Deleted tests/ci/probe-cross-step-poison.test.ts (its assertions live inverted in the suites; `git cat-file -e HEAD:tests/ci/probe-cross-step-poison.test.ts` fails, confirming absence).
+- Gates: `pnpm vitest run tests/ci/_metaSpecRegistration.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` green, plus the pre-push ladder (`pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`). **Full-suite disposition (plan-review R1 finding 2):** the local `pnpm test` invocation ends 1696 passed / 1 failed on this shared machine, the failure rotating among DB- and process-spawning specs under concurrent-session contention (each passes isolated). A locally green full run is therefore not achievable while sibling sessions share the database, so the gate's authority moves to **real CI**, which runs the same suite on a dedicated runner: PR #650 must be green before merge, and that is the merge condition this plan enforces. The per-suite runs above and the isolated reruns are the local evidence.
 - Graduate the BACKLOG entry: move `BL-CI-GITHUB-ENV-CROSS-STEP-STATE` from `BACKLOG.md` to `BACKLOG-archive.md` with provenance `test/ci-cross-step-env-guard`, add the ONE `BACKLOG_GRADUATED` registry row required by `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and run that test. (Merge conflicts with sibling graduations are EXPECTED; resolve by layering, keep both sides, re-run the mdast walker guard.)
-- **Commit:** `test(ci): graduate BL-CI-GITHUB-ENV-CROSS-STEP-STATE; retire cross-step probe (T3)`
+- **Commit (shipped):** `test(ci): graduate BL-CI-GITHUB-ENV-CROSS-STEP-STATE; retire cross-step probe (T3)` — verified: the id is absent from `BACKLOG.md`, present in `BACKLOG-archive.md` with this branch as provenance, and registered once in `BACKLOG_GRADUATED`.
 
 ## Snippet-typecheck note (writing-plans rule)
 
@@ -76,12 +78,13 @@ The only embedded snippet is the T1 signature sketch; it was typechecked at draf
 - F1/F3/F6 negatives: catch over-poisoning (a guard that reds clean jobs forces reason-free rows — precision is load-bearing, not cosmetic).
 - F1 positive + F4 + F5: catch the exact probe-demonstrated false-coverage/false-silence bug — a mutant deleting grouping, splice, or fail-closed unknown-ref handling reverts to probe behavior and fails these.
 - F2 triple: catches write-shape narrowing (any grammar tighter than the substring predicate fails at least one shape).
+- F7 + F8 (added at spec R1 via live escaping mutants, refined R7-R10): catch map-presence-treated-as-modeled and recursion deletion — in-memory mutants of each produce `covered=true, reasons=[]`, and the fixtures red them at direct AND nested sites; the R8-R10 additions (typed validator, narrow accept profile, uses classifier) each carry their own shape tables.
 - Reason-string assertions: catch silent dropping (the `_rowWrapperScan` lesson — a scanner that matches nothing is worse than none).
 
 ## Review + ship
 
 - Codex adversarial review of this plan (codex-guard, REVIEWER ONLY brief, finding-admissibility contract, §3 closure set F1–F8 as the convergence criterion) → APPROVE.
-- Remaining execution: T3; whole-diff Codex review → APPROVE; push; real CI green; `gh pr merge --merge`; ff-sync main to `0  0`.
+- All tasks shipped; whole-diff Codex review → APPROVE; push; real CI green; `gh pr merge --merge`; ff-sync main to `0  0`.
 
 ## Pre-push ladder record (2026-08-01, post-merge tree)
 
