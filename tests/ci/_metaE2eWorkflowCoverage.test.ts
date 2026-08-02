@@ -454,6 +454,33 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(r.covered.has(spec)).toBe(true);
   });
 
+  it("invalid composite manifests are opaque: inexact using values, missing steps (R7)", () => {
+    // GitHub requires runs.using === "composite" VERBATIM and requires
+    // runs.steps — composite!, composite/x, or a steps-less composite is an
+    // INVALID action that fails the job at the use site, so the downstream
+    // invocation never runs. Treating either as a clean composite was false
+    // coverage (R7 probe, direct + nested).
+    for (const using of ["composite!", "composite/x", "composite extra"]) {
+      const r = S(two("uses: ./.github/actions/bad"), {
+        "./.github/actions/bad": `runs:\n  using: ${using}\n  steps:\n    - run: echo hi\n      shell: bash\n`,
+      });
+      expect(r.covered.has(spec), using).toBe(false);
+      expect(r.rejected[0]!.reason, using).toBe(REASON);
+    }
+    const noSteps = S(two("uses: ./.github/actions/empty"), {
+      "./.github/actions/empty": "runs:\n  using: composite\n",
+    });
+    expect(noSteps.covered.has(spec)).toBe(false);
+    expect(noSteps.rejected[0]!.reason).toBe(REASON);
+    const nested = S(two("uses: ./.github/actions/p2"), {
+      "./.github/actions/p2":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/empty\n",
+      "./.github/actions/empty": "runs:\n  using: composite\n",
+    });
+    expect(nested.covered.has(spec)).toBe(false);
+    expect(nested.rejected[0]!.reason).toBe(REASON);
+  });
+
   it("javascript/docker local actions are opaque even when provided (F7)", () => {
     // R1 escaping mutant #1: no runs.steps to inspect, and the entry code
     // can core.addPath / core.exportVariable — presence in the map is not

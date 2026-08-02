@@ -289,9 +289,14 @@ export function runBlocksOf(doc: unknown, localActions: Record<string, unknown> 
   // walk to see. Spec R1 demonstrated the escaping mutant: presence in the
   // map is NOT "modeled". Non-composite => null => opaque, fail-closed.
   const compositeStepsOf = (action: unknown): StepShape[] | null => {
-    const runs = (action as { runs?: { using?: unknown; steps?: StepShape[] } })?.runs;
+    const runs = (action as { runs?: { using?: unknown; steps?: unknown } })?.runs;
     if (runs === undefined || String(runs.using) !== "composite") return null;
-    return runs.steps ?? [];
+    // steps: is REQUIRED for composite actions (spec R7): a manifest without
+    // it is INVALID — GitHub fails the job at the use site, so downstream
+    // steps never run. Treating it as an empty clean composite was false
+    // coverage; null => opaque, fail-closed.
+    if (!Array.isArray(runs.steps)) return null;
+    return runs.steps as StepShape[];
   };
   const localRef = (s: StepShape): string | null =>
     typeof s.uses === "string" && s.uses.startsWith("./") ? s.uses : null;
@@ -1368,6 +1373,18 @@ describe("spec registration detector (spec §3.1)", () => {
     expect(runBlocksOf(jsUse, { "./.github/actions/js": jsAction })).toEqual([
       { run: "echo after-js", guarded: false, poisoned: true },
     ]);
+    // R7: `using: composite` WITHOUT the required runs.steps is an INVALID
+    // manifest — GitHub fails the job at the use site, downstream never
+    // runs. An empty-clean-composite reading was false coverage.
+    const stepsless = parse("runs:\n  using: composite\n");
+    expect(
+      runBlocksOf(
+        parse(
+          "jobs:\n  j:\n    steps:\n      - uses: ./.github/actions/empty\n      - run: echo after-empty\n",
+        ),
+        { "./.github/actions/empty": stepsless },
+      ),
+    ).toEqual([{ run: "echo after-empty", guarded: false, poisoned: true }]);
     // F8 (R1 escaping mutant #2): a composite may `uses:` another LOCAL
     // composite — resolution recurses, so a writing grandchild poisons the
     // rest of the parent AND the rest of the workflow job; a clean chain

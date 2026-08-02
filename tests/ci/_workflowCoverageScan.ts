@@ -230,7 +230,16 @@ function localActionPoisons(
       const text = canonicalYaml(raw);
       if (text === null) return true;
       const runs = runsBlockOf(text);
-      if (runs === null || !/(^|\n)\s*using\s*:\s*["']?composite\b/.test(runs)) return true;
+      if (runs === null) return true;
+      // EXACT value (R7): GitHub requires runs.using === "composite"
+      // verbatim — composite!, composite/x, composite extra are INVALID
+      // manifests that fail the job at this step, so downstream steps never
+      // run. \b matched before punctuation and covered them.
+      if (!/(^|\n)[ \t]*using:[ \t]*(?:"composite"|composite)[ \t]*(?:\r?\n|$)/.test(runs))
+        return true;
+      // steps: is REQUIRED for composite actions (R7): a composite manifest
+      // without it is equally invalid — same job-killing consequence.
+      if (!/(^|\n)[ \t]*steps[ \t]*:/.test(runs)) return true;
       // A manifest using an unmodelled spelling inside runs: could hide a
       // child uses from the recursion below — refuse it whole.
       if (UNMODELLED_SPELLING_RE.test(stripCommentLines(runs))) return true;
