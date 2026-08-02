@@ -305,7 +305,7 @@ for (const width of [320, 390, 720]) {
 - [ ] **Step 3: Oracle** — run and paste output into the commit body:
 
 ```bash
-rg -l "agendaBreakdown\.layout" --glob '!docs/**' --glob '!BACKLOG.md' --glob '!BACKLOG-archive.md' # expected: no matches (BACKLOG mentions live until Task 7's graduation sweep; the final-verification re-run drops the BACKLOG excludes)
+rg -l 'agendaBreakdown\\?\.layout' --glob '!docs/**' --glob '!BACKLOG.md' --glob '!BACKLOG-archive.md' # expected: no matches. Pattern carries an OPTIONAL backslash so the ESCAPED regex spelling inside standalone.config.ts:86 is also caught (plan R5 P1: the unescaped pattern reports clean while that consumer remains). BACKLOG stays excluded in the FINAL re-run too: an unrelated still-open entry (BL-AGENDA-FOLD-NO-SEEDED-E2E) legitimately names the retired spec as history; Task 7 updates that entry's coverage wording to name the new spec instead, and the three graduated entries move wholesale to the archive
 ```
 
 - [ ] **Step 4: Green** — `pnpm exec vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` PASS; standalone config still parses (`set -o pipefail; node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts --list | head -3`).
@@ -329,8 +329,9 @@ rg -l "agendaBreakdown\.layout" --glob '!docs/**' --glob '!BACKLOG.md' --glob '!
 - Modify: this plan (§12 marker line finalized)
 
 - [ ] **Step 1:** Move `BL-STEP3-IMPECCABLE-LIVE-RENDER`, `BL-SOURCE-NUL-BYTE-STEP3REVIEW`, `BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` to `BACKLOG-archive.md` with provenance lines (branch, spec path, what shipped).
-- [ ] **Step 2:** `pnpm exec vitest run tests/docs/` — graduation meta-test + ledger guards green.
-- [ ] **Step 3:** Commit — `docs(backlog): graduate the three step3 live-render cluster entries`
+- [ ] **Step 2:** Update the still-open `BL-AGENDA-FOLD-NO-SEEDED-E2E` entry in BACKLOG.md: its coverage sentence naming agendaBreakdown.layout.spec.ts now names the new agenda spec (mechanical accuracy; the entry itself stays OPEN).
+- [ ] **Step 3:** `pnpm exec vitest run tests/docs/` — graduation meta-test + ledger guards green.
+- [ ] **Step 4:** Commit — `docs(backlog): graduate the three step3 live-render cluster entries`
 
 ### Final verification (pipeline, not plan-task)
 
