@@ -1624,3 +1624,25 @@ disposition (a lexical check must reject hedges — "skipped", "pending", "not r
 "TBD" — since the earlier draft passed on "Critique skipped. Audit pending."). Note the
 honest ceiling: any text assertion verifies SHAPE, not that a human actually ran the
 gate.
+
+## BL-CARD-COPY-HELPFULCONTEXT-PARITY — the canonical warning-card table's `helpfulContext` column is not gated against the catalog
+
+**Status:** OPEN · **Severity:** LOW (documentation drift, no user-visible defect today) · **Class:** copy registry — surfaced by `docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md` R57 finding 1 (2026-07-30).
+
+`docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` §4.2 is the canonical warning-card copy table, but only its `triggerContext` column and four changed titles are byte-frozen against `lib/messages/catalog.ts` (`tests/messages/_metaWarningCardCopy.test.ts`, via `EXPECTED_TRIGGER_CONTEXT`). The `helpfulContext` column is gated by nothing: the master spec §12.4 appendix ↔ catalog parity that `x1` enforces says nothing about THIS table. Verified 2026-07-30: `HOTEL_GUEST_SPLIT_AMBIGUOUS` row 12 and its catalog entry already differ, and the suite passes. That is shipped copy and out of the inline-later-group feature's scope, so it was not retroactively frozen.
+
+Rows 43-44 (`HOTEL_INLINE_GROUP_OWN_HOTEL`, `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED`) ARE frozen, via `EXPECTED_HELPFUL_CONTEXT` in `tests/messages/warningCardCopyRegistry.ts` and the matching byte-parity loop in `_metaWarningCardCopy` — the mechanism exists and is proven; what remains is back-filling rows 1-42. **Fix (when prioritized):** audit each of the 42 rows against its catalog entry, decide per row which side is correct (the canonical table or the shipped catalog copy), reconcile, then move every code into `EXPECTED_HELPFUL_CONTEXT` so the loop covers the whole registry. The reconciliation is a copy decision per row, not a mechanical sweep, which is why it is filed rather than bundled.
+
+**CLOSED 2026-08-01** — resolved on feat/card-copy-parity-sync-job-names (spec 2026-08-01-card-copy-parity-sync-job-name): §4.2 rows 12/29 reconciled to the shipped catalog and EXPECTED_HELPFUL_CONTEXT back-filled to all 44 codes with a key-set completeness assertion.
+
+## BL-SYNC-JOB-FOUR-NAMES — the sync job answers to four different names in Doug-facing copy
+
+**Status:** OPEN · **Severity:** low (copy consistency; admin-facing) · **Surfaced:** #601 impeccable critique (2026-07-25), P3
+
+One job, one audience, four words. `lib/cron/runSummary.ts:34` calls it **"Sheet sync"**; `components/admin/StagedReviewCard.tsx:90` labels its rows **"Auto sync"**; `lib/messages/catalog.ts:366` says **"the scheduled sync"** while `catalog.ts:693` says **"an automatic sync"** — the same catalog, two names, for the same thing.
+
+The 2026-07-03 and 2026-07-25 sweeps (`BL-COPY-CRON-SWEEP`, `-2`) both removed jargon without unifying the noun underneath, and the second one's own consistency check cleared the _scopes_ ("Scheduled jobs" = the set of 9, "the scheduled sync" = one of them, "Auto sync" = a per-row source badge) while missing that the referent itself is named four ways. Not a bug and not urgent; it is the residue those sweeps left.
+
+**Fix (when prioritized):** pick one name for the sync job, then apply the §12.4 three-way lockstep for the two catalog rows (spec prose + `pnpm gen:spec-codes` + `catalog.ts`) and plain edits for the other two sites. **Trigger:** the next admin-copy pass, or any new surface that has to name this job.
+
+**CLOSED 2026-08-01** — resolved on feat/card-copy-parity-sync-job-names (spec 2026-08-01-card-copy-parity-sync-job-name): one name, "Auto sync" — six catalog codes via §12.4 three-way lockstep, the runSummary label, and the explainer mirror; the StagedReviewCard badge already read "Auto sync" and is unchanged.
