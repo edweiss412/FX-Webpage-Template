@@ -265,6 +265,9 @@ function identifierIsExpressionUse(id: Node): boolean {
     return false;
   }
   if (Node.isTypeQuery(parent) || Node.isTypeReference(parent)) return false;
+  // `typeof NextResponse.json` parses its entity as QualifiedName chains, so a
+  // QualifiedName parent is always type space (whole-diff r9 false positive).
+  if (Node.isQualifiedName(parent)) return false;
   if (
     Node.isFunctionDeclaration(parent) ||
     Node.isClassDeclaration(parent) ||
@@ -622,6 +625,9 @@ function assertFixturePath(repoRelativePath: string): void {
 export function addFixtureModule(repoRelativePath: string, source: string): void {
   assertFixturePath(repoRelativePath);
   getFixtureProject().createSourceFile(repoRelativePath, source, { overwrite: true });
+  // Overwriting a module can change what a cached require-specifier verdict
+  // would resolve to (whole-diff r9 finding 2) — drop the cache.
+  specifierVerdicts.clear();
 }
 
 /** Audit a single fixture source. */
@@ -633,6 +639,7 @@ export function auditSource(repoRelativePath: string, source: string): SelfRedir
 
 /** Audit the real tree once; the companion test memoizes the result. */
 export function auditTree(): TreeAudit {
+  specifierVerdicts.clear(); // fixture-era verdicts must not leak into the tree scan
   const project = new Project(AUDIT_PROJECT_OPTIONS);
   project.addSourceFilesAtPaths([
     "app/**/*.{ts,tsx,js,jsx,mjs,cjs}",

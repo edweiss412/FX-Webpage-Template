@@ -210,9 +210,9 @@ for (const [label, body] of ROWS) {
   const status = expectCaught
     ? n > 0
       ? "already-green (regression floor)"
-      : "UNEXPECTED: escaped"
+      : "ESCAPED (unexpected in either era)"
     : n === 0
-      ? "ESCAPES old guard (RED)"
-      : "UNEXPECTED: caught";
+      ? "ESCAPES this guard (the pre-rewrite RED verdict)"
+      : "caught (the type-aware flip — expected at HEAD)";
   console.log(`${label}: ${n} findings — ${status}`);
 }

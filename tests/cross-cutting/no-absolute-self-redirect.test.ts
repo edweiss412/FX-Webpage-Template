@@ -595,6 +595,32 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
   });
 
+  it("does not flag type-only typeof member references (N13)", () => {
+    // `typeof NextResponse.json` etc. parse as QualifiedName chains — pure type
+    // space (whole-diff r9 false-positive fix).
+    expect(
+      auditSource(
+        fixturePath(),
+        `import { NextResponse } from "next/server";\nimport * as NSq from "next/server";\ntype A = typeof NextResponse.json;\ntype B = typeof Response.redirect;\ntype C = typeof NSq.NextResponse.json;\ntype D = typeof globalThis.Response.json;\nexport type All = [A, B, C, D];`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("require-specifier verdicts do not survive a fixture-module overwrite", () => {
+    // whole-diff r9 finding 2: the cache must invalidate when addFixtureModule
+    // changes what a specifier resolves to — in BOTH directions.
+    addFixtureModule("app/__audit_fixture__/cacheflip.ts", `export const nothing = 1;`);
+    const consumer = `const m = require("./cacheflip");\nexport function GET() { return m; }`;
+    expect(auditSource(fixturePath(), consumer)).toEqual([]);
+    addFixtureModule(
+      "app/__audit_fixture__/cacheflip.ts",
+      `export { NextResponse } from "next/server";`,
+    );
+    expect(auditSource(fixturePath(), consumer).length).toBeGreaterThan(0);
+    addFixtureModule("app/__audit_fixture__/cacheflip.ts", `export const nothing = 1;`);
+    expect(auditSource(fixturePath(), consumer)).toEqual([]);
+  });
+
   it("does not flag a local callable interface named Require (N12)", () => {
     // The require branch pins Node's declaration; a same-named local callable
     // was a probed false positive (whole-diff r8 finding 4).
