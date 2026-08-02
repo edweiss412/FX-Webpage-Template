@@ -65,13 +65,23 @@ against the shipped guard (AGENTS.md round-economy contract):
   `use.defaultBrowserType` off the RESOLVED config object (not the source text) in
   `tests/ci/standalone-webkit-a11y-wiring.test.ts`.
 
-- **MF9 — non-`testMatch` selection controls (whole-diff review R2 live mutant):** a
-  `testIgnore: /(picker-flow|stage-restricted-crew-schedule)\.spec\.ts/` on the very project the
+- **MF9 — non-`testMatch` selection controls (whole-diff review R2 live mutant, tightened at R3):**
+  a `testIgnore: /(picker-flow|stage-restricted-crew-schedule)\.spec\.ts/` on the very project the
   command selects made both suites collect ZERO tests while both guards, which parsed only
   `testMatch`, stayed green. `grep`, `grepInvert`, `testDir` and every future control are the same
-  hole with different spellings, so the guards no longer parse ANY single control: they ask
-  Playwright to resolve the real command (`--list --reporter=json`) and require > 0 tests. Closes
-  the class rather than the instance.
+  hole with different spellings, so the guards no longer parse ANY single control. **R3's escaping
+  mutant closed the remaining half:** resolving a SYNTHESISED `--project=X <spec>` command ignored
+  the real command's own flags, so `--grep-invert=. --pass-with-no-tests` appended to the workflow
+  collected nothing, exited 0, and both guards stayed green. The guards now replay the segment's
+  EXACT argv with `--list --reporter=json` appended and require the spec to appear in the result.
+- **MF11 — self-gate / project drift (whole-diff review R3 live mutant):**
+  `stage-restricted-crew-schedule.spec.ts` opens every hook and case with
+  `if (testInfo.project.name !== "desktop-chromium") return;`, so moving its `testMatch` membership
+  to the other project the command already selects left the guard green while all six cases became
+  assertion-free passes. Collection under SOME selected project is not enough. Closed by reading
+  the gated project name out of the spec source and requiring the replayed command to collect the
+  file UNDER THAT project — the guard hardcodes no project of its own, so changing the gate moves
+  the requirement with it.
 - **MF10 — non-acting subcommand modes (whole-diff review R2 live mutants):** `playwright test
   --help` prints usage and exits 0 (test-run guards), and `playwright install --dry-run` /
   `install-deps --dry-run` print what they would do and install nothing (install guards) — all
@@ -85,7 +95,7 @@ that hides wiring would surface as a guard FAILURE (fail-closed direction), not 
 ## e2e harness-readiness (writing-plans mandatory checklist)
 
 - **Server boot:** the default `playwright.config.ts` `:3000` webServer (dev server, `127.0.0.1`), exactly as the template file already uses; CI boots it inside `crew-e2e.yml`'s single playwright invocation. No new server.
-- **Readiness gate:** `crew-shell` then `section-schedule` visibility before any agenda assertion (template pattern, `stage-restricted-crew-schedule.spec.ts:150-151`); never `networkidle`.
+- **Readiness gate:** `crew-shell` then `section-schedule` visibility before any agenda assertion (template pattern, `stage-restricted-crew-schedule.spec.ts:150-151`). Every ASSERTION waits on those testids, never on a network condition. **Amended per §11:** the two `page.goto` calls of the session-bootstrap hop DO use `waitUntil: "networkidle"` — the hop is a server redirect chain that runs a claim RPC before the crew route renders, and `domcontentloaded` returns on the intermediate document, which is precisely the shape `picker-flow.spec.ts:145` already uses for the same hop. The ban stands where it was aimed: no assertion may depend on network quiescence.
 - **Detach-safety:** no `locator.evaluate` in the new tests — only auto-retrying `expect(locator)` matchers (`toHaveJSProperty`, `toBeVisible`, `toHaveText`, `toHaveCount`), which cannot hang on unmounted nodes.
 
 ## Snippet provenance

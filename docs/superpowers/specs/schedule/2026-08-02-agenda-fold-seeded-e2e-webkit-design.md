@@ -73,8 +73,9 @@ Secure, and that build does not extend the localhost/127.0.0.1 secure-context ex
 macOS WebKit does store it, which is why the mechanism passed locally for months. Every `signInAs`
 case in the same file passed, which is what isolated the cookie rather than the fold.
 
-This section AMENDS §1.1 items 2-3, §2 (U1), §3.3, §3.5, §3.6 and §6 T2 wherever they say
-picker-cookie, one show, or `mobile-safari`. Those passages describe the pre-measurement design and
+This section AMENDS §1.1 items 2-3, §2 (U1), §3.2, §3.3, §3.5, §3.6 and §6 T2 wherever they say
+picker-cookie, one show, or `mobile-safari` — and, more generally, EVERY passage of this document
+that does, enumerated list or not. Those passages describe the pre-measurement design and
 are retained for the decision record; where they conflict, THIS section governs.
 
 1. **Staging: email-matched Google session, not an injected cookie.** The seeded crew row carries
@@ -138,9 +139,10 @@ same as the existing `dates` option.
 
 Show dates (all in the past relative to any run date, matching the template's frozen-clock
 convention): `travelIn 2026-05-04`, `set 2026-05-05`, `showDays ["2026-05-06", "2026-05-07"]`,
-`travelOut 2026-05-08`. TWO date-restricted crew members, both no-email, unclaimed
-(picker-cookie selection by id, exactly the template's viewer mechanism at
-`stage-restricted-crew-schedule.spec.ts` header "Why a picker-cookie viewer"):
+`travelOut 2026-05-08`. TWO date-restricted crew members. **Per §1.2 items 1-2:** the pair is
+seeded into TWO otherwise-identical shows, one per viewer, and in each the viewer under test
+carries `NON_ADMIN_CREW_FIXTURE.email` while the other row stays email-less — the pre-measurement
+design below seeded both no-email and selected by id through a picker cookie:
 
 - "Fold Fiona", `dateRestriction: { kind: "explicit", days: ["2026-05-06"] }` → expects row 0
   open+marked, row 1 folded.

@@ -116,43 +116,111 @@ function playwrightTestSegments(yaml: string): string[][] {
 const hasToken = (tokens: string[], token: string): boolean => tokens.includes(token);
 
 /**
- * The tests a command's project actually RESOLVES for a spec, from Playwright itself.
+ * Resolve the workflow's OWN command through Playwright and return, per (file, project), the
+ * tests it would actually collect.
  *
- * Whole-diff review R2 (HIGH) escaping mutant: both assertions used to parse `testMatch` out of
- * playwright.config.ts, which reads only ONE of the several controls that decide collection. A
- * `testIgnore: /(picker-flow|stage-restricted-crew-schedule)\.spec\.ts/` on the very project the
- * command selects made both suites collect ZERO tests while both guards stayed green (probe:
- * `Total: 0 tests in 0 files`, guards PASS). `grep`, `testDir` and `--grep-invert` are the same
- * hole with different spellings, and no amount of added parsing closes the class — asking
- * Playwright to resolve the real command does, for every present and future selection control at
- * once. `--list` starts no webServer, so this stays a unit-speed check.
+ * Two escaping mutants forced this shape, both filed against weaker versions of the same idea:
+ *
+ *   - R2 (HIGH): the guards parsed `testMatch` out of playwright.config.ts, so a `testIgnore` on
+ *     the very project the command selects collected ZERO tests with the guards green. `grep`,
+ *     `grepInvert` and `testDir` are the same hole spelled differently.
+ *   - R3 (HIGH): resolving a SYNTHESISED `--project=X <spec>` command ignored the real command's
+ *     own selection flags, so appending `--grep-invert=. --pass-with-no-tests` to the workflow
+ *     collected nothing, exited 0, and both guards stayed green.
+ *
+ * So neither the config nor a reconstruction is consulted: the segment's exact argv is replayed
+ * with `--list --reporter=json` appended, and every filter it carries applies exactly as it will
+ * in CI. `--list` starts no webServer, so this stays a unit-speed check. Fail-closed — a command
+ * that cannot be loaded or collects nothing yields an empty map, which fails the callers.
  */
-function resolvedTestCount(project: string, spec: string): number {
+function resolvedByCommand(segment: string[]): { file: string; project: string }[] {
+  const i = segment.indexOf("playwright");
+  const argv = segment.slice(i + 1);
   let out: string;
   try {
-    out = execFileSync(
-      "pnpm",
-      ["exec", "playwright", "test", `--project=${project}`, spec, "--list", "--reporter=json"],
-      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
-    );
+    out = execFileSync("pnpm", ["exec", "playwright", ...argv, "--list", "--reporter=json"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
   } catch {
-    // Playwright exits non-zero when a project resolves nothing for the file (and when the
-    // project name is unknown). Both mean "this project does not run this spec" — the command
-    // legitimately selects several projects and only one needs to claim it. Fail-closed: a
-    // config that cannot be loaded at all counts as zero everywhere and fails the assertion.
-    return 0;
+    return [];
   }
   const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
-  let count = 0;
+  const found: { file: string; project: string }[] = [];
   const walk = (suites: unknown[]): void => {
     for (const suite of suites) {
-      const s = suite as { suites?: unknown[]; specs?: unknown[] };
-      count += (s.specs ?? []).length;
+      const s = suite as {
+        suites?: unknown[];
+        specs?: { file?: string; tests?: { projectName?: string }[] }[];
+      };
+      for (const spec of s.specs ?? []) {
+        for (const t of spec.tests ?? []) {
+          found.push({ file: spec.file ?? "", project: t.projectName ?? "" });
+        }
+      }
       if (s.suites) walk(s.suites);
     }
   };
   walk(parsed.suites ?? []);
-  return count;
+  return found;
+}
+
+/**
+ * The project name a spec file GATES ITS OWN CASES ON, if it gates at all.
+ *
+ * R3 (HIGH) escaping mutant: `stage-restricted-crew-schedule.spec.ts` opens every hook and case
+ * with `if (testInfo.project.name !== "desktop-chromium") return;` (the single-writer convention),
+ * so moving the file's testMatch membership to the other project the command already selects left
+ * the guard green while all six cases became assertion-free passes. Collection under SOME selected
+ * project is therefore not enough — it has to be collected under the project the file was written
+ * for. Reading the literal out of the spec keeps the two in lockstep without the guard hardcoding
+ * a project of its own: change the gate and the guard follows it.
+ */
+function selfGatedProject(spec: string): string | null {
+  const src = readFileSync(join(process.cwd(), spec), "utf8");
+  const names = new Set(
+    [...src.matchAll(/testInfo\.project\.name\s*!==\s*"([^"]+)"/g)].map((m) => m[1]!),
+  );
+  expect(
+    names.size,
+    `${spec} gates its cases on more than one project name (${[...names].join(", ")}) — the ` +
+      "single-writer convention cannot hold and this guard cannot know which one to require",
+  ).toBeLessThan(2);
+  return names.size === 1 ? [...names][0]! : null;
+}
+
+/**
+ * Every executing segment must collect the spec, under the project the spec gates on when it
+ * gates. Shared by both guarded specs so a fix to one is a fix to both (class-sweep).
+ */
+function expectWired(segments: string[][], spec: string, what: string): void {
+  const naming = segments.filter((t) => hasToken(t, spec));
+  expect(
+    naming.length,
+    `no executing \`playwright test\` segment in crew-e2e.yml names ${spec} as a whole token. ` +
+      `${what} that no workflow runs are dark: CI would report green without executing them.`,
+  ).toBeGreaterThan(0);
+
+  const required = selfGatedProject(spec);
+  const collected = naming.flatMap((segment) =>
+    resolvedByCommand(segment).filter((t) => t.file.endsWith(spec.split("/").pop()!)),
+  );
+  expect(
+    collected.length,
+    `replaying crew-e2e.yml's own \`playwright test\` command with --list collects NO test from ` +
+      `${spec}. Its filters (--grep/--grep-invert/--shard/a project testIgnore) select it away, ` +
+      "so the job would exit 0 having executed none of it.",
+  ).toBeGreaterThan(0);
+  if (required !== null) {
+    expect(
+      collected.map((t) => t.project),
+      `${spec} gates every case on project "${required}", but the workflow command collects it ` +
+        `only under ${[...new Set(collected.map((t) => t.project))].join(", ")} — every case ` +
+        "would return early and pass without asserting anything.",
+    ).toContain(required);
+  }
 }
 
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
@@ -194,59 +262,23 @@ const DOCS_ONLY = /^(\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
 
 describe("picker-flow e2e CI wiring", () => {
-  it("crew-e2e.yml runs the spec under a project whose testMatch claims it", () => {
-    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy
-    // this, which an earlier version accepted.
-    const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) => hasToken(t, SPEC));
-    expect(
-      naming.length,
-      `no executing \`playwright test\` segment in crew-e2e.yml names ${SPEC} as a whole token. ` +
-        "Un-skipped cases that no workflow runs are dark: CI would report green without executing them.",
-    ).toBeGreaterThan(0);
-
-    // Naming the file is not enough: a command selecting only a project that does not
-    // resolve it collects ZERO tests and still passes. Ask Playwright, per selected
-    // project, instead of parsing any one config control (see resolvedTestCount).
-    const selected = naming.flatMap((t) =>
-      t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
-    );
-    expect(
-      selected.length,
-      `the segment naming ${SPEC} selects no --project at all`,
-    ).toBeGreaterThan(0);
-    expect(
-      selected.some((project) => resolvedTestCount(project, SPEC) > 0),
-      `no project the segment selects (${selected.join(", ")}) RESOLVES any test in ${SPEC}. ` +
-        "It would collect zero tests and still report green.",
-    ).toBe(true);
+  it("crew-e2e.yml's own command collects the picker-flow spec", () => {
+    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy this, which an
+    // earlier version accepted. Naming is then not enough either — the command's own filters
+    // decide what it collects, so expectWired replays it (see resolvedByCommand).
+    expectWired(playwrightTestSegments(read("crew-e2e.yml")), SPEC, "Un-skipped cases");
   });
 
-  it("crew-e2e.yml runs the stage-restricted crew spec under a project whose testMatch claims it", () => {
-    // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot
-    // provide this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any
-    // workflow actually names it, so only a run-command assertion makes an unwired file fail.
-    const STAGE_SPEC = "tests/e2e/stage-restricted-crew-schedule.spec.ts";
-    const naming = playwrightTestSegments(read("crew-e2e.yml")).filter((t) =>
-      hasToken(t, STAGE_SPEC),
+  it("crew-e2e.yml's own command collects the stage-restricted crew spec", () => {
+    // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot provide
+    // this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any workflow
+    // actually names it, so only a run-command assertion makes an unwired file fail. This file
+    // also gates every case on its own project, which expectWired pins (R3 HIGH).
+    expectWired(
+      playwrightTestSegments(read("crew-e2e.yml")),
+      "tests/e2e/stage-restricted-crew-schedule.spec.ts",
+      "The seeded agenda-fold cases",
     );
-    expect(
-      naming.length,
-      `no executing \`playwright test\` segment in crew-e2e.yml names ${STAGE_SPEC} as a whole ` +
-        "token — the seeded agenda-fold suite would be dark",
-    ).toBeGreaterThan(0);
-
-    const selected = naming.flatMap((t) =>
-      t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
-    );
-    expect(
-      selected.length,
-      `the segment naming ${STAGE_SPEC} selects no --project at all`,
-    ).toBeGreaterThan(0);
-    expect(
-      selected.some((project) => resolvedTestCount(project, STAGE_SPEC) > 0),
-      `no project the segment selects (${selected.join(", ")}) RESOLVES any test in ` +
-        `${STAGE_SPEC}. The seeded agenda-fold suite would be dark.`,
-    ).toBe(true);
   });
 
   it("crew-e2e.yml uses paths-ignore, so a new code path cannot silently skip it", () => {
