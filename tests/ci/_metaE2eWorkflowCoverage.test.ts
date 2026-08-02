@@ -19,11 +19,50 @@
  * the procedural enforcement. Measurement: spec
  * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scanWorkflowCoverage } from "./_workflowCoverageScan";
+import { parse } from "yaml";
+import { ENV_KEY_ALLOWLIST, scanWorkflowCoverage } from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
+
+/** Every env: key a live workflow or local action manifest carries, read from
+ *  the PARSED documents (spec §2.3 — a grep would count comments/prose as
+ *  live usage, laundering stale allowlist rows). */
+function liveEnvKeys(): Set<string> {
+  const keys = new Set<string>();
+  const collect = (env: unknown) => {
+    if (env !== null && typeof env === "object" && !Array.isArray(env))
+      for (const k of Object.keys(env as Record<string, unknown>)) keys.add(k);
+  };
+  const wfDir = join(process.cwd(), ".github/workflows");
+  for (const f of readdirSync(wfDir).filter((n) => /\.ya?ml$/.test(n))) {
+    const doc = parse(readFileSync(join(wfDir, f), "utf8")) as {
+      env?: unknown;
+      jobs?: Record<string, { env?: unknown; steps?: Array<{ env?: unknown }> }>;
+    } | null;
+    collect(doc?.env);
+    for (const j of Object.values(doc?.jobs ?? {})) {
+      collect(j?.env);
+      for (const s of Array.isArray(j?.steps) ? j.steps : []) collect(s?.env);
+    }
+  }
+  const actionsDir = join(process.cwd(), ".github/actions");
+  if (existsSync(actionsDir)) {
+    for (const d of readdirSync(actionsDir)) {
+      for (const base of ["action.yml", "action.yaml"]) {
+        const p = join(actionsDir, d, base);
+        if (!existsSync(p)) continue;
+        const doc = parse(readFileSync(p, "utf8")) as {
+          runs?: { steps?: Array<{ env?: unknown }> };
+        } | null;
+        for (const s of Array.isArray(doc?.runs?.steps) ? doc.runs.steps : []) collect(s?.env);
+        break;
+      }
+    }
+  }
+  return keys;
+}
 
 const ROOT = process.cwd();
 
@@ -397,7 +436,8 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
 
 describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec §2.2)", () => {
   const spec = "tests/e2e/foo.spec.ts";
-  const REASON = "earlier same-job step writes GITHUB_ENV/GITHUB_PATH";
+  const REASON =
+    "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
   const INVOKE = `run: pnpm exec playwright test ${spec}`;
   const two = (first: string, second = INVOKE) =>
     `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${first}\n      - ${second}\n`;
@@ -608,7 +648,9 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.rejected[0]!.reason, body).toBe("unmodelled YAML spelling");
     }
     // …and a well-formed steps job with typed optional keys still counts.
-    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      A: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
+    // env key REPEATS: allowlisted live key — this fixture pins TYPED-value
+    // acceptance, not key modeling (the static-env suite owns key fixtures).
+    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      REPEATS: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
     expect(S(wf(ok)).covered.has(spec)).toBe(true);
   });
 
@@ -1157,7 +1199,7 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     // On-profile optional keys stay CLEAN — the profile is narrow, not empty.
     const rich = S(two("uses: ./.github/actions/rich"), {
       "./.github/actions/rich":
-        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        A: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
+        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        REPEATS: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
     });
     expect(rich.covered.has(spec)).toBe(true);
   });
@@ -1534,5 +1576,125 @@ describe("the whole-config rule (spec §4.1)", () => {
     const r = S(cmd, "  workflow_dispatch:");
     expect(r.rejected.map((x) => x.spec).sort()).toEqual([...members].sort());
     expect(new Set(r.rejected.map((x) => x.reason))).toEqual(new Set(["no pull_request trigger"]));
+  });
+});
+
+describe("static env-block key allowlist (static-env spec §2.1)", () => {
+  const spec = "tests/e2e/foo.spec.ts";
+  const INVOKE = `run: pnpm exec playwright test ${spec}`;
+  const ENV_REASON = (keys: string[]) => `env block sets unmodelled key(s): ${keys.join(", ")}`;
+  const POISON_REASON =
+    "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
+  // Fixture-local allowlist: fixtures must not couple to live seed rows.
+  const ALLOW = { GOOD_KEY: "fixture-inert test key" };
+  const S = (w: string, localActions: Record<string, string> = {}) =>
+    scanWorkflowCoverage({
+      workflows: { "w.yml": w },
+      packageScripts: {},
+      localActions,
+      envKeyAllowlist: ALLOW,
+    });
+  const job = (jobExtra: string, stepExtra = "") =>
+    `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n${jobExtra}    steps:\n      - ${INVOKE}\n${stepExtra}`;
+
+  it("workflow-root env with an off-list key rejects every claim in the file (S1)", () => {
+    const w = `env:\n  PATH: fixtures/fake\nname: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+  });
+
+  it("job env with an off-list key rejects that job's claims; other jobs stay covered (S1/S3)", () => {
+    const dirty = S(job("    env:\n      PATH: fixtures/fake\n"));
+    expect(dirty.covered.has(spec)).toBe(false);
+    expect(dirty.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+    const crossJob = `name: x\non:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo hi\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    expect(S(crossJob).covered.has(spec)).toBe(true);
+  });
+
+  it("step env scoping is per-step: own step rejects, sibling dirt does not leak (S1/S3)", () => {
+    const own = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n        env:\n          PATH: fixtures/fake\n`;
+    const r = S(own);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+    const sibling = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    expect(S(sibling).covered.has(spec)).toBe(true);
+  });
+
+  it("a uses: step handed an off-list env key poisons the job fail-closed (S1, LS3)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(POISON_REASON);
+  });
+
+  it("composite matrix: direct/nested x run/uses step env dirt all poison (S1, R1 F1)", () => {
+    const use = (ref: string) =>
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - ${INVOKE}\n`;
+    const directRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const directUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const nested = (childSteps: string) => ({
+      "./.github/actions/a": "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b": `runs:\n  using: composite\n  steps:\n${childSteps}`,
+    });
+    const nestedRun = nested(
+      "    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    );
+    const nestedUses = nested(
+      "    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
+    );
+    for (const [label, actions] of [
+      ["direct-run", directRun],
+      ["direct-uses", directUses],
+      ["nested-run", nestedRun],
+      ["nested-uses", nestedUses],
+    ] as const) {
+      const r = S(use("./.github/actions/a"), actions);
+      expect(r.covered.has(spec), label).toBe(false);
+      expect(r.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+    // Precision twin: the same composites with an ALLOWLISTED key stay covered.
+    const cleanDirect = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    };
+    expect(S(use("./.github/actions/a"), cleanDirect).covered.has(spec)).toBe(true);
+  });
+
+  it("unknown keys fail closed including prototype-named ones; allowlisted stay covered (S2)", () => {
+    for (const key of ["PATH", "TOTALLY_NOVEL_KEY", "constructor"]) {
+      const r = S(job(`    env:\n      ${key}: v\n`));
+      expect(r.covered.has(spec), key).toBe(false);
+      expect(r.rejected[0]!.reason, key).toBe(ENV_REASON([key]));
+    }
+    expect(S(job("    env:\n      GOOD_KEY: v\n")).covered.has(spec)).toBe(true);
+  });
+
+  it("the reason lists ALL off-list keys, sorted (S4/S5)", () => {
+    const r = S(job("    env:\n      ZZ_B: v\n      AA_A: v\n"));
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["AA_A", "ZZ_B"]));
+  });
+});
+
+describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
+  it("every allowlist row's key appears in a live parsed env: map, with a non-empty reason (S6)", () => {
+    const live = liveEnvKeys();
+    for (const [key, reason] of Object.entries(ENV_KEY_ALLOWLIST)) {
+      expect(live.has(key), `stale env-key row: ${key} — remove it`).toBe(true);
+      expect(reason.trim().length > 0, `reason-less env-key row: ${key}`).toBe(true);
+    }
+  });
+
+  it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
+    const live = liveEnvKeys();
+    expect(live.has("GHOST_KEY_NEVER_LIVE")).toBe(false);
+    expect(live.size > 0).toBe(true);
   });
 });

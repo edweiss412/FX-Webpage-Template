@@ -62,6 +62,7 @@ export type ActionStep = {
   uses?: unknown;
   if?: unknown;
   shell?: unknown;
+  env?: unknown;
 };
 /**
  * NARROW-ACCEPT profile (R9). The R8 version was a blacklist — it rejected
@@ -636,7 +637,87 @@ type Opts = {
    * rather than trusted (spec §5 L8).
    */
   localActions?: Record<string, string>;
+  /**
+   * Env-key allowlist override for fixtures (static-env spec §2.1). Live
+   * callers omit it and get ENV_KEY_ALLOWLIST.
+   */
+  envKeyAllowlist?: Record<string, string>;
 };
+
+/**
+ * Static env-block key allowlist (static-env spec §2.0). A static `env:`
+ * block at workflow, job, or step level can set PATH (or any loader/
+ * interpreter control variable) so a textually clean `pnpm exec playwright
+ * test` runs a fake pnpm that exits 0 — no ordering to thread, the key is
+ * simply there. The posture is a NARROW ACCEPT list of key NAMES measured
+ * from the live tree, each row asserting name-inertness ("no execution
+ * surface reads a variable of this name" — spec §5 LS1: values, including
+ * expressions, are unexamined by construction; the NAME is what the shell/
+ * loader reads). Unknown keys fail closed: `path`, `LD_PRELOAD`,
+ * `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names are simply
+ * absent — there is no dangerous-key enumeration to evade (the losing game
+ * this arc's predecessors retired). The hygiene suite reds a row whose key
+ * no live parsed env: map carries, so the list cannot rot.
+ */
+export const ENV_KEY_ALLOWLIST: Record<string, string> = {
+  // Supabase endpoints/credentials — read by the app or test code under
+  // test over HTTP clients, not by the shell, loader, or runner.
+  SUPABASE_URL: "Supabase endpoint read by app/test code",
+  NEXT_PUBLIC_SUPABASE_URL: "Supabase endpoint read by app code",
+  SUPABASE_SECRET_KEY: "Supabase credential read by app/test code",
+  SUPABASE_ANON_KEY: "Supabase credential read by app/test code",
+  SUPABASE_SERVICE_ROLE_KEY: "Supabase credential read by app/test code",
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "Supabase credential read by app code",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "Supabase credential read by app code",
+  SUPABASE_JWT_SECRET: "JWT secret read by test bridge code",
+  SUPABASE_REALTIME_ISS: "realtime issuer read by test bridge code",
+  SUPABASE_TEST_REST_URL: "test-project endpoint read by test code",
+  SUPABASE_TEST_JWT_SECRET: "test-project secret read by test code",
+  SUPABASE_TEST_PUBLISHABLE_KEY: "test-project credential read by test code",
+  VALIDATION_SUPABASE_PROJECT_REF: "validation project ref read by audit scripts",
+  TEST_DATABASE_URL: "database URL read by test code via postgres client",
+  // App/test secrets and flags — read inside Node application/test code.
+  HASH_FOR_LOG_PEPPER: "log-hash pepper read by app code",
+  ENABLE_TEST_AUTH: "test-auth toggle read by app code",
+  TEST_AUTH_SECRET: "test-auth secret read by app code",
+  JWT_SIGNING_SECRET: "JWT secret read by app code",
+  PICKER_COOKIE_SIGNING_KEY: "cookie-signing key read by app code",
+  GOOGLE_SERVICE_ACCOUNT_JSON: "service-account JSON read by sync code",
+  BASELINE_SERVER_ONLY: "capture-mode flag read by screenshot scripts",
+  // Suite-selection flags — read inside vitest/playwright config or specs.
+  VITEST_EXCLUDE_ENV_BOUND: "suite-selection flag read by vitest config",
+  VITEST_INCLUDE_MUTATION_HARNESS: "suite-selection flag read by vitest config",
+  DEV_GATE_ONLY: "suite-selection flag read by playwright config",
+  CREW_E2E_ONLY: "suite-selection flag read by playwright config",
+  STEP3_LIVE_BUNDLE_ONLY: "suite-selection flag read by playwright config",
+  HELP_DOCS_WALKER_ONLY: "suite-selection flag read by playwright config",
+  MODAL_PREFETCH_E2E: "suite-selection flag read by playwright config",
+  MODAL_REALTIME_E2E: "suite-selection flag read by playwright config",
+  REPEATS: "repeat-count input read by test scripts",
+  BRANCH: "branch name read by regen scripts",
+  PG_CRON_COVERAGE_TARGET: "coverage target read by audit scripts",
+  // GitHub API tokens — read by gh/scripts over HTTPS, not by the shell.
+  GH_TOKEN: "GitHub token read by gh CLI",
+  GH_APP_TOKEN: "GitHub token read by regen scripts",
+  BRANCH_PROTECTION_PAT: "GitHub token read by audit scripts",
+};
+
+/**
+ * The SORTED off-allowlist keys of a static env: map (static-env spec §2.0).
+ * Membership is OWN-property membership — `Object.hasOwn`, never `in`: the
+ * prototype chain would silently allowlist keys named `constructor`,
+ * `toString`, `__proto__`, `hasOwnProperty` (spec §7 R1 F2). Non-mapping
+ * input returns [] — structural validity is validWorkflowShape's job.
+ */
+export function offAllowlistEnvKeys(
+  env: unknown,
+  allowlist: Record<string, string> = ENV_KEY_ALLOWLIST,
+): string[] {
+  if (env === null || typeof env !== "object" || Array.isArray(env)) return [];
+  return Object.keys(env)
+    .filter((k) => !Object.hasOwn(allowlist, k))
+    .sort();
+}
 
 /**
  * Cross-step env-state predicate (cross-step-env-guard spec §2.0): after
@@ -742,6 +823,7 @@ export function usesValuePoisons(
   value: unknown,
   localActions: Record<string, string>,
   seen: ReadonlySet<string>,
+  envKeyAllowlist: Record<string, string> = ENV_KEY_ALLOWLIST,
 ): boolean {
   const kind = usesKind(value);
   if (kind === "invalid") return true;
@@ -760,8 +842,14 @@ export function usesValuePoisons(
   if (steps === null) return true;
   const text = canonicalYaml(raw);
   if (text === null || writesJobEnv(text)) return true;
+  // Static-env spec §2.1 (LS3): a composite step of EITHER kind handed an
+  // off-allowlist env: key poisons fail-closed — the step (or the action it
+  // invokes) executes with a hostile static env this scan cannot model.
+  if (steps.some((s) => offAllowlistEnvKeys(s.env, envKeyAllowlist).length > 0)) return true;
   const next = new Set(seen).add(ref);
-  return steps.some((s) => "uses" in s && usesValuePoisons(s.uses, localActions, next));
+  return steps.some(
+    (s) => "uses" in s && usesValuePoisons(s.uses, localActions, next, envKeyAllowlist),
+  );
 }
 
 function localActionPoisons(
@@ -936,6 +1024,7 @@ export function scanWorkflowCoverage({
   packageScripts,
   configSpecs = {},
   localActions = {},
+  envKeyAllowlist = ENV_KEY_ALLOWLIST,
 }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
@@ -1036,6 +1125,13 @@ export function scanWorkflowCoverage({
     // truncate would false-positive on `uses:` inside a run body.
     const parsedJobsAll = (parsedDoc as { jobs?: Record<string, { steps?: unknown }> })?.jobs;
     const schemaInvalid = !validWorkflowShape(parsedDoc);
+    // Static-env spec §2.1: workflow-root env: governs every job. Scope-
+    // correct, not file-generic — the reason names the keys so the human
+    // routes to the ENV_KEY_ALLOWLIST registry, not a schema hunt.
+    const wfEnvOff = offAllowlistEnvKeys(
+      (parsedDoc as { env?: unknown } | null)?.env,
+      envKeyAllowlist,
+    );
     const mixedStepAnywhere = Object.values(parsedJobsAll ?? {}).some((jb) =>
       (Array.isArray(jb?.steps) ? (jb.steps as Array<Record<string, unknown>>) : []).some(
         (st) => st !== null && typeof st === "object" && "run" in st && "uses" in st,
@@ -1053,6 +1149,11 @@ export function scanWorkflowCoverage({
           : false;
       const parsedJob =
         jobName !== undefined && parsedJobs !== undefined ? parsedJobs[jobName] : undefined;
+      // Static-env spec §2.1: job env: governs this job's steps only.
+      const jobEnvOff = offAllowlistEnvKeys(
+        (parsedJob as { env?: unknown } | undefined)?.env,
+        envKeyAllowlist,
+      );
       // R18: keys placed AFTER `steps:` are invisible to the head text, so
       // read job-level if:/continue-on-error: from the parsed job too.
       const jobIf =
@@ -1152,6 +1253,17 @@ export function scanWorkflowCoverage({
           // there is no surrounding context left to smuggle anything into.
           const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
           const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
+          // Static-env spec §2.1: the union of every scope governing THIS
+          // step (workflow < job < step precedence all reach its process
+          // env), sorted and deduped so the reason is deterministic and
+          // lists every key (§3 S5 pins the first-key-only mutant).
+          const envOff = [
+            ...new Set([
+              ...wfEnvOff,
+              ...jobEnvOff,
+              ...offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist),
+            ]),
+          ].sort();
 
           for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
@@ -1172,7 +1284,18 @@ export function scanWorkflowCoverage({
               rejected.push({
                 file,
                 spec,
-                reason: "earlier same-job step writes GITHUB_ENV/GITHUB_PATH",
+                // Generalized with the static-env layer (static-env spec
+                // §2.1): the poison flag now has two sources, and the
+                // write-only wording sent a human hunting an env-file write
+                // that may not exist.
+                reason:
+                  "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key",
+              });
+            else if (envOff.length > 0)
+              rejected.push({
+                file,
+                spec,
+                reason: `env block sets unmodelled key(s): ${envOff.join(", ")}`,
               });
             else if (hasPathsFilter || prActivityFilter)
               rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
@@ -1191,7 +1314,20 @@ export function scanWorkflowCoverage({
         // every scalar the step carries is serialized for the mention
         // predicate, and the uses value goes through the shared classifier.
         if (writesJobEnv(JSON.stringify(parsedStep))) envPoisoned = true;
-        if ("uses" in parsedStep && usesValuePoisons(parsedStep.uses, localActions, new Set()))
+        // Static-env spec §2.1 (LS3): a uses: step handed an off-allowlist
+        // env: key is an untrusted action invocation — the action's process
+        // receives the hostile env (NODE_OPTIONS into a javascript action)
+        // and what it does to the job is thereafter unmodellable. Coarse
+        // poison, deliberately not step-local.
+        if (
+          "uses" in parsedStep &&
+          offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist).length > 0
+        )
+          envPoisoned = true;
+        if (
+          "uses" in parsedStep &&
+          usesValuePoisons(parsedStep.uses, localActions, new Set(), envKeyAllowlist)
+        )
           envPoisoned = true;
       }
     }
