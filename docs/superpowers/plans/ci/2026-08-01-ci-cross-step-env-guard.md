@@ -58,7 +58,7 @@ The census-core fixture additions (same commit): poisoned classifying item → p
 - between-step full-line comment prose mentioning GITHUB_ENV (comment-glue) → covered (F6); chunk-level `name:` mention → rejected (spec §5 L5 pin);
 - whole-config literal in a poisoned job → claims rejected, not silently dropped.
 
-**Green:** `Opts` gains `localActions?: Record<string, string>`; per-job loop threads `envPoisoned` across ALL step chunks (bookkeeping moved out from behind the `run:`-presence early-continue), qualification-then-bookkeeping order per spec §2.2, new reason inserted directly after `unmodelled execution override`; `localActionPoisons` resolves local refs recursively (quote-stripped, composite-only, cycle fail-closed). Caller builds the map from `.github/actions/**` manifests keyed `./<dir>`. Both live suites green.
+**Green:** `Opts` gains `localActions?: Record<string, string>`; per-job loop threads `envPoisoned` across ALL step chunks (bookkeeping moved out from behind the `run:`-presence early-continue), qualification-then-bookkeeping order per spec §2.2, new reason inserted after `unmodelled execution override` and after the shape gates (spelling/schema, `runs-on`) that decide whether the file or job can run at all; `localActionPoisons` resolves local refs recursively (quote-stripped, composite-only, cycle fail-closed). Caller builds the map from `.github/actions/**` manifests keyed `./<dir>`. Both live suites green.
 
 **Commit (shipped):** `test(ci): scanner rejects claims after an earlier same-job GITHUB_ENV/GITHUB_PATH write (spec §2.2)`
 

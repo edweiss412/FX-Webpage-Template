@@ -578,7 +578,9 @@ function stepMetaOf(chunk: string): string {
 /**
  * Strict `uses:` VALUE extraction (R3): the value must be a plain scalar —
  * optionally quoted — that is either a local `./` ref, a `docker://` image,
- * or a plain marketplace `owner/repo[@ref]` token. Anything else (empty →
+ * or a PINNED marketplace `owner/repo[/path]@ref` token whose ref passes
+ * the narrow allowlist. Anything else — refless, `docker://` in any form,
+ * Git-invalid refs (empty →
  * block/folded scalar on the next line, `&`/`*` → anchor/alias, stray
  * tokens) is unprovable by a line scan and poisons fail-closed.
  */
@@ -824,11 +826,11 @@ export function scanWorkflowCoverage({
     // that is skipped. Any of them anywhere means this scanner cannot say what
     // ran, so it says nothing.
     const unmodelled = UNMODELLED_RE.test(yaml);
-    // R3 comprehensive-audit closure: document markers/directives make the
-    // regex scan and the YAML parser read DIFFERENT documents (a second
-    // `---` document is text this scanner would claim from while the runner
-    // never executes it). Zero live workflows carry any; a run body printing
-    // one costs a reasoned allowlist row — fail-closed.
+    // Document markers: retained as an INERT belt. R6 canonicalization
+    // strips markers before this test sees them, and a genuine
+    // multi-document file fails `parse()` above (claim-nothing), so the
+    // parse failure is what refuses. Kept because it costs nothing and
+    // documents the intent (whole-diff R5/R9).
     const docMarkers = /(^|\n)(---|\.\.\.|%YAML|%TAG)/.test(yaml);
     // R4: EXPLICIT-KEY syntax (`? key` / `: value` lines) resolves to
     // ordinary scanner-read keys in the parser while every line-anchored
