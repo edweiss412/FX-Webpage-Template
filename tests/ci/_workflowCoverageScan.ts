@@ -809,18 +809,21 @@ export function scanWorkflowCoverage({
     // its specs "covered" even though the job does not run on every PR (found while
     // reviewing fix/picker-flow-app-bugs, where crew-e2e.yml moved to paths-ignore).
     const hasPathsFilter = pr !== null && /(^|\n)\s*paths(-ignore)?\s*:/.test(pr);
-    // R23: a `types:` list narrows WHICH pull_request activity fires the
-    // workflow (e.g. `types: [closed]` never runs on an ordinary open PR),
-    // and a sequence-valued `pull_request` is not a per-PR trigger either.
-    // Both are read from the PARSED document and treated exactly like a
-    // paths filter: the job does not run on every PR, so it cannot be the
-    // thing that keeps a spec covered.
+    // R24: a `pull_request` trigger counts as per-PR ONLY when it is BARE.
+    // Enumerating filter keys one round at a time (paths, paths-ignore,
+    // types, then branches, branches-ignore) is the losing shape this arc
+    // has retired repeatedly, so the rule inverts: ANY configuration under
+    // `pull_request` — any key at all, or a sequence form — means the
+    // workflow does not run on every PR, exactly like the paths filter this
+    // guard has always refused. A future filter key needs no new code.
     const parsedOn = (parsedDoc as { on?: unknown } | null)?.on;
     const parsedPr = mapping(parsedOn)
       ? (parsedOn as Record<string, unknown>)["pull_request"]
       : undefined;
-    const prActivityFilter =
-      Array.isArray(parsedPr) || (mapping(parsedPr) && "types" in (parsedPr as object));
+    const prIsBare =
+      parsedPr === null ||
+      (mapping(parsedPr) && Object.keys(parsedPr as Record<string, unknown>).length === 0);
+    const prActivityFilter = parsedPr !== undefined && !prIsBare;
     // Checked against the WHOLE file: `shell:`/`working-directory:`/`defaults:`
     // apply at workflow, job, or step level, and `needs:` can point at a job
     // that is skipped. Any of them anywhere means this scanner cannot say what

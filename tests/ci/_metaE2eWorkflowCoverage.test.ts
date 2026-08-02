@@ -702,10 +702,15 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     // Activity-filtered or sequence-valued pull_request: the workflow does
     // not run on every PR, so it cannot keep a spec covered (same treatment
     // as a paths filter).
+    // R24: the rule is BARE-ONLY — any configuration under pull_request
+    // means the workflow does not run on every PR. Enumerating filter keys
+    // (paths, types, then branches, branches-ignore) was the losing shape.
     const filtered = [
       `name: x\non:\n  pull_request:\n    types:\n      - closed\n${job}`,
       `name: x\non:\n  pull_request:\n    types:\n      - opened\n      - synchronize\n${job}`,
       `name: x\non:\n  pull_request:\n    - opened\n${job}`,
+      `name: x\non:\n  pull_request:\n    branches:\n      - main\n${job}`,
+      `name: x\non:\n  pull_request:\n    branches-ignore:\n      - docs/**\n${job}`,
     ];
     for (const w of filtered) {
       const r = S(w);
