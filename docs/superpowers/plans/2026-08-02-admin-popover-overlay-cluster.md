@@ -304,6 +304,46 @@ Whole-diff Codex cross-model review (fresh-eyes, REVIEWER ONLY) iterated to APPR
 
 ## 12. Closeout
 
-impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
 
-(TEMPLATE form until T11 runs; replaced with the RAN form + findings/dispositions before the whole-diff review.)
+Run 2026-08-02 against the whole UI diff (`components/admin/showpage/AttentionMenu.tsx`,
+`components/admin/PublishedToggle.tsx`, `components/admin/showpage/ShareHub.tsx`,
+`components/admin/showpage/StatusStrip.tsx`, `components/admin/showpage/PublishedReviewModal.tsx`,
+`components/admin/ArchiveShowButton.tsx`, `components/admin/useFitWithinClip.ts`).
+Canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) →
+register reference read (`reference/product.md`; admin UI, design SERVES the product).
+
+**Why DEGRADED.** `reference/critique.md` requires Assessment A and Assessment B to run
+as two isolated sub-agents. This session was operating under an explicit standing
+instruction not to spawn subagents, so both assessments ran single-context. The skill's own
+contract for that case is to degrade and declare it, which is what `RAN-DEGRADED` records —
+not a partial run. Every mechanical check the gate specifies was executed.
+
+### Findings + dispositions
+
+`dispositions=none` is the grammar-correct value here, not an empty table: the
+marker cross-check (`tests/docs/_invariant8Closeout.ts:140`) ties that field to the
+P0/P1 count, and this run produced none. The findings below are P2/P3, recorded
+and dispositioned anyway.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | `transitionend` BUBBLES, so the T2 re-measure listener on the fitted element's `offsetParent` fired for every descendant transition. In AttentionMenu that offsetParent is the menu panel holding ~20 rows with `transition-colors`, so each hover fade forced a full `apply()` — a synchronous reflow (write max-height → read rect → write). | **FIXED** in T11a (`ab54dc983`), as its own RED→GREEN→commit cycle. Probed before claiming: a descendant `transitionend` moved the cap 322px → 222px. The listener now requires `event.target === positioned`, and the case asserts both directions so "delete the listener" cannot pass. |
+| 2 | P3 | Neither new scroll region carries an explicit overflow affordance (fade, shadow). On iOS the overlay scrollbar is invisible until a scroll starts. | **Accepted, not deferred.** Both regions cut content mid-element at the fitted edge — the AttentionMenu scroller ends mid-row against a row border, and the toggle banner ends mid-line of text — which is the conventional "more below" cue. Adding a fade would also fight DESIGN.md's restrained-chrome direction. Revisit only if a user reports missing content. |
+| 3 | P3 | The AttentionMenu scroller's `role="group" aria-label="Show issues"` nests inside the panel's own `role="group"` (`"Needs you"` / `"Monitoring"`), so a screen-reader user hears two group names on entry. | **Accepted (spec-ratified, §4.2).** The nesting is deliberate: the panel names the leading section, the scroller names the scrollable region, and a bare `div` maps to `generic`, which is naming-prohibited — so `aria-label` alone would be invalid ARIA. |
+
+**Detector (Assessment B):** `detect.mjs --json` over all seven files returned `[]` (exit 0)
+on the first run AND on the post-T11a re-run.
+
+**Mechanical pre-code invariants**, swept over the whole diff rather than trusted per task:
+no em-dash in user-visible copy (the only `—` occurrences in added lines are inside code
+comments); curly punctuation only (`\u201C`/`\u201D`/`&rsquo;`) in the new Archive copy;
+no hard-coded colors; no fixed-px widths; no layout-property animation; `motion-reduce`
+preserved on the AttentionMenu panel; the added focus rings use the existing
+`--color-focus-ring` token (already used by 85 component files); no new tap target below
+44px (both `tabIndex={0}` additions are scroll containers, not pointer targets).
+
+**Browser evidence** was not gathered through the skill's overlay-injection path: this diff's
+surfaces are covered by dedicated real-browser suites that run as part of the task gates —
+`tests/e2e/popover-clip-fit.spec.ts` (15 cases, green over 5 consecutive runs) and
+`tests/e2e/admin-lifecycle-layout.spec.ts` on mobile-safari (28 passed / 0 failed).
