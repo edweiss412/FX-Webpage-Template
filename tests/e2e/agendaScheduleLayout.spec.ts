@@ -21,7 +21,7 @@
  *      AgendaScheduleBlock markup rendered out of process (see
  *      agendaScheduleHtml() below); only the AgendaEmbed affordance row is
  *      hand-transcribed from components/agenda/AgendaEmbed.tsx. Sits inside a
- *      fixed-width Schedule column with a worst-case 90-char
+ *      fixed-width Schedule column with a worst-case 88-char
  *      UNBREAKABLE-token session title;
  *   3. serves it over HTTP (file:// is blocked in Chromium automation) and
  *      measures getBoundingClientRect() at 320 / 390 / 720px.
@@ -29,7 +29,7 @@
  * §6 invariants asserted:
  *   - the affordance row + every `[data-testid="agenda-session"]` stay within
  *     the column width (no horizontal overflow) at 320 / 390 / 720px;
- *   - a 90-char unbreakable title WRAPS (its row grows taller than a normal
+ *   - a 88-char unbreakable title WRAPS (its row grows taller than a normal
  *     single-line session) instead of overflowing the column;
  *   - zero horizontal document overflow.
  *
@@ -212,7 +212,7 @@ for (const vw of VIEWPORTS) {
       );
     }
 
-    // The 90-char unbreakable title WRAPS rather than overflowing: its row is
+    // The 88-char unbreakable title WRAPS rather than overflowing: its row is
     // taller than a normal single-line session, and it never exceeds the column.
     // Selected by ORDER within the open day, not by a `data-session-kind` attribute: that
     // attribute existed only in the hand-transcribed markup this harness used to serve. The

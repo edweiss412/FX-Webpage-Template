@@ -6,14 +6,17 @@
  * rejects the result), but plain data has no such problem. That lets every expected count in
  * a spec be DERIVED from this fixture instead of typed as a literal.
  *
- * Why that matters here concretely: `agendaBreakdown.layout.spec.ts` asserted
- * `expect(sessionCount).toBe(2)` against markup it hand-transcribed. Pointed at the real
- * component the true count is 3, so the literal had been pinning the transcription rather
- * than the component. A hardcoded count cannot fail when the fixture grows -- it fails when
- * the fixture is CORRECT.
+ * Why that matters here concretely: an EARLY version of the since-retired
+ * `agendaBreakdown.layout.spec.ts` asserted `expect(sessionCount).toBe(2)` against markup it
+ * hand-transcribed. Pointed at the real component the true count is 3, so the literal had been
+ * pinning the transcription rather than the component. A hardcoded count cannot fail when the
+ * fixture grows -- it fails when the fixture is CORRECT. That spec was later corrected to derive
+ * the count from TOTAL_SESSIONS below (which is the form it carried when it was deleted), and its
+ * successor `step3-review-modal.agenda.spec.ts` derives it the same way while measuring the REAL
+ * modal tree rather than a transcription.
  */
 
-/** One unbreakable 90-char token: the input for the "long titles wrap, not overflow" rule. */
+/** One unbreakable 88-char token: the input for the "long titles wrap, not overflow" rule. */
 export const LONG_TITLE =
   "AdaptingToUnpredictabilityInGlobalAssetManagementQuarterlyInvestorSummitKeynoteSessionXY";
 
@@ -26,7 +29,7 @@ const sess = (time: string, title: string) => ({
 });
 
 /**
- * Row 0 carries BOTH comparison sessions -- a normal one and the 90-char token -- because a
+ * Row 0 carries BOTH comparison sessions -- a normal one and the 88-char token -- because a
  * session inside a folded <details> paints nothing and every rect reads zero. Rows 1 and 2
  * exist so the crew harness measures a folded row and an empty one; the admin harness opens
  * all three, which is exactly the shape difference the two harnesses are for.

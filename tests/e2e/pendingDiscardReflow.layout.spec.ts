@@ -20,7 +20,7 @@
  * asserts `basis-full` is absent from the RENDERED MARKUP of the real component tree,
  * which cannot be fooled by a comment and is what the claim actually means.
  *
- * Harness mirrors tests/e2e/agendaBreakdown.layout.spec.ts: compile the REAL
+ * Harness mirrors tests/e2e/step3-review-modal.agenda.spec.ts: compile the REAL
  * token CSS from app/globals.css via the Tailwind CLI, serve over HTTP, measure
  * getBoundingClientRect() at 360px (hazard viewport) and 720px (>= sm).
  *

@@ -190,7 +190,11 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
     // names which one regressed, and so re-adding a row is caught by an explicit expectation.
     for (const spec of [
       "tests/e2e/agendaScheduleLayout.spec.ts",
-      "tests/e2e/agendaBreakdown.layout.spec.ts",
+      // Row swap (2026-08-02 step3 live-render cluster, plan Task 5):
+      // agendaBreakdown.layout.spec.ts measured hand-transcribed card chrome
+      // and was retired once its assertion families were re-homed onto the
+      // real modal tree here.
+      "tests/e2e/step3-review-modal.agenda.spec.ts",
     ]) {
       expect(specs, `${spec} must exist on disk`).toContain(spec);
       expect(covered.has(spec), `${spec} must be covered by an unfiltered workflow`).toBe(true);
