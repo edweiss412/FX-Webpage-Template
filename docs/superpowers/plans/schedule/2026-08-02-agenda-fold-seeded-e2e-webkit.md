@@ -44,6 +44,12 @@ against the shipped guard (AGENTS.md round-economy contract):
 - **MF5 — grep-scope regression (Task 3 only):** the WebKit project resolving zero tests
   (joined-title trap) or extra tests (dimensional leak), closed by the exactly-one-test pin
   against `--list --reporter=json`.
+- **MF6 — non-executing Playwright modes (plan-review R2 live mutant):** `playwright test …
+  --list` collects tests, executes none, exits 0 — closed by rejecting segments carrying
+  `--list`/`--ui` tokens. (The crew-e2e count-measurement command that legitimately uses
+  `--list` lives in a YAML comment, which MF1's stripping already removes — no false
+  rejection.) Not applicable to Task 3's install assertions: `playwright install` has no
+  collect-only mode.
 
 Out of scope by declaration: YAML anchors/aliases and multi-line `run: |` blocks — crew-e2e.yml
 and standalone-e2e.yml use neither today; the guards read the live files, so introducing one
@@ -293,13 +299,23 @@ the hardened existing one (Step 1b):
  */
 function playwrightTestSegments(yaml: string): string[][] {
   const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+  // Non-executing Playwright modes (MF6, plan-review R2 live mutant): `playwright test
+  // --list …` collects and exits 0 without running anything, so a segment carrying it is
+  // wiring-shaped but proves zero execution. `--ui` is the trivially adjacent interactive
+  // mode. Segments with either token are not wiring.
+  const NON_EXECUTING = new Set(["--list", "--ui"]);
   return [...stripYamlComments(yaml).matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
     .map((m) => m[1]!)
     .flatMap((c) => c.split(/&&|\|\||;|\|/))
     .map((seg) => seg.trim().split(/\s+/))
     .filter((t) => {
       const i = t.indexOf("playwright");
-      return i !== -1 && t[i + 1] === "test" && t.slice(0, i).every((w) => RUNNER_PREFIX.has(w));
+      return (
+        i !== -1 &&
+        t[i + 1] === "test" &&
+        t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
+        !t.some((w) => NON_EXECUTING.has(w))
+      );
     });
 }
 
