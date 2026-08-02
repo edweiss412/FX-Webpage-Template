@@ -345,3 +345,50 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
   });
 });
+
+/**
+ * Focus-leave light dismiss (spec §3.4).
+ *
+ * Inside-set for this surface: the panel's own descendants, and the pill.
+ * Anything else taking focus dismisses. The point is keyboard parity with
+ * click-outside: a Tab out of the menu should not leave a floating panel behind
+ * two overlays deep.
+ */
+describe("AttentionMenu focus-leave dismiss (§3.4)", () => {
+  function outsideTarget() {
+    const el = document.createElement("button");
+    el.setAttribute("data-testid", "outside-focus-target");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  test("focusin outside the menu and the pill closes it", () => {
+    const { props } = renderMenu();
+    const outside = outsideTarget();
+    fireEvent.focusIn(outside);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("focusin on a panel descendant does NOT close it", () => {
+    const { props } = renderMenu();
+    fireEvent.focusIn(screen.getByTestId("attention-menu-row-alert:a1"));
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test("focusin on the pill does NOT close it", () => {
+    const { props, pill } = renderMenu();
+    fireEvent.focusIn(pill);
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test("window blur alone does NOT close it (ratified §3.4/§10 exception)", () => {
+    const { props } = renderMenu();
+    // Switching apps or focusing the URL bar must not dismiss: there is no
+    // subsequent in-document focusin, so nothing inside the page took over.
+    fireEvent.blur(window);
+    fireEvent.focusOut(screen.getByTestId("attention-menu-row-alert:a1"), {
+      relatedTarget: null,
+    });
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+});

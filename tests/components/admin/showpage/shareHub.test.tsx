@@ -1364,3 +1364,92 @@ describe("ShareHub — trigger elevation (spec §3.1)", () => {
     }
   });
 });
+
+/**
+ * Focus-leave light dismiss (spec §3.4).
+ *
+ * Inside-set for this surface has FOUR members: the popover panel's
+ * descendants, the backdrop, the primary trigger and the kebab. Dismissal here
+ * is the light kind — like the backdrop path and unlike Escape, it does NOT
+ * restore focus, because whatever just took focus is where the operator meant
+ * to go.
+ */
+describe("ShareHub — focus-leave dismiss (spec §3.4)", () => {
+  function outsideTarget() {
+    const el = document.createElement("button");
+    el.setAttribute("data-testid", "outside-focus-target");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it("open + idle: focusin outside all four closes WITHOUT restoring focus", () => {
+    renderHub();
+    fireEvent.click(primary());
+    expect(queryPopover()).not.toBeNull();
+
+    const outside = outsideTarget();
+    outside.focus();
+    fireEvent.focusIn(outside);
+
+    expect(queryPopover()).toBeNull();
+    // Escape restores focus to the opener; focus-leave must not, or it yanks
+    // the operator back out of wherever they just went.
+    expect(document.activeElement).not.toBe(primary());
+    expect(document.activeElement).not.toBe(kebab());
+  });
+
+  it("focusin on the popover panel keeps it open", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.focusIn(popover());
+    expect(queryPopover()).not.toBeNull();
+  });
+
+  it("focusin on a popover DESCENDANT keeps it open", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.focusIn(screen.getByTestId("admin-rotate-share-token-button"));
+    expect(queryPopover()).not.toBeNull();
+  });
+
+  it("focusin on the backdrop keeps it open", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.focusIn(backdrop());
+    expect(queryPopover()).not.toBeNull();
+  });
+
+  it("focusin on the primary trigger keeps it open", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.focusIn(primary());
+    expect(queryPopover()).not.toBeNull();
+  });
+
+  it("focusin on the kebab keeps it open", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.focusIn(kebab());
+    expect(queryPopover()).not.toBeNull();
+  });
+
+  it("busy: focusin outside does NOT close (busy-exempt, like every other path)", async () => {
+    let settle: (() => Promise<void>) | null = null;
+    try {
+      settle = await openAndHang();
+      const outside = outsideTarget();
+      fireEvent.focusIn(outside);
+      expect(queryPopover()).not.toBeNull();
+    } finally {
+      await settle?.();
+    }
+  });
+
+  it("window blur alone does NOT close it (ratified §3.4/§10 exception)", () => {
+    renderHub();
+    fireEvent.click(primary());
+    fireEvent.blur(window);
+    fireEvent.focusOut(popover(), { relatedTarget: null });
+    expect(queryPopover()).not.toBeNull();
+  });
+});

@@ -91,21 +91,29 @@ function AttentionMenuPanel({
       onClose();
       pillRef.current?.focus();
     }
+    /** Inside-set (spec §3.4): the panel's descendants, and the pill. */
+    const isOutside = (target: EventTarget | null) =>
+      panelRef.current !== null &&
+      target instanceof Node &&
+      !panelRef.current.contains(target) &&
+      !pillRef.current?.contains(target);
     function onPointerDown(e: PointerEvent) {
-      if (
-        panelRef.current &&
-        e.target instanceof Node &&
-        !panelRef.current.contains(e.target) &&
-        !pillRef.current?.contains(e.target)
-      ) {
-        onClose();
-      }
+      if (isOutside(e.target)) onClose();
+    }
+    // Keyboard parity with click-outside (spec §3.4): tabbing out of the menu
+    // should not leave a floating panel behind. focusin (not blur/focusout):
+    // window blur has no in-document successor, and dismissing on it would close
+    // the menu whenever the operator switched apps or focused the URL bar.
+    function onFocusIn(e: FocusEvent) {
+      if (isOutside(e.target)) onClose();
     }
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("focusin", onFocusIn);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
     };
   }, [onClose, pillRef]);
 

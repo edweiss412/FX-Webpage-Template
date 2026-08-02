@@ -110,6 +110,9 @@ test.afterAll(async () => {
 const PILL = '[data-testid="published-show-review-alert-pill"]';
 const MENU = '[data-testid="published-show-review-attention-menu"]';
 const PANEL = "[data-review-modal-panel]";
+const HUB_PRIMARY = '[data-testid="share-hub-primary"]';
+const HUB_KEBAB = '[data-testid="share-hub-kebab"]';
+const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
@@ -146,6 +149,35 @@ async function openMenu(page: Page, a: number, n: number, s: number) {
 // authored spec, whose REDs were all observed against pre-change production, is
 // held at .claude/t2b-handoff/popover-clip-fit.full.spec.txt.
 // ---------------------------------------------------------------------------
+
+/**
+ * The fitted geometry, re-read from scratch on every call.
+ *
+ * §9's obligations describe the SETTLED state, and the re-measure is driven by a
+ * ResizeObserver / transitionend, both asynchronous: a single sample taken right
+ * after a structural change can land on the frame BEFORE the re-apply and fail
+ * on a correct implementation (observed twice across repeated runs of the two
+ * O2 -> O1 flip cases). Callers poll this until it converges.
+ */
+async function fittedGeometry(page: Page) {
+  return page.evaluate(
+    ([panelSel, menuSel, scrollerSel, gutter]) => {
+      const panel = document.querySelector(panelSel as string);
+      const menu = document.querySelector(menuSel as string);
+      const scroller = document.querySelector(scrollerSel as string);
+      if (!panel || !menu || !scroller) return null;
+      const p = panel.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      const sc = scroller.getBoundingClientRect();
+      const available = Math.floor(p.bottom - sc.top - (gutter as number));
+      return {
+        contained: m.bottom <= p.bottom + 0.5,
+        fitted: Math.abs(sc.height - available) <= 0.5,
+      };
+    },
+    [PANEL, MENU, SCROLLER, GUTTER] as const,
+  );
+}
 
 /** Boots the toggle page and drives the refusal so the banner renders. */
 async function openToggleBanner(page: Page) {
@@ -286,32 +318,28 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     await setItems(page, 10, 10, 10); // needs-you heading mounts (O1)
     await expect(page.locator('[data-testid="attention-needsyou-heading"]')).toBeVisible();
 
-    const m = await page.evaluate(
-      ([panelSel, menuSel, scrollerSel, gutter]) => {
-        const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
-        const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
+    await expect
+      .poll(() => fittedGeometry(page), {
+        message: "menu never settled contained + fitted after the O2 -> O1 flip",
+      })
+      .toMatchObject({ contained: true, fitted: true });
+
+    const reachable = await page.evaluate(
+      ([scrollerSel]) => {
         const scroller = document.querySelector(scrollerSel as string)!;
-        const s = scroller.getBoundingClientRect();
-        const last = scroller.querySelectorAll<HTMLElement>('button[data-testid^="attention-menu-row-"]');
-        const lastRow = last[last.length - 1]!;
+        const rows = scroller.querySelectorAll<HTMLElement>('button[data-testid^="attention-menu-row-"]');
+        const lastRow = rows[rows.length - 1]!;
         lastRow.scrollIntoView({ block: "nearest" });
         const r = lastRow.getBoundingClientRect();
-        const visibleTop = Math.max(r.top, s.top);
-        const visibleBottom = Math.min(r.bottom, s.bottom);
+        const sc = scroller.getBoundingClientRect();
+        const visibleTop = Math.max(r.top, sc.top);
+        const visibleBottom = Math.min(r.bottom, sc.bottom);
         const hit = document.elementFromPoint((r.left + r.right) / 2, (visibleTop + visibleBottom) / 2);
-        return {
-          panelBottom: p.bottom,
-          menuBottom: menu.bottom,
-          height: s.height,
-          available: Math.floor(p.bottom - s.top - (gutter as number)),
-          hitInsideRow: hit !== null && lastRow.contains(hit),
-        };
+        return hit !== null && lastRow.contains(hit);
       },
-      [PANEL, MENU, SCROLLER, GUTTER] as const,
+      [SCROLLER] as const,
     );
-    expect(m.menuBottom).toBeLessThanOrEqual(m.panelBottom + 0.5);
-    expect(Math.abs(m.height - m.available)).toBeLessThanOrEqual(0.5);
-    expect(m.hitInsideRow).toBe(true);
+    expect(reachable, "last interactive row unreachable after the flip").toBe(true);
   });
 
   test("compound: the O2 -> O1 flip lands MID-ENTRANCE and still settles fitted", async ({ page }) => {
@@ -345,25 +373,16 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
 
     await openMenu(page, 0, 0, 10);
     await setItems(page, 10, 10, 10);
-    expect(await page.evaluate(() => (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount())).toBeGreaterThan(0);
+    expect(
+      await page.evaluate(() => (window as unknown as { __heldFrameCount: () => number }).__heldFrameCount()),
+    ).toBeGreaterThan(0);
     await page.evaluate(() => (window as unknown as { __releaseFrames: () => void }).__releaseFrames());
 
-    const m = await page.evaluate(
-      ([panelSel, menuSel, scrollerSel, gutter]) => {
-        const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
-        const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
-        const s = document.querySelector(scrollerSel as string)!.getBoundingClientRect();
-        return {
-          panelBottom: p.bottom,
-          menuBottom: menu.bottom,
-          height: s.height,
-          available: Math.floor(p.bottom - s.top - (gutter as number)),
-        };
-      },
-      [PANEL, MENU, SCROLLER, GUTTER] as const,
-    );
-    expect(m.menuBottom).toBeLessThanOrEqual(m.panelBottom + 0.5);
-    expect(Math.abs(m.height - m.available)).toBeLessThanOrEqual(0.5);
+    await expect
+      .poll(() => fittedGeometry(page), {
+        message: "menu never settled contained + fitted after a mid-entrance flip",
+      })
+      .toMatchObject({ contained: true, fitted: true });
   });
 
   test("keyboard: the scroller is in focus order ahead of its rows, and ArrowDown scrolls it", async ({
@@ -483,5 +502,39 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
         { message: `scrollTop never advanced from ${before}` },
       )
       .toBeGreaterThan(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7 — idle mutual exclusion, keyboard-inclusive (spec §3.4)
+// ---------------------------------------------------------------------------
+
+test.describe("§3.4 — opening one overlay dismisses the other, by keyboard too", () => {
+  test("hub open, then Enter on the pill: menu opens and the hub closes", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openMenu(page, 10, 10, 10);
+    // Neutralise the auto-open so this walk starts from a closed menu.
+    await page.locator(PILL).click();
+    await expect(page.locator(MENU)).toHaveCount(0);
+
+    await page.locator(HUB_PRIMARY).click();
+    await expect(page.locator(HUB_POPOVER)).toBeVisible();
+
+    await page.locator(PILL).focus();
+    await page.keyboard.press("Enter");
+
+    await expect(page.locator(MENU)).toBeVisible();
+    await expect(page.locator(HUB_POPOVER), "the hub survived the menu opening").toHaveCount(0);
+  });
+
+  test("menu open, then Enter on a hub trigger: hub opens and the menu closes", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openMenu(page, 10, 10, 10);
+
+    await page.locator(HUB_KEBAB).focus();
+    await page.keyboard.press("Enter");
+
+    await expect(page.locator(HUB_POPOVER)).toBeVisible();
+    await expect(page.locator(MENU), "the menu survived the hub opening").toHaveCount(0);
   });
 });

@@ -236,6 +236,8 @@ export function ShareHub({
   const primaryRef = useRef<HTMLButtonElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  /** The dismiss backdrop, so the focus-leave inside-set can name it (spec §3.4). */
+  const backdropRef = useRef<HTMLButtonElement>(null);
   /** Which trigger opened it — Escape restores focus there specifically, and
       the caret is anchored under it. */
   const openerRef = useRef<HTMLButtonElement | null>(null);
@@ -636,6 +638,34 @@ export function ShareHub({
     return () => document.removeEventListener("keydown", onDocKeyDown, true);
   }, [open, busy]);
 
+  // Focus-leave light dismiss (spec §3.4). Inside-set has FOUR members: the
+  // popover panel's descendants, the backdrop, and both triggers.
+  //
+  // LIGHT, like the backdrop path and unlike Escape: no focus restore. Whatever
+  // just took focus is where the operator meant to go, so yanking them back to
+  // the opener would fight the very gesture that dismissed the popover.
+  //
+  // Busy-exempt, like every other dismissal path (§6): an in-flight action must
+  // not lose its outcome banner to a stray focus move.
+  //
+  // focusin, never blur/focusout with a null relatedTarget: switching apps or
+  // focusing the URL bar produces no in-document successor, and dismissing there
+  // would close the popover the operator left open on purpose.
+  useEffect(() => {
+    if (!open || busy) return;
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (panelRef.current?.contains(target)) return;
+      if (backdropRef.current?.contains(target)) return;
+      if (primaryRef.current?.contains(target)) return;
+      if (kebabRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [open, busy]);
+
   // A role="dialog" must RECEIVE focus when it opens; without this, Tab from
   // the primary trigger reaches the kebab before the panel's own controls, and
   // screen-reader users are never moved into the dialog they just opened.
@@ -666,6 +696,7 @@ export function ShareHub({
       {open && (
         <button
           type="button"
+          ref={backdropRef}
           aria-hidden="true"
           tabIndex={-1}
           data-testid="share-hub-backdrop"
