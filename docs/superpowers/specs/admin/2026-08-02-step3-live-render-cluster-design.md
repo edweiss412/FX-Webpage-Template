@@ -38,7 +38,7 @@ Three related closures on the Step-3 "Review & publish" surface, one branch, one
 
 ### 2.2 Change
 
-`seedStagedRow` gains an options parameter (backward-compatible; existing callers unchanged) selecting a **card variant**. A new helper `seedStep3StateGallery` seeds six rows in ONE reserved wizard session, one per variant, each with a **distinct `drive_file_id`** (uniqueness: `pending_syncs` unique on `(drive_file_id, wizard_session_id)` per `supabase/migrations/20260501001000_internal_and_admin.sql:182`; manifest unique on `(wizard_session_id, drive_file_id)` per the same migration `supabase/migrations/20260501001000_internal_and_admin.sql:357`) and a **distinct parsed `show.title`** — the card headline renders `pr.show.title` before the manifest name fallback (`components/admin/wizard/Step3SheetCard.tsx:497`), so distinct manifest `name` values alone would not identify well-formed cards visually.
+`seedStagedRow` gains an options parameter (backward-compatible; existing callers unchanged) selecting a **card variant**. A new helper `seedStep3StateGallery` seeds six rows in ONE reserved wizard session, one per variant, each with a **distinct `drive_file_id`** (uniqueness: `pending_syncs` unique on `(drive_file_id, wizard_session_id)` per `supabase/migrations/20260501001000_internal_and_admin.sql:182`; manifest unique on `(wizard_session_id, drive_file_id)` per the same migration `supabase/migrations/20260501001000_internal_and_admin.sql:357`) and per-variant distinguishers that respect production's parse-attachment gate: `parseResult` is attached only to clean rows (`isCleanReviewRow` gate, `components/admin/OnboardingWizard.tsx:616` area), and the card headline renders `pr.show.title` before the manifest name fallback (`components/admin/wizard/Step3SheetCard.tsx:497`). So **variants 1-3 carry distinct parsed `show.title` values; variants 4-6 carry distinct manifest `name` values** (variant 4's empty parse has no `show`; variants 5-6 are not clean-status rows, so no parse attaches).
 
 Derivation inputs verified against `deriveStep3DisplayState` (`lib/admin/step3DisplayState.ts:44-78`, first-match-wins) and `buildStep3Row` field sources (`OnboardingWizard.tsx:340-348`: `publishIntent = m.publish_intent === true`; `lastFinalizeFailureCode = pending?.last_finalize_failure_code ?? null`; `hasWellFormedParseResult = !!(parseResult && parseResult.show)` at `OnboardingWizard.tsx:346`).
 
@@ -55,6 +55,8 @@ Six card variants over five derivation states (variant 2 is the warn-card presen
 | 5 | blocking | `needs_review_other` | `hard_failed` | null | well-formed | rule 1 (`HARD_BLOCK` set, `lib/admin/step3DisplayState.ts:34`) |
 | 6 | set-aside | `set_aside` | `permanent_ignore` | null | well-formed | rule 3a (`SET_ASIDE` set, `lib/admin/step3DisplayState.ts:39`) |
 
+**Variant 5 additionally seeds a `pending_ingestions` row** (matching `drive_file_id`, an `id`, and an error `code`): production attaches `pendingIngestionId` from `pending_ingestions` (`components/admin/OnboardingWizard.tsx:641-646`, `ingestionByDfid` built at `OnboardingWizard.tsx:590-592`), and the real blocking controls — `HardFailedActions`, hard-fail copy, `HelpAffordance` — render only when `row.pendingIngestionId` exists (`components/admin/wizard/Step3Review.tsx:599`). Without it the gallery would review a bare, incomplete blocking row. Variants 1-4 and 6 seed no `pending_ingestions` row (their branches never read it).
+
 `Step3ManifestStatus` union verified at `components/admin/wizard/Step3Review.tsx:71-79` (`staged | hard_failed | skipped_non_sheet | applied | defer_until_modified | permanent_ignore | discard_retryable | live_row_conflict`) — every status this matrix writes is a member.
 
 **Guard conditions.** Variant 4's `'{}'::jsonb` is handled explicitly by `buildStep3Row` (`!!(parseResult && parseResult.show)` — missing `show` key is falsy); the no-details branch renders inline Re-scan/Ignore controls (display-state comment, `lib/admin/step3DisplayState.ts:15`). Variant 2's warning array must survive `stripLegacyUnknownFieldAnchors` (`lib/admin/step3Buckets.ts:46-50`) — `FIELD_UNREADABLE` is not a legacy UNKNOWN_FIELD anchor, so it does. No variant writes `created_show_id`, `publish_intent`, or `wizard_approved` — all six stay on the `linkedShow: null` path.
@@ -63,15 +65,15 @@ Six card variants over five derivation states (variant 2 is the warn-card presen
 
 ### 2.4 TDD shape
 
-Red-first test: a DB-backed test (same project as existing devCapture tests) seeds the gallery, reads rows back, and derives each card's state **through the real builder path** — `buildStep3Row` composition, not a hand-mapped re-derivation of the matrix inputs (R1 finding 2: hand-mapping would not pin the claimed field sourcing). Exact mechanism (exporting `buildStep3Row` for test import vs. driving the component read path) is a plan-time decision; the requirement is that the assertion consumes the same executable binding production uses. Variant 2 additionally asserts `nonAmbiguityGapTotal > 0` via the real `lib/admin/step3Buckets.ts:67` export. Expectations are the matrix's state/variant names (anti-tautology: not re-derived from the same inputs the seed wrote).
+Red-first test: a vitest DB-backed test in the SERIAL project (runs in `unit-suite-db` — NOT a Playwright spec; the dev-capture Playwright spec is `UNSEEN` in the coverage ledger, `tests/ci/_metaE2eWorkflowCoverage.test.ts:64`, and gains nothing here) seeds the gallery, reads rows back, and derives each card's state **through the real builder path** — `buildStep3Row` composition, not a hand-mapped re-derivation of the matrix inputs (R1 finding 2: hand-mapping would not pin the claimed field sourcing). Exact mechanism (exporting `buildStep3Row` for test import vs. driving the component read path) is a plan-time decision; the requirement is that the assertion consumes the same executable binding production uses. Variant 2 additionally asserts `nonAmbiguityGapTotal > 0` via the real `lib/admin/step3Buckets.ts:67` export. Expectations are the matrix's state/variant names (anti-tautology: not re-derived from the same inputs the seed wrote).
 
 ### 2.5 Lock topology (invariant 2 — APPLIES; single-holder enumeration)
 
 Invariant 2 has no test-helper exemption (R1 finding 4). The helper today is split: `pending_syncs` insert/delete run inside `runLockedSql` (`tests/e2e/helpers/devCaptureStaged.ts:110-112`, `devCaptureStaged.ts:166-168`) holding the per-show advisory lock, but BOTH `onboarding_scan_manifest` mutations go through unlocked PostgREST (`devCaptureStaged.ts:132` insert, `devCaptureStaged.ts:176-177` delete). This branch corrects that while extending the helper:
 
-- Every seed-path mutation of `pending_syncs` AND `onboarding_scan_manifest` (insert and cleanup delete, all six rows) moves inside the same `runLockedSql` transaction holding `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for that row's `drive_file_id`.
+- Every seed-path mutation of `pending_syncs`, `onboarding_scan_manifest`, AND `pending_ingestions` (variant 5; insert and cleanup delete, all six rows) moves inside the same `runLockedSql` transaction holding `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for that row's `drive_file_id`.
 - **Single-holder enumeration:** the JS-side `runLockedSql` wrapper is the ONLY holder on this path — no RPC holder, no nested SECURITY DEFINER holder exists on the seed path (the helper issues plain SQL, not RPCs). Per-row locking (six distinct `drive_file_id` values, six distinct hashkeys) — no cross-row lock-ordering concern.
-- The gallery test asserts the lock is held during seed mutations (invariant 2's "tests assert the lock is held"), using the structural-guard pattern of `tests/auth/advisoryLockRpcDeadlock.test.ts` as template.
+- The gallery test asserts the lock is held BEHAVIORALLY, using the repository's live pattern at `tests/db/advisory-lock.test.ts:50` as template: while the seed transaction runs, a second connection's competing `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` returns false and `pg_locks` shows the holder. (The lexical topology guard `tests/auth/advisoryLockRpcDeadlock.test.ts` pins holder ORDER, not liveness — it is not the observation seam here.) The exact seam (probe connection timing hook in the seed helper) is a plan-time mechanism decision; the requirement is a live-transaction observation, not a lexical scan.
 
 ## 3. Impeccable dual-gate on the live render
 
@@ -79,8 +81,8 @@ Invariant 2 has no test-helper exemption (R1 finding 4). The helper today is spl
 - Run `/impeccable critique` and `/impeccable audit` with canonical v3 setup gates (context.mjs load → register read), per invariant 8.
 - Explicit check items carried from the BACKLOG entry: dark-mode warn-contrast on the variant-2 warn card; demoted RESCAN card's double-"Review" affordance renders correctly (NOT whether it should exist — §1.1).
 - Both themes screenshotted at mobile + desktop widths.
-- Dispositions: P0 fixed inline on this branch (each fix re-runs the affected gate half); P1+ get DEFERRED.md entries with trigger. Findings + dispositions recorded in this spec's closeout section and the PR body.
-- Closeout marker (grammar per `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:49-64`): `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` — filled at close; `p0+p1>0` requires `dispositions=recorded`.
+- Dispositions: P0 fixed inline on this branch (each fix re-runs the affected gate half); P1+ get DEFERRED.md entries with trigger. Findings + dispositions recorded in the PLAN unit's closeout section (invariant 8: findings live in the plan/handoff §12, not the spec tree) and summarized in the PR body.
+- Closeout marker (grammar per `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:49-64`): `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` — the marker line lives in the PLAN unit under `docs/superpowers/plans/` (the governing spec excludes the specs tree), filled at close; `p0+p1>0` requires `dispositions=recorded`.
 
 ## 4. Agenda-wrapper harness fidelity (Option A)
 
@@ -122,7 +124,7 @@ N/A — the new spec renders a static baseline; no new visual states or animatio
 
 **Post-delete oracle:** tree-wide grep for the filename stem `agendaBreakdown.layout` returns zero non-doc hits. (NOT bare `agendaBreakdown` — the component unit tests `agendaBreakdown.test.tsx` / `agendaBreakdown.transitions.test.tsx` legitimately remain.)
 
-**Dark-spec discipline:** a spec wired only through path-filtered `step3-live-bundle.yml` is dark to `_metaE2eWorkflowCoverage.test.ts` unless registered. The new spec registers exactly the way the existing `step3-review-modal.interactions` / `step3-review-modal.layout` specs are registered in that meta-test (same workflow, same filter posture) — the plan verifies the precise mechanism against `tests/ci/_metaE2eWorkflowCoverage.test.ts` before implementation.
+**Executable routing (probe-verified):** the new filename matches NEITHER existing project regex today. It is added to BOTH: the `desktop-chromium` `testMatch` in `playwright.config.ts:76` (so `step3-live-bundle.yml`'s `--project=desktop-chromium` run executes it) AND the standalone config `testMatch` (`tests/e2e/standalone.config.ts:85`), following the `step3-review-modal.interactions` precedent, which lives in both. Standalone runs unfiltered on every PR, which is what satisfies `_metaE2eWorkflowCoverage.test.ts` for the existing modal specs — the same mechanism covers the new one. `tests/e2e/standalone-baseline.json` gains the new spec's row (and loses the deleted spec's row, per §4.4 table).
 
 **Workflow paths:** `.github/workflows/step3-live-bundle.yml` `pull_request.paths` (`step3-live-bundle.yml:18-29`) gains the new entry + spec paths AND the two production inputs the re-homed assertions depend on: `components/crew/AgendaScheduleBlock.tsx` and `app/globals.css`. Run list per `step3-live-bundle.yml:70` pattern (`STEP3_LIVE_BUNDLE_ONLY=1`).
 
@@ -139,8 +141,8 @@ N/A — the new spec renders a static baseline; no new visual states or animatio
 - **TDD per task** (invariant 1): seed matrix test red-first (§2.4); agenda spec red-first (new spec asserting real-wrapper containment fails before the override param + entry exist); NUL guard red-first (§5).
 - **Advisory locks** (invariant 2): APPLIES — §2.5 is the lock-topology section; the helper's manifest mutations move under the JS-side `runLockedSql` holder, and the gallery test asserts the lock is held.
 - **Mutation-surface observability** (invariant 10): N/A — no new HTTP route or server action; test helpers are not mutation surfaces under the invariant's definition (routes / `"use server"` actions).
-- **Impeccable gate** (invariant 8): §3; marker line lands in this spec's closeout section (flat-plan style).
-- **Commits:** `test(admin)` for seed + gallery test + NUL guard, `test(e2e)` for the agenda harness/spec swap, `fix(admin)` for the NUL byte, `docs(plan)`/`docs(backlog)` for spec + graduations.
+- **Impeccable gate** (invariant 8): §3; marker line and findings land in the plan unit's closeout (§12-style), not this spec.
+- **Commits:** one commit per task, each carrying its red-first test AND the implementation that turns it green (invariants 1 + 6 — never a red guard committed alone, never impl before test). Expected shape: `test(admin)` seed gallery task (seed extension + matrix test + lock assertion); `fix(admin)` NUL task (guard assertion + one-byte fix, same commit); `test(e2e)` agenda harness task(s) (override param + fixture + entry + spec; deletion + consumer reconciliation may be its own task commit); `docs(plan)`/`docs(backlog)` for spec, plan, graduations. Final task split is the plan's to fix.
 - **CI:** `step3-live-bundle.yml` runs the new spec on this PR (paths include it); `unit-suite` runs the seed matrix + NUL guard tests; full required set green before merge.
 
 ## 7. Documented limits
@@ -152,13 +154,10 @@ N/A — the new spec renders a static baseline; no new visual states or animatio
 
 ## 8. Acceptance criteria
 
-1. `seedStep3StateGallery` seeds six rows (distinct `drive_file_id`, distinct `show.title`); gallery test asserts five derivation states plus the warn-card variant through the real builder path, and asserts the advisory lock is held during seed mutations.
+1. `seedStep3StateGallery` seeds six rows (distinct `drive_file_id`; variants 1-3 distinct parsed `show.title`, variants 4-6 distinct manifest `name`); gallery test asserts five derivation states plus the warn-card variant through the real builder path, and asserts the advisory lock is held during seed mutations.
 2. Live `/admin?step=3` renders all six card variants; impeccable critique + audit both RUN against it; P0s fixed; P1+ in DEFERRED.md; marker line recorded.
 3. New agenda spec green in `step3-live-bundle.yml` asserting real-wrapper containment (long session-title token wraps; no horizontal overflow at 320/390/720); `agendaBreakdown.layout.spec.ts` deleted with all six §4.4 consumers reconciled; `agendaBreakdown.layout` stem greps to zero non-doc hits; new spec registered in `_metaE2eWorkflowCoverage.test.ts`.
-4. `Step3Review.tsx` reports as text to `file(1)`; NUL guard green; sole product diff at the `join` site.
+4. `Step3Review.tsx` reports as text to `file(1)`; NUL guard green; product diff limited to the `join` site plus any impeccable P0-disposition fixes (each recorded in the plan closeout).
 5. Three BACKLOG entries graduated to `BACKLOG-archive.md` with provenance; graduation meta-test green.
 6. Whole-diff cross-model review APPROVE; real CI green; merged; `main...origin/main` = `0 0`.
 
-## Closeout (filled at ship time)
-
-impeccable-gate: TEMPLATE — critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
