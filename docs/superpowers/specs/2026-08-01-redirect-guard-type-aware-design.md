@@ -1,6 +1,8 @@
 # Type-aware self-redirect guard (BL-SOUND-REDIRECT-GUARD)
 
-**Status:** R9 — whole-diff round-6 finding repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+**Status:** R10 — whole-diff round-7 finding repaired · **Branch:** `test/redirect-guard-type-aware` · **Date:** 2026-08-01
+
+**Whole-diff R7 disposition (2026-08-01):** one RED finding — CommonJS carrier loads (`require("next/server")`, typed, untyped, or renamed) sat outside both the import-declaration and import-call detection. Closed (probe 12): a call whose CALLEE has the Node `Require` type and whose string specifier resolves to a module whose namespace carries is flagged at the require call (specifier verdicts cached per directory; unrelated modules stay quiet). Rows R90–R92 + N11. Also swept: the remaining stale ranges in the archive and test header now defer to §6.
 
 **Whole-diff R6 disposition (2026-08-01):** one RED finding — the namespace hop inspected only properties literally named `NextResponse`/`Response`, so a namespace over a RENAMED re-export (`export { NextResponse as Redirector }`, default exports, dynamic-import twins) escaped. Closed (probe 11): module-symbol types (ValueModule/NamespaceModule flags) get an ALL-property one-hop check regardless of export spelling — module-gated, so ordinary structural types stay on the cheap named path; tree cost unchanged. Rows R87–R89. Also repaired: R86 made order-independent (each multi-module row lays down its full helper chain), and the rot-prone range metadata in the plan and test header now defers to §6 as the single source of truth.
 
@@ -152,6 +154,8 @@ tree: 633 files, 1 finding(s), 13103ms
 
 **Probe 11 — renamed-export namespace carriers closed by the module-gated all-property hop (whole-diff r6 repair).** `import * as NS` over `export { NextResponse as Redirector }` (and default-export/dynamic-import twins) stuffed structurally now flags at the naked namespace reference (U1–U3 OK); unrelated namespaces (node:path) stay quiet; tree unchanged (633 files, 1 finding, 12.5s). ALL CLOSED.
 
+**Probe 12 — CommonJS require carriers closed (whole-diff r7 repair).** The callee's `Require` type identifies every require variant (incl. renamed `const r2 = require`); the string specifier resolves through the compiler host to the module whose namespace is then carrier-checked (all properties). Untyped, as-cast, and renamed variants flag; `require("react")` stays quiet.
+
 **Probe — no plain-JS modules under walked roots (R1/F6).** `find app lib -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs"` (node_modules excluded) → 0 files. tsconfig `include` covers only `**/*.ts`/`**/*.tsx`, `checkJs` off — so the typecheck gate does NOT discharge import resolution for standalone JS; the sentinel in §5.5 fences the class instead.
 
 ## 3. Consequence bound (acceptance criterion)
@@ -231,7 +235,7 @@ Type resolution requires resolvable identifiers: a snippet that names `NextRespo
 
 ### 5.5 Test file: `tests/cross-cutting/no-absolute-self-redirect.test.ts`
 
-- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R89 (§6.1).
+- `FLAGGED_SPELLINGS` (19 rows) preserved with the compilable preamble, plus new positive rows R20–R92 (§6.1).
 - Negative fixtures (§6.2): `hostRelativeRedirect` (existing), `next/navigation` `redirect` (call AND extraction), a local class method named `redirect` (call AND extraction + `.call` adapter), `new NextResponse(null, { headers: { Location } })`, ordinary element access/destructuring (N6 — pins the no-prefilter widening quiet on normal code).
 - Tree tests (one `describe`, shared `beforeAll` scan per §5.2): offenders assertion (message unchanged); stale-row assertion (live keys from prong-1 findings); vacuous-walk floors — `visitedAppFiles > 50`, `visitedLibFiles >= 1`; **no-plain-JS sentinel** (R1/F6) — `plainJsFiles` is empty, with a message stating WHY: tsconfig `include` covers only TS extensions and `checkJs` is off, so a standalone JS module has no typecheck backstop for unresolved identifiers; a team adding one must extend the guard's JS story deliberately (the walk globs already include JS extensions as defense in depth).
 - Argument-changed test: the synthetic line-72 fixture becomes a compilable module — import line + padding — with the call landing on line 72, asserted by the fixture's own reported finding line (keeps the padding honest), expect 1 unallowed finding.
@@ -291,6 +295,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | R78–R82 | Import-call carriers, five shapes (whole-diff r4, probe 9 Z1–Z5) | inline awaited-import stuffing; declaration destructuring; assignment destructuring; promise-carried; `.then` callback — all flagged AT the `import("next/server")` call, decided on the awaited type |
 | R83–R86 | Re-export carriers, four shapes (whole-diff r5, probe 10 V1–V4) | renamed named re-export; default re-export; re-exported namespace; two-hop chain — each + structural laundering, flagged at the naked local whose BINDING TYPE carries |
 | R87–R89 | Renamed-export namespace carriers (whole-diff r6, probe 11 U1–U3) | `import * as NS` over a renamed/default re-export, stuffed structurally; dynamic-import twin — module-symbol types get the ALL-property hop |
+| R90–R92 | CommonJS require carriers (whole-diff r7, probe 12) | untyped `require("next/server")`; `as typeof import(...)` cast; renamed require — flagged at the require call via the callee's `Require` type + resolved specifier |
 
 ### 6.2 Must-not-flag (negatives)
 
@@ -306,6 +311,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 | N8 | Non-extracting whole-object positions: `new NextResponse(…)`, `NextResponse.json(…)` receiver, `x instanceof Response`, `typeof Response` | none yields the class object onward (probe 7 NEG) |
 | N9 | Ordinary namespace uses: `NS.NextResponse.json(…)`, `NS.NextRequest` type positions | receiver/type positions are non-extracting (probe 8 NEG) |
 | N10 | Unrelated import bindings (`import { join } from "node:path"` etc.) | binding type carries nothing banned — the type-decided tracking adds no noise (probe 10 NEG) |
+| N11 | `require` of an unrelated module | resolved specifier's namespace carries nothing banned (probe 12 NEG) |
 
 ### 6.3 Documented-escape pin (limit asserted as behavior)
 
@@ -323,7 +329,7 @@ Every family = fixture + pinned verdict in the test file. A NEW family is admiss
 ## 8. Deliverables
 
 1. Rewritten `tests/cross-cutting/no-absolute-self-redirect-audit.ts` (two-prong type-aware core, pure ts-morph, exports per §5.2).
-2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R89, N1–N10, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
+2. Updated `tests/cross-cutting/no-absolute-self-redirect.test.ts` (compilable fixtures; R20–R92, N1–N11, E1; memoized tree `describe` with JS sentinel and vacuous-walk floors).
 3. BACKLOG graduation: entry moves to `BACKLOG-archive.md` with provenance `test/redirect-guard-type-aware`; one `BACKLOG_GRADUATED` registry row added (registry format per `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the orchestrating session owns that file; this branch adds exactly one row).
 4. Probe harness committed at `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-probe*.mjs` (R1/F7).
 5. No production-code changes: `app/`, `lib/` untouched.

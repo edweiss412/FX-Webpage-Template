@@ -14,8 +14,10 @@
  * finding at the site where the member name is spelled. The fixture tables
  * below are the mutation-family closure set from the spec
  * (docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md §6):
- * R1–R19 legacy spellings (regression floor), R20+ families that defeated
- * syntactic or single-hop resolution, N1–N9 negatives, E1 documented-escape pin.
+ * R1–R19 legacy spellings (regression floor), the R20+ families that defeated
+ * earlier constructions, the N-series negatives, and the E1 documented-escape
+ * pin — spec §6 is the single source of truth for the closure table (grown
+ * across the whole-diff review rounds; exact ranges live only there).
  */
 import { existsSync } from "node:fs";
 
@@ -574,6 +576,32 @@ describe("no absolute self-redirect under the walked roots", () => {
       PRE + `export function GET() { return NextResponse.redirect(new URL("/x", request.url)); }`,
     );
     expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [
+      "R90 untyped require carrier",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSr = require("next/server");\nconst R: { NextResponse: { redirect: RedirectFn } } = NSr;\nexport function GET() { return R.NextResponse.redirect(new URL("/x", request.url)); }`,
+    ],
+    [
+      "R91 as-cast require carrier",
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nconst NSc = require("next/server") as typeof import("next/server");\nconst R: { redirect: RedirectFn } = NSc.NextResponse;\nexport function GET() { return R.redirect(new URL("/x", request.url)); }`,
+    ],
+    [
+      "R92 renamed require carrier",
+      `declare const request: Request;\nconst r2 = require;\nconst NS2 = r2("next/server");\nexport function GET() { return NS2; }`,
+    ],
+  ])("flags %s", (_label, source) => {
+    expect(auditSource(fixturePath(), source).length).toBeGreaterThan(0);
+  });
+
+  it("does not flag require of an unrelated module (N11)", () => {
+    expect(
+      auditSource(
+        fixturePath(),
+        `const p = require("react");\nexport function GET() { return typeof p; }`,
+      ),
+    ).toEqual([]);
   });
 
   it.each(NEGATIVE_ROWS)("does not flag %s", (_label, source) => {

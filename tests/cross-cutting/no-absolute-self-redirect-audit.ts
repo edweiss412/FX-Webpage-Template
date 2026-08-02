@@ -320,7 +320,44 @@ function rawTypeCarriesBannedSignature(checker: ts.TypeChecker, t: ts.Type): boo
     .some((s) => rawIsBannedDecl(s.getDeclaration()));
 }
 
-/** Does a module-namespace type carry the banned class (NextResponse/Response → redirect)? */
+/** Per-project cache: `dir|specifier` → carrier verdict (require-call checks). */
+const specifierVerdicts = new Map<string, boolean>();
+
+/** Resolve a require() specifier and test whether that module's namespace carries. */
+function specifierResolvesToCarrier(sf: SourceFile, specifier: string): boolean {
+  const project = sf.getProject();
+  const cacheKey = `${sf.getDirectoryPath()}|${specifier}`;
+  const cached = specifierVerdicts.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const res = ts.resolveModuleName(
+    specifier,
+    sf.getFilePath(),
+    project.getCompilerOptions(),
+    project.getModuleResolutionHost(),
+  );
+  const resolvedFileName = res.resolvedModule?.resolvedFileName;
+  let verdict = false;
+  if (resolvedFileName !== undefined) {
+    const moduleSf =
+      project.getSourceFile(resolvedFileName) ??
+      project.addSourceFileAtPathIfExists(resolvedFileName);
+    if (moduleSf !== undefined) {
+      const raw = project.getTypeChecker().compilerObject;
+      const moduleSymbol = raw.getSymbolAtLocation(moduleSf.compilerNode);
+      if (moduleSymbol !== undefined) {
+        verdict = rawModuleCarries(
+          raw,
+          raw.getTypeOfSymbolAtLocation(moduleSymbol, moduleSf.compilerNode),
+          moduleSf.compilerNode,
+        );
+      }
+    }
+  }
+  specifierVerdicts.set(cacheKey, verdict);
+  return verdict;
+}
+
+/** Does a module-namespace type carry the banned class under ANY export name (r6)? */
 function rawModuleCarries(checker: ts.TypeChecker, t: ts.Type, at: ts.Node): boolean {
   // r6: a re-export can rename the class, so every module property is checked.
   for (const p of t.getProperties()) {
@@ -388,6 +425,21 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       if (awaited !== undefined && rawModuleCarries(raw, awaited, call.compilerNode)) {
         findings.push(findingFor(call, "reference", ""));
       }
+      continue;
+    }
+    // CommonJS carrier loads (whole-diff r7): `require("next/server")` — typed
+    // or not, renamed or not — is detected by the CALLEE's `Require` type and
+    // the string specifier, resolved to the module whose namespace carries.
+    const callee = call.getExpression();
+    const arg0 = call.getArguments()[0];
+    if (
+      arg0 !== undefined &&
+      Node.isStringLiteral(arg0) &&
+      Node.isIdentifier(callee) &&
+      callee.getType().getSymbol()?.getName() === "Require" &&
+      specifierResolvesToCarrier(sf, arg0.getLiteralText())
+    ) {
+      findings.push(findingFor(call, "reference", ""));
     }
   }
 
