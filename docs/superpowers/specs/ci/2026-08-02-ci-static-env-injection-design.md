@@ -59,7 +59,8 @@ One shared allowlist and predicate; two layer-specific applications. Both layers
 In `tests/ci/_workflowCoverageScan.ts`:
 
 - `export const ENV_KEY_ALLOWLIST: Record<string, string>` — exact env key → non-empty reason string asserting name-inertness. Seeded with exactly the keys live workflows use at drafting time (35 keys per §1.0.1; the implementing task re-derives the set from the live tree rather than trusting this count). Example rows: `SUPABASE_URL: "app config read by the Next.js server under test, not by any execution surface"`, `CREW_E2E_ONLY: "vitest/playwright suite-selection flag read inside test code"`.
-- `export function offAllowlistEnvKeys(env: unknown, allowlist: Record<string, string> = ENV_KEY_ALLOWLIST): string[]` — for a value that already passed the structural `scalars` check, return the SORTED list of keys not present in the allowlist; empty array means clean. Non-mapping input returns `[]` (structural invalidity is `validWorkflowShape`'s existing job, and it already fails the file).
+- `export function offAllowlistEnvKeys(env: unknown, allowlist: Record<string, string> = ENV_KEY_ALLOWLIST): string[]` — for a value that already passed the structural `scalars` check, return the SORTED list of keys without an allowlist row; empty array means clean. Non-mapping input returns `[]` (structural invalidity is `validWorkflowShape`'s existing job, and it already fails the file).
+- Membership is OWN-PROPERTY membership: `Object.hasOwn(allowlist, key)`, never the `in` operator (R1 F2: `in` walks the prototype chain, so env keys named `constructor`, `toString`, `__proto__`, or `hasOwnProperty` would read as allowlisted with no declared row — probe showed false coverage at all five modeled scopes in both layers). §3 S2 pins the mutant.
 - Exact string comparison, case-sensitive, no prefix families, no patterns. A key like `path`, `Path`, `LD_PRELOAD`, `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, or any GITHUB_-prefixed name is simply absent and fails closed — there is no dangerous-key enumeration to evade.
 
 ### §2.1 Scanner: per-scope rejection with a precise reason
@@ -112,8 +113,8 @@ Fixtures land red against the pre-fix layer (TDD, invariant 1), then the key che
 
 | Family | Mutant | Pinning fixture(s) |
 | --- | --- | --- |
-| **S1 scope deletion** | the key check dropped at one scope | positive fixture per scope: workflow-root, job, run-step, `uses:`-step, composite-manifest step — each with an off-list key before/on a claiming step → scanner rejects with the env reason (or poison reason at uses/composite sites), census poisons. Both layers, every scope that layer models |
-| **S2 fail-open flip** | unknown key accepted, or predicate inverted | off-list key (`PATH`, and a nonsense `TOTALLY_NOVEL_KEY`) reds; on-(fixture-)list key stays covered/clean |
+| **S1 scope deletion** | the key check dropped at one scope, or the composite walk narrowed by depth or step kind | positive fixture per scope CELL (R1 F1 — a single generic composite fixture left three cells escaping depth/kind-narrowed mutants): workflow-root, job, run-step, `uses:`-step, composite DIRECT run-step, composite DIRECT uses-step, composite NESTED run-step, composite NESTED uses-step — each with an off-list key governing a claiming step → scanner rejects with the env reason (or poison reason at uses/composite sites), census poisons. Both layers, every cell that layer models; census additionally pins the STANDALONE composite-doc entry (a dirty-env step in a directly-walked action doc) |
+| **S2 fail-open flip** | unknown key accepted, predicate inverted, or membership widened to the prototype chain | off-list key (`PATH`, and a nonsense `TOTALLY_NOVEL_KEY`) reds; prototype-named key (`constructor`) reds in BOTH layers (R1 F2 — a `key in allowlist` mutant passes the plain fixtures while `constructor`/`toString`/`__proto__`/`hasOwnProperty` escape); on-(fixture-)list key stays covered/clean |
 | **S3 precision twins** | scoping coarsened to file-wide, or allowlist ignored | off-list key in job B → job A's claim stays covered; off-list STEP env on a non-claiming sibling → the claiming step stays covered; fixture-allowlisted keys at every scope stay covered/clean; live tree stays green (§4.3) |
 | **S4 reason laundering** | rejection dropped instead of reported | `rejected[0].reason` pinned exactly (`env block sets unmodelled key(s): …`) — REPORTED, not silently dropped |
 | **S5 multi-key completeness** | reason narrowed to the first off-list key | two off-list keys in one block → reason lists BOTH, sorted |
@@ -129,12 +130,12 @@ TDD per task (invariant 1): each fixture lands red against the pre-fix layer, th
 
 ### §4.1 Census self-suite additions (`_metaSpecRegistration.test.ts`)
 
-- `runBlocksOf` fixtures (every fixture job declares a `runs-on`, per cross-step §7 R16): workflow-root dirty → all blocks poisoned; job dirty → that job only; run-step dirty → that block only; `uses:`-step dirty → poisoned from that step onward incl. spliced blocks; composite-step dirty → poisoned at that step; fixture-allowlist twins clean; cross-job isolation twin.
+- `runBlocksOf` fixtures (every fixture job declares a `runs-on`, per cross-step §7 R16): workflow-root dirty → all blocks poisoned; job dirty → that job only; run-step dirty → that block only; `uses:`-step dirty → poisoned from that step onward incl. spliced blocks; the full composite matrix per §3 S1 — direct run-step, direct uses-step, nested run-step, nested uses-step, each dirty → poisoned — plus the standalone composite-doc entry (dirty-env step in a directly-walked action doc → poisoned); fixture-allowlist twins clean; prototype-named key (`constructor`) poisons (S2); cross-job isolation twin.
 - `censusInvocations`: a poisoned classifying line still routes registry-or-loud (existing behavior — one fixture confirming the static-env-poisoned block reds identically).
 
 ### §4.2 Scanner self-suite additions (`_metaE2eWorkflowCoverage.test.ts`)
 
-- All §3 scanner-side fixtures, driven through `scanWorkflowCoverage` with a fixture-local `envKeyAllowlist`.
+- All §3 scanner-side fixtures, driven through `scanWorkflowCoverage` with a fixture-local `envKeyAllowlist` — including all four composite matrix cells (direct/nested × run/uses, S1) and the prototype-named key (S2).
 - Reason pins: exact string including the sorted key list (S4/S5).
 - Hygiene blocks per §2.3.
 
@@ -177,4 +178,7 @@ Consequence bound per limit. LS1 is the single trust assumption; LS2/LS3 err in 
 
 ## §7 Review record (triage — findings and dispositions, so later rounds do not re-derive)
 
-_Populated during adversarial review._
+**R1 (Codex, 2026-08-02, VERDICT: NEEDS-ATTENTION; both findings probe-backed and ACCEPTED):**
+
+1. **NEEDS-ATTENTION — S1 did not pin composite depth × step-kind closure.** The reviewer's in-memory mutants (composite walk narrowed to depth 1; narrowed to run-steps only) escaped through direct composite uses-steps, nested run-steps, and nested uses-steps in BOTH layers while a single generic composite fixture stayed green. **Disposition:** §3 S1 now enumerates the full matrix — direct/nested × run/uses as four fixture cells per layer, plus the census standalone composite-doc entry (class-sweep addition: it is a ninth walk-entry site the matrix would otherwise miss); §4.1/§4.2 fixture inventories updated to match.
+2. **NEEDS-ATTENTION — membership was not pinned to OWN properties.** A natural `key in allowlist` mutant passed the S2 fixtures while env keys named `constructor` / `toString` / `__proto__` / `hasOwnProperty` read as allowlisted (prototype chain) with no declared row — probe showed false coverage at all five modeled scopes, both layers. **Disposition:** §2.0 now specifies `Object.hasOwn` membership explicitly; §3 S2 gains the `constructor` fixture in both layers. Class-sweep: `offAllowlistEnvKeys` is the only key-membership lookup this charter introduces; the pre-existing `in`-based lookups elsewhere in the scanner (`packageScripts` alias resolution) are a different surface, crash-loud rather than fail-open on prototype names, and out of this charter.
