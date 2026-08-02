@@ -21,7 +21,7 @@ import { RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -52,6 +52,9 @@ export function ResetPickerEpochButton({
 }) {
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descId = useId(); // compact row-description id (aria-describedby target)
@@ -125,8 +128,12 @@ export function ResetPickerEpochButton({
     // when the user re-enters confirm from an idle-with-banner state and
     // then cancels — the banner would otherwise outlive its context.
     setResult(null);
+    setExpired(false);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
+      // Announce BESIDE the close, never inside closeConfirm — Cancel shares it
+      // (spec 2026-08-01-announce-a11y-pass §3.3).
+      setExpired(true);
       closeConfirm();
     }, ARM_REVERT_MS);
   };
@@ -138,6 +145,7 @@ export function ResetPickerEpochButton({
 
   const onConfirmClick = () => {
     clearAutoRevert();
+    setExpired(false);
     setUi("resolving");
     startTransition(async () => {
       const r = await resetPickerEpoch({ showId });
@@ -200,7 +208,7 @@ export function ResetPickerEpochButton({
   // flow (position:absolute), so it adds no flex gap. Visible banner is separate.
   const liveRegion = (
     <div className="sr-only" role="status" aria-live="polite">
-      {okMessage ?? ""}
+      {expired ? ARM_EXPIRED_ANNOUNCEMENT : (okMessage ?? "")}
     </div>
   );
   // aria-hidden: the sr-only region is the single SR source for the success;

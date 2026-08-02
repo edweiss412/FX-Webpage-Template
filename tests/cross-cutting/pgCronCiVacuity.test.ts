@@ -23,6 +23,8 @@
  * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §5.3.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -37,12 +39,12 @@ const DEAD_DB = "postgresql://postgres:postgres@127.0.0.1:59999/postgres";
 
 type Run = { status: number; output: string };
 
-/** Runs the suite in a child vitest, returning its exit status and output. */
-function runSuite(env: Record<string, string | undefined>): Run {
+/** Runs a suite file in a child vitest, returning its exit status and output. */
+function runSuite(env: Record<string, string | undefined>, file: string = SUITE): Run {
   try {
     const output = execFileSync(
       "pnpm",
-      ["exec", "vitest", "run", "--project=serial", "--reporter=verbose", SUITE],
+      ["exec", "vitest", "run", "--project=serial", "--reporter=verbose", file],
       {
         cwd: ROOT,
         encoding: "utf8",
@@ -135,5 +137,78 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
     // one for an empty counted sentinel; a name cannot be traded that way.
     const missing = LIVE_CASES.filter((name) => !passed.has(name));
     expect(missing, "these live cases did not run and pass").toEqual([]);
+  }, 300_000);
+});
+
+// ── Mechanism-sabotage probes ──────────────────────────────────────────────
+// Spec: docs/superpowers/specs/ci/2026-08-01-pg-cron-mechanism-sabotage-probe-design.md
+//
+// The three probes above prove the suite cannot pass VACUOUSLY, but none of
+// them protects the query-count mechanism itself: deleting `queryCount`, its
+// psql() increment, the observe argument, and the afterAll aggregate branch
+// left all nine guard cases green (measured 2026-08-01 — the exact state of
+// commit 1c1ae148e). The wrapper's observe parameter is OPTIONAL, so the
+// wiring can vanish without a type error. These probes inject an inert live
+// case into a transient mutant copy of the suite and assert the mechanism
+// notices — by the per-case message (probe A) and, with attribution stripped,
+// by the aggregate afterAll message (probe B).
+
+const DESCRIBE_ANCHOR = 'describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {';
+const INERT_CASE = 'liveCase("INERT MECHANISM PROBE", () => {});';
+const OBSERVE_ANCHOR = "makeLiveCaseCounter(liveDbTest, () => queryCount)";
+const MUTANT_REL = "tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts";
+const MUTANT_ABS = join(ROOT, MUTANT_REL);
+
+/**
+ * Writes a mutant copy of the suite with each edit applied. Every anchor must
+ * occur EXACTLY once, and all anchors are validated before the file is
+ * written — an anchor miss throws (refuse-to-cover) and leaves no stray file.
+ * The mutant lives in the SAME directory so `./_liveCaseCounter` and the `@/`
+ * aliases resolve, and keeps a ".test.ts" suffix because vitest treats CLI
+ * file args as filters against the project include globs.
+ */
+function writeMutant(edits: Array<{ anchor: string; replaceWith: string }>): void {
+  let source = readFileSync(join(ROOT, SUITE), "utf8");
+  for (const { anchor, replaceWith } of edits) {
+    const occurrences = source.split(anchor).length - 1;
+    if (occurrences !== 1) {
+      throw new Error(
+        `mechanism probe: anchor ${JSON.stringify(anchor)} occurs ${occurrences}x in ${SUITE} — ` +
+          "suite refactored; update the probe anchors.",
+      );
+    }
+    source = source.replace(anchor, replaceWith);
+  }
+  writeFileSync(MUTANT_ABS, source);
+}
+
+describe("query-count mechanism cannot be deleted silently", () => {
+  it("per-case attribution is wired: an injected inert live case reds the suite BY NAME", () => {
+    writeMutant([{ anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` }]);
+    try {
+      const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" }, MUTANT_REL);
+      expect(run.status, "an inert live case must red the suite").not.toBe(0);
+      // BY NAME: under observe-arg deletion (MF-2) the child still reds via the
+      // aggregate branch, but with the aggregate message — this match is what
+      // makes silent attribution regression detectable.
+      expect(run.output).toMatch(/live case "INERT MECHANISM PROBE" issued NO database query/);
+    } finally {
+      unlinkSync(MUTANT_ABS);
+    }
+  }, 300_000);
+
+  it("the aggregate afterAll branch backstops when attribution is absent", () => {
+    writeMutant([
+      { anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` },
+      { anchor: OBSERVE_ANCHOR, replaceWith: "makeLiveCaseCounter(liveDbTest)" },
+    ]);
+    try {
+      const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" }, MUTANT_REL);
+      expect(run.status, "an uncounted-inert-case run must red the suite").not.toBe(0);
+      // Seven counted cases, six queries: only the aggregate branch notices.
+      expect(run.output).toMatch(/live cases ran but only \d+ database queries were issued/);
+    } finally {
+      unlinkSync(MUTANT_ABS);
+    }
   }, 300_000);
 });

@@ -282,3 +282,62 @@ describe("ResolveAlertButton state machine", () => {
     );
   });
 });
+
+// Arm-expiry announcement (spec 2026-08-01-announce-a11y-pass §3.2 row 5,
+// §3.3/§5.1): auto-revert announces in a key-stable region; Cancel and
+// confirm stay silent past the timer horizon.
+describe("arm-expiry announcement — ResolveAlertButton", () => {
+  const EXPIRY = "Confirm window closed. Nothing was changed.";
+
+  it("auto-revert announces expiry in the SAME region node", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<ResolveAlertButton />);
+    const before = getByTestId("arm-expiry-announce");
+    expect(before.textContent).toBe("");
+    fireEvent.click(getByTestId("admin-alert-resolve-button")); // arm
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    const after = getByTestId("arm-expiry-announce");
+    expect(after, "region node must survive the confirm-to-idle swap").toBe(before);
+    expect(after.textContent).toBe(EXPIRY);
+  });
+
+  it("Cancel never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button")); // arm
+    fireEvent.click(getByTestId("admin-alert-cancel-button")); // cancel
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
+  it("confirm dispatch never announces expiry, even past the timer horizon", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button")); // arm
+    fireEvent.click(getByTestId("admin-alert-confirm-resolve-button")); // confirm (submit)
+    act(() => {
+      vi.advanceTimersByTime(4_100);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).not.toBe(EXPIRY);
+  });
+
+  it("re-arm after expiry clears the region, then a second expiry announces again", () => {
+    vi.useFakeTimers();
+    const { getByTestId } = render(<ResolveAlertButton />);
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+    fireEvent.click(getByTestId("admin-alert-resolve-button")); // re-arm clears
+    expect(getByTestId("arm-expiry-announce").textContent).toBe("");
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+  });
+});

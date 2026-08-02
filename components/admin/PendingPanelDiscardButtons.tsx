@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 type DiscardKind = "defer_until_modified" | "permanent_ignore";
 type Props = { pendingIngestionId: string };
@@ -120,6 +120,10 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   // 4s auto-revert) and fires the EXISTING handleClick("permanent_ignore") on
   // the second. The sibling "Defer until modified" stays one-tap (§7).
   const [armed, setArmed] = useState(false);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback; cleared at arm and at every action-dispatch ENTRY (never in a
+  // settlement branch — dispatch-entry clearing is settlement-kind-independent).
+  const [expired, setExpired] = useState(false);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /* Chrome activates a <button> on Enter KEYDOWN, which auto-repeats, so holding
    * Enter fires arm then confirm and the two-tap guard buys nothing. Space is
@@ -142,10 +146,12 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   function onGuardedIgnoreClick() {
     if (!armed) {
       setArmed(true);
+      setExpired(false);
       clearArmTimer();
       armTimerRef.current = setTimeout(() => {
         armTimerRef.current = null; // callback clears its own ref — no stale identity survives
         setArmed(false);
+        setExpired(true);
       }, ARM_REVERT_MS);
       return;
     }
@@ -164,6 +170,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
     // survive into or past another mutation (whole-diff review R2).
     clearArmTimer();
     setArmed(false);
+    setExpired(false);
     setState({ kind: "running", pendingKind: kind });
     try {
       const response = await fetch(
@@ -254,7 +261,9 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
             ? "Tap again to stop tracking this sheet permanently."
             : state.kind === "running"
               ? "Working…"
-              : ""}
+              : expired
+                ? ARM_EXPIRED_ANNOUNCEMENT
+                : ""}
         </span>
       </div>
       {armed ? (

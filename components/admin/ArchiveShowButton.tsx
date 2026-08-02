@@ -37,7 +37,7 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -114,6 +114,10 @@ export function ArchiveShowButton({
    *  dismissal gate (impeccable audit P1). */
   const [submitting, setSubmitting] = useState(false);
   const [armed, setArmed] = useState(false);
+  // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
+  // callback (morph variants only — the row variant has no timer); cleared at
+  // arm and at the confirm dispatch.
+  const [expired, setExpired] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [genericError, setGenericError] = useState(false);
@@ -133,9 +137,11 @@ export function ArchiveShowButton({
     setNotFound(false);
     setGenericError(false);
     setArmed(true);
+    setExpired(false);
     if (asRow) return;
     autoRevertRef.current = setTimeout(() => {
       setArmed((prev) => (prev ? false : prev));
+      setExpired(true);
     }, ARM_REVERT_MS);
   };
 
@@ -321,6 +327,12 @@ export function ArchiveShowButton({
 
   return (
     <div className="flex flex-col items-start gap-2">
+      {/* Persistent sr-only live region (spec 2026-08-01-announce-a11y-pass §3.2
+          row 6): the morph swaps button-for-form with no focus move, so BOTH the
+          arm and the auto-revert close are announced here. Always mounted. */}
+      <span role="status" className="sr-only">
+        {armed ? "Tap again to confirm." : expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+      </span>
       {!armed ? (
         <button
           type="button"
@@ -338,6 +350,7 @@ export function ArchiveShowButton({
         <form
           action={async () => {
             clearAutoRevert();
+            setExpired(false);
             const result = await archiveAction();
             onResult(result);
           }}

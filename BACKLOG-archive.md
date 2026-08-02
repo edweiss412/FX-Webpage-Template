@@ -22,6 +22,28 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 **Fix (when prioritized):** make it type-aware — resolve the callee through the TypeScript type checker rather than syntactically, which would cover every alias and indirection in one construction, or move the ban to an ESLint rule with `no-restricted-properties` plus a type-aware companion. Either is a real piece of work, not a patch. **Trigger:** a host-flip regression that the current guard misses, or the next time someone extends the guard for a new spelling — at that point the type-aware version is cheaper than another round.
 
+## BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — ✅ RESOLVED (2026-08-01, `test/pg-cron-mechanism-sabotage-probe`)
+
+**Resolution:** the remaining sound direction from the entry — a probe that sabotages the query-count mechanism and asserts the guard notices — shipped as two execute-the-suite probes in `tests/cross-cutting/pgCronCiVacuity.test.ts`: an injected inert live case must red the mutant suite BY NAME (per-case attribution wired), and with the observe argument stripped it must red via the aggregate afterAll message (backstop present). Mutation-family closure measured live: MF-1 whole-mechanism deletion (the `1c1ae148e` state), MF-2 observe-arg drop, and MF-4 aggregate-branch deletion all escaped every prior guard and are now each caught; MF-3 increment-drop was already caught by the existing reachable-DB probe. The meaningfulness proxy stays fenced OFF (a `psql("SELECT 1")` body still passes — reviewer territory by four-round ratification). Spec: `docs/superpowers/specs/ci/2026-08-01-pg-cron-mechanism-sabotage-probe-design.md`. Original entry below.
+
+### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+
+**Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
+
+**Do not re-derive this analysis.** Four adversarial rounds converged here; measurements below.
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` refuses a CI run where fewer live queries were issued than live cases ran. That closes the MEASURED defect — the suite previously reported exit 0 with "2 passed | 6 skipped", asserting nothing — and it catches an emptied case body (verified: emptying one body while keeping its name yields "6 live cases ran but only 5 database queries were issued").
+
+**Per-case attribution SHIPPED in the same round.** The counter is snapshotted around each case, and a case issuing no query throws by name. Verified against R4's exact reproduction — six queries in one case with the next one empty now reds, naming the empty case — so the first of its two reproductions is closed.
+
+**The gap that remains:** replacing every body with `psql("SELECT 1")` satisfies attribution while asserting nothing about pg_cron.
+
+**Why THAT is not patched:** each round defeated the next proxy — source patterns (rewrite the predicate), case names (keep names, empty bodies), aggregate queries (front-load one case). Proving assertions are _meaningful_ is equivalent to reviewing them, which is a reviewer's job, not a meta-guard's. A fifth proxy would be the same shape.
+
+**Also open (same round):** the executable vacuity guard does not protect the query-count mechanism itself — deleting `queryCount` and its `afterAll` branch leaves all three probe cases green. Exactly demonstrated by commit `1c1ae148e`, which had the executable guard without query counting and was green.
+
+**If picked up:** the remaining sound direction is a probe that sabotages the mechanism and asserts the guard notices — the per-case attribution half is done, and its delta enforcement is covered behaviourally by `tests/cross-cutting/liveCaseCounter.test.ts`.
+
 ## BL-LEDGER-GUARD-MDAST-REWRITE — RESOLVED (2026-08-01, `test/ledger-guard-mdast-rewrite`)
 
 **Resolution:** the tripwire now parses each ledger with remark + remark-gfm and evaluates the terminal-word + veto semantics on the mdast — `tests/docs/_ledgerMdast.ts` (provenance-mapped id extraction, id-heading-to-id-heading partition, disposition-table flatten, seven lanes behind one `entryTerminal` evaluator). The full r15–r40 plant corpus rides the walker verdict-preserving; the owner-split r22–r41 containment hardening (`tests/components/admin/sheetIconLinkContainment.test.ts`) was restored from snapshot `a1cfce98d` with a two-row PR-#640 reconcile and its sheet-icon spec §7.10 paragraph in lockstep; the three r41 open findings were re-derived by probe (both ledger classes REPRODUCED and fixed — reordered field rows now caught, hyphenated-id false positives closed by line-global token maximality; the census-expression-shapes probe found no escaping variant). Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md (eleven adversarial rounds, r11 APPROVE). Original entry below.
@@ -1524,6 +1546,28 @@ Original entry (provenance):
 
 The `@theme` `--transition-duration-*` aliases (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) made every _named_ `duration-<name>` utility real and reduced-motion-safe. Elements carrying a bare `transition-*` utility with NO named duration class still fall back to Tailwind's 150ms default and sit OUTSIDE the `prefers-reduced-motion` collapse (which zeroes only the `--duration-*` chain). Exemplars: `app/me/page.tsx:246` (`transition-transform`), `components/shared/CardReportTrigger.tsx:90` and `components/crew/primitives/SourceLink.tsx:72` (`transition-colors`). No site count stated — counts of this class are grep-flavour dependent (see the agenda-fold §5.2 precedent). **Fix (when prioritized):** per-site judgement — add the appropriate `duration-<name>` class, or explicitly accept the default for that surface. Likely cheaper class fix (impeccable critique 2026-07-27 P3): alias Tailwind's `--default-transition-duration` to a token so even bare sites inherit the system + reduced-motion collapse — evaluate side effects before choosing. **Trigger:** next motion or a11y pass.
 
+## BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS — the armed window closes silently for screen readers — ✅ RESOLVED (2026-08-01, `fix/announce-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved for gap (1), the silent disarm: every timered two-tap surface now announces the auto-revert close through a persistent sr-only `role="status"` region rendering the shared `ARM_EXPIRED_ANNOUNCEMENT` ("Confirm window closed. Nothing was changed.", lib/admin/destructiveConfirm.ts; value pinned by T5, declaration uniqueness by T4a, importer co-presence by T4 in tests/styles/\_metaDestructiveConfirm.test.ts). The `expired` flag is set only in the timer callback and cleared at arm + every dispatch entry (settlement-kind-independent), so explicit disarms stay silent and consecutive expiries always re-announce; BulkIgnoreControls keys expiry per group; ResolveAlert/Rotate/Revoke were restructured to single-return so the region node survives branch swaps; StagedReviewCard's `handleApply` gained the missing disarm (found in review — an Apply outlasting 4s could have announced "nothing changed" mid-mutation). Gap (2), the 4s-vs-speech timing, was owner-ratified CLOSED as keep-4s-and-announce (spec §1.1: the 8s raise and pause-while-focused alternatives were presented and declined; a missed window now announces its own close, so the user is never misled). Spec: docs/superpowers/specs/2026-08-01-announce-a11y-pass-design.md.
+
+Original entry (provenance):
+
+**Status:** OPEN (2026-07-25, destruct-thumb-order impeccable audit P2) · **Severity:** LOW · **Class:** A11Y, destructive-confirm family
+
+Two gaps on the shared two-tap idiom, neither specific to one surface. The ARM itself is announced on the surfaces that carry a live region (`PendingPanelDiscardButtons` uses `role="status"`), so this row is about the close, not the open (R12 F3). (1) **Silent disarm:** at 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. (2) **Timing:** 4s is tight against ~3s of polite speech for the arm message, so a screen-reader user may not finish hearing the prompt before the window closes. Fixing either well means revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a family-wide decision (11 surfaces) rather than a component one. **Trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
+
+## BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE — a remote rotation is silent under reduced motion — ✅ RESOLVED (2026-08-01, `fix/announce-a11y-pass`)
+
+**Graduated:** 2026-08-01 — Resolved: ShareTokenContext gained a `remoteTokenChanges` counter that bumps only on a SEED-driven accepted non-null-to-non-null token change (a local rotate goes through `applyRotated` first, so its follow-up seed never counts; a picker-epoch reset advances the epoch without a token change and never counts). ShareHub watches it with the render-phase pattern and announces "Crew link changed. The earlier link no longer works." through a popover-root persistent sr-only region under EXACTLY the visual flash cue's predicate (open + linkActive; cleared by the same `(!open || !linkActive)` predicate) — owner-ratified mirror-the-cue scope, no closed-popover announcements. Spec: docs/superpowers/specs/2026-08-01-announce-a11y-pass-design.md §4.
+
+Original entry (provenance):
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** UI A11Y
+
+The crew-URL cue fires on ANY accepted token change, including another admin's rotation arriving through `router.refresh()`. On that path no banner mounts — the success banner renders off `result`, local state that only this browser's own action sets (`app/admin/show/[slug]/RotateShareTokenButton.tsx:82`, written at `:159`). So a reduced-motion admin watching a remotely-rotated link gets neither the cue nor an announcement.
+
+NOT a regression: before the cue, a remote rotation swapped the URL silently for everyone, so this diff adds a signal for one group and removes none. Deliberately not fixed there because the fix is a new announcement surface — a live region owned by ShareHub that speaks a change this browser did not initiate needs its own copy, politeness level and repeat-suppression design, plus a decision about whether a background URL change should interrupt a screen-reader user at all. Trigger: an a11y pass on the admin share surfaces, or a report of a surprise URL change.
+
 ## BL-FOCUS-RING-CONTRAST — compute + meta-test `--color-focus-ring` contrast against every backdrop family — ✅ RESOLVED (2026-08-01, `fix/focus-ring-a11y-pass`)
 
 **Graduated:** 2026-08-01 — Resolved: light `--color-focus-ring` went opaque `#E06000` (owner-ratified Option B from a rendered three-option mockup; old translucent orange measured 1.60:1 on white). Light `--color-info-bg` nudged `#EEEAE3`->`#F1EDE7` so info fills clear the floor (spec 3.1). tests/styles/focusRingContrast.test.ts pins the exact light value, dark-pair identity, and the computed nine-family matrix floor (light 3.07-3.59:1, dark composites 3.69-4.56:1). The ~90 bare `ring-offset-2` usages this row tracked were swept with container-matched companions (actual walker count 86 sites incl. an rg-invisible NUL-byte file; three `focus-visible:outline-accent` sites migrated to `outline-focus-ring`), enforced by tests/styles/noBareRingOffset.test.ts.
@@ -1549,3 +1593,36 @@ At the 390px mobile viewport the switcher bar's counter ("52 / 116") and scenari
 Original entry (provenance):
 
 From the impeccable audit of `feat/crew-warning-attachment` (2026-07-23), pre-existing: the `Ignored (N)` `<summary>` in `components/admin/showpage/sectionWarningExtras.tsx` is a `text-xs` row with no `min-h-tap-min`, under the 44px floor, while `CrewUnderRowStack`'s equivalent "N more" summary carries it. Add `min-h-tap-min` + flex alignment to match.
+
+## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a closeout
+
+**Graduated:** 2026-08-01 — Resolved on `test/invariant8-closeout-enforcement`: the assertion removed in `a20b94457` returns as its own structural guard, `tests/docs/_metaInvariant8Closeout.test.ts` + walker `tests/docs/_invariant8Closeout.ts` — filesystem-walked unit discovery over every plan shape (flat, nested, category subdirs, closeout-attach), the machine marker grammar (`impeccable-gate: …` / `N/A — no UI surface` / TEMPLATE form, spec §3.3), a frozen 195-row pre-guard debt ledger with loud staleness, and write-path edits (AGENTS.md invariant 8, HANDOFF-TEMPLATE §12). Spec: `docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` (spec r3 APPROVE; plan r3 APPROVE). The three-step path the entry prescribed (ratify a convention, migrate or debt-list, restore as default-deny walk) shipped exactly, with the entry's lexical-hedge sketch superseded by the marker grammar (probe-refuted; spec §1.1.2).
+
+Original entry (provenance):
+
+## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+
+Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
+review rounds on the same vector. The change shipped
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`, whose ledger invariants (no id both
+active and archived; every graduated id archive-only) are enforceable and true. A third
+assertion — every plan declaring an invariant-8 (impeccable) gate carries a `## 12`
+closeout section — was removed, because it cannot be made both fail-by-default and
+honest against the tree as it stands.
+
+**Measured 2026-07-24.** `docs/superpowers/plans/` holds 33 flat `*.md` plans and 274
+nested files that mention invariant 8 or impeccable. Plan files are variously
+`plan.md`, `00-plan.md`, `PLAN.md`; closeouts are variously `closeout.md` inside a plan
+directory or a sibling `<name>-closeout.md`. Of the 13 plan DIRECTORIES that declare the
+gate, 12 have no `## 12` closeout section. There is therefore no rule that locates a
+closeout for an arbitrary plan, so a filesystem walk silently under-reports; and a
+registry-based version is an opt-in list, which is precisely the fail-by-default hole a
+structural guard exists to close.
+
+**Work when prioritized:** (1) ratify one closeout location convention; (2) migrate or
+explicitly debt-list the existing plans; (3) restore the assertion as a default-deny
+walk over that convention, requiring both gate halves named AND an affirmative P0/P1
+disposition (a lexical check must reject hedges — "skipped", "pending", "not run",
+"TBD" — since the earlier draft passed on "Critique skipped. Audit pending."). Note the
+honest ceiling: any text assertion verifies SHAPE, not that a human actually ran the
+gate.

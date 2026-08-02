@@ -176,7 +176,7 @@ export function ShareHub({
   unarchiveAction,
   devCaptureSnapshot,
 }: ShareHubProps) {
-  const { token, applyRotated } = useShareToken();
+  const { token, applyRotated, remoteTokenChanges } = useShareToken();
   const [open, setOpen] = useState(false);
   const popoverId = useId();
 
@@ -479,6 +479,20 @@ export function ShareHub({
     return () => clearTimeout(t);
   }, [flash]);
 
+  // ── Remote-rotation announcement (spec 2026-08-01-announce-a11y-pass §4.2) ──
+  // Mirrors the flash cue's predicate exactly: a SEED-driven token change
+  // (remoteTokenChanges bump — a rotation this browser did not apply locally)
+  // announces only while the popover is open with a live crew link, and clears
+  // under the same `(!open || !linkActive)` predicate the flash uses. A local
+  // rotate stays silent here — RotateShareTokenButton's own banner announces it.
+  const [prevRemote, setPrevRemote] = useState(remoteTokenChanges);
+  const [remoteAnnounce, setRemoteAnnounce] = useState(false);
+  if (prevRemote !== remoteTokenChanges) {
+    setPrevRemote(remoteTokenChanges);
+    if (open && linkActive) setRemoteAnnounce(true);
+  }
+  if ((!open || !linkActive) && remoteAnnounce) setRemoteAnnounce(false);
+
   // Gated on `open`: the strip re-renders on every loader pass (relative-time
   // props churn), and batching the roster into mailto hrefs is real work that
   // nothing can observe while the popover is closed.
@@ -766,6 +780,19 @@ export function ShareHub({
               // gone: it is what pinned the body to a spot that overhung the clip.
               className="absolute z-40 flex max-h-[min(70vh,30rem)] w-[308px] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
             >
+              {/* Persistent sr-only region at the POPOVER ROOT — mounted for the
+                  whole open lifetime regardless of linkActive, so the remote
+                  announcement swaps into a pre-existing node (spec
+                  2026-08-01-announce-a11y-pass §4.2). sr-only ⇒ absolute, no
+                  flex-gap contribution. */}
+              <span
+                role="status"
+                aria-live="polite"
+                className="sr-only"
+                data-testid="share-hub-remote-rotate-announce"
+              >
+                {remoteAnnounce ? "Crew link changed. The earlier link no longer works." : ""}
+              </span>
               {/* Share half — suppressed wholesale while archived (read-only): no
               URL, no Copy, no email rows, no rotate, no reset. What remains is
               the Show section below. */}
