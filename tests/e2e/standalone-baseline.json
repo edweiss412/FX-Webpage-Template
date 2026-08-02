@@ -1,10 +1,5 @@
 {
   "files": {
-    "tests/e2e/agendaBreakdown.layout.spec.ts": [
-      "[\"standalone-chromium\",\"standalone-chromium\",\"e65b3992b44cb5e14f32-3f657c216eceb4280777\",[\"agendaBreakdown.layout.spec.ts\",\"AgendaBreakdown ready: no overflow, session rows contained, long title wraps @ 720px (§5.3)\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"e65b3992b44cb5e14f32-920391d0a73d4e321ba2\",[\"agendaBreakdown.layout.spec.ts\",\"AgendaBreakdown ready: no overflow, session rows contained, long title wraps @ 320px (§5.3)\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"e65b3992b44cb5e14f32-a851a04e303c9be1408c\",[\"agendaBreakdown.layout.spec.ts\",\"AgendaBreakdown ready: no overflow, session rows contained, long title wraps @ 390px (§5.3)\"]]"
-    ],
     "tests/e2e/agendaScheduleLayout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-0a492bd73333d7f278c0\",[\"agendaScheduleLayout.spec.ts\",\"fold: summary is a 44px tap target in BOTH states @ 390px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-17a1593ae9000aeaa35d\",[\"agendaScheduleLayout.spec.ts\",\"fold: rows fill the column and stay inside it @ 320px (§5.1)\"]]",
@@ -522,5 +517,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 455
+  "totalTests": 452
 }

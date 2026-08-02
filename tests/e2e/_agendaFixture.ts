@@ -6,11 +6,12 @@
  * rejects the result), but plain data has no such problem. That lets every expected count in
  * a spec be DERIVED from this fixture instead of typed as a literal.
  *
- * Why that matters here concretely: `agendaBreakdown.layout.spec.ts` asserted
+ * Why that matters here concretely: the retired `agendaBreakdown.layout.spec.ts` asserted
  * `expect(sessionCount).toBe(2)` against markup it hand-transcribed. Pointed at the real
  * component the true count is 3, so the literal had been pinning the transcription rather
  * than the component. A hardcoded count cannot fail when the fixture grows -- it fails when
- * the fixture is CORRECT.
+ * the fixture is CORRECT. Its successor, `step3-review-modal.agenda.spec.ts`, derives that
+ * count from TOTAL_SESSIONS below and measures the REAL modal tree.
  */
 
 /** One unbreakable 90-char token: the input for the "long titles wrap, not overflow" rule. */
