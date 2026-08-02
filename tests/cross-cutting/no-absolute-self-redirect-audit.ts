@@ -690,6 +690,16 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
       ) {
         carrierFnDecls.add(vd);
         carrierSetGrew = true;
+        continue;
+      }
+      // Helper ALIAS: `const choose = pick` (whole-diff r19).
+      if (
+        Node.isIdentifier(init) &&
+        symbolDeclsIn(init, carrierFnDecls) &&
+        !carrierFnDecls.has(vd)
+      ) {
+        carrierFnDecls.add(vd);
+        carrierSetGrew = true;
       }
     }
     for (const fn of sf.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
@@ -698,16 +708,23 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         carrierSetGrew = true;
       }
     }
-    // Staged initialization: `let environment; environment = globalThis;`
+    // Staged initialization: `let environment; environment = globalThis;` —
+    // and staged helper aliases: `let choose; choose = pick;` (r19).
     for (const bin of sf.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
       if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
       const lhs = bin.getLeft();
       if (!Node.isIdentifier(lhs)) continue;
-      if (!isCarrierExpression(bin.getRight())) continue;
+      const rhs = bin.getRight();
+      const target = isCarrierExpression(rhs)
+        ? carrierDecls
+        : Node.isIdentifier(rhs) && symbolDeclsIn(rhs, carrierFnDecls)
+          ? carrierFnDecls
+          : undefined;
+      if (target === undefined) continue;
       const decls = lhs.getSymbol()?.getDeclarations() ?? [];
       for (const d of decls) {
-        if (!carrierDecls.has(d)) {
-          carrierDecls.add(d);
+        if (!target.has(d)) {
+          target.add(d);
           carrierSetGrew = true;
         }
       }
