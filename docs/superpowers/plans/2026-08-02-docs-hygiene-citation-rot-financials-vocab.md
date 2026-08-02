@@ -41,15 +41,40 @@ Each task's red state is a measured failing check (a lint count, a grep hit-set,
 
 Wording latitude: the implementer may vary the qualifier ("retired" / "since-retired" / "now-deleted") to read naturally in each sentence; the binding constraints are (a) no backticks around any deleted workflow name or path, (b) no `.yml`-suffixed backticked token pointing at a deleted file, (c) sentence meaning preserved, (d) no em-dash introduced, (e) tense adjusted only where the sentence otherwise asserts live CI behavior.
 
-**Green:** per-file `pnpm spec:lint` matches spec §2.2's expected-after column exactly (0 target-class; residuals unchanged: 8 / 0 / 1 / 0 / 0 / 0 / 1 / 1 / 0 / 0). Tree-wide sweep — for each of the seven deleted basenames, a backtick-aware grep over `docs/**/*.md` confirmed against `spec:lint` — returns zero target-class citations.
+**Green:** the three spec §2.3 acceptance items — (1) per-file `pnpm spec:lint` matches spec §2.2's expected-after column exactly (0 target-class; residuals unchanged: 8 / 0 / 1 / 0 / 0 / 0 / 1 / 1 / 0 / 0); (2) all-severity delta: each file's full finding list captured before editing is identical after except for the removed target findings; (3) the spec §2.3 tree-wide `rg` loop (exact command there), every hit confirmed against `spec:lint`, reports zero target-class citations.
 
 **Commit:** `docs: strip dangling citations to the seven retired e2e workflows`
 
 ## Task 2 — master-spec financials vocabulary (spec §3)
 
-**Red (measured):** the seed (spec §3.2, exact command in spec) returns 15 lines; 11 carry stale LEAD-only entitlement claims.
+**Red (measured):** the seed (spec §3.2, exact command in spec) returns 15 lines, 11 carrying stale LEAD-only entitlement claims; the window probe below returns 3 more (spec §3.2.1). 14 claims total.
 
-**Edits:** the 11-line partition and per-line edit directions in spec §3.2 are the disposition table (9 rule-a rewrites, 2 rule-b bracketed amendment notes). Constraints: line-count-neutral (each edit stays on its line); no em-dash introduced; entitlement phrasing matches `financialsEntitled` (`lib/data/getShowForViewer.ts:380`); inline vocab-extension marker `(… 2026-07-15 vocab extension)` where a bare rewrite would read as drift from the v1 ratification.
+**Edits:** spec §3.2 (11 seed-visible) + §3.2.1 (3 seed-blind) are the disposition tables — 11 rule-a rewrites, 3 rule-b bracketed amendment notes. Constraints: line-count-neutral (each edit stays on its line); no em-dash introduced; entitlement phrasing matches `financialsEntitled` (`lib/data/getShowForViewer.ts:380`); the line-640 edit is COLUMN-scoped (`financials` only — spec §3.2 row 640, R1 finding 1); inline vocab-extension marker `(… 2026-07-15 vocab extension)` where a bare rewrite would read as drift from the v1 ratification.
+
+**Window probe (canonical script; run before AND after editing):**
+
+```sh
+python3 - <<'EOF'
+import re
+lines=open('docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md').read().split('\n')
+fin=re.compile(r'financ|invoice|proposal|po#|shows_internal|financials|\bops\b',re.I)
+lead=re.compile(r'\bLEAD\b|\blead\b|\bLead\b')
+fl=re.compile(r'FINANCIALS')
+RATIFIED={221,1715,2076,2449,2451,2733,2865,3805,  # §3.2.1 non-claims
+          193,655,657,1418,                        # seed no-edit lines
+          653,2372,3727,3728,3747,3831,23,199,640,1487,2460,632,3832,177,178}  # edit set (post-edit these name FINANCIALS or drop LEAD)
+hits=[]
+for i,l in enumerate(lines):
+    n=i+1
+    if lead.search(l) and not fl.search(l):
+        if any(fin.search(lines[j]) for j in range(max(0,i-2),min(len(lines),i+3))):
+            if n not in RATIFIED: hits.append((n,l[:120]))
+for h in hits: print(*h)
+print("UNREVIEWED:",len(hits))
+EOF
+```
+
+Measured pre-edit output: `UNREVIEWED: 0` (every current hit is in the ratified list — 8 non-claims + 4 seed no-edits + the edit set). Post-edit acceptance: still `UNREVIEWED: 0`, and each edited line either names `FINANCIALS` or no longer matches the LEAD pattern (spot-checked per line).
 
 **Green (spec §3.3):**
 1. Seed re-run returns exactly lines 193, 655, 657, 1418.
@@ -66,7 +91,7 @@ Wording latitude: the implementer may vary the qualifier ("retired" / "since-ret
 
 ## Task 4 — ledger graduation (spec §5)
 
-1. Move both entries (`BL-DANGLING-CITATIONS-RETIRED-WORKFLOW`, `BL-MASTERSPEC-FINANCIALS-VOCAB`) from BACKLOG.md's open queue to `BACKLOG-archive.md`, each with a close-out note naming the provenance branch `docs/citation-rot-financials-vocab`, what shipped (item 1: 15 citations across 10 files rendered as prose, class-swept per AGENTS.md; item 2: 11 master-spec lines reconciled, 4 ratified exclusions), and the two backlog-entry corrections measured en route (retiring spec is second-to-last in its list and already clean; the seed returns 15 hits, not "~15 claims all needing edits").
+1. Move both entries (`BL-DANGLING-CITATIONS-RETIRED-WORKFLOW`, `BL-MASTERSPEC-FINANCIALS-VOCAB`) from BACKLOG.md's open queue to `BACKLOG-archive.md`, each with a close-out note naming the provenance branch `docs/citation-rot-financials-vocab`, what shipped (item 1: 15 citations across 10 files rendered as prose, class-swept per AGENTS.md; item 2: 14 master-spec claims reconciled (11 seed-visible + 3 window-probe), 4 seed exclusions + 8 probe non-claims ratified), and the two backlog-entry corrections measured en route (retiring spec is second-to-last in its list and already clean; the seed returns 15 hits, not "~15 claims all needing edits").
 2. Update BACKLOG.md's "Last reconciled" header line.
 3. Append two `{ id, provenance: "docs/citation-rot-financials-vocab" }` rows to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` with the conventional explanatory comment.
 4. `BL-HELP-STRIP-COPYLINK-STALE` untouched.

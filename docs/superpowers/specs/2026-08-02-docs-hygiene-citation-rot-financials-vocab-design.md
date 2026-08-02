@@ -12,7 +12,7 @@
 Two changes, one docs-only branch:
 
 1. **Item 1 — strip dangling citations to deleted e2e workflows.** `origin/main` (c7c5625c2, ratified by `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` — its deletion list is at line 230 of that file) deleted seven per-feature e2e workflows. Backticked references to those `.yml` paths parse as citations to `spec:lint` (`scripts/spec-lint.ts`) and hard-fail `CITATION_FILE_MISSING`. Fix: render each reference as prose, PR #610 style ("the retired modal-header-layout-e2e workflow"). The linter keys on the backticked `.yml` extension; a backticked bare filename does NOT clear it (measured: the modal-header CLOSE-OUT doc, file 3 in §2.2, fails at its line 86 on the bare backticked filename with no directory prefix).
-2. **Item 2 — reconcile master-spec financials-access prose.** The `FINANCIALS` role flag (`docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md`) grants financials access alongside `LEAD` and admin, but 11 master-spec prose claims (of 15 grep-seed hits; 4 are ratified exclusions, §3.2) still say LEAD-only. Live code verified 2026-08-02: `lib/data/getShowForViewer.ts:375-380` (`isLead = isAdmin || derivedFlags.includes("LEAD")`; `financialsEntitled = isLead || derivedFlags.includes("FINANCIALS")`) and `lib/visibility/scopeTiles.ts:141` (`financialsVisible = isAdmin || flags.includes("LEAD") || flags.includes("FINANCIALS")`). Reconcile every stale claim to the entitlement set **admin ∪ LEAD ∪ FINANCIALS**.
+2. **Item 2 — reconcile master-spec financials-access prose.** The `FINANCIALS` role flag (`docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md`) grants financials access alongside `LEAD` and admin, but 14 master-spec prose claims still say LEAD-only: 11 of the 15 grep-seed hits (4 are ratified exclusions) plus 3 seed-blind instances found by the §3.2 window probe. Live code verified 2026-08-02: `lib/data/getShowForViewer.ts:375-380` (`isLead = isAdmin || derivedFlags.includes("LEAD")`; `financialsEntitled = isLead || derivedFlags.includes("FINANCIALS")`) and `lib/visibility/scopeTiles.ts:141` (`financialsVisible = isAdmin || flags.includes("LEAD") || flags.includes("FINANCIALS")`). Reconcile every stale claim to the entitlement set **admin ∪ LEAD ∪ FINANCIALS**.
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -60,7 +60,19 @@ Hard-finding counts from `pnpm spec:lint <file>`; "target" = findings naming a d
 
 ### 2.3 Acceptance (item 1)
 
-For each of the ten files: `pnpm spec:lint <file>` reports zero `CITATION_FILE_MISSING` findings naming any of the seven deleted workflow basenames, and the file's remaining hard findings exactly match the residual column above (no new findings of any class introduced). Additionally a tree-wide sweep re-run — the same backtick-aware grep over `docs/**/*.md` for all seven basenames, confirmed against `spec:lint` for any hit — reports zero remaining target-class citations.
+1. For each of the ten files: `pnpm spec:lint <file>` reports zero `CITATION_FILE_MISSING` findings naming any of the seven deleted workflow basenames, and the file's remaining hard findings exactly match the residual column above.
+2. **All-severity delta (R1 finding 4):** before editing, capture each file's full `spec:lint` finding list (hard AND advisory); after editing, the list is identical except for the removed target-class findings — no new finding of any severity is introduced.
+3. **Tree-wide class sweep, explicit command (R1 finding 3):**
+
+   ```sh
+   for n in attention-anchor-e2e attention-pill-focus-e2e bulk-ignore-eyebrow-e2e \
+            destructive-layout-e2e hoverhelp-geometry-e2e modal-header-layout-e2e \
+            share-link-flash-e2e; do
+     rg -n --glob 'docs/**/*.md' "\`[^\`]*${n}\.yml" docs/
+   done
+   ```
+
+   The backtick-spanning pattern over-approximates (a match may open its backtick earlier on the line), so every hit is confirmed against `spec:lint` — the citation parser is ground truth. Acceptance: the command's confirmed target-class hit set is empty.
 
 ---
 
@@ -82,7 +94,7 @@ The backlog entry's grep seed (`rg -n "financ|shows_internal|FinancialsTile|fina
 | --- | --- | --- |
 | 23 | "server-side filtered out of non-LEAD views" | "…out of non-financials-entitled views (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension)" |
 | 199 | "`financials jsonb, -- LEAD-only:`" | DDL comment → "financials-entitled (LEAD/FINANCIALS/admin):" |
-| 640 | "LEAD crew see this table's columns only because" | "Financials-entitled crew (LEAD or FINANCIALS)…" — the sentence's RLS-admin-only claim stays untouched |
+| 640 | "LEAD crew see this table's columns only because" | "Financials-entitled crew (LEAD or FINANCIALS) see this table's `financials` column only because…" — COLUMN-scoped, not table-scoped: the flag "enables only the financials read, nothing else" per the vocab authority's Effect row, and parse_warnings/raw_unrecognized stay admin/LEAD paths (§1.1 item 6b). The sentence's RLS-admin-only claim stays untouched |
 | 653 | "it joins only when the freshly-derived role is LEAD (or `viewer.kind === 'admin'`)" | "…when the freshly-derived flags grant financials (LEAD or FINANCIALS, or admin)…"; the same line's "only selects `financials`" and parse_warnings/raw_unrecognized admin-only text stays |
 | 1487 | "**LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees `shows_internal.financials`" | "**Financials entitlement.** `role_flags` contains `LEAD` or `FINANCIALS` ⇒ …" |
 | 2372 | "has `LEAD` in `role_flags`, OR the viewer is admin → `viewerRole === 'lead'`" | add FINANCIALS to the flag condition; note the financials join keys on entitlement, not the `viewerRole` label |
@@ -101,11 +113,25 @@ The backlog entry's grep seed (`rg -n "financ|shows_internal|FinancialsTile|fina
 
 **NO EDIT (4th line):** 657 ("only LEAD sees Invoice Notes; A1 still sees everything else") — inside the v2-candidate hypothetical about *finer* per-field segmentation. It is an illustration of a possible future config, not a current-behavior claim.
 
-**Partition tally (single source of truth):** the seed returns **15 lines** at merge-base — 23, 193, 199, 640, 653, 655, 657, 1418, 1487, 2372, 2460, 3727, 3728, 3747, 3831 — partitioned 9 edit-(a) + 2 edit-(b) + 4 no-edit (193, 655, 657, 1418) = 15. The plan reproduces the seed run and re-pins this partition before editing.
+**Partition tally (single source of truth):** the seed returns **15 lines** at merge-base — 23, 193, 199, 640, 653, 655, 657, 1418, 1487, 2372, 2460, 3727, 3728, 3747, 3831 — partitioned 9 edit-(a) + 2 edit-(b) + 4 no-edit (193, 655, 657, 1418) = 15. With the window-probe additions below, the full edit set is **14 claims: 11 rule-(a) + 3 rule-(b)**. The plan reproduces both probes and re-pins this partition before editing.
+
+### 3.2.1 Seed-blind instances (window probe — spec review R1 finding 2, class-swept to closure)
+
+The seed is line-based and case-sensitive on its first stage, so it structurally misses (i) claims split across lines and (ii) lines whose only financial token is capitalized ("Financials tile"). A whole-file window probe closes the class: every line matching `\bLEAD\b|\blead\b|\bLead\b` with a line matching `financ|invoice|proposal|po#|shows_internal|financials|\bops\b` (case-insensitive) within ±2 lines, excluding lines already naming all-caps `FINANCIALS` and lines within 2 of a seed hit. The probe's exact script and its full output live in the plan (Task 2). It returns **11 lines**: 3 additional stale claims and 8 non-claims.
+
+**EDIT — additions:**
+
+| Line(s) | Anchor phrase | Rule | Edit direction |
+| --- | --- | --- | --- |
+| 177-178 | DDL comment "the financial fields (PO#, Proposal $, Invoice, Invoice Notes) are / LEAD-gated" | (a) | "…are / gated on financials entitlement (LEAD or FINANCIALS flag, or admin); COI is now public…" — edit stays on line 178 |
+| 632 | "the page renders all of `ops` for a LEAD or none of it for a non-LEAD" | (a) | "…all of `ops` for a financials-entitled viewer (LEAD or FINANCIALS, or admin) or none of it otherwise" |
+| 3832 | AC-5.10 "Demote a crew member from LEAD to A1 … Financials tile disappears" | (b) | append "[2026-07-15 vocab extension: assumes the member holds no FINANCIALS flag]" — same treatment as line 3728 |
+
+**NO EDIT — window-probe non-claims (recorded so review R2 does not re-derive them):** 221 (verbatim sheet role-string example), 1715 (MI auth-floor table row, no entitlement claim), 2076 (counterfactual rationale for why the token carries no role claim — a hypothetical bad design, not a current-behavior claim; holds regardless of which flags grant), 2449 (Lighting tile amendment, not financials), 2451 (generic role-flag predicate definitions), 2733 (generic role-change re-fetch row), 2865 (retired MI-9 staging-code row), 3805 (AC-4.2: a seeded-LEAD viewer DOES see the tile — inclusive claim, true under the extended vocabulary).
 
 ### 3.3 Acceptance (item 2)
 
-1. Re-running the seed on the edited master spec returns **only** the four ratified no-edit lines (193, 655, 657, 1418) — every other hit now names `FINANCIALS` on its own line or no longer matches.
+1. Re-running the seed on the edited master spec returns **only** the four ratified no-edit lines (193, 655, 657, 1418) — every other hit now names `FINANCIALS` on its own line or no longer matches. Re-running the §3.2.1 window probe (exact script in the plan, which carries a ratified-exclusion line list: the 8 §3.2.1 non-claims plus any of the 4 seed no-edit lines its window reaches) returns **zero unreviewed lines**; line numbers are stable because edits are line-count-neutral.
 2. `wc -l` on the master spec is unchanged (4027).
 3. `pnpm spec:lint` on the master spec introduces **zero new findings of any severity** relative to a merge-base baseline run (edits use plain hyphens/commas, no em-dashes, no new backticked citations).
 4. A manual read of §4.1, §4.4, §7.4, §7.5-area prose around each edited line confirms no adjacent sentence still asserts LEAD-only financials via phrasing the seed can't see (e.g. "LEAD" and the financial noun on different lines). Any such stragglers found at plan time join the rule-(a) set with the same treatment.
