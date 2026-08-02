@@ -244,20 +244,57 @@ const KNOWN_EVENTS = new Set([
   "status",
   "gollum",
 ]);
-const EVENT_CFG_KEYS = new Set([
-  "types",
-  "branches",
-  "branches-ignore",
-  "tags",
-  "tags-ignore",
-  "paths",
-  "paths-ignore",
-  "workflows",
-  "inputs",
-  "outputs",
-  "secrets",
-  "cron",
-]);
+/**
+ * Per-EVENT config tables (R29). A single 12-key union accepted
+ * `workflow_dispatch.branches` and `workflow_dispatch.inputs: 7` — GitHub
+ * permits only an `inputs` MAPPING there, and an invalid trigger config
+ * stops the workflow running. Each event declares its own keys and value
+ * shapes; an event with no entry accepts only `types`.
+ */
+const strSeq: Pred = (v) => Array.isArray(v) && v.every((x) => nonEmptyString(x));
+const FILTERS: Record<string, Pred> = {
+  types: strSeq,
+  branches: strSeq,
+  "branches-ignore": strSeq,
+  tags: strSeq,
+  "tags-ignore": strSeq,
+  paths: strSeq,
+  "paths-ignore": strSeq,
+};
+const EVENT_CFG: Record<string, Record<string, Pred>> = {
+  pull_request: {
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  pull_request_target: {
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  push: {
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+    tags: FILTERS.tags!,
+    "tags-ignore": FILTERS["tags-ignore"]!,
+    paths: FILTERS.paths!,
+    "paths-ignore": FILTERS["paths-ignore"]!,
+  },
+  workflow_dispatch: { inputs: mapping },
+  workflow_call: { inputs: mapping, outputs: mapping, secrets: mapping },
+  workflow_run: {
+    workflows: strSeq,
+    types: FILTERS.types!,
+    branches: FILTERS.branches!,
+    "branches-ignore": FILTERS["branches-ignore"]!,
+  },
+};
+const DEFAULT_EVENT_CFG: Record<string, Pred> = { types: FILTERS.types! };
+
 /** `on`: an event name, a list of them, or a mapping of event -> null|config. */
 const onTrigger: Pred = (v) =>
   nonEmptyString(v) ||
@@ -281,7 +318,7 @@ const onTrigger: Pred = (v) =>
                   nonEmptyString((x as { cron?: unknown }).cron),
               )
             : mapping(cfg) &&
-              Object.keys(cfg as Record<string, unknown>).every((ck) => EVENT_CFG_KEYS.has(ck)))),
+              typedShape(cfg as Record<string, unknown>, EVENT_CFG[k] ?? DEFAULT_EVENT_CFG))),
     ));
 
 const WF_ROOT: Record<string, Pred> = {

@@ -835,6 +835,33 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     expect(S(ok).covered.has(spec)).toBe(true);
   });
 
+  it("event configs are typed PER EVENT, not by a shared key union (R29)", () => {
+    const job = `jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test ${spec}\n`;
+    const bad = [
+      // workflow_dispatch takes an inputs MAPPING and nothing else
+      "  pull_request:\n  workflow_dispatch:\n    inputs: 7\n",
+      "  pull_request:\n  workflow_dispatch:\n    branches:\n      - main\n",
+      // push has no `types`; pull_request has no `tags`
+      "  pull_request:\n  push:\n    types:\n      - created\n",
+      "  pull_request:\n    tags:\n      - v1\n",
+      // filter values must be sequences of strings
+      "  pull_request:\n    paths: docs\n",
+      "  pull_request:\n    branches:\n      - 7\n",
+    ];
+    for (const on of bad) {
+      expect(S(`name: x\non:\n${on}${job}`).covered.has(spec), on).toBe(false);
+    }
+    // …and the well-formed per-event shapes still count.
+    const ok = [
+      "  pull_request:\n  workflow_dispatch:\n    inputs:\n      why:\n        type: string\n",
+      "  pull_request:\n  push:\n    branches:\n      - main\n    tags:\n      - v1\n",
+      "  pull_request:\n  workflow_run:\n    workflows:\n      - other\n    types:\n      - completed\n",
+    ];
+    for (const on of ok) {
+      expect(S(`name: x\non:\n${on}${job}`).covered.has(spec), on).toBe(true);
+    }
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any
