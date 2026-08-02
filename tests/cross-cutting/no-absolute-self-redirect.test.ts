@@ -730,6 +730,15 @@ describe("no absolute self-redirect under the walked roots", () => {
     expect(findings).toHaveLength(4);
   });
 
+  it("flags R106 awaited carriers and helper promises", () => {
+    // whole-diff r26: await joins every unwrap/climb site.
+    const findings = auditSource(
+      fixturePath(),
+      `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nasync function pickAsync() { return globalThis; }\nexport async function GET() {\n  const maybeEnv = pickAsync();\n  const a = viaEnvironment(await maybeEnv, new URL("/1", request.url));\n  const resolvedEnv = await maybeEnv;\n  const b = viaEnvironment(resolvedEnv, new URL("/2", request.url));\n  const c = viaEnvironment(await globalThis, new URL("/3", request.url));\n  return [a, b, c];\n}`,
+    );
+    expect(findings).toHaveLength(3);
+  });
+
   it("walked root globs cover every root surface the vestigial-middleware guard permits", () => {
     // whole-diff r24: middleware.js / proxy.ts / proxy.js are permitted
     // production surfaces — the audit must walk them all.

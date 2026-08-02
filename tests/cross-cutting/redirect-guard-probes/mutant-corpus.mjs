@@ -494,6 +494,31 @@ const MUTANTS = [
     "flag",
   ],
   [
+    "R102 wrapped inline helper initializer",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst pick102 = (() => globalThis)!;\nexport function GET() { return viaEnvironment(pick102(), new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R103 conditionally selected helper aliases",
+    `declare const request: Request;\ndeclare const cond: boolean;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction carrierPick() { return globalThis; }\nfunction safePick() { return { Response: { redirect: ((u: string | URL) => new Response(String(u))) as RedirectFn } }; }\nconst a103 = cond ? carrierPick : safePick;\nexport function GET() { return viaEnvironment(a103(), new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R104 as-cast carrier provenance",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nconst env104 = globalThis as any;\nexport function GET() { return viaEnvironment(env104, new URL("/x", request.url)); }`,
+    "flag",
+  ],
+  [
+    "R105 cast callee and cast argument",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nfunction pick105() { return globalThis; }\nexport function GET() {\n  const a = viaEnvironment((pick105 as typeof pick105)(), new URL("/1", request.url));\n  const b = viaEnvironment(globalThis as any, new URL("/2", request.url));\n  return [a, b];\n}`,
+    "flag",
+  ],
+  [
+    "R106 awaited carriers",
+    `declare const request: Request;\ntype RedirectFn = (url: string | URL, status?: number) => Response;\nfunction viaEnvironment(\n  { Response: R }: { Response: { redirect: RedirectFn } },\n  url: URL,\n) {\n  return R.redirect(url);\n}\nasync function pickAsync106() { return globalThis; }\nexport async function GET() {\n  const maybeEnv = pickAsync106();\n  return viaEnvironment(await maybeEnv, new URL("/x", request.url));\n}`,
+    "flag",
+  ],
+  [
     "N14 app-local class named Response",
     `class Response2 {}\nclass Response { redirect(u: string) { return u; } }\nconst r = new Response();\nconst m = r.redirect;\nexport function GET() { return [m.call(r, "/x"), new Response2()]; }`,
     "clean",

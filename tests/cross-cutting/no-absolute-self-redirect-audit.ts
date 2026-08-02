@@ -2,7 +2,8 @@
  * tests/cross-cutting/no-absolute-self-redirect-audit.ts
  *
  * Bans `NextResponse.redirect(...)` and the Web API `Response.redirect` under
- * the walked roots (app/**, lib/**, root middleware), allow-listing the handful
+ * the walked roots (app/**, lib/**, and the permitted root surfaces —
+ * middleware and proxy in ts/tsx/js; WALKED_ROOT_GLOBS), allow-listing the handful
  * of sites that legitimately redirect to an EXTERNAL absolute URL. Everything
  * else must go through `hostRelativeRedirect` (lib/http), whose Location is
  * host-relative and therefore cannot flip the host and drop host-scoped cookies.
@@ -674,6 +675,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
     while (
       (Node.isParenthesizedExpression(e) ||
         Node.isNonNullExpression(e) ||
+        Node.isAwaitExpression(e) ||
         Node.isAsExpression(e) ||
         Node.isSatisfiesExpression(e)) &&
       e.getExpression() !== undefined
@@ -802,6 +804,7 @@ function findSelfRedirects(sf: SourceFile): SelfRedirectFinding[] {
         parentId !== undefined &&
         (Node.isParenthesizedExpression(parentId) ||
           Node.isNonNullExpression(parentId) ||
+          Node.isAwaitExpression(parentId) ||
           Node.isAsExpression(parentId) ||
           Node.isSatisfiesExpression(parentId)) &&
         parentId.getExpression() === outerId
