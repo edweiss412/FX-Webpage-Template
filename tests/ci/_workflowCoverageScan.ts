@@ -505,17 +505,39 @@ const scalarMap = (v: unknown): boolean => {
   }
   return true;
 };
-const okFlag = (v: unknown): boolean => typeof v === "boolean" || nonEmptyString(v);
+/** R30: `continue-on-error` is a boolean or an expression token — a literal
+ *  like `nope` is runner-invalid, so any-non-empty-string was too loose. */
+const okFlag = (v: unknown): boolean =>
+  typeof v === "boolean" || (typeof v === "string" && /^\$\{\{.*\}\}$/.test(v.trim()));
+/** GitHub action-manifest root: typed, and only these keys (R30). */
+const ACTION_ROOT: Record<string, Pred> = {
+  name: str,
+  description: str,
+  author: str,
+  branding: mapping,
+  inputs: mapping,
+  outputs: mapping,
+  runs: mapping,
+};
+/** Step ids follow the runner's identifier syntax and must be unique. */
+const STEP_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export function validatedCompositeSteps(doc: unknown): ActionStep[] | null {
+  if (!mapping(doc)) return null;
+  if (!typedShape(doc as Record<string, unknown>, ACTION_ROOT)) return null;
   const runs = (doc as { runs?: unknown } | null | undefined)?.runs;
   if (runs === null || typeof runs !== "object" || Array.isArray(runs)) return null;
   for (const k of Object.keys(runs as Record<string, unknown>)) if (!RUNS_KEYS.has(k)) return null;
   const { using, steps } = runs as { using?: unknown; steps?: unknown };
   if (using !== "composite") return null;
   if (!Array.isArray(steps)) return null;
+  const seenIds = new Set<string>();
   for (const step of steps) {
     if (step === null || typeof step !== "object" || Array.isArray(step)) return null;
     const s = step as Record<string, unknown>;
+    if ("id" in s) {
+      if (typeof s.id !== "string" || !STEP_ID_RE.test(s.id) || seenIds.has(s.id)) return null;
+      seenIds.add(s.id);
+    }
     const hasRun = "run" in s;
     const hasUses = "uses" in s;
     if (hasRun === hasUses) return null; // neither, or both

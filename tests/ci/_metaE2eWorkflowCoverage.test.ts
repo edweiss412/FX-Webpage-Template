@@ -862,6 +862,37 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     }
   });
 
+  it("action-manifest roots, step ids and continue-on-error are typed (R30)", () => {
+    const two2 = (manifest: string) =>
+      [
+        `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/m\n      - run: pnpm exec playwright test ${spec}\n`,
+        { "./.github/actions/m": manifest },
+      ] as const;
+    const goodSteps =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    const bad = [
+      `name:\n  - seq\n${goodSteps}`,
+      `description:\n  - seq\n${goodSteps}`,
+      `inputs: nope\n${goodSteps}`,
+      `outputs: nope\n${goodSteps}`,
+      "bogus-root: 1\n" + goodSteps,
+      "runs:\n  using: composite\n  steps:\n    - id: '1bad'\n      run: echo hi\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - id: dup\n      run: echo a\n      shell: bash\n    - id: dup\n      run: echo b\n      shell: bash\n",
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      continue-on-error: nope\n",
+    ];
+    for (const manifest of bad) {
+      const [w, actions] = two2(manifest);
+      expect(S(w, actions).covered.has(spec), manifest).toBe(false);
+      expect(S(w, actions).rejected[0]!.reason, manifest).toBe(REASON);
+    }
+    // …and a well-typed manifest (root metadata, valid id, expression coe)
+    // still resolves clean.
+    const [okW, okActions] = two2(
+      "name: setup\ndescription: does things\ninputs:\n  a:\n    description: x\nruns:\n  using: composite\n  steps:\n    - id: step_one\n      run: echo hi\n      shell: bash\n      continue-on-error: ${{ false }}\n",
+    );
+    expect(S(okW, okActions).covered.has(spec)).toBe(true);
+  });
+
   it("a job without a valid runs-on claims nothing (R16)", () => {
     // runs-on is REQUIRED and must name a runner: absent, null, empty,
     // boolean, or an empty sequence means the job never executes, so any
