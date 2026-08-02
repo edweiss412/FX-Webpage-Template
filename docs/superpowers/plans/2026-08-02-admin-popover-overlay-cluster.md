@@ -2,6 +2,14 @@
 
 **Date:** 2026-08-02 · **Spec:** `docs/superpowers/specs/2026-08-01-admin-popover-overlay-cluster.md` (RATIFIED 2026-08-02, Codex APPROVE R7) · **Implementer:** Opus / Claude Code (UI surface — hard routing rule) · **Branch:** `fix/admin-popover-overlay-cluster`
 
+> **For the implementing agent.** Work through the tasks in order; every checkbox is one action. Do not skip RED observations.
+
+**Goal:** close the six ratified backlog items — backdrop trigger hit-test, AttentionMenu/PublishedToggle clip capping + keyboard a11y, self-describing Archive confirm, jsdom-timer documentation, shared rAF coalescer — exactly as the ratified spec defines.
+
+**Architecture:** two shared extractions (`lib/popover/rafCoalescer.ts (new)`, `components/admin/useFitWithinClip.ts (new)`) consumed by five components; one prop thread (`PublishedReviewModal → StatusStrip → ShareHub`); guard surface = the popover-overlay registry + a new AST adoption meta-test; verification = jsdom unit suites + one new standalone real-browser spec + restored T-BACKDROP assertions.
+
+**Tech stack:** Next.js 16 / React 19 client components, Tailwind v4, Vitest + jsdom, Playwright (standalone esbuild harness), TypeScript compiler API for structural pins.
+
 Execution contract: one task = failing test observed → minimal implementation → passing test observed → ONE commit (`--no-verify`). RED and GREEN land in the same commit; the RED failure is OBSERVED and its decisive line quoted in the commit body. All commands run from the worktree root.
 
 ## 0. Pre-draft verification + declarations
@@ -25,7 +33,41 @@ Spec §7, §11 (adoption closure i–iv for the coalescer pairs).
   - throttle-not-debounce: inside `run`, call `schedule()` → a SECOND rAF is registered (pending flag cleared BEFORE run). Catches: a debounce implementation (cancel-and-reschedule) registers ≠ counts.
   - cancel: `cancel()` after `schedule()` → `cancelAnimationFrame` called with the pending id; subsequent `schedule()` registers anew.
   - Run: `pnpm vitest run tests/popover/rafCoalescer.test.ts` → expected: `Cannot find module '@/lib/popover/rafCoalescer'` (or equivalent resolve error).
-- [ ] RED 2: write `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` (TypeScript compiler API — `import ts from "typescript"`), table-driven registry of (consumerFile, helperName, sharedModule) rows; T1 seeds the two coalescer rows ({ShareHub, HoverHelp} × `createRafCoalescer` from `@/lib/popover/rafCoalescer`). Per row assert: (i) import binding from the shared module; (ii) ≥1 `ts.isCallExpression` whose callee identifier text equals the LOCAL import binding name (alias-aware: an aliased-and-called import passes; an unused alias fails); (iii) no local declaration named `createRafCoalescer` / `useFitWithinClip` / `findClippingAncestor` in any consumer file, in any form (`ts.isFunctionDeclaration`, `ts.isVariableDeclaration`, `ts.isClassDeclaration`); (iv) the string `cleared BEFORE running` appears in exactly one source file repo-wide (the new shared coalescer module).
+- [ ] RED 2: write `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts (new)` (TypeScript compiler API — `import ts from "typescript"`), table-driven registry of (consumerFile, helperName, sharedModule) rows; T1 seeds the two coalescer rows ({ShareHub, HoverHelp} × `createRafCoalescer` from `@/lib/popover/rafCoalescer`). Per row assert, resolving through the TYPE CHECKER (not identifier text — review R2 F2's parameter-shadowing mutant defeats text matching): (i) an `ImportSpecifier` from the shared module exists; (ii) ≥1 `ts.isCallExpression` whose callee SYMBOL (`checker.getSymbolAtLocation`, alias-resolved via `checker.getAliasedSymbol`) has a declaration that IS that `ImportSpecifier` — a call to a same-named parameter, variable, or aliased decoy does not resolve there and fails; (iii) no declaration of the names `createRafCoalescer` / `useFitWithinClip` / `findClippingAncestor` in any consumer file in ANY form: `ts.isFunctionDeclaration`, `ts.isVariableDeclaration`, `ts.isClassDeclaration`, AND `ts.isParameter` (shadowing rejection); (iv) the string `cleared BEFORE running` appears in exactly one source file repo-wide (the new shared coalescer module). Core resolver snippet (compiles under the repo tsconfig):
+
+```ts
+function callResolvesToImport(
+  program: import("typescript").Program,
+  source: import("typescript").SourceFile,
+  importedName: string,
+  moduleText: string,
+): boolean {
+  const ts = require("typescript") as typeof import("typescript");
+  const checker = program.getTypeChecker();
+  let found = false;
+  const visit = (node: import("typescript").Node): void => {
+    if (ts.isCallExpression(node)) {
+      let sym = checker.getSymbolAtLocation(node.expression);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+      const decl = sym?.declarations?.[0];
+      if (
+        decl &&
+        ts.isImportSpecifier(decl) &&
+        (decl.propertyName ?? decl.name).text === importedName &&
+        decl.getSourceFile() === source &&
+        decl.parent.parent.parent.moduleSpecifier.getText(source).includes(moduleText)
+      ) {
+        found = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+```
+
+  RED mutants (each observed failing against the finished pin, then deleted; quoted in the commit body): (m1) unused aliased import + same-named local `const` decoy called in its place; (m2) aliased import shadowed by a function PARAMETER of the same local name, parameter called.
   - Run: `pnpm vitest run tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` → expected: both rows fail (module missing; imports absent).
 - [ ] GREEN: create `lib/popover/rafCoalescer.ts (new)` exporting `createRafCoalescer(run: () => void): { schedule(): void; cancel(): void }` with pending-flag-cleared-BEFORE-run semantics and the marker comment (moves here); adopt in `components/admin/showpage/ShareHub.tsx:379-386` (helper instance in the placement effect; `cancel()` in the cleanup that currently calls `cancelAnimationFrame`) and `components/admin/HoverHelp.tsx:309-316` (open-gate `if (!open ...) return` stays at the call site wrapping `schedule()`); delete both local coalescers + local marker comments.
 - [ ] VERIFY: `pnpm vitest run tests/popover/rafCoalescer.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts tests/components/admin/showpage/shareHubVisualViewport.test.tsx` → green (T-S8 unchanged); plus any HoverHelp suites (locate: `rg -l "HoverHelp" tests/components/admin --max-depth 1`).
@@ -33,12 +75,12 @@ Spec §7, §11 (adoption closure i–iv for the coalescer pairs).
 
 ### T2 — extract `useFitWithinClip` with the spec §4.1/§4.2 contract extensions
 
-- [ ] RED: write `tests/components/admin/useFitWithinClip.test.tsx (new)` (jsdom pragma `// @vitest-environment jsdom`). Harness: positioned ancestor div, mocked `getComputedStyle` (`overflow: clip`) and `getBoundingClientRect` (ancestor bottom 560; fitted-element top 230; declared CSS cap 384). Cases:
+- [ ] RED: write `tests/components/admin/useFitWithinClip.test.tsx (new)` (jsdom pragma `// @vitest-environment jsdom`). Harness: positioned ancestor div, mocked `getComputedStyle` (`overflow: clip`) and `getBoundingClientRect` (ancestor bottom 560; fitted-element top 230; declared CSS cap 384). **jsdom returns `offsetParent === null`, so cases (d)/(e) stub it with the repo precedent** (`tests/components/admin/wizard/Step3ReviewModal.test.tsx:453-461`): `Object.defineProperty(HTMLElement.prototype, "offsetParent", { get() { return (this as HTMLElement).parentElement; }, configurable: true })`, restored from the saved descriptor in `finally`. Cases:
   - (a) fitted write: `style.maxHeight === computeFittedMaxHeight({elementTop, clipBottom, cap}) + "px"` — derived in-test from the mocked rects via the exported pure core (`lib/layout/fitWithinClip.ts:56`), never hardcoded.
   - (b) no clipping ancestor → no write.
   - (c) `reapplyKey` flip after changing mocked rects → fresh write with the new value.
   - (d) `offsetParent` observation: stub global `ResizeObserver` capturing `observe()` targets → the fitted element's `offsetParent` is among them. Catches: extension omitted (only clip ancestor observed).
-  - (e) `transitionend` re-apply: dispatch `new Event("transitionend")` on the `offsetParent` after changing mocked rects → fresh write. Catches: listener omitted.
+  - (e) `transitionend` re-apply: dispatch `new Event("transitionend")` on the STUBBED `offsetParent` element (the parent div) after changing mocked rects → fresh write. Catches: listener omitted.
   - (f) no `ResizeObserver` global → renders without throwing.
   - Run: `pnpm vitest run tests/components/admin/useFitWithinClip.test.tsx` → expected: module-not-found for `@/components/admin/useFitWithinClip`.
 - [ ] RED (adoption row): append the ReSyncButton row (`useFitWithinClip` from `@/components/admin/useFitWithinClip`) to the T1 registry. Run the meta-test → expected: ReSyncButton row fails (still local definition). (AttentionMenu / PublishedToggle rows are added by T3 / T4 in the same commit as their adoption, so every commit stays green.)
@@ -74,9 +116,9 @@ Spec §4.3, §8 (inventory rows: none↔error instant; none↔finalize-chip inst
 
 ### T5 — tighten the registry mechanism regex
 
-- [ ] Change `IMPORT_FOR_DISPOSITION["fit-within-clip"]` (`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`) to `/from\s+"@\/components\/admin\/useFitWithinClip"/`.
-- [ ] Bite proof: temporarily restore a local hook copy in `ReSyncButton.tsx` (working-tree only), run the meta-test, observe the failure line ("registered as fit-within-clip but does not import it"), quote it in the commit body, revert the temporary change.
-- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` → green.
+- [ ] RED (mutant first — invariant-1 ordering): install the escaping mutant in the working tree: replace `ReSyncButton`'s shared import with a local `useFitWithinClip` copy (the pre-T2 body). Run `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` → observe the CURRENT regex stays GREEN (the defect: `/useFitWithinClip/` matches the local copy). Quote that green-on-mutant observation.
+- [ ] GREEN: change `IMPORT_FOR_DISPOSITION["fit-within-clip"]` (`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts:44-47`) to `/from\s+"@\/components\/admin\/useFitWithinClip"/`. Re-run WITH the mutant still installed → observe the decisive failure ("registered as \"fit-within-clip\" but does not import it"); quote it. Remove the mutant (restore the import).
+- [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` → green. (The adoption meta-test also fails on the mutant — both quoted lines go in the commit body.)
 - [ ] COMMIT: `test(admin): registry fit-within-clip disposition requires the shared-module import`
 
 ### T6 — ShareHub trigger elevation: three-term gate + prop threading + composed proof
@@ -89,7 +131,7 @@ Spec §3.1/§3.2, §8 compound rows (busy flip while open → elevation drops in
   - `attentionMenuOpen={true}` + open: `< 20` through settle of EACH of rotate / reset / lifecycle busy AND through the `busyStuck` timeout (fake timers, `BUSY_GATE_MAX_MS`); rerender `attentionMenuOpen={false}` → `≥ 21`.
   - prop-absent: existing closed-state pin (`tests/components/admin/showpage/shareHub.test.tsx:280`) stays untouched-green.
   - Run → expected failing line: open+idle z assertion (`expected 0 to be at least 21`).
-- [ ] RED (composed, in the PublishedReviewModal jsdom suite — locate: `rg -l "PublishedReviewModal" tests/components/admin/showpage --max-depth 1`; public surfaces only): open hub via `share-hub-primary` → drive a lifecycle child in flight → open menu via the pill → settle → triggers `< 20`; close menu (Escape) → `≥ 21`. Injecting the prop directly here is FORBIDDEN (tautology — bypasses both hops). Run → fails.
+- [ ] RED (composed, `tests/components/admin/showpage/publishedReviewModal.test.tsx`; public surfaces only): render the modal with attention items present and a DEFERRED archive action (promise held open by the test — the T6 resolver pattern); open hub via `share-hub-primary` → arm+confirm Archive so `lifecycleBusy` is in flight → open menu via the pill (`published-show-review-alert-pill`) → resolve the deferred action (settle) → triggers `< 20`; close the menu via its PUBLIC pill toggle (click the pill again — NOT Escape: both surfaces hold capture-phase document Escape listeners and ShareHub's would close the hub too, review R2 F4) → triggers `≥ 21`. Injecting the prop directly here is FORBIDDEN (tautology — bypasses both hops). Run → fails.
 - [ ] GREEN: `ShareHub` gains `attentionMenuOpen?: boolean` (absent → false); trigger classNames add `relative z-30` under `open && !busy && !attentionMenuOpen`; `StatusStrip` passthrough (`components/admin/showpage/StatusStrip.tsx:98` type, `components/admin/showpage/StatusStrip.tsx:414-422` forward); `PublishedReviewModal` passes `menuEffectivelyOpen` (`components/admin/showpage/PublishedReviewModal.tsx:356`) at `components/admin/showpage/PublishedReviewModal.tsx:905-912`.
 - [ ] VERIFY: `pnpm vitest run tests/components/admin/showpage/` → green (broadest-blast-radius task: whole directory).
 - [ ] COMMIT: `fix(admin): open-gated trigger elevation above the hub backdrop (three-term gate, menu-state threaded)`
@@ -108,7 +150,7 @@ Spec §3.4. Predicate closure, ALL pinned: AttentionMenu inside-set {panel desce
 
 Spec §5.1/§5.2 (owner-ratified byte-exact strings).
 
-- [ ] RED (direct, `tests/components/admin/ArchiveShowButton.test.tsx`, beside the armed-copy pin at `tests/components/admin/ArchiveShowButton.test.tsx:239-249`): row variant with `showName="Spring Gala"` → prose is exactly `Crew links for “Spring Gala” stop working now and won’t come back until you re-publish and issue a new link.`; armed group `aria-label` is `Confirm archiving “Spring Gala”`; with `showName` absent, `""`, and `"   "` → prose + label byte-identical to today's strings (copied from source at test-write time); confirm button label `Confirm archive` in all cases.
+- [ ] RED (direct, `tests/components/admin/ArchiveShowButton.test.tsx`, beside the armed-copy pin at `tests/components/admin/ArchiveShowButton.test.tsx:239-249`): row variant with `showName="Spring Gala"` → prose is exactly `Crew links for “Spring Gala” stop working now and won’t come back until you re-publish and issue a new link.`; armed group `aria-label` is `Confirm archiving “Spring Gala”`; with `showName` absent, `""`, and `"   "` → prose + label byte-identical to today's strings (copied from source at test-write time); confirm button label `Confirm archive` in all cases. Mode boundary (spec §5.1): the MORPH (non-row, `compact` and full) variants with a NONBLANK `showName` render their confirm label byte-identical to today (`Confirm archive: crew links stop working now and won’t come back until you re-publish and issue a new link.`) — the prop is consumed ONLY in the `asRow` armed branch.
   - Run → expected: with-`showName` copy cases fail.
 - [ ] RED (threading, `tests/components/admin/showpage/shareHub.test.tsx`): hub with `showTitle="Spring Gala"`, open, arm Archive → armed prose contains `“Spring Gala”`. Run → fails.
 - [ ] GREEN: `ArchiveShowButton` gains `showName?: string` consumed ONLY in the `asRow` armed branch (`components/admin/ArchiveShowButton.tsx:279` aria-label, `components/admin/ArchiveShowButton.tsx:284-287` prose; trim-guard per spec §5.1); `ShareHub` threads `showTitle` (`components/admin/showpage/ShareHub.tsx:153`) at `components/admin/showpage/ShareHub.tsx:962-982`.
