@@ -56,4 +56,36 @@ describe("parse-warning code sites", () => {
     },
     SCAN_TIMEOUT_MS,
   );
+
+  it(
+    "resolves a code passed as a factory argument",
+    () => {
+      const { sites } = scan();
+      const hit = sites.find((s) => s.code === "AGENDA_SCHEDULE_TIME_ADJUSTED");
+      // `warn(code, message): ParseWarning` (lib/sync/enrichAgenda.ts:45-47) takes
+      // the code as an ARGUMENT, so no `code:` regex reaches it from any root.
+      // This is one of the four codes the hand-maintained residue existed to supply.
+      expect(hit?.file).toBe("lib/sync/enrichAgenda.ts");
+      expect(hit?.via).toBe("factory");
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "records no site from an excluded file",
+    () => {
+      const { sites } = scan();
+      // M6. findReferencesAsNodes() searches the WHOLE program, so the
+      // scanned-file predicate has to govern recorded call sites and not merely
+      // the file walk. Probed against the unpatched recognizer: exporting the
+      // factory at lib/sync/enrichAgenda.ts:45 and calling it from a test with a
+      // literal minted that code into the production manifest (58 codes, one site
+      // attributed to tests/). Nothing may be attributed to an excluded tree.
+      const leaked = sites.filter(
+        (s) => s.file.startsWith("tests/") || s.file.startsWith("lib/dev/attentionScenarios/"),
+      );
+      expect(leaked).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
 });

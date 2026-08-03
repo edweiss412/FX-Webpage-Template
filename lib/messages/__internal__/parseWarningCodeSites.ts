@@ -155,6 +155,57 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         return;
       }
 
+      if (Node.isShorthandPropertyAssignment(property)) {
+        // A factory: `function warn(code, message): ParseWarning { return { severity, code, message } }`.
+        // The code is chosen at the CALL SITE, not here.
+        const enclosing = property.getFirstAncestor(
+          (a) =>
+            Node.isFunctionDeclaration(a) || Node.isArrowFunction(a) || Node.isFunctionExpression(a),
+        );
+        if (!enclosing || !Node.isFunctionDeclaration(enclosing)) {
+          unresolved.push({ file, line, why: "shorthand code, enclosing function is not a declaration" });
+          return;
+        }
+        const parameterIndex = enclosing.getParameters().findIndex((p) => p.getName() === "code");
+        if (parameterIndex < 0) {
+          unresolved.push({ file, line, why: "shorthand code, no matching parameter" });
+          return;
+        }
+        const factoryName = enclosing.getName() ?? "(anonymous)";
+
+        let literalCallSites = 0;
+        let dynamicCallSites = 0;
+        for (const reference of enclosing.findReferencesAsNodes()) {
+          const call = reference.getParent();
+          if (!call || !Node.isCallExpression(call)) continue;
+          // findReferencesAsNodes searches the WHOLE program, so the predicate
+          // must be re-applied here. Without this, a test calling an exported
+          // factory with a literal mints that code into the production manifest.
+          const callFile = call.getSourceFile().getFilePath();
+          if (!isScannedFile(callFile)) continue;
+          const argument = unwrapAsExpressions(call.getArguments()[parameterIndex]);
+          if (argument && Node.isStringLiteral(argument)) {
+            sites.push({
+              code: argument.getLiteralValue(),
+              file: rel(callFile),
+              line: call.getStartLineNumber(),
+              via: "factory",
+            });
+            literalCallSites += 1;
+          } else if (argument) {
+            dynamicCallSites += 1;
+          }
+        }
+        if (literalCallSites === 0) {
+          unresolved.push({
+            file,
+            line,
+            why: `factory ${factoryName}: no literal call sites (${dynamicCallSites} dynamic)`,
+          });
+        }
+        return;
+      }
+
       unresolved.push({ file, line, why: `code property kind ${property.getKindName()}` });
     });
   }
