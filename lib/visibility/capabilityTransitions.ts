@@ -115,13 +115,28 @@ export interface TileVisibilityDelta {
  * The full 10-entry capability flip matrix. Order is documentary —
  * tests do not depend on insertion order.
  *
- * Tile-visibility rules from `lib/visibility/scopeTiles.ts` (verbatim
- * branch logic):
+ * Tile-visibility rules (verbatim branch logic from scopeTiles.ts):
  *
- *   audioScopeVisible    = A1 || A2 || LEAD       (so flip(hasA1) toggles audio iff LEAD is false; flip(hasLead) toggles audio iff hasA1 is false)
- *   videoScopeVisible    = V1 || LEAD              (so flip(hasV1) toggles video iff LEAD is false; flip(hasLead) toggles video iff hasV1 is false)
- *   lightingScopeVisible = L1 || LEAD              (§8.1 amended 2026-05-13: LEAD now reads-in to Lighting; flip(hasL1) toggles lighting iff LEAD is false; flip(hasLead) toggles lighting iff hasL1 is false)
- *   financialsVisible    = isAdmin || LEAD          (LEAD-or-admin)
+ *   audioScopeVisible    = A1 || A2 || LEAD
+ *   videoScopeVisible    = V1 || LEAD
+ *   lightingScopeVisible = L1 || LEAD
+ *   financialsVisible    = isAdmin || LEAD || FINANCIALS
+ *
+ * FINANCIALS is deliberately NOT a matrix predicate: it unlocks
+ * FinancialsTile and nothing else, so it is held false throughout the
+ * matrix, exactly as the entries below hold every unflipped predicate.
+ * Add it to CAPABILITY_PREDICATES to model it — the derived pair-set
+ * expectations then name every entry the matrix is missing.
+ *
+ * `transportTileVisible` is NOT in this block: it gates on transport
+ * ownership via an options object, not on capability flags. The parity
+ * guard carries that classification as its one NOT_FLAG_GATED row.
+ *
+ * The per-flip commentary these lines used to carry lives in the entry
+ * `reason` fields below, which is where it is read. The block is quoted
+ * verbatim so `tests/visibility/_metaDocumentedPredicateParity.test.ts`
+ * can hold it to the live functions' behavior; a re-wrap of the sentinel
+ * line above fails that guard by design.
  *
  * For each pair, the delta records the tiles that DEFINITIVELY change
  * when ONLY the flipped predicate changes — i.e., the flip is
