@@ -8,36 +8,6 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
-### PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)
-
-Surfaced by whole-diff review R3 on `test/step3-live-render-cluster`, which proved the vector
-against the installed binary: with a `PSQLRC` (or `$HOME/.psqlrc`, or the compiled system psqlrc)
-containing `\connect postgresql://…@192.0.2.3:5432/postgres`, psql executes it BEFORE the
-statements arriving on stdin, so a validated-local connection is silently replaced and the work
-runs remotely. `psql -X` suppresses startup files and is the documented contract.
-
-**Closed on the gallery path in that branch** (`tests/e2e/helpers/devCaptureStaged.ts`), which is
-the only site the branch touches. **Still open everywhere else.** Census at filing time, from
-`rg -n 'execFileSync\("psql"'`:
-
-- `tests/reports/quota.test.ts:12`
-- `tests/reports/_dbHelpers.ts:7`
-- `scripts/generate-schema-manifest.ts:44`
-- `scripts/ci/realtime-relay-diagnostic.ts:26`
-- `tests/dev/materializeRoundTrip.realdb.test.ts:53`
-- `tests/db/_metaCrewReadArchivedGate.test.ts:16`
-- `tests/db/show_share_tokens.test.ts:8`
-- `tests/db/reset_picker_epoch_atomic.test.ts:9`
-- `tests/db/mint-validation-fixture-atomic.test.ts:22`
-- `lib/audit/emailCanonicalization.ts:668`
-
-Deferred rather than swept in that branch because it was a test-and-docs change; adding `-X` to ten
-unrelated call sites would have put unreviewed change into it, and `lib/audit/emailCanonicalization.ts`
-is not a test surface at all. **Fix when prioritized:** add `-X` at every site above, and add a
-structural meta-test asserting that any `execFileSync("psql", …)` in the tree passes `-X`, so the
-class stays closed rather than being re-swept. **Un-defer trigger:** the next milestone touching any
-psql call site, or any hardening pass on local-DB test transport.
-
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
 Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
