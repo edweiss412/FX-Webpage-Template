@@ -55,6 +55,12 @@ than re-deriving the decision.
 
 ---
 
+> **`spec:lint` note.** After this branch lands, `pnpm spec:lint` on this document reports
+> `CITATION_FILE_MISSING` for the four components it retires. That is the subject matter, not rot: a
+> spec describing a retirement has to name what it retired, and the check is a git-tracked-path test
+> (`lib/specLint/citations.ts`). `spec:lint` is not a CI gate — no workflow invokes it. The same is
+> true of the plan and the closeout.
+
 ## 2. Probes run on current `main` (not inherited from the filing branch)
 
 ### 2.1 Item A — the orphan probe
