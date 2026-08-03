@@ -278,7 +278,7 @@ So the modal gets its own channel:
 | Layout channel (`admin-undo-status`) | `AdminAnnounceProvider` in `app/admin/layout.tsx`, wrapping the returned root (§3.5.1) | every non-modal admin surface, including the dashboard strip |
 | Dialog channel (`dialog-undo-status`) | a second `AdminAnnounceProvider` inside `ReviewModalShell`, wrapping the panel interior as `PopoverHostContext` does | every surface rendered inside a review modal, including the per-show changes feed |
 
-The two ids differ deliberately. Both regions are attached at once while a modal is open, so one shared id would make `page.getByTestId(...)` match two elements and fail Playwright strict mode — and, worse, would make it impossible for the e2e assertion to prove the **dialog** region received the announcement rather than the layout one.
+The two ids differ deliberately, and **so do the two `aria-label`s**: `"Undo updates"` at the layout, `"Undo updates in this dialog"` inside the modal. Both regions are attached at once while a modal is open, so a shared identifier is wrong twice over. A shared `data-testid` makes `page.getByTestId(...)` match two elements, fail Playwright strict mode, and lose the ability to prove the **dialog** region received the announcement. A shared `aria-label` is the same defect one layer up, in the accessibility tree rather than the test locator: a screen-reader user navigating by region would find two identically-named logs and no way to tell which belongs to the dialog they are in. Round 4 caught the test-locator half of this; the label half is the same class.
 
 **The precedent is in the same file, and was itself ratified by review.** `ReviewModalShell` already hosts exactly this shape for a different concern: `PopoverHostContext` makes the shell "the ONE provider site, wrapping the ENTIRE panel interior" so that popovers "stay inside the focus trap / aria-modal / inert subtree" (`components/admin/review/ReviewModalShell.tsx:690-695`), a scope the file records as widened in response to a prior cross-model finding. The dialog channel is the same move for announcements, and it wraps the same region of the tree.
 
@@ -305,7 +305,7 @@ One residual interaction, documented rather than defended: `FinalizeButton` iner
 | Element | Value |
 |---|---|
 | Region `testId` | `admin-undo-status` (layout) and `dialog-undo-status` (dialog) — **distinct**, because both are attached simultaneously while a modal is open and a single shared id makes a Playwright `getByTestId` ambiguous under strict mode |
-| Region `label` | `"Undo updates"` |
+| Region `label` | `"Undo updates"` (layout) and `"Undo updates in this dialog"` (dialog) — distinct for the same reason the ids are |
 | Placement | first child of `AdminAnnounceProvider`, above every admin route |
 
 ### 3.6 What the two feed surfaces do
