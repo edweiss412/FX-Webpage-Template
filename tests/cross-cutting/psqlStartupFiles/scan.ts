@@ -793,7 +793,14 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     // Redirections: an optional fd, the operator, and an optionally ATTACHED
     // target. The shell strips all of it, so neither reaches argv.
-    if (!started || FD_PREFIX.test(buffer)) {
+    //
+    // `<` and `>` are METACHARACTERS: they terminate whatever word is being
+    // accumulated, they do not join it. Gating this branch on "no word in
+    // progress" made `psql -F>/dev/null -X mydb` read as the single token
+    // `-F>/dev/null` followed by a standalone `-X` — a FALSE SAFE, since bash
+    // removes the redirection and psql really receives `-F -X mydb`, where
+    // `-X` is the field separator.
+    if (!started || FD_PREFIX.test(buffer) || character === "<" || character === ">") {
       // Longest-first: `<<<` before `<<`, `<>` and `>|` before the bare forms,
       // or the shorter match leaves a stray `<`/`>` that reads as a SECOND
       // redirection and eats the following argv word.
@@ -938,17 +945,25 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       const isInterpreter = SHELL_BINARIES.has(name) || DASH_C_CONSUMERS.has(name);
       const isEval = name === "eval";
       const isDashS = name === "env";
+      // The long-option branch below also fires for `su`/`runuser`, which are in
+      // DASH_C_CONSUMERS, and for `env` via isDashS.
       // `ssh host "psql …"` and `watch "psql …"` name no flag: the script is
       // simply a later word that is itself a command line.
       const isTrailing = TRAILING_SCRIPT_CONSUMERS.has(name);
       if (!isInterpreter && !isEval && !isDashS && !isTrailing) continue;
       if (isTrailing) {
+        // Scan EVERY whitespace-bearing word after the program, skipping option
+        // values. Taking the first one and stopping mistook an ordinary
+        // `-o "ProxyCommand=nc %h %p"` for the remote command and never reached
+        // the real `ssh host "psql …"` behind it.
         for (let i = position + 1; i < argv.length; i++) {
           const candidate = argv[i]!;
-          if (!/\s/.test(candidate.text)) continue; // a bare word is a host/option
+          if (!/\s/.test(candidate.text)) continue;
+          if (candidate.text.startsWith("-")) continue; // `-oProxyCommand=…`
+          const previous = argv[i - 1]?.text ?? "";
+          if (SSH_ARG_FLAGS.test(previous)) continue; // `-o` + its separate value
           for (const site of scanShellText(candidate.text, file, lineOffset + candidate.line))
             sites.push({ ...site, offset: candidate.offsets[site.offset] ?? candidate.offset });
-          break;
         }
         continue;
       }
@@ -956,6 +971,23 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         const candidate = argv[i]!;
         // `sh -ce`, `-cu`, `-cv`, `-cx` all execute the next word; requiring `c`
         // to be LAST missed every cluster with an option after it.
+        // Long spellings are documented options, not exotica:
+        // `su --command=…` / `--session-command=…`, `runuser` likewise, and
+        // `env --split-string=…`. Both `=value` and separate-word forms.
+        const longScript = /^--(?:command|session-command|split-string)(=|$)/.exec(candidate.text);
+        if (longScript) {
+          if (longScript[1] === "=") {
+            const attached = candidate.text.slice(candidate.text.indexOf("=") + 1);
+            for (const site of scanShellText(attached, file, lineOffset + candidate.line))
+              sites.push({ ...site, offset: candidate.offset });
+            break;
+          }
+          const next = argv[i + 1];
+          if (next !== undefined)
+            for (const site of scanShellText(next.text, file, lineOffset + next.line))
+              sites.push({ ...site, offset: next.offsets[site.offset] ?? next.offset });
+          break;
+        }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
         if (isDashS && !/^-[a-zA-Z]*S/.test(candidate.text)) continue;
         // `bash -c -- 'psql …'` is valid: `--` ends option parsing and the
@@ -1358,6 +1390,10 @@ const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas"]);
  * `watch "psql …"`), with no flag naming it. */
 const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch"]);
 
+/** ssh options that take a SEPARATE value, so the following word is that value
+ * rather than the host or the remote command. */
+const SSH_ARG_FLAGS = /^-[bcDEeFIiJLlmOopQRSWw]$/;
+
 /** argv[0] is a shell, so its argv carries a command LINE rather than psql. */
 function isShellBinary(text: string): boolean {
   return SHELL_BINARIES.has(text.slice(text.lastIndexOf("/") + 1));
@@ -1630,11 +1666,44 @@ function extensionOf(file: string): string {
   return at === -1 ? "" : file.slice(at);
 }
 
+/**
+ * An exemption marker covers ONE invocation. `exemptionOnLines` is line-scoped —
+ * it answers "is there a marker on this line or the one above" — which let a
+ * single marker bleed across sites: two calls on adjacent lines both claimed a
+ * marker written for the first, and `psql a; psql b # marker` exempted both.
+ * A marker claimed by more than one site therefore exempts NONE of them, which
+ * is the fail-closed direction and produces a loud message rather than a silent
+ * pass. (No site in the tree uses an exemption, so this costs nothing today; it
+ * exists so the first one cannot quietly cover its neighbour.)
+ */
+function dropSharedExemptions(sites: PsqlSite[]): PsqlSite[] {
+  const claims = new Map<string, number>();
+  for (const site of sites) {
+    if (site.exemptReason === null) continue;
+    const key = `${site.exemptReason}\u0000${site.line}`;
+    claims.set(key, (claims.get(key) ?? 0) + 1);
+  }
+  // A reason claimed on two DIFFERENT lines is the adjacent-line bleed; the same
+  // reason twice on ONE line is the same-line bleed. Count by reason overall.
+  const byReason = new Map<string, number>();
+  for (const site of sites) {
+    if (site.exemptReason === null) continue;
+    byReason.set(site.exemptReason, (byReason.get(site.exemptReason) ?? 0) + 1);
+  }
+  return sites.map((site) =>
+    site.exemptReason !== null && (byReason.get(site.exemptReason) ?? 0) > 1
+      ? { ...site, exemptReason: null }
+      : site,
+  );
+}
+
 export function scanSource(source: string, file: string): PsqlSite[] {
   const extension = extensionOf(file);
-  if (YAML_EXTENSIONS.includes(extension)) return scanWorkflowSource(source, file);
-  if (SHELL_EXTENSIONS.includes(extension)) return scanShellText(source, file, 0);
-  return scanJsSource(source, file);
+  if (YAML_EXTENSIONS.includes(extension))
+    return dropSharedExemptions(scanWorkflowSource(source, file));
+  if (SHELL_EXTENSIONS.includes(extension))
+    return dropSharedExemptions(scanShellText(source, file, 0));
+  return dropSharedExemptions(scanJsSource(source, file));
 }
 
 /**

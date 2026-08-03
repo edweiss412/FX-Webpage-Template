@@ -1164,6 +1164,96 @@ describe("R14 escaping mutants", () => {
   });
 });
 
+describe("R15 escaping mutants", () => {
+  // An ATTACHED redirection. `<` and `>` are metacharacters: they terminate the
+  // word rather than joining it, so bash really runs `psql -F -X mydb` and the
+  // `-X` is the field separator. Certifying it was a FALSE SAFE.
+  test.each([">", ">>", "<", "<>", ">|", "<<<", "<<", "<<-"])(
+    "`psql -F%s/dev/null -X mydb` is not certified",
+    (operator) => {
+      const sites = sitesIn(`psql -F${operator}/dev/null -X mydb\n`, "x.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.tokens).toEqual(["-F", "-X", "mydb"]);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test("an attached redirection after a NON-arg-taking flag still suppresses", () => {
+    // Precision: `-X` itself takes no argument, so nothing can swallow it.
+    expect(sitesIn("psql -X>/dev/null -qAt mydb\n", "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // Long option spellings of the command-string consumers.
+  test.each([
+    ["env --split-string=", 'env --split-string="psql -qAt mydb"'],
+    ["env --split-string separate", 'env --split-string "psql -qAt mydb"'],
+    ["su --command separate", 'su - postgres --command "psql -qAt mydb"'],
+    ["su --session-command=", 'su - postgres --session-command="psql -qAt mydb"'],
+    ["runuser --command=", 'runuser - postgres --command="psql -qAt mydb"'],
+    ["runuser --session-command=", 'runuser - postgres --session-command="psql -qAt mydb"'],
+    // ssh option VALUES are not the remote command; the real one sits behind them.
+    ["ssh -o with a separate value", 'ssh -o "ProxyCommand=nc %h %p" database "psql -qAt mydb"'],
+    ["ssh -o attached", 'ssh -oProxyCommand="nc %h %p" database "psql -qAt mydb"'],
+  ])("%s is a site", (_name, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("an ssh option value alone is not a site", () => {
+    // Precision: a ProxyCommand that mentions no psql must stay silent.
+    expect(sitesIn('ssh -o "ProxyCommand=nc %h %p" database uptime\n', "x.sh")).toHaveLength(0);
+  });
+
+  // An exemption marker covers ONE invocation. Shared claims exempt NOBODY.
+  test.each([
+    [
+      "adjacent lines in JS",
+      `execFileSync("psql", ["-qAt", a]); // ${EXEMPTION_MARKER} first call only, scratch container\nexecFileSync("psql", ["-qAt", b]);\n`,
+      "x.mjs",
+    ],
+    [
+      "adjacent lines in shell",
+      `psql -qAt a # ${EXEMPTION_MARKER} first call only, scratch container\npsql -qAt b\n`,
+      "x.sh",
+    ],
+    [
+      "two calls on ONE line",
+      `psql -qAt a; psql -qAt b # ${EXEMPTION_MARKER} second call only, scratch container\n`,
+      "x.sh",
+    ],
+    [
+      "adjacent lines in a workflow run block",
+      `jobs:\n  a:\n    steps:\n      - run: |\n          psql -qAt a # ${EXEMPTION_MARKER} first call only, scratch container\n          psql -qAt b\n`,
+      ".github/workflows/x.yml",
+    ],
+  ])("a marker does not bleed across %s", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(2);
+    expect(sites.every((s) => s.exemptReason === null)).toBe(true);
+    expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("a marker with exactly one claimant still exempts", () => {
+    const source = `psql -qAt a # ${EXEMPTION_MARKER} genuinely exempt, scratch container\n`;
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("genuinely exempt, scratch container");
+  });
+
+  test("two DISTINCT markers each exempt their own site", () => {
+    const source = [
+      `psql -qAt a # ${EXEMPTION_MARKER} first reason, scratch container`,
+      `psql -qAt b # ${EXEMPTION_MARKER} second reason, other container`,
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(2);
+    expect(sites[0]!.exemptReason).toBe("first reason, scratch container");
+    expect(sites[1]!.exemptReason).toBe("second reason, other container");
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {
