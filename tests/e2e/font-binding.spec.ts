@@ -24,7 +24,6 @@ import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs } from "./helpers/signInAs";
-import { admin } from "./helpers/supabaseAdmin";
 
 /** The label `BL-HEADER-FONT-FALLBACK-WRAP` measured wrapping under a wide
  *  fallback. Reused here so the probe measures the product's own worst string,
@@ -35,7 +34,7 @@ type FontReport = {
   inherited: number;
   forcedInter: number;
   forcedSansSerif: number;
-  faces: { family: string; status: string }[];
+  faces: { family: string; status: string; style: string; weight: string; unicodeRange: string }[];
   htmlFontFamily: string;
   fontInterToken: string;
 };
@@ -67,7 +66,15 @@ async function measureFonts(page: Page): Promise<FontReport> {
       inherited: measure(null),
       forcedInter: measure('"Inter"'),
       forcedSansSerif: measure("sans-serif"),
-      faces: Array.from(document.fonts).map((f) => ({ family: f.family, status: f.status })),
+      faces: Array.from(document.fonts).map((f) => ({
+        family: f.family,
+        status: f.status,
+        // The full face IDENTITY. Two loaders for the SAME family produce
+        // duplicate tuples, which a set of family NAMES cannot see.
+        style: f.style,
+        weight: f.weight,
+        unicodeRange: f.unicodeRange,
+      })),
       htmlFontFamily: getComputedStyle(document.documentElement).fontFamily,
       // The `--font-inter` token the loader is asked to expose. Read at
       // `<html>`, which is where the generated `.variable` class is applied.
@@ -133,16 +140,39 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //
   //     `Inter Fallback` is next/font's generated size-adjusted companion, and
   //     `__nextjs-*` faces belong to the dev-mode error overlay, not the app.
-  const appFamilies = new Set(
-    report.faces
-      .map((f) => f.family)
-      .filter((family) => !family.startsWith("__nextjs-") && !family.endsWith(" Fallback")),
+  const appFaces = report.faces.filter(
+    (f) => !f.family.startsWith("__nextjs-") && !f.family.endsWith(" Fallback"),
   );
+  const appFamilies = new Set(appFaces.map((f) => f.family));
   expect(
     [...appFamilies].sort(),
     `${surface}: the document registers exactly one font family — a second ` +
-      `next/font loader anywhere would add one, in any call syntax`,
+      `next/font loader for a DIFFERENT family would add one, in any call syntax`,
   ).toEqual(["Inter"]);
+
+  // (5) NO DUPLICATE FACES. Review R4 showed (4) alone cannot see the case the
+  //     whole guard exists to prevent: a second loader for the SAME family adds
+  //     more Inter faces, and a set of family NAMES still reduces to ["Inter"].
+  //     Face IDENTITY is the discriminating signal — one loader emits one face
+  //     per unicode-range slice, so a duplicate loader emits exact duplicate
+  //     (family, style, weight, unicodeRange) tuples. Config-independent: it
+  //     never asserts HOW MANY slices there are, only that none repeats.
+  // Non-vacuity for (5): with 0 or 1 face the duplicate check is trivially
+  // satisfied. One loader emits one face per unicode-range slice, so several.
+  expect(
+    appFaces.length,
+    `${surface}: there are multiple faces for the duplicate check to discriminate`,
+  ).toBeGreaterThan(1);
+  const identity = (f: (typeof appFaces)[number]) =>
+    `${f.family}|${f.style}|${f.weight}|${f.unicodeRange}`;
+  const seen = new Map<string, number>();
+  for (const face of appFaces) seen.set(identity(face), (seen.get(identity(face)) ?? 0) + 1);
+  const duplicated = [...seen.entries()].filter(([, n]) => n > 1);
+  expect(
+    duplicated,
+    `${surface}: no @font-face is registered twice — a duplicate tuple means a ` +
+      `second loader for the same family, which no family-name check can see`,
+  ).toEqual([]);
 }
 
 /**
@@ -158,6 +188,20 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
     report.fontInterToken,
     `${surface}: <html> exposes --font-inter (the loader's \`variable\` option)`,
   ).toContain("Inter");
+
+  // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. next/font generates an
+  // `Inter Fallback` face with size-adjust/ascent-override so the
+  // `display: "swap"` window does not reflow. An earlier version of this change
+  // named the literal `"Inter"` in `--font-sans`, which skipped that face
+  // entirely: first paint used a system font at native metrics and then snapped
+  // ~10% once Inter arrived (measured 187.28px against 168.91px on a real
+  // string) — worst on a 390px phone, where a label can unwrap from two lines to
+  // one and shift everything below it mid-glance. Impeccable critique P1.
+  expect(
+    report.htmlFontFamily,
+    `${surface}: the resolved cascade includes next/font's metric-matched ` +
+      `fallback, so the swap window does not reflow (got: ${report.htmlFontFamily})`,
+  ).toContain("Inter Fallback");
 }
 
 test.describe("font binding", () => {
@@ -243,18 +287,16 @@ test.describe("font binding — the measured row", () => {
     // The modal mounts only on the SETTLED dashboard branch — wizard-mode
     // ignores `?show` entirely, so without this the modal never appears.
     restoreDashboardState = await settleDashboardAdminState();
-    seeded = await seedShowWithCrew({ title: "Font Binding Row E2E Show" });
-    const { error } = await admin
-      .from("shows")
-      .update({
-        event_details: {
-          // One key from the group under test. Kept SHORT so the group's own
-          // title, not a long value, is what has to fit the row.
-          keynote_requirements: "TBD",
-        },
-      })
-      .eq("id", seeded.showId);
-    if (error) throw new Error(`seeding event_details failed: ${error.message}`);
+    seeded = await seedShowWithCrew({
+      title: "Font Binding Row E2E Show",
+      // One key from the group under test, kept SHORT so the group's own TITLE,
+      // not a long value, is what has to fit the row. Passed through the
+      // helper's own insert rather than a follow-up update from here: a direct
+      // `admin.from("shows").update(...)` would be a new unlocked mutation of a
+      // lock-governed table (invariant 2) and a new Supabase call boundary
+      // (invariant 9).
+      eventDetails: { keynote_requirements: "TBD" },
+    });
   });
 
   test.afterAll(async () => {
@@ -274,7 +316,16 @@ test.describe("font binding — the measured row", () => {
     // any viewport).
     await page.setViewportSize({ width: 320, height: 844 });
     await page.goto(`/admin?show=${seeded.slug}`);
-    await expect(page.locator("[data-review-modal-panel]")).toBeVisible({ timeout: 30_000 });
+    // The Suspense SKELETON shares the shell testid and both frames transiently
+    // coexist during the streaming swap, so wait on the LOADED frame (the
+    // skeleton renders no title node) rather than a selector both match — the
+    // established contract at tests/e2e/published-review-modal.interactions.spec.ts:53-60.
+    // Waiting on the shared one is a strict-mode violation ~half the time.
+    const loadedModal = page.locator(
+      '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])',
+    );
+    await expect(loadedModal).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="published-show-review-modal"]')).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready);
 
     const measured = await page.evaluate((title: string) => {

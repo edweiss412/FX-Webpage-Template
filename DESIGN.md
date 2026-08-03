@@ -136,7 +136,9 @@ Why Inter: PRODUCT.md explicitly lists Inter as one of three acceptable starting
 
 Tradeoff acknowledged: Inter is the most-used webfont on the modern internet. The "AI slop" risk per shared design laws is real. We compensate by using Inter at distinctive **weights and sizes** (large, confident headline numbers; consistent 500/600 hierarchy rather than the default 400/700 split that creates SaaS-look) and by leaning on the page's structural rhythm — generous spacing, asymmetric hero, FXAV orange accent — to carry character. The font is the canvas, not the personality.
 
-Fallback stack: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+Fallback stack: `Inter, Inter Fallback, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+
+`Inter Fallback` is not a hand-picked face: `next/font` generates it alongside Inter, from `local(Arial)` with `size-adjust` and `ascent-override` tuned to Inter's metrics, precisely so the `display: "swap"` window swaps without reflowing. It is therefore second, ahead of the system stack. `app/globals.css` reaches both through `var(--font-inter, "Inter", "Inter Fallback")` rather than naming them literally, so the token stays the single source and any surface without the generated class (the standalone test harnesses, which compile that file with no Next runtime) still resolves to the literal pair. Omitting this entry is not cosmetic: measured on a real string, first paint rendered 187.28px and then snapped to 168.91px, about 10%, on every route.
 
 ### 2.2 Size scale
 

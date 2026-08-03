@@ -1,9 +1,15 @@
 /**
- * Structural guard — exactly ONE `next/font` loader invocation, in the root layout.
+ * Structural guard — exactly ONE `next/font` loader invocation, in `app/fonts.ts`.
  *
  * `DESIGN.md:133` commits the product to a single family loaded via
- * `next/font/google` in `app/layout.tsx`. Two things break that silently, and
- * neither shows up in any behavioral test:
+ * `next/font/google` in `app/layout.tsx`. The call lives one module up from
+ * there, in `app/fonts.ts`, because Next 16 has TWO roots: `app/global-error.tsx`
+ * renders its own `<html>` and replaces the root layout, so it needs the font
+ * too, and a second `Inter()` call there would emit a second `@font-face` set
+ * under the same family name. Both roots import one shared instance.
+ *
+ * Two things break the single-family commitment silently, and neither shows up
+ * in any behavioral test:
  *
  *   1. **A second loader.** Two loader calls emit two independent `@font-face`
  *      sets. When both are the same family they land under the SAME family name,
@@ -73,8 +79,13 @@ import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 const REPO_ROOT = join(__dirname, "..", "..");
 const APP_DIR = join(REPO_ROOT, "app");
 
-/** The one file allowed to load a font, per `DESIGN.md:133`. */
-const CANONICAL_LOADER = "app/layout.tsx";
+/** The one file allowed to CALL a font loader. Not `app/layout.tsx`: Next 16 has
+ *  two roots, and `app/global-error.tsx` replaces the root layout entirely, so
+ *  both need the font. They import ONE shared instance from here rather than
+ *  each calling `Inter()`, which would emit two @font-face sets under one
+ *  family name. DESIGN.md:133 names app/layout.tsx as the load site; this module
+ *  is that load site, hoisted so the second root can share it. */
+const CANONICAL_LOADER = "app/fonts.ts";
 
 /** Matches the MODULE, not a font name, so switching family — or to a local
  *  face — still registers as a loader. */
@@ -200,7 +211,7 @@ export function countLoaderInvocations(source: string, fileName = "probe.tsx"): 
     let invocations = 0;
     const visitCall = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
-        let callee: ts.Expression = node.expression;
+        const callee: ts.Expression = node.expression;
         // `Inter.call(...)` / `Inter.apply(...)` invoke Inter, not a method of it.
         if (
           ts.isPropertyAccessExpression(callee) &&
@@ -235,7 +246,7 @@ describe("single next/font loader — live tree", () => {
     expect(appFiles.map(toRepoRelative)).toContain(CANONICAL_LOADER);
   });
 
-  it("exactly one file under app/ loads a font, and it is the root layout", () => {
+  it("exactly one file under app/ calls a font loader, and it is the shared module", () => {
     const loaders = appFiles
       .filter((file) => countLoaderInvocations(readFileSync(file, "utf8"), file) > 0)
       .map(toRepoRelative);

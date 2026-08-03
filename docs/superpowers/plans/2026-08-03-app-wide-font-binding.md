@@ -32,7 +32,7 @@ Every file, symbol, and config entry this plan names, verified against the live 
 | Help screenshot baselines are byte-compared | `.github/workflows/screenshots-drift.yml:96` |
 | DESIGN.md ratifies mechanism + location | `DESIGN.md:133` |
 
-**Meta-test inventory** (`docs/agents/writing-plans.md:16`): this plan CREATES one structural meta-test (Task 3). It extends none of the named registries — no Supabase call boundary, no advisory-lock topology, no `admin_alerts` catalog row, no tile sentinel, no inline email normalization. Declared explicitly rather than left silent.
+**Meta-test inventory** (`docs/agents/writing-plans.md:16`): this plan CREATES one structural meta-test (T1 step 2, the single-loader guard). It extends none of the named registries — no Supabase call boundary, no advisory-lock topology, no `admin_alerts` catalog row, no tile sentinel, no inline email normalization. Declared explicitly rather than left silent.
 
 **Advisory-lock holder topology:** **No new holder at any layer, and no new mutation path.** The product diff mutates nothing and contains no `pg_advisory*` call. Task 1's test seeds through the pre-existing `seedShowWithCrew()` helper, which does insert into `shows` and `crew_members` (`tests/e2e/helpers/seedShowWithCrew.ts:103-105`, `tests/e2e/helpers/seedShowWithCrew.ts:118-135`, `tests/e2e/helpers/seedShowWithCrew.ts:178-181`) without taking the lock. **Stated explicitly after spec review R1**, which correctly refused a flat N/A here. That helper is shared e2e fixture setup already used by every crew-route suite (`tests/e2e/crew-page.spec.ts`, `tests/e2e/picker-flow.spec.ts`, `tests/e2e/crew-layout-dimensions.spec.ts`), running single-worker (`playwright.config.ts:41`) against a local test database. This plan neither introduces that path nor changes its locking, so the holder count for every hashkey is exactly what it was before this branch. Changing the helper's locking posture is a repo-wide decision about test fixtures — out of scope here, and not altered silently. Task 1 does add the teardown its callers should have (`deleteSeededShow`).
 
@@ -53,7 +53,7 @@ _(T1 is one task and one commit; these steps run inside it. See the task graph b
 **Register it in THREE places — the Playwright project, a CI workflow, and the coverage census.** Spec review R2 caught that an earlier draft did only the first, which leaves the oracle runnable locally and dark in CI:
 
 1. `playwright.config.ts:78-79`, the `desktop-chromium` `testMatch` alternation. Without this the spec runs nowhere even locally.
-2. `.github/workflows/crew-e2e.yml`'s explicit spec list, plus its post-run execution oracle `scripts/check-crew-e2e-executed.mjs` (`REQUIRED`, 3 cases — collected is not executed, and that registry is what makes a silently-skipped suite fail the job). **crew-e2e is the right home** rather than a dev-server-only run: it builds and starts the production artifact, and the binding rests on `next/font` registering the literal family name, which a dev-only run would leave unproved against the build CI actually ships.
+2. `.github/workflows/crew-e2e.yml`'s explicit spec list, plus its post-run execution oracle `scripts/check-crew-e2e-executed.mjs` (`REQUIRED`, 4 cases once T2's row case lands — bump it in the same commit as that case, or the oracle silently tolerates a dark one — collected is not executed, and that registry is what makes a silently-skipped suite fail the job). **crew-e2e is the right home** rather than a dev-server-only run: it builds and starts the production artifact, and the binding rests on `next/font` registering the literal family name, which a dev-only run would leave unproved against the build CI actually ships.
 3. `tests/ci/_metaE2eWorkflowCoverage.test.ts`'s allowlist — crew-e2e filters with `pull_request.paths-ignore`, so the coverage census classifies its specs as path-gated and attributes none of them to the run step. The four existing crew-e2e specs each carry a `PATH_GATED_BY_EXCLUSION` row; this spec needs the same.
 
 The repo's own `tests/ci/_metaE2eWorkflowCoverage.test.ts` fails on an unwired spec, so running it is the check that this step happened.
@@ -84,9 +84,11 @@ Assertions, in order:
 
 **Creates** tests/assets/singleFontLoader.test.ts (vitest, node env).
 
-Walk `app/` from the filesystem (not a lexical file list, so a NEW loader fails by default), collecting every file whose contents match `from "next/font/`. Assert the set is exactly one entry, the root layout path app/layout.tsx (paths written un-backticked here because a bracketed array literal is read as a citation by spec:lint). Also count loader CALL SITES (`Inter(` invocations), so a second call added without a second import is caught.
+Walk `app/` from the filesystem (not a lexical file list, so a NEW loader fails by default), and PARSE each file with the TypeScript compiler API — resolving `next/font/*` import bindings in every form, const and assignment alias chains to a fixpoint, and AST call nodes. Not a text match: three review rounds each demonstrated live escapes against source-scanning oracles. Assert the set is exactly one entry, the root layout path app/layout.tsx (paths written un-backticked here because a bracketed array literal is read as a citation by spec:lint). Also count loader CALL SITES as AST call nodes, so a second call added under an existing import is caught, including through parentheses, sequence expressions, `Function.prototype.call`, object-literal members, and namespace member/element access.
 
 **Concrete failure mode caught:** a future route layout adding its own `Inter()` call, which re-registers a second `@font-face` set under the same family name. The probe already observed **seven** `Inter` faces on the crew page from the single existing loader; a second loader compounds that silently, and nothing else in the repo would notice. Class-sweep discipline: filesystem walk, not a named-file scan.
+
+**This guard is a TRIPWIRE, not the closure.** Rounds 2, 3 and 4 each demonstrated new escaping call forms (R4's latest: `Reflect.apply`). An open syntactic space is not closed by enumeration, so the closure lives in T1 step 1's RUNTIME assertions — exactly one font family, and no `@font-face` registered twice on its full `(family, style, weight, unicodeRange)` tuple. Those observe what the browser registered and cannot be evaded by call syntax. This one runs in milliseconds without a browser.
 
 **Anti-tautology:** the assertion pins the exact path set, not a count. This matters concretely — spec review R1 caught an earlier spec wording of "exactly one `next/font` import under `app/`", which is GREEN today (the crew layout is that one) and could therefore never go RED, violating invariant 1. A count also cannot see a loader that MOVED to the wrong layout.
 
@@ -139,7 +141,9 @@ This is the layout-dimensions proof the spec's §4.2 requires: a real-browser re
 
 A surrogate row is NOT acceptable under either branch — it would not be the artifact the backlog entry measured, and asserting on one is the tautology this project's rules exist to prevent. Whichever branch is taken is recorded explicitly, never left silent.
 
-**Commit:** `test(assets): pin the 240px group-title row to one line under the loaded font`
+**T2's TDD lifecycle, stated plainly because review R4 was right to ask.** T2 adds no product behavior — the behavior it measures ships in T1 — so its cycle is not "failing test → minimal implementation → passing test" over product code; there is no implementation to write. Its genuine RED→GREEN was over the TEST's own validity: the first non-vacuity probe face (Courier New) did NOT wrap the label, so the check FAILED and the "stays on one line" assertion stood exposed as unfalsifiable at that row width. Only after measuring five faces and finding one that does wrap (cursive, 212px in a 238px row) did it go green. That is a real observed failure that changed the artifact, recorded here rather than dressed up as a product TDD cycle it is not.
+
+**Commit:** `test(assets): pin the measured group-title row to one line under the loaded font`
 
 ---
 
@@ -203,9 +207,9 @@ Corrected: **T1 is one task** — every test for this change, plus the implement
 ## Checklist
 
 1. [x] Self-review
-2. [x] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE, BEFORE execution
-3. [ ] T1 — tests + implementation + CI wiring, one green commit
-4. [ ] T2 — 240px row: branch (a) or recorded (b)
+2. [ ] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE. **Not yet approved: R1, R2, R3 and R4 all returned BLOCKING and were repaired.** Marked complete prematurely in an earlier revision; review R4 caught that, and the box stays open until a round returns APPROVE.
+3. [x] T1 — tests + implementation + CI wiring (`2ab7e966a`, amended by `e58725c5b` and the impeccable/R4 repairs)
+4. [x] T2 — the measured row, branch (a): reachable via `/admin?show=<slug>` (`461c164dc`)
 5. [ ] T3 — screenshot baselines regenerated from the pinned image
 6. [ ] T4 — impeccable critique + audit, dispositions + marker in §12
 7. [ ] T5 — backlog graduation
