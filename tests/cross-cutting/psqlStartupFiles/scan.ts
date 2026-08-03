@@ -102,6 +102,17 @@
  * • Anything outside the scanned extensions — a Makefile, a package.json
  *   script. Checked at authoring time (2026-08-03): neither exists here. A new
  *   one would be invisible; extend SCANNED_EXTENSIONS with it.
+ * • A FLAGLESS psql inside a longer JS string with no commandish prefix —
+ *   `execSync(cmd)` where `cmd` is `"if psql mydb; then echo ok; fi"` or
+ *   `"psql mydb; echo one two three four five six seven eight"`. This is the
+ *   indirection tripwire's PRECISION FLOOR, not an oversight: those strings are
+ *   lexically indistinguishable from this repo's own prose — `"psql failed;
+ *   retry"`, `"psql output must contain ---LOCKS--- marker"` — and every
+ *   loosening tried on them turned a real string into a false positive. A
+ *   flagless psql IS caught everywhere it can be read structurally (a `.sh`
+ *   file, a workflow `run:`, a short `execSync` string, any `-c` consumer); the
+ *   uncovered case is specifically a long, prose-shaped literal. BACKSTOP: the
+ *   site path, plus `-X` enforced by POSITION at every real call site.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
  *   claim to close it.
@@ -1560,8 +1571,21 @@ function looksLikePsqlCommandLine(text: string): boolean {
     // head word hid every ordinary `jq -n --arg rows "$(psql -qAt mydb)"` or
     // `curl -d "$(psql …)"` behind a program not in WRAPPERS.
     if (site.nestedInBacktick) {
-      const head = (text.trim().split(/\s+/)[0] ?? "").replace(/^["']/, "");
-      if (!/^[A-Za-z_]\w*=/.test(head) && !WRAPPERS.test(basename(head))) return false;
+      const before = text.slice(0, site.offset).trim().split(/\s+/).filter(Boolean);
+      const head = (before[0] ?? "").replace(/^["']/, "");
+      // `jq -n --arg rows \`psql -qAt mydb\`` is a command whichever program
+      // runs it; `' to validation via \`psql "$T" -f <m>\`'` is documentation.
+      // Flags alone do not separate them — PROSE ABOUT COMMANDS quotes flags
+      // too (`\`supabase db query --linked\` or …` is a real string in this
+      // repo). What does separate them is the string STARTING with a bare
+      // program name that then takes a flag. A wrapper or assignment head still
+      // qualifies on its own.
+      const commandShaped =
+        /^[A-Za-z_]\w*=/.test(head) ||
+        WRAPPERS.test(basename(head)) ||
+        (/^[A-Za-z_][\w./-]*$/.test(head) &&
+          before.slice(1).some((word) => /^-{1,2}[A-Za-z0-9]/.test(word)));
+      if (!commandShaped) return false;
     }
     const hasFlag = site.tokens.some(
       (t) => /^-{1,2}[A-Za-z0-9]/.test(t) || t.startsWith("service="),
@@ -1835,7 +1859,17 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   for (const body of nested) visitBody(body);
   for (const [index, line] of lines.entries()) {
     const comment = commentAt[index]?.[0]?.[0];
-    const code = comment === undefined ? line : line.slice(0, comment);
+    // A backslash-newline CONTINUATION makes one logical line: the quoted
+    // multiline binding `CMD='psql -qAt mydb \\` + newline + `-c "select 1"'`
+    // is one assignment, and a per-line view saw only its first half. Joined
+    // ONLY for the binding rule below — the other rules stay line-local, since
+    // joining them wholesale produced five false positives on this tree.
+    const rawCode = comment === undefined ? line : line.slice(0, comment);
+    const code = rawCode;
+    let logical = rawCode;
+    for (let k = index; /\\$/.test(logical) && k + 1 < lines.length; k++) {
+      logical = `${logical.replace(/\\$/, " ")}${lines[k + 1] ?? ""}`;
+    }
     // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
     // Any assignment whose VALUE is a single word mentioning psql binds the
     // command name: `PG=psql`, `PSQL="/usr/bin/psql"`, and the parameter-default
@@ -1856,12 +1890,12 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // site is produced. Requiring the quoted value to lex to a psql invocation
     // WITH a flag keeps prose out — `MSG="psql failed to connect"` carries none.
     const quotedValue =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?[A-Za-z_]\w*=(["'])([^"']*\bpsql\b[^"']*)\1/.exec(
-        code,
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?[A-Za-z_]\w*=(?:'([^']*\bpsql\b[^']*)'|"([^"]*\bpsql\b[^"]*)")/.exec(
+        logical,
       );
     const boundCommand =
       quotedValue !== null &&
-      scanShellText(quotedValue[2] ?? "", file, 0).some((site) =>
+      scanShellText(quotedValue[1] ?? quotedValue[2] ?? "", file, 0).some((site) =>
         site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
       )
         ? quotedValue

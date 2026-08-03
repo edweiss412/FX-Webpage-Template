@@ -2232,3 +2232,63 @@ describe("R25 escaping mutants", () => {
     expect(sitesIn("trap - EXIT\n", "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R26 escaping mutants", () => {
+  const BACKTICK = String.fromCharCode(96);
+
+  // A backtick span inside a COMMAND is a substitution, not markdown. Flags
+  // alone do not separate the two — prose about commands quotes flags as well —
+  // so the string must START with a bare program name that then takes a flag.
+  test.each([
+    ["jq", `const c = "jq -n --arg rows ${BACKTICK}psql -qAt mydb${BACKTICK}"; execSync(c);`],
+    ["curl", `const c = "curl -d ${BACKTICK}psql -qAt mydb${BACKTICK} https://x"; execSync(c);`],
+  ])("a backtick substitution under %s is reported", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    [
+      "operator-guidance prose",
+      `const m = ' to validation via ${BACKTICK}psql "$T" -f <m>${BACKTICK}';`,
+    ],
+    [
+      "prose that quotes another command's flags",
+      `const m = ${BACKTICK}\\${BACKTICK}supabase db query --linked\\${BACKTICK} or \\${BACKTICK}psql "$T" -f <m>\\${BACKTICK}${BACKTICK};`,
+    ],
+  ])("%s is NOT reported", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
+  });
+
+  // A backslash-newline continuation makes ONE logical assignment.
+  test("a multiline quoted command binding is an indirection", () => {
+    const source = `CMD='psql -qAt mydb \\\n-c "select 1"'\neval "$CMD"\n`;
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("the single-line binding still reports, and prose still does not", () => {
+    expect(scanShellIndirection(`CMD='psql -qAt mydb'\neval "$CMD"\n`, "x.sh").length).toBe(1);
+    expect(scanShellIndirection(`MSG="psql failed to connect"\n`, "x.sh")).toHaveLength(0);
+  });
+
+  // The tripwire's documented PRECISION FLOOR, pinned so it cannot drift
+  // without someone noticing. These are flagless psql commands inside long
+  // prose-shaped literals; every loosening tried on them turned one of this
+  // repo's real strings into a false positive.
+  test.each([
+    ["a control-prefixed flagless command", `const c = "if psql mydb; then echo ok; fi";`],
+    [
+      "a flagless command in a long sentence",
+      `const c = "psql mydb; echo one two three four five six seven eight";`,
+    ],
+  ])("%s is a DOCUMENTED miss, not silently believed safe", (_name, source) => {
+    // It yields no indirection — and, crucially, no CERTIFIED site either.
+    expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
+    expect(scanSource(source, "x.mjs").filter((s) => s.suppressesStartupFiles)).toHaveLength(0);
+  });
+
+  test("the same commands ARE caught where they can be read structurally", () => {
+    expect(sitesIn("if psql mydb; then echo ok; fi\n", "x.sh")).toHaveLength(1);
+    expect(sitesIn("psql mydb; echo one two three\n", "x.sh")).toHaveLength(1);
+    expect(scanSource(`execSync("if psql mydb; then echo ok; fi");`, "x.mjs")).toHaveLength(1);
+  });
+});
