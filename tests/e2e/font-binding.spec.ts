@@ -184,16 +184,26 @@ function assertRendersInter(report: FontReport, surface: string): void {
   // (5) NO DUPLICATE FACES. Review R4 showed (4) alone cannot see the case the
   //     whole guard exists to prevent: a second loader for the SAME family adds
   //     more Inter faces, and a set of family NAMES still reduces to ["Inter"].
-  //     Face IDENTITY is the discriminating signal — one loader emits one face
-  //     per unicode-range slice, so a duplicate loader emits exact duplicate
-  //     (family, style, weight, unicodeRange) tuples. Config-independent: it
-  //     never asserts HOW MANY slices there are, only that none repeats.
-  // Non-vacuity for (5): with 0 or 1 face the duplicate check is trivially
-  // satisfied. One loader emits one face per unicode-range slice, so several.
+  //     Face IDENTITY is the discriminating signal — a duplicate loader emits
+  //     exact duplicate (family, style, weight, unicodeRange) tuples.
+  // EXACT FACE COUNT. This was `toBeGreaterThan(1)` while the family came from
+  // `next/font/google`, whose loader emits one face per unicode-range slice —
+  // seven of them, so "more than one" was both true and the non-vacuity guard
+  // for the duplicate check below. The vendored local font is a SINGLE file with
+  // no unicode-range splitting, so the browser registers exactly one app face
+  // and the old bound was false on every route (verified: expected > 1,
+  // received 1, on admin, auth and crew alike).
+  //
+  // Asserting the exact count is STRONGER than the bound it replaces, not a
+  // loosening: one local `src` must produce one face, and any second face is
+  // either a duplicate loader or an unnoticed config change. It also keeps the
+  // duplicate check below non-vacuous, since a duplicate loader takes this to 2
+  // and fails here first. `inter Fallback` is excluded above as the companion.
   expect(
     appFaces.length,
-    `${surface}: there are multiple faces for the duplicate check to discriminate`,
-  ).toBeGreaterThan(1);
+    `${surface}: exactly one app @font-face — one local src emits one face, so a ` +
+      `second means a duplicate loader or a changed font config`,
+  ).toBe(1);
   const identity = (f: (typeof appFaces)[number]) =>
     `${f.family}|${f.style}|${f.weight}|${f.unicodeRange}`;
   const seen = new Map<string, number>();
@@ -491,5 +501,114 @@ test.describe("font binding — the measured row", () => {
         `at ${measured.fontSize}/${measured.whiteSpace}; the same row wraps to ` +
         `${measured.linesUnderWideFont} lines when the text is widened)`,
     ).toBe(1);
+  });
+});
+
+/**
+ * THE FEATURES ACTUALLY CHANGE WHAT IS DRAWN.
+ *
+ * Everything above proves the FAMILY is bound. None of it proves the OpenType
+ * features `app/globals.css` declares do anything — and that distinction is the
+ * entire reason this branch exists. `"cv11" 1` sat in the tabular rule from
+ * 78662acb5 (2026-05-03) until 2026-08-03 against a Google-served Inter with the
+ * character variants stripped, rendering nothing on every route for three
+ * months. A test asserting the CSS string is present would have passed
+ * throughout. Only a test that looks at rendered output can tell the difference.
+ *
+ * tests/styles/fontFeatureAvailability.test.ts is the cheap static half (does the
+ * loaded binary CONTAIN the tags?). This is the expensive half: does the browser
+ * APPLY them?
+ */
+test.describe("font binding — the features render", () => {
+  /** Two spans, identical but for one `font-feature-settings` declaration. */
+  async function renderPair(page: Page, text: string, feature: string) {
+    await page.goto("/auth/sign-in", { waitUntil: "load" });
+    await page.evaluate(
+      ({ text, feature }) => {
+        const make = (id: string, settings: string) => {
+          const el = document.createElement("div");
+          el.id = id;
+          el.textContent = text;
+          // Inline, absolute, off-flow: identical box, identical position, so the
+          // ONLY difference between the two renders is the feature setting.
+          el.style.cssText =
+            `position:fixed;left:0;top:${id === "probe-off" ? 0 : 200}px;` +
+            `margin:0;padding:0;border:0;background:#fff;color:#000;` +
+            `font-size:64px;line-height:1.2;white-space:pre;` +
+            `font-feature-settings:${settings};`;
+          document.body.appendChild(el);
+          return el;
+        };
+        make("probe-off", "normal");
+        make("probe-on", `"${feature}" 1`);
+      },
+      { text, feature },
+    );
+    await page.evaluate(() => document.fonts.ready);
+    return {
+      off: page.locator("#probe-off"),
+      on: page.locator("#probe-on"),
+    };
+  }
+
+  test("`zero` actually slashes the zero — proven by pixels, not width", async ({ page }) => {
+    // A WIDTH oracle cannot see this feature and never will. Laying `0` through
+    // the vendored font: default glyph 1341 (zero) and `"zero" 1` glyph 1353
+    // (zero.slash) have the SAME xAdvance of 1292 units, because a slashed zero
+    // must stay tabular. getBoundingClientRect().width is therefore identical
+    // whether the feature works or is inert — a width assertion would start red
+    // and stay red forever. The slash is drawn INSIDE the advance, so the only
+    // signal is the drawn pixels.
+    const { off, on } = await renderPair(page, "000000", "zero");
+
+    // Same box: if these differed, a pixel difference would prove nothing.
+    const [boxOff, boxOn] = [await off.boundingBox(), await on.boundingBox()];
+    expect(boxOff?.width).toBeCloseTo(boxOn?.width ?? -1, 1);
+    expect(boxOff?.height).toBeCloseTo(boxOn?.height ?? -1, 1);
+
+    // NOT the byte-comparison discipline in AGENTS.md: there is no committed
+    // baseline and no cross-environment comparison. Both images come from the
+    // same browser, in the same run, milliseconds apart, differing only in CSS.
+    const [pixelsOff, pixelsOn] = [await off.screenshot(), await on.screenshot()];
+    expect(
+      pixelsOff.equals(pixelsOn),
+      `the "zero" feature changed nothing on screen — the declaration in ` +
+        `app/globals.css is inert, which is exactly how the dead cv11 looked`,
+    ).toBe(false);
+  });
+
+  test("`ss04` actually disambiguates I and l — proven by width", async ({ page }) => {
+    // Unlike `zero`, ss04 DOES move metrics: I widens 550 -> 903 units and l
+    // widens 496 -> 564, because serifs and a tail need room. So for this
+    // feature a width comparison is a valid and much cheaper oracle.
+    const { off, on } = await renderPair(page, "IIIIllll", "ss04");
+    const [boxOff, boxOn] = [await off.boundingBox(), await on.boundingBox()];
+    expect(
+      boxOn?.width ?? 0,
+      `"ss04" left I and l at their default widths, so the feature is inert ` +
+        `(off: ${boxOff?.width}, on: ${boxOn?.width})`,
+    ).toBeGreaterThan(boxOff?.width ?? Number.POSITIVE_INFINITY);
+  });
+
+  test("the tabular rule keeps ss04 that the html rule grants", async ({ page }) => {
+    // The inheritance trap, end to end. `font-feature-settings` inherits as a
+    // WHOLE VALUE, so the tabular rule REPLACES the root's `ss04` rather than
+    // adding to it. If someone drops the repeat, a `.tabular-nums` span holding
+    // letters — `A1 - Audio Lead`, a stage label — silently loses the
+    // disambiguation everything around it keeps. Static coverage lives in
+    // tests/styles/fontFeatureAvailability.test.ts; this proves it in a browser.
+    await page.goto("/auth/sign-in", { waitUntil: "load" });
+    const settings = await page.evaluate(() => {
+      const el = document.createElement("span");
+      el.className = "tabular-nums";
+      el.textContent = "A1";
+      document.body.appendChild(el);
+      return getComputedStyle(el).fontFeatureSettings;
+    });
+    expect(
+      settings,
+      `.tabular-nums resolved to ${settings}, which does not carry ss04 — a ` +
+        `number span containing letters would lose disambiguation`,
+    ).toContain("ss04");
   });
 });

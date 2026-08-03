@@ -89,7 +89,7 @@ Read from Next's bundled font loader sources, not from documentation. **Vendor p
 - **`adjustFontFallback` defaults ON** and, unlike the Google loader's static metric table, computes overrides from *our* font file: `getFallbackMetricsFromFontFile(fallbackFontFile.fontMetadata, 'sans-serif')` when `adjustFontFallback !== false`. — compiled/@next/font/dist/local/loader.js:61-66
 - **The `variable` token keeps its two-entry shape.** The token is built as the font family, then the generated `Fallback` family, then any `fallback` entries. So `--font-inter` still names a metric-matched companion second, which is exactly what `tests/e2e/font-binding.spec.ts:246-255` asserts. **The existing e2e binding test survives the swap unchanged.** — esm/build/webpack/loaders/next-font-loader/postcss-next-font.js:49-59 and :96-100
 - **`weight` and `style` must be passed explicitly.** The loader emits `font-weight` / `font-style` descriptors only when given, and `declarations` is forbidden from carrying them. Omitting `weight` on a variable font would leave the face at an implied `normal`, so the browser would synthesize bold instead of using the `wght` axis. — compiled/@next/font/dist/local/loader.js:42-47 and compiled/@next/font/dist/local/validate-local-font-function-call.js:50
-- **The generated family name becomes a hash**, not the literal `Inter` — the loader uses the JS variable name the call is assigned to. Nothing depends on the literal: `--font-sans` reads the token and the e2e test reads the family from the token. But two comments that describe the literal go stale (§3.4). — compiled/@next/font/dist/local/loader.js:39
+- **The generated family name changes case**, from the literal `Inter` to `inter` — the loader derives it from the JS variable name the call is assigned to, lowercased. **Measured in the built output, not inferred:** the emitted rule is `@font-face{font-family:inter;…}` and the token resolves to `"inter", "inter Fallback"`. Nothing depends on the literal — `--font-sans` reads the token and the e2e test reads the family from the token — but the comments in §3.4 that name the literal go stale. — compiled/@next/font/dist/local/loader.js:39
 
 ### 2.6 Payload, measured
 
@@ -191,7 +191,7 @@ time,
 | "`cv11` is Inter's single-storey 'a' alternate … improves call-time legibility on mobile" | `DESIGN.md:177` | Replace with the `ss04`/`zero` justification: which glyphs, why split that way, and that the split is the typeface's own. |
 | "now deterministically activates Inter's alternates on admin/auth/help for the first time" | `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md:246` | Correct the P3 disposition in place. No alternates were activated; the served font had none. Leave the row, mark the correction and its date, so the record shows what was believed and what was true. |
 
-**Source comments that become false at the swap.** The generated family name changes from the literal `Inter` to a hash (§2.5), and the loader module changes from `next/font/google` to `next/font/local`. Eight comments assert one or both. This list is the output of the sweep, run at spec time, not a sweep to be run later:
+**Source comments that become false at the swap.** The generated family name changes from the literal `Inter` to `inter` (§2.5, measured in the built output), and the loader module changes from `next/font/google` to `next/font/local`. Eight comments assert one or both. This list is the output of the sweep, run at spec time, not a sweep to be run later:
 
 ```
 rg -n "next/font" app components lib tests scripts
@@ -201,11 +201,11 @@ rg -n "cv11|cv05|font-tabular|optical siz" app components lib tests DESIGN.md PR
 | Comment | Location | Correction |
 | --- | --- | --- |
 | "Loaded via `next/font/google`" in the module doc comment | `app/fonts.ts:3` | Name `next/font/local` and the vendored path. |
-| "`--font-inter` carries BOTH `Inter` and next/font's generated … `Inter Fallback`" | `app/fonts.ts:23` | The pair is now a hashed family and its `Fallback`; the token, not the literal, is the contract. |
+| "`--font-inter` carries BOTH `Inter` and next/font's generated … `Inter Fallback`" | `app/fonts.ts:23` | The pair is now `inter` and `inter Fallback`; the token, not the literal, is the contract. |
 | "carries BOTH `Inter` and its generated `Inter Fallback`" | `app/globals.css:104` | Same correction; also state that the literal `"Inter"` left in the `var()` fallback now names only a host-installed Inter, for harnesses with no Next runtime. |
 | Fallback-stack prose naming `Inter, Inter Fallback` literally | `DESIGN.md:139-141` | Same. |
 | "loaded via `next/font/google` from `app/fonts.ts`" | `tests/e2e/font-binding.spec.ts:5` | Name the local loader. |
-| The literal-family explanation | `tests/e2e/font-binding.spec.ts:225` | Rewrite: the family is generated and hashed, which is why the token is read rather than a literal compared. |
+| The literal-family explanation | `tests/e2e/font-binding.spec.ts:225` | Rewrite: the generated family is now `inter`, not `Inter` — which is exactly why the token is read rather than a literal compared. |
 | "`next/font/google`" as the loader this guard pins | `tests/assets/singleFontLoader.test.ts:5` | Name `next/font/local`. The guard's mutation family M7 at line 537 already covers `next/font/local`, so only the prose is stale. |
 | "`next/font/google` itself, which bound the DESIGN.md §2.1 family" | `app/show/[slug]/layout.tsx:18` | Name the local loader. |
 
@@ -371,6 +371,6 @@ Verified against the worktree at `deda7d989` before drafting.
 | `adjustFontFallback` default and metric source | §2.5, second bullet |
 | Variable-token two-entry shape | §2.5, third bullet |
 | `weight`/`style` descriptor emission, and `declarations` may not carry them | §2.5, fourth bullet |
-| Generated family name is a hash, not the literal | §2.5, fifth bullet |
+| Generated family name is `inter`, not the literal `Inter` | §2.5, fifth bullet |
 | Live italic render sites (7, enumerated) | §2.4 |
 | Structural-guard precedent for a styles meta-test | `tests/styles/eyebrow-tracking.test.ts` |

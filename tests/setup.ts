@@ -112,12 +112,17 @@ if (typeof window !== "undefined") {
   });
 }
 
-// `next/font/google` is a BUILD-TIME transform, not a runtime module: Next
-// rewrites the `Inter({...})` call into a static object during compilation and
-// the real loader throws outside that pipeline. So any test that imports a
-// module which loads a font — `app/fonts.ts`, and through it both Next roots —
-// dies at import with "Font loader values must be explicitly written literals",
-// before a single assertion runs.
+// `next/font/*` is a BUILD-TIME transform, not a runtime module: Next rewrites
+// the loader call into a static object during compilation and the real loader
+// throws outside that pipeline. So any test that imports a module which loads a
+// font — `app/fonts.ts`, and through it both Next roots — dies at import before
+// a single assertion runs.
+//
+// `next/font/local` fails HARDER than google did, and differently: its runtime
+// entry (node_modules/next/font/local/index.js) is a ZERO-BYTE file, so there is
+// no implementation to throw a legible error — the call is simply not a
+// function. The google mock alone left `tests/observe/globalError.test.tsx`
+// dying at import the moment `app/fonts.ts` swapped loaders.
 //
 // Registered here rather than per-file because the trigger is "this test
 // imports a root", which any future test may do without knowing it needs a
@@ -126,6 +131,17 @@ if (typeof window !== "undefined") {
 // shape rather than a literal so it still proves the class is APPLIED.
 export const NEXT_FONT_TEST_VARIABLE_CLASS = "__next_font_variable_under_test";
 export const NEXT_FONT_TEST_CLASSNAME = "__next_font_className_under_test";
+
+// Both loader modules are mocked. `next/font/local` is the one `app/fonts.ts`
+// actually uses; `next/font/google` is kept because the shape is cheap and a
+// future root that reaches for it should not fail in a way that looks unrelated.
+vi.mock("next/font/local", () => ({
+  default: () => ({
+    variable: NEXT_FONT_TEST_VARIABLE_CLASS,
+    className: NEXT_FONT_TEST_CLASSNAME,
+    style: { fontFamily: "Inter" },
+  }),
+}));
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({

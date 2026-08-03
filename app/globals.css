@@ -658,9 +658,18 @@ progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-ba
 time,
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+  /* `ss04` is REPEATED from the html rule on purpose. `font-feature-settings`
+     inherits as a whole value, not as a merged list, so this declaration
+     REPLACES the inherited `"ss04" 1` outright — a `.tabular-nums` span that
+     contains letters (`A1 - Audio Lead`, a stage label, a plate number) would
+     silently lose the disambiguation everything around it keeps. `zero` is
+     scoped HERE rather than at the root so a slashed zero appears only where a
+     number is a value to be transcribed, not in running prose. DESIGN.md 2.4;
+     tests/styles/fontFeatureAvailability.test.ts pins both halves. */
   font-feature-settings:
+    "ss04" 1,
     "tnum" 1,
-    "cv11" 1;
+    "zero" 1;
 }
 
 /*
@@ -669,6 +678,14 @@ time,
  */
 html {
   font-family: var(--font-sans);
+  /* Inter's "Disambiguation without zero": capital I gains serifs, lowercase l
+     gains a tail. Crew read stage labels, room numbers and confirmation codes on
+     a phone in direct sun, where I/l/1 collapse into one stem. The split is the
+     typeface's own -- `ss02` is the same set WITH the slashed zero, which lives
+     on the tabular rule instead so prose keeps an unslashed zero. Only reachable
+     since the family became the vendored upstream build; the Google build ships
+     none of these. DESIGN.md 2.4. */
+  font-feature-settings: "ss04" 1;
   background-color: var(--color-bg);
   color: var(--color-text);
 }
