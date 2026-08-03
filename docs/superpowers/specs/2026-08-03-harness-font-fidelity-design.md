@@ -76,6 +76,18 @@ Cost is zero because nothing has drifted, not because few tests are exposed. Twe
 
 And one it deletes: `app/fonts.ts`, whose only export is the `next/font` loader instance both roots consume for its generated class name. With a self-hosted face there is no generated class; `--font-inter` is defined in CSS, so `app/layout.tsx:58` and `app/global-error.tsx:31` drop the `inter.variable` fragment from their `className` and the module goes away.
 
+**Retiring it is not a one-file delete, and round 1 was right that the draft under-scoped it.** Three existing surfaces encode the `next/font` mechanism and each needs an explicit disposition, given here so two implementers cannot choose differently:
+
+<!-- spec-lint: ignore — the file is retired by this spec; the row is its disposition -->
+
+| Surface | Encodes | Disposition |
+| --- | --- | --- |
+| `tests/assets/singleFontLoader.test.ts` (`tests/assets/singleFontLoader.test.ts:218` defines `CANONICAL_LOADER = "app/fonts.ts"`; asserted at `tests/assets/singleFontLoader.test.ts:440` and `tests/assets/singleFontLoader.test.ts:456`) | that `app/fonts.ts` is the sole loader and is invoked exactly once | **Replaced, not deleted.** Its contract — one family, one delivery point, no second loader — is exactly what §4.1's "no file under `app/` imports `next/font`" row now carries. Retarget this file at the self-hosted mechanism rather than dropping it, so the anti-drift intent survives the mechanism change. |
+| `tests/observe/globalError.test.tsx:61` | that the crash screen carries the loader's generated variable class, "so `--font-inter` resolves here too" | **Assertion changed, test kept.** The intent — the crash screen resolves `--font-inter` — is exactly right and is the gap #676 had to fix. Under self-hosting the mechanism is the stylesheet import, so the assertion becomes that, and §4.1 carries the same check statically. |
+| `tests/setup.ts:113-135` | a global `next/font/google` mock, because the real loader throws outside Next's build pipeline | **Removed.** With no `next/font` import anywhere under `app/`, nothing needs the mock, and leaving it is dead infrastructure that would quietly permit a reintroduction. |
+
+Each is a red-then-green step in its own right: the retargeted assertions must fail against the current tree before the mechanism swap lands.
+
 ### 3.1 The app side
 
 The fonts stylesheet declares, in this order:
@@ -191,6 +203,8 @@ Sibling precedent: `tests/styles/design-figure-parity.test.ts` and `tests/styles
 | Both `app/layout.tsx` and `app/global-error.tsx` import the fonts stylesheet. | The crash screen silently reverting to a fallback face — the exact gap #676 had to fix once already, and no route-level test exercises it. |
 | Neither root, nor any file under `app/`, imports `next/font`. | Re-introduction of the retired mechanism alongside the self-hosted one, which is the two-sources-drift failure this spec exists to avoid. |
 | `DESIGN.md`'s mechanism sentence and fallback-stack sentence match the live `app/globals.css` value. | G5 regressing silently. Nothing previously held these together (`design-figure-parity.test.ts` is contrast-only). |
+| The fonts stylesheet defines `--font-inter` with the exact value `"Inter", "Inter Fallback"`. | **The third escaping mutant, found in round 1:** defining `--font-inter: "Inter"` alone. Every other row passes — the fallback face still exists, and `app/globals.css` still carries the inline `var()` fallback pair — so the metric-matched face becomes unreachable through the token while G4's stated static guarantee reads as satisfied. Pinning the face is not enough; the value that reaches it is what matters. |
+| `app/layout.tsx` renders a `<link rel="preload">` for the latin subset, with `as="font"`, `type="font/woff2"` and `crossOrigin`. | **The fourth escaping mutant:** omitting the preload entirely. Every row passes, and `tests/e2e/font-binding.spec.ts` passes too because it awaits `document.fonts.ready` and therefore cannot observe discovery latency. The mechanism would silently stop matching `next/font`'s behavior — which preloads by default — lengthening the fallback interval with no gate the wiser. |
 | The license file `public/fonts` OFL.txt exists and is non-empty. | License file lost in a cleanup. |
 
 Source-text assertions; DB-free unit suite.
@@ -209,6 +223,17 @@ What is missing is the harness half, and it is the point of this spec. A new cas
 `document.fonts` enumerates only `@font-face`-declared faces, never system-installed ones, so this is decisive on a developer Mac (no Inter installed) and a bare-Linux runner alike. `document.fonts.check()` is deliberately not used — it returns true for a system-installed family.
 
 **Anti-tautology:** the case must fail on the pre-change tree, where `compileEntryCss` emits no `@font-face` at all. The implementation verifies that before the fix lands.
+
+**Wiring, named here rather than left to the plan.** Round 1 established that this guard had no implementable home: the toolchain's existing test surface is Vitest (`tests/e2e/helpers/liveEntryToolchain.css.test.ts:23`), a browser case cannot live there, and a new Playwright spec that is not in the standalone allowlist runs nowhere *and* trips the registration meta-gate. All four land together:
+
+<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
+
+- **File** — `tests/e2e/harness-font-face.spec.ts`. A Playwright spec, not a Vitest test, because it needs a real font-loading engine.
+- **Config** — add `harness-font-face` to the `testMatch` alternation in `tests/e2e/standalone.config.ts:85-86`. It belongs on the standalone project for the same reason its 31 siblings do: it serves its own directory and needs no Next server.
+- **Registration baseline** — `tests/ci/_metaSpecRegistration.test.ts` walks every test-shaped e2e file and rejects any resolved by no Playwright config, and it pins standalone membership by observation (`tests/ci/_metaSpecRegistration.test.ts:6-10`, via `_standaloneConfigProbe`). Adding a spec changes that membership, so the committed baseline is updated in the same commit.
+- **CI** — the standalone project's existing workflow invocation gains the filename, so the guard runs in real CI rather than only locally.
+
+Without all four the guard is red locally and absent from CI, which is the failure mode it exists to prevent.
 
 ---
 
