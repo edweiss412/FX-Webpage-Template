@@ -607,8 +607,8 @@ move)
 
 ## 12. Close-out
 
-**Where the marker lives.** The machine-checkable marker line is written into a stem-named sibling
-closeout file, `docs/superpowers/plans/2026-08-03-orphan-components-lead-prose-closeout.md`, created
+**Where the marker lives — WRITTEN.** The machine-checkable marker line is in the stem-named sibling
+closeout file, `docs/superpowers/plans/2026-08-03-orphan-components-lead-prose-closeout.md`, written
 by Task 13 **in the same commit as the gate run** — the style `AGENTS.md` invariant 8 allows for flat
 plans. It is deliberately NOT in this file today: `tests/docs/_metaInvariant8Closeout.test.ts` accepts
 only a filled `RAN` form or the `N/A` form, and both would be false right now. A marker is a claim,

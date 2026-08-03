@@ -163,7 +163,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "components/crew/RightNowHero.tsx",
     text:
-      "* `RightNowCard`",
+      "* `RightNowCard` required.",
     reason:
       "Continuation of the retirement provenance sentence above it.",
   },
@@ -171,7 +171,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "components/crew/RightNowHero.tsx",
     text:
-      "* `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's five-slot hero",
+      "* `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's",
     reason:
       "Provenance: the hero is defined by what it was reskinned from, and the reader needs the name to find it in history.",
   },
@@ -195,9 +195,9 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "components/shared/AccentButton.tsx",
     text:
-      "* ResolveAlertButton and RunFinalCASButton on 2026-08-03). Each had",
+      "* Step-3 consolidation, ResolveAlertButton and RunFinalCASButton retired",
     reason:
-      "Retirement provenance: the drift history is the point of the sentence, and naming what left keeps the count honest.",
+      "Retirement provenance: the atom's drift history is the point of the sentence, and naming what left keeps the census honest.",
   },
   {
     kind: "line",

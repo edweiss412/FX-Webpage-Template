@@ -1,22 +1,22 @@
 /**
  * components/crew/RightNowHero.tsx — crew-redesign §4.3 / §4.16.
  *
- * `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's five-slot hero
- * (§4.16): eyebrow (+ live-dot when "now"), lead, detail, progress (segments),
+ * `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's
+ * five-slot hero (§4.16): eyebrow (+ live-dot when "now"), lead, detail,
+ * progress (segments),
  * stats (≤3 key-values, one accented). It consumes the SAME `selectRightNowState`
  * machine and a `RightNowContext` and carries that component's clock +
  * state-derivation + `lastGood`/`morph-to-last-good` + `transitionTreatment` +
  * `prefersReducedMotion` machinery VERBATIM (carried at `b327d5eb0`; the source
- * file was retired 2026-08-03, so read the provenance in git history rather than
- * at a line range that no longer resolves). Only
- * the body slotting changes — the state machine is NOT re-implemented (§4.16).
+ * file was retired 2026-08-03, so read that provenance in git history rather
+ * than at a line range that no longer resolves). Only the body slotting
+ * changes — the state machine is NOT re-implemented (§4.16).
  *
  * Props: `{ context }` ONLY. No `state`, no `initialNow`, no server seed. The
  * hero owns the live `new Date()` clock (the pattern it inherited); it does
  * NOT call `nowDate()` (server-only). Screenshot determinism comes from the
  * capture harness freezing the browser clock (§4.11), exactly as the retired
- * `RightNowCard`
- * requires today.
+ * `RightNowCard` required.
  *
  * §4.3 12-state map drives the eyebrow / lead / progress / stats per state.
  * §4.8 two-level stat omission: each stat with a null/empty/non-finite value is

@@ -56,7 +56,7 @@ export const IGNORE_IDLE_LABEL = "Permanently ignore";
  * "Confirm ignore" (125.64px) not "Tap again to confirm": impeccable critique P1 found
  * the latter was VERBATIM the live region's text, so the pair conveyed strictly less
  * than before and the consequence was stated nowhere. This matches the family idiom
- * (ArchiveShowButton "Confirm archive", ReSyncButton "Re-sync anyway") and the
+ * (ArchiveShowButton "Confirm archive", RevokeRowButton "Confirm revoke") and the
  * consequence moves into the live region below, which is where a screen-reader user
  * gets it. "Confirm ignore forever" was measured too (176.8px) and rejected: its armed
  * row would not fit the 316px page at all, and it would become the reserved width in every state rather than only the armed one

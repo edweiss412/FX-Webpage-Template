@@ -24,8 +24,9 @@ const VARIANTS = {
   },
   tip: {
     // Was bg-stale-tint — that token's name describes the Today hero's
-    // stale-data semantic (`components/crew/RightNowHero.tsx`, the
-    // `data-stale` surface class). Reusing
+    // stale-data semantic: `components/crew/RightNowHero.tsx` applies the
+    // `bg-stale-tint` surface class whenever its `data-stale` attribute is
+    // true. Reusing
     // it for a positive callout leaked domain language; bg-info-bg shares the
     // same warm-cream neutral and the orange `border-accent` carries the tip
     // identity. (Impeccable critique minor finding — Task I.1.)

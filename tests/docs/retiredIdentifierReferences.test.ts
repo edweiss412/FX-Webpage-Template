@@ -176,12 +176,22 @@ describe("retired-identifier guard — live tree", () => {
     ).toEqual([]);
   });
 
-  // The LIVE terminal assertion ("zero `pending` rows") lands in the close-out
-  // commit that empties the ledger, not here: writing it now would knowingly
-  // commit a red guard for eleven tasks, which is the mid-sequence breakage the
-  // green-per-commit rule forbids. Its CONTRACT is already proven above by
-  // synthetic family (e), where it can still fail — so it is proven before use
-  // rather than asserted before it can hold.
+  // The terminal assertion, landed in the close-out commit that emptied the
+  // ledger. It deliberately was NOT written while `pending` rows were still
+  // outstanding: a live "zero pending" assertion would have been knowingly red
+  // for eleven tasks, which is the mid-sequence breakage green-per-commit
+  // forbids. Its CONTRACT was proven from the start by synthetic family (e),
+  // where it could still fail — proven before use, rather than asserted before
+  // it could hold.
+  it("no `pending` row survives close-out", () => {
+    const pending = RETIRED_IDENTIFIER_EXEMPTIONS.filter((r) => r.kind === "pending");
+    expect(
+      pending.map((r) => `${r.file} :: ${r.text}`),
+      "A `pending` row is a live reference owned by a task. None may outlive the branch — the " +
+        "census is only finished when every live reference was repaired, not exempted.",
+    ).toEqual([]);
+  });
+
   it("every `pending` row names a task that exists in the plan", () => {
     const plan = readFileSync(
       join(ROOT, "docs/superpowers/plans/2026-08-03-orphan-components-lead-prose.md"),

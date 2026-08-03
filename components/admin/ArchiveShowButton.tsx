@@ -6,8 +6,9 @@
  * Two-tap Archive control on the per-show admin page. Rendered ONLY on a Live
  * or Held show (the page gates it off Publishing… / Archived). Archive is
  * destructive (it rotates the crew link dead immediately), so it is two-tap,
- * following the admin two-tap idiom that the destructive-confirm registry pins
- * (tests/styles/_metaDestructiveConfirm.test.ts):
+ * following the admin two-tap idiom. (That idiom is a review convention; what
+ * tests/styles/_metaDestructiveConfirm.test.ts pins is the inverted-amber
+ * confirm-go recipe each armed branch renders.)
  *
  *   resting → [ Archive ] (type=button). Tap → armed.
  *   armed   → [ Confirm archive: crew links stop working now and won't come
