@@ -832,7 +832,9 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       if (!isInterpreter && !isEval) continue;
       for (let i = position + 1; i < argv.length; i++) {
         const candidate = argv[i]!;
-        if (isInterpreter && !/^-[a-z]*c$/.test(candidate.text)) continue;
+        // `sh -ce`, `-cu`, `-cv`, `-cx` all execute the next word; requiring `c`
+        // to be LAST missed every cluster with an option after it.
+        if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
         const script = isEval ? candidate : argv[i + 1];
         if (script === undefined) break;
         for (const site of scanShellText(script.text, file, lineOffset + script.line))
@@ -994,20 +996,6 @@ function looksLikePsqlCommandLine(text: string): boolean {
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
 
-/** Does any argument object carry `shell: true`? */
-function hasShellOption(node: ts.CallExpression): boolean {
-  return node.arguments.some(
-    (argument) =>
-      ts.isObjectLiteralExpression(argument) &&
-      argument.properties.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          property.name.getText() === "shell" &&
-          property.initializer.kind !== ts.SyntaxKind.FalseKeyword,
-      ),
-  );
-}
-
 /** argv[0] is a shell, so its argv carries a command LINE rather than psql. */
 function isShellBinary(text: string): boolean {
   return SHELL_BINARIES.has(text.slice(text.lastIndexOf("/") + 1));
@@ -1087,16 +1075,23 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         }
       }
 
-      // `{ shell: true }` hands argv[0] to a shell, so it is a command LINE
-      // even when it is not a shell binary: `spawnSync("psql -qAt $DSN",
-      // { shell: true })` is ordinary Node and was invisible to both scanners.
-      if (callee && SPAWN_CALLEES.has(callee as PsqlSiteForm) && first && hasShellOption(node)) {
-        const text = composedText(first);
-        if (text !== null) {
-          const line = lineOf(sourceFile, first.getStart(sourceFile));
-          const span = lineOf(sourceFile, first.getEnd()) - line;
-          sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
-        }
+      // A spawn-family argv[0] that is a literal COMMAND LINE rather than a
+      // bare binary is only meaningful with a shell, so scan it as shell text
+      // and never mind how the option was spelled. Reading the option object
+      // was the bug: `{ "shell": true }`, `{ ["shell"]: true }`, `{ shell }`
+      // shorthand and an external `options` identifier are all ordinary, and a
+      // reader that recognized only an unquoted `shell:` key saw none of them.
+      if (
+        callee &&
+        SPAWN_CALLEES.has(callee as PsqlSiteForm) &&
+        first &&
+        firstText !== null &&
+        !isPsqlBinary(firstText) &&
+        !isShellBinary(firstText)
+      ) {
+        const line = lineOf(sourceFile, first.getStart(sourceFile));
+        const span = lineOf(sourceFile, first.getEnd()) - line;
+        sites.push(...shellStringSites(firstText, file, line, lines, commentAt, span));
       }
 
       // A shell binary run through the spawn family — spawnSync("sh", ["-c",
@@ -1198,7 +1193,11 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       const range = (value as { range?: [number, number, number] }).range;
       if (!range) return;
       const raw = source.slice(range[0], range[1]);
-      const offset = lineStartOf(range[0]);
+      // Anchor the line to the `run:` KEY. An alias resolves to a node defined
+      // elsewhere (whose line is not where the command runs), and a decoded
+      // escape can land on a physical line that is blank.
+      const keyRange = (node.key as { range?: [number, number, number] } | undefined)?.range;
+      const offset = lineStartOf(keyRange ? keyRange[0] : range[0]);
       const found = scanShellText(raw, file, offset);
       // A double-quoted scalar can DECODE to a psql command whose raw slice
       // holds no recognizable word (`\\x70sql`, `\\u0070sql`, an escaped
@@ -1212,7 +1211,11 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       if (typeof decoded === "string" && decoded !== raw) {
         const seen = new Set(found.map((site) => site.tokens.join("\u0000")));
         for (const site of scanShellText(decoded, file, offset)) {
-          if (!seen.has(site.tokens.join("\u0000"))) found.push(site);
+          // A DECODED line number is an offset into the decoded value, which
+          // does not correspond to a physical line (an escaped `\n` consumes
+          // none). Pin these to the `run:` key rather than inventing a line
+          // that may be blank or absent.
+          if (!seen.has(site.tokens.join("\u0000"))) found.push({ ...site, line: offset + 1 });
         }
       }
       sites.push(...found);

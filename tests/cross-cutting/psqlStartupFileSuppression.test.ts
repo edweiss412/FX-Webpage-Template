@@ -581,6 +581,80 @@ describe("R6 escaping mutants", () => {
   });
 });
 
+// ── R7: option spellings, interpreter clusters, YAML lines ─────────────
+
+describe("R7 escaping mutants", () => {
+  test.each([
+    ["a quoted key", 'spawnSync("psql -qAt $DSN", { "shell": true });'],
+    ["a computed key", 'spawnSync("psql -qAt $DSN", { ["shell"]: true });'],
+    ["an external options object", 'const o = { shell: true }; spawnSync("psql -qAt $DSN", o);'],
+    ["shorthand", 'const shell = true; spawnSync("psql -qAt $DSN", { shell });'],
+  ])(
+    "a command-line argv[0] is scanned regardless of how the option is written (%s)",
+    (_n, src) => {
+      // The fix stopped READING the option object: a literal argv[0] that is a
+      // command line is only meaningful with a shell, so it is shell text either
+      // way. Reading the object is what missed all four of these.
+      const sites = sitesIn(src, "x.mjs");
+      expect(sites.length).toBeGreaterThan(0);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test("a bare psql binary in argv[0] is still an ordinary spawn site", () => {
+    const sites = sitesIn('execFileSync("psql", ["-qAt", d]);', "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe("execFileSync");
+  });
+
+  test.each(["-c", "-ce", "-cu", "-cv", "-cx", "-lc"])(
+    "an interpreter cluster %s executes its script",
+    (flags) => {
+      const sites = sitesIn(`sh ${flags} "psql -qAt $DSN"\n`, "x.sh");
+      expect(sites.length).toBeGreaterThan(0);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test.each([
+    [
+      "an alias",
+      [
+        "env:",
+        "  CMD: &cmd psql -qAt $DSN",
+        "jobs:",
+        "  x:",
+        "    steps:",
+        "      - run: *cmd",
+        "",
+      ],
+      6,
+    ],
+    [
+      "an escaped newline",
+      ["jobs:", "  x:", "    steps:", '      - run: "echo r\\npsql -qAt $DSN"', ""],
+      4,
+    ],
+    [
+      "a block scalar",
+      [
+        "jobs:",
+        "  x:",
+        "    steps:",
+        "      - name: S",
+        "        run: |",
+        '          psql "$D" -c q',
+        "",
+      ],
+      6,
+    ],
+  ])("a workflow site from %s reports a real line", (_name, lines, expected) => {
+    const sites = sitesIn(lines.join("\n"), ".github/workflows/x.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.line).toBe(expected);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {
