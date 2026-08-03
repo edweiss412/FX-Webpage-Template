@@ -522,7 +522,7 @@ both active and archived, and that no active entry carries a terminal status.
 | --- | --- | --- |
 | Venue block, exhaustive | `pnpm exec vitest run tests/parser/blocks/venue.test.ts` | green |
 | Repeat-run determinism | the same command x5 | identical pass counts every run |
-| Known-sections guards | `pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts` | 36 passed (35 today + the §5.4 guard) |
+| Known-sections guards | `pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts` | 37 passed (35 today + the §5.4 guard, one case per pinned file) |
 | Ledger guards | `pnpm exec vitest run tests/docs/` | green, with both `BACKLOG_GRADUATED` rows present |
 | Whole parser suite | `pnpm exec vitest run tests/parser/` | green |
 | Spec lint | `pnpm spec:lint docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md` | 0 hard |

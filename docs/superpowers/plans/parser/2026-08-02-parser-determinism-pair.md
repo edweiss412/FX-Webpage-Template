@@ -305,7 +305,7 @@ under `lib/parser/blocks/` plus `lib/parser/index.ts`, the parsers export `SECTI
 ### 3.4 Verify
 
 ```
-pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 36 passed (35 + the new guard)
+pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 37 passed (35 + the new guard, one case per pinned file)
 pnpm exec vitest run tests/docs/
 ```
 

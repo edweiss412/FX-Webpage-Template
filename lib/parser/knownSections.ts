@@ -9,15 +9,22 @@
  * a single source of truth so the class-B unknown-section scan can tell a real
  * (parsed) section from a genuinely-unrecognized one.
  *
- * The companion registry meta-test (`tests/parser/_metaKnownSectionsRegistry.test.ts`)
- * pins a HAND-MAINTAINED subset (its `REQUIRED_HEADERS` const) ⊆ this registry, so an
- * accidental DELETION of a still-recognized header from KNOWN_SECTION_HEADERS fails CI.
- * It does NOT walk lib/parser/blocks/*.ts (the parsers match headers via heterogeneous
- * inline literals + regexes with no shared introspectable constant), so it CANNOT catch
- * a genuinely-new parser header that is registered in NEITHER list — adding a new block
- * parser still requires hand-adding its header to BOTH this set AND `REQUIRED_HEADERS`,
- * or its rows would false-positive UNKNOWN_SECTION_HEADER. Real auto-drift enforcement
- * (a source walker) is filed as BL-KNOWN-SECTIONS-WALKER in BACKLOG.md.
+ * TWO guards protect this registry, in this order:
+ *
+ * PRIMARY — `tests/parser/_metaKnownSectionsWalker.test.ts` (shipped 2026-07-06). A real source
+ * walker: it reads `lib/parser/blocks/` from the filesystem, so a NEW block parser fails by
+ * default unless it exports `SECTION_HEADER_TOKENS` or is explicitly allowlisted, and every
+ * exported token must be an EXACT member of this set. Header detection is no longer heterogeneous
+ * — the parsers build their matchers from the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts`
+ * and export their tokens for introspection. A registry-keyed source-text backstop also flags a
+ * hand-rolled matcher for a registered opener a file neither owns nor allowlists, and a no-orphan
+ * check fails for any registry entry no parser opens.
+ *
+ * SECONDARY — `tests/parser/_metaKnownSectionsRegistry.test.ts` pins a hand-maintained
+ * `REQUIRED_HEADERS` ⊆ this registry. Not redundant with the walker: the walker's subset check
+ * catches a registry deletion only while some parser still exports that token, so a single edit
+ * removing a header from BOTH this set AND the owning parser's `SECTION_HEADER_TOKENS` leaves the
+ * walker green — `REQUIRED_HEADERS` is what fails then.
  */
 
 /** Normalize a header cell for comparison: upper-cased, single-spaced, trimmed. */

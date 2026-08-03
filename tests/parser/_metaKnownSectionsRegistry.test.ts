@@ -6,15 +6,18 @@
  * scan would false-positive on that header (its rows ARE parsed, but the registry
  * doesn't know it).
  *
- * SCOPE / LIMITATION: this is a HAND-MAINTAINED pin, NOT a source walker. It asserts
- * a hardcoded `REQUIRED_HEADERS` list ⊆ KNOWN_SECTION_HEADERS, which catches an
- * accidental DELETION of a registered header from the registry. It does NOT read
- * lib/parser/blocks/*.ts, so a genuinely-new parser header added to NEITHER list
- * passes green — adding a block parser requires hand-adding its header to BOTH
- * `REQUIRED_HEADERS` here AND KNOWN_SECTION_HEADERS. Real auto-drift enforcement
- * (a walker over the block-parser sources) is filed as BL-KNOWN-SECTIONS-WALKER; it
- * is not cheaply achievable today because the parsers match headers via heterogeneous
- * inline literals + regexes with no shared introspectable header constant.
+ * SCOPE: this is the SECONDARY guard — a hand-maintained pin asserting `REQUIRED_HEADERS` ⊆
+ * KNOWN_SECTION_HEADERS. The PRIMARY guard is the source walker at
+ * `tests/parser/_metaKnownSectionsWalker.test.ts` (shipped 2026-07-06), which reads
+ * `lib/parser/blocks/` from the filesystem, fails by default for a new block parser, and asserts
+ * every exported `SECTION_HEADER_TOKENS` entry is an exact registry member. A new parser header
+ * registered in NEITHER list therefore does NOT pass green any more; the walker catches it.
+ *
+ * WHY THIS PIN SURVIVES ANYWAY: the walker's subset check catches a registry deletion only while
+ * some parser still exports that token. A single edit removing a header from BOTH
+ * KNOWN_SECTION_HEADERS AND the owning parser's `SECTION_HEADER_TOKENS` leaves the walker green —
+ * `REQUIRED_HEADERS` below is the independent list that fails in exactly that case. The two guards
+ * are complementary, not duplicative.
  */
 
 import { describe, it, expect } from "vitest";
