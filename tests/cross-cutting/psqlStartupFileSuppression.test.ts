@@ -1702,3 +1702,55 @@ describe("R16 escaping mutants", () => {
     expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R17 escaping mutants", () => {
+  // A `...spread` is RUNTIME-SIZED. Empty at runtime it is no token at all, so
+  // the arg-taking option before it swallows whatever follows instead.
+  test.each(["execFileSync", "execFile", "spawnSync", "spawn"])(
+    "%s: an arg-taking option before a spread cannot certify the -X after it",
+    (callee) => {
+      const source = `${callee}("psql", ["-F", ...optionalArgs, "-X", "mydb"]);`;
+      const sites = scanSource(source, "x.mjs");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test.each([
+    ["a long option", `execFileSync("psql", ["--field-separator", ...args, "-X", dsn]);`],
+    ["an identifier argument", `execFileSync("psql", ["-F", sep, "-X", dsn]);`],
+    [
+      "a cluster ending in an arg-taking letter",
+      `execFileSync("psql", ["-qF", ...args, "-X", dsn]);`,
+    ],
+  ])("%s behaves the same way", (_name, source) => {
+    expect(scanSource(source, "x.mjs")[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["-X before the spread", `execFileSync("psql", ["-X", ...args, "-qAt", dsn]);`],
+    ["a spread after a NON-arg-taking flag", `execFileSync("psql", ["-X", "-c", ...sql, dsn]);`],
+    ["no spread at all", `execFileSync("psql", ["-F", ",", "-X", dsn]);`],
+  ])("%s still certifies", (_name, source) => {
+    expect(scanSource(source, "x.mjs")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // Ordinary executable discovery and whole-argument alias quotings.
+  test.each([
+    ["command -v discovery", 'PSQL=$(command -v psql)\n"$PSQL" -qAt mydb\n'],
+    ["backtick discovery", 'PSQL=`command -v psql`\n"$PSQL" -qAt mydb\n'],
+    ["which discovery", 'PSQL=$(which psql)\n"$PSQL" -qAt mydb\n'],
+    ["a single-quoted alias", "shopt -s expand_aliases\nalias 'psql=psql -F'\npsql -X mydb\n"],
+    ["a double-quoted alias", 'shopt -s expand_aliases\nalias "psql=psql -F"\npsql -X mydb\n'],
+  ])("%s is reported as an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ["a plain call", "psql -X -qAt mydb\n"],
+    ["an unrelated substitution", "ROWS=$(wc -l < f.txt)\npsql -X -qAt mydb\n"],
+    ["a commented discovery", "# PSQL=$(command -v psql)\npsql -X -qAt mydb\n"],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+});

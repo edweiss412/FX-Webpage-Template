@@ -342,6 +342,17 @@ const LONG_WITH_ARG = new Set([
  *    repo passes its flags first and the DSN last.
  */
 export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
+  /** The token an arg-taking option is about to swallow may be RUNTIME-SIZED —
+   * a `...spread` that is empty at runtime is no token at all, and the option
+   * then swallows whatever follows it. `["-F", ...args, "-X", "mydb"]` with an
+   * empty `args` really runs `-F -X mydb`, where `-X` is the field separator.
+   * Skipping over the placeholder and crediting the later `-X` was a false
+   * safe, and contradicted this file's own claim that runtime-decided argv
+   * cardinality is refused. */
+  const swallowIsUncertain = (index: number): boolean => {
+    const swallowed = tokens[index];
+    return swallowed !== undefined && (swallowed === DYNAMIC_TOKEN || swallowed.includes("$"));
+  };
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
     // A word containing an expansion is NOT its source spelling: `-${z}X` with
@@ -354,7 +365,10 @@ export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
       const spelled = token.split("=", 1)[0]!;
       const name = resolveLongOption(spelled) ?? spelled;
       if (name === "--no-psqlrc") return true;
-      if (LONG_WITH_ARG.has(name) && !token.includes("=")) i++; // eats the next token
+      if (LONG_WITH_ARG.has(name) && !token.includes("=")) {
+        if (swallowIsUncertain(i + 1)) return false;
+        i++; // eats the next token
+      }
       continue;
     }
     if (token.startsWith("-") && token.length > 1) {
@@ -364,7 +378,10 @@ export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
       }
       // A trailing arg-taking letter with nothing after it eats the next token.
       const last = token.at(-1)!;
-      if (SHORT_WITH_ARG.has(last)) i++;
+      if (SHORT_WITH_ARG.has(last)) {
+        if (swallowIsUncertain(i + 1)) return false;
+        i++;
+      }
       continue;
     }
     // A positional argument (DBNAME, then USERNAME). Under POSIXLY_CORRECT this
@@ -1631,10 +1648,18 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:\s|$)/.exec(
         code,
       );
-    // `alias psql=…`, and a shell FUNCTION named psql
-    const aliased = /(?:^|\s)alias\s+psql=/.exec(code);
+    // `PSQL=$(command -v psql)` — ordinary executable discovery. The nested
+    // `command -v psql` is correctly NOT an invocation, so nothing else in this
+    // file sees it, and the expanded call carries no literal command word.
+    const discovered =
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=(?:\$\(|`)[^)`]*\bpsql\b/.exec(
+        code,
+      );
+    // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
+    // and `alias "psql=…"`, plus a shell FUNCTION named psql.
+    const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
     const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
-    const hit = assigned ?? aliased ?? functionDef;
+    const hit = assigned ?? discovered ?? aliased ?? functionDef;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;
