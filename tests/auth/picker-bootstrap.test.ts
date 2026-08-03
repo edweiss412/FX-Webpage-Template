@@ -211,3 +211,79 @@ describe("/api/auth/picker-bootstrap", () => {
     });
   });
 });
+
+/**
+ * Task 1 — a `next` carrying an allow-listed query must bootstrap, not 403.
+ *
+ * `lib/auth/validateNextParam.ts:77` deliberately re-attaches allow-listed `s`
+ * and `gate` params, and the handler already redirects to that same
+ * query-carrying string. Only `parseNextPath` rejected it, because
+ * SHOW_NEXT_RE is `$`-anchored on the 64-hex token.
+ *
+ * Every case asserts the EXACT Location. A status-only assertion would pass
+ * against a handler that stripped the query, which is precisely the behavior
+ * spec §1.1 R1 rejects.
+ */
+describe("/api/auth/picker-bootstrap — query-bearing next (spec §2.1)", () => {
+  const SHARE_TOKEN = "a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
+  const BASE = `/show/sample-show/${SHARE_TOKEN}`;
+
+  beforeEach(() => {
+    state.resolveShow = {
+      data: "11111111-1111-4111-8111-111111111111",
+      error: null,
+      throws: false,
+    };
+    state.google = { kind: "continue" };
+    state.claim = { data: null, error: null, throws: false };
+    state.alerts = [];
+  });
+
+  test.each([
+    ["bare", BASE, BASE],
+    ["section deep link", `${BASE}?s=schedule`, `${BASE}?s=schedule`],
+    ["gate context", `${BASE}?gate=skip`, `${BASE}?gate=skip`],
+    ["both, stable order", `${BASE}?s=schedule&gate=skip`, `${BASE}?s=schedule&gate=skip`],
+  ])("%s redirects to the exact next", async (_label, next, expected) => {
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+
+    const res = await GET(request({ next }));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(expected);
+  });
+
+  test("a next whose path portion is not a tokenized crew route is still rejected", async () => {
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+
+    const res = await GET(request({ next: `${BASE}/extra` }));
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  test("a non-allow-listed param is dropped, not forwarded", async () => {
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+
+    const res = await GET(request({ next: `${BASE}?s=schedule&evil=1` }));
+
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toContain("s=schedule");
+    expect(location).not.toContain("evil");
+  });
+
+  test("an intent token signed for a different slug still 403s when next carries a query", async () => {
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+    const wrongToken = signIntent({
+      slug: "another-show",
+      shareToken: SHARE_TOKEN,
+      exp: Math.floor(Date.now() / 1000) + 60,
+    });
+
+    const res = await GET(request({ next: `${BASE}?s=schedule`, token: wrongToken }));
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("location")).toBeNull();
+  });
+});
