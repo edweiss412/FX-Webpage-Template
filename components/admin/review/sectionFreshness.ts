@@ -40,6 +40,8 @@ import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { orderNotes, toNoteItem } from "@/lib/admin/parseAttentionNote";
 import { FAILED_KEYS_CAP, usableFailedKeys } from "@/components/admin/review/AttentionBanner";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
+import { isMessageCode, lookupHelpfulContext, type MessageParams } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
   CREW_CAP,
@@ -526,6 +528,16 @@ const BANNER_ALERT_KEYS = [
  * shape the formatter cannot read, fall back to the raw value: the cue may then
  * be conservative rather than exact, which is the correct direction to fail.
  */
+/** The catalog help copy for this alert, or null when the code has none. */
+function helpfulContextOf(code: unknown, params: Record<string, unknown>): string | null {
+  if (typeof code !== "string" || !isMessageCode(code)) return null;
+  try {
+    return lookupHelpfulContext(code as MessageCode, params as MessageParams);
+  } catch {
+    return null;
+  }
+}
+
 function paintedGapBreakdown(gaps: unknown): unknown {
   try {
     return formatDataGapBreakdown(gaps as Parameters<typeof formatDataGapBreakdown>[0]);
@@ -551,10 +563,25 @@ function renderedAlertState(alert: Record<string, unknown>): unknown {
     keys === null ? null : [keys.slice(0, FAILED_KEYS_CAP), keys.length],
     showGaps,
     showGaps ? paintedGapBreakdown(gaps) : null,
+    // PLACEHOLDER form, not a bare substring. `template.includes(k)` would match
+    // a param named `id` against a template containing "identity" and cue on a
+    // value that paints nothing.
     Object.keys(params)
-      .filter((k) => template.includes(k))
+      .filter((k) => template.includes(`{${k}}`))
       .sort()
       .map((k) => [k, params[k]]),
+    // The OTHER place the payload paints copy: the help text, looked up from the
+    // catalog by code (`components/admin/review/AttentionBanner.tsx:122`).
+    //
+    // STATED PRECISELY, because it is a GUARD and not a repair. Probed against
+    // `lib/messages/catalog.ts`: no `helpfulContext` entry interpolates a param
+    // today, so this contributes a per-code constant and fixes no live missed
+    // cue. It is here because the filter above can only ever see the payload's
+    // OWN template, so the first catalog entry that interpolates would be
+    // invisible to it — and because hashing the resolved copy also covers a
+    // catalog COPY edit, which is a real rendered change nothing else in this
+    // signature could see.
+    helpfulContextOf(alert.code, params),
   ];
 }
 

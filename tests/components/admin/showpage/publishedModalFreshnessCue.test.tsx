@@ -83,7 +83,8 @@ const BASE4 = four("a", "a", "a", "a");
  * on a refresh, which is the state both rows exist to reach.
  */
 const AGENDA = [{ label: "Run of show", fileId: "AGENDA_FILE_1", extracted: { pages: 1 } }];
-const withAgenda = (rows: readonly RawRow[]) => publishedModalElement(rows, { agendaLinks: AGENDA });
+const withAgenda = (rows: readonly RawRow[]) =>
+  publishedModalElement(rows, { agendaLinks: AGENDA });
 const agendaCard = () => document.querySelector('[data-testid$="-section-agenda-panel-card"]');
 /** One section moves. */
 const B_CREW = four("z", "a", "a", "a");

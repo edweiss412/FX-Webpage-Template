@@ -191,9 +191,10 @@ describe("section freshness cue: stylesheet contract", () => {
     // Two halves, because either alone is defeatable: the import list proves the
     // bindings are in scope, and the literal scan proves none was re-typed
     // alongside them.
-    const imported = /import \{([^}]*)\} from "@\/components\/admin\/wizard\/step3ReviewSections";/.exec(
-      MODULE_SRC,
-    )?.[1];
+    const imported =
+      /import \{([^}]*)\} from "@\/components\/admin\/wizard\/step3ReviewSections";/.exec(
+        MODULE_SRC,
+      )?.[1];
     expect(imported, "the detector must import from the renderer").toBeDefined();
     for (const cap of [
       "CREW_CAP",
