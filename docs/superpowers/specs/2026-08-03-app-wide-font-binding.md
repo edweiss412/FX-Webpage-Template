@@ -177,7 +177,7 @@ The guard parses with the TypeScript compiler API and resolves import bindings (
 - `app/auth/callback/route.ts`
 - `app/auth/sign-out/route.ts` — this one explicitly sets `system-ui, sans-serif` in its own inline style
 
-**What they actually are, corrected after review R6.** An earlier revision of this section called them transient interstitials seen for well under a second and never read. That was wrong, and the disposition should not rest on it. All four are **persistent error documents with readable copy and no automatic redirect**: a 503 from the Google-auth start (`app/api/auth/google/start/route.ts:21-41`), 403/502 pages from the picker bootstrap (`:34-49`), a 503 from the auth callback (`app/auth/callback/route.ts:46-66`), and a 500 from sign-out that carries explanatory copy and a retry button (`app/auth/sign-out/route.ts:20-48`). A user who lands on one reads it.
+**What they actually are, corrected after review R6.** An earlier revision of this section called them transient interstitials seen for well under a second and never read. That was wrong, and the disposition should not rest on it. All four are **persistent error documents with readable copy and no automatic redirect**: a 503 from the Google-auth start (`app/api/auth/google/start/route.ts:21-41`), 403/502 pages from the picker bootstrap (`app/api/auth/picker-bootstrap/route.ts:34-49`), a 503 from the auth callback (`app/auth/callback/route.ts:46-66`), and a 500 from sign-out that carries explanatory copy and a retry button (`app/auth/sign-out/route.ts:20-48`). A user who lands on one reads it.
 
 **Disposition: still a documented limit, but on the honest reasoning.** Two things separate them:
 
