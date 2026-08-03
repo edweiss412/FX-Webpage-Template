@@ -1640,6 +1640,31 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   const hits: IndirectionHit[] = [];
   const lines = source.split("\n");
   const commentAt = commentIndexPerLine(source, "hash");
+
+  // STRUCTURAL, not spelling-by-spelling. A command SUBSTITUTION whose body
+  // mentions psql but yields no psql SITE is executable discovery — the reader
+  // deliberately treats `command -v psql` / `which psql` as probes, so the
+  // resulting path never surfaces as a call site and the expanded invocation
+  // carries no literal command word. Working from the lexer's nested bodies
+  // rather than a line regex covers every spelling at once: quoted or bare
+  // (`PSQL="$(…)"`), `$( )` or backticks, wrapped across lines, used directly
+  // as the command word, and inside a quoted workflow `run:` scalar. An
+  // earlier line-regex cut matched only the unquoted single-line assignment.
+  const nested: NestedShell[] = [];
+  lexShellWords(source, nested);
+  const seenBodies = new Set<string>();
+  const visitBody = (body: NestedShell): void => {
+    if (seenBodies.has(body.text)) return;
+    seenBodies.add(body.text);
+    const inner: NestedShell[] = [];
+    lexShellWords(body.text, inner);
+    for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
+    if (!/\bpsql\b/.test(body.text)) return;
+    // A substitution that DOES produce a site is already handled as one.
+    if (scanShellText(body.text, file, 0).length > 0) return;
+    hits.push({ file, line: body.line + 1, text: body.text.trim() });
+  };
+  for (const body of nested) visitBody(body);
   for (const [index, line] of lines.entries()) {
     const comment = commentAt[index]?.[0]?.[0];
     const code = comment === undefined ? line : line.slice(0, comment);
@@ -1648,18 +1673,11 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:\s|$)/.exec(
         code,
       );
-    // `PSQL=$(command -v psql)` — ordinary executable discovery. The nested
-    // `command -v psql` is correctly NOT an invocation, so nothing else in this
-    // file sees it, and the expanded call carries no literal command word.
-    const discovered =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=(?:\$\(|`)[^)`]*\bpsql\b/.exec(
-        code,
-      );
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
     const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
-    const hit = assigned ?? discovered ?? aliased ?? functionDef;
+    const hit = assigned ?? aliased ?? functionDef;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;

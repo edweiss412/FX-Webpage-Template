@@ -1754,3 +1754,46 @@ describe("R17 escaping mutants", () => {
     expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R18 escaping mutants — executable discovery, every spelling", () => {
+  // The rule is STRUCTURAL: a command substitution whose body mentions psql but
+  // yields no psql SITE is discovery. Working from the lexer's nested bodies
+  // rather than a line regex closes the class rather than one spelling.
+  test.each([
+    ["a quoted $( ) assignment", 'PSQL="$(command -v psql)"\n"$PSQL" -qAt mydb\n'],
+    ["a quoted backtick assignment", 'PSQL="`command -v psql`"\n"$PSQL" -qAt mydb\n'],
+    ["a quoted which", 'PSQL="$(which psql)"\n"$PSQL" -qAt mydb\n'],
+    ["a substitution wrapped across lines", 'PSQL="$(command -v \\\n  psql)"\n"$PSQL" -qAt mydb\n'],
+    ["a substitution used DIRECTLY as the command word", "$(command -v psql) -qAt mydb\n"],
+    ["the bare single-line assignment", 'PSQL=$(command -v psql)\n"$PSQL" -qAt mydb\n'],
+  ])("%s is reported", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("`type -p psql` fails LOUDLY as an unprotected site, not silently", () => {
+    // `-p` is deliberately not a probe flag (R9: `command -p psql` EXECUTES),
+    // so this reads as a site rather than an indirection. Either way it is
+    // loud; what must never happen is silence.
+    const source = 'PSQL="$(type -p psql)"\n"$PSQL" -qAt mydb\n';
+    const sites = scanSource(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a quoted workflow run: scalar is reached too", () => {
+    const source =
+      'jobs:\n  a:\n    steps:\n      - run: "PSQL=$(command -v psql); $PSQL -qAt mydb"\n';
+    expect(scanShellIndirection(source, ".github/workflows/x.yml").length).toBeGreaterThan(0);
+  });
+
+  // Precision: a substitution that DOES produce a site is already handled as
+  // one, and must not also be reported as an indirection.
+  test.each([
+    ["a real psql substitution", 'ROWS=$(psql -X -qAt mydb -c "select 1")\n'],
+    ["a plain call", "psql -X -qAt mydb\n"],
+    ["an unrelated substitution", "N=$(wc -l < f.txt)\npsql -X -qAt mydb\n"],
+    ["a nested protected call", 'printf x "$(psql -X -qAt mydb)"\n'],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+});
