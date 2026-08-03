@@ -96,8 +96,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in docs/superpowers/plans/2026-07-24-attention-index.md — no entry as of 2026-08-02",
   "BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL":
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-B2UI":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-BLOCKRES-DISABLED-WIRING":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-BLOCKRES-ESCALATED-HELP":

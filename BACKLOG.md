@@ -987,7 +987,7 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
 
-**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — mirrors the BL-B2UI-\* pattern).
+**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the earlier B2 UI follow-up batch: one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line pointed at a backlog-id family under a "B2UI" stem, and no member of that family exists anywhere in the repo — not in either backlog ledger, either deferral ledger, or any spec, plan, or test. The id is not written out here, since re-spelling it would just re-create the dangling reference.
 
 - **BL-SYNCFEED-UI-1** — `UndoChangeButton`: post-submit success relies on page revalidation flipping the row to `undone`; consider an `aria-live` region announcing undo success (the failure path already surfaces via `ErrorExplainer`).
 - **BL-SYNCFEED-UI-2** — `ChangeFeedBadge`: `title` tooltips are hover-only (desktop); acceptable since the visible text label already carries meaning (color-blind floor met) — only act if touch-discoverability is raised.
