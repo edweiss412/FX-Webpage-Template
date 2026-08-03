@@ -809,62 +809,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "* No framer-motion mocking here (unlike RightNowCardRecovery.test.tsx):",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "* enabled when the page loads never gets a change event, so RightNowCard",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "* hook; RightNowCard never adopted it. This file pins the INITIAL-value path:",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "* tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "const { container } = render(<RightNowCard context={ctx} />);",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "describe(\"RightNowCard — INITIAL prefers-reduced-motion value (no change event)\", () => {",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardReducedMotionInitial.test.tsx",
-    text:
-      "import { RightNowCard } from \"@/components/right-now/RightNowCard\";",
-    repairedBy: "Task 4",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
     file: "tests/components/_orphanedComponents.ts",
     text:
       "file: \"components/admin/PerShowCrewSection.tsx\",",

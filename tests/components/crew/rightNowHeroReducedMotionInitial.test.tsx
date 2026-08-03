@@ -1,24 +1,40 @@
 // @vitest-environment jsdom
 /**
- * tests/components/RightNowCardReducedMotionInitial.test.tsx
+ * tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx
+ *
+ * RETARGET (2026-08-03): retargeted from the retired card onto the live
+ * `RightNowHero`, which carries this machinery verbatim. Here the retarget
+ * IS a root-testid swap, which is exactly why the commit carries a
+ * mutation proof instead of a RED: with the code already correct, nothing
+ * in the test alone can fail, and a green that only proves two hooks share
+ * a name is not coverage.
+ *
+ * SCOPE, stated so the closeout does not overclaim: this suite uses
+ * Testing Library's client-only `render()`. It proves nothing about SSR or
+ * hydration and cannot — `usePrefersReducedMotion` returns `null` on the
+ * server and on the first hydrating render BY DESIGN
+ * (`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero treats
+ * `null` as "animate at full duration". What it catches is a regression to
+ * an event-only read, where a reduced-motion viewer keeps animating until
+ * a preference CHANGE that may never arrive.
  *
  * 2026-06-11 bug-audit: framer-motion's `useReducedMotion()` misses the
  * INITIAL matchMedia value — it reports the preference only after a
  * matchMedia `change` event fires. A visitor who ALREADY has reduced motion
- * enabled when the page loads never gets a change event, so RightNowCard
+ * enabled when the page loads never gets a change event, so the hero
  * treated them as "unknown" and ran the 220ms crossfade at full duration.
  * PageTransition (M12.11) fixed the identical bug with a matchMedia-on-mount
- * hook; RightNowCard never adopted it. This file pins the INITIAL-value path:
+ * hook, which this surface never adopted. This file pins the INITIAL-value path:
  * matchMedia is stubbed to `matches: true` BEFORE render and never fires a
  * change event — exactly the state framer's hook cannot see.
  *
- * No framer-motion mocking here (unlike RightNowCardRecovery.test.tsx):
+ * No framer-motion mocking here (unlike rightNowHeroRecovery.test.tsx):
  * the point is the real hook wiring from matchMedia to the surface.
  */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { RightNowCard } from "@/components/right-now/RightNowCard";
+import { RightNowHero } from "@/components/crew/RightNowHero";
 
 function stubMatchMedia(matches: boolean) {
   const mql = {
@@ -61,11 +77,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("RightNowCard — INITIAL prefers-reduced-motion value (no change event)", () => {
+describe("RightNowHero — INITIAL prefers-reduced-motion value (no change event)", () => {
   test("user with reduced motion already on at first load is honored on mount", () => {
     stubMatchMedia(true);
-    const { container } = render(<RightNowCard context={ctx} />);
-    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    const { container } = render(<RightNowHero context={ctx} />);
+    const card = container.querySelector('[data-testid="right-now-hero"]')!;
     // Pre-fix this read "unknown" (framer's hook returns null until a change
     // event), which maps to full-duration animation for a user who opted out.
     expect(card.getAttribute("data-prefers-reduced-motion")).toBe("true");
@@ -73,8 +89,8 @@ describe("RightNowCard — INITIAL prefers-reduced-motion value (no change event
 
   test("user without reduced motion resolves to 'false' on mount (not stuck on 'unknown')", () => {
     stubMatchMedia(false);
-    const { container } = render(<RightNowCard context={ctx} />);
-    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    const { container } = render(<RightNowHero context={ctx} />);
+    const card = container.querySelector('[data-testid="right-now-hero"]')!;
     expect(card.getAttribute("data-prefers-reduced-motion")).toBe("false");
   });
 });
