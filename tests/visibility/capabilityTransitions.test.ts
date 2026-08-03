@@ -23,6 +23,7 @@ import {
   financialsVisible,
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag } from "@/lib/parser/types";
+import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";
 
 // Instance F of BL-LEAD-CAPABILITY-PROSE-STALE: this file used to hand-list
 // its own ALL_PREDICATES under `satisfies readonly CapabilityPredicate[]`.
@@ -47,6 +48,23 @@ function pairKey(a: CapabilityPredicate, b: CapabilityPredicate): string {
 }
 
 describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
+  test("CAPABILITY_PREDICATES cannot silently SHRINK either", () => {
+    // Deriving every expectation from CAPABILITY_PREDICATES closes the widen
+    // direction (add a predicate -> the pair-set assertion names the missing
+    // pairs) but would open the narrow one: delete a predicate AND its matrix
+    // entries and every derived expectation moves with it. Pin the list
+    // against an INDEPENDENT source instead of re-hardcoding it, so both
+    // directions are covered without reintroducing instance F's hand-list.
+    //
+    // The flag-driven predicates correspond 1:1 to SCOPE_TILE_UNLOCKING_FLAGS
+    // (lib/visibility/scopeTiles.ts), plus hasAdmin, which is not flag-driven.
+    const expected = [
+      ...SCOPE_TILE_UNLOCKING_FLAGS.map((f) => `has${f.charAt(0)}${f.slice(1).toLowerCase()}`),
+      "hasAdmin",
+    ].sort();
+    expect([...CAPABILITY_PREDICATES].sort()).toEqual(expected);
+  });
+
   test("matrix has exactly C(n, 2) entries, derived from CAPABILITY_PREDICATES", () => {
     const n = CAPABILITY_PREDICATES.length;
     expect(CAPABILITY_TRANSITION_MATRIX).toHaveLength((n * (n - 1)) / 2);

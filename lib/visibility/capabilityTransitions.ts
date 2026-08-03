@@ -26,8 +26,8 @@
  *                  via the explicit `isAdmin` branch in
  *                  `financialsVisible`.
  *
- * The matrix below enumerates the 10 unordered pairs of these 5
- * predicates (C(5, 2) = 10). Each pair represents a transition where
+ * The matrix below enumerates every unordered pair of the predicates in
+ * `CAPABILITY_PREDICATES` (C(n, 2)). Each pair represents a transition where
  * one of the two predicates flips while the other is held fixed. For
  * each pair we document which tiles APPEAR (or DISAPPEAR) when each
  * direction of the flip happens. The flip is a single boolean change;
@@ -116,8 +116,8 @@ export interface TileVisibilityDelta {
 }
 
 /**
- * The full 10-entry capability flip matrix. Order is documentary —
- * tests do not depend on insertion order.
+ * The full capability flip matrix: one entry per unordered predicate pair.
+ * Order is documentary — tests do not depend on insertion order.
  *
  * Tile-visibility rules (verbatim branch logic from scopeTiles.ts):
  *
