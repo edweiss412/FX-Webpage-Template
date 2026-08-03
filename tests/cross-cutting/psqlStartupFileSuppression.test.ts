@@ -834,6 +834,120 @@ describe("R10 escaping mutants", () => {
   );
 });
 
+describe("R11 escaping mutants", () => {
+  // `$(…)` has no markdown reading, so gating it on the outer head word hid
+  // every substitution under a program that is not a shell wrapper.
+  test.each([
+    ["jq", `const c = 'jq -n --arg rows "$(psql -qAt mydb)"'; execSync(c);`],
+    ["curl", `const c = 'curl -d "$(psql -qAt mydb)" https://x'; execSync(c);`],
+    ["an unknown program", `const c = 'mytool --rows "$(psql -qAt mydb)"'; execSync(c);`],
+  ])("the tripwire sees a substitution under %s", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  test("a BACKTICK span in prose is still excluded", () => {
+    // The markdown-code-span guard survives: only backticks are ambiguous.
+    const prose = "const m = 'apply to validation via `psql \"$T\" -f <m>`';";
+    expect(scanBinaryIndirection(prose, "x.mjs")).toHaveLength(0);
+  });
+
+  test("a backtick substitution under a real wrapper is still seen", () => {
+    const source = "const c = 'printf x `psql -qAt mydb`'; execSync(c);";
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Shell control syntax precedes a command without being a wrapper.
+  test.each([
+    ["negation", "! psql -qAt mydb\n"],
+    ["an if condition", "if psql -qAt mydb; then\n  echo ok\nfi\n"],
+    ["a while condition", "while psql -qAt mydb; do\n  echo ok\ndone\n"],
+    ["an until condition", "until psql -qAt mydb; do\n  echo ok\ndone\n"],
+    ["a brace group", "{ psql -qAt mydb; }\n"],
+    ["a coprocess", "coproc psql -qAt mydb\n"],
+  ])("%s is a shell site", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["negation", `const c = "! psql -qAt mydb"; execSync(c);`, true],
+    ["an if condition", `const c = "if psql -qAt mydb; then echo ok; fi"; execSync(c);`, true],
+    ["a brace group", `const c = "{ psql -qAt mydb; }"; execSync(c);`, true],
+    // Control syntax vouches for a FLAGGED command, never for a flagless one:
+    // "if psql fails" is a sentence, and nothing in the prefix says otherwise.
+    ["a sentence starting with if", `const m = "if psql fails";`, false],
+    ["a sentence starting with while", `const m = "while psql runs";`, false],
+  ])("the tripwire sees %s -> %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
+  });
+
+  // The reported line must be the PHYSICAL line, in all three directions the
+  // old opening-line-plus-span arithmetic got wrong. A wrong line is not
+  // cosmetic: exemptionOnLines reads it, so it could match a marker written
+  // for a different statement.
+  test("a later concatenation fragment reports its own physical line", () => {
+    const source = ["execSync(", '  "echo one " +', '    "psql -qAt mydb"', ");", ""].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(3);
+  });
+
+  test("an interpolation in a multi-line template does not shift the line", () => {
+    const source = [
+      "execSync(",
+      "  `echo ${a}",
+      "   echo ${b}",
+      "   psql -qAt mydb`",
+      ");",
+      "",
+    ].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(4);
+  });
+
+  test("a cooked newline consumes no physical line", () => {
+    const source = ["execSync(", '  "echo one\\npsql -qAt mydb"', ");", ""].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+  });
+
+  test("the corrected line is what exemption lookup uses, and it fails SAFE", () => {
+    // The line matters because `exemptionOnLines` reads it. A comment buried
+    // mid-expression is not statement-boundary trivia, so the TypeScript
+    // scanner does not report it and no exemption is granted — the conservative
+    // direction. What must never happen is the reverse: a line pointing
+    // somewhere else, where an unrelated marker could exempt this site.
+    const source = [
+      "execSync(",
+      '  "echo one " +',
+      `    // ${EXEMPTION_MARKER} scratch container, no HOME`,
+      '    "psql -qAt mydb"',
+      ");",
+      "",
+    ].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(4);
+    expect(sites[0]!.exemptReason).toBeNull();
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a marker on the line ABOVE a single-line command still exempts", () => {
+    const source = [
+      `// ${EXEMPTION_MARKER} scratch container, no HOME`,
+      'execSync("psql -qAt mydb");',
+      "",
+    ].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.exemptReason).toBe("scratch container, no HOME");
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

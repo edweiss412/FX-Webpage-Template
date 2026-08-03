@@ -142,6 +142,12 @@ export type PsqlSite = {
   file: string;
   /** 1-indexed line carrying the `psql` command token. */
   line: number;
+  /** Offset of the `psql` command word within the scanned text. Only meaningful
+   * for shell scans, where a COMPOSED JS string has to map a position back to
+   * the physical source line the characters came from — line-quantised mapping
+   * put two concatenation fragments sharing one composed line on the same
+   * physical line, which is not where either of them is. */
+  offset: number;
   form: PsqlSiteForm;
   /** Literal argv tokens recovered; non-literal elements are dropped. */
   tokens: string[];
@@ -149,10 +155,15 @@ export type PsqlSite = {
    * Lets a caller tell a real wrapper prefix from English prose. */
   precedingWords: string[];
   /** True when the site was found INSIDE a command substitution rather than at
-   * the top level of the text. Load-bearing for the indirection tripwire: in
-   * operator-guidance prose a backtick is a markdown code span, not a shell
-   * substitution, and `via \`psql "$DSN" -f <migration>\`` is documentation. */
+   * the top level of the text. */
   nested: boolean;
+  /** True when that substitution was spelled with BACKTICKS. Load-bearing for
+   * the indirection tripwire, and only for backticks: in operator-guidance
+   * prose a backtick is a markdown code span, not a shell substitution, and
+   * `via \`psql "$DSN" -f <migration>\`` is documentation. `$(…)` carries no
+   * such ambiguity — gating it on the outer head word hid every ordinary
+   * `jq -n --arg rows "$(psql -qAt mydb)"`. */
+  nestedInBacktick: boolean;
   /** True when an element could not be read statically (spread, identifier, …). */
   hasDynamicTokens: boolean;
   suppressesStartupFiles: boolean;
@@ -538,7 +549,7 @@ function exemptionOnLines(
  * processing, redirection removal and operator recognition that the shell does
  * before argv exists, and everything downstream consumes words.
  */
-type ShellWord = { text: string; line: number; operator: boolean };
+type ShellWord = { text: string; line: number; offset: number; operator: boolean };
 
 const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
@@ -572,29 +583,32 @@ function matchBrace(text: string, start: number, open: string, close: string): n
   return text.length - 1;
 }
 
-type NestedShell = { text: string; line: number };
+type NestedShell = { text: string; line: number; offset: number; backtick: boolean };
 
 function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
   let started = false;
   let startLine = 0;
+  let startOffset = 0;
   let line = 0;
   /** Redirections and their targets never reach argv. */
   let dropWord = false;
 
   const flush = (): void => {
     if (started) {
-      if (!dropWord) words.push({ text: buffer, line: startLine, operator: false });
+      if (!dropWord)
+        words.push({ text: buffer, line: startLine, offset: startOffset, operator: false });
       dropWord = false;
     }
     buffer = "";
     started = false;
   };
-  const begin = (): void => {
+  const begin = (index: number): void => {
     if (!started) {
       started = true;
       startLine = line;
+      startOffset = index;
       buffer = "";
     }
   };
@@ -612,7 +626,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         continue;
       }
       if (next !== undefined) {
-        begin();
+        begin(i);
         buffer += next;
         i++;
         continue;
@@ -625,7 +639,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     // expansion, not execution: it is consumed whole so brace-protected
     // whitespace cannot split a redirection target into a phantom argv word.
     if (character === "$" && text[i + 1] === "{") {
-      begin();
+      begin(i);
       const close = matchBrace(text, i + 1, "{", "}");
       const slice = text.slice(i, close + 1);
       // …but the expansion's OPERAND executes: `${RESULT:-$(psql …)}` runs psql
@@ -637,7 +651,13 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       // the property the whole-consumption exists to preserve.
       const inner: NestedShell[] = [];
       lexShellWords(text.slice(i + 2, close), inner);
-      for (const entry of inner) nested.push({ text: entry.text, line: line + entry.line });
+      for (const entry of inner)
+        nested.push({
+          text: entry.text,
+          line: line + entry.line,
+          offset: i + 2 + entry.offset,
+          backtick: entry.backtick,
+        });
       buffer += slice;
       line += (slice.match(/\n/g) ?? []).length;
       i = close;
@@ -655,11 +675,16 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           ? text.length
           : text.indexOf("`", i + 1)
         : matchBrace(text, open, "(", ")");
-      nested.push({ text: text.slice(open + 1, close), line });
+      nested.push({
+        text: text.slice(open + 1, close),
+        line,
+        offset: open + 1,
+        backtick: isBacktick,
+      });
       line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
       // The substitution stands in as an opaque word so surrounding argv is
       // still read correctly.
-      begin();
+      begin(i);
       buffer += "${}";
       i = close;
       continue;
@@ -671,7 +696,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     }
 
     if (character === "'") {
-      begin();
+      begin(i);
       const close = text.indexOf("'", i + 1);
       const body = close === -1 ? text.slice(i + 1) : text.slice(i + 1, close);
       buffer += body;
@@ -681,7 +706,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     }
 
     if (character === '"') {
-      begin();
+      begin(i);
       i++;
       for (; i < text.length && text[i] !== '"'; i++) {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
@@ -693,7 +718,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
         if (text[i] === "$" && text[i + 1] === "(") {
           const close = matchBrace(text, i + 1, "(", ")");
-          nested.push({ text: text.slice(i + 2, close), line });
+          nested.push({ text: text.slice(i + 2, close), line, offset: i + 2, backtick: false });
           // A MULTILINE substitution consumes physical lines; not counting them
           // reported later invocations one line early, which let them inherit a
           // marker comment written for something else.
@@ -705,7 +730,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         if (text[i] === "`") {
           const close = text.indexOf("`", i + 1);
           const end = close === -1 ? text.length : close;
-          nested.push({ text: text.slice(i + 1, end), line });
+          nested.push({ text: text.slice(i + 1, end), line, offset: i + 1, backtick: true });
           line += (text.slice(i, end + 1).match(/\n/g) ?? []).length;
           buffer += "${}";
           i = end;
@@ -725,7 +750,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     if (character === "\n") {
       flush();
-      words.push({ text: "\n", line, operator: true });
+      words.push({ text: "\n", line, offset: i, operator: true });
       line++;
       continue;
     }
@@ -763,12 +788,12 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       flush();
       const two = text.slice(i, i + 2);
       const operator = two === "&&" || two === "||" ? two : character;
-      words.push({ text: operator, line, operator: true });
+      words.push({ text: operator, line, offset: i, operator: true });
       i += operator.length - 1;
       continue;
     }
 
-    begin();
+    begin(i);
     buffer += character;
   }
   flush();
@@ -831,7 +856,14 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   const words = lexShellWords(text, nestedBodies);
   for (const inner of nestedBodies) {
     for (const site of scanShellText(inner.text, file, lineOffset + inner.line))
-      sites.push({ ...site, nested: true });
+      sites.push({
+        ...site,
+        offset: inner.offset + site.offset,
+        nested: true,
+        // Backtick-ness is inherited: a `$(…)` inside a backtick span is still
+        // inside the markdown-ambiguous region.
+        nestedInBacktick: inner.backtick || site.nestedInBacktick,
+      });
   }
   let command: ShellWord[] = [];
   const commands: ShellWord[][] = [];
@@ -865,7 +897,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         const script = argv[scriptIndex];
         if (script === undefined) break;
         for (const site of scanShellText(script.text, file, lineOffset + script.line))
-          sites.push(site);
+          sites.push({ ...site, offset: script.offset + site.offset });
         break;
       }
     }
@@ -891,10 +923,12 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
     sites.push({
       file,
       line: hit.line + lineOffset + 1,
+      offset: hit.offset,
       form: "shell",
       tokens,
       precedingWords: argv.slice(0, index).map((word) => word.text),
       nested: false,
+      nestedInBacktick: false,
       hasDynamicTokens: tokens.some((token) => token.includes("$")),
       suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
       exemptReason: exemptionOnLines(rawLines, hit.line + 1, commentAt),
@@ -905,23 +939,20 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
 
 /** True when a JS/TS string literal is itself a shell command line running psql. */
 function shellStringSites(
-  value: string,
+  composed: Composed,
   file: string,
-  line: number,
   lines: string[],
   commentAt: CommentRanges,
-  sourceLineSpan = 0,
 ): PsqlSite[] {
-  // `line` is where the literal OPENS; a multi-line template puts psql further
-  // down, so the shell scanner's own relative line is ADDED rather than
-  // discarded. Reporting the opening line for every hit inside a multi-line
-  // literal was an R2 finding.
-  return scanShellText(value, file, 0).map((site) => {
-    // The literal's VALUE may contain cooked `\n` that consume no physical
-    // source line; clamp to how many lines the literal actually spans, or an
-    // invocation on line 1 gets reported on line 2 and inherits a comment that
-    // was written for the NEXT site.
-    const actualLine = line + Math.min(site.line - 1, sourceLineSpan);
+  // The psql word's own OFFSET in the composed value maps back to the physical
+  // line its characters came from. Deriving the line arithmetically from the
+  // expression's opening line plus its span was wrong in all three directions
+  // review probed — a later concatenation fragment, an interpolation in a
+  // multi-line template, and a cooked `\n` in a literal that spans physical
+  // lines — and mapping by composed LINE is still wrong, because two fragments
+  // on different physical lines can share one composed line.
+  return scanShellText(composed.text, file, 0).map((site) => {
+    const actualLine = (composed.lineAt[site.offset] ?? composed.lineAt[0] ?? 0) + 1;
     return {
       ...site,
       line: actualLine,
@@ -951,21 +982,68 @@ function literalText(node: ts.Node): string | null {
  * them. It did not: the literal is `psql ` or a template head, never exactly
  * `"psql"`.
  */
-function composedText(node: ts.Node): string | null {
-  const literal = literalText(node);
-  if (literal !== null) return literal;
-  if (ts.isTemplateExpression(node)) {
-    let out = node.head.text;
-    for (const span of node.templateSpans) out += "${}" + span.literal.text;
-    return out;
-  }
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = composedText(node.left);
-    const right = composedText(node.right);
-    if (left === null && right === null) return null;
-    return (left ?? "${}") + (right ?? "${}");
-  }
-  return null;
+/**
+ * A composed string plus a PER-CHARACTER physical line map. Deriving the line
+ * from the expression's opening line plus its total span was wrong in all three
+ * directions review probed: a later concatenation fragment, an interpolation in
+ * a multi-line template, and a cooked `\n` inside a literal that itself spans
+ * physical lines. A wrong line is not cosmetic — `exemptionOnLines` reads the
+ * reported line, so it could match a marker written for a different statement.
+ */
+type Composed = { text: string; lineAt: number[] };
+
+function composedText(node: ts.Node, sourceFile: ts.SourceFile): Composed | null {
+  const out: Composed = { text: "", lineAt: [] };
+
+  /** Append a literal fragment, mapping each character to its physical line. */
+  const fragment = (cooked: string, pos: number, end: number): void => {
+    const startLine = sourceFile.getLineAndCharacterOfPosition(pos).line;
+    const raw = sourceFile.text.slice(pos, end);
+    // A cooked `\n` from an ESCAPE consumes no physical line, while a real
+    // newline in a template literal does. When the two counts agree the
+    // newlines correspond 1:1 and the line can advance; when they do not, pin
+    // the whole fragment to its first line rather than inventing a mapping.
+    const aligned = (raw.match(/\n/g) ?? []).length === (cooked.match(/\n/g) ?? []).length;
+    let line = startLine;
+    for (const character of cooked) {
+      out.text += character;
+      out.lineAt.push(line);
+      if (character === "\n" && aligned) line++;
+    }
+  };
+
+  /** Append the opaque stand-in for a runtime piece, at its own line. */
+  const placeholder = (at: ts.Node): void => {
+    const line = sourceFile.getLineAndCharacterOfPosition(at.getStart(sourceFile)).line;
+    out.text += "${}";
+    out.lineAt.push(line, line, line);
+  };
+
+  const walk = (current: ts.Node): boolean => {
+    const literal = literalText(current);
+    if (literal !== null) {
+      fragment(literal, current.getStart(sourceFile), current.getEnd());
+      return true;
+    }
+    if (ts.isTemplateExpression(current)) {
+      fragment(current.head.text, current.head.getStart(sourceFile), current.head.getEnd());
+      for (const span of current.templateSpans) {
+        placeholder(span.expression);
+        fragment(span.literal.text, span.literal.getStart(sourceFile), span.literal.getEnd());
+      }
+      return true;
+    }
+    if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = walk(current.left);
+      const right = walk(current.right);
+      if (!left && !right) return false;
+      return true;
+    }
+    placeholder(current);
+    return false;
+  };
+
+  return walk(node) ? out : null;
 }
 
 function isPsqlBinary(text: string): boolean {
@@ -996,9 +1074,25 @@ function looksLikePsqlCommandLine(text: string): boolean {
   //     the words before psql are English, not `sudo` / `PGHOST=` / a flag.
   const WRAPPERS =
     /^(?:sudo|doas|su|runuser|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|flock|setsid|chroot|ssh|docker|docker-compose|compose|kubectl|podman|nerdctl|cat|true|false|echo|printf|sh|bash|zsh)$/;
+  // Shell CONTROL syntax, which precedes a command without being a wrapper:
+  // `! psql …`, `if psql …; then`, `while psql …; do`, `{ psql …; }`,
+  // `coproc psql …`. These are WEAK: they let a flagged command through, but on
+  // their own they do not vouch for a FLAGLESS one, because "if psql fails" is
+  // also a sentence.
+  const CONTROL = /^(?:!|\{|if|then|elif|else|while|until|do|coproc)$/;
+  const isStrongPrefixWord = (word: string, index: number, before: readonly string[]): boolean =>
+    /^[A-Za-z_]\w*=/.test(word) ||
+    /^-/.test(word) ||
+    WRAPPERS.test(basename(word)) ||
+    word === "--" ||
+    /^-/.test(before[index - 1] ?? "") ||
+    /^-/.test(before[index - 2] ?? "") ||
+    (index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ""))) ||
+    (index > 1 && WRAPPERS.test(basename(before[index - 2] ?? "")));
   const prefixIsCommandish = (before: readonly string[]): boolean =>
     before.every(
       (word, index) =>
+        CONTROL.test(word) ||
         /^[A-Za-z_]\w*=/.test(word) ||
         /^-/.test(word) ||
         WRAPPERS.test(basename(word)) ||
@@ -1015,12 +1109,14 @@ function looksLikePsqlCommandLine(text: string): boolean {
     );
   return sites.some((site) => {
     const words = text.trim().split(/\s+/).length;
-    // A backtick in operator-guidance PROSE is a markdown code span, not a
+    // A BACKTICK in operator-guidance PROSE is a markdown code span, not a
     // shell substitution: `' to validation via \`psql "$T" -f <m>\`'` is
-    // documentation, while `printf x $(psql -qAt db)` is a command. The signal
-    // is the OUTER text's head word, NOT its length — capping length wrongly
-    // rejected `echo one two … $(psql …)`.
-    if (site.nested) {
+    // documentation. The signal is the OUTER text's head word, NOT its length —
+    // capping length wrongly rejected `echo one two … $(psql …)`. This applies
+    // ONLY to backticks: `$(…)` has no markdown reading, and gating it on the
+    // head word hid every ordinary `jq -n --arg rows "$(psql -qAt mydb)"` or
+    // `curl -d "$(psql …)"` behind a program not in WRAPPERS.
+    if (site.nestedInBacktick) {
       const head = (text.trim().split(/\s+/)[0] ?? "").replace(/^["']/, "");
       if (!/^[A-Za-z_]\w*=/.test(head) && !WRAPPERS.test(basename(head))) return false;
     }
@@ -1039,14 +1135,19 @@ function looksLikePsqlCommandLine(text: string): boolean {
     //   string length — a STANDING_ALLOWLIST reason, whose command stops after
     //     two words only because a `(` splits it
     //   no `word:`   — `psql invocation failed: …`, `psql exit ${code}: …`
-    // The string-length bound applies ONLY to a BARE psql at the head. Charging
+    // The string-length bound is lifted only by a STRONG prefix word. Charging
     // a validated wrapper's own words against the command hid
     // `docker compose -f … exec -T postgres psql mydb`, which is nine words of
-    // which seven are the prefix that already vouched for it.
+    // which seven are the prefix that already vouched for it — but shell
+    // CONTROL syntax vouches for nothing on its own, since "if psql fails" is a
+    // sentence and `if psql mydb; then` is not.
+    const hasStrongPrefix = site.precedingWords.some((word, index) =>
+      isStrongPrefixWord(word, index, site.precedingWords),
+    );
     const isTerseCommand =
       site.tokens.length <= 3 &&
       !site.tokens.some((t) => /:$/.test(t)) &&
-      (site.precedingWords.length > 0 ? commandishPrefix : words <= 8);
+      (site.precedingWords.length === 0 ? words <= 8 : hasStrongPrefix);
     if (!hasFlag && !isTerseCommand) return false;
     if (/:$/.test(site.tokens[0] ?? "")) return false;
     return commandishPrefix;
@@ -1087,7 +1188,8 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
     if (ts.isCallExpression(node)) {
       const callee = calleeName(node);
       const first = node.arguments[0];
-      const firstText = first ? composedText(first) : null;
+      const firstComposed = first ? composedText(first, sourceFile) : null;
+      const firstText = firstComposed?.text ?? null;
 
       if (
         callee &&
@@ -1116,7 +1218,9 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           form: callee as PsqlSiteForm,
           tokens,
           precedingWords: [],
+          offset: 0,
           nested: false,
+          nestedInBacktick: false,
           hasDynamicTokens,
           suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
           exemptReason: exemptionOnLines(lines, line, commentAt),
@@ -1126,11 +1230,9 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
       // Literal shell strings handed to execSync("psql …") / exec("psql …").
       if (callee && SHELL_CALLEES.has(callee)) {
         for (const argument of node.arguments) {
-          const text = composedText(argument);
+          const text = composedText(argument, sourceFile);
           if (text === null) continue;
-          const line = lineOf(sourceFile, argument.getStart(sourceFile));
-          const span = lineOf(sourceFile, argument.getEnd()) - line;
-          sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
+          sites.push(...shellStringSites(text, file, lines, commentAt));
         }
       }
 
@@ -1144,13 +1246,11 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         callee &&
         SPAWN_CALLEES.has(callee as PsqlSiteForm) &&
         first &&
-        firstText !== null &&
-        !isPsqlBinary(firstText) &&
-        !isShellBinary(firstText)
+        firstComposed !== null &&
+        !isPsqlBinary(firstComposed.text) &&
+        !isShellBinary(firstComposed.text)
       ) {
-        const line = lineOf(sourceFile, first.getStart(sourceFile));
-        const span = lineOf(sourceFile, first.getEnd()) - line;
-        sites.push(...shellStringSites(firstText, file, line, lines, commentAt, span));
+        sites.push(...shellStringSites(firstComposed, file, lines, commentAt));
       }
 
       // A shell binary run through the spawn family — spawnSync("sh", ["-c",
@@ -1165,11 +1265,9 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         const argv = node.arguments[1];
         if (argv && ts.isArrayLiteralExpression(argv)) {
           for (const element of argv.elements) {
-            const text = composedText(element);
+            const text = composedText(element, sourceFile);
             if (text === null) continue;
-            const line = lineOf(sourceFile, element.getStart(sourceFile));
-            const span = lineOf(sourceFile, element.getEnd()) - line;
-            sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
+            sites.push(...shellStringSites(text, file, lines, commentAt));
           }
         }
       }
@@ -1207,7 +1305,8 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
   mark(sourceFile);
 
   const visitNode = (node: ts.Node): void => {
-    const text = composedText(node);
+    const composed = composedText(node, sourceFile);
+    const text = composed?.text ?? null;
     const suspicious = text !== null && (isPsqlBinary(text) || looksLikePsqlCommandLine(text));
     if (suspicious && !recognized.has(node.getStart(sourceFile))) {
       hits.push({
