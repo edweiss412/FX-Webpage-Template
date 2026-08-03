@@ -638,7 +638,7 @@ The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked r
 
 ## BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS — one component retained by contract; the other four retired
 
-**Status:** IN PROGRESS · **Branch:** chore/orphan-components-lead-prose
+**Status:** OPEN
 
 **Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, the class sweep that closed `BL-ADMIN-PARSEPANEL-ORPHANED`) · **Worked:** 2026-08-03 (`chore/orphan-components-lead-prose`) · **Class:** dead code · **Severity:** low
 
