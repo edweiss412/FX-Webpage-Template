@@ -1069,6 +1069,17 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       // `ssh host "psql …"` and `watch "psql …"` name no flag: the script is
       // simply a later word that is itself a command line.
       const isTrailing = TRAILING_SCRIPT_CONSUMERS.has(name);
+      if (FIRST_ARG_SCRIPT_CONSUMERS.has(name)) {
+        for (let i = position + 1; i < argv.length; i++) {
+          const candidate = argv[i]!;
+          if (candidate.text === "--" || candidate.text.startsWith("-")) continue;
+          for (const site of scanShellText(candidate.text, file, lineOffset + candidate.line))
+            sites.push({ ...site, offset: candidate.offsets[site.offset] ?? candidate.offset });
+          break;
+        }
+        joinedHandled = true;
+        break;
+      }
       if (!isInterpreter && !isEval && !isDashS && !isTrailing) continue;
       if (isTrailing || isEval) {
         // These consumers APPEND their remaining arguments into ONE command
@@ -1214,6 +1225,18 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         (head !== undefined && PROBE_COMMANDS.has(basename(head.text)) && index === 2));
     if (denied) continue;
 
+    // An expansion in COMMAND POSITION can supply psql's real argv[0], which
+    // makes this literal `psql` a POSITIONAL: `PG=psql; $PG psql -X mydb` runs
+    // `psql psql -X mydb`, where `-X` follows a positional and is discarded
+    // under POSIXLY_CORRECT. Suppression then cannot be credited.
+    //
+    // Only the command word matters, not every preceding word: `NAME=value`
+    // prefixes are environment rather than argv, and an expansion that is a
+    // WRAPPER's argument is consumed by that wrapper — `docker exec
+    // "$DB_CONTAINER" psql -X …` is a real site in this repo and must still
+    // certify.
+    const commandWord = argv.slice(0, index).find((word) => !/^[A-Za-z_]\w*=/.test(word.text));
+    const expandedPrefix = commandWord !== undefined && commandWord.text.includes("$");
     const rest = argv.slice(index + 1);
     const tokens = rest.map((word) => word.text);
     // A BARE glob or brace changes argv CARDINALITY without carrying a `$`:
@@ -1235,8 +1258,8 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       precedingWords: argv.slice(0, index).map((word) => word.text),
       nested: false,
       nestedInBacktick: false,
-      hasDynamicTokens: tokens.some((token) => token.includes("$")) || expandable,
-      suppressesStartupFiles: !expandable && argvSuppressesStartupFiles(tokens),
+      hasDynamicTokens: tokens.some((token) => token.includes("$")) || expandable || expandedPrefix,
+      suppressesStartupFiles: !expandable && !expandedPrefix && argvSuppressesStartupFiles(tokens),
       exemptReason: exemptionOnLines(rawLines, hit.line + 1, commentAt),
     });
   }
@@ -1579,6 +1602,10 @@ const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
 /** Programs whose `-c` argument is a command STRING the shell then runs. */
 const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas"]);
 
+/** Programs whose FIRST non-option argument is a command string the shell runs
+ * later: `trap 'psql …' EXIT`. */
+const FIRST_ARG_SCRIPT_CONSUMERS = new Set(["trap"]);
+
 /** Programs whose command string is simply a later word (`ssh host "psql …"`,
  * `watch "psql …"`), with no flag naming it. */
 const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch"]);
@@ -1824,7 +1851,22 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
     const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
-    const hit = assigned ?? aliased ?? functionDef;
+    // A MULTIWORD command binding: `CMD='psql -qAt mydb'; eval "$CMD"`. The
+    // literal survives but the command word only exists after expansion, so no
+    // site is produced. Requiring the quoted value to lex to a psql invocation
+    // WITH a flag keeps prose out — `MSG="psql failed to connect"` carries none.
+    const quotedValue =
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?[A-Za-z_]\w*=(["'])([^"']*\bpsql\b[^"']*)\1/.exec(
+        code,
+      );
+    const boundCommand =
+      quotedValue !== null &&
+      scanShellText(quotedValue[2] ?? "", file, 0).some((site) =>
+        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+      )
+        ? quotedValue
+        : null;
+    const hit = assigned ?? boundCommand ?? aliased ?? functionDef;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;

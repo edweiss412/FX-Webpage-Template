@@ -2165,3 +2165,65 @@ describe("R24 escaping mutants — a parameter DEFAULT can supply the command", 
     expect(sitesIn('pg_dump "${DSN}" > out.sql\n', "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R25 escaping mutants", () => {
+  // An expansion in COMMAND POSITION can supply psql's real argv[0], making the
+  // literal `psql` a POSITIONAL — `PG=psql; $PG psql -X mydb` runs
+  // `psql psql -X mydb`, where `-X` is discarded under POSIXLY_CORRECT.
+  test.each(["$PG", '"$PG"', "${PG}", '"${PG}"'])(
+    "%s before psql makes the later -X uncertifiable",
+    (prefix) => {
+      const sites = sitesIn(`${prefix} psql -X mydb\n`, "x.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+      expect(sites[0]!.hasDynamicTokens).toBe(true);
+    },
+  );
+
+  test.each([
+    ["a wrapper's argument", 'docker exec "$C" psql -X -qAt mydb\n'],
+    ["an environment assignment", "PGHOST=$H psql -X -qAt mydb\n"],
+    ["a plain wrapper", "sudo -u postgres psql -X -qAt mydb\n"],
+  ])("%s does NOT block certification", (_name, source) => {
+    // Only the COMMAND word matters. `docker exec "$DB_CONTAINER" psql -X …` is
+    // a real site in this repo and must keep certifying.
+    expect(sitesIn(source, "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // A MULTIWORD command binding: the literal survives, but the command word
+  // only exists after expansion, so no site is produced.
+  test.each(["CMD=", "export CMD=", "readonly CMD=", "declare -r CMD=", "local CMD="])(
+    "`%s'psql -qAt mydb'` is an indirection",
+    (declaration) => {
+      const source = `${declaration}'psql -qAt mydb'\neval "$CMD"\n`;
+      expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+    },
+  );
+
+  test.each([
+    ["prose with no flag", 'MSG="psql failed to connect"\n'],
+    ["an unrelated binding", `CMD='pg_dump mydb'\n`],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // `trap` runs its first non-option argument as a command at shell exit.
+  test.each([
+    ["trap with a signal", "trap 'psql -qAt mydb' EXIT\n"],
+    ["trap with -- and two signals", "trap -- 'psql -qAt mydb' EXIT INT\n"],
+  ])("%s is a site", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a protected trap command still certifies", () => {
+    expect(sitesIn("trap 'psql -X -qAt mydb' EXIT\n", "x.sh")[0]!.suppressesStartupFiles).toBe(
+      true,
+    );
+  });
+
+  test("`trap - EXIT` (resetting a handler) is not a site", () => {
+    expect(sitesIn("trap - EXIT\n", "x.sh")).toHaveLength(0);
+  });
+});
