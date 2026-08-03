@@ -54,7 +54,7 @@ Declared before tasks, per `docs/agents/writing-plans.md:16`.
 |---|---|
 | `tests/components/admin/review/sectionFreshnessCss.test.ts (new)` | **CREATES.** Pins the constant against its declaration, the normative CSS block byte for byte, the four keyframe names, the `-1` and `-2` bodies being identical apart from name, the reduced-motion override, and the staged surface emitting nothing. |
 | `tests/styles/status-token-contrast.test.ts` | **EXTENDS.** Four rows for the repurposed `--color-accent-tint` background and the outline against both grounds it touches. |
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in specs that already have a `testMatch` row and a workflow. Running it is the proof of that claim, not an assumption. It is NOT sufficient on its own, for the reason in T5: coverage at spec granularity does not imply coverage at case granularity. |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in specs that already have a `testMatch` row and a workflow. Running it is the proof of that claim, not an assumption. It is NOT sufficient on its own, for the reason in T5: it treats a `grep`-narrowed invocation as still covering the spec (`tests/ci/_metaE2eWorkflowCoverage.test.ts:207-208`), so coverage at spec granularity does not imply coverage at case granularity. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A.** No `pg_advisory` call is added or touched; no SQL of any kind is in the diff. |
 | `tests/auth/_metaInfraContract.test.ts` | **N/A.** No Supabase client call site is added or touched. |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A.** No route handler, no server action, no mutation surface (spec §9). |
