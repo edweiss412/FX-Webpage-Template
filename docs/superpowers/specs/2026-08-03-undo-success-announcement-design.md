@@ -320,7 +320,7 @@ No new copy. `ErrorExplainer` already resolves `code` through the catalog and re
 
 ## 5. Structural guard
 
-Moving the channel to the layout (§3.5) changes what a guard can usefully assert. The old proposal — walk for files rendering `<UndoChangeButton` and demand a nearby provider — was aimed at a per-surface ownership model that no longer exists, and the last round was right that its widened form was under-specified and had no escaping mutant for the second detection branch. It is withdrawn and replaced with two assertions that are each provable.
+Moving the channel to the layout (§3.5) changes what a guard can usefully assert. The old proposal — walk for files rendering `<UndoChangeButton` and demand a nearby provider — was aimed at a per-surface ownership model that no longer exists, and the last round was right that its widened form was under-specified and had no escaping mutant for the second detection branch. It is withdrawn and replaced with three assertions that are each provable.
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 `tests/styles/_metaUndoAnnounceProvider.test.ts`:
@@ -573,7 +573,7 @@ Without step 2 the feature can ship completely dead with a green unit suite. Thi
 
 **Class-sweep tests** — `AcceptChangeButton` and `Mi11GateActions` each get the same always-mounted / same-node assertion as Undo.
 
-**Meta-test** — `_metaUndoAnnounceProvider`, with a planted violation for **each** of its two assertions (§5).
+**Meta-test** — `_metaUndoAnnounceProvider`, with a planted violation for **each** of its three assertions (§5).
 
 ---
 

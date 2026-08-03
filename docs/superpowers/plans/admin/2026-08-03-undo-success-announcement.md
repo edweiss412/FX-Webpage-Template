@@ -23,7 +23,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — two assertions (Task 10): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`. Each carries its own planted violation.
+- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — three assertions (Task 10): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`; A3, the provider is never a descendant of a `data-inert-root` element. Each carries its own planted violation.
 - **EXTENDS** none.
 - No advisory-lock topology section: the plan does not touch `pg_advisory*`.
 
@@ -159,7 +159,7 @@ Failure caught: the region nested inside `[data-inert-root]` instead of wrapping
 ## Task 10 — Structural guard
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the two assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
+- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the three assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
 - [ ] **A1** — `app/admin/layout.tsx` references `AdminAnnounceProvider` and every `return` in the file is wrapped in it. Planted violation: a copy of the layout source with one `return` unwrapped.
 - [ ] **A2** — no file outside the provider module references `UndoAnnounceContext.Provider`. Planted violation: a file rendering `<UndoAnnounceContext.Provider>`.
 - [ ] **A3** — `AdminAnnounceProvider` is not a descendant of any `data-inert-root` element in the layout. Planted violation: the layout source with the provider nested inside that div.
