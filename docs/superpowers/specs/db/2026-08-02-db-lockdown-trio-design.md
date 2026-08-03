@@ -26,7 +26,7 @@ Shipped in this cluster:
 
 1. `REVOKE INSERT, UPDATE, DELETE` on **8** admin-only tables + registry rows (§4).
 2. A spec-derived completeness assertion so an unclassified §4.3 table fails CI (§4.4).
-3. **One shared, DDL-free §4.3 parser so a table can never drop out silently** (§4.5) — the prerequisite the other two rest on.
+3. **`ADMIN_TABLES` retired from prose derivation** to an explicit list reconciled three ways against the live catalog (§4.5) — the prerequisite the other two rest on.
 4. The RLS probe re-derived from §4.3, relocated cross-cutting, with `relrowsecurity`, policy-count, and non-vacuous behavioral assertions (§6).
 5. A live-catalog completeness assertion for canonical-email CHECKs, closing 3 name-invisible ones (§5).
 
@@ -47,8 +47,10 @@ Shipped in this cluster:
 | The 8 new registry rows are `selectAnon: true` / `selectAuthenticated: true`. SELECT is retained by design and the original grant covered both roles. | R2 finding 1; §4.2; the `true`/`true` posture of every comparable REVOKE-only row in `tests/db/postgrest-dml-lockdown.test.ts:147-511`. |
 | The generator fails loud via a **declared-count tripwire**, NOT via "throw on any unresolved name". The latter fails on today's corpus because 4 backticked prose identifiers in §4.3 are not tables. | R2 finding 2 probe; §4.5. |
 | AC-2.5's four-verb contract is satisfied by the UNION of the RLS test and the lockdown test; `42501` is literally AC-2.5's stated pass condition for the write verbs. No spec amendment needed. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792` ("permission-denied / zero-affected-rows"); §6.3. |
-| The §4.3 parser reads NO DDL. The DDL-spelling mutation families from R1/R3 are retired as unreachable, not patched. | R3 finding 1 probe (3 further legal spellings defeat any regex); §4.5. |
-| Both §4.3 extractors collapse into ONE shared module. `generate-traceability.ts` held a second defective copy. | R3 finding 2; `scripts/generate-traceability.ts:182`. |
+| Both §4.3 extractors are DELETED, not unified. `ADMIN_TABLES` is an explicit reviewed list reconciled three ways against the catalog. | R4 finding 1 (prose grammar defeats any parser, as SQL grammar did); §4.5. |
+| The behavioral witness is a PAIRED assertion (`admin_count > 0 AND nonadmin_count = 0`), never a seed. No admin table is mutated, so invariant 2 is not engaged. | R3 finding 3 + R4 finding 4; §6.2, §8. |
+| `email_deliveries`' SELECT cell is grant-layer, not RLS — it revokes ALL, so `authenticated` never reaches RLS. | R4 finding 2; `supabase/migrations/20260602000004_b3_email_deliveries.sql:21`. |
+| `app_settings`' INSERT cell is structurally unavailable — pre-seeded singleton with a `id = 'default'` CHECK. Claiming it would be a tautology. | R4 finding 3; `supabase/migrations/20260501001000_internal_and_admin.sql:246`. |
 | `__test_singleton_rls_probe` is unimplemented prose that cannot be built usefully either way it is specified. Not a deliverable here. | `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:417` (DEFINER) vs the spec's INVOKER; §6.3(c). |
 
 ---
@@ -197,35 +199,29 @@ for each table in ADMIN_TABLES (generated from spec §4.3):
 
 Anti-tautology: the assertion is scoped against `ADMIN_TABLES` (the spec-derived registry), never against `RPC_GATED_TABLES` itself — asserting a registry against itself is the failure mode this whole spec is about.
 
-### 4.5 Hardening the §4.3 parser — the load-bearing prerequisite
+### 4.5 Retiring §4.3 prose parsing — the load-bearing prerequisite
 
-Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. R1 and R2 established it is not; R3 then defeated the regex repair itself. The final design **stops parsing DDL entirely**, which dissolves that whole mutation space rather than widening a pattern against it.
+Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. Four review rounds attacked that projection and **every parser-based repair was defeated**:
 
-**Why the regex approach was abandoned.** R1 showed `scripts/generate-admin-tables.ts:29-30` silently drops a table whose CREATE TABLE block is `public.`-qualified, uppercase, or `if not exists`. R2 killed the "throw on unresolved name" repair (four backticked §4.3 identifiers are prose, not tables). R3 then defeated the widened regex with three further legal DDL spellings — quoted schema identifiers, whitespace around the qualification dot, and a comment between keywords:
+| Round | Repair attempted | How it was defeated |
+| --- | --- | --- |
+| R1 | widen the CREATE TABLE regex; throw on unresolved | 4 backticked §4.3 identifiers are prose, not tables — throws on today's corpus |
+| R2 | declared-count tripwire + continuation-line read | R3: quoted schema, spaced qualification dot, comment between keywords |
+| R3 | stop parsing DDL; subtract a prose denylist | R4: `` `public.future_admin` ``, bare `future_admin`, `` `_future_admin` ``, `` `"future_admin"` ``, blank-line-separated continuation paragraph |
 
-```
-"create table \"public\".\"future_admin\" (…)"  => "public"      (wrong capture)
-"create table public . future_admin (…)"       => "public"      (wrong capture)
-"create /*guard-gap*/ table public.future_admin" => null         (no match)
-```
+R3's repair did not dissolve the vector — it **relocated** it from SQL grammar to Markdown prose grammar. Both are open-ended, and §4.3's bullet is human prose that will stay human prose. Per this project's own stop rule (three-round cap on a design-correctness vector; comprehensive re-analysis on same-vector recurrence), the answer is not a fifth grammar.
 
-Each leaves `resolved=19` while a real §4.3 table goes missing. The DDL-spelling space is open-ended; a guard that enumerates it is never done.
+**Structural pivot: `ADMIN_TABLES` stops being derived from prose.** It becomes an explicit, reviewed, checked-in list — and its correctness is established by three independent reconciliations, none of which parses prose beyond a single integer:
 
-**The design: no DDL intersection.** The parser's only job is to separate table names from prose identifiers in the §4.3 bullet, and DDL was always an indirect proxy for that. Replace it with an explicit denylist:
+1. **Count tripwire (prose, one integer).** §4.3 declares its own counts at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641` (`(**23 tables**`) and `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643` (``ADMIN_TABLES.length = 19 = 23 − 4 dropped``). Assert `list.length === declaredLive` and `declaredLive + dropped === declaredProse`. Editing §4.3 without updating the list breaks this — and the counts sit in the same prose a §4.3 editor is already editing.
+2. **Forward catalog check.** Every listed table exists in `information_schema.tables`. Catches a typo, a retired table, and a hand-edit naming nothing.
+3. **Reverse catalog check.** Every live table that carries an `admin_only` policy, or a `REVOKE … FROM anon, authenticated` in its grants, must be in the list or in an explicit `NON_ADMIN_TABLE_ALLOWLIST` (today `ignored_warnings`, `admin_emails`). Catches an admin-shaped table added to the DB and never listed.
 
-1. **Read the whole bullet, continuation-line aware** — from the `- **Admin-only tables` line through the line before the next top-level `- ` bullet or a blank line. (R2's continuation-line mutant; `scripts/generate-admin-tables.ts:20` reads one physical line today.)
-2. **Take every backticked lowercase identifier**, then subtract three declared sets: `PROSE_IDENTIFIERS` (today exactly `mint_validation_fixture_atomic`, `validation_finalize_all_atomic`, `drive_file_id`, `wizard_session_id`), `removedByPickerPivot` (the 4 dropped tables), and `shows`. Prepend `shows_internal` from the adjacent bullet.
-3. **Declared-count tripwire.** §4.3 declares its counts in two machine-readable places — `(**23 tables**` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641` and ``Live `ADMIN_TABLES.length = 19 = 23 − 4 dropped` `` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`. Assert `resolved.length === declaredLive` and `declaredLive + dropped === declaredProse`; throw with a named diff otherwise.
+Direction 3 is what makes the hand-maintained list safe: a new admin-only table cannot ship without either entering the list or being explicitly allowlisted, and it is checked against the **database**, which has no grammar to defeat.
 
-Verified byte-identical to today's output: bullet yields 27 backticked names, minus `shows`, minus 4 dropped, minus 4 prose = 18, plus `shows_internal` = **19**, and the same 19 names in the same order.
+**Blast radius.** `scripts/generate-admin-tables.ts` is retired as a generator; `lib/audit/admin-tables.generated.ts` becomes a plain reviewed module (same export name, same 19 entries, same order — no consumer changes). `scripts/pretest-gen.mjs:17-23` drops its `gen:admin-tables` entry, and `package.json:36`'s `x3-trust-domain` script drops the `pnpm gen:admin-tables &&` prefix. `scripts/generate-traceability.ts:182-192`'s duplicate extractor (R3 finding 2) is deleted and imports the list directly, which also removes the second defective copy rather than repairing it.
 
-The failure direction inverts, which is the point. A new §4.3 table is now **included by default**; only a new *prose* identifier needs a denylist row, and it announces itself by breaking the count. Adding a table without updating the counts throws (`resolved` 20 ≠ `declaredLive` 19); updating counts without adding a table throws. No DDL spelling can hide anything, because no DDL is read.
-
-**One shared parser, not two.** R3 finding 2: `scripts/generate-traceability.ts:182-192` holds a **second, independent copy** of `extractAdminTablesFromSpec` carrying both original defects — and it does not even apply `removedByPickerPivot`. A continuation-line table would enter `ADMIN_TABLES` and get its Layer 5 classification while staying invisible to traceability, whose stale 23-entry `ADMIN_BOOTSTRAP_NAMES` comparison would still report no drift. Both call sites move to one shared module; the duplication is deleted, not patched twice.
-
-**Live-relation cross-check moves to the test.** The generator must stay DB-free (it feeds `lib/audit/authPrimitives.ts:92`, consumed by the database-free `x3-trust-domain` job). So the "declared name actually exists" half is asserted in the cross-cutting test, which has a live DB: every `ADMIN_TABLES` entry must appear in `information_schema.tables`. That catches a denylist row that wrongly shadows a real table, and a §4.3 name that names nothing — without any DDL parsing.
-
-**Mutation-family closure set** for the shared parser, pinned by a test importing it directly: (i) table on a continuation line; (ii) new table without a count update (expect throw); (iii) count update without a new table (expect throw); (iv) new prose identifier without a denylist row (expect throw); (v) denylist row shadowing a real table (expect the live-relation check to fail); (vi) the current real spec (expect exactly 19, no throw); (vii) both call sites agree on the same input. The DDL-spelling families from R1/R3 are **retired, not fixed** — they are unreachable once no DDL is parsed. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+**Mutation-family closure set**, pinned by the cross-cutting test: (i) list entry naming no live relation (expect fail, direction 2); (ii) live `admin_only` table absent from list and allowlist (expect fail, direction 3); (iii) live REVOKE-bearing table absent from both (expect fail, direction 3); (iv) list length disagreeing with `declaredLive` (expect fail, direction 1); (v) `declaredLive + dropped != declaredProse` (expect fail, direction 1); (vi) the current real repo (expect exactly 19, all green). The R1/R3/R4 grammar families are **retired as unreachable** — no grammar is parsed. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 ## 5. Item 2 — canonical-email aperture
 
@@ -295,7 +291,13 @@ The posture is declared per table in the registry, never inferred. `email_delive
 
 1. **`relrowsecurity`** — `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` leaves every `admin_only` row intact in `pg_policies`, so today's derivation, length, baseline, structural and equivalence arms all stay green while row-level gating is off.
 2. **Policy count** — Postgres ORs permissive policies together, so an added permissive policy reopens a table while `admin_only` remains present and correct. Pinning the count (1 for `admin_only`, 0 for `deny_all`) is what catches it.
-3. **Non-vacuous behavioral arm** — the existing arm asserts `nonadmin_count=0`, which on an empty table passes whether RLS denies the rows or no rows exist. 5 of 6 sampled §4.3 tables are empty locally and emptier in a fresh CI bootstrap, so the arm cannot currently fail for them. The relocated test seeds a sentinel row inside the test transaction before the non-admin SELECT, so the assertion can actually fail.
+3. **Non-vacuous behavioral arm** — the existing arm asserts `nonadmin_count=0`, which on an empty table passes whether RLS denies the rows or no rows exist. 5 of 6 sampled §4.3 tables are empty locally and emptier in a fresh CI bootstrap, so the arm cannot currently fail for them.
+
+   The witness is a **paired assertion, not a seed**: assert `admin_count > 0 AND nonadmin_count = 0` in the same transaction. The admin arm proves rows are visible to *someone*, which is exactly the fact an empty table cannot supply; the non-admin arm then proves RLS filters them. A table with rows therefore gets a genuinely falsifiable cell, and `DISABLE ROW LEVEL SECURITY` flips `nonadmin_count` non-zero and fails.
+
+   Where a table is empty at test time, the pair is unprovable and the test records **`behavioral: unavailable — no rows`** for that table rather than passing silently. Coverage there rests on `relrowsecurity` + policy-count + the structural arms, which is stated, not implied.
+
+   **Why not seed.** Seeding was the R3 draft and it dragged in invariant 2 (`pending_syncs`, `pending_ingestions` are lock-scoped) and, for `app_settings`, was structurally impossible anyway (§6.3). The paired assertion needs no INSERT into any admin table, so neither problem arises.
 
 **Second direction.** Every `admin_only` table found live must be in `ADMIN_TABLES` or an explicit non-§4.3 allowlist (today exactly `ignored_warnings`; `admin_emails` carries an `admin_only` policy but is excluded by the current derivation's own `tablename <> 'admin_emails'` clause and gets an explicit row). Both directions are required because the two sets genuinely disagree (§2.4).
 
@@ -321,12 +323,21 @@ Adding the three write verbs to the relocated RLS test would assert `42501` whil
 
 **What this cluster therefore does.** The four-verb contract is met by the **union** of the two tests, and the spec says so explicitly rather than leaving it implied:
 
-| Table class | SELECT | INSERT / UPDATE / DELETE |
-| --- | --- | --- |
-| REVOKEd (17 after this cluster) | behavioral, RLS test | grant-layer `42501`, lockdown test Layers 1-3 |
-| class (c) — `app_settings`, `admin_alerts` | behavioral, RLS test | **behavioral, RLS test — new in this cluster** |
+| Table class | SELECT | INSERT | UPDATE / DELETE |
+| --- | --- | --- | --- |
+| REVOKEd, SELECT retained (16 after this cluster) | behavioral, RLS test (paired witness) | grant-layer `42501` | grant-layer `42501` |
+| REVOKEd ALL — `email_deliveries` only | **grant-layer `42501`** — `authenticated` has no SELECT | grant-layer `42501` | grant-layer `42501` |
+| class (c) — `admin_alerts` | behavioral, RLS test | **behavioral — new here** | **behavioral — new here** |
+| class (c) — `app_settings` | behavioral, RLS test | **structurally unavailable** — see below | **behavioral — new here** |
 
-The genuine residual AC-2.5 gap is exactly the two class-(c) tables: the grant remains, so RLS really is their only write gate, and today they have structural coverage only. The relocated test adds behavioral write cells **for them**, dodging the v1 false-pass by seeding a constraint-satisfying row as owner first, then asserting zero-affected-rows on `UPDATE`/`DELETE` targeting that row under a non-admin session (no constraint can fire on a row that already validates), and a constraint-satisfying `INSERT` for the insert cell. Any future admin-only table that is not REVOKEd inherits the same treatment by registry posture.
+The genuine residual AC-2.5 gap is exactly the two class-(c) tables: the grant remains, so RLS really is their only write gate, and today they have structural coverage only. The relocated test adds behavioral write cells **for them**, dodging the v1 false-pass by targeting rows that already validate: `UPDATE`/`DELETE` against an existing row under a non-admin session must affect **zero rows**, and no NOT NULL or CHECK constraint can fire on a row that is already valid.
+
+Two cells cannot be produced as stated, and the spec says so rather than claiming them:
+
+- **`email_deliveries` SELECT is grant-layer, not RLS** (R4 finding 2). `supabase/migrations/20260602000004_b3_email_deliveries.sql:21` revokes **ALL** from `anon, authenticated`, so a non-admin SELECT is rejected before its zero-policy RLS posture is ever reached — the paired witness is impossible, and `tests/db/postgrest-dml-lockdown.test.ts:292` already records `selectAnon: false` / `selectAuthenticated: false`. AC-2.5's SELECT cell is satisfied for it at the grant layer, which is strictly stronger than "zero rows".
+- **`app_settings` INSERT is structurally unavailable** (R4 finding 3). It is a pre-seeded singleton: `id text primary key default 'default'` with `constraint app_settings_singleton check (id = 'default')` and the row already inserted (`supabase/migrations/20260501001000_internal_and_admin.sql:233`). A non-admin INSERT can only ever raise a duplicate-key error or affect zero rows with conflict suppression — identically whether RLS is enabled or disabled — so the cell would pass under an `ALTER TABLE … DISABLE ROW LEVEL SECURITY` mutant and proves nothing. Its INSERT coverage is the `relrowsecurity` and policy-count assertions plus the singleton CHECK itself. `admin_alerts`, which is not a singleton, does get a real behavioral INSERT cell.
+
+Any future admin-only table that is not REVOKEd inherits the same treatment by registry posture.
 
 This closes AC-2.5 where it is testable and documents the grant-layer equivalence where it is not. No spec amendment is required — (a) shows the AC's own wording already admits the grant-layer proof.
 
@@ -365,11 +376,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 **Creates:** a generator-extraction test pinning `scripts/generate-admin-tables.ts` against the §4.5 mutant set (three CREATE TABLE spellings + an unresolvable name expecting a throw).
 
-**Advisory-lock topology:** NOT N/A — corrected in R3. §6.2's sentinel seeding inserts into every `ADMIN_TABLES` member, and two of them — `pending_syncs` and `pending_ingestions` — are named in invariant 2's mutation list. A test-only transaction that rolls back is still a mutation path, and invariant 2 admits no test exemption.
-
-Holder enumeration for the `show:<drive_file_id>` hashkey touched by the seed: the existing holders are the JS-side cron wrapper and the in-RPC acquisitions in `_archive_show_core` / `_unarchive_show_apply` / `unarchive_show` / `reset_validation_data`. The new code's holder is **the test's own seed transaction**, taking `pg_advisory_xact_lock(hashtext('show:' || <fixture drive_file_id>))` before the INSERT and releasing at transaction end. Single-holder rule preserved: the seed calls no RPC, so no nested acquisition occurs, and the fixture `drive_file_id` is test-scoped so it never contends with a live cron holder. `tests/auth/advisoryLockRpcDeadlock.test.ts` gains a row pinning this topology.
-
-No SECURITY DEFINER function is added. The REVOKE itself acquires no lock (grants are catalog-level), and it makes the existing RPC holders *more* authoritative, not less.
+**Advisory-lock topology:** N/A, and this time for a verified reason rather than an assumption. R3 correctly rejected the first N/A claim because §6.2 seeded every `ADMIN_TABLES` member, two of which (`pending_syncs`, `pending_ingestions`) are named in invariant 2. R4 then showed the repaired holder enumeration was itself wrong (`_archive_show_core` and `_unarchive_show_apply` are lock-free delegated helpers whose wrappers hold the lock, and `set_pull_sheet_override` was omitted). Rather than enumerate a 20-site lock landscape correctly, §6.2 no longer seeds lock-scoped tables at all — so no code path in this cluster mutates any invariant-2 table, and the invariant is not engaged. No SECURITY DEFINER function is added. The REVOKE itself acquires no lock (grants are catalog-level), and it makes the existing RPC holders *more* authoritative, not less.
 
 **Invariant 10 (mutation-surface observability):** N/A — no new route handler and no new `"use server"` action. The 8 REVOKEd tables have no non-service-role mutation surface to instrument.
 
