@@ -1,0 +1,178 @@
+/**
+ * components/admin/review/sectionFreshness.ts
+ *
+ * The freshness-cue DETECTOR (spec 2026-08-03-modal-freshness-cue sections 4.1
+ * and 4.6). Pure: no React, no Supabase, no clock, no randomness.
+ *
+ * THE PROBLEM IT SOLVES. When a realtime broadcast lands, the admin published
+ * review modal calls `router.refresh()` and RSC reconciles the new payload in
+ * place. React hands the client no list of what changed — the props are simply a
+ * new object with new content. To point at "the updated field" we have to derive
+ * that list ourselves, and the only honest way is to compare CONTENT, never
+ * object identity: the modal's own once-per-mount refresh re-serialises identical
+ * content into a fresh object, so an identity comparison would flash the whole
+ * modal every time it opened.
+ *
+ * WHY A SECTION'S CONTENT IS NOT JUST ITS OWN FIELDS. Three things render inside
+ * a section's panel card and change independently of that section's data:
+ *
+ *   1. the warnings ROUTED to it, which arrive as `bySection` (the server-derived
+ *      per-section model) and render as the card's last child;
+ *   2. the use-raw decision attached to each of those routed warnings, which IS
+ *      the rendered state of that control;
+ *   3. the section's own source anchor, which is where its "In sheet" link points.
+ *
+ * A projection over own-fields-only left a warn arriving for Crew flashing only
+ * the Sheet-warnings section while the Crew card, which visibly changed, stayed
+ * silent. Crew additionally carries `previewRoster` (what the row actions target)
+ * and pack list `archivedTabOffer` (visible offer cards) for the same reason.
+ *
+ * THE HASH IS A CHANGE DETECTOR, NOT A DIGEST. A collision costs exactly one
+ * missed cue on content that is already correct on screen, so a cryptographic
+ * hash would buy nothing and would drag `node:crypto` into a module that a client
+ * component imports.
+ */
+import type { PublishedSectionData } from "@/components/admin/review/sectionData";
+import type { ParseWarning } from "@/lib/parser/types";
+import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
+import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
+import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
+
+/**
+ * One-shot cue duration, paired with the `section-freshness-flash-*` keyframes in
+ * `app/globals.css` and pinned against them by a drift test.
+ *
+ * A NEW constant deliberately holding the same value as `WARNING_HIGHLIGHT_MS`
+ * and `SHARE_LINK_FLASH_MS`, not a reuse of either: this project's convention is
+ * one constant per owning module per surface, ratified as R8 of the share-link
+ * chrome spec.
+ */
+export const SECTION_FRESHNESS_FLASH_MS = 1600;
+
+/**
+ * Above this many changed sections, no card flashes at all and the announcement
+ * degrades to a whole-surface sentence. A full re-parse was measured changing all
+ * eleven of the probe fixture's sections at once; flashing eleven cards is a
+ * strobe, and a cue that points at everything points at nothing.
+ */
+export const SECTION_FRESHNESS_MAX_CUES = 3;
+
+export type SectionSignatures = ReadonlyMap<SectionId, string>;
+
+export type SectionSignatureInput = {
+  data: PublishedSectionData;
+  bySection: SectionWarningRecord;
+};
+
+/**
+ * djb2 over the JSON form, joined with the length so two strings that collide on
+ * the integer still have to agree on size.
+ */
+function hash(value: unknown): string {
+  const s = JSON.stringify(value ?? null) ?? "null";
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${h}:${s.length}`;
+}
+
+/**
+ * The own-fields projection, section by section. Every entry mirrors the feed the
+ * corresponding panel actually renders from; see the spec's section 4.1 table for
+ * the per-row citation into `step3ReviewSections.tsx`.
+ */
+const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData) => unknown> = {
+  venue: (d) => d.venue,
+  event: (d) => d.eventDetails,
+  // `previewRoster` is not decoration: it carries the persisted ids the crew row
+  // actions target, so a row swap that reads identically still changed the card.
+  crew: (d) => [d.crewMembers, d.previewRoster ?? null],
+  contacts: (d) => [d.clientContact, d.contacts],
+  schedule: (d) => [d.ros, d.dates],
+  agenda: (d) => d.agendaBaseline,
+  hotels: (d) => d.hotels,
+  transport: (d) => d.transportation,
+  rooms: (d) => [d.rooms, d.diagrams],
+  packlist: (d) => [
+    d.pullSheet,
+    d.archivedPullSheetTabs,
+    d.pullSheetOverride,
+    d.pullSheetOverrideWire,
+    d.archivedTabOffer ?? null,
+  ],
+  billing: (d) => d.billing,
+  // The Sheet-warnings section renders the FULL list plus every decision, which is
+  // why it hashes them wholesale while owning sections hash only what routed to them.
+  warnings: (d) => [d.warnings, d.useRawDecisions],
+  // A sub-block, never a rail id in its own right; present so the record is total.
+  diagrams: (d) => d.diagrams,
+};
+
+/**
+ * One signature per RENDERED rail section. A section that is not rendered gets no
+ * entry, so it can never be cued.
+ */
+export function buildSectionSignatures(input: SectionSignatureInput): SectionSignatures {
+  const { data, bySection } = input;
+  const out = new Map<SectionId, string>();
+  for (const id of renderedSectionIds(data)) {
+    const own = OWN_FIELDS[id as Exclude<SectionId, "report">];
+    const routed = bySection[id] ?? null;
+    // The decisions attached to THIS section's routed warnings, matched through
+    // the canonical matcher rather than a reimplementation: a second matcher
+    // would be a second source of truth for `(code, contentHash)`.
+    const routedDecisions = warningsOf(routed).map(
+      (w) => findUseRawDecision(w, data.useRawDecisions) ?? null,
+    );
+    const region = SECTION_REGION_MAP[id];
+    const anchor = region === null ? null : (data.sourceAnchors?.[region] ?? null);
+    out.set(id, hash([own === undefined ? null : own(data), routed, routedDecisions, anchor]));
+  }
+  return out;
+}
+
+/**
+ * Every warning in a section's model, both partitions. Written defensively over
+ * the record's shape rather than destructured, so a future partition added to
+ * `SectionWarningModel` widens the signature instead of being silently ignored.
+ */
+function warningsOf(model: SectionWarningRecord[SectionId] | null): ParseWarning[] {
+  if (model === null || model === undefined) return [];
+  const out: ParseWarning[] = [];
+  for (const value of Object.values(model)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value as unknown[]) {
+      const w = (item as { warning?: unknown }).warning;
+      if (w !== undefined && w !== null) out.push(w as ParseWarning);
+    }
+  }
+  return out;
+}
+
+/**
+ * Ids whose signature differs, over the UNION of both maps' keys.
+ *
+ * The union is load-bearing: a section can change by DISAPPEARING (agenda drops
+ * out of the rail when its baseline empties), and a diff that walked only the new
+ * map would report that as no change at all.
+ *
+ * Results come back in registry order, because the announcement reads them aloud
+ * and document order is the only order a reader can follow.
+ */
+export function changedSectionIds(
+  prev: SectionSignatures,
+  next: SectionSignatures,
+): SectionId[] {
+  const changed = new Set<SectionId>();
+  for (const [id, sig] of prev) if (next.get(id) !== sig) changed.add(id);
+  for (const [id, sig] of next) if (prev.get(id) !== sig) changed.add(id);
+  const order = [...next.keys(), ...prev.keys()];
+  const seen = new Set<SectionId>();
+  const out: SectionId[] = [];
+  for (const id of order) {
+    if (!changed.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
