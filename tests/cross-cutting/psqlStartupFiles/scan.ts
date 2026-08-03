@@ -998,6 +998,9 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   }
 
   for (const argv of commands) {
+    /** Set when a JOINING consumer has handled this argv; its words are that
+     * consumer's command string, not a command in their own right. */
+    let joinedHandled = false;
     // `bash -c "psql …"`, `sh -lc "…"`, `docker exec … sh -c "…"`, `eval "…"`,
     // and the other ordinary command-STRING consumers: `su - postgres -c "…"`,
     // `runuser -u postgres -c "…"`, `env -S "…"`, `ssh host "…"`, `watch "…"`.
@@ -1016,21 +1019,38 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       // simply a later word that is itself a command line.
       const isTrailing = TRAILING_SCRIPT_CONSUMERS.has(name);
       if (!isInterpreter && !isEval && !isDashS && !isTrailing) continue;
-      if (isTrailing) {
-        // Scan EVERY whitespace-bearing word after the program, skipping option
-        // values. Taking the first one and stopping mistook an ordinary
-        // `-o "ProxyCommand=nc %h %p"` for the remote command and never reached
-        // the real `ssh host "psql …"` behind it.
+      if (isTrailing || isEval) {
+        // These consumers APPEND their remaining arguments into ONE command
+        // string, separated by spaces, and the receiving shell re-parses it.
+        // ssh(1): "the arguments will be appended to the command, separated by
+        // spaces, before it is sent to the server to be executed." So
+        // `ssh host psql -c "VACUUM;" -X mydb` really runs
+        // `psql -c VACUUM; -X mydb` — the `;` terminates psql and the `-X`
+        // becomes a separate command. Reading the words directly certified it.
+        const remaining = [];
+        // Only ssh takes a HOST before the command, and it is the FIRST
+        // non-option word — not a fixed position, since options may precede it.
+        let hostPending = name === "ssh";
         for (let i = position + 1; i < argv.length; i++) {
           const candidate = argv[i]!;
-          if (!/\s/.test(candidate.text)) continue;
-          if (candidate.text.startsWith("-")) continue; // `-oProxyCommand=…`
-          const previous = argv[i - 1]?.text ?? "";
-          if (SSH_ARG_FLAGS.test(previous)) continue; // `-o` + its separate value
-          for (const site of scanShellText(candidate.text, file, lineOffset + candidate.line))
-            sites.push({ ...site, offset: candidate.offsets[site.offset] ?? candidate.offset });
+          if (remaining.length === 0) {
+            if (candidate.text.startsWith("-")) continue; // an option
+            if (SSH_ARG_FLAGS.test(argv[i - 1]?.text ?? "")) continue; // its value
+            if (hostPending && !/\s/.test(candidate.text)) {
+              hostPending = false;
+              continue;
+            }
+          }
+          remaining.push(candidate);
         }
-        continue;
+        if (remaining.length > 0) {
+          const anchor = remaining[0]!;
+          const joined = remaining.map((word) => word.text).join(" ");
+          for (const site of scanShellText(joined, file, lineOffset + anchor.line))
+            sites.push({ ...site, offset: anchor.offsets[site.offset] ?? anchor.offset });
+        }
+        joinedHandled = true;
+        break;
       }
       for (let i = position + 1; i < argv.length; i++) {
         const candidate = argv[i]!;
@@ -1092,6 +1112,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       }
     }
 
+    if (joinedHandled) continue;
     const index = argv.findIndex((word) => basename(word.text) === "psql");
     if (index === -1) continue;
     // The denylist decides whether psql is the COMMAND or an argument to a
@@ -1685,7 +1706,13 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   const nested: NestedShell[] = [];
   lexShellWords(source, nested);
   const seenBodies = new Set<string>();
+  // In a JS string literal a BACKTICK span is markdown, not shell: prose like
+  // "wrap with `command -v psql >/dev/null || (...)`" is documentation. Same
+  // reasoning as `nestedInBacktick` on the site side. In a .sh or .yml file a
+  // backtick IS a substitution, so it still counts there.
+  const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
   const visitBody = (body: NestedShell): void => {
+    if (body.backtick && backticksAreMarkdown) return;
     if (seenBodies.has(body.text)) return;
     seenBodies.add(body.text);
     const inner: NestedShell[] = [];
@@ -1702,7 +1729,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     const code = comment === undefined ? line : line.slice(0, comment);
     // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
     const assigned =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:\s|$)/.exec(
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:[\s;|&)]|$)/.exec(
         code,
       );
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
@@ -1739,8 +1766,18 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
   const visitNode = (node: ts.Node): void => {
     const composed = composedText(node, sourceFile);
     const text = composed?.text ?? null;
-    const suspicious = text !== null && (isPsqlBinary(text) || looksLikePsqlCommandLine(text));
-    if (suspicious && !recognized.has(node.getStart(sourceFile))) {
+    // A JS shell STRING can carry the same runtime binding a `.sh` file can:
+    // `execSync('PG=psql; "$PG" -qAt mydb')` has a surviving literal `psql`,
+    // executes an unprotected call, and yields no site — the command word only
+    // exists after expansion. The header named this exact example as covered;
+    // it was not, because the shell rules ran only on `.sh` and `.yml`.
+    const shellBound = text !== null && scanShellIndirection(text, file).length > 0;
+    const suspicious =
+      text !== null && (isPsqlBinary(text) || looksLikePsqlCommandLine(text) || shellBound);
+    // A shell-BOUND string is reported even when the node is a recognized
+    // argv[0]: being scanned as shell text does not help when the command word
+    // only exists after expansion, which is exactly what the site path misses.
+    if (suspicious && (shellBound || !recognized.has(node.getStart(sourceFile)))) {
       hits.push({
         file,
         line: lineOf(sourceFile, node.getStart(sourceFile)),

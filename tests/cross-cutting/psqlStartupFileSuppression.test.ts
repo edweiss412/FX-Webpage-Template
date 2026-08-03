@@ -1866,3 +1866,69 @@ describe("R19 escaping mutants", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(true);
   });
 });
+
+describe("R20 escaping mutants", () => {
+  // ssh(1): "the arguments will be appended to the command, separated by
+  // spaces, before it is sent to the server to be executed." `eval` and `watch`
+  // join the same way. So `ssh host psql -c "VACUUM;" -X mydb` really runs
+  // `psql -c VACUUM; -X mydb` — the `;` ends psql and the `-X` never reaches it.
+  test.each([
+    ["ssh", 'ssh database psql -c "VACUUM;" -X mydb\n', "x.sh"],
+    ["eval", 'eval "echo setup;" psql -c "VACUUM;" -X mydb\n', "x.sh"],
+    ["watch", 'watch psql -c "VACUUM;" -X mydb\n', "x.sh"],
+    ["ssh in a JS shell string", `execSync('ssh database psql -c "VACUUM;" -X mydb');`, "x.mjs"],
+    [
+      "ssh in a workflow run block",
+      'jobs:\n  a:\n    steps:\n      - run: |\n          ssh database psql -c "VACUUM;" -X mydb\n',
+      ".github/workflows/x.yml",
+    ],
+  ])("%s joins its arguments, so the trailing -X is not certified", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.tokens).toEqual(["-c", "VACUUM"]);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["a plain protected remote command", "ssh database psql -X -qAt mydb\n"],
+    ["a quoted protected remote command", 'ssh database "psql -X -qAt mydb"\n'],
+    ["a protected eval", 'eval "psql -X -qAt mydb"\n'],
+  ])("%s still certifies, and is counted ONCE", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("an ssh option value is still not mistaken for the remote command", () => {
+    const sites = sitesIn('ssh -o "ProxyCommand=nc %h %p" database "psql -qAt mydb"\n', "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // A JS shell STRING can carry the same runtime binding a .sh file can.
+  test.each([
+    ["execSync", `execSync('PG=psql; "$PG" -qAt mydb');`],
+    ["exec", `exec('PG=psql; "$PG" -qAt mydb');`],
+    [
+      "a shell command line as argv[0]",
+      `execFileSync('PG=psql; "$PG" -qAt mydb', { shell: true });`,
+    ],
+    ["execFileSync via sh -c", `execFileSync("sh", ["-c", 'PG=psql; "$PG" -qAt mydb']);`],
+    ["spawnSync via sh -c", `spawnSync("sh", ["-c", 'PG=psql; "$PG" -qAt mydb']);`],
+    ["an alias in argv[0]", `spawn('alias psql="psql -F"; psql -X mydb', { shell: true });`],
+  ])("%s is reported as an indirection", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ["an ordinary literal call", `execFileSync("psql", ["-X", "-qAt", dsn]);`],
+    ["an error message", 'const m = "psql exit ${c}: ${e}";'],
+    // A BACKTICK span in JS prose is markdown, not a substitution.
+    [
+      "markdown prose in a JS string",
+      'const m = "wrap with `command -v psql >/dev/null || (...)` to skip";',
+    ],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
+  });
+});
