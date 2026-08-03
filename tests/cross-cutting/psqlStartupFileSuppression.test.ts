@@ -23,7 +23,8 @@
  *
  * Pure — no DB, no network.
  */
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -390,9 +391,48 @@ describe("live tree scan", () => {
     ).toEqual([]);
   });
 
+  test("the walk read every directory — an unreadable path is an incomplete census", () => {
+    expect(
+      usage.unreadable,
+      `the psql census is INCOMPLETE — these paths could not be read, so any call site under ` +
+        `them was silently omitted:\n  ${usage.unreadable.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
   test("every exemption carries a reason", () => {
     for (const site of usage.sites.filter((s) => s.exemptReason !== null)) {
       expect(site.exemptReason!.length, `${site.file}:${site.line}`).toBeGreaterThan(10);
+    }
+  });
+});
+
+// ── the unreadable-directory mutant (review R1) ─────────────────────────
+
+describe("an unreadable directory is reported, never skipped", () => {
+  const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+
+  // Review R1 escaping mutant: `chmod 000 scripts/ci` dropped the live census
+  // from 73 sites to 71 and the guard still PASSED, because the walk swallowed
+  // the readdir failure. A silent under-count is the exact failure this file
+  // exists to prevent, so the walk now records it and the live scan asserts the
+  // list is empty. Root bypasses directory permissions, so the probe cannot run
+  // there — the live assertion above still holds either way.
+  test.skipIf(isRoot)("chmod 000 on a directory holding a psql site fails the census", () => {
+    const root = mkdtempSync(join(tmpdir(), "psql-unreadable-"));
+    const blocked = join(root, "scripts");
+    mkdirSync(blocked, { recursive: true });
+    writeFileSync(join(blocked, "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
+
+    expect(collectPsqlUsage(root).sites).toHaveLength(1);
+
+    chmodSync(blocked, 0o000);
+    try {
+      const usage = collectPsqlUsage(root);
+      expect(usage.sites).toHaveLength(0); // the site really did vanish...
+      expect(usage.unreadable).toEqual(["scripts"]); // ...and the guard says so
+    } finally {
+      chmodSync(blocked, 0o755);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

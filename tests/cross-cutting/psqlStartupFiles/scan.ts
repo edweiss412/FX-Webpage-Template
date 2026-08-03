@@ -109,6 +109,9 @@ export type IndirectionHit = { file: string; line: number; text: string };
 export type PsqlUsage = {
   sites: PsqlSite[];
   indirections: IndirectionHit[];
+  /** Repo-relative paths the walk could not read. A non-empty list means the
+   * census is INCOMPLETE and the meta-test fails — see `walk`. */
+  unreadable: string[];
   filesScanned: number;
 };
 
@@ -504,15 +507,20 @@ export function scanSource(source: string, file: string): PsqlSite[] {
   return scanJsSource(source, file);
 }
 
-function walk(directory: string, out: string[]): void {
+/**
+ * A path the walk could not read. RECORDED, never swallowed: an earlier cut
+ * returned early on `readdirSync` failure with a comment claiming that could not
+ * hide a call site. A review probe disproved it — `chmod 000 scripts/ci` dropped
+ * the census from 73 to 71 and the guard still passed, which is precisely the
+ * silent under-count this whole file exists to prevent. Unreadable now fails the
+ * meta-test.
+ */
+function walk(directory: string, out: string[], unreadable: string[]): void {
   let entries: string[];
   try {
     entries = readdirSync(directory);
   } catch {
-    // An unreadable directory is skipped rather than crashing the scan. It
-    // cannot silently hide a call site: the walk starts at the repo root and
-    // the only thing that makes a directory unreadable here is a permission
-    // problem on a path git could not have checked out either.
+    unreadable.push(directory);
     return;
   }
   for (const entry of entries) {
@@ -522,27 +530,36 @@ function walk(directory: string, out: string[]): void {
     try {
       stats = statSync(full);
     } catch {
+      unreadable.push(full);
       continue;
     }
-    if (stats.isDirectory()) walk(full, out);
+    if (stats.isDirectory()) walk(full, out, unreadable);
     else if (SCANNED_EXTENSIONS.includes(extensionOf(entry))) out.push(full);
   }
 }
 
 export function collectPsqlUsage(repoRoot: string): PsqlUsage {
   const files: string[] = [];
-  walk(repoRoot, files);
+  const unreadableAbsolute: string[] = [];
+  walk(repoRoot, files, unreadableAbsolute);
   files.sort();
 
   const sites: PsqlSite[] = [];
   const indirections: IndirectionHit[] = [];
+  const unreadable = unreadableAbsolute.map((p) => relative(repoRoot, p).split(sep).join("/"));
   for (const full of files) {
-    const source = readFileSync(full, "utf8");
+    let source: string;
+    try {
+      source = readFileSync(full, "utf8");
+    } catch {
+      unreadable.push(relative(repoRoot, full).split(sep).join("/"));
+      continue;
+    }
     if (!source.includes("psql")) continue;
     const rel = relative(repoRoot, full).split(sep).join("/");
     sites.push(...scanSource(source, rel));
     if (JS_EXTENSIONS.includes(extensionOf(full)) && rel !== SELF)
       indirections.push(...scanBinaryIndirection(source, rel));
   }
-  return { sites, indirections, filesScanned: files.length };
+  return { sites, indirections, unreadable, filesScanned: files.length };
 }
