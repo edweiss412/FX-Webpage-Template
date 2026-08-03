@@ -28,9 +28,9 @@ written.
 | `--duration-fast: 120ms` | `app/globals.css:223` |
 | 3 `TWO-STEP navigation` workaround sites | `tests/e2e/stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`, `stage-restricted-crew-schedule.spec.ts:461` |
 | component-test harness for the picker | `tests/show/pickerAffordance.test.tsx:1-26` (jsdom + testing-library, renders `PickerInterstitial` with a roster fixture) |
-| stale-entry seeding for e2e | `tests/e2e/helpers/seedPickerCookie.ts:66` — `seedPickerCookie(context, [{ showId, crewMemberId, epoch }])`; an `epoch` mismatching `shows.picker_epoch` yields `epoch_stale` |
+| stale-entry staging for e2e | **NOT** `seedPickerCookie` — `tests/e2e/picker-flow.spec.ts:11-16` records that Chromium CDP rejects `__Host-` cookie injection and the suite now stages by DRIVING the picker. Task 8 follows that. |
 | e2e seed helper returns `pickerEpoch` | `tests/e2e/helpers/seedShowWithCrew.ts:85-92` |
-| layout-measurement home + pattern | `tests/e2e/crew-layout-dimensions.spec.ts`; `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101` |
+| layout-measurement pattern | `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101`. NOT hosted in `crew-layout-dimensions.spec.ts` — that file is `PATH_GATED` debt (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and CI runs only its `T-NOPHANTOM-CREW` grep (`.github/workflows/phantom-gap-e2e.yml:175`). Task 5 hosts them in `picker-flow.spec.ts`. |
 | e2e workflow already runs picker-flow on desktop-chromium | `.github/workflows/crew-e2e.yml:151` |
 
 **`useFormStatus` probe (spec §3.4).** Run before drafting; result `NATIVE_GET=false`,
@@ -40,7 +40,11 @@ regression test that encodes the same fact against our own component.
 ## 0.1 Meta-test inventory
 
 **CREATES:** none.
-**EXTENDS:** none.
+
+**EXTENDS:** `tests/components/StaleCleanupAutoSubmit.test.tsx:61-79` — its `SANCTIONED` set is a
+hard two-entry allowlist of `"use client"` files under `app/show/[slug]/[shareToken]/`. The new
+`_ClaimedRowButton` is a third client island and MUST be added there, in Task 4, or the required
+unit workflow goes red. Missing this was plan R1 finding 5.
 
 Checked and ruled out, explicitly:
 
@@ -62,10 +66,12 @@ Checked and ruled out, explicitly:
 - **Readiness gate:** an explicit locator assertion (`expect(page.getByTestId(...)).toBeVisible()`)
   after every `goto`. `networkidle` alone is not a gate — the existing spec pairs `waitUntil:
   "networkidle"` with a visibility assertion, and new tests must do the same.
-- **Detach safety:** the layout probe in Task 7 reads `getBoundingClientRect` on a row that a
-  navigation can unmount. It runs against a click that is `preventDefault`-ed in the harness (or on
-  a page where navigation is blocked by route interception), so the element cannot detach
-  mid-measure.
+- **Detach safety:** the layout probe in Task 5 reads `getBoundingClientRect` on a row whose native
+  GET would navigate away mid-measure. **Chosen strategy: Playwright route interception** —
+  `page.route("**/auth/sign-in*", (route) => route.abort())`, registered BEFORE the click, with an
+  attachment check before each measurement. Not `preventDefault`: interception leaves the real
+  `onClick` handler and the real submission path intact, so the production code path is what gets
+  exercised.
 
 ## 0.3 Closeout marker
 
@@ -78,79 +84,93 @@ gate runs at close-out and this line is filled in then.
 
 ## Tasks
 
-### Task 1 — bootstrap accepts a query-bearing `next` (RED)
+**Every task is a complete TDD cycle** — failing test → minimal implementation → passing test →
+one commit (AGENTS.md invariants 1 and 6). A task is never RED-only or GREEN-only: splitting them
+would commit a red suite, which invariant 6's one-commit-per-task rule turns into a broken HEAD.
+Plan R1 finding 1.
 
-**Failing test first.** Extend `tests/auth/picker-bootstrap.test.ts` with the four-shape matrix from
-spec §2.1. Each case asserts the **exact** `Location` header, not merely a non-403 status.
+### Task 1 — bootstrap accepts a query-bearing `next`
 
-Failure mode caught: a handler that strips the query would return 302 and pass a status-only
+**RED.** Extend `tests/auth/picker-bootstrap.test.ts` with the four-shape matrix from spec §2.1.
+Each case asserts the **exact** `Location` header, not merely a non-403 status.
+
+Failure mode caught: a handler that strips the query returns 302 and passes a status-only
 assertion while silently reintroducing the deep-link loss R1 rejects.
-
-Cases:
 
 1. `next=/show/<slug>/<64hex>` → `Location` identical (regression guard on today's behavior).
 2. `next=/show/<slug>/<64hex>?s=schedule` → `Location` carries `?s=schedule`.
 3. `next=/show/<slug>/<64hex>?gate=skip` → `Location` carries `?gate=skip`.
-4. `next=/show/<slug>/<64hex>?s=schedule&gate=skip` → `Location` carries both, in that order
-   (`buildShowReturnUrl` emits a stable order — `lib/crew/buildShowReturnUrl.ts:46`).
+4. `next=/show/<slug>/<64hex>?s=schedule&gate=skip` → both, in that order
+   (`lib/crew/buildShowReturnUrl.ts:46` emits a stable order).
 
-Cases 2–4 fail before Task 2.
+Cases 2–4 are red.
 
-### Task 2 — bootstrap: split the query before matching (GREEN)
-
-`app/api/auth/picker-bootstrap/route.ts`, `parseNextPath` only:
+**GREEN.** `app/api/auth/picker-bootstrap/route.ts`, `parseNextPath` only:
 
 ```ts
-function parseNextPath(path: string): { slug: string; shareToken: string } | null {
+export function parseNextPath(path: string): { slug: string; shareToken: string } | null {
   const match = SHOW_NEXT_RE.exec(path.split("?")[0]!);
   if (!match) return null;
   return { slug: match[1]!, shareToken: match[2]! };
 }
 ```
 
-`SHOW_NEXT_RE` is NOT edited (spec R6). Nothing else in the file changes.
+`SHOW_NEXT_RE` is NOT edited (spec R6). The `export` is added deliberately — Task 2 needs to reach
+this function directly, and the reason is recorded there.
 
-Typecheck note: `path.split("?")[0]` is `string | undefined` under
-`noUncheckedIndexedAccess`; the `!` is required and is safe (`split` always yields ≥1 element).
+Typecheck: `path.split("?")[0]` is `string | undefined` under `noUncheckedIndexedAccess`; the `!`
+is required and safe (`split` always yields ≥1 element).
 
-### Task 3 — bootstrap negative cases (RED→GREEN, same surface)
+### Task 2 — pin the path grammar where it is actually observable
 
-Three guards that pin what Task 2 must NOT have loosened. Each is a distinct failure mode:
+**The obvious version of this test is tautological, and R1 proved it with a mutant.** Sending
+`next=/show/<slug>/<64hex>/extra` through the route does NOT pin `SHOW_NEXT_RE`: the route
+validates `next` first (`app/api/auth/picker-bootstrap/route.ts:147-151`), and the upstream
+`ALLOWED_NEXT_RE` (`lib/auth/validateNextParam.ts:18`) is independently `$`-anchored, so it
+rejects `/extra` before `parseNextPath` ever runs. Settling mutant from the review: delete the `$`
+from `SHOW_NEXT_RE` only, send `/show/<slug>/<token>/extra`, and the route still answers 403 — the
+route-level test passes against a broken parser.
 
-1. **Path grammar.** `next=/show/<slug>/<64hex>/extra` still 403s. Catches a future "fix" that
-   loosens the `$` anchor instead of splitting — the two are indistinguishable without this test.
-2. **Intent binding.** A `t` token signed for a different slug still 403s at `route.ts:161` when
-   `next` carries a query. Catches the query leaking into the signed comparison.
-3. **Allow-list pass-through.** `next=/show/<slug>/<64hex>?s=schedule&evil=1` → emitted `Location`
-   contains `s=schedule` and does **not** contain `evil`. Catches a regression where the handler
-   starts trusting the raw query instead of `validateNextParamDetailed` output.
+**RED.** Unit-test the exported `parseNextPath` directly:
 
-All three should pass immediately after Task 2 — they are the anti-tautology frame around it. If
-any fails, Task 2 is wrong.
+- `/show/<slug>/<64hex>/extra` → `null` (this is the assertion the mutant kills; verify by
+  temporarily deleting the `$` and watching THIS test fail while the route test stays green).
+- `/show/<slug>/<64hex>?s=schedule` → `{ slug, shareToken }` with the token free of query text.
+- `/show/<slug>/<64hex>` → same pair.
+- `/show/<SLUG-with-caps>/<64hex>` → `null` (case grammar unchanged).
 
-### Task 4 — stale cleanup redirects (RED)
+**GREEN.** No implementation change — Task 1 already wrote it. This task's deliverable is the test
+plus the recorded mutant result, committed together.
 
-Three unit assertions, all written against the **public** `cleanupStaleEntry` action, never against
-`cleanupStaleEntryCoreImpl`. Spec §3.3 and §8.2 are the contract.
+Two route-level guards stay, because they pin different seams:
 
-1. **Sentinel escape.** Calling `cleanupStaleEntry(formData)` THROWS a `NEXT_REDIRECT` sentinel
-   whose digest carries the expected destination. Failure mode caught: a redirect placed inside
-   `cleanupStaleEntryCoreImpl`, which `cleanupStaleEntryCore:56-61`'s bare `catch` converts into
-   `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` — no navigation, and the action reports
-   an infra fault. **An assertion scoped to the impl passes in exactly that broken world**, which
-   is precisely why this one is at the public boundary. This was the R1 BLOCKING finding.
+- **Intent binding.** A `t` token signed for a different slug still 403s at `route.ts:161` when
+  `next` carries a query. Pins that the query did not leak into the signed comparison.
+- **Allow-list pass-through.** `?s=schedule&evil=1` → emitted `Location` contains `s=schedule` and
+  not `evil`. Pins that the handler still trusts `validateNextParamDetailed` output rather than the
+  raw query.
+
+### Task 3 — stale cleanup redirects from the public action
+
+**RED.** Three assertions, all against the **public** `cleanupStaleEntry`, never against
+`cleanupStaleEntryCoreImpl` (spec §3.3, §8.2):
+
+1. **Sentinel escape.** `cleanupStaleEntry(formData)` THROWS a `NEXT_REDIRECT` sentinel whose
+   digest carries the expected destination. Failure mode: a redirect inside
+   `cleanupStaleEntryCoreImpl`, which `cleanupStaleEntry.ts:56-61`'s bare `catch` turns into
+   `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` — no navigation at all. **An
+   impl-scoped assertion passes in exactly that broken world**, which is why this one sits at the
+   public boundary.
 2. **Emit survival.** `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws —
    catch the sentinel, then assert the sink spy. Failure mode: reordering that puts the throw above
-   the emit, silently dropping invariant-10 telemetry.
-3. **Destination carries `gate`.** The thrown sentinel's path includes `gate=skip` when the form
-   supplied it. Failure mode caught: the bare-canonical redirect, which re-resolves as
-   `no_auth: first_contact`, fails `allowGateSkip` (`app/show/[slug]/[shareToken]/page.tsx:324`),
-   and renders `<SignInOrSkipGate>` instead of the picker.
+   the emit, dropping invariant-10 telemetry.
+3. **Destination carries `gate`.** The sentinel's path includes `gate=skip` when the form supplied
+   it. Failure mode: the bare-canonical redirect, which re-resolves as `no_auth: first_contact`,
+   fails `allowGateSkip` (`app/show/[slug]/[shareToken]/page.tsx:324`), and renders
+   `<SignInOrSkipGate>` instead of the picker.
 
-### Task 5 — stale cleanup: redirect from the public action (GREEN)
-
-The redirect goes in `cleanupStaleEntry` (`lib/auth/picker/cleanupStaleEntry.ts:30-51`), AFTER
-`cleanupStaleEntryCore` returns and OUTSIDE its swallowing try/catch:
+**GREEN.** The redirect goes in `cleanupStaleEntry` (`lib/auth/picker/cleanupStaleEntry.ts:30-51`),
+after `cleanupStaleEntryCore` returns and OUTSIDE its swallowing try/catch:
 
 ```ts
 const result = await cleanupStaleEntryCore({
@@ -166,71 +186,85 @@ redirect(buildShowReturnUrl(slug, shareToken, { s, gate }));
 ```
 
 `revalidatePath` at `cleanupStaleEntry.ts:107` is KEPT — it invalidates the cache entry; the
-redirect moves the browser. Different jobs.
+redirect moves the browser.
 
-**The destination must carry `gate`.** Verified, not assumed: `page.tsx:190` sets
-`gateSkip = gate === "skip"`, `page.tsx:324` computes
-`allowGateSkip = gateSkip && result.reason === "first_contact"`, and `page.tsx:325` falls through to
-`<SignInOrSkipGate>` when that is false. A bare-canonical redirect therefore lands the user on the
-Welcome gate rather than the picker — the opposite of the intended outcome.
-
-Companion edits this requires:
+Companion edits:
 
 - `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) gains optional `gate` and `s`.
 - `_StaleCleanupAutoSubmit.tsx` gains two hidden inputs supplying them. **Only the hidden inputs** —
-  its `useEffect`, its empty dependency array, and its auto-submit mechanics are untouched, which
-  is what spec §1.2 protects.
+  its `useEffect`, empty dependency array, and auto-submit mechanics are untouched, which is what
+  spec §1.2 protects.
 - Both values are re-validated against the same allow-lists `validateNextParam` uses before
-  reaching `buildShowReturnUrl`. An absent or non-allow-listed value is dropped and the redirect
+  reaching `buildShowReturnUrl`; absent or non-allow-listed values are dropped and the redirect
   degrades to the bare canonical URL rather than failing.
 
-The `!result.ok` early return preserves the existing failure contract; the `isValidShowPathPair`
-early return returns the successful result rather than redirecting, because the cleanup itself
-already succeeded by that point.
+### Task 4 — claimed-row client boundary + pending state
 
-### Task 6 — claimed-row client boundary + pending state (RED→GREEN)
+**RED first, and one of the red tests is a static one that does not involve the component at all.**
 
-New `_ClaimedRowButton` (in the same directory as `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`), `"use client"`. Props per spec §3.4.
-Local `useState` for pending, flipped in `onClick`, reset on `pageshow`.
+`tests/components/StaleCleanupAutoSubmit.test.tsx:61-79` walks
+`app/show/[slug]/[shareToken]/` and fails on any `"use client"` file outside a two-entry
+`SANCTIONED` set (`_StaleCleanupAutoSubmit.tsx`, `error.tsx`). It is included by
+`vitest.projects.ts` and run by the required unit workflow, so **creating `_ClaimedRowButton`
+turns that suite red before any of this task's own tests run.** Adding
+`_ClaimedRowButton` to `SANCTIONED`, with a comment naming why a third client island exists, is
+part of this task — not an afterthought at close-out. Plan R1 finding 5; see the corrected §0.1
+inventory.
 
-**Busy signalling is `aria-disabled`, NOT the `disabled` attribute** (spec §3.5, R1 finding 3). A
-natively disabled button is removed from the focusable set, so a keyboard user loses their place
-the moment the row goes busy. `aria-disabled` keeps it focusable; the `onClick` early-return is
-what actually blocks the second activation, and is therefore load-bearing rather than decorative.
-Pending background is set via an `aria-disabled:` variant declared after the hover rule —
-`disabled:` variants do not apply and hover is NOT suppressed for free.
+New `_ClaimedRowButton` (same directory as `_PickerInterstitial.tsx`), `"use client"`, props per
+spec §3.4. Local `useState` for pending, flipped in `onClick`, reset on `pageshow`.
 
-Tests in `tests/show/pickerAffordance.test.tsx` (existing harness), roster fixture containing BOTH
+**Busy signalling is `aria-disabled`, NOT the `disabled` attribute** (spec §3.5). A natively
+disabled button leaves the focusable set, so a keyboard user loses their place the moment the row
+goes busy. `aria-disabled` keeps it focusable; the `onClick` early-return is what actually blocks
+the second activation, and is therefore load-bearing. Pending background is set via an
+`aria-disabled:` variant declared after the hover rule — `disabled:` variants do not apply and
+hover is NOT suppressed for free.
+
+Tests in `tests/show/pickerAffordance.test.tsx` (existing jsdom harness), roster fixture with BOTH
 a claimed and an unclaimed row:
 
 1. Pending renders `picker-row-spinner`, drops `picker-row-lock`, sets `aria-disabled="true"` +
    `aria-busy="true"`, and puts `Signing in…` in the claimed row's `picker-role-chip`. **Scope the
-   chip query to the claimed row's subtree** — unclaimed rows render `picker-role-chip` too, and an
+   chip query to the claimed row's subtree** — unclaimed rows render `picker-role-chip` too, so an
    unscoped query passes on the wrong node.
-2. **`useFormStatus` regression guard.** This is test 1's real job: a `useFormStatus`
-   implementation leaves pending false forever and fails it. Name that failure mode in a comment
-   citing spec §3.4 so the next reader does not "simplify" it away.
+2. **`useFormStatus` regression guard** — test 1's real job. A `useFormStatus` implementation leaves
+   pending false forever and fails it. Name that failure mode in a comment citing spec §3.4.
 3. `role={null}` → no chip idle, `Signing in…` chip pending (spec R4).
 4. Unclaimed row never renders `picker-row-spinner` (spec R5).
 5. `pageshow` with `persisted: true` after pending → back to idle.
-6. **Double-activation guard.** Fire two clicks; assert only one submit is issued. Failure mode
-   caught: relying on `aria-disabled` to block activation (it does not) and omitting the
-   `onClick` early return — the row would look busy and still double-submit, which is the entire
-   defect.
+6. **Double-activation guard.** Two clicks issue one submit. Failure mode: relying on
+   `aria-disabled` to block activation (it does not) and omitting the early return — the row would
+   look busy and still double-submit, which is the whole defect.
 
-Also: add `whitespace-nowrap` to `chipBase` (`_PickerInterstitial.tsx:182`) — `Signing in…` is
-wider than most role strings and the chip must not wrap (spec §5).
+Also add `whitespace-nowrap` to `chipBase` (`_PickerInterstitial.tsx:182`) — `Signing in…` is wider
+than most role strings and the chip must not wrap (spec §5).
 
-### Task 7 — layout + disabled-state proof, real browser
+### Task 5 — real-browser proof, in a file CI actually runs
 
-Extend `tests/e2e/crew-layout-dimensions.spec.ts`. Three assertions, all requiring a real browser.
+**Do not extend `tests/e2e/crew-layout-dimensions.spec.ts`.** It is registered as `PATH_GATED` debt
+(`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and its only workflow invocation filters to
+`-g "T-NOPHANTOM-CREW"` (`.github/workflows/phantom-gap-e2e.yml:175`), so everything else in it is
+CI-dark. Its host describe also signs in an admin and navigates crew-shell sections
+(`crew-layout-dimensions.spec.ts:291-335`) and never mounts a claimed picker row. Assertions added
+there would be green locally and never execute on a PR. Plan R1 finding 6, and an instance of the
+"local passes, CI fails" class in AGENTS.md.
 
-**7a — height invariance over TWO fixtures.** Measure the claimed row's
-`getBoundingClientRect().height` idle vs pending, equal within 0.5px, for a row WITH a role and a
-row with `role={null}`. The null-role case is the one that matters: with a role present pending
-merely swaps chip text, but with `role={null}` pending ADDS a chip idle does not have. A
-role-bearing fixture alone proves the easy substitution and never exercises R4's addition (R1
-finding 4).
+These assertions go in `tests/e2e/picker-flow.spec.ts`, which `crew-e2e.yml:151` runs on
+`desktop-chromium` for every PR that touches the paths.
+
+**Detach safety — one strategy, chosen.** The row submits a native GET that would navigate away
+mid-measure. Use Playwright **route interception** (`page.route("**/auth/sign-in*", route =>
+route.abort())`) so the navigation never commits and the element cannot detach. Not
+`preventDefault`: intercepting leaves the real `onClick` handler and the real form submission path
+intact, so the test still exercises the production code path rather than a neutered one. Register
+the interception BEFORE the click, and assert the row is still attached before each measurement.
+
+**5a — height invariance over two fixtures.** Claimed row `getBoundingClientRect().height` idle vs
+pending, equal within 0.5px, for a row WITH a role and a row with `role={null}`. The null-role case
+is the one that matters: with a role present pending swaps chip text, but with `role={null}`
+pending ADDS a chip idle does not have. A role-bearing fixture alone proves the easy substitution
+and never exercises R4's addition (spec R1 finding 4).
 
 Spec §5 invariant list, verbatim, is this task's checklist:
 
@@ -240,18 +274,19 @@ Spec §5 invariant list, verbatim, is this task's checklist:
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
 
-**7b — hover precedence.** With the pointer over the row, assert the computed background while
-pending is the pending background, not the hover background. Failure mode caught: assuming the
-busy state suppresses hover. It does not — Tailwind emits the hover variant with no not-disabled
-guard, and CSS hover matches by pointer position regardless.
+**5b — hover precedence.** Pointer over the row, pending active: computed background is the pending
+background, not the hover background. Failure mode: assuming busy suppresses hover. It does not —
+Tailwind emits the hover variant with no not-disabled guard, and CSS hover matches by pointer
+position regardless.
 
-**7c — focus retention.** Focus the row, drive it to pending, assert `document.activeElement` is
-still the row. Failure mode caught: shipping `disabled`, which drops focus to `<body>`.
+**5c — focus retention.** Focus the row, drive to pending, assert `document.activeElement` is still
+the row. Failure mode: shipping `disabled`, which drops focus to `<body>`.
 
-jsdom cannot compute layout or resolve computed styles this way; all three run in Playwright.
-Detach safety per §0.2.
+**5d — reduced motion.** Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
+`motion-reduce:animate-none` suppresses its animation, while the chip text swap and
+`aria-disabled` still convey pending. Spec §4.3 requires motion never be the sole signal.
 
-### Task 8 — transition audit
+### Task 6 — transition audit
 
 Enumerate every conditional branch in `_ClaimedRowButton` and assert each is animated as stated or
 deliberately instant, against spec §6:
@@ -261,41 +296,50 @@ deliberately instant, against spec §6:
 | idle → pending | instant; spinner rotation is the motion |
 | pending → idle | instant, via `pageshow` |
 
-Compounds — note the first three are **asserted in Task 7, not inferred here**, because R1 found
-the original prose claims were false:
+The compound rows are **asserted in Task 5, not enumerated here** — R1 showed the original prose
+claims about them were false, and a static conditional scan proves no browser behavior:
 
-- pointer-over-row during pending → pending background wins (Task 7b)
-- keyboard focus during pending → ring persists, focus retained (Task 7c)
-- pending arriving mid-hover-transition → the 120ms `transition-colors` completes into the pending
-  background, not the hover background (Task 7b covers the end state)
+- pointer-over-row during pending → Task 5b
+- keyboard focus during pending → Task 5c
+- pending arriving mid-hover-transition → Task 5b covers the end state
 - two different rows tapped → each owns its own state; two pending rows is accepted, not a bug
 
-### Task 9 — retire the e2e workaround (the proof)
+### Task 7 — retire the e2e workaround (the proof)
 
-`tests/e2e/stage-restricted-crew-schedule.spec.ts`: collapse all three TWO-STEP sites (`stage-restricted-crew-schedule.spec.ts:162`,
-`stage-restricted-crew-schedule.spec.ts:251`, `stage-restricted-crew-schedule.spec.ts:461`) to a single direct navigation to the `?s=schedule` URL, and delete the comment
-block at each.
+`tests/e2e/stage-restricted-crew-schedule.spec.ts`: collapse all three TWO-STEP sites
+(`stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`,
+`stage-restricted-crew-schedule.spec.ts:461`) to a single direct navigation to the `?s=schedule`
+URL, deleting the comment block at each.
 
 **This is the highest-value task in the plan.** It is the only place the bootstrap fix is proved
 end-to-end against a real browser and a real Google session rather than a route unit test. If it
-fails, Task 2 did not actually ship.
+fails, Task 1 did not actually ship.
 
-### Task 10 — stale-cleanup e2e
+### Task 8 — stale-cleanup e2e
 
-Extend `tests/e2e/picker-flow.spec.ts`. Seed a show, seed a picker cookie whose `epoch` mismatches
-`shows.picker_epoch` (→ `epoch_stale`), drive the picker at `?gate=skip`, and assert the browser
-lands **on the picker**: `picker-interstitial-root` visible, plus the stale hint gone.
+Extend `tests/e2e/picker-flow.spec.ts`.
+
+**Staging: drive the picker; do NOT call `seedPickerCookie`.** That helper injects a signed
+`__Host-fxav_picker` envelope via `context.addCookies`, and `picker-flow.spec.ts:11-16` records the
+measured result — Chromium's CDP rejects it outright ("Invalid cookie fields"), and WebKit accepts
+it but then will not let the server overwrite. The suite stages selections by driving the picker so
+the server mints the envelope itself, and there are no live `seedPickerCookie` call sites left in
+the tree. The §0 pre-draft table's citation of it was wrong; plan R1 finding 4.
+
+Sequence:
+
+1. Seed a show with crew, drive the picker at `?gate=skip`, tap a row → server mints the envelope.
+2. Bump `shows.picker_epoch` via the admin client so the minted entry is now stale (`epoch_stale`).
+3. Reload at `?gate=skip`; the stale-cleanup auto-submit fires.
+4. Assert the browser lands **on the picker**: `picker-interstitial-root` visible, stale hint gone.
 
 **Assert the rendered screen, not just the URL.** A URL-and-hint-only assertion passes on
-`<SignInOrSkipGate>`, which is exactly the wrong-screen bug R1 finding 2 identified — the redirect
-can be correct about the address and wrong about the page. Derive the expected URL from the
-fixture's slug/token; never hardcode.
+`<SignInOrSkipGate>` — the wrong-screen bug from spec R1 finding 2 — because that gate has no stale
+hint either. Derive the expected URL from the fixture's slug/token; never hardcode.
 
-Coverage is 1 of the 4 stale kinds (`epoch_stale`), by the documented-limits rationale in spec §9.
+Coverage is 1 of the 4 stale kinds (`epoch_stale`), per the documented-limits rationale in spec §9.
 
-No workflow wiring change: the file is already run by `.github/workflows/crew-e2e.yml:151`.
-
-### Task 11 — close-out
+### Task 9 — close-out
 
 1. Invariant-8 dual gate: `/impeccable critique` AND `/impeccable audit` on the diff. Fill in the
    §0.3 marker; record findings + dispositions.
@@ -310,16 +354,14 @@ No workflow wiring change: the file is already run by `.github/workflows/crew-e2
 
 ## Checklist
 
-- [ ] Task 1 — bootstrap four-shape matrix (RED)
-- [ ] Task 2 — `parseNextPath` splits query (GREEN)
-- [ ] Task 3 — bootstrap negative guards
-- [ ] Task 4 — stale-cleanup public-boundary sentinel/emit/destination tests (RED)
-- [ ] Task 5 — stale-cleanup redirect from the public action (GREEN)
-- [ ] Task 6 — `_ClaimedRowButton` + pending tests
-- [ ] Task 7 — layout + hover precedence + focus retention (real browser)
-- [ ] Task 8 — transition audit
-- [ ] Task 9 — retire the e2e workaround
-- [ ] Task 10 — stale-cleanup e2e
+- [ ] Task 1 — bootstrap accepts a query-bearing `next` (test + impl)
+- [ ] Task 2 — `parseNextPath` unit grammar pin, with the recorded mutant
+- [ ] Task 3 — stale cleanup redirects from the public action (test + impl)
+- [ ] Task 4 — `_ClaimedRowButton` + pending state + `SANCTIONED` allowlist entry
+- [ ] Task 5 — real-browser proof in `picker-flow.spec.ts` (5a–5d)
+- [ ] Task 6 — transition audit
+- [ ] Task 7 — retire the e2e workaround
+- [ ] Task 8 — stale-cleanup e2e (driven staging, not `seedPickerCookie`)
 - [ ] Self-review
 - [ ] Adversarial review (cross-model)
-- [ ] Task 11 — close-out (impeccable dual gate, backlog graduation, whole-diff review, merge)
+- [ ] Task 9 — close-out (impeccable dual gate, backlog graduation, whole-diff review, merge)
