@@ -205,13 +205,22 @@ synthetic ledgers. Failure modes caught, per the anti-tautology rule:
 - **P3** — a code-span-lead rule would let `BACKLOG.md:79` define the five ids it merely
   enumerates, from the wrong parent.
 - **P4** — a whole-bullet scan would let an entry define any sibling id it discusses.
-- **P5** — applying the rule outside `LEDGERS` would let a typo in a plan define itself.
+- **P5** — applying the rule outside `LEDGERS` would let a typo in a plan define itself. **This
+  plant does NOT go in the walker test**: `bodyDefinedIds(text, opts)` sees only markdown, so the
+  same text cannot behave two ways. It goes in
+  `tests/docs/_metaLedgerReferentialIntegrity.test.ts` against the newly exported
+  `definedIds(ledgers, read)` seam, with an injected `read` and a **paired control** — the same
+  P1 markdown resolves when its file is in `ledgers` and does not when it is not. R2b caught this
+  as HIGH: without the seam, AC-B2 could only be satisfied tautologically.
 - **P6** — walking list items without keying them to a resolving entry.
 - **P7/P8** — the R1 mutant: bullets after an intervening **non-id** heading belong to that
   section, not to the entry whose body span swallows them. P8 uses the real
   `BACKLOG-archive.md:1094-1096` shape with its headings removed in-memory.
 
-**GREEN.** Implement `bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts` per spec §4.1
+**GREEN.** Export `definedIds(ledgers, read)` from
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` with the injectable shape `citedIds` already
+uses (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:240-244`), then implement
+`bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts` per spec §4.1
 (ledger-only, first-child-of-first-paragraph, stop at first heading), built on `extractEntries`
 (`tests/docs/_ledgerMdast.ts:302`). Union into `definedIds()`. Delete the eight `KNOWN_DANGLING`
 rows.

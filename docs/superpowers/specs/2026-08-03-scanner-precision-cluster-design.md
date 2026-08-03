@@ -337,7 +337,13 @@ children) is exactly an id matching `opts.requirePrefix`, that id is DEFINED by 
 Three conditions, each closing a measured failure mode:
 
 1. **Ledger files only** — a bullet in a plan or a spec is never reached, so a typo there cannot
-   define itself.
+   define itself. **This condition lives in `definedIds()`, not in `bodyDefinedIds()`**, because it
+   is a fact about which FILES are walked, not about markdown. To make it testable rather than
+   asserted, `definedIds` is **exported and given injectable parameters**
+   `(ledgers, read)` — exactly the shape `citedIds` already uses for the same reason
+   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:240-244`, whose `read` defaults to the real
+   filesystem). Without that seam P5 below is untestable through the declared API; with it, P5 is a
+   genuine red→green.
 2. **First child of the first paragraph** — an id mid-sentence is not a definition (trap 1, §2.8).
 3. **Stop at the first heading** — a non-id heading opens a section that `extractEntries` cannot
    close, so bullets after it are not the entry's own (trap 2, §2.8).
@@ -352,7 +358,7 @@ Measured: conditions 1–2 alone yield 11 ids (3 wrong); all three yield exactly
 | P2 — strong-plain bullet under the same parent | DEFINES |
 | P3 — code-span lead, no strong | does NOT define (trap 1) |
 | P4 — strong id mid-sentence, not leading | does NOT define |
-| P5 — the P1 bullet in a NON-ledger file | defines nothing |
+| P5 — the P1 markdown supplied for a file NOT in `ledgers`, via injected `read` | defines nothing; the SAME text supplied for a ledger file DOES define (the control that makes it non-vacuous) |
 | P6 — the P1 bullet under a heading whose own id does not resolve | defines nothing |
 | **P7 — the P1 bullet after an intervening non-id heading** | **does NOT define (trap 2)** |
 | **P8 — the real `BACKLOG-archive.md:1094-1096` shape, with the picker headings removed in-memory** | **does NOT define** — the R1 mutant, pinned |
@@ -392,7 +398,9 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
 **Item B**
 
 - **AC-B1** All eight ids resolve; `KNOWN_DANGLING` retains exactly one row, `BL-RESOLVED`.
-- **AC-B2** Plants P1–P8 pass as specified in §4.2.
+- **AC-B2** Plants P1–P8 pass as specified in §4.2. P5 is exercised against the exported
+  `definedIds(ledgers, read)` seam with a paired control, so "ledger files only" is proven
+  behaviorally rather than asserted structurally.
 - **AC-B3** `bodyDefinedIds` over the four live ledgers returns exactly 8 ids, not 11.
 - **AC-B4** The whole-repo referential-integrity assertion passes with no new exemption.
 
@@ -421,6 +429,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | 1 | BLOCKING — R1/R2/R3 miss four live codes via two indirect-return-type factories | **Accepted.** Verified at `lib/sync/applyStaged.ts:1017` and `lib/sync/phase2.ts:337`. Closed structurally: the whole syntactic mechanism is replaced by type-aware recognition (§3.1), not patched with a third spelling. |
 | 2 | HIGH — G2 has a silent escaping shape (`severity` via typed const); AC-A6's `mkWarn` plant is auto-discovered and proves nothing | **Accepted, both halves.** The escape is closed by §3.1 site recognition; AC-A6 is **replaced** by a non-literal-severity mutant, and AC-A5 added for the indirect-return-type shape. |
 | 3 | HIGH — the body rule mis-parents three archive bullets under a non-id heading | **Accepted.** Verified: `BACKLOG-archive.md:1088` is a non-id heading and `extractEntries` assigns `BACKLOG-archive.md:1094-1096` to `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Closed by the stop-at-first-heading condition (§4.1); measured 11 → 8. Plants P7 and P8 pin it. |
+| B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
 The R1 reviewer's own probe predicted "the probed universe is at least 58"; the type-aware
