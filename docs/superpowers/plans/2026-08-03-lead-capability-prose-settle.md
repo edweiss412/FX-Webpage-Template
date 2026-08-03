@@ -565,7 +565,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10.
 
 ## 12. Close-out
 

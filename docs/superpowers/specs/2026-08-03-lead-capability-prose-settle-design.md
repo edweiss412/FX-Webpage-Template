@@ -285,6 +285,7 @@ Flat (non-subdirectory) specs and plans are not indexed in `docs/superpowers/spe
 | AC-8 | MI-9 carries no admin claim, and no live (non-historical) document asserts one | `rg -n "admin/ops" lib app components tests` → 0; `rg -n "admin/ops" docs` leaves only the historical records enumerated in §1.1 item 4 |
 | AC-9 | Ledger graduated cleanly | `pnpm vitest run tests/docs/` green, including `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerReferentialIntegrity` |
 | AC-10 | No regression elsewhere | Full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm spec:lint` green |
+| AC-11a | Instances D and E carry no count that can drift | `grep -n "five gated tiles\|Five derived predicates" lib/visibility/capabilityTransitions.ts` returns 0; the sentences name `CAPABILITY_PREDICATES` and the `GatedTile` union instead of counting them |
 | AC-11 | The descoped class is handed over, not dropped | `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` resolves in `BACKLOG.md` and carries all twelve instances plus the two already-honest exclusions from §2.7; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` green |
 
 ---
