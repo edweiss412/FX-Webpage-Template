@@ -20,6 +20,86 @@ function scan(): ParseWarningCodeScan {
 const SCAN_TIMEOUT_MS = 180_000;
 
 /**
+ * The parse-warning universe as of this commit — a golden snapshot, independent
+ * of anything the collector produces.
+ *
+ * This is the ONLY assertion that can detect the collector itself narrowing.
+ * The generator and this guard call the same collector, so if the collector
+ * narrows and the manifest is regenerated in the same commit, both shrink
+ * together and every artifact-derived check stays green (probed: 57 -> 51,
+ * manifest -> 51, set equality passes).
+ *
+ * An emitter-FILE anchor was tried first and rejected: sixteen of the
+ * twenty-two contributing files hold more than one site, so tightening the
+ * pre-filter within files drops 22 of 57 codes while the file set is untouched.
+ *
+ * Changing this list is a deliberate act: a new emitter adds a line, a removed
+ * one deletes a line, and the diff is the review artifact. That is the trade
+ * against the 4-code residue this change deletes — not fewer hand-maintained
+ * entries, but entries that cannot rot silently.
+ */
+const EXPECTED_PARSE_WARNING_CODES: readonly string[] = [
+  "AGENDA_BLOCK_UNRESOLVED",
+  "AGENDA_DAY_AMBIGUOUS",
+  "AGENDA_DAY_EMPTIED",
+  "AGENDA_DAY_TRUNCATED",
+  "AGENDA_FILE_INACCESSIBLE",
+  "AGENDA_GRID_MALFORMED",
+  "AGENDA_LINK_NOT_CLICKABLE",
+  "AGENDA_PDF_UNREADABLE",
+  "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+  "AGENDA_SCHEDULE_TIME_ADJUSTED",
+  "BLOCK_DISAPPEARED",
+  "COLUMN_HEADER_AUTOCORRECTED",
+  "CREW_COLUMN_POSITIONAL_FALLBACK",
+  "DATE_ORDER_SUGGESTS_DMY",
+  "DAY_RESTRICTION_DOUBLE_LOCATION",
+  "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+  "DIAGRAMS_EMBEDDED_NONE_FOUND",
+  "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+  "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+  "DIAGRAMS_TAB_MISSING",
+  "EMBEDDED_ASSET_DRIFTED",
+  "FIELD_LABEL_AUTOCORRECTED",
+  "FIELD_UNREADABLE",
+  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+  "HOTEL_CARDINALITY_EXCEEDED",
+  "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+  "HOTEL_INLINE_GROUP_OWN_HOTEL",
+  "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+  "OPENING_REEL_NOT_VIDEO",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "ORPHANED_CREW_ROWS",
+  "PULL_SHEET_AMBIGUOUS_FORMAT",
+  "PULL_SHEET_ON_ARCHIVED_TAB",
+  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+  "PULL_SHEET_PARSE_PARTIAL",
+  "PULL_SHEET_UNKNOWN_VARIANT",
+  "REEL_DRIFTED",
+  "ROLE_TOKEN_AUTOCORRECTED",
+  "ROOM_HEADER_SPLIT_AMBIGUOUS",
+  "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+  "SCHEDULE_TIME_UNPARSED",
+  "SECTION_HEADER_AUTOCORRECTED",
+  "SECTION_HEADER_NO_FIELDS",
+  "STAGE_WORD_AUTOCORRECTED",
+  "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  "TRAVEL_FLIGHT_NAME_UNMATCHED",
+  "TRAVEL_FLIGHT_UNPARSEABLE",
+  "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+  "TYPO_NORMALIZED",
+  "UNKNOWN_DAY_RESTRICTION",
+  "UNKNOWN_FIELD",
+  "UNKNOWN_ROLE_TOKEN",
+  "UNKNOWN_SECTION_HEADER",
+  "UNKNOWN_STAGE_RESTRICTION",
+  "VENUE_GEOCODE_UNRESOLVED",
+  "VENUE_TIMEZONE_UNRESOLVED",
+];
+
+
+/**
  * Structural guard over the parse-warning emit surface.
  *
  * Discovery is program-walked (the TypeScript program, not a file list), so an
@@ -141,6 +221,16 @@ describe("parse-warning code sites", () => {
       // `any` is assignable to everything, so without that exclusion this fails
       // on existing production code before any mutant is planted.
       expect(nonLiteral).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "matches the golden parse-warning universe",
+    () => {
+      const { sites } = scan();
+      const recognized = [...new Set(sites.map((s) => s.code))].sort();
+      expect(recognized).toEqual([...EXPECTED_PARSE_WARNING_CODES]);
     },
     SCAN_TIMEOUT_MS,
   );
