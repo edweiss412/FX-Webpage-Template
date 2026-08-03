@@ -153,7 +153,7 @@ Extend the Task-2 file with two cases, both running Phase B then Phase D end to 
 
 Both cases assert the apply actually succeeded (the row's result code is the OK code and the shadow row is consumed) before asserting on anchors — an apply that refused would trivially "preserve" `PRIOR` and make the wipe guard vacuous.
 
-What the wipe guard does NOT prove is spec §4.1: a preserved `PRIOR` map can predate the revision just applied, and no assertion at this layer can tell that apart from a correctly preserved one. The test is a guard against wiping, not a claim of freshness.
+What the wipe guard does NOT prove is spec §4.1: a preserved `PRIOR` map can predate the revision just applied, and no assertion at this layer can tell that apart from a correctly preserved one. The test is a guard against wiping, not a claim of freshness — and it deliberately pins behavior that DIFFERS from the sync pipeline, which would clear on the same input.
 
 Keep the `vi.mock` of the Drive export functions from `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts:16-30` so the file also pins that Phase D performs no XLSX export.
 
@@ -166,7 +166,12 @@ In `app/api/admin/onboarding/finalize-cas/route.ts`, in the `applyStagedCore` ar
 ```ts
 // Deep-link anchors staged at Phase B (spec §3.3). OMITTED when empty, never a defined {}: the
 // applyShowSnapshot UPDATE arm coalesces (runScheduledCronSync.ts:1527), so a defined empty map
-// durably wipes anchors a prior cron sync computed. Same guard as Flow A (finalize/route.ts:1280).
+// durably wipes anchors an earlier sync computed. Same guard as Flow A (finalize/route.ts:1280).
+// This DIVERGES from the sync pipeline, which clears on a successful-but-empty extraction
+// (runScheduledCronSync.ts:3073 emits undefined only for a sheets-list failure). Deliberate, and
+// spec §4.1 is the reason: pending_syncs.source_anchors flattens a transient Drive failure and a
+// workbook with no recognized regions into the same {}, so clearing on it would wipe good anchors
+// on every hiccup during a re-onboard.
 ...(Object.keys(parsed.sourceAnchors).length > 0 ? { sourceAnchors: parsed.sourceAnchors } : {}),
 ```
 
