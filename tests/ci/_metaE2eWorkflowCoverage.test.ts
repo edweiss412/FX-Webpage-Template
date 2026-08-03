@@ -2208,13 +2208,18 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
       governanceViolations(declared, gv(parked, { "./.github/actions/a": cleanBody })),
       "relocated away from the action site",
     ).toHaveLength(1);
-    // Precision: an action-scoped pair must NOT shadow a directly-scoped one.
+    // Action-scoped credit is ADDITIVE, never suppressed by a same-key
+    // direct value (R7 F1). Precedence resolves what ONE step sees; an
+    // earlier action saw its own value regardless of what the claiming step
+    // later sets, so BOTH pairs govern. An earlier draft asserted the
+    // opposite ("direct scope wins"), which let `K=required` at an action be
+    // relocated freely whenever the claiming step carried `K=inert`.
     const bothScopes = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: direct\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: v\n      - ${CLAIM}\n`;
     const twoValues: EnvKeyAllowlist = {
       K: {
         values: [
           { text: "direct", governs: X },
-          { text: "v", governs: [] },
+          { text: "v", governs: X },
         ],
         reason: "r",
       },
@@ -2226,8 +2231,46 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
           "./.github/actions/a": cleanBody,
         }),
       ),
-      "direct scope wins over action scope",
+      "action-scoped and direct values BOTH govern",
     ).toEqual([]);
+    // …and a row crediting only the direct value reds, so a suppressing
+    // derivation cannot be satisfied by a correspondingly narrowed row.
+    const directOnly: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "direct", governs: X },
+          { text: "v", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        directOnly,
+        envPairGovernance({ "w.yml": bothScopes }, {}, {}, directOnly, {
+          "./.github/actions/a": cleanBody,
+        }),
+      ),
+      "direct-only row must red",
+    ).toHaveLength(1);
+    // Composite `uses:`-step env governs too, at direct AND nested depth
+    // (R7 (b) F2 — the S8 positives covered run-step env only).
+    const usesEnvDirect = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        K: v\n",
+    };
+    const usesEnvNested = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        K: v\n",
+    };
+    for (const [label, actions] of [
+      ["composite uses-step env", usesEnvDirect],
+      ["nested composite uses-step env", usesEnvNested],
+    ] as const) {
+      expect(governanceViolations(declared, gv(use, actions)), label).toEqual([]);
+    }
   });
 
   it("action-scoped governance keeps EVERY value and skips guarded steps (S8, R6)", () => {
@@ -2239,8 +2282,6 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     const X = ["tests/e2e/x.spec.ts"];
     const cleanBody =
       "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
-    const POISON_REASON_S8 =
-      "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
     const gv = (wf: string, allowlist: EnvKeyAllowlist, actions: Record<string, string> = {}) =>
       envPairGovernance({ "w.yml": wf }, {}, {}, allowlist, actions);
     // F1: two invocations handed DIFFERENT values of one key — both govern.
@@ -2283,17 +2324,17 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
       governanceViolations(bare, gv(guardedInvocation, bare, { "./.github/actions/a": cleanBody })),
       "guarded invocation confers nothing",
     ).toEqual([]);
-    // A guarded COMPOSITE step needs no governance rule at all, and the
-    // stronger fact is pinned here instead of a vacuous governance
-    // assertion: `if:` on a composite step fails manifest validation, so the
-    // invocation POISONS and the later claim is REJECTED outright. (Probed
-    // while repairing R6 F2 — an earlier draft of this test asserted
-    // "confers no governance" for these trees, which passed only because the
-    // claim was never covered: a tautology, not a check.)
+    // A guarded COMPOSITE step confers nothing. The condition must be a
+    // STRING: `validatedCompositeSteps` accepts `if:` on composite steps but
+    // rejects a YAML BOOLEAN on type, and an earlier draft used `if: false`
+    // and so proved nothing — the claim was never covered, making the
+    // assertion vacuous, and it led to a wrong "this is unreachable"
+    // conclusion (corrected at R7). With a string condition the claim stays
+    // COVERED, so the assertion below is about governance, as intended.
     const use = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n`;
     const guardedCompositeStep = {
       "./.github/actions/a":
-        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      if: false\n      env:\n        K: v\n",
+        'runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      if: "${{ false }}"\n      env:\n        K: v\n',
     };
     const r = scanWorkflowCoverage({
       workflows: { "w.yml": use },
@@ -2301,9 +2342,22 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
       localActions: guardedCompositeStep,
       envKeyAllowlist: bare,
     });
-    expect(r.covered.has("tests/e2e/x.spec.ts"), "guarded composite step poisons").toBe(false);
-    expect(r.rejected[0]!.reason, "guarded composite step poisons").toBe(POISON_REASON_S8);
-    expect([...r.governance], "no governance from a rejected claim").toEqual([]);
+    expect(r.covered.has("tests/e2e/x.spec.ts"), "guarded composite step stays covered").toBe(true);
+    expect(
+      governanceViolations(bare, gv(use, bare, guardedCompositeStep)),
+      "guarded composite step confers nothing",
+    ).toEqual([]);
+    // Guarded PARENT hides its whole subtree.
+    const guardedParent = {
+      "./.github/actions/a":
+        'runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n      if: "${{ false }}"\n',
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    expect(
+      governanceViolations(bare, gv(use, bare, guardedParent)),
+      "guarded parent hides nested pair",
+    ).toEqual([]);
   });
 
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {

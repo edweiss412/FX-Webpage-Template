@@ -1058,13 +1058,15 @@ export function compositeEnvPairs(
   if (steps === null) return [];
   const next = new Set(seen).add(ref);
   const out: Array<[string, string]> = [];
-  // NOTE (R6 F2, probed): no `if:` skip is needed for composite STEPS. A
-  // composite step carrying `if:` fails `validatedCompositeSteps`, so
-  // `usesValuePoisons` poisons the whole invocation and every later claim in
-  // the job is REJECTED — such a pair can never reach a covered claim, and a
-  // skip here would be unreachable code. Qualification IS applied, at the
-  // invocation step, where a guarded `uses:` is real and reachable.
   for (const s of steps) {
+    // A composite step carrying `if:` provably may not run, so its env
+    // configures nothing, and a guarded parent hides its whole subtree.
+    // (R6 F2, CORRECTED at R7: an earlier probe used YAML boolean
+    // `if: false`, which `validatedCompositeSteps` rejects on TYPE, and
+    // wrongly concluded that `if:` on a composite step always poisons. A
+    // STRING condition — `if: "${{ false }}"` — is accepted, leaves the
+    // claim COVERED, and its env did confer governance. The skip is live.)
+    if ("if" in (s as Record<string, unknown>)) continue;
     const env = (s as { env?: unknown }).env;
     if (env !== null && typeof env === "object" && !Array.isArray(env))
       for (const [k, v] of Object.entries(env))
@@ -1693,9 +1695,14 @@ export function scanWorkflowCoverage({
               for (const [k, text] of effective) credit(k, text);
               // EVERY distinct action-scoped value, not just the last one:
               // two actions can each be handed a different value of one key
-              // and each affect the later spec independently (R6 F1). A
-              // directly-scoped value still wins outright for its key.
-              for (const [k, text] of jobActionEnvPairs) if (!effective.has(k)) credit(k, text);
+              // and each affect the later spec independently (R6 F1).
+              // ADDITIVE, never suppressed by a same-key direct value
+              // (R7 F1): precedence resolves what ONE step sees, and an
+              // earlier action saw its own value regardless of what the
+              // claiming step later sets. Suppressing them let `K=required`
+              // at an action be relocated freely whenever the claiming step
+              // carried `K=inert`.
+              for (const [k, text] of jobActionEnvPairs) credit(k, text);
             }
           }
         }
