@@ -651,7 +651,7 @@ describe("ArchiveShowButton — armed confirm names the show (§5.2)", () => {
     // slug, a run-on) offers none, so the line overflows instead. Measured in
     // ShareHub's 308px panel, an unbroken title drove scrollWidth 306 -> 412
     // with overflow-x auto — scrolling a DESTRUCTIVE confirm sideways.
-    expect(prose.className).toContain("break-words");
+    expect(prose.className).toContain("wrap-break-word");
   });
 
   it("with a showName: prose and group label name the show, button label unchanged", () => {

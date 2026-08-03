@@ -711,26 +711,6 @@ since the value of the scale is that every site uses it.
 
 ---
 
-## BL-ARCHIVE-ARM-WINDOW-VS-COPY-LENGTH — a 4s arm window against a confirm that now names the show
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`ARM_REVERT_MS` is 4000 (`lib/admin/destructiveConfirm.ts:18`). PR #658 grew the armed archive
-confirm's prose to name the show, taking it to roughly 25 words with a real title. At ordinary
-reading speed that is more than the window, so an operator reading the whole warning can watch
-the confirm disarm underneath them.
-
-It fails SAFE — expiry means nothing was archived, and `ARM_EXPIRED_ANNOUNCEMENT` says so — and
-the remedy (press Archive again) is obvious. So this is friction on a destructive path, not a
-correctness bug. But the window was chosen against much shorter copy, and it is now shared by
-11 arm surfaces whose copy lengths differ widely.
-
-**Trigger:** a copy pass on any armed destructive surface, or a report of the confirm expiring
-mid-read. Fix is either a longer window or one derived from the copy it guards; the shared
-constant means the choice is cross-surface, not local.
-
----
-
 ## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).

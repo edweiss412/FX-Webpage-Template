@@ -297,12 +297,12 @@ export function ArchiveShowButton({
           >
             {labelHeader}
             {/* Wraps, never truncates (§10): a pathological title must not elide
-                the very context a destructive confirm depends on. `break-words`
+                the very context a destructive confirm depends on. `wrap-break-word`
                 because wrapping needs a break OPPORTUNITY — an unbroken title (a
                 URL, a slug, a run-on) offers none. Measured in ShareHub's 308px
                 panel, one drove scrollWidth 306 -> 412 with overflow-x auto,
                 scrolling a destructive confirm sideways. */}
-            <p id={warnId} className="text-sm break-words text-text-subtle">
+            <p id={warnId} className="text-sm wrap-break-word text-text-subtle">
               {namedShow ? (
                 <>
                   Crew links for &ldquo;{namedShow}&rdquo; stop working now and won&rsquo;t come

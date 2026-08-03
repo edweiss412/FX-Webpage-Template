@@ -113,7 +113,8 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // The positioned ancestor is a SEPARATE node from the clip ancestor, and it
     // is the one whose content changes move this overlay's top edge.
     const positioned = node.offsetParent;
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
+    const observer =
+      typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
     if (observer !== null) {
       if (clip !== null) observer.observe(clip);
       if (positioned instanceof Element) observer.observe(positioned);
