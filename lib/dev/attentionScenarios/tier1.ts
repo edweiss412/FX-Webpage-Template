@@ -123,21 +123,55 @@ export function tier1AlertScenarios(): AttentionScenario[] {
 // So: the generated enum PLUS an enumerated residue, de-duplicated.
 
 /**
- * Parse-warning codes the generator's scan heuristic misses, each with the file
- * that emits it. Backlog BL-INTERNAL-CODE-ENUM-SCAN-WIDEN widens the heuristic,
- * after which this list becomes a no-op rather than a double-render, because
- * warningCodes() de-duplicates.
+ * Parse-warning codes the generator's scan does not reach, each with the file
+ * that emits it. Backlog BL-INTERNAL-CODE-ENUM-SCAN-WIDEN tracks closing the
+ * gap in the generator, after which this list becomes a no-op rather than a
+ * double-render, because warningCodes() de-duplicates. Until then a dead-row
+ * ratchet in tests/dev/attentionScenariosWarnings.test.ts fails the moment a
+ * row here starts being generated, so the list cannot rot silently.
+ *
+ * Re-derived 2026-08-03 from a type-aware census (ts-morph over lib/, app/,
+ * components/: object literals whose contextual type is ParseWarning, plus
+ * calls returning one). The previous hand-maintained list had FOUR rows and was
+ * wrong in three ways, which is the case for the census: it missed eleven live
+ * codes, it named `lib/agenda/extractAgendaSchedule.ts` as the emitter of
+ * AGENDA_SCHEDULE_LOW_CONFIDENCE when that file's only occurrence is a `code:`
+ * field inside a stripped `log.warn(...)` call, and it carried
+ * PULL_SHEET_ON_ARCHIVED_TAB, which the generator already emits.
+ *
+ * Why the generator misses each: the `warn("CODE", message)` helper form is
+ * invisible to a `code:`-property regex at any scan root, and the remaining
+ * object-literal sites sit outside `["lib/parser"]`.
+ *
+ * Six further codes from that census are NOT listed here, because the generator
+ * already emits them — but by accident rather than by design. It never sees
+ * their emit sites either; it reaches them through `lib/parser/dataGaps.ts`,
+ * a REGISTRY of `{ code, label }` rows that happens to sit inside the scanned
+ * root and happens to name them. A code emitted outside `lib/parser` is
+ * generated if and only if some file inside `lib/parser` mentions it, which is
+ * why this list could not be derived by reading the generator.
  */
 export const EXTRA_WARNING_CODES: readonly string[] = [
-  "AGENDA_SCHEDULE_LOW_CONFIDENCE", // lib/agenda/extractAgendaSchedule.ts
-  "AGENDA_SCHEDULE_TIME_ADJUSTED", // lib/sync/enrichAgenda.ts
-  "PULL_SHEET_ON_ARCHIVED_TAB", // lib/sync/pullSheetOverride.ts
-  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED", // lib/sync/pullSheetOverride.ts
+  "AGENDA_SCHEDULE_LOW_CONFIDENCE", // lib/sync/enrichAgenda.ts (warn helper)
+  "AGENDA_SCHEDULE_TIME_ADJUSTED", // lib/sync/enrichAgenda.ts (warn helper)
+  "DIAGRAMS_EMBEDDED_CAP_EXCEEDED", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "DIAGRAMS_EMBEDDED_NONE_FOUND", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "DIAGRAMS_TAB_MISSING", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "EMBEDDED_ASSET_DRIFTED", // lib/sync/snapshotAssets.ts, lib/sync/applyStaged.ts (warn helper)
+  "LINKED_FOLDER_OVERFLOW_TRUNCATED", // lib/sync/enrichWithDrivePins.ts (warn helper)
+  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED", // lib/sync/pullSheetOverride.ts (object literal)
 ];
 
 export function warningCodes(): string[] {
+  // `.includes`, NOT `===`: the generator writes a comma-joined `source` for a
+  // code that is also a pending_ingestions.last_error_code, and exact equality
+  // silently dropped every such parse warning from the gallery. Same reading as
+  // lib/observe/query/serializeWarning.ts, which is the other consumer that has
+  // to answer "is this a parse warning?".
   const generated = Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => v.source === "parse_warnings.code")
+    .filter(([, v]) => v.source.split(",").includes("parse_warnings.code"))
     .map(([k]) => k);
   return [...new Set([...generated, ...EXTRA_WARNING_CODES])].sort();
 }

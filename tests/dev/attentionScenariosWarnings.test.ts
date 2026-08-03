@@ -17,8 +17,11 @@ import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
  * enumerated residue, de-duplicated.
  */
 function generatedWarningCodes(): string[] {
+  // Mirrors warningCodes(): a code's `source` is a comma-joined list when it
+  // belongs to more than one column, so membership is a split-and-includes, not
+  // string equality.
   return Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => (v as { source: string }).source === "parse_warnings.code")
+    .filter(([, v]) => (v as { source: string }).source.split(",").includes("parse_warnings.code"))
     .map(([k]) => k);
 }
 
@@ -37,6 +40,39 @@ describe("tier 1 warning scenarios", () => {
     for (const code of EXTRA_WARNING_CODES) {
       expect(warningCodes(), code).toContain(code);
     }
+  });
+
+  test("includes a parse warning whose generated source is SHARED with another column", () => {
+    // The defect this catches: warningCodes() partitioned on
+    // `source === "parse_warnings.code"`, exact equality, while the generator
+    // writes a comma-joined value for any code that is ALSO a
+    // pending_ingestions.last_error_code. Three real parse warnings were
+    // dropped by that filter. serializeWarning.ts gets this right with
+    // `.includes(...)`; this pins the gallery to the same reading.
+    const shared = Object.entries(INTERNAL_CODE_ENUMS)
+      .filter(([, v]) => {
+        const s = (v as { source: string }).source;
+        return s.includes("parse_warnings.code") && s.includes(",");
+      })
+      .map(([k]) => k);
+    expect(shared.length, "fixture is vacuous — no multi-source parse warning exists").
+      toBeGreaterThan(0);
+    for (const code of shared) {
+      expect(warningCodes(), code).toContain(code);
+    }
+  });
+
+  test("no EXTRA_WARNING_CODES row is already generated (dead-row ratchet)", () => {
+    // The residue is hand-maintained, and warningCodes() de-duplicates, so a
+    // row that the generator has since absorbed goes silently inert instead of
+    // failing. That is the exact rot BL-INTERNAL-CODE-ENUM-SCAN-WIDEN was filed
+    // over: a list nobody can tell is stale. Same posture as the ledger guard's
+    // KNOWN_DANGLING ratchets — a row that stops being needed must say so.
+    const dead = EXTRA_WARNING_CODES.filter((code) => generatedWarningCodes().includes(code));
+    expect(
+      dead,
+      `These codes are generated now — delete their EXTRA_WARNING_CODES rows: ${dead.join(", ")}`,
+    ).toEqual([]);
   });
 
   test("de-duplicates, so a later generator fix cannot double-render a code", () => {
