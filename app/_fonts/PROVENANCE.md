@@ -24,7 +24,7 @@ Verify with `shasum -a 256 InterVariable.woff2`.
 
 Google Fonts serves a build of Inter with the character-variant and stylistic-set features stripped. Measured 2026-08-03 against the live latin subset: `calt ccmp dnom frac kern locl mark mkmk numr pnum tnum`, `wght` axis only. No `zero`, no `cv05`, no `cv08`, no `cv11`, no `ss01`–`ss08`, no `case`, no `opsz`.
 
-This file carries all of them plus the `opsz` axis. `tests/styles/fontFeatureAvailability.test.ts` asserts that every OpenType tag `app/globals.css` declares is actually present here, so a repeat of the two-year-dead `cv11` declaration fails the build instead of rendering nothing.
+This file carries all of them plus the `opsz` axis. `tests/styles/fontFeatureAvailability.test.ts` asserts that every OpenType tag `app/globals.css` declares is actually present here, so a repeat of the three-month-dead `cv11` declaration (written 2026-05-03 in `78662acb5`, never rendered) fails the build instead of rendering nothing.
 
 ## Replacing it
 

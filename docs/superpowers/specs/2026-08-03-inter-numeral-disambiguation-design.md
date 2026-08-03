@@ -27,7 +27,7 @@ The legibility problem is real. The proposed fix does not reach it. Reaching it 
 | The dead `cv11` is **deleted, not revived**. It is now available, but turning on a single-storey `a` product-wide is a type decision nobody has made | this spec | §6 |
 | Italic stays synthesized. The product loads no italic face today (`font-style: normal`, §2.4) and loads none after | this spec | §3.1 |
 | `BL-HARNESS-FONT-FIDELITY` is **not** closed here. A vendored file makes it tractable; wiring 31 harnesses is its own spec | BACKLOG.md, `BL-HARNESS-FONT-FIDELITY` | §6 |
-| The four false `DESIGN.md` claims and the false plan disposition are corrected **in this branch**, not filed | this spec | §3.4 |
+| Every false claim §3.4 enumerates — prose and source comments alike — is corrected **in this branch**, not filed. §3.4 owns the counts; no other section restates them | this spec | §3.4 |
 
 ---
 
@@ -178,7 +178,9 @@ time,
 
 ### 3.4 The documentation corrections
 
-Five claims are false today. Each is corrected in this branch, in the same commit as the change that makes the corrected statement true where applicable.
+**Six claims are false today — five in `DESIGN.md`, one in a plan** — and a further eight source comments become false the moment the loader swaps. All fourteen are corrected in this branch, in the same commit as the change that makes the corrected statement true where applicable. The counts here are the single source; §1.1 and §7 reference this section rather than restating them.
+
+**Prose claims that are false now:**
 
 | Claim | Location | Correction |
 | --- | --- | --- |
@@ -189,7 +191,27 @@ Five claims are false today. Each is corrected in this branch, in the same commi
 | "`cv11` is Inter's single-storey 'a' alternate … improves call-time legibility on mobile" | `DESIGN.md:177` | Replace with the `ss04`/`zero` justification: which glyphs, why split that way, and that the split is the typeface's own. |
 | "now deterministically activates Inter's alternates on admin/auth/help for the first time" | `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md:246` | Correct the P3 disposition in place. No alternates were activated; the served font had none. Leave the row, mark the correction and its date, so the record shows what was believed and what was true. |
 
-The fallback-stack prose at `DESIGN.md:139-141` and the `--font-sans` comment at `app/globals.css:104-112` both describe the generated family as the literal `Inter`. After the swap it is a hash. Both are corrected to say the token is the single source and the literal `"Inter"` in the `var()` fallback now names only a host-installed Inter, for harnesses with no Next runtime.
+**Source comments that become false at the swap.** The generated family name changes from the literal `Inter` to a hash (§2.5), and the loader module changes from `next/font/google` to `next/font/local`. Eight comments assert one or both. This list is the output of the sweep, run at spec time, not a sweep to be run later:
+
+```
+rg -n "next/font" app components lib tests scripts
+rg -n "cv11|cv05|font-tabular|optical siz" app components lib tests DESIGN.md PRODUCT.md
+```
+
+| Comment | Location | Correction |
+| --- | --- | --- |
+| "Loaded via `next/font/google`" in the module doc comment | `app/fonts.ts:3` | Name `next/font/local` and the vendored path. |
+| "`--font-inter` carries BOTH `Inter` and next/font's generated … `Inter Fallback`" | `app/fonts.ts:23` | The pair is now a hashed family and its `Fallback`; the token, not the literal, is the contract. |
+| "carries BOTH `Inter` and its generated `Inter Fallback`" | `app/globals.css:104` | Same correction; also state that the literal `"Inter"` left in the `var()` fallback now names only a host-installed Inter, for harnesses with no Next runtime. |
+| Fallback-stack prose naming `Inter, Inter Fallback` literally | `DESIGN.md:139-141` | Same. |
+| "loaded via `next/font/google` from `app/fonts.ts`" | `tests/e2e/font-binding.spec.ts:5` | Name the local loader. |
+| The literal-family explanation | `tests/e2e/font-binding.spec.ts:225` | Rewrite: the family is generated and hashed, which is why the token is read rather than a literal compared. |
+| "`next/font/google`" as the loader this guard pins | `tests/assets/singleFontLoader.test.ts:5` | Name `next/font/local`. The guard's mutation family M7 at line 537 already covers `next/font/local`, so only the prose is stale. |
+| "`next/font/google` itself, which bound the DESIGN.md §2.1 family" | `app/show/[slug]/layout.tsx:18` | Name the local loader. |
+
+Two further `font-tabular` references live in historical plan documents — `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/shape-sessions/2026-05-14-alert-banner.md:64` and `docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1807`. **These are deliberately left alone.** Both are dated records of what was planned at the time, and this project's convention is that history is marked, not rewritten (`AGENTS.md`, the reconciliation-log precedent). The live `DESIGN.md:174` claim is the one that misleads a reader about the present, and it is deleted.
+
+`tests/e2e/section-header-layout.layout.spec.ts:167` asserts a harness loads no Inter at all. That remains true — the harness has no Next runtime and this change adds no `@font-face` to it (§5, `BL-HARNESS-FONT-FIDELITY`). No correction needed; recorded here so a reviewer does not re-derive it.
 
 ### 3.5 Dimensional Invariants
 
@@ -197,9 +219,11 @@ This change introduces no component, no fixed-dimension parent, and no flex or g
 
 | Relationship | Guarantee | Verified by |
 | --- | --- | --- |
-| Rendered text advance width, before vs after the swap | **Not held constant, deliberately.** The vendored font activates the `opsz` axis, and `font-optical-sizing` defaults to `auto`, so glyph widths shift slightly at every size. | §4.5, a real-browser one-line assertion at the narrowest viewport. §5 records the `font-optical-sizing: none` fallback if it fails. |
-| First-paint layout vs swapped layout | **Held.** `adjustFontFallback` generates a metric-matched companion from the vendored file's own metrics, and `--font-inter` still names it second, so the `display: swap` window does not reflow. | `tests/e2e/font-binding.spec.ts:246-255`, unchanged and re-run. |
+| Rendered text advance width, before vs after the swap | **Not held constant, deliberately.** The vendored font activates the `opsz` axis, and `font-optical-sizing` defaults to `auto`, so glyph widths shift slightly at every size. `ss04` also widens `I` (550→903 units) and `l` (496→564), measured in §2.3's source table. | §4.6, a real-browser one-line assertion at the narrowest viewport. §5 records the `font-optical-sizing: none` fallback if it fails. |
+| First-paint layout vs swapped layout | **Reduced, NOT held.** `adjustFontFallback` generates a size-adjusted `Arial` companion from the vendored file's own metrics, which narrows the gap but cannot equalise per-string advances. Measured on the suite's own probe string "Wardrobe & key moments": Inter 12.1333em, adjusted Arial 12.4316em — a 0.2983em difference, about 4.2px at 14px. | `tests/e2e/font-binding.spec.ts:246-255` proves the companion is in the cascade. **It does not measure geometry, and no test in this change does.** See the note below. |
 | Every other parent→child dimension in the product | **N/A** — no layout container, class, or dimension token is touched by this change. | — |
+
+**On the reflow row.** An earlier draft of this spec claimed the swap window "does not reflow" and cited the companion-family assertion as proof. Both halves were wrong: metric overrides reduce mismatch rather than eliminate it, and that assertion checks cascade membership, not geometry. The corrected position: **residual swap-window shift exists and is unchanged in kind from today** — the Google loader also generated a size-adjusted Arial companion, so this change moves the number, not the mechanism. Quantifying or gating that residual is out of scope here; it is the subject the `187.28px → 168.91px` measurement in `DESIGN.md:141` already records for the *unadjusted* case, which is the ~10% problem the companion solves. What this spec must not do is restate a solved-to-4px problem as solved-to-zero.
 
 ### 3.6 Transition Inventory
 
@@ -213,13 +237,19 @@ Every task is TDD: failing test, minimal implementation, passing test, commit.
 
 ### 4.1 Feature-availability guard — the bug class this change exists to kill
 
-tests/styles/fontFeatureAvailability.test.ts. Walks `app/globals.css`, extracts every OpenType tag from every `font-feature-settings` declaration, opens `app/_fonts/InterVariable.woff2` with `fontkit`, and asserts each tag appears in `availableFeatures`.
+tests/styles/fontFeatureAvailability.test.ts, exporting a pure `missingTags(cssSource, fontPath): string[]` so the same checker can be pointed at different fonts.
 
-**Failure mode it catches:** exactly the one that produced this backlog entry — a feature tag declared in CSS that the loaded font cannot honor, rendering nothing and reading as intentional for three months.
+**The font path is derived, never hardcoded.** The test parses the `src:` string literal out of `app/fonts.ts` and resolves it relative to that module, so it always checks *the font the app actually loads*. Hardcoding `app/_fonts/InterVariable.woff2` would let the guard stay green while `app/fonts.ts` pointed somewhere else entirely — the precise disconnect that let a CSS declaration and a served font disagree for three months. The test asserts the derived path resolves to an existing file before using it.
 
-**Proved against the historical bug, not just asserted.** The guard's checking function is exported and exercised twice: once against the vendored font, where it must report no missing tags; and once against a committed fixture of the Google-served binary this change replaces — tests/styles/fixtures/inter-google-latin-v20.woff2, 47.3 KB, the exact file measured in §2.1 — where it must report `zero`, `ss04` **and** `cv11` as missing. That second assertion is the regression proof: it demonstrates the guard would have caught the dead `cv11` on the day it was written in `78662acb5`. Without it, the guard is only a claim about the future.
+**Failure mode it catches:** a feature tag declared in CSS that the font the app loads cannot honor — rendering nothing, and reading as intentional.
 
-Scoped so it cannot pass by accident: the tag list is extracted from the CSS source, not hardcoded, so a future tag added to any rule is covered by default. The test asserts the extracted tag list is non-empty and contains at least the three tags §3.3 requires before comparing, so a regex that silently stops matching fails loudly instead of passing vacuously against an empty set.
+Three assertions, and the distinction between them matters:
+
+1. **Current state.** `missingTags(globals.css, derivedPath)` is empty. The tag list is extracted from CSS, not hardcoded, so any tag a future rule adds is covered by default.
+2. **Non-vacuity.** The extracted tag list is non-empty and is exactly `{ss04, tnum, zero}` — the set §3.3 specifies. Without this, a regex that silently stopped matching would pass assertion 1 against an empty set.
+3. **Regression proof against the historical bug.** `missingTags(HISTORICAL_CSS, googleFixture)` reports `cv11` missing, where `HISTORICAL_CSS` is the literal two-tag declaration `app/globals.css` carried at `78662acb5` and the fixture is tests/styles/fixtures/inter-google-latin-v20.woff2 (47.3 KB, the exact binary measured in §2.1). **`HISTORICAL_CSS` is hardcoded, and that is correct:** it is a frozen fact about a past commit, not a moving target, and deriving it from today's CSS is impossible — today's CSS no longer contains `cv11`. An earlier draft asked the *extracted current* list to report `cv11` missing, which no implementation can satisfy: the current list is `{ss04, tnum, zero}` and `cv11` is not in it. That contradiction is resolved by separating "what the guard checks now" from "what the guard would have caught then".
+
+A fourth assertion is cheap and worth having: `missingTags(globals.css, googleFixture)` reports `ss04` and `zero` missing — proving the *new* tags would also have been inert on the old font, which is the whole reason the font had to change.
 
 ### 4.2 Tabular-rule inheritance guard
 
@@ -231,24 +261,55 @@ Same file. Asserts that every `font-feature-settings` declaration in `app/global
 
 Same file. Asserts the vendored font exposes both `opsz` and `wght`, because `DESIGN.md:135` will claim optical sizing after §3.4 and that claim must be enforced, not merely written.
 
-### 4.4 Real-browser rendering proof
+### 4.4 Real-browser rendering proof — pixels, not widths
 
-`tests/e2e/font-binding.spec.ts` gains one test: on a real page, measure the rendered advance width of `0` with and without `font-feature-settings: "zero" 1` applied, and assert they differ. jsdom cannot do this — it computes no layout and applies no OpenType feature.
+`tests/e2e/font-binding.spec.ts` gains one test proving the features actually change what is drawn. jsdom cannot do this: it computes no layout and applies no OpenType feature.
 
-**Failure mode it catches:** the whole class of "the declaration is present and the glyph is unchanged" that this spec is about. A test that only asserts the CSS string is present would have passed for the entire life of the `cv11` bug.
+**A width oracle does not work for `zero`, and this is measured.** Laying out `0` through the vendored font with and without the feature:
 
-The existing binding assertions are expected to pass unchanged (§2.5). They are re-run, not rewritten.
+```
+default:  glyph 1341 (zero)        xAdvance 1292
+"zero" 1: glyph 1353 (zero.slash)  xAdvance 1292
+```
 
-### 4.5 Regression surface
+The slash is drawn inside the same advance — by design, since a slashed zero must stay tabular. `getBoundingClientRect().width` is therefore **identical** whether the feature works or not, so a width assertion starts red and stays red forever. An earlier draft of this spec specified exactly that test; it was unimplementable.
 
-`tests/e2e/font-binding.spec.ts:376` asserts an event-detail group title occupies one line at the narrowest viewport. The vendored font activates the `opsz` axis, which changes metrics at small sizes. This test is a genuine gate on that change, not a formality — §5 records the fallback if it fails.
+Two oracles replace it, each matched to what the feature actually changes:
+
+- **`zero` — a pixel oracle.** Render `0` twice in identically-sized boxes differing only in `font-feature-settings`, take an element screenshot of each with `locator.screenshot()`, and assert the two buffers are **not** equal. If the feature is inert the glyph is byte-identical; if it works the slash makes it differ. **This is not the byte-comparison discipline `AGENTS.md` warns about** — there is no committed baseline and no cross-environment comparison. Both images are produced in the same browser, in the same run, on the same machine, milliseconds apart; only the CSS differs. Nothing about it needs a pinned Docker image.
+- **`ss04` — a width oracle, which does work here.** The same layout probe shows `ss04` widens `I` from 550 to 903 units and `l` from 496 to 564. So for `ss04`, and only for `ss04`, a `getBoundingClientRect().width` comparison on a string of `I`s and `l`s is a valid and cheaper assertion.
+
+**Failure mode both catch:** the class this whole spec is about — a declaration present in CSS and a glyph unchanged on screen. A test asserting only that the CSS string exists would have passed for the entire life of the dead `cv11`.
+
+### 4.5 The existing suite does NOT survive unchanged — one assertion must be rewritten
+
+`tests/e2e/font-binding.spec.ts:194-197` asserts `appFaces.length` is greater than 1, with the stated rationale "one loader emits one face per unicode-range slice, so several." That rationale is a Google-loader fact. One local file emits exactly **one** `@font-face`, so this assertion fails on every route after the swap. Verified by reading the assertion and by §2.5's loader read; an earlier draft of this spec claimed every existing assertion would pass unchanged, and that was false.
+
+The assertion's *purpose* survives and must be preserved: it is the non-vacuity guard for the duplicate-face check at lines 198-205, which exists to catch a second loader for the *same* family. That check still works with one expected face — a duplicate loader produces two identical `(family, style, weight, unicodeRange)` tuples, which the duplicate check catches. The repair is therefore to make the invariant exact rather than to loosen it:
+
+- `expect(appFaces.length).toBe(1)` — stronger than the `> 1` it replaces, and exactly true for a single-file local font.
+- Rewrite the adjacent comment, which currently explains the multi-slice assumption that no longer holds.
+
+Everything else in the file — the family-count check at 176-182, the companion-family assertions at 246-255, the token reads — is unaffected (§2.5).
+
+### 4.6 Regression surface
+
+`tests/e2e/font-binding.spec.ts:376` asserts an event-detail group title occupies one line at the narrowest viewport. The vendored font activates the `opsz` axis and `ss04` widens two letterforms, both of which change metrics at small sizes. This test is a genuine gate on that change, not a formality — §5 records the fallback if it fails.
+
+### 4.7 Vitest needs a `next/font/local` mock — without it, unit tests die at import
+
+`tests/setup.ts:115-131` explains that `next/font/google` is a build-time transform whose real loader throws outside the compile pipeline, and mocks it globally so any test importing a Next root survives. It mocks **only** `next/font/google`. Meanwhile the runtime entry node_modules/next/font/local/index.js is a **zero-byte** file — there is no runtime implementation at all.
+
+`tests/observe/globalError.test.tsx:9` imports `app/global-error.tsx`, which imports `app/fonts.ts`. The moment `app/fonts.ts` calls `localFont(...)`, that test dies at import. This is deterministic, not a risk.
+
+The repair: extend `tests/setup.ts` with a `next/font/local` mock returning the same shape as the existing google mock, reusing the same `NEXT_FONT_TEST_VARIABLE_CLASS` / `NEXT_FONT_TEST_CLASSNAME` constants so `globalError.test.tsx` keeps proving the class is applied. **Failure mode it catches:** every unit test that transitively imports a Next root.
 
 ---
 
 ## 5. Documented limits and accepted costs
 
-- **Preload grows from 47 KB to 344 KB.** Accepted per §2.6. It loads behind `display: swap` with a metric-matched fallback, so it never blocks first paint, and it is cached across every route and every show after one fetch. If field evidence shows it matters, subsetting is a one-file change.
-- **Optical sizing changes metrics everywhere.** `font-optical-sizing` defaults to `auto` and the vendored font has an `opsz` axis, so every size renders slightly differently from today. This is an improvement and makes `DESIGN.md:135` true. **If §4.5 fails**, the fallback is `font-optical-sizing: none` at `html`, which pins metrics to the 14pt master; that reverses the §3.4 correction for `DESIGN.md:135`, which must then be rewritten again rather than left claiming a disabled feature.
+- **Preload grows from 47 KB to 344 KB.** Accepted per §2.6. It loads behind `display: swap` with a size-adjusted fallback, so it never blocks first paint, and it is cached across every route and every show after one fetch. A larger file does mean a longer swap window, and therefore more time spent in the residual-mismatch state §3.5 quantifies — that is the real cost of the payload choice, and it is accepted. If field evidence shows it matters, subsetting is a one-file change.
+- **Optical sizing changes metrics everywhere.** `font-optical-sizing` defaults to `auto` and the vendored font has an `opsz` axis, so every size renders slightly differently from today. This is an improvement and makes `DESIGN.md:135` true. **If §4.6 fails**, the fallback is `font-optical-sizing: none` at `html`, which pins metrics to the 14pt master; that reverses the §3.4 correction for `DESIGN.md:135`, which must then be rewritten again rather than left claiming a disabled feature.
 - **Italic remains synthesized.** No change from today (§2.4). Shipping the upstream italic face would add another 378.9 KB for seven low-traffic surfaces.
 - **The 31 standalone harnesses still render the ambient host font.** Unchanged by this work; `BL-HARNESS-FONT-FIDELITY` owns it, and a vendored file at a known path makes it tractable.
 - **`ss04` moves `I` and `l` in every string in the product**, including proper nouns and copy. That is the point, and the artifact rendered it on real strings before the decision. It does not touch digits.
@@ -269,15 +330,24 @@ The existing binding assertions are expected to pass unchanged (§2.5). They are
 ## 7. Acceptance criteria
 
 1. `app/_fonts/InterVariable.woff2` is present, matches the §3.1 checksum, and is accompanied by the OFL text and a provenance record.
-2. `tests/styles/fixtures/inter-google-latin-v20.woff2` is present as the regression fixture §4.1 requires, and the guard reports `zero`, `ss04` and `cv11` missing against it.
-3. `app/fonts.ts` loads it via `next/font/local` with the §3.2 options; no `next/font/google` import remains in the repo.
+2. `tests/styles/fixtures/inter-google-latin-v20.woff2` is present as the regression fixture §4.1 requires.
+3. `app/fonts.ts` loads the vendored file via `next/font/local` with the §3.2 options; no `next/font/google` import remains in the repo.
 4. `app/globals.css` declares `ss04` at `html` and `ss04`/`tnum`/`zero` on the tabular rule; no `cv11` remains.
-5. tests/styles/fontFeatureAvailability.test.ts passes, and is demonstrated to fail against the previous Google-served font.
-6. The new §4.4 rendering test proves a slashed zero renders, in a real browser.
-7. Every existing `tests/e2e/font-binding.spec.ts` assertion passes unchanged.
-8. All five §3.4 documentation claims are corrected, and no false claim about Inter's features remains anywhere in the repo (`rg` sweep over `DESIGN.md`, `PRODUCT.md`, `docs/`, and source comments for `cv11`, `cv05`, `font-tabular`, `optical sizing`).
-9. `BL-INTER-NUMERAL-DISAMBIGUATION` is graduated to `BACKLOG-archive.md` with its premise correction recorded, and its IN PROGRESS marker is cleared.
-10. `/impeccable critique` and `/impeccable audit` both pass on the diff, with the closeout marker line recorded.
+5. tests/styles/fontFeatureAvailability.test.ts passes all four §4.1 assertions, including the historical-`cv11` regression proof and the derived-font-path resolution.
+6. The §4.4 pixel oracle proves a slashed zero renders in a real browser, and the §4.4 width oracle proves `ss04` widens `I` and `l`.
+7. `tests/e2e/font-binding.spec.ts` passes with exactly one assertion rewritten — the `appFaces.length` non-vacuity guard at line 194, per §4.5. Every other assertion in the file passes unchanged.
+8. `tests/setup.ts` mocks `next/font/local` per §4.7, and `tests/observe/globalError.test.tsx` passes.
+9. Every claim §3.4 enumerates is corrected, and the two sweeps §3.4 records return no live false claim. The two historical plan references to `font-tabular` are deliberately retained per §3.4.
+10. `BL-INTER-NUMERAL-DISAMBIGUATION` is graduated to `BACKLOG-archive.md` with its premise correction recorded, and its IN PROGRESS marker is cleared.
+11. `/impeccable critique` and `/impeccable audit` both pass on the diff, with the closeout marker line recorded.
+
+### 7.1 TDD ordering — why the font binary is already committed
+
+Invariant 1 requires failing test → implementation → passing test for every task. `app/_fonts/InterVariable.woff2`, its OFL text, its provenance record, and the Google regression fixture all landed in the spec commit, before any test existed. That is deliberate and is **not** a TDD exemption being waved through:
+
+- **They are assets, not behavior.** Nothing in them executes. The TDD unit is the guard test and the loader change, both of which follow the red → green order strictly: tests/styles/fontFeatureAvailability.test.ts is written first and fails (no `next/font/local` in `app/fonts.ts` yet, so the derived-path parse finds nothing), then `app/fonts.ts` changes, then it passes.
+- **They had to be tracked for the spec to lint.** `pnpm spec:lint` resolves every code-span citation against `git ls-files`, and the spec cites the binary's checksum and the fixture by path. An untracked binary makes the spec unlintable, so the ordering was forced by the tooling, not chosen for convenience.
+- **The assets are not self-certifying, and the guard is what certifies them.** Acceptance criteria 1 and 5 are what make the committed bytes trustworthy: the checksum in `app/_fonts/PROVENANCE.md` is verifiable independently, and §4.1's axis and feature assertions fail if the file is ever swapped for one lacking `opsz` or `zero`. Committing them early means they are covered by the end of the change, not that they escape coverage.
 
 ---
 
