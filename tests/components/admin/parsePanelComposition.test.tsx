@@ -3,20 +3,19 @@
  * tests/components/admin/parsePanelComposition.test.tsx
  * (warning-trim-undefer plan Task 1; spec §5 — wizard-unchanged proof)
  *
- * Task 1 lands FIRST and both describe blocks MUST keep passing UNMODIFIED after
- * Tasks 4-5 rebuild the PUBLISHED warnings panel. They pin the two staged/wizard
- * surfaces the rebuild is contractually forbidden to touch:
+ * Pins the <WarningsBreakdown> WIZARD branch (gate off — no chrome provider):
+ * the full list + the UNCONDITIONAL correction-loop callout + the per-row
+ * use-raw / recognize-role controls, and the ABSENCE of the published surface's
+ * cards / group eyebrow / bulk chip. It landed FIRST and must keep passing
+ * UNMODIFIED after Tasks 4-5 rebuild the PUBLISHED warnings panel.
  *
- *  - Test A pins <ParsePanel> composition: one <StagedReviewCard> per row, in
- *    input order, each mounting the actionable-warnings leaf.
- *  - Test B pins the <WarningsBreakdown> WIZARD branch (gate off — no chrome
- *    provider): the full list + the UNCONDITIONAL correction-loop callout + the
- *    per-row use-raw / recognize-role controls, and the ABSENCE of the published
- *    surface's cards / group eyebrow / bulk chip.
- *
- * Fixture builders are reused verbatim from the two harness precedents
- * (tests/components/ParsePanel.test.tsx staged-row shape;
- * tests/helpers/warningSurfaceFixture MAPPED_WARNINGS) — no new shapes invented.
+ * The filename is historical. This file also held a <ParsePanel> composition
+ * test until 2026-08-02, when that component was deleted as dead code
+ * (BL-ADMIN-PARSEPANEL-ORPHANED — nothing under app/, components/, or lib/ had
+ * imported it since the show-page-to-modal pivot). The StagedReviewCard chrome
+ * that test snapshotted is independently pinned by
+ * tests/components/admin/stagedCardBaseline.test.tsx, so no coverage was lost.
+ * The name is kept because DEFERRED-archive.md cites it.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, within } from "@testing-library/react";
@@ -30,85 +29,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { ParsePanel } from "@/components/admin/ParsePanel";
-import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import { WarningsBreakdown } from "@/components/admin/wizard/step3ReviewSections";
 import { triggerAriaLabel } from "@/components/admin/roleRecognizeCopy";
-import { MAPPED_WARNINGS } from "@/tests/helpers/warningSurfaceFixture";
 
 afterEach(() => cleanup());
-
-// ── Test A: ParsePanel composition ──────────────────────────────────────────
-
-/** A staged row with a recognizable sheet name and the actionable-warnings leaf
- *  populated (so `per-show-actionable-item` mounts in EVERY card, not just the
- *  first). `operatorActionable` is a pre-filtered list; MAPPED_WARNINGS is
- *  already in that shape (its use in stagedCardBaseline.test.tsx is the pin). */
-const stagedRow = (id: string, sheetName: string): StagedRow => ({
-  driveFileId: `drive-${id}`,
-  stagedId: `staged-${id}-0000-4000-8000-000000000000`,
-  sourceKind: "cron",
-  stagedModifiedTime: "2026-05-09T12:00:00Z",
-  baseModifiedTime: null,
-  warningSummary: "",
-  triggeredReviewItems: [],
-  parseSummaryLine: sheetName,
-  operatorActionable: [...MAPPED_WARNINGS],
-});
-
-describe("ParsePanel composition (spec §5)", () => {
-  test("renders one StagedReviewCard per row, in input order, mounting the actionable-warnings leaf", () => {
-    const fixtureRows: StagedRow[] = [
-      stagedRow("a", "East Coast Load-In"),
-      stagedRow("b", "RPAS Rehearsal"),
-      stagedRow("c", "VB01 Setup"),
-    ];
-    render(<ParsePanel rows={fixtureRows} />);
-
-    // The card ROOT testid is unique per card and is NOT a prefix of any nested
-    // testid (the actionable leaf is `per-show-actionable-item`), so a direct
-    // selector already yields roots only. Identity is carried by
-    // `data-drive-file-id`. A multiset equality catches an extra / missing /
-    // unexpected root.
-    const roots = Array.from(
-      document.querySelectorAll<HTMLElement>('[data-testid="staged-review-card"]'),
-    );
-    expect(roots.map((el) => el.getAttribute("data-drive-file-id")).sort()).toEqual(
-      fixtureRows.map((r) => r.driveFileId).sort(),
-    );
-
-    // Re-order the roots into fixture order via their id, then assert DOM order
-    // equals input order (compareDocumentPosition, pairwise).
-    const cards = fixtureRows.map((r) => {
-      const el = roots.find((c) => c.getAttribute("data-drive-file-id") === r.driveFileId);
-      if (!el) throw new Error(`no card for ${r.driveFileId}`);
-      return el;
-    });
-    for (let i = 1; i < cards.length; i++) {
-      expect(
-        cards[i - 1]!.compareDocumentPosition(cards[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-    }
-
-    fixtureRows.forEach((row, i) => {
-      // Each card shows its own sheet name (scoped `within` the card).
-      expect(within(cards[i]!).getByText(row.parseSummaryLine!)).toBeTruthy();
-      // The actionable leaf mounted in EVERY row.
-      expect(
-        cards[i]!.querySelectorAll('[data-testid="per-show-actionable-item"]').length,
-      ).toBeGreaterThan(0);
-    });
-
-    // Chrome snapshot with card interiors pruned (the leaf is already snapshotted
-    // by stagedCardBaseline.test.tsx): clone, strip per-show-actionable-item
-    // subtrees, and strip <time> (its `toLocaleString` output is tz/locale
-    // dependent — the surrounding chrome literals are what this pins).
-    const clone = cards[0]!.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('[data-testid="per-show-actionable-item"]').forEach((n) => n.remove());
-    clone.querySelectorAll("time").forEach((n) => n.remove());
-    expect(clone.outerHTML).toMatchSnapshot("staged-card-chrome-around-first-card");
-  });
-});
 
 // ── Test B: wizard WarningsBreakdown branch (gate off) ──────────────────────
 
