@@ -3,7 +3,7 @@
 **Date:** 2026-08-02
 **Branch:** `test/parser-determinism-pair`
 **Backlog entries:** `BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE`, `BL-KNOWN-SECTIONS-WALKER`
-**Status:** spec, revised after cross-model review rounds 1-5 (7 + 2 + 5 + 2 + 3 findings, all landed)
+**Status:** spec, revised after cross-model review rounds 1-6 (7 + 2 + 5 + 2 + 3 + 3 findings, all landed)
 
 ---
 
@@ -260,42 +260,41 @@ choice from `resolveAlias(alias)`; never hardcode a per-alias table.
 | Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
 | Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-**One exact-shape assertion applies to EVERY case, in every partition.** Three consecutive review
-rounds each found an escaping mutant against a point-assertion design — round 3 corrupted the
-anchor field, round 4 exploited trim-partition cases that had no routing assertion at all, and
-round 5 corrupted a *third* field (`notes`) with a marker that was neither the sentinel nor the
-anchor value, scoring 1444 corrupted outputs against 0 failures. Each fix was another point check,
-and each left the next hole. The design therefore stops enumerating individual clauses and asserts
-the **whole result object exactly**:
+**One strict deep-equality assertion applies to EVERY case, in every partition.** Four consecutive
+review rounds each found an escaping mutant against a weaker design — round 3 corrupted the anchor
+field, round 4 exploited trim cases that had no routing assertion, round 5 corrupted a *third*
+field with a non-sentinel marker, and round 6 showed that even an exact **populated**-field-set rule
+("non-empty string values") stays green when a stray field is `null`, `""`, a non-string, or when a
+required key is deleted outright. Each fix was another point check, and each left the next hole. The
+design therefore stops describing which fields to inspect and compares the **entire returned
+object** against a derived expectation:
 
-> The set of **populated** output fields (non-empty string values) equals exactly
-> `{anchor field} ∪ {target field, if the alias's canonical is assignable}`, and those fields hold
-> exactly the anchor value and the sentinel respectively.
+> `parseVenue`'s return value must **deep-equal** an expected object built from the case's own
+> inputs: `name` and `address` always present, the anchor field holding exactly the anchor value,
+> the target field holding exactly the sentinel when the alias's canonical is assignable, and any
+> remaining required field at its `""` default.
 
-This subsumes target routing, stray routing, anchor integrity, and collateral corruption of any
-other field in one statement, and it closes the class rather than the instance: a mutant can no
-longer corrupt a field the assertion "forgot" to name, because the assertion names them all by
-exclusion.
+Deep equality is exhaustive in both directions — an extra key, a missing key, a `null`, an empty
+string, a non-string, or a wrong value all fail — so there is no "field the assertion forgot." That
+is what ends the sequence: the oracle is no longer a list of properties to check but the whole
+value. It subsumes target routing, stray routing, anchor integrity, and collateral corruption of
+any other field, and it closes review round-2 finding 1 (a mutant rerouting the three
+non-assignable canonicals into `venue.address`, which corrupted 4517 cases while passing every
+warning-shape assertion).
 
-Measured over the full space, this holds with **0 mismatches in 8453 cases**, across exactly five
-distinct result shapes:
+Measured over the full space, this holds with **0 mismatches in 8453 cases**, across exactly six
+distinct expected objects:
 
 ```
-4527x  populated=[name]                    (non-assignable aliases; anchor only)
-1448x  populated=[address,name]            (venue address + hotel address)
-1240x  populated=[loadingDock,name]        (venue name, anchored on LOADING DOCK; + loading dock)
- 620x  populated=[name,notes]              (venue notes)
- 618x  populated=[googleLink,name]         (google link)
+4527x  {name:<anchor>, address:""}                             (the five non-assignable aliases)
+1448x  {name:<anchor>, address:<sentinel>}                     (venue address + hotel address)
+ 566x  {name:<sentinel>, address:"", loadingDock:<anchor>}     (venue name, anchored on LOADING DOCK)
+ 674x  {name:<anchor>, address:"", loadingDock:<sentinel>}     (loading dock)
+ 620x  {name:<anchor>, address:"", notes:<sentinel>}           (venue notes)
+ 618x  {name:<anchor>, address:"", googleLink:<sentinel>}      (google link)
 ```
 
-Both value clauses use a distinctive sentinel value in the typo row, and are stated over the whole
-result object rather than a single field. Together with anchor integrity this makes the case a
-**routing** assertion rather than a warning-shape one, and it closes review round-2 finding 1: a
-mutant that reroutes the three non-assignable canonicals into `venue.address` corrupted 4517 cases
-while passing every warning-shape assertion. Measured today: **0** non-assignable cases place the
-sentinel anywhere, and **0** assignable cases place it in a field other than the target. The
-assertion therefore cannot pass with the parser doing nothing, with the anchor shadowing, with a
-correction routed to the wrong field, or with collateral damage to a neighbouring field.
+The typo row's value is a distinctive sentinel so the assertion reads routing, not coincidence.
 
 The assignable/non-assignable split is **derived**, not hardcoded: map `resolveAlias(alias)` through
 a canonical→output-field table that mirrors `parseVenue`'s assignment sites, and treat a canonical
@@ -371,8 +370,20 @@ vocabulary const**; venue's derived list is the better source (it cannot drift f
 ### 4.6 Red state (invariant 1) for a test-only deliverable
 
 The rewritten assertions pass against unmodified `main`, so the red state is established by
-mutation rather than by production code that does not yet exist. All seven mutations are run, their
-output recorded in the task commit message, and none is committed:
+mutation rather than by production code that does not yet exist, and the chronology matters (review
+round 6): mutations B–H exercise assertions that do not exist until the case is written, so they
+cannot precede it. The order is:
+
+1. **Defect proof, before any rewrite.** Apply Mutation A to the unmodified tree and run the
+   **existing** case at `tests/parser/blocks/venue.test.ts:311`. It stays **GREEN**. That is the
+   documented failure this work removes: a test that cannot fail when the parser does nothing.
+2. **Write the case** (§4.2, §4.3) and confirm it is green on the clean tree.
+3. **Mutation battery.** Run A–H against the new case; each must go red for its own stated reason.
+   For a test-only deliverable this battery *is* the red state invariant 1 requires — each mutation
+   is a state in which the assertion fails — and step 1 is the evidence the prior test had none.
+
+All eight mutations are run, their output recorded in the task commit message, and none is
+committed:
 
 - **Mutation A — parser does nothing.** Make `parseVenue` return `null` immediately. The **new**
   case must go red, and the **old** case at `tests/parser/blocks/venue.test.ts:311` must stay
@@ -403,8 +414,12 @@ output recorded in the task commit message, and none is committed:
 - **Mutation G — collateral corruption of a third field.** After a correct fuzzy `venue.address`
   assignment, also set `notes` to a marker that is neither the sentinel nor the anchor value.
   Measured against the A–F point-clause design in review round 5: **1444 corrupted outputs, 0
-  assertion failures.** F and G together are why §4.2 asserts the exact populated-field set rather
-  than a list of individual clauses; both must go red under the exact-shape rule.
+  assertion failures.**
+- **Mutation H — type-valid stray field.** Four arms, each measured green in review round 6 against
+  an exact **populated-field-set** rule because none is a non-empty string: set an unexpected
+  optional field to `null`; to `""`; to a non-string value; and delete the required `address` key
+  from an anchor-only result. All four must go red under deep equality (§4.2). F, G and H together
+  are why the oracle is a whole-object comparison rather than any list of clauses.
 
 ---
 
@@ -501,7 +516,7 @@ both active and archived, and that no active entry carries a terminal status.
 | --- | --- | --- |
 | Venue block, exhaustive | `pnpm exec vitest run tests/parser/blocks/venue.test.ts` | green |
 | Repeat-run determinism | the same command x5 | identical pass counts every run |
-| Known-sections guards | `pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts` | 35 passed |
+| Known-sections guards | `pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts` | 36 passed (35 today + the §5.4 guard) |
 | Ledger guards | `pnpm exec vitest run tests/docs/` | green, with both `BACKLOG_GRADUATED` rows present |
 | Whole parser suite | `pnpm exec vitest run tests/parser/` | green |
 | Spec lint | `pnpm spec:lint docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md` | 0 hard |

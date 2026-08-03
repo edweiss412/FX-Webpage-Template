@@ -44,11 +44,22 @@ N/A — no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and n
 
 **Implements:** spec §4.
 
-### 1.1 Red first — seven mutations, per spec §4.6
+### 1.1 Red first — defect proof, then an eight-mutation battery (spec §4.6)
 
 The deliverable is a test, so the red state comes from mutating the tree rather than from
-production code that does not yet exist. Run all seven, paste the output into the commit message,
-revert each before the next. **None is committed.**
+production code that does not yet exist — and the chronology matters (review round 6): mutations
+B–H exercise assertions that do not exist until §1.2 is written, so they cannot precede it.
+
+1. **Defect proof, first, before touching anything.** Apply Mutation A to the unmodified tree and
+   run the **existing** case at `tests/parser/blocks/venue.test.ts:311`. It stays **GREEN** — the
+   documented failure this task removes. Revert.
+2. **Write the case** (§1.2, §1.3); confirm green on the clean tree.
+3. **Mutation battery.** Run A–H against the new case; each must red for its own stated reason.
+   For a test-only deliverable this battery *is* invariant 1's red state, and step 1 is the
+   evidence the prior test had none.
+
+Paste every result into the commit message; revert each mutation before the next. **None is
+committed.**
 
 | Mutation | Edit | Required result |
 | --- | --- | --- |
@@ -58,10 +69,11 @@ revert each before the next. **None is committed.**
 | **D** — mis-routed correction | reroute `venue.contact_info` / `venue.in_house_av` / `venue.hotel_reservations` to `venue.address` inside `parseVenue` | non-assignable no-stray-value assertion RED on all 4517 cases |
 | **E** — resampling | reintroduce `.slice(0, 1)` on the generator output | per-alias volume floor RED for every alias |
 | **F** — collateral anchor corruption | after a correct assignment, also overwrite the populated anchor field | exact-shape assertion RED — measured 1444 corrupted outputs with 0 failures against the A-E point-clause design |
-| **G** — collateral corruption of a third field | after a correct `venue.address` assignment, also set `notes` to a marker that is neither the sentinel nor the anchor value | exact-shape assertion RED — measured 1444 corrupted outputs with 0 failures against the A-F point-clause design |
+| **G** — collateral corruption of a third field | after a correct `venue.address` assignment, also set `notes` to a marker that is neither the sentinel nor the anchor value | deep-equality RED — measured 1444 corrupted outputs with 0 failures against the A-F point-clause design |
+| **H** — type-valid stray field (4 arms) | set an unexpected optional field to `null`; to `""`; to a non-string; and delete the required `address` key | deep-equality RED on all four — each measured GREEN in round 6 against a populated-field-set rule, since none is a non-empty string |
 
-Mutations A, D, E, F, G are the load-bearing ones: today's case passes under A, and D/E/F/G are the
-four mutants cross-model review used to refute successively weaker drafts of this design. Capture
+Mutations A, D, E, F, G, H are the load-bearing ones: today's case passes under A, and D/E/F/G/H are
+the mutants cross-model review used to refute successively weaker drafts of this design. Capture
 each result verbatim.
 
 Do **not** use `"Hotel Address"` for mutation C: `venue.address` keeps its second alias
@@ -106,22 +118,30 @@ a lone typo row does not open the block (spec §2.3).
 | Non-trim, assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
 | Non-trim, non-assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-**Then, for EVERY case in EVERY partition, one exact-shape assertion** (spec §4.2). Do **not**
-implement this as a list of individual checks — three review rounds each found a mutant that
-escaped the previous point-clause set. Assert the whole object:
+**Then, for EVERY case in EVERY partition, ONE strict deep-equality assertion** (spec §4.2). Do
+**not** implement this as a list of individual checks — four review rounds each found a mutant that
+escaped the previous clause set, including one that a "populated fields" rule missed because the
+stray value was `null`. Compare the whole object:
 
-> The set of **populated** output fields (non-empty string values) equals exactly
-> `{anchorField} ∪ {targetField, if the canonical is assignable}`, and those fields hold exactly
-> the anchor value and the sentinel respectively.
+```ts
+expect(parseVenue(md, "v4", agg)).toEqual(expectedFor(alias));
+```
 
-This subsumes target routing, stray routing, anchor integrity, and collateral corruption of any
-third field. It kills mutations D, F, and G. Measured today: **0 mismatches in 8453 cases**, across
-five distinct shapes:
+where `expectedFor` is derived from the case's own inputs: `name` and `address` always present, the
+anchor field holding exactly the anchor value, the target field holding exactly the sentinel when
+the canonical is assignable, and any remaining required field at its `""` default. Deep equality is
+exhaustive both ways — extra key, missing key, `null`, `""`, non-string, or wrong value all fail.
+
+Kills mutations D, F, G, and all four arms of H. Measured today: **0 mismatches in 8453 cases**,
+across six distinct expected objects:
 
 ```
-4527x  populated=[name]              1448x  populated=[address,name]
-1240x  populated=[loadingDock,name]   620x  populated=[name,notes]
- 618x  populated=[googleLink,name]
+4527x  {name:<anchor>, address:""}                            (the five non-assignable aliases)
+1448x  {name:<anchor>, address:<sentinel>}
+ 566x  {name:<sentinel>, address:"", loadingDock:<anchor>}
+ 674x  {name:<anchor>, address:"", loadingDock:<sentinel>}
+ 620x  {name:<anchor>, address:"", notes:<sentinel>}
+ 618x  {name:<anchor>, address:"", googleLink:<sentinel>}
 ```
 
 Use a distinctive sentinel as the typo row's value.
@@ -284,7 +304,7 @@ under `lib/parser/blocks/` plus `lib/parser/index.ts`, the parsers export `SECTI
 ### 3.4 Verify
 
 ```
-pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 35 passed
+pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 36 passed (35 + the new guard)
 pnpm exec vitest run tests/docs/
 ```
 
