@@ -906,6 +906,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       // (modal-header-reconciliation §6.1): identity above, live controls below.
       subHeader={
         <StatusStrip
+          attentionMenuOpen={menuEffectivelyOpen}
           slug={slug}
           archived={archived}
           published={published}

@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import { messageFor } from "@/lib/messages/lookup";
+import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -290,6 +291,10 @@ describe("PublishedToggle — inline variant", () => {
       "z-40",
       "mt-1",
       "break-words",
+      // The banner is a capped SCROLL REGION now (spec §4.3): useFitWithinClip
+      // writes its max-height, so the overflow has to be scrollable rather than
+      // clipped away.
+      "overflow-y-auto",
       "rounded-sm",
       "p-2",
       "text-sm",
@@ -300,6 +305,12 @@ describe("PublishedToggle — inline variant", () => {
       "border-border-strong",
       "bg-warning-bg",
       "text-warning-text",
+      // tabIndex={0} puts the banner in the tab order, so it needs a visible
+      // focus indicator (spec §4.3).
+      "focus-visible:outline-none",
+      "focus-visible:ring-2",
+      "focus-visible:ring-focus-ring",
+      "focus-visible:ring-inset",
     ]);
     // Finalize chip must carry NONE of the absolute-geometry tokens (it is in-flow, CASP2-4 item 1).
     const ABSOLUTE_GEOMETRY = ["absolute", "inset-x-0", "top-full", "z-40", "mt-1"];
@@ -453,5 +464,143 @@ describe("settings variant (spec 2026-07-24-strip-mobile-stacked-band §3 R1)", 
     await act(async () => {
       resolveAction({ ok: true });
     });
+  });
+});
+
+/**
+ * Clip-fit + scrollable-region contract for the anchored refusal banner
+ * (spec 2026-08-01-admin-popover-overlay-cluster §4.3, §8, §9 obligation 3).
+ *
+ * The banner is absolutely anchored inside the sticky strip, which sits inside
+ * the review modal's overflow-clip panel. Real geometry lives in
+ * tests/e2e/popover-clip-fit.spec.ts; what is provable here is that the banner
+ * declares itself a named, tabbable, scrollable region and takes the fit.
+ */
+describe("PublishedToggle — refusal banner clip fit (§4.3)", () => {
+  const CAP_PX = 384;
+  const CLIP_BOTTOM = 560;
+  const BANNER_TOP = 230;
+
+  let geometry: { bannerTop: number; clipBottom: number };
+
+  function installLayoutStubs() {
+    geometry = { bannerTop: BANNER_TOP, clipBottom: CLIP_BOTTOM };
+    const clip = document.createElement("div");
+    clip.setAttribute("data-clip-ancestor", "");
+    document.body.appendChild(clip);
+
+    const realComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) => {
+        const real = realComputedStyle(el, pseudo ?? undefined);
+        const isClip = el.hasAttribute?.("data-clip-ancestor") ?? false;
+        const isBanner = el.getAttribute?.("data-testid") === "published-toggle-popover";
+        return new Proxy(real, {
+          get(target, key) {
+            if (key === "overflowX" || key === "overflowY") return isClip ? "clip" : "visible";
+            if (key === "maxHeight" && isBanner) return `${CAP_PX}px`;
+            const value = Reflect.get(target, key) as unknown;
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const isClip = this.hasAttribute?.("data-clip-ancestor") ?? false;
+      const top = isClip ? 0 : geometry.bannerTop;
+      const bottom = isClip ? geometry.clipBottom : geometry.bannerTop + 100;
+      return {
+        left: 0,
+        right: 300,
+        width: 300,
+        top,
+        bottom,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON: () => "",
+      } as DOMRect;
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    return clip;
+  }
+
+  async function refuseInto(clip: HTMLElement) {
+    render(
+      <PublishedToggle
+        slug="s1"
+        variant="inline"
+        published={false}
+        finalizeOwned={false}
+        setPublished={vi.fn(async () => ({ ok: false as const, code: "FINALIZE_OWNED_SHOW" }))}
+      />,
+      { container: clip },
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("published-toggle"));
+    });
+    return screen.getByTestId("published-toggle-popover");
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("the banner is a named, tabbable scroll region and keeps role=alert", async () => {
+    const clip = installLayoutStubs();
+    const banner = await refuseInto(clip);
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(banner.getAttribute("aria-label")).toBe("Publish error details");
+    expect(banner.tabIndex).toBe(0);
+    expect(banner.className).toContain("overflow-y-auto");
+  });
+
+  it("the banner is capped against the clip ancestor", async () => {
+    const clip = installLayoutStubs();
+    const banner = await refuseInto(clip);
+    const expected = `${computeFittedMaxHeight({
+      elementTop: geometry.bannerTop,
+      clipBottom: geometry.clipBottom,
+      cap: CAP_PX,
+    })}px`;
+    expect(banner.style.maxHeight).toBe(expected);
+    expect(banner.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
+      `${CAP_PX}px`,
+    );
+  });
+
+  it("the finalize chip and the idle state are untouched (instant, classes as today)", () => {
+    render(
+      <PublishedToggle
+        slug="s1"
+        variant="inline"
+        published={true}
+        finalizeOwned={true}
+        setPublished={okAction()}
+      />,
+    );
+    // Mode boundary (spec §4.3): the finalize hint SHARES the popover testid but
+    // is an IN-FLOW chip, not the anchored overlay. The scroll-region treatment
+    // belongs to the error branch alone — a chip that acquired tabIndex or a
+    // fitted cap would put a non-scrolling element in the tab order.
+    const chip = screen.getByTestId("published-toggle-popover");
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.getAttribute("role")).toBeNull();
+    expect(chip.getAttribute("aria-label")).toBeNull();
+    expect(chip.getAttribute("tabindex")).toBeNull();
+    expect(chip.className).not.toContain("overflow-y-auto");
+    expect(chip.style.maxHeight).toBe("");
+    const inline = screen.getByTestId("published-toggle-inline");
+    expect(inline.textContent).toContain("Published");
   });
 });

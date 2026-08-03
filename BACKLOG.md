@@ -8,6 +8,37 @@ Last reconciled: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-
 
 ---
 
+## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
+with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
+`fit-within-clip` import assertion and added rows, but did not introduce either gap.
+
+`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` compares a set
+of detected FILES against the registry's file rows, and `looksLikeAnchoredScroller`
+matches Tailwind class idiom in the source text. Two consequences:
+
+1. **Per-file, not per-overlay.** A second, undispositioned overlay added to an
+   already-registered file leaves the detected file set unchanged, so the guard stays
+   green. Reviewer probe: appending an `UndispositionedSecondOverlay` with
+   `className="absolute top-full overflow-y-auto"` to `ShareHub.tsx` gave
+   `SUMMARY 15/15 passed; undispositioned overlay appended in already-registered file=true`.
+   The same escape exists in all seven registered files.
+2. **Tailwind-only recognition.** An overlay written with inline styles
+   (`style={{ position: "absolute", top: "100%", overflowY: "auto" }}`) is genuinely an
+   anchored scroller but is not detected at all. Reviewer probe:
+   `CLASSIFIER inline-style mutant => false` and `SUMMARY 15/15 shipped guard cases passed`.
+
+So a new unsafe overlay can ship undispositioned despite the guard's stated
+fail-by-default contract. Fix shape: key the registry by OVERLAY (a stable per-element
+marker such as a testid or a declared symbol) rather than by file, and widen the
+classifier to computed/inline positioning as well as the class idiom — or state the
+limit explicitly in the registry header so the contract stops over-promising.
+
+Not fixed in the cluster that surfaced it: closing it means re-keying an existing
+registry and re-dispositioning seven files, which is its own change with its own
+review surface.
+
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (specced, not built)
 
 **Status:** OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
@@ -115,16 +146,6 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 **Status:** open (shelved).
 
 ---
-
-## BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers
-
-**Filed:** 2026-07-25 (impeccable audit P2) · **Class:** code duplication / drift risk · **Effort:** S
-
-`HoverHelp` and `ShareHub` each implement their own rAF coalescer. They now have IDENTICAL leading-edge throttle semantics, but only because a P1 in the same audit caught them diverging: ShareHub's was a debounce, which silently defeated pan-tracking once a high-frequency `visualViewport` source was attached. The bounds policy was extracted to `lib/popover/place.ts`; the coalescer was not.
-
-**Work:** extract a shared helper and delete both local copies. `shareHubVisualViewport.test.tsx` T-S8 pins throttle-vs-debounce and should move with it.
-
-**Status:** open.
 
 ## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
 
@@ -500,14 +521,6 @@ Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip c
 
 Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
 
-### BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount
-
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** RESOURCE HYGIENE
-
-Measured while writing the cue's teardown coverage: rendering ShareHub arms zero timers, opening the popover arms one, and unmounting the tree leaves that one behind. The cue's own timer cleans up correctly — the leak predates it and belongs to something the popover mounts.
-
-Consequence today is limited to test hygiene: it makes a global `vi.getTimerCount()` assertion unusable, which is why `shareHubFlashState.test.tsx` measures a delta against a post-open baseline rather than expecting zero. Trigger: bisect the popover's children for the un-cleared `setTimeout`, or promote if a real leak surfaces under repeated modal open/close.
-
 ## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — dashboard staged apply treats identity-link renames as remove+add
 
 **Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)
@@ -537,42 +550,6 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 **Options to weigh at spec time:** (a) amend the §12.4 row to permit a section-jump action link (note the row's `resolution:"auto"` posture — the link would be navigational, not resolving, which is a different affordance class than the action links other rows carry); (b) leave the alert alone and instead make the rail's "Parse warnings" section carry the attention dot the alert implies, so the route is visible in the nav rather than in prose; (c) accept the prose pointer as sufficient given the rail is always visible in the modal.
 
 **Trigger:** next milestone touching §12.4 alert rows, the attention surface, or `CompactAlertCard` affordances.
-
-## BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel
-
-**Status:** OPEN · **Severity:** UNVERIFIED (needs measurement before triage) · **Class:** same as `BL-SHAREHUB-ARM-VIEWPORT-REVEAL`, which graduated to `BACKLOG-archive.md` when it shipped.
-
-Surfaced BY the structural registry added in `feat/sharehub-archive-copy-reveal` (`tests/components/admin/showpage/popoverOverlayRegistry.ts`), which is the point of building it. `AttentionMenu` mounts INSIDE the `overflow-clip` review-modal panel (`components/admin/showpage/PublishedReviewModal.tsx`), is absolutely anchored (`components/admin/showpage/AttentionMenu.tsx:119`, `top-[calc(100%+8px)]`) and carries its own capped scroller (`components/admin/showpage/AttentionMenu.tsx:130`, `max-h-96 overflow-y-auto`), while using neither clip-safety mechanism.
-
-The original spec sweep missed it because that grep required `top-full` and this component uses an arbitrary anchor — exactly the false negative plan-review R3 predicted, then demonstrated on a real file.
-
-NOT fixed on suspicion: whether it strands content depends on measured geometry, and it sits near the panel top where 384px may well fit. **Probe recipe:** open the menu at 390x{844,667,560} with enough items to fill `max-h-96` and assert the last item is reachable via `elementFromPoint`, the shape spec §9.2 uses. Registered as `unverified-gap` so the guard stays green while the question stays visible.
-
-## BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS — the hub backdrop swallows taps on its own triggers
-
-**Status:** OPEN · **Severity:** LOW (near-invisible in use) · **Class:** stacking-context misconception.
-
-With the hub open, the `fixed inset-0 z-20` backdrop wins the hit test over both trigger buttons. The root's (now removed) open-gated `z-30` elevated the WHOLE root, backdrop included, and never ordered that fixed child against its non-positioned trigger siblings — so `tests/components/admin/showpage/shareHub.test.tsx` pinned class-level z values and read them as paint order, the exact failure `T-HUB-ZORDER`'s own comment warns about.
-
-**Pre-existing, not a regression:** the same `elementFromPoint` probe fails identically with `origin/main`'s `ShareHub.tsx` checked out in place. Near-invisible because the backdrop's own handler closes the popover, so a trigger tap still dismisses — just via the outside-click path, without focus restore.
-
-**Fix shape:** give the trigger group its own open-gated stacking level above the backdrop, or move the backdrop into the portal beneath the body; then restore the trigger assertions in T-BACKDROP (`tests/e2e/admin-lifecycle-layout.spec.ts`), which were deliberately scoped out rather than asserted as expected so the eventual fix does not look like a regression.
-
-## BL-SHAREHUB-CONFIRM-NAMES-SHOW — armed Archive confirm does not name the show it will archive
-
-**Status:** OPEN · **Severity:** LOW · **Class:** destructive-confirm context.
-
-Surfaced by the impeccable critique of `feat/sharehub-archive-copy-reveal` (2026-07-24, finding 1). On short viewports the hub popover now places ABOVE its trigger, which covers the show title and status band — so at the moment the operator arms a destructive action, the surface no longer shows which show they are acting on.
-
-Placement is not the thing to change: opening upward is what makes the confirm reachable at all, and the prior behaviour was a popover clipped off-screen, which is strictly worse than an obscured title. The better fix is to make the confirm self-describing — name the show in the armed consequence sentence, so context travels with the decision instead of depending on what happens to be visible behind the popover.
-
-Fix shape: include the show title in the armed confirm copy in `components/admin/ArchiveShowButton.tsx`, and pin it in `tests/components/admin/showpage/shareHub.test.tsx`. Copy is owner-ratified (destructive-confirm-pass §R7), so this needs a copy decision, not just an edit.
-
-## BL-PUBLISHED-TOGGLE-OVERLAY-CLIP — published-toggle error overlay can be cut by the panel clip
-
-**Status:** OPEN · **Severity:** LOW · **Class:** as above, weaker variant.
-
-`components/admin/PublishedToggle.tsx:59` anchors an error banner `absolute inset-x-0 top-full` inside the clipping panel. Unlike the share hub it carries NO cap and NO internal scroller, so it cannot strand content in a hidden scroll tail — the failure mode the registry exists for — but a long enough error could still be visually cut at the clip edge. Error-only and momentary (`components/admin/PublishedToggle.tsx:55`), hence out of scope for the placement migration.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 

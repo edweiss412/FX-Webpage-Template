@@ -28,6 +28,7 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -56,7 +57,7 @@ const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 // FINALIZE_CHIP below (CASP2-4 item 1, BL-CASP2-STRIP-POLISH) so it never overlays the rail
 // content below the strip during the longer-lived finalize window.
 const POPOVER_POSITION =
-  "absolute inset-x-0 top-full z-40 mt-1 break-words rounded-sm p-2 text-sm shadow-tile";
+  "absolute inset-x-0 top-full z-40 mt-1 break-words overflow-y-auto rounded-sm p-2 text-sm shadow-tile";
 
 // Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the
 // `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
@@ -120,6 +121,13 @@ export function PublishedToggle({
     else setGenericError(true);
   };
 
+  // Caps the anchored refusal banner against the review-modal panel's clip edge.
+  // Called unconditionally (rules of hooks); the ref is attached only in the
+  // inline/settings arm, where the banner is an absolute overlay — the card
+  // arm's error block is in-flow and cannot be clipped. The re-apply key is the
+  // error state, because that is when the banner mounts (spec §4.3).
+  const fitRef = useFitWithinClip(errorCode != null || genericError);
+
   if (variant === "inline" || variant === "settings") {
     const isSettings = variant === "settings";
     const popoverId = `published-toggle-popover-${_slug}`;
@@ -172,7 +180,15 @@ export function PublishedToggle({
             id={popoverId}
             data-testid="published-toggle-popover"
             role="alert"
-            className={`${POPOVER_POSITION} border border-border-strong bg-warning-bg text-warning-text`}
+            // A named, tabbable SCROLL REGION (spec §4.3): the banner is capped
+            // against the review-modal panel's clip edge, so its overflow has to
+            // be reachable — and its catalog copy can be long enough to overflow
+            // with zero focusable descendants, which engines do not reliably
+            // place in sequential focus order.
+            aria-label="Publish error details"
+            tabIndex={0}
+            ref={fitRef}
+            className={`${POPOVER_POSITION} border border-border-strong bg-warning-bg text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset`}
           >
             {errorCode ? (
               <>

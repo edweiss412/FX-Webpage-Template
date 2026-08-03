@@ -71,9 +71,15 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
       "Mounts in the nav bell (components/admin/nav/NotifBell.tsx), outside the review-modal panel, so no overflow-clip ancestor sits between it and the viewport.",
   },
   {
-    file: "components/admin/showpage/AttentionMenu.tsx",
-    disposition: "unverified-gap",
+    file: "components/admin/PublishedToggle.tsx",
+    disposition: "fit-within-clip",
     reason:
-      "Surfaced BY this registry, 2026-07-24. Mounts INSIDE the clipping panel (components/admin/showpage/PublishedReviewModal.tsx), is absolutely anchored, and carries its own capped scroller (max-h-96 overflow-y-auto) while using neither clip-safety mechanism — the same shape as the ShareHub defect. Whether it actually strands content depends on measured geometry (it sits near the panel top, so 384px may fit), so it is filed rather than fixed on suspicion: BL-ATTENTION-MENU-PANEL-CLIP.",
+      "Detected 2026-08-02, the moment its anchored refusal banner became an internal scroller (BL-PUBLISHED-TOGGLE-OVERLAY-CLIP). The banner is absolutely anchored inside the sticky strip, which sits inside the review-modal panel (overflow-clip, NOT a scroll container), so an uncapped box strands the tail of its own scroll range below the clip edge. useFitWithinClip caps it against that edge. Placement-module migration buys nothing here: the banner is full-width inset-x-0, so flipping sides changes nothing.",
+  },
+  {
+    file: "components/admin/showpage/AttentionMenu.tsx",
+    disposition: "fit-within-clip",
+    reason:
+      "Surfaced BY this registry 2026-07-24 as unverified-gap, then MEASURED and closed 2026-08-02 (BL-ATTENTION-MENU-PANEL-CLIP). The suspicion was right: spec 2026-08-01-admin-popover-overlay-cluster §2.2 probed 390x560 and found the panel overhanging the clip edge by 55px with a 54px stranded tail. Its scroller now takes useFitWithinClip, so the max-h-96 cap is bounded by the clip edge rather than hoping 384px fits.",
   },
 ];
