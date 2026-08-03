@@ -385,6 +385,34 @@ Measured: conditions 1–2 alone yield 11 ids (3 wrong); all three yield exactly
 | **P7 — the P1 bullet after an intervening non-id heading** | **does NOT define (trap 2)** |
 | **P8 — the real `BACKLOG-archive.md:1094-1096` shape, with the picker headings removed in-memory** | **does NOT define** — the R1 mutant, pinned |
 
+### 4.2a Comprehensive re-analysis of the file-scoping vector (three-round rule)
+
+R2b, R3b and R4b each landed a finding on one vector — *proving that a bullet in a non-ledger file
+cannot define an id*. Per the AGENTS.md same-vector rule, the response is no longer another
+per-instance patch but an end-to-end enumeration of what the property actually requires, audited
+against the design:
+
+| # | Requirement | Where it is discharged |
+| --- | --- | --- |
+| 1 | `bodyDefinedIds` must not know about files at all | §4.1 — its signature is `(text, opts)` |
+| 2 | The file list is ONE named constant | `LEDGERS` |
+| 3 | That constant's **exact membership** is asserted | P5-live (R4b) |
+| 4 | The live call uses the constant, passing no argument | P5-live |
+| 5 | An explicitly passed list is respected | P5 paired control (R3b) |
+| 6 | A non-ledger file defines nothing | P5 |
+| 7 | **`bodyDefinedIds` has no OTHER production caller** that could bypass `LEDGERS` | **P5-sole (new below)** |
+| 8 | The default `read` is filesystem-backed and repo-rooted, not injectable in production | P5-sole |
+
+Requirement 7 is what the enumeration surfaced and no earlier round reached: every plant so far
+constrains `definedIds`, and none constrains what else may call `bodyDefinedIds`. A future edit
+calling it from a second site with its own file list passes P1–P8 and P5-live unchanged.
+
+**P5-sole** closes it structurally rather than by inspection: a source scan asserting
+`bodyDefinedIds` is referenced exactly once outside its own definition and the test files — from
+`definedIds` — and that `definedIds`'s `read` default resolves under `ROOT`. This is the
+structural defense the calibration rule asks to ship in the repair commit, not after a fourth
+round.
+
 ### 4.3 Residue deletion
 
 Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:95`).
@@ -428,7 +456,7 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
   (`tests/docs/_metaDeferralLedgerGraduation.test.ts:393-396` requires the archived section to
   CONTAIN the branch string), and the terminal-state requirement. Stripping the marker without
   this replacement removes the section's only branch provenance and fails the second.
-- **AC-B2** Plants P1–P8 pass as specified in §4.2. P5 is exercised against the exported
+- **AC-B2** Plants P1–P8, P5-live, and P5-sole pass as specified in §4.2 / §4.2a. P5 is exercised against the exported
   `definedIds(ledgers, read)` seam with a paired control, so "ledger files only" is proven
   behaviorally rather than asserted structurally.
 - **AC-B3** `bodyDefinedIds` over the four live ledgers returns exactly 8 ids, not 11.
