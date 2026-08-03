@@ -61,12 +61,20 @@ const OVER_CAP: readonly RawRow[] = [
   row("venue", "v1"),
 ];
 
-/** Cards currently wearing the attribute, as [testid, value] pairs. */
+/**
+ * PANEL CARDS wearing the attribute, as [testid, value] pairs. Scoped to cards on
+ * purpose: the over-cap band wears the same attribute, and an unscoped query would
+ * let the band satisfy a per-card assertion.
+ */
 function armedCards(): Array<[string, string]> {
-  return [...document.querySelectorAll(`[${ATTR}]`)].map((el) => [
-    el.getAttribute("data-testid") ?? "(no testid)",
-    el.getAttribute(ATTR) ?? "",
-  ]);
+  return [...document.querySelectorAll(`[${ATTR}]`)]
+    .filter((el) => (el.getAttribute("data-testid") ?? "").includes("-panel-card"))
+    .map((el) => [el.getAttribute("data-testid") ?? "(no testid)", el.getAttribute(ATTR) ?? ""]);
+}
+
+/** The sub-header band's cue value, or null. */
+function bandCue(): string | null {
+  return screen.getByTestId("published-show-review-freshness-band").getAttribute(ATTR);
 }
 
 /**
@@ -95,6 +103,7 @@ describe("published review modal: freshness cue", () => {
   it("S1: the first render arms nothing", () => {
     render(publishedModalElement(CREW));
     expect(armedCards()).toEqual([]);
+    expect(bandCue()).toBeNull();
     expect(announcementText()).toBe("");
   });
 
@@ -176,7 +185,11 @@ describe("published review modal: freshness cue", () => {
     const { rerender } = render(publishedModalElement(CREW));
     rerender(publishedModalElement(CREW));
     rerender(publishedModalElement(OVER_CAP));
-    expect(armedCards()).toEqual([]);
+    expect(armedCards(), "no individual card flashes over the cap").toEqual([]);
+    // But the surface is NOT silent. Design review caught the first version
+    // inverting its own signal: the largest change produced the least visual
+    // evidence. The band is the visual equivalent of the sentence below it.
+    expect(bandCue(), "the band carries the whole-surface cue").not.toBeNull();
     expect(announcementText()).toBe("Show details updated.");
   });
 
@@ -261,9 +274,9 @@ describe("published review modal: freshness cue", () => {
     // The rooms label is read off the RENDERED rail chip rather than written here,
     // which is what stops the suite pinning a stale copy of the registry map. The
     // chip carries an sr-only status after its label, so take the label half.
-    const roomsChip = document
-      .querySelector('[data-testid$="-review-chip-dot-rooms"]')
-      ?.parentElement;
+    const roomsChip = document.querySelector(
+      '[data-testid$="-review-chip-dot-rooms"]',
+    )?.parentElement;
     const roomsLabel = (roomsChip?.textContent ?? "").split("\u2014")[0]?.trim() ?? "";
     expect(roomsLabel.length, "the rooms rail chip must carry its registry label").toBeGreaterThan(
       0,
@@ -271,7 +284,10 @@ describe("published review modal: freshness cue", () => {
 
     expect(two.startsWith("Updated: ")).toBe(true);
     expect(two.endsWith(".")).toBe(true);
-    expect(two, "two sections join with a final and").toContain(" and ");
+    expect(two, "labels join with commas only").toContain(", ");
+    // NOT a trailing conjunction: a registry label can contain an ampersand, so
+    // "Crew, Rooms & scope and Hotels" would read as four items rather than three.
+    expect(two).not.toContain(" and ");
     expect(two, "the spoken name is the rendered name").toContain(roomsLabel);
 
     for (const text of [one, two]) {
@@ -312,6 +328,7 @@ describe("published review modal: freshness cue", () => {
     // S7 starts from rest and cannot catch a merge that leaves the earlier
     // attribute on under an announcement that no longer makes a per-card claim.
     expect(armedCards()).toEqual([]);
+    expect(bandCue()).not.toBeNull();
     expect(announcementText()).toBe("Show details updated.");
   });
 

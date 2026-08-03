@@ -23,7 +23,7 @@ Both legs fire from ONE detector, so they can never disagree.
 | # | Resolved | Ratification |
 |---|---|---|
 | R1 | **The realtime spec did NOT ratify a silent-by-design posture.** `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75` (§4.3) says only that the bridge component renders `null`, and `2026-07-19-admin-modal-realtime-refresh.md:173` (§9) says its transition inventory is N/A because the bridge adds no visual states. Both are statements about the BRIDGE, not about the surface it refreshes. Nobody weighed a cue and rejected it. | `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75`, `2026-07-19-admin-modal-realtime-refresh.md:173` |
-| R2 | **Shipping a cue is a design decision, not a reversal of one.** Follows from R1. The entry, whose text opens `Impeccable` P3, asserts that the spec ratified silence; that sentence is wrong and this spec corrects it where the entry graduates. Its un-defer signal (a user reporting that modal content changed without explanation) is NOT the gate either: the user made the call directly. | `BACKLOG.md:319`, `BACKLOG.md:321` |
+| R2 | **Shipping a cue is a design decision, not a reversal of one.** Follows from R1. The entry, whose text opens `Impeccable` P3, asserts that the spec ratified silence; that sentence is wrong and this spec corrects it where the entry graduates. Its un-defer signal (a user reporting that modal content changed without explanation) is NOT the gate either: the user made the call directly. | `BACKLOG-archive.md:23` |
 | R3 | **The share-link flash is the precedent and its vocabulary is reused, not re-invented.** `DESIGN.md:278-299` documents the pattern; its stated rationale ("a one-shot ‘this just changed’ signal has no correct steady state, and a permanent tint would assert something no longer true") is exactly why flash-then-fade beats a persistent "updated just now" badge here. A reviewer proposing a persistent badge is relitigating the user's decision. | `DESIGN.md:297` |
 | R4 | **A NEW constant with the SAME value is the house pattern, not a reuse of an existing one.** `WARNING_HIGHLIGHT_MS` (`components/admin/wizard/Step3ReviewModal.tsx:107`) and `SHARE_LINK_FLASH_MS` (`components/admin/showpage/ShareHub.tsx:138`), both 1600, are two constants with one value, each pinned to its own owning module. `SECTION_FRESHNESS_FLASH_MS` is the third. Do not propose collapsing them. | `docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md:32` (R8) |
 | R5 | **Reduced motion gets NO visual cue**, matching the share-link row and deliberately unlike the step3 warning row. The announcement leg is what carries the information there, and it is motion independent. | `DESIGN.md:297`, `app/globals.css:933-937` |
@@ -289,15 +289,17 @@ SECTION_FRESHNESS_MAX_CUES = 3
 ```
 
 - `1 <= changed.length <= 3` → each changed section's card flashes; the announcement names them.
-- `changed.length > 3` → **no card flashes at all**, and the announcement degrades to the whole-surface sentence in §4.6.
+- `changed.length > 3` → **no card flashes**, and the cue moves to the sub-header BAND, with the announcement degrading to the whole-surface sentence in §4.6.
 
-The over-cap branch deliberately drops the visual leg rather than flashing the first three. Picking three of eleven would assert that those three are the interesting ones, which is false. Three is the point at which "these specific things changed" stops being a readable claim on a phone-width scrolling column; above it the honest statement is the one about the surface as a whole.
+**The band is a round-3 correction and the first version was inverted.** It dropped the visual leg entirely over the cap, which meant the largest possible change, a full re-parse, produced the least visual evidence: a sighted reader learned nothing precisely when the most had moved, while a screen reader still heard the surface sentence. One calm mark on the band is the visual equivalent of that sentence, and it is what the two legs agreeing actually requires.
+
+The over-cap branch still refuses to flash the first three of eleven. Picking three of eleven would assert that those three are the interesting ones, which is false. Three is the point at which "these specific things changed" stops being a readable claim on a phone-width scrolling column; above it the honest statement is the one about the surface as a whole.
 
 ### 4.5 Visual treatment
 
-The cue is a wash plus an outline on the panel card, held to 45% then settling, structurally identical to the share-link cue (`app/globals.css:912-937`).
+The cue is a 2px `accent-edge` outline on the panel card, held to 45% then faded, structurally a narrowing of the share-link cue (`app/globals.css:912-937`).
 
-**Why both a wash and an outline, rather than a wash alone.** `DESIGN.md:297` already records that the ring in the share-link cue "is NOT decorative in dark, where it is the change signal itself" — the `accent-tint` wash is a small delta against dark surfaces. The same holds here, so the outline is not garnish; it is the dark-theme signal.
+**It was a wash plus an outline, and the impeccable critique removed the wash.** Both reasons are design-substantive rather than stylistic. `PRODUCT.md:31` reserves the orange for "this matters now" and spends it sparingly; a background reconcile is informational, and a full-card wash on a 390px phone can be the entire viewport. And the wash was occluded unevenly: cards hold opaque children (`surface-sunken` tiles, nested cards, warning callouts), so a sparse section washed fully while a dense one showed colour only in the gaps, and the SAME event read at very different loudness depending on which section moved. The outline renders identically on every card, so it is the whole cue.
 
 **Why an outline rather than a border or a box-shadow.** The card already owns its `border` (which switches to `border-border-strong` when `flagged`, `step3ReviewSections.tsx:1046`) and its `shadow-(--shadow-tile)`. Animating either would fight an existing state. `outline` is layout-neutral, composes with both, and follows `border-radius`.
 
@@ -310,16 +312,7 @@ Three consequences of that choice, each verified rather than assumed:
 Normative CSS, added to `app/globals.css` next to the existing two flashes. The `-1` / `-2` pairs are byte-identical apart from their names; §4.7 explains why both exist.
 
 ```css
-@keyframes section-freshness-flash-bg-1 {
-  0%,
-  45% {
-    background-color: var(--color-accent-tint);
-  }
-  100% {
-    background-color: var(--color-surface);
-  }
-}
-@keyframes section-freshness-flash-outline-1 {
+@keyframes section-freshness-flash-1 {
   0%,
   45% {
     outline-color: var(--color-accent-edge);
@@ -328,16 +321,7 @@ Normative CSS, added to `app/globals.css` next to the existing two flashes. The 
     outline-color: transparent;
   }
 }
-@keyframes section-freshness-flash-bg-2 {
-  0%,
-  45% {
-    background-color: var(--color-accent-tint);
-  }
-  100% {
-    background-color: var(--color-surface);
-  }
-}
-@keyframes section-freshness-flash-outline-2 {
+@keyframes section-freshness-flash-2 {
   0%,
   45% {
     outline-color: var(--color-accent-edge);
@@ -351,14 +335,10 @@ Normative CSS, added to `app/globals.css` next to the existing two flashes. The 
   outline-offset: 0;
 }
 [data-section-freshness-flash="1"] {
-  animation:
-    section-freshness-flash-bg-1 1600ms ease-out,
-    section-freshness-flash-outline-1 1600ms ease-out;
+  animation: section-freshness-flash-1 1600ms ease-out;
 }
 [data-section-freshness-flash="2"] {
-  animation:
-    section-freshness-flash-bg-2 1600ms ease-out,
-    section-freshness-flash-outline-2 1600ms ease-out;
+  animation: section-freshness-flash-2 1600ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-section-freshness-flash] {
@@ -374,7 +354,7 @@ The reduced-motion block resolves `animation-name` to `none` AND pins the outlin
 
 A branch-stable sr-only region, per `DESIGN.md:479`. The REGION element is always mounted with a stable key and is never conditionally rendered and never `display: contents`, because a region that mounts at the same moment its text appears is unreliably announced.
 
-Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:907-909`), with `key="freshness-announce"`.
+Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:1060`), with `key="freshness-announce"`.
 
 NOT the body slot, which was the first draft and is wrong. `ReviewModalShell` documents a contract that its `children` mount directly in the panel's flex column with no wrapper, so that the consumer's surface root IS the body element and owns the scroller (`components/admin/review/ReviewModalShell.tsx:20-21`, `ReviewModalShell.tsx:688-696`). `ShowReviewSurface` is that sole child. A second body child would contradict the contract for no gain. The `subHeader` band is inside the same dialog subtree, so the live region is announced identically, and it is where a status readout about this surface already lives.
 
@@ -394,8 +374,8 @@ Copy, owned by `components/admin/review/sectionFreshness.ts (new)` alongside the
 |---|---|
 | No live cue | region present, no child |
 | One changed section | `Updated: Crew.` |
-| Two, up to the cap | `Updated: Crew and Rooms & scope.` |
-| Three, up to the cap | `Updated: Crew, Hotels and Rooms & scope.` |
+| Two, up to the cap | `Updated: Crew, Rooms & scope.` |
+| Three, up to the cap | `Updated: Crew, Hotels, Rooms & scope.` |
 | Over the cap | `Show details updated.` |
 | Any changed section is no longer rendered | `Show details updated.` |
 
@@ -403,7 +383,7 @@ Copy, owned by `components/admin/review/sectionFreshness.ts (new)` alongside the
 
 **Only sections that are still rendered can be named, and a mixed case is not partially named.** A section can change by DISAPPEARING: `agenda` drops out of the rail when `agendaBaseline` empties (`components/admin/review/sectionInclusion.ts:27-29`). Naming it would send the reader after something that is not there. But naming only the survivors is worse than it looks: with `changed = ["agenda", "crew"]` and agenda gone, `Updated: Crew.` states something true and implies something false, that Crew is all that moved. So the rule is not an intersection, it is a gate: **if any changed id is absent from the new signature map, the announcement is the surface sentence.** The reader is told the surface changed, which is true, and is not sent hunting for a section that no longer exists.
 
-The list joins with commas and a final "and" and carries no em dashes and no apostrophes (`DESIGN.md:381`). The `&` in `Rooms & scope` is the registry's, not this spec's.
+The list joins with COMMAS ONLY, no trailing conjunction. A registry label can itself contain "and" as an ampersand, so `Rooms & scope` joined with a final "and" produced `Crew, Rooms & scope and Hotels`, which reads as four items rather than three. A plain comma list is unambiguous at every length. No em dashes and no apostrophes (`DESIGN.md:381`); the `&` in `Rooms & scope` is the registry's, not this spec's.
 
 The announcement fires in the over-cap case even though no card flashes. That is the point: over the cap the surface-level statement is the true one, and dropping the visual leg must not drop the information.
 
@@ -504,6 +484,7 @@ That claim is worth an assertion rather than a sentence, because the surface has
 - **A change that lands while the modal is closed is not cued**, and §4.2 branch 2 is what makes that true rather than aspirational. A prefetched open can serve a payload minutes old and then reconcile fresh data in place, so without the baseline branch the first refresh after opening would flash everything that changed while the modal was shut. The cue is a transition signal for changes the reader was present for. The cost is stated plainly: a genuine broadcast landing in the window between mount and the open-time refresh settling is folded into the baseline and not cued. That window is one RSC round trip, the reader has been looking at the surface for less than that, and the alternative is flashing on open, which is the failure the brief named.
 - **Over the cap, a mid-hold card snaps to resting** (§6). The only truncation in the design, and it is preferred to leaving a card lit under an announcement that has stopped making a per-card claim.
 - **Off-screen cards flash unseen.** The modal is a scrolling column and a changed section may be below the fold. The announcement names it regardless, and no scroll is forced: yanking the reader's viewport on a background sync would be a far worse outcome than a missed flash. Auto-scroll is out of scope (§9).
+- **A sighted reader with `prefers-reduced-motion: reduce` gets no visual signal at all.** The outline is the whole cue now that the wash is gone, and reduced motion removes it. This is the ratified posture (R5) applied honestly rather than a gap: a one-shot signal has no correct steady state, and a permanent outline would assert something that is no longer true. The announcement is motion-independent and carries the information. Raised by the audit half of the invariant-8 gate and accepted with this reasoning, not silently.
 - **A hash collision costs a missed cue** (§4.1). The content is still correct on screen.
 - **Hotel ordering rests on the RPC's `order by h.ordinal, h.id`, and nothing in this diff pins the tie-break.** Two reservations sharing an ordinal could reorder between reads and cue Hotels spuriously. No corpus instance is known; filing a tie-break assertion on the RPC is a separate, cheap follow-up rather than a rider here.
 - **Over the cap the reader is told the surface changed, not which parts** (§4.4). Deliberate.

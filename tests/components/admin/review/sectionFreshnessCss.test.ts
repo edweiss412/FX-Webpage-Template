@@ -35,7 +35,7 @@ const SPEC = readFileSync(
  * one earlier in the document.
  */
 function normativeBlock(): string {
-  const marker = "@keyframes section-freshness-flash-bg-1";
+  const marker = "@keyframes section-freshness-flash-1";
   const start = SPEC.indexOf("```css", SPEC.indexOf(marker) - 4000);
   expect(start, "spec must carry a css fence containing the normative block").toBeGreaterThan(-1);
   const open = SPEC.indexOf("\n", start) + 1;
@@ -57,12 +57,7 @@ function depthAt(text: string, index: number): number {
   return depth;
 }
 
-const KEYFRAMES = [
-  "section-freshness-flash-bg-1",
-  "section-freshness-flash-outline-1",
-  "section-freshness-flash-bg-2",
-  "section-freshness-flash-outline-2",
-] as const;
+const KEYFRAMES = ["section-freshness-flash-1", "section-freshness-flash-2"] as const;
 
 describe("section freshness cue: stylesheet contract", () => {
   it("N1: the duration constant is 1600, asserted as a value AND as its declaration", () => {
@@ -113,10 +108,7 @@ describe("section freshness cue: stylesheet contract", () => {
       }
       return CSS.slice(open, i + 1);
     };
-    expect(body("section-freshness-flash-bg-2")).toBe(body("section-freshness-flash-bg-1"));
-    expect(body("section-freshness-flash-outline-2")).toBe(
-      body("section-freshness-flash-outline-1"),
-    );
+    expect(body("section-freshness-flash-2")).toBe(body("section-freshness-flash-1"));
   });
 
   it("N5: reduced motion disables the animation AND pins the outline transparent", () => {
@@ -139,9 +131,10 @@ describe("section freshness cue: stylesheet contract", () => {
       "components/admin/showpage/PublishedReviewModal.tsx",
       "components/admin/wizard/step3ReviewSections.tsx",
     ]) {
-      expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} must not declare keyframes`).not.toContain(
-        "@keyframes",
-      );
+      expect(
+        readFileSync(join(ROOT, rel), "utf8"),
+        `${rel} must not declare keyframes`,
+      ).not.toContain("@keyframes");
     }
   });
 
@@ -159,7 +152,10 @@ describe("section freshness cue: stylesheet contract", () => {
     // Asserted structurally rather than by rendering the wizard: the wizard's own
     // harness would prove one fixture emits nothing, while this proves the emit is
     // UNREACHABLE without the prop, which is the actual contract.
-    const surface = readFileSync(join(ROOT, "components/admin/review/ShowReviewSurface.tsx"), "utf8");
+    const surface = readFileSync(
+      join(ROOT, "components/admin/review/ShowReviewSurface.tsx"),
+      "utf8",
+    );
     const sections = readFileSync(
       join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
       "utf8",
@@ -169,7 +165,7 @@ describe("section freshness cue: stylesheet contract", () => {
     const emits = sections.split("data-section-freshness-flash").length - 1;
     expect(emits, "the attribute must be written in exactly one place").toBe(1);
     expect(sections).toContain(
-      'chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined',
+      "chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined",
     );
 
     // The chrome value can only come from the surface's optional prop.
@@ -179,6 +175,16 @@ describe("section freshness cue: stylesheet contract", () => {
     // mention the prop at all.
     const wizard = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
     expect(wizard).not.toContain("freshSections");
+  });
+
+  it("N9: the cue animates ONLY the outline, never a background", () => {
+    // The wash was removed on design review: it overspent the accent and, because
+    // cards hold opaque children, it rendered at wildly different strength per
+    // section. A future edit that reintroduces it would restore both problems
+    // silently, so the absence is pinned rather than merely intended.
+    const block = normativeBlock();
+    expect(block).not.toContain("background-color");
+    expect(block).not.toContain("--color-accent-tint");
   });
 
   it("the attribute rule sets a transparent outline so only its colour animates", () => {

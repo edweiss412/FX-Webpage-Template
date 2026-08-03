@@ -953,16 +953,26 @@ details[open] > summary [data-agenda-day-count] {
    section whose CONTENT changed across a realtime-driven RSC reconcile
    (spec 2026-08-03-modal-freshness-cue section 4.5, which makes this block
    NORMATIVE — a test compares the shipped rules against it rather than against
-   a description of it). A brief accent-tint wash holding to 45%, plus a 2px
-   outline whose colour fades with it.
+   a description of it). A 2px accent-edge outline holding to 45%, then fading.
+
+   OUTLINE ONLY, AND THAT IS A CORRECTION. The first implementation also washed
+   the card in accent-tint. Design review rejected it on two grounds and both
+   were right. First, PRODUCT.md reserves the orange for "this matters now" and
+   spends it sparingly; a background reconcile is informational, and a full-card
+   wash on a 390px phone can be the entire viewport shouting. Second, the wash
+   was occluded unevenly — cards hold opaque children (bg-surface-sunken tiles,
+   nested cards, warning callouts), so a sparse section washed fully while a
+   dense one showed colour only in the gaps, making the SAME event read at wildly
+   different loudness. The outline is the one leg that renders identically on
+   every card, so it is the whole cue.
 
    WHY AN OUTLINE AND NOT A BORDER OR BOX-SHADOW. The card already owns its
    border (which switches to border-strong when the section is flagged) and its
    tile shadow; animating either would fight an existing state. An outline is
    layout-neutral, composes with both, and follows border-radius. It draws
-   OUTSIDE the border box, which the scroll container's gap-6 leaves room for.
+   OUTSIDE the border box, which the scroll container's padding leaves room for.
 
-   WHY TWO IDENTICAL KEYFRAME PAIRS. Changing an attribute's VALUE does not
+   WHY TWO IDENTICAL KEYFRAMES. Changing an attribute's VALUE does not
    restart a CSS animation, and the key-based remount the share-link cue uses is
    unavailable here: remounting a section card would destroy the scroll position
    and focus inside it, which is the property the whole realtime design exists to
@@ -972,16 +982,7 @@ details[open] > summary [data-agenda-day-count] {
    Reduced motion: NO cue, matching the share-link row above. A one-shot "this
    just changed" signal has no correct steady state. The sr-only announcement is
    what carries the information there, and it is motion-independent. */
-@keyframes section-freshness-flash-bg-1 {
-  0%,
-  45% {
-    background-color: var(--color-accent-tint);
-  }
-  100% {
-    background-color: var(--color-surface);
-  }
-}
-@keyframes section-freshness-flash-outline-1 {
+@keyframes section-freshness-flash-1 {
   0%,
   45% {
     outline-color: var(--color-accent-edge);
@@ -990,16 +991,7 @@ details[open] > summary [data-agenda-day-count] {
     outline-color: transparent;
   }
 }
-@keyframes section-freshness-flash-bg-2 {
-  0%,
-  45% {
-    background-color: var(--color-accent-tint);
-  }
-  100% {
-    background-color: var(--color-surface);
-  }
-}
-@keyframes section-freshness-flash-outline-2 {
+@keyframes section-freshness-flash-2 {
   0%,
   45% {
     outline-color: var(--color-accent-edge);
@@ -1013,14 +1005,10 @@ details[open] > summary [data-agenda-day-count] {
   outline-offset: 0;
 }
 [data-section-freshness-flash="1"] {
-  animation:
-    section-freshness-flash-bg-1 1600ms ease-out,
-    section-freshness-flash-outline-1 1600ms ease-out;
+  animation: section-freshness-flash-1 1600ms ease-out;
 }
 [data-section-freshness-flash="2"] {
-  animation:
-    section-freshness-flash-bg-2 1600ms ease-out,
-    section-freshness-flash-outline-2 1600ms ease-out;
+  animation: section-freshness-flash-2 1600ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-section-freshness-flash] {

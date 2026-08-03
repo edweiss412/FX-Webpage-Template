@@ -445,8 +445,7 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       // This is the only place it is proven end to end: a REAL write, a REAL
       // broadcast, and the attribute landing on the section that changed.
       const cued = await page.evaluate(
-        () =>
-          (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+        () => (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
       );
       expect(cued.length, "the reconcile must cue at least one card").toBeGreaterThan(0);
       expect(
@@ -466,8 +465,7 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       expect(noopRes.error, "no-op publish rpc").toBeNull();
       await page.waitForTimeout(CONTENT_SWAP_TIMEOUT_MS);
       const cuedAfterNoop = await page.evaluate(
-        () =>
-          (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+        () => (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
       );
       expect(
         cuedAfterNoop,

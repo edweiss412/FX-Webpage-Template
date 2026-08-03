@@ -191,10 +191,7 @@ function warningsOf(model: SectionWarningRecord[SectionId] | null): ParseWarning
  * Results come back in registry order, because the announcement reads them aloud
  * and document order is the only order a reader can follow.
  */
-export function changedSectionIds(
-  prev: SectionSignatures,
-  next: SectionSignatures,
-): SectionId[] {
+export function changedSectionIds(prev: SectionSignatures, next: SectionSignatures): SectionId[] {
   const changed = new Set<SectionId>();
   for (const [id, sig] of prev) if (next.get(id) !== sig) changed.add(id);
   for (const [id, sig] of next) if (prev.get(id) !== sig) changed.add(id);
@@ -244,9 +241,13 @@ export function freshnessAnnouncement(
 /** The whole-surface fallback: over the cap, or when a section is gone. */
 export const SURFACE_ANNOUNCEMENT = "Show details updated.";
 
-/** Commas between, "and" before the last. No em dashes, no apostrophes. */
+/**
+ * Commas only, with NO trailing conjunction. Design review caught why: a registry
+ * label can itself contain "and" as an ampersand, so `Rooms & scope` joined with
+ * a final "and" produced "Crew, Rooms & scope and Hotels", which reads as four
+ * items rather than three. A plain comma list is unambiguous at every length.
+ * No em dashes, no apostrophes (DESIGN.md).
+ */
 function joinLabels(labels: readonly string[]): string {
-  if (labels.length === 1) return labels[0] as string;
-  const head = labels.slice(0, -1).join(", ");
-  return `${head} and ${labels[labels.length - 1] as string}`;
+  return labels.join(", ");
 }

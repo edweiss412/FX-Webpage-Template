@@ -123,7 +123,8 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
     setPublished: vi.fn(async () => ({ ok: true }) as const),
     isLive: false,
     lastSyncedAt: opts.lastSyncedAt !== undefined ? opts.lastSyncedAt : "2026-07-16T11:48:00.000Z",
-    lastCheckedAt: opts.lastCheckedAt !== undefined ? opts.lastCheckedAt : "2026-07-16T11:58:00.000Z",
+    lastCheckedAt:
+      opts.lastCheckedAt !== undefined ? opts.lastCheckedAt : "2026-07-16T11:58:00.000Z",
     lastSyncStatus: opts.lastSyncStatus !== undefined ? opts.lastSyncStatus : "ok",
     now: NOW,
     attentionItems: opts.attentionItems ?? [],

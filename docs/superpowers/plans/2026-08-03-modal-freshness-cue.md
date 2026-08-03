@@ -67,10 +67,10 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 
 ## 2. Task list
 
-- [x] T1 — the detector module and its unit suite (19 tests, 6 mutants killed)
+- [x] T1 — the detector module and its unit suite
 - [x] T2 — the normative CSS, DESIGN.md, contrast rows, structural pins
 - [x] T3 — threading the flashing id set to the panel card
-- [x] T4 — the state machine and the announcement region (18 tests, 7 mutants)
+- [x] T4 — the state machine and the announcement region
 - [x] T5 — real-browser dimension assertion (plus its own CI step)
 - [x] T6 — e2e coverage of a real broadcast
 - [x] T7 — backlog graduation
@@ -214,7 +214,7 @@ The memo is keyed on the `data` prop identity, not on a serialisation of it, so 
 
 **Tests S1 through S17** exactly as spec §11.2, on the existing harness, mirroring `tests/components/admin/showpage/shareHubFlashState.test.tsx`.
 
-The harness fits without redesign and that was verified rather than assumed: `publishedModalElement` exists precisely so a test can drive live transitions through RTL `rerender` (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:139-141`), and `baseProps` builds `data` and `bySection` from raw rows through the REAL adapter and the REAL warning model (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:99-106`). Re-rendering with different raw rows is therefore a genuine content delta through the production pipeline, not a poked prop, which is what keeps S3 and S14 from being tautologies.
+The harness fits without redesign and that was verified rather than assumed: a `publishedModalElement` export exists precisely so a test can drive live transitions through RTL `rerender` (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:139-141`), and `baseProps` builds `data` and `bySection` from raw rows through the REAL adapter and the REAL warning model (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:99-106`). Re-rendering with different raw rows is therefore a genuine content delta through the production pipeline, not a poked prop, which is what keeps S3 and S14 from being tautologies.
 
 **One harness extension is required and this task owns it.** `HarnessOpts` (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:93-97`) exposes only `ignoredFingerprints`, `attentionItems` and `alertsDegraded`; `lastSyncedAt`, `lastCheckedAt` and `lastSyncStatus` are hardcoded in `baseProps`. The component-level twin of D4, a refresh that moves only the sync stamps, cannot be expressed without overrides, so `HarnessOpts` gains them as optional fields with the current values as defaults. Additive and default-preserving, so no existing test changes.
 
@@ -298,6 +298,27 @@ Full local gate before the whole-diff review: `pnpm typecheck`, `pnpm lint`, `pn
 
 ## 12. Invariant-8 closeout
 
-Reserved. This plan touches real UI surface (`components/**`, `app/globals.css`, `DESIGN.md`), so invariant 8's dual gate applies in full: both halves run on the diff with the canonical v3 setup gates (the skill's own context load over PRODUCT.md and DESIGN.md, then the **product** register reference, since this is app UI). The first half runs as two isolated parallel sub-agents; an inline run is degraded and is banner-flagged as such. P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry.
+Both halves of the invariant-8 dual gate ran on this diff: `/impeccable critique` and `/impeccable audit`, with the canonical v3 setup gates (the skill's context load over PRODUCT.md and DESIGN.md, then the **product** register reference, since this is app UI).
 
-This section is completed by the closeout commit, which names both halves, records every finding with its disposition, and adds the machine-checkable marker line. The marker is withheld until then by design: its grammar admits only `RAN` and `RAN-DEGRADED`, so there is no honest value to write before the gates have run, and `tests/docs/_metaInvariant8Closeout.test.ts` is what keeps that honest in both directions.
+**Provenance.** Assessment A (design review) and Assessment B (detector plus mechanical evidence) each ran as its OWN isolated sub-agent, neither able to see the other's output. They ran sequentially rather than concurrently, which the reference permits and in fact requires in one direction: Assessment A must finish before detector findings reach the synthesis context, so judgment is not anchored by deterministic output. No degradation banner applies; sub-agents were used for both.
+
+**Findings and dispositions.**
+
+| # | Tier | Finding | Disposition |
+|---|---|---|---|
+| 1 | P1 | The accent-tint wash overspends the accent. PRODUCT.md reserves orange for "this matters now" and spends it sparingly; a background reconcile is informational, and a full-card wash on a 390px phone can be the entire viewport. | **FIXED.** The wash is gone; the cue is the outline alone. |
+| 2 | P1 | The wash was occluded unevenly. Cards hold opaque children, so a sparse section washed fully while a dense one showed colour only in the gaps, making the SAME event read at very different loudness. | **FIXED** by the same change. The outline renders identically on every card. |
+| 3 | P1 | Over the cap the cue inverted its own signal: the largest possible change produced no visual evidence at all, so a sighted reader learned nothing precisely when the most had moved, while a screen reader still heard the surface sentence. | **FIXED.** The sub-header band now carries a calm whole-surface cue over the cap, which is the visual equivalent of the sentence. |
+| 4 | P2 | `joinLabels` produced "Crew, Rooms & scope and Hotels" because a registry label can itself contain an ampersand, so the list read as four items rather than three. | **FIXED.** Commas only, no trailing conjunction. |
+| 5 | P2 | The orange outline stacks outside a flagged card's `border-strong`, giving two concentric strokes. | **ACCEPTED, not deferred.** They are different weights in different tones and read as border-plus-marker rather than an artifact; the outline is transient by construction. Revisit if a flagged section is ever cued in practice and it reads wrong. |
+| 6 | P2 | Prettier failed on 7 files. | **FIXED.** `prettier --write` over the whole diff; `--check` now clean. |
+| 7 | **P0** | The audit half caught that my own CSS block replacement had TRUNCATED `app/globals.css`, deleting ~191 lines of the `@layer base` `.help-prose` block. `/help` would have lost heading scale, list markers, link underlines and its measure. Proven executable, not inferred: `tests/help/help-prose-layer.test.ts` failed 2 of 5. | **FIXED.** Restored from HEAD and the swap re-applied surgically; the file is back to 1198 lines with `help-prose` present, and the help suite passes. This is the single most valuable thing either gate produced, and it was found by the half I nearly skipped. |
+| 8 | P2 | `attentionBySection` keyed its memo on the raw `attentionItems` prop, but the grouping is built from `actionable`, which also folds in locally resolved ids. A local resolve changed the real grouping without recomputing, and the next unrelated refresh reported that stale delta as a change and cued a section whose server content had not moved. | **FIXED.** Keyed on `actionable`. `effectiveSectionId` is deliberately excluded: it is a fresh closure per render, and including it recomputed the map every render, which consumed the mount baseline on the first one. |
+| 9 | P2 | A sighted `prefers-reduced-motion` user now gets NO signal at all, since the outline is the whole cue and reduced motion removes it. The share-link precedent had a secondary cue; here it is the feature. | **ACCEPTED with the reasoning stated.** A one-shot signal has no correct steady state, which is the ratified posture (R5), and a permanent outline would assert something no longer true. The announcement carries it. Filed as a documented limit in the spec rather than silently accepted. |
+| 10 | — | Detector reported one `broken-image` warning at `components/admin/wizard/step3ReviewSections.tsx`. | **NOT INTRODUCED BY THIS DIFF.** Pre-existing `DiagramTile` raw `<img>`, comment-documented as a deliberate revert. Untouched. |
+
+Assessment B verified independently: the reduced-motion override sets both `animation: none` and `outline-color: transparent`; the two keyframe bodies are byte-identical apart from their names; the CSS durations match the JS constant; the diff adds no interactive element, so the 44px floor has no new surface; the announcement copy carries no em dash and no apostrophe; and the outline is not clipped on either axis, with 20px of `tile-pad` clearance against a 2px outline.
+
+Assessment A's remaining P2/P3 observations (no replay of a missed cue, no jump-to-changed affordance, nothing that teaches the cue on first encounter) are real and out of scope for a one-shot transition signal. They are the shape of a persistent change-record feature, not a defect in this one, and are not deferred rows because nothing here promises them.
+
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded

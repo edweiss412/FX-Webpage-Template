@@ -451,8 +451,18 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       else map.set(id, [item]);
     }
     return map as ReadonlyMap<string, readonly AttentionItem[]>;
-    // `actionable` is derived from `attentionItems` each render, so key on the prop.
-  }, [attentionItems]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Keyed on `actionable`, NOT on the raw `attentionItems` prop. The audit half
+    // of the invariant-8 gate caught the difference: `actionable` also folds in
+    // locally resolved ids, so keying on the prop let a local resolve change the
+    // real grouping without recomputing, and the next unrelated refresh then
+    // reported that stale delta as a change and cued a section whose server
+    // content had not moved.
+    //
+    // `effectiveSectionId` is deliberately NOT a dep: it is a fresh closure every
+    // render, so including it recomputed the map on every render, which made the
+    // signature a new object every render and consumed the mount baseline on the
+    // first one. It reads only `placement`, which is derived from the same props.
+  }, [actionable]); // eslint-disable-line react-hooks/exhaustive-deps
   const signature = useMemo(
     () => buildSectionSignatures({ data, bySection, attentionBySection }),
     [data, bySection, attentionBySection],
@@ -461,8 +471,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // Labels from the RENDERED registry, never a copy of it: this is the same list
   // that produces the rail chip and the section heading.
   const sectionLabelOf = useCallback(
-    (id: SectionId): string | null =>
-      step3Sections(data).find((s) => s.id === id)?.label ?? null,
+    (id: SectionId): string | null => step3Sections(data).find((s) => s.id === id)?.label ?? null,
     [data],
   );
 
@@ -480,6 +489,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const [armed, setArmed] = useState<ReadonlyMap<SectionId, Arming>>(EMPTY_ARMED);
   const [freshBatch, setFreshBatch] = useState(0);
   const [announced, setAnnounced] = useState<{ batch: number; text: string } | null>(null);
+  const [bandFresh, setBandFresh] = useState<"1" | "2" | null>(null);
 
   // Written over VISIBILITY, not over any one cause, the shape ShareHub uses for
   // this same problem. A COMMITTED close unmounts this instance, but an ABORTED
@@ -495,6 +505,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   if (closing && (armed.size > 0 || announced !== null || seen.baseline)) {
     setArmed(EMPTY_ARMED);
     setAnnounced(null);
+    setBandFresh(null);
     setSeen({ signature, baseline: false });
   } else if (seen.signature !== signature) {
     const changed = changedSectionIds(seen.signature, signature);
@@ -507,6 +518,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       const next = freshBatch + 1;
       setFreshBatch(next);
       const overCap = changed.length > SECTION_FRESHNESS_MAX_CUES;
+      // Over the cap the BAND carries the cue instead of the cards. Design review
+      // caught the first version inverting its own signal: the largest possible
+      // change, a full re-parse, produced no visual cue at all, so a sighted
+      // reader learned nothing precisely when the most had moved while a screen
+      // reader still heard "Show details updated." One calm whole-surface mark is
+      // the honest visual equivalent of that sentence.
+      setBandFresh(overCap ? (b) => (b === "1" ? "2" : "1") : () => null);
       setArmed((prev) => {
         if (overCap) return EMPTY_ARMED;
         const map = new Map(prev);
@@ -541,6 +559,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         return map;
       });
       setAnnounced((prev) => (prev?.batch === b ? null : prev));
+      setBandFresh(null);
     }, SECTION_FRESHNESS_FLASH_MS);
     // Replace this batch's OWN handle if one exists, so a re-invoked effect
     // leaves one timer rather than leaking the first. Safe in a way a blanket
@@ -1071,50 +1090,56 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           >
             {announced === null ? null : <span key={announced.batch}>{announced.text}</span>}
           </span>
-          <StatusStrip
-          attentionMenuOpen={menuEffectivelyOpen}
-          slug={slug}
-          archived={archived}
-          published={published}
-          finalizeOwned={finalizeOwned}
-          setPublished={setPublished}
-          isLive={isLive}
-          lastSyncedAt={lastSyncedAt}
-          lastCheckedAt={lastCheckedAt}
-          lastSyncStatus={lastSyncStatus}
-          now={now}
-          showId={showId}
-          crewEmails={crewEmails}
-          showTitle={title ?? slug}
-          pickerCrew={pickerCrew}
-          archiveAction={archiveAction}
-          unarchiveAction={unarchiveAction}
-          // Dev-capture snapshot (spec 2026-07-22 §4.3): the allowlist runs at
-          // capture time over this modal's own data props; crewEmails/pickerCrew
-          // and every callback never enter it.
-          devCaptureSnapshot={() =>
-            buildPublishedSnapshot({
-              slug,
-              showId,
-              title,
-              archived,
-              published,
-              finalizeOwned,
-              isLive,
-              lastSyncedAt,
-              lastCheckedAt,
-              lastSyncStatus,
-              alertsDegraded,
-              alertId,
-              openSheetHref,
-              attentionItems,
-              feed,
-              bySection,
-              data,
-            })
-          }
-        />
-        </>      }
+          <div
+            data-testid={`${TESTID_BASE}-freshness-band`}
+            {...(bandFresh !== null ? { "data-section-freshness-flash": bandFresh } : {})}
+          >
+            <StatusStrip
+              attentionMenuOpen={menuEffectivelyOpen}
+              slug={slug}
+              archived={archived}
+              published={published}
+              finalizeOwned={finalizeOwned}
+              setPublished={setPublished}
+              isLive={isLive}
+              lastSyncedAt={lastSyncedAt}
+              lastCheckedAt={lastCheckedAt}
+              lastSyncStatus={lastSyncStatus}
+              now={now}
+              showId={showId}
+              crewEmails={crewEmails}
+              showTitle={title ?? slug}
+              pickerCrew={pickerCrew}
+              archiveAction={archiveAction}
+              unarchiveAction={unarchiveAction}
+              // Dev-capture snapshot (spec 2026-07-22 §4.3): the allowlist runs at
+              // capture time over this modal's own data props; crewEmails/pickerCrew
+              // and every callback never enter it.
+              devCaptureSnapshot={() =>
+                buildPublishedSnapshot({
+                  slug,
+                  showId,
+                  title,
+                  archived,
+                  published,
+                  finalizeOwned,
+                  isLive,
+                  lastSyncedAt,
+                  lastCheckedAt,
+                  lastSyncStatus,
+                  alertsDegraded,
+                  alertId,
+                  openSheetHref,
+                  attentionItems,
+                  feed,
+                  bySection,
+                  data,
+                })
+              }
+            />
+          </div>
+        </>
+      }
     >
       {/* Body: the surface mounts DIRECTLY in the panel flex column (shell
           contract) — its root is the body element, its internal scroller fills

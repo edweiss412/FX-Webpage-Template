@@ -275,17 +275,15 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
   // floor rather than inheriting one that a future share-link retune could remove.
   for (const mode of MODES) {
     it(`${mode.name}: the freshness wash keeps card text legible and its outline visible`, () => {
-      const tint = tokenIn(mode.src, "--color-accent-tint-runtime");
       const edge = tokenIn(mode.src, "--color-accent-edge-runtime");
-      const text = tokenIn(mode.src, "--color-text-runtime");
-      const subtle = tokenIn(mode.src, "--color-text-subtle-runtime");
-      // C1 + C2: body and secondary text at the wash's peak.
-      expect(contrast(text, tint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
-      expect(contrast(subtle, tint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
-      // C3 + C4: the outline at the peak, and as the wash settles back to the
-      // card's resting `surface` fill.
-      expect(contrast(edge, tint)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      const sunken = tokenIn(mode.src, "--color-surface-sunken-runtime");
+      // The cue is an OUTLINE only; the accent-tint wash was removed on design
+      // review, so the text-on-tint rows this block once carried no longer
+      // describe anything that ships. What remains is the outline against the two
+      // grounds it actually touches: the card's own `surface`, and the sunken
+      // band it marks when a change clears the cap.
       expect(contrast(edge, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      expect(contrast(edge, sunken)).toBeGreaterThanOrEqual(DOT_FLOOR);
     });
   }
 

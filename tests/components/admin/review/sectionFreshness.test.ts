@@ -100,9 +100,9 @@ describe("section freshness detector", () => {
     // contacts. Ordering there is the RPC's `order by h.ordinal, h.id`, not the
     // adapter's. Asserting the TRUE behavior keeps the spec honest about which
     // mechanism guarantees what.
-    expect(changedBetween((s) => void (s.hotel_reservations = [...s.hotel_reservations].reverse()))).toEqual(
-      ["hotels"],
-    );
+    expect(
+      changedBetween((s) => void (s.hotel_reservations = [...s.hotel_reservations].reverse())),
+    ).toEqual(["hotels"]);
   });
 
   it("D3: one edited crew role changes exactly crew, and every other id is byte-identical", () => {
@@ -158,10 +158,10 @@ describe("section freshness detector", () => {
       rowOf(s.transportation, 0).vehicle = "16ft box truck";
       rowOf(s.contacts, 0).name = "Val Venue";
       // Two warns: one routed to venue, one to NO section (an unmapped kind), which
-              // is what lands in the Sheet-warnings panel. Since `warnings` stopped
-              // hashing the whole list, a venue-routed warn alone would no longer move
-              // it, and D6 would be asserting a section it never actually changed.
-              internalOf(s).parse_warnings = [routedWarn("venue"), routedWarn("unmapped_block")];
+      // is what lands in the Sheet-warnings panel. Since `warnings` stopped
+      // hashing the whole list, a venue-routed warn alone would no longer move
+      // it, and D6 would be asserting a section it never actually changed.
+      internalOf(s).parse_warnings = [routedWarn("venue"), routedWarn("unmapped_block")];
       internalOf(s).run_of_show = { "2026-08-03": [{ time: "09:00", label: "Doors" }] };
     });
     // Derived from the fixture, never hardcoded: a section list that drifted would
@@ -201,9 +201,9 @@ describe("section freshness detector", () => {
     // panel, so the crew card's content changed while `crewMembers` did not.
     // Round-2 HIGH for the over-correction: the published Sheet-warnings panel
     // renders only what routed to IT, so an externally routed warn must not cue it.
-    expect(changedBetween((s) => void (internalOf(s).parse_warnings = [routedWarn("crew")]))).toEqual(
-      ["crew"],
-    );
+    expect(
+      changedBetween((s) => void (internalOf(s).parse_warnings = [routedWarn("crew")])),
+    ).toEqual(["crew"]);
   });
 
   it("D9c: a warn routed to NO section changes only the Sheet-warnings panel", () => {
@@ -258,12 +258,14 @@ describe("section freshness detector", () => {
       const s = reviewSnapshot();
       internalOf(s).parse_warnings = [roomSplitWarn("hash-1")];
       const d = roomSplitDecision("hash-1", "raw");
-      internalOf(s).use_raw_decisions = [{ ...d, decidedBy, decidedAt: `2026-08-0${decidedBy.length}T00:00:00Z` }];
+      internalOf(s).use_raw_decisions = [
+        { ...d, decidedBy, decidedAt: `2026-08-0${decidedBy.length}T00:00:00Z` },
+      ];
       return signaturesOf(s);
     };
-    expect(changedSectionIds(withDecision("a@example.com"), withDecision("bb@example.com"))).toEqual(
-      [],
-    );
+    expect(
+      changedSectionIds(withDecision("a@example.com"), withDecision("bb@example.com")),
+    ).toEqual([]);
   });
 
   it("D11: attaching an archived-tab offer changes packlist and nothing else", () => {
