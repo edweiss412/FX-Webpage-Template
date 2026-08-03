@@ -658,6 +658,41 @@ Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2
 
 Since the show-page→modal pivot (#476) nothing imports `components/admin/ParsePanel.tsx` (its per-show mount was deleted; whole-parse review was deliberately dropped from published shows in 65d5be75a in favor of MI-11 holds in the Changes feed). `StagedReviewCard` remains live in the onboarding wizard; the live-scope `ParsePanel` wrapper is dead code. Surfaced during published-show-alerts (2026-07-19, spec §14). **Fix (when prioritized):** delete ParsePanel or re-home it explicitly; sweep `tests/e2e/_metaEmphasisRenderContract` style registries on removal.
 
+## BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS — five more components no production file imports
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, the class sweep that closed `BL-ADMIN-PARSEPANEL-ORPHANED`) · **Class:** dead code · **Severity:** low · **Effort:** S per component
+
+ParsePanel was not alone. Shape swept: **a file under `components/` that no file under `app/`, `components/`, or `lib/` imports.** Test importers deliberately do not count — ParsePanel HAD two, which is why it survived the pivot unnoticed for months. The probe resolves each static `from "…"` and dynamic `import("…")` specifier to a repo-relative module path (`@/x/y/Z` → `x/y/Z`; relative specifiers against the importer's directory) and compares whole paths, never basenames.
+
+Measured on `c29d3eb68`: 192 files under `components/`, **6** with zero production importers. ParsePanel was deleted on that branch; these five remain, each confirmed against a bare-string grep so none is a probe artifact:
+
+| File                                      | What references it today                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| `components/admin/PerShowCrewSection.tsx` | Nothing, anywhere, outside itself.                                                   |
+| `components/admin/ResolveAlertButton.tsx` | Only other components' comments, citing it as a pattern exemplar.                    |
+| `components/admin/RunFinalCASButton.tsx`  | Only the `AccentButton` header comment.                                              |
+| `components/right-now/RightNowCard.tsx`   | Only comments, several of which read as though it were live.                         |
+| `components/shared/WrappedTile.tsx`       | Only sibling comments. Also the sole hit of an all-importers (tests included) probe. |
+
+**Why they did not ship with the ParsePanel deletion:** each is a separate product question — retired, or merely unmounted pending a surface that will remount it — and only ParsePanel had an entry answering it. Five unratified calls in one copy-sweep diff is not a sweep, it is scope creep.
+
+**The debt is not silent.** `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` on every run and fails on any zero-production-importer file absent from its `ORPHAN_ALLOWLIST`. These five ARE that allowlist, each row carrying a reason and this id, so the class cannot grow without a deliberate act. **That allowlist is this entry's live ledger — work the entry by emptying it.**
+
+**Fix (when prioritized):** per component, decide retired vs unmounted. Retired → delete it, its tests, and its allowlist row. Unmounted → wire the mount, or record the blocking dependency in the row's reason.
+
+## BL-LEAD-CAPABILITY-PROSE-STALE — two prose claims that LEAD grants an admin/ops surface
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, spec review R1 finding 1) · **Class:** docs/copy + contract · **Severity:** low · **Effort:** S each, but each needs a contract read
+
+Probed while fixing `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: **no role flag grants admin access.** `is_admin()` (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`) reads the JWT `app_metadata.role` claim and the `admin_emails` table, and never consults `role_flags`; the admin tree gates on admin identity. Sweeping every production use of the LEAD flag finds financials entitlement (`lib/visibility/scopeTiles.ts`, `lib/data/getShowForViewer.ts`), the audio/video/lighting scope-tile predicates, and a "Lead" chip. No admin path exists.
+
+The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContext, its `longExplanation`, and the explainer mirror). Two prose claims were deliberately NOT edited, because each is a statement about what a capability confers rather than a copy string, and changing one is a ratification act:
+
+1. **`lib/visibility/capabilityTransitions.ts`** — its module-header predicate list carries `financialsVisible = isAdmin || LEAD (LEAD-or-admin)`, while the live predicate is `isAdmin || LEAD || FINANCIALS`. Whether the line is wrong or is an accurate description of a flip matrix that deliberately models `hasLead` only cannot be settled without reading the matrix contract.
+2. **Master spec MI-9** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — "LEAD additionally grants the admin/ops surface". Contradicted by the probe above. May encode intent rather than a stale description.
+
+**Fix (when prioritized):** read the matrix contract and settle (1); for (2), either correct the master-spec clause or record what "admin/ops surface" was meant to denote. Do not patch either from the probe alone — that is why this is filed rather than swept.
+
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20)
