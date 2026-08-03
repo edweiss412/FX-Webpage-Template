@@ -246,37 +246,63 @@ export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
  * string that happens to contain the marker. An exemption is a deliberate,
  * reviewable act — a data value must never grant one.
  */
-function commentStartIndex(line: string, style: CommentStyle): number {
-  if (style === "hash") return hashCommentIndex(line);
-  return jsCommentIndex(line);
-}
-
 /**
- * Index of the `//` or `/*` that starts a JS comment, or -1. Quote- and
- * escape-aware across all three string delimiters: a review probe used
- * `const u = "http://x"` and a `/*` inside a string literal to make a marker
- * elsewhere on the line look like it lived in a comment.
+ * Comment-start index for EVERY line, computed with quote state carried ACROSS
+ * lines. A per-line scan cannot see that a line sits inside a string opened
+ * earlier, so a `#` (or `//`) on a continuation line looks like a comment and
+ * grants an exemption from string data — an R3 probe did exactly that with a
+ * multi-line shell string. Both grammars get the same treatment.
  */
-function jsCommentIndex(line: string): number {
-  const jsdoc = line.search(/^\s*\*(?!\/)/);
-  let quote: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const character = line[i]!;
-    if (character === "\\") {
-      i++;
-      continue;
+function commentIndexPerLine(text: string, style: CommentStyle): number[] {
+  const lines = text.split("\n");
+  const out: number[] = [];
+  let carriedQuote: string | null = null;
+  let inBlockComment = false;
+
+  for (const line of lines) {
+    if (inBlockComment) {
+      const close = line.indexOf("*/");
+      if (close === -1) {
+        out.push(0); // the whole line is inside a block comment
+        continue;
+      }
+      inBlockComment = false;
+      // Anything after the close is ordinary code; fall through and rescan it.
     }
-    if (quote !== null) {
-      if (character === quote) quote = null;
-      continue;
+    let quote: string | null = carriedQuote;
+    let found = -1;
+    for (let i = 0; i < line.length; i++) {
+      const character = line[i]!;
+      if (character === "\\" && quote !== "'") {
+        i++;
+        continue;
+      }
+      if (quote !== null) {
+        if (character === quote) quote = null;
+        continue;
+      }
+      if (character === '"' || character === "'" || (style === "js" && character === "`")) {
+        quote = character;
+        continue;
+      }
+      if (style === "hash") {
+        if (character === "#" && (i === 0 || /\s/.test(line[i - 1]!))) {
+          found = i;
+          break;
+        }
+      } else if (character === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
+        found = i;
+        if (line[i + 1] === "*" && !line.slice(i + 2).includes("*/")) inBlockComment = true;
+        break;
+      }
     }
-    if (character === '"' || character === "'" || character === "`") {
-      quote = character;
-      continue;
-    }
-    if (character === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) return i;
+    // A single/double-quoted string does not survive a newline in either
+    // grammar; a JS template literal does.
+    carriedQuote = quote === "`" ? "`" : null;
+    if (found === -1 && style === "js") found = line.search(/^\s*\*(?!\/)/);
+    out.push(found);
   }
-  return jsdoc;
+  return out;
 }
 
 type CommentStyle = "js" | "hash";
@@ -284,14 +310,15 @@ type CommentStyle = "js" | "hash";
 function exemptionOnLines(
   lines: readonly string[],
   lineNumber: number,
-  style: CommentStyle,
+  commentAt: readonly number[],
 ): string | null {
-  for (const candidate of [lines[lineNumber - 1], lines[lineNumber - 2]]) {
+  for (const index of [lineNumber - 1, lineNumber - 2]) {
+    const candidate = lines[index];
     if (candidate === undefined) continue;
     const at = candidate.indexOf(EXEMPTION_MARKER);
     if (at === -1) continue;
-    const commentAt = commentStartIndex(candidate, style);
-    if (commentAt === -1 || commentAt > at) continue;
+    const start = commentAt[index] ?? -1;
+    if (start === -1 || start > at) continue;
     const reason = candidate.slice(at + EXEMPTION_MARKER.length).trim();
     if (reason.length > 0) return reason;
   }
@@ -436,6 +463,7 @@ function shellTokens(text: string): string[] {
  */
 function scanShellText(text: string, file: string, lineOffset: number): PsqlSite[] {
   const rawLines = text.split("\n");
+  const commentAt = commentIndexPerLine(text, "hash");
   const sites: PsqlSite[] = [];
 
   // Join backslash continuations into logical lines, remembering where each
@@ -489,7 +517,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         tokens,
         hasDynamicTokens: tokens.some((t) => t.includes("$")),
         suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
-        exemptReason: exemptionOnLines(rawLines, hitLine + 1, "hash"),
+        exemptReason: exemptionOnLines(rawLines, hitLine + 1, commentAt),
       });
     }
   }
@@ -497,14 +525,24 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
 }
 
 /** True when a JS/TS string literal is itself a shell command line running psql. */
-function shellStringSites(value: string, file: string, line: number, lines: string[]): PsqlSite[] {
+function shellStringSites(
+  value: string,
+  file: string,
+  line: number,
+  lines: string[],
+  commentAt: readonly number[],
+): PsqlSite[] {
   // `line` is where the literal OPENS; a multi-line template puts psql further
   // down, so the shell scanner's own relative line is ADDED rather than
   // discarded. Reporting the opening line for every hit inside a multi-line
   // literal was an R2 finding.
   return scanShellText(value, file, 0).map((site) => {
     const actualLine = line + site.line - 1;
-    return { ...site, line: actualLine, exemptReason: exemptionOnLines(lines, actualLine, "js") };
+    return {
+      ...site,
+      line: actualLine,
+      exemptReason: exemptionOnLines(lines, actualLine, commentAt),
+    };
   });
 }
 
@@ -543,6 +581,7 @@ function lineOf(sourceFile: ts.SourceFile, pos: number): number {
 export function scanJsSource(source: string, file: string): PsqlSite[] {
   const sourceFile = parseJs(source, file);
   const lines = source.split("\n");
+  const commentAt = commentIndexPerLine(source, "js");
   const sites: PsqlSite[] = [];
 
   const visitNode = (node: ts.Node): void => {
@@ -577,7 +616,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           tokens,
           hasDynamicTokens,
           suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
-          exemptReason: exemptionOnLines(lines, line, "js"),
+          exemptReason: exemptionOnLines(lines, line, commentAt),
         });
       }
 
@@ -587,7 +626,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           const text = literalText(argument);
           if (text === null) continue;
           const line = lineOf(sourceFile, argument.getStart(sourceFile));
-          sites.push(...shellStringSites(text, file, line, lines));
+          sites.push(...shellStringSites(text, file, line, lines, commentAt));
         }
       }
 
@@ -606,7 +645,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
             const text = literalText(element);
             if (text === null) continue;
             const line = lineOf(sourceFile, element.getStart(sourceFile));
-            sites.push(...shellStringSites(text, file, line, lines));
+            sites.push(...shellStringSites(text, file, line, lines, commentAt));
           }
         }
       }

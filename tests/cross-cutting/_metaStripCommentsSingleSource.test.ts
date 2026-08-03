@@ -159,6 +159,16 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
   },
   {
     file: "tests/cross-cutting/psqlStartupFiles/scan.ts",
+    family: "two-char-literal",
+    marker: "*/",
+    reason:
+      "comment-READER, same class as the tests/log/mutationSurface/exemptions.ts rows: the block " +
+      "terminator locates where a comment ENDS while carrying quote state across lines, so a " +
+      "`psql-startup-files-ok:` exemption is honored only from inside a real comment and never " +
+      "from a multi-line string that contains the marker (review R3 probe)",
+  },
+  {
+    file: "tests/cross-cutting/psqlStartupFiles/scan.ts",
     family: "startswith-filter",
     marker: "--",
     reason:

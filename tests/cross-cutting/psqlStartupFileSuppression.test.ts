@@ -438,6 +438,39 @@ describe("exemptions", () => {
     expect(sites[0]!.exemptReason).toBe("a genuine documented reason");
   });
 
+  // R3 probe: a per-line comment scan cannot see that a line sits inside a
+  // string opened EARLIER, so a `#` (or `//`) on a continuation line looked
+  // like a comment and exempted from string data.
+  test("a # inside a multi-line shell string does not exempt", () => {
+    const source = [
+      "#!/usr/bin/env bash",
+      'x="opening',
+      "psql -qAt $DSN",
+      `# ${EXEMPTION_MARKER} unrelated string data`,
+      'closing"',
+    ].join("\n");
+    const sites = sitesIn(source, "scripts/probe.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a // inside a multi-line JS template does not exempt", () => {
+    const source = [
+      "const t = `",
+      `// ${EXEMPTION_MARKER} unrelated`,
+      "`;",
+      `execFileSync("psql", ["-qAt", dbUrl]);`,
+    ].join("\n");
+    expect(sitesIn(source, "x.mjs")[0]!.exemptReason).toBeNull();
+  });
+
+  test("a genuine shell # comment on the preceding line still exempts", () => {
+    const source = [`# ${EXEMPTION_MARKER} a genuine documented reason`, "psql -qAt $DSN"].join(
+      "\n",
+    );
+    expect(sitesIn(source, "x.sh")[0]!.exemptReason).toBe("a genuine documented reason");
+  });
+
   test("a marker with no reason does NOT exempt", () => {
     const sites = sitesIn(
       [`// ${EXEMPTION_MARKER}`, `execFileSync("psql", [dbUrl, "-qAt"]);`].join("\n"),
