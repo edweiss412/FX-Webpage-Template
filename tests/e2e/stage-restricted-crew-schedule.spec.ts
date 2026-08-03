@@ -159,14 +159,6 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
         "X-Screenshot-Frozen-Now": FROZEN_NOW,
         Authorization: `Bearer ${TEST_AUTH_SECRET}`,
       });
-      // TWO-STEP navigation, and it is load-bearing. A Google session with no cookie
-      // entry yet resolves to needs_picker_bootstrap, which redirects through
-      // /api/auth/picker-bootstrap; that handler REJECTS a `next` carrying a query
-      // string and renders "Sign-in unavailable" (measured 2026-08-02 on both engines).
-      // So bootstrap on the BARE show URL first, then re-navigate with the load-bearing
-      // `?s=schedule` once the picker cookie exists. networkidle here (not
-      // domcontentloaded) because the bootstrap hop runs a claim RPC before the render.
-      await page.goto(`/show/${show.slug}/${show.shareToken}`, { waitUntil: "networkidle" });
       const res = await page.goto(`/show/${show.slug}/${show.shareToken}?s=schedule`, {
         waitUntil: "networkidle",
       });
@@ -248,14 +240,6 @@ test.describe("stage-restricted crew schedule (SFS-1)", () => {
         "X-Screenshot-Frozen-Now": FROZEN_NOW,
         Authorization: `Bearer ${TEST_AUTH_SECRET}`,
       });
-      // TWO-STEP navigation, and it is load-bearing. A Google session with no cookie
-      // entry yet resolves to needs_picker_bootstrap, which redirects through
-      // /api/auth/picker-bootstrap; that handler REJECTS a `next` carrying a query
-      // string and renders "Sign-in unavailable" (measured 2026-08-02 on both engines).
-      // So bootstrap on the BARE show URL first, then re-navigate with the load-bearing
-      // `?s=schedule` once the picker cookie exists. networkidle here (not
-      // domcontentloaded) because the bootstrap hop runs a claim RPC before the render.
-      await page.goto(`/show/${show.slug}/${show.shareToken}`, { waitUntil: "networkidle" });
       await page.goto(`/show/${show.slug}/${show.shareToken}?s=schedule`, {
         waitUntil: "networkidle",
       });
@@ -457,16 +441,6 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
         await page.setExtraHTTPHeaders({
           "X-Screenshot-Frozen-Now": FROZEN_NOW,
           Authorization: `Bearer ${TEST_AUTH_SECRET}`,
-        });
-        // TWO-STEP navigation, and it is load-bearing. A Google session with no cookie
-        // entry yet resolves to needs_picker_bootstrap, which redirects through
-        // /api/auth/picker-bootstrap; that handler REJECTS a `next` carrying a query
-        // string and renders "Sign-in unavailable" (measured 2026-08-02 on both engines).
-        // So bootstrap on the BARE show URL first, then re-navigate with the load-bearing
-        // `?s=schedule` once the picker cookie exists. networkidle here (not
-        // domcontentloaded) because the bootstrap hop runs a claim RPC before the render.
-        await page.goto(`/show/${seeded.slug}/${seeded.shareToken}`, {
-          waitUntil: "networkidle",
         });
         const res = await page.goto(`/show/${seeded.slug}/${seeded.shareToken}?s=schedule`, {
           waitUntil: "networkidle",
