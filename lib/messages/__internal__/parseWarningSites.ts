@@ -261,9 +261,7 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
       const objectAssignCode = (): string[] | null => {
         if (!Node.isCallExpression(node)) return null;
         if (node.getExpression().getText() !== "Object.assign") return null;
-        const bearers = node
-          .getArguments()
-          .filter((a) => Boolean(a.getType().getProperty("code")));
+        const bearers = node.getArguments().filter((a) => Boolean(a.getType().getProperty("code")));
         const last = bearers[bearers.length - 1];
         if (!last) return [];
         return literalsOf(last.getType().getProperty("code")?.getTypeAtLocation(last));
