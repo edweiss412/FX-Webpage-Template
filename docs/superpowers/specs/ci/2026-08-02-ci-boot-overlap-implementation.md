@@ -278,70 +278,71 @@ Timeouts: `toPass({ timeout: 15_000 })`, matching `openHub`'s existing retry bud
 
 ### 7.1 The metric, defined executably
 
-2026-07-20 §5.2 says to "measure with P1's `measure()`". That helper is not a repo artifact — it was an ad-hoc shell function in the P1 session and does not exist under `scripts/`. Since a metric that cannot be re-run is not an accept gate, it is defined here instead, as a command against the GitHub API:
+2026-07-20 §5.2 says to "measure with P1's `measure()`". That helper is not a repo artifact — it was an ad-hoc shell function in the P1 session and does not exist under `scripts/`. Since a metric that cannot be re-run is not an accept gate, it is defined here instead, as two commands against the GitHub API.
+
+**They must be TOTAL over the outcomes §7's decision procedure has to classify**, which is the property the first three drafts of this section lacked: a failed combined step means the vitest step never ran, so its timestamps are absent, and a naive subtraction either errors or silently drops the leg — in exactly the partial-run case the procedure most needs data for. Both functions therefore emit a summary line on stdout for EVERY outcome, diagnostics on stderr, and reserve the non-zero exit for "this is not the accept figure".
 
 ```bash
-# LEG FIXED OVERHEAD for one run: per unit-suite-db leg,
-#   (job wall clock) - (duration of the "Run serial project" step)
-gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/<RUN_ID>/jobs" \
-  --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
-        | { leg: .name,
-            wall: (( (.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601) )),
-            vitest: ( .steps[] | select(.name | startswith("Run serial project"))
-                      | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ) }
-        | .wall - .vitest'
+legfix () {  # usage: legfix <RUN_ID> -> per-leg lines on stderr, one summary line on stdout
+  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
+    --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
+          | ( if (.started_at != null and .completed_at != null)
+              then ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))
+              else "NA" end ) as $wall
+          | ( [ .steps[]? | select(.name | startswith("Run serial project"))
+                | select(.started_at != null and .completed_at != null)
+                | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ] ) as $v
+          | "\(.name)\t\($wall)\t\(if ($v|length) > 0 then ($v[0]|tostring) else "NA" end)"' \
+  | awk -F'\t' '
+      { jobs++
+        if ($2 == "NA" || $3 == "NA") {
+          printf "leg %s: wall=%s vitest=%s -> no fixed-overhead value\n", $1, $2, $3 > "/dev/stderr"
+        } else {
+          v[++n] = $2 - $3
+          printf "leg %s: fixed-overhead=%d\n", $1, $2 - $3 > "/dev/stderr"
+        } }
+      END {
+        if (jobs == 0) { print "jobs=0 legs=0 median=NA max-fixed-overhead=NA"
+                         print "FAIL: no unit-suite-db jobs reported at all" > "/dev/stderr"; exit 1 }
+        if (n == 0)    { printf "jobs=%d legs=0 median=NA max-fixed-overhead=NA\n", jobs
+                         print "FAIL: no leg produced a fixed-overhead value (no vitest step ran)" > "/dev/stderr"; exit 1 }
+        for (i = 1; i <= n; i++) for (j = i+1; j <= n; j++) if (v[j] < v[i]) { t=v[i]; v[i]=v[j]; v[j]=t }
+        printf "jobs=%d legs=%d median=%s max-fixed-overhead=%s\n",
+               jobs, n, (n % 2 ? v[(n+1)/2] : (v[n/2] + v[n/2+1]) / 2), v[n]
+        if (jobs != 8 || n != 8) {
+          print "FAIL: expected 8 jobs each with a fixed-overhead value — the figures above are PARTIAL, not the accept figure" > "/dev/stderr"
+          exit 1 } }'
+}
 ```
 
-Wrapped so the arithmetic is not left to the operator either — it must emit exactly eight legs or fail, and it computes the median itself:
+**Max leg is a DIFFERENT quantity from max fixed overhead** — 2026-07-20 §2 records 91s fixed overhead against a 245s max leg on the same run, and its §5.4 requires the LATTER in the PR body. It is total job wall clock, so it does not subtract vitest:
 
 ```bash
-legfix () {  # usage: legfix <RUN_ID>  -> prints "<n legs> <median seconds>"
+legwall () {  # usage: legwall <RUN_ID> -> "legs=N max-leg=S", or NA
   gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
     --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
-          | ( ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))
-              - ( .steps[] | select(.name | startswith("Run serial project"))
-                  | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ) )' \
-  | sort -n | awk '{ a[NR] = $1; printf "leg %d fixed-overhead: %s\n", NR, $1 > "/dev/stderr" }
-                   END{ n = NR
-                        if (n == 0) { print "FAIL: no unit-suite-db legs reported" > "/dev/stderr"; exit 1 }
-                        printf "legs=%d median=%s max-fixed-overhead=%s\n",
-                               n, (n % 2 ? a[(n+1)/2] : (a[n/2] + a[n/2+1]) / 2), a[n]
-                        if (n != 8) {
-                          print "FAIL: " n " legs, expected 8 — the figures above are NOT the accept figure" > "/dev/stderr"
-                          exit 1 } }'
-}
-
-# MAX LEG is a different quantity from max fixed overhead — 2026-07-20 §2 records
-# 91s fixed overhead against a 245s max leg on the same run, and §5.4 requires the
-# LATTER in the PR body. It is total job wall clock, so it does not subtract vitest:
-legwall () {  # usage: legwall <RUN_ID>  -> prints the max unit-suite-db leg wall clock
-  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
-    --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
+          | select(.started_at != null and .completed_at != null)
           | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))' \
-  | sort -n | tail -1
+  | sort -n | awk '{ last = $1; n++ }
+                   END { if (n == 0) { print "NA"
+                                       print "FAIL: no unit-suite-db job reported a wall clock" > "/dev/stderr"; exit 1 }
+                         printf "legs=%d max-leg=%s\n", n, last
+                         if (n != 8) { print "FAIL: " n " legs, expected 8 — PARTIAL" > "/dev/stderr"; exit 1 } }'
 }
 ```
 
-**Validated, not just written down.** Run against the most recent all-green `push` run of `unit-suite` on `main` as of 2026-08-02:
+**Validated, not just written down.** Four cases, run rather than reasoned about:
 
-```
-$ legfix 30783618781
-leg 1 fixed-overhead: 89
-leg 2 fixed-overhead: 91
-leg 3 fixed-overhead: 92
-leg 4 fixed-overhead: 94
-leg 5 fixed-overhead: 98
-leg 6 fixed-overhead: 101
-leg 7 fixed-overhead: 109
-leg 8 fixed-overhead: 112
-legs=8 median=96 max-fixed-overhead=112
-$ legwall 30783618781
-255
-```
+| Case | Result |
+| --- | --- |
+| All-green `push` run on `main` (30783618781) | `jobs=8 legs=8 median=96 max-fixed-overhead=112`, exit 0; `legs=8 max-leg=255`, exit 0 |
+| A RED run (30781674883 — a test failure, all 8 legs still reached vitest) | `jobs=8 legs=8 median=101 max-fixed-overhead=107`, exit 0; `legs=8 max-leg=276` |
+| All legs boot-failed, no vitest step (synthetic input to the same `awk`) | `jobs=2 legs=0 median=NA max-fixed-overhead=NA` on stdout, `FAIL: no leg produced a fixed-overhead value` on stderr, exit 1 |
+| Zero jobs reported / 3 of 8 measurable (synthetic) | `jobs=0 legs=0 median=NA …` and `jobs=4 legs=3 median=100 max-fixed-overhead=110`, both with a `FAIL:` line and exit 1 |
 
-Eight legs, leg-median fixed overhead **96s**, max leg **255s** — the median is close to the 101s the 2026-07-20 spec measured on the pre-split topology, and the max leg to its 245s, which together are the sanity check that both metrics survived the job split. The accept threshold applied to the median is ≤88s. Note the two max figures are different quantities and both appear above deliberately: 112s is the worst leg's fixed overhead, 255s is the worst leg's total wall clock, and the PR body wants the latter.
+The all-green median of **96s** is close to the 101s the 2026-07-20 spec measured on the pre-split topology, and the 255s max leg to its 245s — together the sanity check that both metrics survived the job split. The accept threshold applied to the median is ≤88s.
 
-**Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is at or before this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, both medians and both MAX LEGS (`legwall`) go in the PR body. And whichever way the decision goes, the commit that records it is a NEW head commit that the measured run did not cover — so it is pushed and gets its own green CI run before merge. The measurement validates the overlap; it does not validate the tree that records the measurement.
+**Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is an ancestor of this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, both medians and both MAX LEGS (`legwall`) go in the PR body. And whichever way the decision goes, the commit that records it is a NEW head commit that the measured run did not cover — so it is pushed and gets its own green CI run before merge. The measurement validates the overlap; it does not validate the tree that records the measurement.
 
 **Item 1 (real CI, per 2026-07-20 §5, restated against the current topology):**
 
