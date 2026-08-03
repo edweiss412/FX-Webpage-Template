@@ -3,8 +3,8 @@
 /**
  * components/admin/StagedReviewCard.tsx (M6 §B Task 6.11 — UI portion)
  *
- * Per-row review card for a live `pending_syncs` row. Mounts inside
- * <ParsePanel> on the per-show admin page (`app/admin/show/[slug]/page.tsx`).
+ * Per-row review card for a live `pending_syncs` row. Mounts on the staged
+ * review page (`app/admin/show/staged/[stagedId]/page.tsx`).
  *
  * Wires the operator's reviewer choices into §A's Pin-stop 2 extension
  * routes (handoff §0 ddafda3 pin):

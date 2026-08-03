@@ -312,6 +312,25 @@ const BACKLOG_GRADUATED = [
     id: "BL-MASTERSPEC-FINANCIALS-VOCAB",
     provenance: "docs/citation-rot-financials-vocab",
   },
+  // chore/copy-deadcode-sweep (2026-08-02): the copy-and-dead-code batch — the
+  // §12.4 ROLE_FLAGS_NOTICE helpfulContext no longer claims either capability
+  // role unlocks admin access (five-surface lockstep + the row's
+  // longExplanation), the orphaned ParsePanel component is deleted behind a
+  // zero-production-importer guard, and the per-show help prose names the Share
+  // link button instead of the retired strip copy-link
+  // (spec 2026-08-02-copy-deadcode-sweep-design.md).
+  {
+    id: "BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT",
+    provenance: "chore/copy-deadcode-sweep",
+  },
+  {
+    id: "BL-ADMIN-PARSEPANEL-ORPHANED",
+    provenance: "chore/copy-deadcode-sweep",
+  },
+  {
+    id: "BL-HELP-STRIP-COPYLINK-STALE",
+    provenance: "chore/copy-deadcode-sweep",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

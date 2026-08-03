@@ -69,6 +69,43 @@ function errorResponse(code: string) {
 }
 
 describe("StagedReviewCard", () => {
+  test("card chrome baseline: article, header, empty state, and action row", () => {
+    // Restores the outer-chrome pin that died with the ParsePanel composition
+    // test on 2026-08-02. Whole-diff review R4 established that
+    // stagedCardBaseline.test.tsx snapshots the INNER per-show-actionable-item
+    // cards and their popovers, not this surrounding article/header/empty-state/
+    // action chrome — so removing the old snapshot did lose coverage.
+    //
+    // Structural, not a snapshot of outerHTML. The old snapshot embedded a
+    // rendered relative time and the full class strings, which is why it went
+    // red in CI the moment it ran on a different clock. What this coverage is
+    // actually for is that the chrome elements exist and carry their identities.
+    const { getByTestId } = render(<StagedReviewCard row={{ ...baseRow }} />);
+
+    const card = getByTestId("staged-review-card");
+    expect(card.tagName).toBe("ARTICLE");
+    expect(card.getAttribute("data-staged-id")).toBe(STAGED_ID);
+    expect(card.getAttribute("data-drive-file-id")).toBe(baseRow.driveFileId);
+
+    const header = card.querySelector("header");
+    expect(header, "the card renders a <header>").not.toBeNull();
+    expect(getByTestId("staged-source-kind").textContent).toBe("Auto sync");
+    expect(header!.contains(getByTestId("staged-parse-summary"))).toBe(true);
+
+    // Empty state: this fixture carries no review items.
+    expect(getByTestId("staged-review-no-items").textContent).toBe(
+      "Nothing to decide here. You can apply this change as-is.",
+    );
+
+    // Action row, both controls, in order.
+    const apply = getByTestId("staged-review-apply");
+    const discard = getByTestId("staged-review-discard-try-again");
+    expect(apply.textContent).toBe("Apply this change");
+    expect(discard.textContent).toBe("Retry on next sync");
+    expect(apply.parentElement).toBe(discard.parentElement);
+    expect(apply.compareDocumentPosition(discard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   test("apply button POSTs to /api/admin/staged/<fileId>/apply with source_scope='live'", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const onMutated = vi.fn();

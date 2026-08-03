@@ -8,6 +8,30 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
+
+**Filed:** 2026-08-02 (docs/citation-rot-financials-vocab, spec review R2 finding 3) · **Class:** docs/copy (§12.4 catalog) · **Severity:** low · **Effort:** S
+
+Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3356`) reads "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access". FINANCIALS unlocks the `financials` column only ("Nothing else", the Effect row of `docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md`); LEAD alone additionally grants the admin/ops surface, stated correctly at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`. Explanatory copy only, so no access is actually granted, but it is Doug-visible text. Fix requires the §12.4 three-way lockstep in ONE commit (spec §12.4 prose edit + `pnpm gen:spec-codes` regen + `lib/messages/catalog.ts` row) and touches the frozen helpfulContext byte-parity contract (BL-CARD-COPY-HELPFULCONTEXT-PARITY, graduated 2026-08-01) — re-freeze parity after the edit. Trigger: next §12.4 copy pass.
+
+## BL-ADMIN-PARSEPANEL-ORPHANED — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+## BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned
+
+Since the show-page→modal pivot (#476) nothing imports `components/admin/ParsePanel.tsx` (its per-show mount was deleted; whole-parse review was deliberately dropped from published shows in 65d5be75a in favor of MI-11 holds in the Changes feed). `StagedReviewCard` remains live in the onboarding wizard; the live-scope `ParsePanel` wrapper is dead code. Surfaced during published-show-alerts (2026-07-19, spec §14). **Fix (when prioritized):** delete ParsePanel or re-home it explicitly; sweep `tests/e2e/_metaEmphasisRenderContract` style registries on removal.
+
+## BL-HELP-STRIP-COPYLINK-STALE — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+### BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** DOCS
+
+Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip copy-link that the share-hub consolidation removed: `:7` lists it among the strip's contents, and `:30` places the Re-sync button "between the sync line and the copy-link button". Both are user-visible and both are wrong.
+
+Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
+
 ## BL-PARSER-HOTEL-INLINE-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
 
 **Filed:** 2026-07-07 (ambiguity-warnings-v1 §6 deferred-exemption seed) · **Resolved:** 2026-07-26 · **Class:** parser observability · **Effort:** M

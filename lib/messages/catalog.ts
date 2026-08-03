@@ -893,10 +893,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "none (informational)",
     helpfulContext:
-      "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
+      "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
     title: "Role change applied",
     longExplanation:
-      "This appears when a crew member's role flags change and get applied automatically, either from a sheet edit or an admin role mapping, both deliberate actions that apply without holding for review. It's specifically raised for changes to a CAPABILITY role, LEAD or FINANCIALS, which grant access to internal financials (and, for LEAD, the admin/ops surface); those are worth a quick confirm, and a durable audit record captures every one. Department/scope flags, by contrast, only change which tile the crew member sees on their own page and don't raise this alert. No action is needed unless a capability change turns out to be a mistake. If so, correct it in the sheet or the role mapping.",
+      "This appears when a crew member's role flags change and get applied automatically, either from a sheet edit or an admin role mapping, both deliberate actions that apply without holding for review. It's specifically raised for changes to a CAPABILITY role, LEAD or FINANCIALS, which grant access to internal financials; those are worth a quick confirm, and a durable audit record captures every one. Department/scope flags, by contrast, only change which tile the crew member sees on their own page and don't raise this alert. No action is needed unless a capability change turns out to be a mistake. If so, correct it in the sheet or the role mapping.",
     helpHref: "/help/errors#ROLE_FLAGS_NOTICE",
   },
   MI11_TARGET_MOVED: {
