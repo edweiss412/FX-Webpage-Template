@@ -195,10 +195,11 @@ anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and 
 
 Run, not described (the sweep discipline in `docs/agents/writing-plans.md`). Every writer was taken
 from the output rather than from recall, after three review rounds in which recalled inventories
-were wrong. The output below is the MERGE-BASE tree (`67074d4dc`); §3's three edits add exactly two
-more hits — the `obj.source_anchors` read in `lib/onboarding/shadowPayload.ts` and the
-`'source_anchors', $14::jsonb` payload member in `app/api/admin/onboarding/finalize/route.ts` —
-which are this spec's own subject and not a fourth writer of `shows.source_anchors`:
+were wrong. The output below is the MERGE-BASE tree (`67074d4dc`). §3's three edits add hits in exactly two
+files — `lib/onboarding/shadowPayload.ts` (the `obj.source_anchors` read, plus the comment above it)
+and `app/api/admin/onboarding/finalize/route.ts` (the `'source_anchors', $14::jsonb` payload member).
+The command is a plain text grep, so comment lines count; what matters is that neither file becomes
+a new writer of `shows.source_anchors`, which is what this census is for:
 
 ```
 $ grep -rn "source_anchors" --include='*.ts' app lib scripts | grep -v pending_syncs
