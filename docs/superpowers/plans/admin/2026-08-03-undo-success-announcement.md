@@ -115,7 +115,7 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 - [ ] Red tests first, then create the provider and mount it.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 - [ ] Create `components/admin/AdminAnnounceProvider.tsx` (`"use client"`): holds `useAnnounceLog`, provides `UndoAnnounceContext`, renders `<AnnounceLogRegion … testId="admin-undo-status" label="Undo updates" />` as its **always-first** child, then `{children}`.
-- [ ] Mount a **second** `AdminAnnounceProvider` inside `ReviewModalShell`'s dialog element as its always-first child (spec §3.5.2). Nested context resolves to the nearest provider, so no flag or prop decides which channel a button uses.
+- [ ] Mount a **second** `AdminAnnounceProvider` inside `ReviewModalShell`, wrapping the entire panel interior exactly as `PopoverHostContext` already does (`components/admin/review/ReviewModalShell.tsx:690-695`) rather than inventing a placement, with its region as the first child of that wrapper (spec §3.5.2). Nested context resolves to the nearest provider, so no flag or prop decides which channel a button uses.
 - [ ] Edit `app/admin/layout.tsx` to wrap the branch it selected — one wrapper around the chosen return value, **not** an edit inside each of the three returns (`app/admin/layout.tsx:90`, `layout.tsx:155`, `layout.tsx:177`), and **outside** `PageTransition` (`layout.tsx:171`).
 - [ ] Commit `feat(admin): mount the announce channel on the admin layout`.
 
