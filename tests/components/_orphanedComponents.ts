@@ -67,11 +67,6 @@ export const ORPHAN_ALLOWLIST: readonly AllowRow[] = [
     backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
   },
   {
-    file: "components/right-now/RightNowCard.tsx",
-    reason: "Referenced only in comments; a crew-surface product question, not a sweep.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
     file: "components/shared/WrappedTile.tsx",
     reason: "Referenced only in sibling comments; also the sole hit of an all-importers probe.",
     backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",

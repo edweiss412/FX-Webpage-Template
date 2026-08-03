@@ -360,7 +360,7 @@ app/
 
 components/
   layout/{Header,Footer}.tsx
-  right-now/RightNowCard.tsx # state machine (§8.2)
+  crew/RightNowHero.tsx      # state machine (§8.2; superseded right-now/RightNowCard.tsx at b327d5eb0)
   tiles/
     LodgingTile.tsx VenueTile.tsx ScheduleTile.tsx
     AudioScopeTile.tsx VideoScopeTile.tsx LightingScopeTile.tsx

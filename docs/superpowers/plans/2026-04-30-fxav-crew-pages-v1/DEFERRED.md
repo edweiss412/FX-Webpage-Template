@@ -80,7 +80,7 @@ When picking up a deferred item:
   - `tests/e2e/pack-list.spec.ts:219` — visibility (3 schedule phases) + cardinality cap + overflow. Subagent audit claimed `tests/visibility/packList.test.ts` covers all three; the cardinality/overflow assertions are rendering behavior and should be re-verified during port.
 
 - **FULL-MIGRATE to jsdom + RTL** (10 suites — no equivalent component-test coverage exists; estimated ~34h):
-  - `tests/e2e/right-now.spec.ts:128` (Task 4.11 RightNowCard; partial gap on `RightNowCardRecovery.test.tsx`, ~2h)
+  - `tests/e2e/right-now.spec.ts:128` (Task 4.11 Today hero; partial gap on `tests/components/crew/rightNowHeroRecovery.test.tsx`, ~2h)
   - `tests/e2e/right-now-transitions.spec.ts:152` (§8.2 66-pair pairwise transition audit, ~8h)
   - `tests/e2e/right-now-transitions.spec.ts:289` (§8.2 6 compound transition audits, ~3h)
   - `tests/e2e/theme-toggle.spec.ts:57` (data-theme flip + localStorage + no-FOUC, ~3h)

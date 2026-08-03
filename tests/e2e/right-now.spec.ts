@@ -1,5 +1,5 @@
 /**
- * Playwright E2E suite for RightNowCard (M4 Task 4.11; spec §8.2;
+ * Playwright E2E suite for the Today hero (M4 Task 4.11; spec §8.2;
  * AC-4.3).
  *
  * AC-4.3 verbatim: "Right Now card renders the correct state for a
@@ -125,7 +125,7 @@ async function pinClock(page: Page, isoUtc: string): Promise<void> {
 // which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
+test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
   let s: SeededShow;
 
   test.beforeAll(async () => {

@@ -60,7 +60,7 @@ vi.mock("next/cache", () => ({
 
 // jsdom does not implement window.matchMedia. Components that read the reduced-
 // motion preference via lib/a11y/usePrefersReducedMotion (PageTransition,
-// RightNowCard, and anything that renders them — e.g. AdminLayout via
+// RightNowHero, and anything that renders them — e.g. AdminLayout via
 // PageTransition) call it inside an effect, so ANY test that renders such a
 // tree throws "matchMedia is not a function" without a stub. Provide a safe
 // no-op default (matches:false) in jsdom-environment test files; per-file tests

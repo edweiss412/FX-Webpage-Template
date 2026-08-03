@@ -2,7 +2,7 @@
  * Playwright audit suite for the §8.2 RightNow 12-state transition
  * matrix (M4 Task 4.12 Batch 2).
  *
- * Wired in Batch 2: framer-motion is installed, RightNowCard renders
+ * Wired in Batch 2: framer-motion is installed, the Today hero renders
  * via AnimatePresence + matrix-driven motion props, and this suite
  * asserts the implementation conforms to the matrix.
  *
@@ -16,7 +16,7 @@
  * Test strategy:
  *
  *   1. The card is a `'use client'` island (`components/right-now/
- *      RightNowCard.tsx`); `selectRightNowState` re-derives on every
+ *      RightNowHero.tsx`); `selectRightNowState` re-derives on every
  *      60-second tick from `now`. Playwright's `page.clock.install` is
  *      used to deterministically advance time.
  *
@@ -511,7 +511,7 @@ test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3
    * crossfade-body transition completes (contract pin so a future
    * "fix" cannot reintroduce the timer race).
    *
-   * The §8.2 contract (RightNowCard.tsx file header `data-testid`
+   * The §8.2 contract (RightNowHero.tsx file header `data-testid`
    * block) says `data-treatment` carries the treatment of the MOST-
    * RECENT kind transition, NOT a "currently animating" flag. A
    * previous attempt to make the attribute eventually-honest via a

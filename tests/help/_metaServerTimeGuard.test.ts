@@ -120,11 +120,15 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
-  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowCard/ReportModal (use client)", () => {
+  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowHero/ReportModal (use client)", () => {
     const footerSrc = readFileSync(join(process.cwd(), "components/layout/Footer.tsx"), "utf8");
     const staleSrc = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
+    // The island exemplar is RightNowHero (the live Today hero). It carried the
+    // 'use client' directive over from the retired RightNowCard verbatim, so the
+    // classifier's contract — it separates a directive-carrying island from a
+    // server component — is unchanged by the swap.
     const rightSrc = readFileSync(
-      join(process.cwd(), "components/right-now/RightNowCard.tsx"),
+      join(process.cwd(), "components/crew/RightNowHero.tsx"),
       "utf8",
     );
     const reportSrc = readFileSync(

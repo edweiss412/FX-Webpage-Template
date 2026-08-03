@@ -2,9 +2,9 @@
 /**
  * tests/components/crew/rightNowHero.test.tsx (crew-redesign Task 5)
  *
- * `RightNowHero` IS `RightNowCard` re-skinned into the §4.16 five-slot hero
+ * `RightNowHero` IS the retired `RightNowCard` re-skinned into the §4.16 five-slot hero
  * (eyebrow + live-dot, lead, detail, progress segments, stats ≤3 one accented).
- * It carries RightNowCard's clock + state-derivation + lastGood/morph +
+ * It carries that component's clock + state-derivation + lastGood/morph +
  * AnimatePresence + prefersReducedMotion machinery VERBATIM; only the body
  * slotting changes.
  *
