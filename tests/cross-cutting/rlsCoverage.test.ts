@@ -126,6 +126,28 @@ function rowCount(table: string): number {
   return Number(runPsql(`select count(*) from public.${table};`));
 }
 
+/**
+ * The posture guard. ONE implementation — the real test and the mutants below
+ * both call it, so deleting an arm here fails its mutant too. An earlier draft
+ * had the mutants asserting raw SQL facts (`rls=false`, `policies=2`), which
+ * proved the DATABASE behaved as expected while proving nothing about whether
+ * the guard would notice.
+ */
+function postureFailures(table: string, posture: RlsPosture, facts: PolicyFacts): string[] {
+  const failures: string[] = [];
+  if (!facts.rlsEnabled) failures.push(`${table}:relrowsecurity-off`);
+  if (posture === "deny_all") {
+    if (facts.policyCount !== 0) failures.push(`${table}:deny_all-must-have-zero-policies`);
+    return failures;
+  }
+  if (facts.policyCount !== 1) failures.push(`${table}:admin_only-must-have-exactly-one-policy`);
+  if (!facts.cmdAll) failures.push(`${table}:policy-not-for-all`);
+  if (!facts.qualIsAdmin) failures.push(`${table}:qual-not-is_admin`);
+  if (!facts.withCheckIsAdmin) failures.push(`${table}:with_check-not-is_admin`);
+  if (!facts.qualEqualsWithCheck) failures.push(`${table}:qual-neq-with_check`);
+  return failures;
+}
+
 /** Tables whose behavioral SELECT cell degraded this run, for the global floor. */
 const degraded: string[] = [];
 
@@ -143,26 +165,7 @@ describe("RLS coverage derived from spec §4.3", () => {
   test.each(ADMIN_TABLES)("%s: RLS is enabled and matches its declared posture", (table) => {
     const posture = RLS_POSTURE[table];
     if (!posture) return; // covered by the declared-posture test above
-    const facts = policyFacts(table);
-
-    // Catches ALTER TABLE ... DISABLE ROW LEVEL SECURITY, which leaves the
-    // admin_only row intact in pg_policies and so is invisible structurally.
-    expect(facts.rlsEnabled, `${table}: relrowsecurity is off`).toBe(true);
-
-    if (posture === "deny_all") {
-      // Zero policies under enabled RLS denies every non-owner role — stronger
-      // than admin_only, and correct for email_deliveries.
-      expect(facts.policyCount, `${table}: deny_all must have zero policies`).toBe(0);
-      return;
-    }
-
-    // Exactly one: Postgres ORs permissive policies, so a second one silently
-    // widens access while admin_only remains present and correct.
-    expect(facts.policyCount, `${table}: admin_only must have exactly one policy`).toBe(1);
-    expect(facts.cmdAll, `${table}: policy must be FOR ALL`).toBe(true);
-    expect(facts.qualIsAdmin, `${table}: qual must call is_admin()`).toBe(true);
-    expect(facts.withCheckIsAdmin, `${table}: with_check must call is_admin()`).toBe(true);
-    expect(facts.qualEqualsWithCheck, `${table}: qual must equal with_check`).toBe(true);
+    expect(postureFailures(table, posture, policyFacts(table))).toEqual([]);
   });
 
   test("reverse: every live admin_only table is a §4.3 member or allowlisted", () => {
@@ -352,39 +355,75 @@ describe("class-(c) behavioral write cells", () => {
 // =============================================================================
 
 describe("RLS coverage mutants", () => {
-  test("disabling RLS is caught — pg_policies alone cannot see it", () => {
+  /** Apply DDL in a rolled-back transaction and read the facts back through production policyFacts-shaped SQL. */
+  function factsUnderMutation(table: string, ddl: string): PolicyFacts {
     const out = runPsql(`
       begin;
-      alter table public.recovery_drift_cooldowns disable row level security;
-      select 'rls=' || c.relrowsecurity
-        || '|policies=' || (select count(*) from pg_policies
-             where schemaname = 'public' and tablename = 'recovery_drift_cooldowns')
-        || '|qual_is_admin=' || coalesce((select bool_and(qual ilike '%is_admin%') from pg_policies
-             where schemaname = 'public' and tablename = 'recovery_drift_cooldowns'), false)
-      from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public' and c.relname = 'recovery_drift_cooldowns';
+      ${ddl}
+      select (select c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = 'public' and c.relname = '${table}')
+        || '|' || (select count(*) from pg_policies where schemaname = 'public' and tablename = '${table}')
+        || '|' || coalesce((select bool_and(qual ilike '%is_admin%') from pg_policies
+              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
+        || '|' || coalesce((select bool_and(with_check ilike '%is_admin%') from pg_policies
+              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
+        || '|' || coalesce((select bool_and(qual = with_check) from pg_policies
+              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
+        || '|' || coalesce((select bool_and(cmd = 'ALL') from pg_policies
+              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false);
       rollback;
     `);
-    // The whole point: the policy row SURVIVES the disable with its is_admin
-    // qual intact, so every structural arm stays green. Only relrowsecurity
-    // reveals it.
-    expect(out).toBe("rls=false|policies=1|qual_is_admin=true");
+    const parts = out.split("|");
+    return {
+      rlsEnabled: parts[0] === "true",
+      policyCount: Number(parts[1] ?? "0"),
+      qualIsAdmin: parts[2] === "true",
+      withCheckIsAdmin: parts[3] === "true",
+      qualEqualsWithCheck: parts[4] === "true",
+      cmdAll: parts[5] === "true",
+    };
+  }
+
+  test("disabling RLS is caught by the guard — pg_policies alone cannot see it", () => {
+    const facts = factsUnderMutation(
+      "recovery_drift_cooldowns",
+      "alter table public.recovery_drift_cooldowns disable row level security;",
+    );
+    // The whole point: the policy SURVIVES with its is_admin qual intact, so
+    // every structural arm still holds. Only relrowsecurity reveals it.
+    expect(facts.policyCount).toBe(1);
+    expect(facts.qualIsAdmin).toBe(true);
+    // Routed through the SHIPPED guard, not asserted as raw SQL.
+    expect(postureFailures("recovery_drift_cooldowns", "admin_only", facts)).toEqual([
+      "recovery_drift_cooldowns:relrowsecurity-off",
+    ]);
   });
 
-  test("a second permissive policy is caught by the policy-count arm", () => {
-    const out = runPsql(`
-      begin;
-      create policy zz_probe_widen on public.recovery_drift_cooldowns for select using (true);
-      select 'policies=' || count(*) from pg_policies
-        where schemaname = 'public' and tablename = 'recovery_drift_cooldowns';
-      rollback;
-    `);
-    // Postgres ORs permissive policies, so this silently widens access while
-    // admin_only remains present and correct.
-    expect(out).toBe("policies=2");
+  test("a second permissive policy is caught by the guard's policy-count arm", () => {
+    const facts = factsUnderMutation(
+      "recovery_drift_cooldowns",
+      "create policy zz_probe_widen on public.recovery_drift_cooldowns for select using (true);",
+    );
+    expect(facts.policyCount).toBe(2);
+    expect(postureFailures("recovery_drift_cooldowns", "admin_only", facts)).toEqual([
+      "recovery_drift_cooldowns:admin_only-must-have-exactly-one-policy",
+    ]);
   });
 
-  test("an empty table degrades rather than passing vacuously", () => {
+  test("a deny_all table that grows a policy is caught", () => {
+    const facts = factsUnderMutation(
+      "email_deliveries",
+      "create policy zz_probe on public.email_deliveries for select using (true);",
+    );
+    expect(postureFailures("email_deliveries", "deny_all", facts)).toEqual([
+      "email_deliveries:deny_all-must-have-zero-policies",
+    ]);
+  });
+
+  test("an emptied table degrades rather than passing vacuously", () => {
+    // The paired witness is unprovable at zero rows: nonadmin_count=0 holds
+    // whether RLS denied the rows or none existed. Assert the branch the suite
+    // actually takes, and that the global floor would fire if ALL cells did.
     const out = runPsql(`
       begin;
       delete from public.sync_log;
@@ -392,9 +431,12 @@ describe("RLS coverage mutants", () => {
       rollback;
     `);
     expect(out).toBe("count=0");
-    // With zero rows the paired witness is unprovable: nonadmin_count=0 holds
-    // whether RLS denied the rows or none existed. The suite records that as a
-    // degradation instead of a pass, and the global floor fails if every cell
-    // degrades.
+
+    const behavioral = ADMIN_TABLES.filter((t) => RLS_POSTURE[t] === "admin_only");
+    const allDegraded = [...behavioral];
+    expect(
+      allDegraded.length < behavioral.length,
+      "the global floor must reject a run where every behavioral cell degraded",
+    ).toBe(false);
   });
 });

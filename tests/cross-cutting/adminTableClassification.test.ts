@@ -288,20 +288,29 @@ const NON_ADMIN_TABLE_ALLOWLIST = new Set(["ignored_warnings", "admin_emails"]);
 
 const ADMIN_POSTURES: ReadonlySet<Posture> = new Set<Posture>(["admin_only", "deny_all"]);
 
-function liveRelations(): string[] {
+function liveRelations(preDdl = ""): string[] {
+  // `preDdl` runs inside the same transaction and is rolled back. Mutants pass
+  // it so they exercise THIS query rather than a copy — an earlier draft had a
+  // parallel `liveRelationsWithMutant` with its own relkind predicate, which
+  // meant narrowing production's predicate broke nothing.
   const out = runPsql(`
+    begin;
+    ${preDdl}
     select c.relname
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public'
       and c.relkind in ('r', 'p', 'v', 'm', 'f')
     order by c.relname;
+    rollback;
   `);
   return out === "" ? [] : out.split("\n");
 }
 
-function liveAdminOnlyPolicyTables(): string[] {
+function liveAdminOnlyPolicyTables(preDdl = ""): string[] {
   const out = runPsql(`
+    begin;
+    ${preDdl}
     select tablename
     from pg_policies
     where schemaname = 'public'
@@ -309,19 +318,33 @@ function liveAdminOnlyPolicyTables(): string[] {
       and cmd = 'ALL'
       and qual ilike '%is_admin%'
     order by tablename;
+    rollback;
   `);
   return out === "" ? [] : out.split("\n");
 }
 
 /** §4.3 declares its own counts twice; both are machine-readable. */
-function declaredCounts(): { prose: number; live: number; dropped: number } {
+function declaredCounts(): {
+  prose: number;
+  live: number;
+  dropped: number;
+  footnoteProse: number;
+} {
   const spec = readFileSync(SPEC_PATH, "utf8");
   const prose = spec.match(/\(\*\*(\d+) tables\*\*/);
   const live = spec.match(/ADMIN_TABLES\.length = (\d+) = (\d+) [-−] (\d+) dropped/);
-  if (!prose?.[1] || !live?.[1] || !live?.[3]) {
+  if (!prose?.[1] || !live?.[1] || !live?.[2] || !live?.[3]) {
     throw new Error("Could not parse §4.3's declared counts — the prose shape changed.");
   }
-  return { prose: Number(prose[1]), live: Number(live[1]), dropped: Number(live[3]) };
+  return {
+    prose: Number(prose[1]),
+    live: Number(live[1]),
+    dropped: Number(live[3]),
+    // The footnote restates the prose total INSIDE its own equation
+    // ("19 = 23 - 4"). Capturing it without asserting it let a footnote
+    // corrupted to "19 = 999 - 4" pass both tripwire arms.
+    footnoteProse: Number(live[2]),
+  };
 }
 
 // =============================================================================
@@ -376,11 +399,14 @@ function directionC(registry: Record<string, Classification>, live: readonly str
 
 function tripwireFailures(
   adminTables: readonly string[],
-  counts: { prose: number; live: number; dropped: number },
+  counts: { prose: number; live: number; dropped: number; footnoteProse: number },
 ): string[] {
   const failures: string[] = [];
   if (adminTables.length !== counts.live) {
     failures.push(`length:${adminTables.length}!==declaredLive:${counts.live}`);
+  }
+  if (counts.footnoteProse !== counts.prose) {
+    failures.push(`footnoteProse:${counts.footnoteProse}!==declaredProse:${counts.prose}`);
   }
   if (counts.live + counts.dropped !== counts.prose) {
     failures.push(
@@ -443,21 +469,6 @@ describe("admin-table classification reconciled against the live catalog", () =>
 // still pass every other case here.
 // =============================================================================
 
-/** Create a relation inside a rolled-back transaction and read the live set through the real query. */
-function liveRelationsWithMutant(ddl: string): string[] {
-  const out = runPsql(`
-    begin;
-    ${ddl}
-    select c.relname
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
-    order by c.relname;
-    rollback;
-  `);
-  return out === "" ? [] : out.split("\n");
-}
-
 describe("mutation-family closure set", () => {
   test("(i) deleting a NON-admin registry row trips C only, never A", () => {
     const mutated = { ...PUBLIC_TABLE_CLASSIFICATION };
@@ -501,10 +512,18 @@ describe("mutation-family closure set", () => {
   });
 
   test("(v) a live admin_only policy on an unlisted table trips B's catalog arm", () => {
-    expect(directionBCatalog(ADMIN_TABLES, ["sync_log", "rogue_admin_table"])).toEqual([
-      "rogue_admin_table:admin_only-policy-but-unlisted",
+    // Creates a REAL table with a REAL admin_only policy and reads it back
+    // through the production query, so narrowing that query breaks this mutant.
+    const live = liveAdminOnlyPolicyTables(`
+      create table public.zz_rogue (id int);
+      alter table public.zz_rogue enable row level security;
+      create policy admin_only on public.zz_rogue for all using (public.is_admin()) with check (public.is_admin());
+    `);
+    expect(live, "the rogue table must be visible to the production query").toContain("zz_rogue");
+    expect(directionBCatalog(ADMIN_TABLES, live)).toEqual([
+      "zz_rogue:admin_only-policy-but-unlisted",
     ]);
-    // The allowlisted ones must NOT trip it.
+    // The allowlisted pair, present in the same live read, must NOT trip it.
     expect(directionBCatalog(ADMIN_TABLES, ["ignored_warnings", "admin_emails"])).toEqual([]);
   });
 
@@ -522,7 +541,7 @@ describe("mutation-family closure set", () => {
       "create extension if not exists postgres_fdw; create server zz_srv foreign data wrapper postgres_fdw options (host 'localhost', dbname 'postgres'); create foreign table public.zz_probe (x text) server zz_srv options (table_name 'nope');",
     ],
   ])("(vi-ix) an unclassified %s trips C — a BASE TABLE filter would miss it", (_kind, ddl) => {
-    const live = liveRelationsWithMutant(ddl);
+    const live = liveRelations(ddl);
     expect(live, "the mutant relation must actually be enumerated").toContain("zz_probe");
     expect(directionC(PUBLIC_TABLE_CLASSIFICATION, live)).toEqual(["zz_probe:unclassified"]);
     expect(directionA(PUBLIC_TABLE_CLASSIFICATION, ADMIN_TABLES, live)).toEqual([]);
@@ -543,9 +562,23 @@ describe("mutation-family closure set", () => {
       }),
     ).toEqual([`length:${ADMIN_TABLES.length}!==declaredLive:${real.live + 1}`]);
 
-    // Sum arm alone: bump the prose total only; length still matches.
-    expect(tripwireFailures(ADMIN_TABLES, { ...real, prose: real.prose + 1 })).toEqual([
+    // Sum arm alone: bump BOTH prose totals together so the footnote arm stays
+    // satisfied and only the sum comparison can fire.
+    expect(
+      tripwireFailures(ADMIN_TABLES, {
+        ...real,
+        prose: real.prose + 1,
+        footnoteProse: real.prose + 1,
+      }),
+    ).toEqual([
       `declaredLive+dropped:${real.live + real.dropped}!==declaredProse:${real.prose + 1}`,
+    ]);
+
+    // Footnote arm alone: the exact corruption that used to slip through —
+    // "ADMIN_TABLES.length = 19 = 999 - 4 dropped" is internally inconsistent
+    // while both the length and sum arms still hold against the bullet's 23.
+    expect(tripwireFailures(ADMIN_TABLES, { ...real, footnoteProse: 999 })).toEqual([
+      `footnoteProse:999!==declaredProse:${real.prose}`,
     ]);
   });
 });

@@ -267,18 +267,24 @@ const CATALOG_CANONICAL_CHECKS: readonly string[] = [
   "transportation.transportation_loadout_email_canonical",
 ];
 
+// A set-but-empty TEST_DATABASE_URL is a mis-config, not "use local": GitHub
+// Actions expands an unset secret to "". Falling back would run this contract
+// against a healthy local schema and report green for a validation target that
+// was never reached.
+function resolveDatabaseUrl(): string {
+  const raw = process.env.TEST_DATABASE_URL;
+  if (raw === undefined) return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  if (raw.trim() === "") {
+    throw new Error(
+      "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret with an empty value.",
+    );
+  }
+  return raw;
+}
+
 function liveCanonicalChecks(): string[] {
-  const out = execFileSync(
-    "psql",
-    [
-      process.env.TEST_DATABASE_URL?.trim() ||
-        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-qAt",
-    ],
-    {
-      input: `
+  const out = execFileSync("psql", [resolveDatabaseUrl(), "-v", "ON_ERROR_STOP=1", "-qAt"], {
+    input: `
         select rel.relname || '.' || con.conname
         from pg_constraint con
         join pg_class rel on rel.oid = con.conrelid
@@ -288,11 +294,10 @@ function liveCanonicalChecks(): string[] {
           and pg_get_constraintdef(con.oid) ~* 'lower\\s*\\(\\s*(btrim|trim)'
         order by 1;
       `,
-      encoding: "utf8",
-      timeout: 30_000,
-      env: { ...process.env, PGCONNECT_TIMEOUT: "10" },
-    },
-  ).trim();
+    encoding: "utf8",
+    timeout: 30_000,
+    env: { ...process.env, PGCONNECT_TIMEOUT: "10" },
+  }).trim();
   return out === "" ? [] : out.split("\n");
 }
 
