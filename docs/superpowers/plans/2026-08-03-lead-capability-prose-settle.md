@@ -279,7 +279,7 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
 }
 ```
 
-Live side — reflected, arity-derived, nothing hand-maintained except the exemption reasons:
+Live side — reflected, nothing hand-maintained except the exemption reasons, and nothing inferred about parameters:
 
 ```ts
 type FlagPredicate = (flags: RoleFlag[], isAdmin?: boolean) => boolean;
@@ -656,6 +656,7 @@ This is green on the current schema, so it is a **contract pin, not the RED for 
 Verification in the same commit:
 
 ```
+pnpm vitest run tests/db/isAdminRoleFlagsContract.test.ts                  # the test this task CREATES
 rg -n 'admin/ops' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md   # expect 0
 git diff --stat docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md      # expect 1 insertion, 1 deletion
 pnpm test:audit:x1-catalog-parity                                            # negative check — §12.4 untouched
@@ -687,7 +688,7 @@ Verify: `pnpm vitest run tests/docs/`.
 
 ### Task 7 — full-suite gates
 
-`pnpm typecheck` (also proves families M12 and M19's compile-time half), `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both new documents. Fix anything red; no commit if all green and nothing changed.
+`pnpm typecheck` (also proves family M12, the `RoleFlag` exhaustiveness check), `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both new documents. Fix anything red; no commit if all green and nothing changed.
 
 ### Task 8 — Adversarial review (cross-model)
 
