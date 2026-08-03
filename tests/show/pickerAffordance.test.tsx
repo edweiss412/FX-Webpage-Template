@@ -148,7 +148,10 @@ describe("claimed-row pending affordance", () => {
   test("the pending state is announced, not just aria-busy", () => {
     const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
     const row = claimedRowIn(container);
-    const live = row.querySelector(String.raw`[role="status"]`);
+    // OUTSIDE the button: ARIA lets AT ignore descendant changes while an
+    // ancestor is aria-busy, and the button is exactly that (R2 P1).
+    const live = container.querySelector(String.raw`[data-testid="picker-row-announcement"]`);
+    expect(row.contains(live)).toBe(false);
 
     expect(live?.getAttribute("aria-live")).toBe("polite");
     expect(live?.textContent).toBe("");
@@ -158,6 +161,54 @@ describe("claimed-row pending affordance", () => {
     // aria-busy alone is weakly supported by assistive tech (audit P1 /
     // WCAG 2.2 SC 4.1.3), so the transition carries a live-region message.
     expect(live?.textContent).toContain("Alice Cooper");
+  });
+
+  test("a bfcache restore does not leave a timer that clears a later pending", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
+      const row = claimedRowIn(container);
+
+      fireEvent.click(row);
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      const restore = new Event("pageshow") as PageTransitionEvent;
+      Object.defineProperty(restore, "persisted", { value: true });
+      act(() => {
+        fireEvent(window, restore);
+      });
+      expect(row.getAttribute("aria-busy")).toBeNull();
+
+      // Re-activate. The FIRST timeout would have fired at 8s from the first
+      // tap, i.e. 5s from here; if the restore did not clear it, that stale
+      // callback drops this pending early (whole-diff R2 P1).
+      fireEvent.click(row);
+      act(() => {
+        vi.advanceTimersByTime(5_100);
+      });
+
+      expect(row.getAttribute("aria-busy")).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the pending chip does not inherit the idle chip fill", () => {
+    const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
+    const row = claimedRowIn(container);
+
+    fireEvent.click(row);
+
+    const chip = row.querySelector(String.raw`[data-testid="picker-role-chip"]`);
+    const cls = chip?.className ?? "";
+    // Composing the pending chip from chipClassName would carry these along,
+    // and generated Tailwind order makes them win regardless of position —
+    // the new fill would never render (whole-diff R2 P1).
+    expect(cls).toContain("bg-accent-tint");
+    expect(cls).not.toContain("bg-surface-sunken");
+    expect(cls).not.toContain("text-text-subtle");
   });
 
   test("two pointer activations issue exactly one submit", () => {

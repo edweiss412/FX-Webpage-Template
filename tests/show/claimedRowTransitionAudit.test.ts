@@ -50,13 +50,14 @@ const DECLARED = [
   {
     id: "C5",
     what: "pageshow listener resetting pending on a bfcache restore",
-    marker: /if \(event\.persisted\) setPending\(false\);/,
+    marker:
+      /if \(!event\.persisted\) return;[\s\S]*?clearPendingTimeout\(\);[\s\S]*?setPending\(false\);/,
     treatment: "instant, no exit animation",
   },
   {
     id: "C6",
-    what: "unmount cleanup clearing the pending timeout",
-    marker: /if \(timeoutRef\.current !== null\) clearTimeout\(timeoutRef\.current\);/,
+    what: "clearPendingTimeout guard (shared by unmount, pageshow, re-activation)",
+    marker: /function clearPendingTimeout\(\) \{[\s\S]*?if \(timeoutRef\.current !== null\)/,
     treatment: "not a render branch — no animation",
   },
   {

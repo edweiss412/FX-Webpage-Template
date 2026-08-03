@@ -240,6 +240,7 @@ describe("/api/auth/picker-bootstrap — query-bearing next (spec §2.1)", () =>
     state.google = { kind: "continue" };
     state.claim = { data: null, error: null, throws: false };
     state.alerts = [];
+    state.rpcCalls = [];
   });
 
   test.each([
@@ -286,7 +287,11 @@ describe("/api/auth/picker-bootstrap — query-bearing next (spec §2.1)", () =>
     // received the entire route (query included) instead of the 64-hex token,
     // and returned 403. The mock ignores its arguments, so nothing else here
     // can see that.
-    const resolve = state.rpcCalls.find((c) => c.name === "resolve_show_by_slug_and_token");
+    // LAST, not first: `find` would read an earlier request and stay green
+    // against a mutant that only breaks the query-bearing path (R2 P2).
+    const resolve = state.rpcCalls
+      .filter((c) => c.name === "resolve_show_by_slug_and_token")
+      .at(-1);
     expect(resolve?.args).toEqual({ p_slug: "sample-show", p_share_token: SHARE_TOKEN });
   });
 

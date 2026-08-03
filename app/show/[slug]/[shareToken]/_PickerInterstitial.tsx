@@ -215,6 +215,7 @@ export function PickerInterstitial({
                         }
                         rowClassName={rowClasses}
                         chipClassName={chipClasses}
+                        chipBaseClassName={chipBase}
                       />
                     </form>
                   </li>

@@ -50,6 +50,7 @@ export function ClaimedRowButton({
   lockHint,
   rowClassName,
   chipClassName,
+  chipBaseClassName,
 }: {
   name: string;
   /** `role` is `text not null`; the realizable "no role" input is `""`, never null. */
@@ -57,106 +58,132 @@ export function ClaimedRowButton({
   crewMemberId: string;
   lockHint: string;
   rowClassName: string;
+  /** Idle chip classes, including its own fill. */
   chipClassName: string;
+  /** Shape only — no fill, no text colour. The pending chip composes from this. */
+  chipBaseClassName: string;
 }) {
   const [pending, setPending] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearPendingTimeout() {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }
 
   // A bfcache restore returns the page with its DOM and React state intact
   // rather than remounting, so without this the restored row would still read
   // as busy. Not a designed state — the recovery path for a back-navigation.
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) setPending(false);
+      if (!event.persisted) return;
+      // Clearing the timer matters as much as clearing the flag: a restore that
+      // leaves the old timeout live lets its callback fire against a LATER
+      // activation and drop that pending early (whole-diff R2 P1).
+      clearPendingTimeout();
+      setPending(false);
     };
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-    };
-  }, []);
+  useEffect(() => clearPendingTimeout, []);
 
   return (
-    <button
-      type="submit"
-      data-testid="picker-roster-row"
-      data-claimed="true"
-      data-crew-member-id={crewMemberId}
-      aria-disabled={pending || undefined}
-      aria-busy={pending || undefined}
-      className={`${rowClassName} aria-disabled:cursor-default aria-disabled:bg-surface-sunken`}
-      onClick={(event) => {
-        if (pending) {
-          // Both statements are required: aria-disabled does not stop
-          // activation, and returning does not cancel the default submit.
-          event.preventDefault();
-          return;
-        }
-        setPending(true);
-        timeoutRef.current = setTimeout(() => setPending(false), PENDING_TIMEOUT_MS);
-      }}
-    >
-      <span className="flex min-w-0 items-center gap-2 text-base font-semibold">
-        {/* Fixed-width slot shared by the lock and the spinner, so swapping one
-            for the other cannot shift the name horizontally. */}
-        <span className="flex size-4 shrink-0 items-center justify-center">
+    <>
+      <button
+        type="submit"
+        data-testid="picker-roster-row"
+        data-claimed="true"
+        data-crew-member-id={crewMemberId}
+        aria-disabled={pending || undefined}
+        aria-busy={pending || undefined}
+        className={`${rowClassName} aria-disabled:cursor-default aria-disabled:bg-surface-sunken`}
+        onClick={(event) => {
+          if (pending) {
+            // Both statements are required: aria-disabled does not stop
+            // activation, and returning does not cancel the default submit.
+            event.preventDefault();
+            return;
+          }
+          setPending(true);
+          clearPendingTimeout();
+          timeoutRef.current = setTimeout(() => setPending(false), PENDING_TIMEOUT_MS);
+        }}
+      >
+        <span className="flex min-w-0 items-center gap-2 text-base font-semibold">
+          {/* Fixed-width slot shared by the lock and the spinner, so swapping
+              one for the other cannot shift the name horizontally. */}
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {pending ? (
+              <Loader2
+                aria-hidden="true"
+                data-testid="picker-row-spinner"
+                // motion-reduce HIDES rather than freezing: a stalled spinner
+                // mid-arc reads as stuck, which inverts the signal. The chip
+                // text carries the state when motion is suppressed.
+                className="size-4 animate-spin motion-reduce:hidden"
+              />
+            ) : (
+              <>
+                {/* Decorative to AT — aria-label on a span with an implicit
+                    generic role is dropped (ARIA 1.2), so the hint rides a
+                    visually-hidden sibling instead. */}
+                <span data-testid="picker-row-lock" aria-hidden="true" className="text-text-subtle">
+                  {/* Plain unicode lock — DESIGN.md §8 ratifies lucide-react but
+                      the picker row's restraint rules out icon-as-image; a 16px
+                      glyph matches the type rhythm here. */}
+                  🔒
+                </span>
+                <span className="sr-only">{lockHint}</span>
+              </>
+            )}
+          </span>
+          <span className="truncate">{name}</span>
+        </span>
+
+        {/* Right column keeps a reserved minimum so the name does not gain and
+            then lose width when the chip swaps in (critique P2). */}
+        <span className="flex min-w-24 shrink-0 justify-end">
           {pending ? (
-            <Loader2
-              aria-hidden="true"
-              data-testid="picker-row-spinner"
-              // motion-reduce HIDES rather than freezing: a stalled spinner
-              // mid-arc reads as stuck, which is the opposite of the signal.
-              // The chip text carries the state when motion is suppressed.
-              className="size-4 animate-spin motion-reduce:hidden"
-            />
+            <span
+              data-testid="picker-role-chip"
+              // Composed from the BASE, never from chipClassName: that string
+              // already carries bg-surface-sunken/text-text-subtle, and the
+              // generated Tailwind order makes them win wherever they sit in
+              // the class attribute — the fill simply would not render
+              // (whole-diff R2 P1). The idle chip is surface-sunken on a
+              // surface-sunken row, 1.00:1; the pending chip is the
+              // load-bearing signal, so it carries its own fill AND a boundary:
+              // text 4.91:1 light / 8.03:1 dark, border 5.02:1 / 8.21:1.
+              className={`${chipBaseClassName} whitespace-nowrap border border-accent-on-bg bg-accent-tint text-accent-on-bg`}
+            >
+              Signing in…
+            </span>
           ) : (
-            <>
-              {/* The glyph is decorative to AT — aria-label on a span with an
-                  implicit generic role is dropped (ARIA 1.2), so the hint rides
-                  a visually-hidden sibling instead. */}
-              <span data-testid="picker-row-lock" aria-hidden="true" className="text-text-subtle">
-                {/* Plain unicode lock — DESIGN.md §8 ratifies lucide-react but
-                    the picker row's restraint rules out icon-as-image; a 16px
-                    glyph matches the type rhythm here. */}
-                🔒
+            role && (
+              <span data-testid="picker-role-chip" className={chipClassName}>
+                {role}
               </span>
-              <span className="sr-only">{lockHint}</span>
-            </>
+            )
           )}
         </span>
-        <span className="truncate">{name}</span>
-      </span>
+      </button>
 
-      {/* Right column keeps a reserved minimum so the name does not gain and
-          then lose width when the chip swaps in (critique P2). */}
-      <span className="flex min-w-24 shrink-0 justify-end">
-        {pending ? (
-          <span
-            data-testid="picker-role-chip"
-            // The idle chip's fill is surface-sunken on a surface-sunken row —
-            // 1.00:1, no container at all. The pending chip is the load-bearing
-            // signal, so it gets its own fill AND a boundary: text 4.91:1
-            // (light) / 8.03:1 (dark), border 5.02:1 / 8.21:1 against the row.
-            className={`${chipClassName} whitespace-nowrap border border-accent-on-bg bg-accent-tint text-accent-on-bg`}
-          >
-            Signing in…
-          </span>
-        ) : (
-          role && (
-            <span data-testid="picker-role-chip" className={chipClassName}>
-              {role}
-            </span>
-          )
-        )}
-      </span>
-
-      {/* aria-busy alone is weakly supported; the transition is announced. */}
-      <span className="sr-only" role="status" aria-live="polite">
+      {/* OUTSIDE the button on purpose. aria-busy alone is weakly supported, so
+          the transition is announced — but ARIA lets AT ignore descendant
+          changes while an ancestor is aria-busy, and this region would be that
+          descendant (whole-diff R2 P1). */}
+      <span
+        data-testid="picker-row-announcement"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+      >
         {pending ? `Signing in as ${name}` : ""}
       </span>
-    </button>
+    </>
   );
 }
