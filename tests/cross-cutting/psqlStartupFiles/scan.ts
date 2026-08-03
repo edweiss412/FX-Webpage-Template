@@ -282,6 +282,11 @@ const LONG_WITH_ARG = new Set([
 export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
+    // A word containing an expansion is NOT its source spelling: `-${z}X` with
+    // z=F expands to `-FX`, where X is the field separator and suppresses
+    // nothing (verified: `z=F; psql -${z}X --version` runs as `psql -FX`).
+    // Unreadable means uncertifiable.
+    if (token.includes("$") || token === DYNAMIC_TOKEN) return false;
     if (token === "--") return false; // rest is positional
     if (token.startsWith("--")) {
       const spelled = token.split("=", 1)[0]!;
@@ -376,9 +381,12 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
         i = close + 1;
       }
     }
-    // A single/double-quoted string does not survive a newline in either
-    // grammar; a JS template literal does.
-    carriedQuote = quote === "`" ? "`" : null;
+    // In SHELL, a single- or double-quoted string spans newlines, so the quote
+    // state carries. In JS only a template literal does. Resetting shell quotes
+    // at the newline let a marker in string data on the PRECEDING line grant an
+    // exemption — the R3 regression test missed it by leaving a closing line in
+    // between, which is why the adjacency case is now covered explicitly.
+    carriedQuote = style === "hash" ? quote : quote === "`" ? "`" : null;
     out.push(found);
   }
   return out;
@@ -432,9 +440,26 @@ const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 /** Index of the closing delimiter matching the opener at `start`. */
 function matchBrace(text: string, start: number, open: string, close: string): number {
   let depth = 0;
+  let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
-    if (text[i] === open) depth++;
-    else if (text[i] === close) {
+    const character = text[i]!;
+    if (character === "\\" && quote !== "'") {
+      i++;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    // A `)` inside quotes is DATA — `$(echo ")"; psql …)` closes at the last
+    // paren, not the quoted one, and treating it as the close made every later
+    // invocation in the substitution invisible.
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === open) depth++;
+    else if (character === close) {
       depth--;
       if (depth === 0) return i;
     }
@@ -551,6 +576,10 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         if (text[i] === "$" && text[i + 1] === "(") {
           const close = matchBrace(text, i + 1, "(", ")");
           nested.push({ text: text.slice(i + 2, close), line });
+          // A MULTILINE substitution consumes physical lines; not counting them
+          // reported later invocations one line early, which let them inherit a
+          // marker comment written for something else.
+          line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
           buffer += "${}";
           i = close;
           continue;
@@ -559,6 +588,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           const close = text.indexOf("`", i + 1);
           const end = close === -1 ? text.length : close;
           nested.push({ text: text.slice(i + 1, end), line });
+          line += (text.slice(i, end + 1).match(/\n/g) ?? []).length;
           buffer += "${}";
           i = end;
           continue;
@@ -632,8 +662,12 @@ function basename(word: string): string {
   return word.slice(word.lastIndexOf("/") + 1);
 }
 
+/** argv[0] values whose FLAGS may also deny (`command -v psql`). */
+const PROBE_COMMANDS = new Set(["command", "which", "type", "hash", "whereis", "apt-get", "apt"]);
+
 /** Preceding words that make `psql` an argument rather than the command:
- * availability probes and package tooling. */
+ * availability probes and package tooling. Only honored at command position —
+ * see the call site. */
 const NOT_AN_INVOCATION = new Set([
   "-v",
   "-V",
@@ -694,8 +728,18 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   for (const argv of commands) {
     const index = argv.findIndex((word) => basename(word.text) === "psql");
     if (index === -1) continue;
+    // The denylist decides whether psql is the COMMAND or an argument to a
+    // probe, so it may only fire when the deny word is itself argv[0] (`which
+    // psql`) or is a flag of an argv[0] probe (`command -v psql`). Matching any
+    // preceding word discarded real invocations under a wrapper -- `env -u echo
+    // psql …` runs psql, and so does `xargs -I -v psql …`.
     const previous = argv[index - 1];
-    if (previous && NOT_AN_INVOCATION.has(previous.text)) continue;
+    const head = argv[0];
+    const denied =
+      previous !== undefined &&
+      NOT_AN_INVOCATION.has(previous.text) &&
+      (previous === head || (head !== undefined && PROBE_COMMANDS.has(basename(head.text))));
+    if (denied) continue;
 
     const rest = argv.slice(index + 1);
     const tokens = rest.map((word) => word.text);
@@ -789,10 +833,25 @@ function isPsqlBinary(text: string): boolean {
  * zero sites AND zero indirections.
  */
 function looksLikePsqlCommandLine(text: string): boolean {
-  // The word must be FOLLOWED by something argument-shaped — a flag, a
-  // variable, a quote, or a DSN. Otherwise every error message that opens
-  // "psql failed: …" is an indirection hit, which is noise, not a finding.
-  return /^\s*(?:[^\s;&|()<>]*\/)?psql\s+(?:-|\$|["']|postgres(?:ql)?:\/\/)/.test(text);
+  const match = /^(?:[^\s;&|()<>]*\/)?psql(\s[^]*)?$/.exec(text.trim());
+  if (match === null) return false;
+  const rest = (match[1] ?? "").trim();
+  if (rest === "") return false;
+  // Argument-shaped: a flag, an expansion, a quote, a redirection, a DSN.
+  if (/^[-$"'<>]/.test(rest) || /^postgres(?:ql)?:\/\//.test(rest)) return true;
+  // A BARE first word can be the dbname (`psql mydb -qAt`), but only when it is
+  // identifier-shaped AND the line carries a flag or a connection keyword.
+  // Without that, prose like "psql failed: …" becomes a hit — and noise is what
+  // gets a tripwire switched off.
+  const words = rest.split(/\s+/);
+  const first = words[0] ?? "";
+  if (!/^[A-Za-z_][\w-]*$/.test(first) && !first.startsWith("service=")) return false;
+  // A command line is SHORT and carries a plausible flag. Both bounds earn
+  // their keep: `"psql output must contain ---LOCKS--- marker"` has a dash run
+  // that is not a flag, and a long prose sentence mentioning `--no-psqlrc` is
+  // documentation, not a command.
+  if (words.length > 12) return false;
+  return /(?:^|\s)-{1,2}[A-Za-z]/.test(rest) || /(?:^|\s)service=/.test(rest);
 }
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
@@ -964,8 +1023,15 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // newline). Scan the decoded value too and keep whatever the raw pass
       // missed; the decoded pass reports the scalar's own line.
       const decoded = (value as { value?: unknown }).value;
-      if (found.length === 0 && typeof decoded === "string" && decoded !== raw) {
-        found.push(...scanShellText(decoded, file, offset));
+      // Scan the decoded scalar TOO, not only when the raw pass came up empty:
+      // `run: "$(psql -X DSN)\npsql -qAt DSN"` has a raw-visible protected
+      // substitution AND a decoded-only unprotected command, and "raw wins"
+      // hid the second one entirely. Dedupe on the argv, not the line.
+      if (typeof decoded === "string" && decoded !== raw) {
+        const seen = new Set(found.map((site) => site.tokens.join("\u0000")));
+        for (const site of scanShellText(decoded, file, offset)) {
+          if (!seen.has(site.tokens.join("\u0000"))) found.push(site);
+        }
       }
       sites.push(...found);
     },

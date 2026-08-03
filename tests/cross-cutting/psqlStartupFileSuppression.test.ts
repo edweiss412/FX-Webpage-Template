@@ -403,6 +403,95 @@ describe("R4 escaping mutants — each was certified SAFE or invisible before", 
   });
 });
 
+// ── R5: expansions, quote-aware braces, and command position ───────────
+
+describe("R5 escaping mutants", () => {
+  test.each([
+    ["a parameter expansion in the flag", "psql -${z}X DSN\n"],
+    ["an expansion as the whole long option", "psql --${z} -X DSN\n"],
+    ["a command substitution in the flag", "psql -$(printf F)X DSN\n"],
+  ])("%s cannot certify — the word is not its source spelling", (_name, source) => {
+    // z=F makes `-${z}X` expand to `-FX`, where X is the field separator.
+    const sites = sitesIn(source, "x.sh");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["command substitution", 'out=$(echo ")"; psql -qAt DSN)\n'],
+    ["single-quoted paren", "out=$(echo ')'; psql -qAt DSN)\n"],
+    ["process substitution", 'cat <(echo ")"; psql -qAt DSN)\n'],
+  ])("a quoted paren inside a %s does not end it early", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["double", '"'],
+    ["single", "'"],
+  ])("a %s-quoted shell string carries across the newline", (_name, quote) => {
+    // ADJACENT to the invocation — the earlier regression test left a closing
+    // line in between, which made it vacuous for exactly this case.
+    const source = [
+      `x=${quote}opening`,
+      `# ${EXEMPTION_MARKER} unrelated string data${quote}`,
+      'psql -qAt "$DSN"',
+    ].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a multiline substitution advances the line counter", () => {
+    const source = [
+      'x="$(echo',
+      'foo)"',
+      `# ${EXEMPTION_MARKER} intended for the assignment only`,
+      "echo separator",
+      'psql -qAt "$DSN"',
+    ].join("\n");
+    const site = sitesIn(source, "x.sh").at(-1)!;
+    expect(site.line).toBe(5);
+    expect(site.exemptReason).toBeNull();
+  });
+
+  test("a decoded-only second command is found even when the raw pass hit", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      '      - run: "$(psql -X DSN)\\npsql -qAt DSN"',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites.length).toBeGreaterThanOrEqual(2);
+    expect(sites.some((site) => !site.suppressesStartupFiles)).toBe(true);
+  });
+
+  test.each([
+    ["a bare dbname", 'const c = "psql mydb -qAt"; execSync(c);', true],
+    ["a service= keyword", 'const c = "psql service=prod -c q"; execSync(c);', true],
+    ["a leading redirection", 'const c = "psql <dump.sql"; execSync(c);', true],
+    ["an error message", "const m = `psql failed: ${String(err)}`;", false],
+    ["an assertion string", 'const m = "psql output must contain ---LOCKS--- marker";', false],
+  ])("%s -> tripwire fires: %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
+  });
+
+  test.each([
+    ["env -u echo psql -qAt DSN\n", 1],
+    ["xargs -p psql -qAt DSN\n", 1],
+    ["env -v psql -qAt DSN\n", 1],
+    ["time -p psql -qAt DSN\n", 1],
+    ["command -v psql\n", 0],
+    ["which psql\n", 0],
+    ["type psql\n", 0],
+  ])("%j -> %d site(s): the denylist only fires at command position", (source, expected) => {
+    expect(sitesIn(source, "x.sh")).toHaveLength(expected);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {
