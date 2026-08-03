@@ -117,32 +117,44 @@ const REPO_ROOT = join(__dirname, "..", "..");
  * rewrite as one in TypeScript. MDX is not TypeScript, so it is matched
  * textually rather than parsed.
  */
-const DENIED_DIRS = new Set([
-  "node_modules",
-  ".git",
-  ".claude",
-  ".vercel",
+const NEVER_SOURCE = new Set(["node_modules", ".git"]);
+const NEVER_SOURCE_PREFIXES = [".next"];
+
+/**
+ * Skipped at the REPO ROOT ONLY, never by basename at depth.
+ *
+ * Review R10 caught the previous version matching these names recursively, so
+ * `app/docs/page.tsx`, `app/tests/page.tsx` and `app/public/page.tsx` — all
+ * valid App Router routes — were silently outside the census. A basename
+ * denylist applied at every depth is an allowlist's failure mode wearing a
+ * denylist's clothes.
+ *
+ * Note what is NOT here: `tests/`, `docs/` and `public/` are no longer skipped
+ * even at the root. R10 pointed out that `tsconfig.json`'s `@/*` resolves
+ * across the whole root, so app code CAN import from them; excluding them was
+ * a guess about reachability rather than a fact about it. They are cheap to
+ * walk, and `hasFontImport` keys on import declarations, so the setup file's
+ * `vi.mock("next/font/google", …)` — a string argument — does not match.
+ */
+const ROOT_ONLY_SKIP = new Set([
   "coverage",
   "test-results",
   "playwright-report",
-  // Not shipped: a loader here cannot reach a route.
-  "tests",
-  "docs",
-  "public",
-  "__generated__",
+  ".vercel",
+  ".claude",
 ]);
-const DENIED_DIR_PREFIXES = [".next"];
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 const TEXT_SCANNED_EXTENSIONS = [".mdx"];
 
-function censusFiles(dir: string): string[] {
+function censusFiles(dir: string, isRoot = false): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (DENIED_DIRS.has(entry.name)) continue;
-      if (DENIED_DIR_PREFIXES.some((p) => entry.name.startsWith(p))) continue;
+      if (NEVER_SOURCE.has(entry.name)) continue;
+      if (NEVER_SOURCE_PREFIXES.some((p) => entry.name.startsWith(p))) continue;
+      if (isRoot && ROOT_ONLY_SKIP.has(entry.name)) continue;
       out.push(...censusFiles(full));
       continue;
     }
@@ -152,10 +164,29 @@ function censusFiles(dir: string): string[] {
   return out;
 }
 
-/** `.mdx` carries ESM imports but is not TypeScript, so match the module
- *  specifier textually. Deliberately loose: over-matching here costs a false
- *  failure that a human resolves, under-matching costs a silent second font. */
-const MDX_FONT_IMPORT = /from\s+["']next\/font\//;
+/**
+ * `.mdx` carries ESM imports but is not TypeScript, so the module specifier is
+ * matched textually — and the NAIVE version of that was escapable. Review R10
+ * demonstrated two forms that MDX and SWC both accept while a
+ * `/from\s+["']next\/font\//` regex missed them:
+ *
+ *   import { Inter } from\/*comment*\/"next/font/google"   (comment between)
+ *   import { Inter } from "next\u002ffont/google"          (escaped slash)
+ *
+ * So the text is NORMALISED first — block and line comments stripped, `\uXXXX`
+ * decoded — and then matched on the bare module path anywhere in the file
+ * rather than on an import-statement shape. Deliberately loose in that
+ * direction: an MDX author has no reason to write `next/font` except to load a
+ * font, and over-matching costs a false failure a human resolves in seconds
+ * while under-matching costs a silent second font.
+ */
+function mdxMentionsFontModule(source: string): boolean {
+  const normalised = source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, hex) => String.fromCharCode(parseInt(hex, 16)));
+  return /next\/font\//.test(normalised);
+}
 
 /** The one file allowed to CALL a font loader. Not `app/layout.tsx`: Next 16 has
  *  two roots, and `app/global-error.tsx` replaces the root layout entirely, so
@@ -341,7 +372,7 @@ function toRepoRelative(absolute: string): string {
 }
 
 describe("single next/font loader — live tree", () => {
-  const appFiles = censusFiles(REPO_ROOT);
+  const appFiles = censusFiles(REPO_ROOT, true);
 
   it("the walk actually reached every shipped tree", () => {
     // Anti-vacuity: an empty or narrow walk satisfies every assertion below
@@ -373,7 +404,7 @@ describe("single next/font loader — live tree", () => {
       .filter((file) => {
         const source = readFileSync(file, "utf8");
         return TEXT_SCANNED_EXTENSIONS.includes(extname(file))
-          ? MDX_FONT_IMPORT.test(source)
+          ? mdxMentionsFontModule(source)
           : hasFontImport(source, file);
       })
       .map(toRepoRelative);
