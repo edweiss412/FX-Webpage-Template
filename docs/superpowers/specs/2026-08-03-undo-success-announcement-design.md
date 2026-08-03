@@ -218,6 +218,8 @@ Two review rounds moved this defect one component further out each time, which i
 
 The pattern is not "pick a component further out." It is that **any owner below a data-dependent branch is wrong**, and every one of these surfaces sits below one.
 
+**This is not a new rule — it is an existing one this surface never followed.** `DESIGN.md:479` already says the region node must be branch-stable, that single-return components render it as a key-stable sibling, and that it must never sit behind `display: contents`. Three review rounds rediscovered, at increasing cost, a constraint the design system had already written down. Two consequences worth stating: §3.5's placement is the documented rule applied rather than a novel invention, and the surfaces enumerated under `BL-ANNOUNCE-REGION-UNMOUNT-CLASS` in §9.5 are violating a ratified rule, not merely an unlucky pattern — which is what makes them a debt row rather than a matter of taste.
+
 **The owner is therefore `app/admin/layout.tsx`.** A new client component `AdminAnnounceProvider` holds `useAnnounceLog`, provides `UndoAnnounceContext`, and renders the region. The layout wraps its chosen branch in it:
 
 ```tsx

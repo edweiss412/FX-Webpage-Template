@@ -170,8 +170,10 @@ Failure caught: the region nested inside `[data-inert-root]` instead of wrapping
 Each assertion carries its **own** planted violation. Round 2's finding was a widened guard shipping a mutant for only one branch, so a guard silently ignoring the second would still have passed.
 ## Task 11 — `DESIGN.md` announcement contract
 
-- [ ] Add the paragraph naming the two channel shapes, when each applies, and the always-mounted rule.
-- [ ] Commit `docs(design): record the announcement channel contract`.
+**Extend the existing paragraph; do not add a new one.** `DESIGN.md:479` already carries an Announcements paragraph, and it already states the branch-stability rule this whole spec rediscovered: the region node must be branch-stable, single-return components render it as a key-stable sibling, and it never sits behind `display: contents`. A second paragraph restating it would create exactly the kind of duplicated contract that drifts.
+
+- [ ] Extend `DESIGN.md:479` with: the append-shaped `role="log"` channel as the second sanctioned shape and when to choose it over `role="status"` (repeated announcements whose text can repeat); the shared `useAnnounceLog` / `AnnounceLogRegion` module as the one implementation; and the inert-root constraint from spec §3.5.1, which the existing paragraph does not cover.
+- [ ] Commit `docs(design): record the append-shaped announcement channel`.
 
 ## Task 12 — Ledger dispositions
 
