@@ -2801,3 +2801,11 @@ _Guards._ `tests/e2e/font-binding.spec.ts` measures rendered text width on `/adm
 Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md`
 
 ---
+
+## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — RESOLVED (2026-08-03, `feat/staged-identitylink-rename-identity`) — dashboard staged apply treats identity-link renames as remove+add
+
+**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)
+
+The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
+
+**Resolved.** `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`, branch `feat/staged-identitylink-rename-identity`: `computeStagedIdentityLinkRenames` links a pair only when its validated reviewer choice is `rename` (the per-item admin vouch, the staged analogue of cron's version-bound accept), and `applyStagedCore` threads the result into `runPhase2` behind a length gate. A staged rename now preserves `crew_members.id` and `claimed_via_oauth_at`; `independent` still applies as remove+add, so the R33-2 feed assertions are untouched. The double-apply / override risk this entry flagged resolved as a choice gate, not a path override — the role-flags spec's staged loss+grant audit shape is superseded in part, banner-fenced in both directions.

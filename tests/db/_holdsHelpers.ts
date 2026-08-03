@@ -16,8 +16,15 @@ import { randomUUID } from "node:crypto";
 
 import postgres, { type Sql, type TransactionSql } from "postgres";
 
-import type { CrewMemberRow, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, RoleFlag, TriggeredReviewItem } from "@/lib/parser/types";
+import {
+  applyStagedCore,
+  type ApplyStagedCoreResult,
+  type ReviewerChoice,
+} from "@/lib/sync/applyStagedCore";
+import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { runPhase2 } from "@/lib/sync/phase2";
+import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 import {
   crew as crewRow,
@@ -59,6 +66,8 @@ export type CrewSeed = {
   role?: string;
   /** true → now(); a timestamptz string → that value; false/undefined → null (never claimed). */
   claimed?: boolean | string;
+  /** Capability flags for the seeded/parsed row; defaults to ["A1"] on both sides. */
+  role_flags?: RoleFlag[];
 };
 
 export type SeededHoldsShow = { showId: string; driveFileId: string };
@@ -84,7 +93,7 @@ export async function seedShowWithCrew(crew: CrewSeed[]): Promise<SeededHoldsSho
         (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
          flight_info, claimed_via_oauth_at)
       values (${showId}, ${member.name}, ${member.email}, ${member.phone ?? "555-OLD"},
-              ${member.role ?? "A1"}, ${["A1"]}, ${sql.json({ kind: "none" })},
+              ${member.role ?? "A1"}, ${member.role_flags ?? ["A1"]}, ${sql.json({ kind: "none" })},
               ${sql.json({ kind: "none" })}, null, ${claim})`;
   }
   return { showId, driveFileId };
@@ -106,6 +115,7 @@ function toCrewRow(member: CrewSeed): CrewMemberRow {
     email: member.email,
     phone: member.phone ?? "555-OLD",
     role: member.role ?? "A1",
+    ...(member.role_flags ? { role_flags: member.role_flags } : {}),
   });
 }
 
@@ -135,6 +145,68 @@ export async function runAutoApply(driveFileId: string, input: AutoApplyInput): 
       ...(input.identityLinkRenames !== undefined
         ? { identityLinkRenames: input.identityLinkRenames }
         : {}),
+    });
+  });
+}
+
+export type StagedApplyInput = {
+  crew: CrewSeed[];
+  triggeredItems: TriggeredReviewItem[];
+  reviewerChoices: ReviewerChoice[];
+  modifiedTime?: string;
+};
+
+/**
+ * Drive a real applyStagedCore staged apply (choice_aware feed) of the given sheet state.
+ * COMMITS. The test tx takes the advisory lock (caller layer); the core adopts it, the same
+ * single-holder topology as the production callers.
+ */
+export async function runStagedApply(
+  driveFileId: string,
+  input: StagedApplyInput,
+): Promise<ApplyStagedCoreResult> {
+  const modifiedTime = input.modifiedTime ?? new Date((autoApplyClock += 60_000)).toISOString();
+  const next: ParseResult = buildParseResult(input.crew.map(toCrewRow));
+  return await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${"show:" + driveFileId}))`;
+    // Production pipeline tx (queryOne + holdPort); `tx as never` is the established idiom for
+    // handing a postgres.js TransactionSql to makeSyncPipelineTx in tests (_holdAwareTestkit).
+    const pipelineTx = makeSyncPipelineTx(tx as never);
+    const locked = await adoptShowLockHeld(pipelineTx, driveFileId);
+    const [show] = (await tx`
+      select id, last_seen_modified_time, diagrams
+        from public.shows where drive_file_id = ${driveFileId}`) as unknown as Array<{
+      id: string;
+      last_seen_modified_time: string | Date | null;
+      diagrams: unknown;
+    }>;
+    const lastSeen =
+      show!.last_seen_modified_time === null
+        ? null
+        : new Date(show!.last_seen_modified_time).toISOString();
+    return await applyStagedCore(locked, {
+      sourceScope: "live",
+      driveFileId,
+      show: { showId: show!.id, lastSeenModifiedTime: lastSeen, diagrams: show!.diagrams },
+      parseResult: next,
+      triggeredReviewItems: input.triggeredItems,
+      reviewerChoices: input.reviewerChoices,
+      stagedId: randomUUID(),
+      stagedModifiedTime: modifiedTime,
+      baseModifiedTime: lastSeen,
+      appliedByEmail: "doug@fxav.test",
+      appliedAt: null,
+      auditSource: "staged_apply",
+      fileMeta: {
+        driveFileId,
+        name: "Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime,
+        parents: ["f"],
+      },
+      mi11Items: [],
+      feedPolicy: { kind: "choice_aware" },
+      skipDiagramsWrite: true,
     });
   });
 }
