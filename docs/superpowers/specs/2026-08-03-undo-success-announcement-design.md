@@ -72,7 +72,7 @@ This is the evidence behind R3; it is not a defensive over-build.
 7. **`components/admin/review/ShowReviewSurface.tsx`** — retrofitted onto the extracted module (R6), DOM output unchanged.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 8. **`tests/styles/_metaUndoAnnounceProvider.test.ts`** (new) — a structural guard so a future parent cannot render `UndoChangeButton` outside a provider and silently get the no-op.
-9. **`BACKLOG.md`** — the four ledger dispositions plus two filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`); **`DESIGN.md`** — the announcement contract paragraph.
+9. **`BACKLOG.md`** — the four ledger dispositions plus three filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`); **`DESIGN.md`** — the announcement contract paragraph.
 
 ---
 
@@ -400,6 +400,22 @@ The edit that does land is additive: a parenthetical on the `BL-SYNCFEED-UI-*` b
 ### 9.5 Filed, not fixed
 
 **`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`** — Accept and Approve/Reject announce failures (after this change) but not successes. Same asymmetry this spec fixes for Undo, one surface over. Filed with the analysis rather than fixed, because success copy for those two actions is a copy decision, not a mechanical one.
+
+**`BL-BULK-UNDO-ANNOUNCE-UNMOUNT`** — the pre-existing bulk "Undo all" channel dies with its group (§8). Filed rather than fixed because the fix breaches R2.
+
+**`BL-ANNOUNCE-REGION-UNMOUNT-CLASS`** — the class sweep this defect demanded, run across every live region in `components/` and `app/`. The defect this spec exists to fix is **not unique to the changes feed**; three other surfaces own a success announcement that their own success can unmount, and roughly eleven more mount their success region conditionally, which is the sibling not-announced pitfall.
+
+| Severity | Surface | Region | Removal mechanism |
+|---|---|---|---|
+| P0 | `components/admin/RescanSheetButton.tsx` | `RescanSheetButton.tsx:211` / `RescanSheetButton.tsx:221`, both under the `{result ? …}` conditional at `RescanSheetButton.tsx:182` | `router.refresh()` on success (`RescanSheetButton.tsx:135`) flips the row's status; Step-3 re-partitions rows between `publishRows` and `blockingRows`, so the card, the button, and the just-set region all unmount. Eight call sites. |
+| P1 | `components/admin/review/PublishedArchivedTabOffer.tsx` | `PublishedArchivedTabOffer.tsx:135` and `PublishedArchivedTabOffer.tsx:227` | Both set state then `router.refresh()` (`PublishedArchivedTabOffer.tsx:108`, `PublishedArchivedTabOffer.tsx:201`); the parent branches on `gear.wire !== null` (`step3ReviewSections.tsx:3268-3283`), so offer and note swap and whichever just announced unmounts. |
+| P2 | `components/admin/RoleRecognizeControl.tsx:196-201` | the saved card *is* the region | Rendered only while `phase === "saved"`; the CREATE re-sync clears the warning the control is gated on. Partly mitigated by the focus move at `RoleRecognizeControl.tsx:118`. |
+
+Conditionally-mounted success regions, same class, lower stakes: `RoleMappingRow.tsx:212`, `AddAdminForm.tsx:157`, `RotateShareTokenButton.tsx:278`, `ReportModal.tsx:553`, `ReSyncButton.tsx:354`, `Step2Verify.tsx:496`, `BlockedRowResolver.tsx:251`, `archivedTabOffer.tsx:189` (which additionally uses `role="status"` for error copy).
+
+**Why filed and not fixed here.** Every one of these is pre-existing, none is on the changes-feed surface this ledger entry covers, and the P0 alone spans eight call sites and the Step-3 row-partitioning logic. Folding them in would turn a scoped accessibility fix into a cross-surface refactor of the admin app, and would put the invariant-8 gate over a diff nobody scoped. The sweep result belongs in the ledger with its evidence, which is what the class-sweep rule asks for — sweep the class, then decide per instance.
+
+Verified clean and deliberately not filed (persistent, always-mounted regions): `PickerResetControl:193`, `ResetPickerEpochButton:210`, `CrewRowActions:242`, `ArchiveShowButton:365`, `StagedReviewCard:693`, `PendingPanelDiscardButtons:259`, `BulkIgnoreControls:224`, `FinalizeButton:515`, `ShareHub:836`, `ShowReviewSurface:1161`, `step3ReviewSections:1638,4095`, `Step3SheetCard:598`, `BellPanel:1266`.
 
 ---
 
