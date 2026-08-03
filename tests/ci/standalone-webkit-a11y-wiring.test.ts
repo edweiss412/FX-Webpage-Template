@@ -49,11 +49,22 @@ describe("standalone WebKit a11y leg wiring", () => {
       readFileSync(join(ROOT, "tests/e2e/agendaScheduleLayout.spec.ts"), "utf8"),
       ts.ScriptKind.TS,
     );
+    // The IDENTIFIERS, not the call spelling. R10 (HIGH) evaded a `/test\.use\s*\(/` scan by
+    // destructuring `test.use` and computing the fixture key, so the ban now covers `use` and
+    // bracket access on `test` as well — every fixture override must name one or the other, and
+    // this spec uses neither for anything else (verified: zero occurrences in code).
+    //
+    // DELIBERATE-EVASION CONCESSION, stated so nobody re-derives it: a fully computed spelling
+    // (`const t = test; t["u" + "se"](…)`) still gets through, exactly as the redirect guard
+    // concedes string-mediated dynamic access. The threat model here is regression and
+    // refactoring, not a contributor obfuscating an override inside the very spec whose coverage
+    // is being asserted.
     expect(
-      [/test\.use\s*\(/, /\bbrowserName\b/].filter((re) => re.test(specSrc)).map(String),
-      "tests/e2e/agendaScheduleLayout.spec.ts declares test.use/browserName. A file- or " +
-        "describe-scoped override wins over the project's engine, so this leg could report a " +
-        "green WebKit run while executing Chromium. Put engine selection in the project only.",
+      [/\buse\b/, /\bbrowserName\b/, /test\s*\[/].filter((re) => re.test(specSrc)).map(String),
+      "tests/e2e/agendaScheduleLayout.spec.ts names use/browserName or bracket-accesses test. A " +
+        "file- or describe-scoped fixture override wins over the project's engine, so this leg " +
+        "could report a green WebKit run while executing Chromium. Put engine selection in the " +
+        "project only.",
     ).toEqual([]);
 
     // Precedence, all three levels. R8 (HIGH) escaping mutant: a TOP-LEVEL

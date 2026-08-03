@@ -398,6 +398,31 @@ describe("picker-flow e2e CI wiring", () => {
     );
   });
 
+  it("crew-e2e.yml asserts the guarded specs actually EXECUTED", () => {
+    // Static wiring proves collection, never execution. R10 (HIGH) escaping mutant: a `beforeEach`
+    // calling test.skip() skips every case at runtime while --list still counts them, so the count
+    // comparison, EXPECTED_SKIPS and the job's exit code all stay green on a suite that ran
+    // nothing. Only a post-run oracle closes that, so the workflow must carry one — and it must be
+    // an ACTIVATED, un-chained step like any other wiring (same helpers).
+    const runs = activatedRunScalars(read("crew-e2e.yml"))
+      .map((c) => stripYamlComments(c).trim())
+      .filter((c) => !/&&|\|\||;|\|/.test(c));
+    expect(
+      runs.some((c) => c.split(/\s+/).includes("scripts/check-crew-e2e-executed.mjs")),
+      "crew-e2e.yml runs no post-run executed-count check. Without it a runtime skip empties the " +
+        "whole job while every static assertion here stays green.",
+    ).toBe(true);
+    // The oracle needs the run's own json report: a `list`-only reporter writes none, and the
+    // checker then fails closed rather than passing vacuously — but pin the producer anyway so
+    // the pair cannot drift apart silently.
+    const testRun = playwrightTestSegments(read("crew-e2e.yml"));
+    expect(
+      testRun.some((t) => t.some((w) => w.startsWith("--reporter=") && w.includes("json"))),
+      "the crew-e2e playwright command emits no json report, so the executed-count check has " +
+        "nothing to read.",
+    ).toBe(true);
+  });
+
   it("crew-e2e.yml's pull_request trigger narrows on NOTHING but paths-ignore", () => {
     // R8 (HIGH) escaping mutant: `types: [closed]` left every other trigger predicate green while
     // the job stopped running on open/synchronize/reopen — i.e. on every PR event that matters.

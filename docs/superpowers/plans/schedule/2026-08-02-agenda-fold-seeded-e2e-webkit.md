@@ -110,6 +110,22 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF22 — runtime skip (whole-diff review R10 live mutant), closed by a POST-RUN ORACLE:** a
+  `beforeEach` calling `test.skip(<condition>)` skips every case at runtime while `--list` still
+  counts them, so the count comparison, `EXPECTED_SKIPS` and the job's exit code all stay green on
+  a suite that executed nothing. No static analysis can close a runtime fact, so `crew-e2e.yml` now
+  emits a json report and runs `scripts/check-crew-e2e-executed.mjs`, which requires each guarded
+  spec to have really run (stage-restricted pinned at 6, so skipping just the fold block is caught
+  too) — the same post-run-comparator shape that closed BL-CI-ENV-DEPENDENT-CONFIG-NARROWING for
+  the standalone config. Proven end to end: with the mutant in place the job printed "6 skipped"
+  and exited 0, and the oracle failed it.
+- **MF23 — obfuscated fixture override (whole-diff review R10 live mutant):** MF19's ban matched
+  `test.use(`, which destructuring plus a computed fixture key walks past. The ban now covers the
+  identifiers `use`, `browserName` and bracket access on `test`, none of which the a11y spec uses.
+  **Deliberate-evasion concession** (stated so it is not re-derived): a fully computed spelling
+  (`const t = test; t["u" + "se"](…)`) still gets through, exactly as the redirect guard concedes
+  string-mediated dynamic access. The threat model is regression and refactoring, not a contributor
+  obfuscating an override inside the very spec whose coverage is being asserted.
 - **MF21 — failure swallowing by chain (whole-diff review R9 live mutant):** MF7 closed
   `true || playwright test …` by counting only the head segment; R9 came back through the other
   end — `playwright test … || true` keeps the head intact and swallows every failure, so CI reports
