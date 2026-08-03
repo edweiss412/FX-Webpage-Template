@@ -44,10 +44,10 @@ N/A — no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and n
 
 **Implements:** spec §4.
 
-### 1.1 Red first — six mutations, per spec §4.6
+### 1.1 Red first — seven mutations, per spec §4.6
 
 The deliverable is a test, so the red state comes from mutating the tree rather than from
-production code that does not yet exist. Run all six, paste the output into the commit message,
+production code that does not yet exist. Run all seven, paste the output into the commit message,
 revert each before the next. **None is committed.**
 
 | Mutation | Edit | Required result |
@@ -57,11 +57,12 @@ revert each before the next. **None is committed.**
 | **C** — coverage shrink | delete the `venue.notes` alias list from `FIELD_ALIASES` (`lib/parser/aliases.ts:34`) | derived coverage floor RED, and **only** that — `venue.notes` is its canonical's sole alias and no fixture case asserts `notes` |
 | **D** — mis-routed correction | reroute `venue.contact_info` / `venue.in_house_av` / `venue.hotel_reservations` to `venue.address` inside `parseVenue` | non-assignable no-stray-value assertion RED on all 4517 cases |
 | **E** — resampling | reintroduce `.slice(0, 1)` on the generator output | per-alias volume floor RED for every alias |
-| **F** — collateral anchor corruption | after a correct assignment, also overwrite the populated anchor field | anchor-integrity clause RED — measured 1444 corrupted outputs with 0 failures against the A-E design |
+| **F** — collateral anchor corruption | after a correct assignment, also overwrite the populated anchor field | exact-shape assertion RED — measured 1444 corrupted outputs with 0 failures against the A-E point-clause design |
+| **G** — collateral corruption of a third field | after a correct `venue.address` assignment, also set `notes` to a marker that is neither the sentinel nor the anchor value | exact-shape assertion RED — measured 1444 corrupted outputs with 0 failures against the A-F point-clause design |
 
-Mutations A, D, E are the load-bearing ones: today's case passes under A, and D and E are the two
-mutants cross-model review used to refute weaker drafts of this design. Capture each result
-verbatim.
+Mutations A, D, E, F, G are the load-bearing ones: today's case passes under A, and D/E/F/G are the
+four mutants cross-model review used to refute successively weaker drafts of this design. Capture
+each result verbatim.
 
 Do **not** use `"Hotel Address"` for mutation C: `venue.address` keeps its second alias
 `venue address`, so the canonical stays represented and the floor does not red (review round 2).
@@ -105,19 +106,25 @@ a lone typo row does not open the block (spec §2.3).
 | Non-trim, assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
 | Non-trim, non-assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-**Then, for EVERY case in EVERY partition** (spec §4.2 — not partition-scoped; review round 4 showed
-scoping these to the non-trim rows left all 22 trim cases warning-shape-only, and a row-skipping
-mutant dropped 10 values with 0 failures):
+**Then, for EVERY case in EVERY partition, one exact-shape assertion** (spec §4.2). Do **not**
+implement this as a list of individual checks — three review rounds each found a mutant that
+escaped the previous point-clause set. Assert the whole object:
 
-1. **Target routing** — if the canonical is assignable, the sentinel reaches
-   `VENUE_OUTPUT_FIELD[canonical]`.
-2. **No stray routing** — the sentinel is in no other field, and in no field at all when the
-   canonical is non-assignable. Kills mutation D.
-3. **Anchor integrity** — the anchor row's field still holds its exact anchor value. Kills mutation
-   F, which otherwise passes with 1444 corrupted outputs and 0 failures.
+> The set of **populated** output fields (non-empty string values) equals exactly
+> `{anchorField} ∪ {targetField, if the canonical is assignable}`, and those fields hold exactly
+> the anchor value and the sentinel respectively.
 
-Use a distinctive sentinel as the typo row's value and scan the whole result object, not one field.
-Measured today: all 22 trim cases satisfy all three clauses.
+This subsumes target routing, stray routing, anchor integrity, and collateral corruption of any
+third field. It kills mutations D, F, and G. Measured today: **0 mismatches in 8453 cases**, across
+five distinct shapes:
+
+```
+4527x  populated=[name]              1448x  populated=[address,name]
+1240x  populated=[loadingDock,name]   620x  populated=[name,notes]
+ 618x  populated=[googleLink,name]
+```
+
+Use a distinctive sentinel as the typo row's value.
 
 Failure messages name both alias and typo, as `tests/parser/blocks/venue.test.ts:328` does today.
 
@@ -206,11 +213,14 @@ pnpm exec vitest run tests/docs/      # green
 
 ## Task 3 — correct the two stale docstrings
 
-**Files:** `lib/parser/knownSections.ts` (`lib/parser/knownSections.ts:15`),
-`tests/parser/_metaKnownSectionsRegistry.test.ts` (`tests/parser/_metaKnownSectionsRegistry.test.ts:9`).
+**Files:** `tests/parser/_metaKnownSectionsWalker.test.ts` (**executable** — one appended case),
+`lib/parser/knownSections.ts` (`lib/parser/knownSections.ts:15`, comment only),
+`tests/parser/_metaKnownSectionsRegistry.test.ts`
+(`tests/parser/_metaKnownSectionsRegistry.test.ts:9`, comment only).
 
-**Implements:** spec §5.1, §5.2. Sequenced after Task 2 so the text can reference the archived
-entry rather than an active one. **Comment-only: no executable line changes.**
+**Implements:** spec §5.1, §5.2, §5.4. Sequenced after Task 2 so the text can reference the
+archived entry rather than an active one. The two docstring edits are comment-only; the guard that
+gives them a red state is executable test code in a third file.
 
 ### 3.1 Red first — the docstring-truth guard
 
@@ -220,20 +230,24 @@ new case appended to `tests/parser/_metaKnownSectionsWalker.test.ts`:
 
 - Read the source of `lib/parser/knownSections.ts` and
   `tests/parser/_metaKnownSectionsRegistry.test.ts`.
-- Assert **neither file contains any** phrase from a small named stale-absence list. The phrases
-  are distributed, not duplicated — measured on the unmodified tree:
+Two independent assertions over two **disjoint** lists. Keep them separate — one list is
+forbidden, the other is required, and conflating them yields a guard that can never go green.
 
-  | Phrase | `lib/parser/knownSections.ts` | `tests/parser/_metaKnownSectionsRegistry.test.ts` |
+- **FORBIDDEN list** — assert **neither file contains any** of these. They are distributed across
+  the two files, not duplicated in both, so the assertion is "no file contains any listed phrase,"
+  **not** "each file contains each phrase." Counts measured on the unmodified tree:
+
+  | Forbidden phrase | `lib/parser/knownSections.ts` | `tests/parser/_metaKnownSectionsRegistry.test.ts` |
   | --- | --- | --- |
   | `no shared introspectable constant` | 1 | 0 |
   | `does NOT walk` | 1 | 0 |
   | `not cheaply achievable` | 0 | 1 |
-  | `_metaKnownSectionsWalker` | 0 | 0 |
 
-  So the assertion is "no file contains any listed phrase," **not** "each file contains each
-  phrase" — an implementer writing the latter would get a test that is red for the wrong reason.
-- Assert both files name `_metaKnownSectionsWalker` (the correct pointer), so the guard cannot be
-  satisfied by deleting the paragraph and saying nothing. Neither names it today.
+- **REQUIRED pointer** — separately, assert **both** files contain the string
+  `_metaKnownSectionsWalker`, so the guard cannot be satisfied by deleting the paragraph and saying
+  nothing. Measured today: 0 occurrences in each, so this half is red too.
+
+  `_metaKnownSectionsWalker` is **not** a member of the forbidden list.
 
 This case MUST go RED on the unmodified tree on **both** counts — each file carries at least one
 listed phrase, and neither carries the pointer — and green after §3.3. Capture the red output for

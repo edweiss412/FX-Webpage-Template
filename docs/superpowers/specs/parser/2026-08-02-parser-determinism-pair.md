@@ -3,7 +3,7 @@
 **Date:** 2026-08-02
 **Branch:** `test/parser-determinism-pair`
 **Backlog entries:** `BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE`, `BL-KNOWN-SECTIONS-WALKER`
-**Status:** spec, revised after cross-model review rounds 1-3 (7 + 2 + 5 findings, all landed)
+**Status:** spec, revised after cross-model review rounds 1-5 (7 + 2 + 5 + 2 + 3 findings, all landed)
 
 ---
 
@@ -260,26 +260,33 @@ choice from `resolveAlias(alias)`; never hardcode a per-alias table.
 | Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
 | Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-**Routing and anchor integrity apply to EVERY case, in every partition** — they are not
-partition-specific, and review round 4 showed that scoping them to the non-trim partitions leaves
-all 22 trim cases asserting warning shape only. A mutant that silently skipped doubled-edge-
-whitespace rows dropped 10 values with 0 assertion failures. Every case therefore asserts all three
-of:
+**One exact-shape assertion applies to EVERY case, in every partition.** Three consecutive review
+rounds each found an escaping mutant against a point-assertion design — round 3 corrupted the
+anchor field, round 4 exploited trim-partition cases that had no routing assertion at all, and
+round 5 corrupted a *third* field (`notes`) with a marker that was neither the sentinel nor the
+anchor value, scoring 1444 corrupted outputs against 0 failures. Each fix was another point check,
+and each left the next hole. The design therefore stops enumerating individual clauses and asserts
+the **whole result object exactly**:
 
-1. **Target routing** — if the alias's canonical is assignable, the sentinel reaches
-   `VENUE_OUTPUT_FIELD[canonical]`.
-2. **No stray routing** — the sentinel appears in **no other** output field (and in **no** field at
-   all when the canonical is non-assignable).
-3. **Anchor integrity** — the anchor row's own field still holds the anchor's exact value.
+> The set of **populated** output fields (non-empty string values) equals exactly
+> `{anchor field} ∪ {target field, if the alias's canonical is assignable}`, and those fields hold
+> exactly the anchor value and the sentinel respectively.
 
-Measured on the current tree, all 22 trim-equivalent cases satisfy all three: the 12 assignable ones
-route the sentinel to exactly their target field, the 10 non-assignable ones carry it nowhere, and
-every one leaves the anchor intact.
+This subsumes target routing, stray routing, anchor integrity, and collateral corruption of any
+other field in one statement, and it closes the class rather than the instance: a mutant can no
+longer corrupt a field the assertion "forgot" to name, because the assertion names them all by
+exclusion.
 
-Clause 3 exists because of a round-3 escaping mutant: one that assigns the typo correctly **and
-also** overwrites the already-populated anchor field passes a sentinel-only scan, since the sentinel
-is still in the target field and nowhere else. That mutant produced 1444 corrupted outputs, 0
-assertion failures, and all 56 current venue tests green.
+Measured over the full space, this holds with **0 mismatches in 8453 cases**, across exactly five
+distinct result shapes:
+
+```
+4527x  populated=[name]                    (non-assignable aliases; anchor only)
+1448x  populated=[address,name]            (venue address + hotel address)
+1240x  populated=[loadingDock,name]        (venue name, anchored on LOADING DOCK; + loading dock)
+ 620x  populated=[name,notes]              (venue notes)
+ 618x  populated=[googleLink,name]         (google link)
+```
 
 Both value clauses use a distinctive sentinel value in the typo row, and are stated over the whole
 result object rather than a single field. Together with anchor integrity this makes the case a
@@ -364,7 +371,7 @@ vocabulary const**; venue's derived list is the better source (it cannot drift f
 ### 4.6 Red state (invariant 1) for a test-only deliverable
 
 The rewritten assertions pass against unmodified `main`, so the red state is established by
-mutation rather than by production code that does not yet exist. All six mutations are run, their
+mutation rather than by production code that does not yet exist. All seven mutations are run, their
 output recorded in the task commit message, and none is committed:
 
 - **Mutation A — parser does nothing.** Make `parseVenue` return `null` immediately. The **new**
@@ -391,10 +398,13 @@ output recorded in the task commit message, and none is committed:
   volume floor (§4.3) must go red for every alias. Without the floor this mutant keeps all eleven
   aliases and all five canonicals and passes, while dropping 8442 of 8453 cases.
 - **Mutation F — collateral anchor corruption.** After a correct fuzzy assignment, also overwrite
-  the already-populated anchor field with a marker value. The anchor-integrity clause (§4.2) must
-  go red. Review round 3 measured this mutant against the A–E design: **1444 corrupted outputs, 0
-  assertion failures, and all 56 current venue tests green.** It is the live escaping mutant that
-  justifies anchor integrity as a new assertion family.
+  the already-populated anchor field with a marker value. Measured against the A–E design in review
+  round 3: **1444 corrupted outputs, 0 assertion failures, and all 56 current venue tests green.**
+- **Mutation G — collateral corruption of a third field.** After a correct fuzzy `venue.address`
+  assignment, also set `notes` to a marker that is neither the sentinel nor the anchor value.
+  Measured against the A–F point-clause design in review round 5: **1444 corrupted outputs, 0
+  assertion failures.** F and G together are why §4.2 asserts the exact populated-field set rather
+  than a list of individual clauses; both must go red under the exact-shape rule.
 
 ---
 
@@ -528,11 +538,12 @@ both active and archived, and that no active entry carries a terminal status.
   probe shows an actual parser defect, this is settled.
 - **No UI surface**, so `impeccable-gate: N/A — no UI surface` is carried in the plan.
 
-Two things WERE added after this fence was first written, both against live escaping mutants and
-both with the admissibility contract met by demonstration rather than waived: anchor integrity
-(§4.2, round-3 Mutation F), and universal routing across all partitions (§4.2, round 4). The fence
-covers settled decisions, not future evidence.
+The assertion design WAS strengthened three times after this fence was first written, each against
+a live escaping mutant and each with the admissibility contract met by demonstration rather than
+waived: anchor integrity (round 3), universal application across partitions (round 4), and the
+whole-object exact-shape rule that replaced all point clauses (round 5). The fence covers settled
+decisions, not future evidence.
 
-The one new test surface in this work is the docstring-truth guard (§5.4); "no new guard" in §1
-refers to the known-sections **registry-drift** enforcement the backlog entry asked for, which is
-already shipped.
+The one new test surface in this work is the docstring-truth guard (§5.4). The
+known-sections **registry-drift** enforcement the backlog entry asked for is already shipped and is
+not rebuilt here.
