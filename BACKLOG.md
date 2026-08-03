@@ -369,7 +369,7 @@ Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now
 
 **Un-defer signal (weak, hence backlog not DEFERRED.md):** a user reporting that modal content changed without explanation. Note the tension with the ratified posture — adding a cue is a spec decision, not a polish pass.
 
-**Status:** open.
+**Status:** IN PROGRESS · **Branch:** feat/modal-freshness-cue
 
 ## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket
 
