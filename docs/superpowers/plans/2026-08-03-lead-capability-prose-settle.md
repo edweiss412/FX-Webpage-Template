@@ -75,7 +75,7 @@ Every hit is dispositioned. After Task 5 the master spec's hit is gone and the o
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
 - - **CREATES** `tests/docs/_metaCapabilityProseClaims.test.ts` — the prose-claim pins that give the documentation-only tasks a genuine RED (see §4 Tasks 3, 4, 5). Same wiring answer as the parity guard: `vitest.projects.ts` globs `tests/docs/**`, and `unit-suite.yml` has no path filter.
-- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, only ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and the two test registries are touched.
+- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, the diff touches the two ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and three test files: `tests/visibility/_metaDocumentedPredicateParity.test.ts` (new), `tests/docs/_metaCapabilityProseClaims.test.ts` (new), and `tests/visibility/capabilityTransitions.test.ts` and `tests/docs/_metaDeferralLedgerGraduation.test.ts` (both edited).
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
 ## 2. Mutation-family closure (mandatory for guard work)
@@ -88,10 +88,10 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M2 | A flag token added to a documented line the live function does not have | parity guard | mirror of M1 |
 | M3 | A flag branch added to a live function without a comment update | parity guard | same assertion, opposite origin |
 | M4 | A flag branch removed from a live function without a comment update | parity guard | same |
-| M5 | A `*Visible` export renamed or deleted | parity guard, three-way name-set equality | reflected export set ≠ documented set ≠ invoker table |
-| M6 | A new `*Visible` export with no documented line | parity guard, same equality | reflected set gains a member the other two lack |
+| M5 | A `*Visible` export renamed or deleted | parity guard, documented-vs-gated set equality **plus** the dangling-exemption assertion | a renamed/deleted GATED export breaks set equality; a renamed/deleted EXEMPT export leaves a `NOT_FLAG_GATED` key naming nothing (R5) |
+| M6 | A new `*Visible` export with no documented line and no exemption | parity guard, unclassified-export assertion | the reflected set gains a member that is neither documented nor exempted |
 | M7 | The block header removed, renamed, or re-wrapped | parity guard, parser throws | "documented-predicate block not found" |
-| M8 | The block emptied or truncated to ≠ 4 lines | parity guard, arity assertion | expected 4, received n |
+| M8 | The block emptied or truncated so the documented set no longer equals the gated set | parity guard, set-equality assertion | the documented names differ from the reflected non-exempt exports; the message names the difference |
 | M9 | A documented line rewritten with an unsupported operator (`&&`, `!`, nesting) | parity guard, shape assertion | expression fails the `token (\|\| token)*` shape |
 | M10 | A documented token that is neither a `RoleFlag` nor `isAdmin` (typo) | parity guard, vocabulary assertion | token ∉ `ALL_ROLE_FLAGS ∪ {isAdmin}` |
 | M11 | The `isAdmin` arm dropped from `financialsVisible`, or claimed for a predicate that takes no `isAdmin` argument | parity guard, `isAdmin` arm assertion | `fn([], true)` disagrees with `tokens.includes("isAdmin")` |
@@ -102,7 +102,8 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M16 | A **conjunctive** branch added to a live function (`V1 && L1`), which no singleton sweep can see — **added at spec review R1 with a live escaping mutant** | parity guard, exhaustive powerset | the two-flag subset disagrees; the mismatch names it |
 | M17 | An `isAdmin × flags` interaction in `financialsVisible` (e.g. admin suppressed when flags are non-empty) | parity guard, full `subset × isAdmin` cross product | same |
 | M18 | A new exported `*Visible` function that is neither documented nor exempted — **added at R2 with a live escaping export** (`transportTileVisible`) | parity guard, unclassified-export assertion | the export appears in neither the documented set nor `NOT_FLAG_GATED` |
-| M20 | An exemption row hollowed out to a blank or citation-less reason — **added at R3 with a live escaping mutation** | parity guard, exemption-reason assertion | reason is under 20 chars or cites no `file:line` |
+| M20 | An exemption row hollowed out to a blank or citation-less reason — **added at R3** | parity guard, exemption-reason assertion | reason is under 20 chars or cites no `file:line` |
+| M21 | The sole exempt export deleted, leaving a stale exemption — **added at R5 with a live escaping mutant** | parity guard, dangling-exemption assertion | a `NOT_FLAG_GATED` key names no reflected export |
 | M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
 
 M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
@@ -296,6 +297,15 @@ const SOURCE = readFileSync(join(process.cwd(), MODULE_REL), "utf8");
 
 describe("documented predicate lines match live scopeTiles behavior", () => {
   const documented = parseDocumentedPredicates(SOURCE);
+
+  test("every NOT_FLAG_GATED key still names a live export", () => {
+    // R5: deleting the sole exempt export escaped every other assertion and
+    // left a stale exemption behind. An exemption for something that no
+    // longer exists is debt, not a classification.
+    const reflectedNames = new Set(REFLECTED.map(([name]) => name));
+    const dangling = Object.keys(NOT_FLAG_GATED).filter((name) => !reflectedNames.has(name));
+    expect(dangling).toEqual([]);
+  });
 
   test("every NOT_FLAG_GATED exemption carries a real reason", () => {
     // Key presence alone would make "blank the reason" an escaping mutation. (R3 finding 2)
@@ -624,7 +634,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4 (the reflection assertion ships with the guard); Task 2 → AC-5, AC-6; Task 3 → AC-5a; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10. Every task now owns at least one criterion, and no criterion is owned by a task that cannot fail it.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4 (the reflection assertion ships with the guard); Task 2 → AC-5, AC-6; Task 3 → AC-5a; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10. Every task that CHANGES the tree owns at least one criterion it can fail. Task 9 (adversarial review) deliberately owns none — it is a gate on the whole diff, not a change with its own acceptance test, and inventing an AC for it would be ceremony.
 
 ## 12. Close-out
 

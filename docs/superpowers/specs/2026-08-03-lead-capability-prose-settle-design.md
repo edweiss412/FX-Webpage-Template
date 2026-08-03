@@ -109,7 +109,7 @@ A new structural meta-test, `tests/visibility/_metaDocumentedPredicateParity.tes
 
 Mechanism:
 
-1. Read `lib/visibility/capabilityTransitions.ts` from disk; locate the quoted-predicate block by its literal `(verbatim branch logic):` header and the blank comment line that terminates it. **A block that is not found, or that does not yield exactly four predicate lines, fails the test** — the guard can never silently pass by parsing nothing.
+1. Read `lib/visibility/capabilityTransitions.ts` from disk; locate the quoted-predicate block by its literal `(verbatim branch logic from` sentinel and the blank comment line that terminates it. **A block that is not found, or whose documented set differs from the reflected non-exempt exports, fails the test** — the guard can never silently pass by parsing nothing.
 2. For each line, take the text between `=` and the first `(`, normalize whitespace, and require it to match `^<token>( || <token>)*$` where `<token>` is `[A-Za-z0-9_]+`. Any other separator (`&&`, `!`, a nested paren) fails — the guard refuses to interpret an expression shape it was not built to check.
 3. Reflect over the `scopeTiles` module namespace (`import * as scopeTiles`, keys ending in `Visible` whose value is a function) and require every such export to be **either documented in the block or carried by a `NOT_FLAG_GATED` exemption row with a reason** — the registry-or-exemption idiom invariants 9 and 10 already use in this repo. A new `*Visible` export is therefore uncovered-by-default and fails until someone classifies it.
 
