@@ -2,7 +2,7 @@
 
 **Backlog entry:** `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — in the open queue while this ships, then graduated to the archive with the branch. Cited by id, not by line: the entry moves, so a line anchor here would be dead on `main` the day this merges.
 **Predecessor:** `docs/superpowers/specs/step3-onboarding/2026-07-01-step3-persist-source-anchors.md` — persist-at-scan; its §7 matrix (line 159) declared the existing-show branches out of scope. This spec closes exactly that row.
-**Status:** draft for adversarial review
+**Status:** ratified — APPROVE at cross-model spec review round 6, 2026-08-03. Implemented by the plan of the same date.
 **Effort:** S. No migration, no new error code, no UI surface.
 
 ---
@@ -195,7 +195,10 @@ anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and 
 
 Run, not described (the sweep discipline in `docs/agents/writing-plans.md`). Every writer was taken
 from the output rather than from recall, after three review rounds in which recalled inventories
-were wrong:
+were wrong. The output below is the MERGE-BASE tree (`67074d4dc`); §3's three edits add exactly two
+more hits — the `obj.source_anchors` read in `lib/onboarding/shadowPayload.ts` and the
+`'source_anchors', $14::jsonb` payload member in `app/api/admin/onboarding/finalize/route.ts` —
+which are this spec's own subject and not a fourth writer of `shows.source_anchors`:
 
 ```
 $ grep -rn "source_anchors" --include='*.ts' app lib scripts | grep -v pending_syncs
