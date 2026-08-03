@@ -72,7 +72,7 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 - [x] T3 — threading the flashing id set to the panel card
 - [x] T4 — the state machine and the announcement region (18 tests, 7 mutants)
 - [x] T5 — real-browser dimension assertion (plus its own CI step)
-- [ ] T6 — e2e coverage of a real broadcast
+- [x] T6 — e2e coverage of a real broadcast
 - [ ] T7 — backlog graduation
 - [ ] Self-review
 - [ ] Adversarial review (cross-model)

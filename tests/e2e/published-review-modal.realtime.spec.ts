@@ -354,6 +354,36 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       await expect(targetRow).toContainText(OLD_ROLE);
       expect(await page.locator(MODAL).getByText(NEW_ROLE).count()).toBe(0);
 
+      // ── Freshness cue observers, ARMED BEFORE the stimulus ────────────────
+      //
+      // A post-hoc DOM poll cannot distinguish "never armed" from "armed and
+      // already expired", so E2 in particular would pass against a completely
+      // broken implementation. Both cases record attribute mutations as they
+      // happen instead. The record lives on `window`; the observer is
+      // disconnected in the page's own teardown below, so no sampler outlives
+      // its element and hangs Playwright's auto-wait.
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __freshnessSeen?: string[];
+          __freshnessObserver?: MutationObserver;
+        };
+        w.__freshnessSeen = [];
+        const observer = new MutationObserver((records) => {
+          for (const r of records) {
+            const el = r.target as Element;
+            if (!el.hasAttribute?.("data-section-freshness-flash")) continue;
+            const id = el.getAttribute("data-testid") ?? "(no testid)";
+            w.__freshnessSeen?.push(id);
+          }
+        });
+        observer.observe(document.body, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-section-freshness-flash"],
+        });
+        w.__freshnessObserver = observer;
+      });
+
       // ── Mutate (the pinned key-stable stimulus: role swap on ONE row) ──────
       const commitAt = Date.now();
       const { error: mutErr } = await admin
@@ -409,6 +439,46 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       // Phase (iii): row-scoped swap, in place.
       await expect(targetRow).toContainText(NEW_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
       expect(new URL(page.url()).searchParams.get("show"), "URL unchanged").toBe(seeded.slug);
+
+      // ── E1: the crew card was cued, and only the crew card ────────────────
+      // The freshness cue's whole claim is that a reader can attribute the swap.
+      // This is the only place it is proven end to end: a REAL write, a REAL
+      // broadcast, and the attribute landing on the section that changed.
+      const cued = await page.evaluate(
+        () =>
+          (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+      );
+      expect(cued.length, "the reconcile must cue at least one card").toBeGreaterThan(0);
+      expect(
+        cued.every((id) => id.includes("-section-crew-panel-card")),
+        `only the crew card may be cued; saw ${JSON.stringify([...new Set(cued)])}`,
+      ).toBe(true);
+
+      // ── E2: a broadcast that changes NOTHING cues nothing ─────────────────
+      // The honest half. Reset the record, publish an invalidation with no write
+      // behind it, wait past the debounce plus an RSC round trip, and assert the
+      // record stayed empty. Without the pre-armed observer this assertion is
+      // unfalsifiable.
+      await page.evaluate(() => {
+        (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen = [];
+      });
+      const noopRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+      expect(noopRes.error, "no-op publish rpc").toBeNull();
+      await page.waitForTimeout(CONTENT_SWAP_TIMEOUT_MS);
+      const cuedAfterNoop = await page.evaluate(
+        () =>
+          (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+      );
+      expect(
+        cuedAfterNoop,
+        "a refresh that changed nothing must cue nothing; the Synced readout is that signal",
+      ).toEqual([]);
+
+      await page.evaluate(() => {
+        const w = window as unknown as { __freshnessObserver?: MutationObserver | undefined };
+        w.__freshnessObserver?.disconnect();
+        w.__freshnessObserver = undefined;
+      });
 
       // Reconnect flake guard BEFORE the attribution assertion: a close/error or
       // re-join in the window legitimately fetches /version → environmental flake.
