@@ -655,6 +655,58 @@ The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContex
 
 **Fix (when prioritized):** read the matrix contract and settle (1); for (2), either correct the master-spec clause or record what "admin/ops surface" was meant to denote. Do not patch either from the probe alone — that is why this is filed rather than swept.
 
+## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six
+
+**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
+
+`CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
+unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
+(`lib/visibility/capabilityTransitions.ts:53`). The `FINANCIALS` role flag, added to
+`financialsVisible` at `e348c81ca` (2026-07-16, `lib/visibility/scopeTiles.ts:141`), is not among
+them. The type comment at `lib/visibility/capabilityTransitions.ts:48-51` claims a new predicate
+"surfaces here AND in the matrix as a TypeScript error if the matrix is incomplete"; that mechanism
+did not fire, because nothing added the flag to the union.
+
+**Consequence today is documentary, not behavioral.** The matrix has no production consumer — its
+only reader is `tests/visibility/capabilityTransitions.test.ts`. But its own definition of a
+recorded delta ("the flip is SUFFICIENT to change visibility regardless of the other predicate",
+`lib/visibility/capabilityTransitions.ts:126-131`) is no longer literally true for `FinancialsTile`:
+a `hasLead` flip does not toggle it for a viewer who also holds `FINANCIALS`. The header now states
+that modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the
+quoted predicates against `scopeTiles.ts` source, so the prose cannot drift again — but the MATRIX
+is still five-predicate.
+
+**Fix (when prioritized):** add `hasFinancials` to `CapabilityPredicate`, expand the matrix from
+C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the structural test's length assertion
+(`tests/visibility/capabilityTransitions.test.ts:40`). Deliberately NOT done in a prose branch: it
+is a design change with a 15-row blast radius, and the settled question there was whether the
+header quote was stale (it was).
+
+**Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
+matrix itself.
+
+## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering
+
+**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, spec review R1 finding 4) · **Class:** docs/copy drift · **Severity:** low · **Effort:** S
+
+`components/admin/BellPanel.tsx` calls its trailing ghost control "Dismiss" in six comments
+beginning at `components/admin/BellPanel.tsx:224` ("Trailing ghost Dismiss (DESIGN.md §16)", "must
+not stay stuck at Dismissing…", "Health rows … have no Dismiss", and so on). The control renders
+`Confirm` or `Mark resolved`, chosen by the alert code's intent
+(`components/admin/BellPanel.tsx:377-388`, `lib/adminAlerts/resolveActionLabel.ts:73-76`); no
+"Dismiss" string reaches the DOM.
+
+**Why filed rather than swept:** it is the same defect CLASS as the branch that found it (prose
+asserting something the code does not do) but a different SHAPE — a renamed label, not a citation to
+a deleted file — and the branch that found it was retiring components, not editing alert chrome.
+Sweeping it in would have grown that diff past its subject. No product question: the code is right
+and the comments are stale.
+
+**Fix (when prioritized):** reword the six comments to the rendered labels, and check whether
+`DESIGN.md §16`'s own wording still names a Dismiss affordance.
+
+**Trigger:** the next branch touching `BellPanel` or the alert-resolve labels.
+
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
