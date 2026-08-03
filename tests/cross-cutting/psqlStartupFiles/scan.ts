@@ -1005,6 +1005,11 @@ function looksLikePsqlCommandLine(text: string): boolean {
         // a wrapper's own argument: `timeout 30 psql …`, `sudo -u postgres psql …`
         word === "--" ||
         /^-/.test(before[index - 1] ?? "") ||
+        // …including the argument AFTER a flag's value:
+        // `ssh -o StrictHostKeyChecking=no database psql …` puts the remote host
+        // two words past the `-o`, and requiring the immediate predecessor to be
+        // the flag rejected an entirely ordinary command.
+        /^-/.test(before[index - 2] ?? "") ||
         (index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ""))) ||
         (index > 1 && WRAPPERS.test(basename(before[index - 2] ?? ""))),
     );

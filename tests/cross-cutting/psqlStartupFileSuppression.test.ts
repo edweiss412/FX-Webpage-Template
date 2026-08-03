@@ -785,6 +785,17 @@ describe("R10 escaping mutants", () => {
       `const m = "psql mydb rows are compared against the fixture";`,
       false,
     ],
+    // A wrapper argument that follows a FLAG'S VALUE rather than the flag.
+    [
+      "ssh with an -o option",
+      `const c = "ssh -o StrictHostKeyChecking=no database psql -qAt mydb"; execSync(c);`,
+      true,
+    ],
+    [
+      "ssh with a port and a user",
+      `const c = "ssh -p 2222 -l deploy database psql -qAt mydb"; execSync(c);`,
+      true,
+    ],
   ])("the tripwire sees %s -> %s", (_name, source, expected) => {
     expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
   });
