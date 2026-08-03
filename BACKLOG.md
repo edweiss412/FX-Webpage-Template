@@ -85,7 +85,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 **Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** chore/ledger-body-ids-enum-scan-widen
 
 ---
 
@@ -99,7 +99,7 @@ The `tier1.ts` comment attributes the miss to the content regex alone. Verified 
 
 **Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** chore/ledger-body-ids-enum-scan-widen
 
 ---
 
