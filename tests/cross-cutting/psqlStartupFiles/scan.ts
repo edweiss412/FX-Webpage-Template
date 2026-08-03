@@ -1231,6 +1231,12 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
             // are the script's positionals — which is why this is conditional
             // rather than removed.
             joinedHandled = !isDashS;
+            // GNU env keeps parsing options AFTER a split-string, so a second
+            // `-S` is ordinary and `env -S '-u X' -S 'psql …'` runs psql. Every
+            // branch stopped at the first one. For env the loop CONTINUES; for
+            // the single-script consumers it still stops, because they have
+            // exactly one script.
+            if (isDashS) continue;
             break;
           }
           const next = argv[i + 1];
@@ -1240,6 +1246,10 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
               sites.push(reanchor(site, next, 0, translatedNext === next.text, lineOffset));
           }
           joinedHandled = !isDashS;
+          if (isDashS) {
+            i += 1; // step past the operand so it is not re-read as a flag
+            continue;
+          }
           break;
         }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
@@ -1255,6 +1265,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
           for (const site of scanShellText(translated, file, lineOffset))
             sites.push(reanchor(site, candidate, sliceStart, translated === attached, lineOffset));
           joinedHandled = !isDashS;
+          if (isDashS) continue;
           break;
         }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
@@ -1272,6 +1283,10 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         const scriptText = isDashS ? envSplitStringToShell(script.text) : script.text;
         for (const site of scanShellText(scriptText, file, lineOffset))
           sites.push(reanchor(site, script, 0, scriptText === script.text, lineOffset));
+        if (isDashS) {
+          i = scriptIndex; // the operand is consumed; keep parsing env's options
+          continue;
+        }
         break;
       }
     }
@@ -2177,6 +2192,57 @@ function shellQuoteWord(word: string): string {
  */
 const BINDING_WORKFLOW_KEYS = new Set(["env", "matrix", "inputs"]);
 
+/**
+ * GitHub's standard `shell:` keywords that are NOT a POSIX shell. A `run:` body
+ * under one of these is PYTHON or POWERSHELL source, and lexing it as shell
+ * text made every ordinary `subprocess.run(["psql", …])` invisible — the body
+ * contains no shell command at all, so the reader found nothing and said so.
+ */
+const NON_POSIX_SHELLS = new Set(["python", "python3", "pwsh", "powershell", "cmd", "node"]);
+
+/** A quoted literal in a non-POSIX body, with its offset. */
+type BodyLiteral = { text: string; at: number };
+
+function literalsIn(body: string): BodyLiteral[] {
+  const out: BodyLiteral[] = [];
+  const pattern = /(['"])((?:[^\\'"]|\\.)*)\1/g;
+  for (let m = pattern.exec(body); m !== null; m = pattern.exec(body))
+    out.push({ text: m[2] ?? "", at: m.index });
+  return out;
+}
+
+/**
+ * Read a non-POSIX `run:` body the way `scanBinaryIndirection` reads JS: pull
+ * out its literals and lex each as a command line. An argv LIST
+ * (`["psql", "-qAt", "mydb"]`) is one command, so its elements are joined and
+ * quoted per element; every other string is lexed on its own, which covers
+ * `os.system("psql -qAt mydb")` and `subprocess.run("…", shell=True)`.
+ *
+ * It is a reader for literals, not a Python parser, and does not claim to be:
+ * a command assembled from variables is the same acknowledged hole it is on
+ * every other surface.
+ */
+function scanNonPosixBody(body: string, file: string, lineOffset: number): PsqlSite[] {
+  const sites: PsqlSite[] = [];
+  const consumed = new Set<number>();
+  const lineAt = (at: number): number => lineOffset + body.slice(0, at).split("\n").length - 1;
+  const brackets = /\[[^\]\[]*\]/g;
+  for (let m = brackets.exec(body); m !== null; m = brackets.exec(body)) {
+    const inner = literalsIn(m[0]);
+    if (inner.length === 0) continue;
+    for (const literal of inner) consumed.add(m.index + literal.at);
+    const command = inner.map((literal) => shellQuoteWord(literal.text)).join(" ");
+    for (const site of scanShellText(command, file, 0))
+      sites.push({ ...site, line: lineAt(m.index) + 1, offset: m.index });
+  }
+  for (const literal of literalsIn(body)) {
+    if (consumed.has(literal.at)) continue;
+    for (const site of scanShellText(literal.text, file, 0))
+      sites.push({ ...site, line: lineAt(literal.at) + 1, offset: literal.at });
+  }
+  return sites;
+}
+
 export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   const sites: PsqlSite[] = [];
   let document;
@@ -2186,6 +2252,32 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
     return sites;
   }
   const lineStartOf = (offset: number): number => source.slice(0, offset).split("\n").length - 1;
+
+  // Which SHELL a `run:` body is written in decides how to READ it, and that
+  // lives in a SIBLING key (`shell:`) or in `defaults.run.shell` at the job or
+  // workflow level. Collected up front, because the Pair visitor sees a pair
+  // without its parent.
+  let defaultShell: string | null = null;
+  const ownShell = new Map<unknown, string>();
+  visit(document, {
+    Map(_k: unknown, mapNode: unknown) {
+      const items = (mapNode as { items?: unknown[] }).items;
+      if (!Array.isArray(items)) return;
+      const pairFor = (name: string): { value?: unknown } | undefined =>
+        items.find(
+          (item) =>
+            isPair(item as YamlNode as never) &&
+            (item as { key?: { value?: unknown } }).key?.value === name,
+        ) as { value?: unknown } | undefined;
+      const shellText = (pairFor("shell")?.value as { value?: unknown } | undefined)?.value;
+      if (typeof shellText !== "string") return;
+      const runPair = pairFor("run");
+      // `defaults: {run: {shell: python}}` — the map holds `shell` but no `run`
+      // body of its own, and it sets the default for every step that omits one.
+      if (runPair === undefined) defaultShell = shellText;
+      else ownShell.set(runPair, shellText);
+    },
+  });
 
   visit(document, {
     /**
@@ -2272,6 +2364,20 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // summary string — and scanning all of it would report prose.
       if (!key || !EXECUTABLE_WORKFLOW_KEYS.has(key.value as string)) return;
       const isShellKey = key.value === "shell";
+      if (key.value === "run") {
+        const shellName = (ownShell.get(pair) ?? defaultShell ?? "").split("/").pop() ?? "";
+        // A CUSTOM shell is a command line, not a keyword, and is handled by
+        // the `shell:` pair itself; only the standard non-POSIX KEYWORDS
+        // change how the body is read.
+        if (NON_POSIX_SHELLS.has(shellName)) {
+          const bodyNode = node.value as { value?: unknown; range?: [number, number, number] };
+          const body = bodyNode?.value;
+          const keyAt = (node.key as { range?: [number, number, number] } | undefined)?.range;
+          if (typeof body === "string")
+            sites.push(...scanNonPosixBody(body, file, keyAt ? lineStartOf(keyAt[0]) : 0));
+          return;
+        }
+      }
       // A `run: *cmd` ALIAS is not a scalar node. Anchors/aliases are
       // documented GitHub Actions reuse, so resolving is required, not
       // generous.

@@ -3261,3 +3261,136 @@ describe("R35 escaping mutants — env PREPENDS its split-string, it does not re
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R36 escaping mutants — repeated env options, and a non-POSIX shell", () => {
+  // GNU env keeps parsing after the first split-string, so a second `-S` is
+  // ordinary. Every env branch stopped at the first one.
+  const FIRST = [
+    "-S '-u R36_DUMMY'",
+    "-S'-u R36_DUMMY'",
+    "--split-string '-u R36_DUMMY'",
+    "--split-string='-u R36_DUMMY'",
+  ];
+  const SECOND = [
+    "-S 'psql -qAt mydb'",
+    "-S'psql -qAt mydb'",
+    "--split-string 'psql -qAt mydb'",
+    "--split-string='psql -qAt mydb'",
+  ];
+  test.each(FIRST.flatMap((a) => SECOND.map((b) => [a, b] as const)))(
+    "`env %s %s` is an unprotected site",
+    (a, b) => {
+      const sites = sitesIn(`env ${a} ${b}\n`, "x.sh");
+      expect(sites.length).toBeGreaterThan(0);
+      expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+    },
+  );
+
+  test("a repeated env split-string that DOES suppress certifies", () => {
+    const sites = sitesIn("env -S '-u R36_DUMMY' -S 'psql -X -qAt mydb'\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test.each([
+    [
+      "a workflow run block",
+      "jobs:\n  x:\n    steps:\n      - run: env -S '-u D' -S 'psql -qAt mydb'\n",
+      ".github/workflows/x.yml",
+    ],
+    [
+      "a container args SCALAR",
+      "runs:\n  entrypoint: env\n  args: -S '-u D' -S 'psql -qAt mydb'\n",
+      "action.yml",
+    ],
+    ["a JS shell string", "execSync(\"env -S '-u D' -S 'psql -qAt mydb'\");\n", "x.mjs"],
+  ])("the repeated split-string through %s is caught", (_label, source, file) => {
+    const sites = sitesIn(source, file);
+    expect(
+      sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+    ).toBeGreaterThan(0);
+  });
+
+  // `shell: python` runs the `run:` body as PYTHON. Lexing it as POSIX shell
+  // made every ordinary subprocess call invisible. The body is read by
+  // extracting its string and argv-list literals and lexing each as a command
+  // line — the same shape `scanBinaryIndirection` uses on JS.
+  const pythonStep = (body: string): string =>
+    [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - shell: python",
+      "        run: |",
+      ...body.split("\n").map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+
+  test.each([
+    ["subprocess.run", 'import subprocess\nsubprocess.run(["psql", "-qAt", "mydb"])'],
+    ["subprocess.check_call", 'import subprocess\nsubprocess.check_call(["psql", "-qAt", "mydb"])'],
+    ["subprocess.Popen", 'import subprocess\nsubprocess.Popen(["psql", "-qAt", "mydb"])'],
+    ["os.system", 'import os\nos.system("psql -qAt mydb")'],
+  ])("a python step using %s is caught", (_label, body) => {
+    const source = pythonStep(body);
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    const hits = [
+      ...scanShellIndirection(source, ".github/workflows/x.yml"),
+      ...scanWorkflowIndirection(source, ".github/workflows/x.yml"),
+    ];
+    const unprotected = sites.filter(
+      (s) => !s.suppressesStartupFiles && s.exemptReason === null,
+    ).length;
+    expect(unprotected + hits.length).toBeGreaterThan(0);
+  });
+
+  test("a python step whose psql IS protected certifies", () => {
+    const source = pythonStep('import subprocess\nsubprocess.run(["psql", "-X", "-qAt", "mydb"])');
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => s.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("the same body under `defaults.run.shell: python` is caught", () => {
+    const source = [
+      "defaults:",
+      "  run:",
+      "    shell: python",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      "          import subprocess",
+      '          subprocess.run(["psql", "-qAt", "mydb"])',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(
+      sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+    ).toBeGreaterThan(0);
+  });
+
+  // PRECISION: a python step with no psql, and an ordinary bash step, unchanged.
+  test.each([
+    [
+      "a psql-free python step",
+      pythonStep('import subprocess\nsubprocess.run(["pg_dump", "mydb"])'),
+    ],
+    ["an ordinary bash step", "jobs:\n  x:\n    steps:\n      - run: psql -X -qAt mydb\n"],
+  ])("%s reports nothing unprotected", (_label, source) => {
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)).toEqual([]);
+  });
+
+  test(
+    "the repeated-option and non-POSIX-shell reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
