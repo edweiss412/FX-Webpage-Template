@@ -241,7 +241,7 @@ Direction C is what the previous four attempts were all reaching for. It does no
 
 The two extractors therefore serve **different contracts** — one tracks the live 19, the other the prose 23 — and their difference is the contract, not a defect. Fenced in both directions so neither side relitigates: do not unify them, and do not add `removedByPickerPivot` to the traceability copy.
 
-**Mutation-family closure set**, pinned by the cross-cutting test: (i) a live table absent from the registry (expect fail, direction C); (ii) a table classified `admin_only` but missing from `ADMIN_TABLES` (expect fail, direction B); (iii) an `ADMIN_TABLES` entry naming no live relation (expect fail, direction A); (iv) an `ADMIN_TABLES` entry classified `crew_readable` (expect fail, direction A); (v) count declarations disagreeing (expect fail, tripwire); (vi) the current real repo (expect green, 41 classified, 19 admin). The R1-R4 grammar families are **retired as irrelevant** — direction C catches their outcome without modelling their cause. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+**Mutation-family closure set**, pinned by the cross-cutting test: (i) a live table absent from the registry (expect fail, direction C); (ii) a table classified `admin_only` but missing from `ADMIN_TABLES` (expect fail, direction B); (iii) an `ADMIN_TABLES` entry naming no live relation (expect fail, direction A); (iv) an `ADMIN_TABLES` entry classified `crew_readable` (expect fail, direction A); (v) count declarations disagreeing (expect fail, tripwire); (vi) the current real repo (expect green, 41 classified, 19 admin); **(vii-x) one distinguishing case per non-ordinary relkind** — a view (`v`), materialized view (`m`), partitioned parent (`p`), and foreign table (`f`) created in the test transaction, each expected to fail direction C until classified. Without these an implementation could regress to an `information_schema.tables … BASE TABLE` query and still pass (i)-(vi), since today's catalog is all-`r`. The view case is the one with teeth: a simple view over an admin table is auto-updatable and PostgREST exposes it, so it accepts DML that routes around the base table's REVOKE. The R1-R4 grammar families are **retired as irrelevant** — direction C catches their outcome without modelling their cause. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 ## 5. Item 2 — canonical-email aperture
 
@@ -347,7 +347,7 @@ Adding the three write verbs to the relocated RLS test would assert `42501` whil
 | --- | --- | --- | --- |
 | REVOKEd, SELECT retained (16 after this cluster) | behavioral **when rows exist**, else declared `unavailable — no rows` (§6.2) | grant-layer `42501` | grant-layer `42501` |
 | REVOKEd ALL — `email_deliveries` only | **grant-layer `42501`** — `authenticated` has no SELECT | grant-layer `42501` | grant-layer `42501` |
-| class (c) — `admin_alerts` | behavioral **when rows exist** | **behavioral when rows exist — new here** | **behavioral when rows exist — new here** |
+| class (c) — `admin_alerts` | behavioral **when rows exist** | **behavioral, unconditional — new here** | **behavioral when rows exist — new here** |
 | class (c) — `app_settings` | behavioral (singleton row always exists) | **structurally unavailable** — see below | **behavioral — new here** (singleton row always exists) |
 
 The genuine residual AC-2.5 gap is exactly the two class-(c) tables: the grant remains, so RLS really is their only write gate, and today they have structural coverage only. The relocated test adds behavioral write cells **for them**, dodging the v1 false-pass by targeting rows that already validate: `UPDATE`/`DELETE` against an existing row under a non-admin session must affect **zero rows**, and no NOT NULL or CHECK constraint can fire on a row that is already valid.
@@ -357,7 +357,7 @@ Two cells cannot be produced as stated, and the spec says so rather than claimin
 - **`email_deliveries` SELECT is grant-layer, not RLS** (R4 finding 2). `supabase/migrations/20260602000004_b3_email_deliveries.sql:21` revokes **ALL** from `anon, authenticated`, so a non-admin SELECT is rejected before its zero-policy RLS posture is ever reached — the paired witness is impossible, and `tests/db/postgrest-dml-lockdown.test.ts:292` already records `selectAnon: false` / `selectAuthenticated: false`. AC-2.5's SELECT cell is satisfied for it at the grant layer, which is strictly stronger than "zero rows".
 - **`app_settings` INSERT is structurally unavailable** (R4 finding 3). It is a pre-seeded singleton: `id text primary key default 'default'` with `constraint app_settings_singleton check (id = 'default')` and the row already inserted (`supabase/migrations/20260501001000_internal_and_admin.sql:233`). A non-admin INSERT can only ever raise a duplicate-key error or affect zero rows with conflict suppression — identically whether RLS is enabled or disabled — so the cell would pass under an `ALTER TABLE … DISABLE ROW LEVEL SECURITY` mutant and proves nothing. Its INSERT coverage is the `relrowsecurity` and policy-count assertions plus the singleton CHECK itself. `admin_alerts`, which is not a singleton, does get a real behavioral INSERT cell.
 
-**Row-dependence is a property of the matrix, not a footnote.** Every cell marked "behavioral when rows exist" degrades to `unavailable — no rows` on an empty table and is reported as such rather than passing (§6.2). Exhaustively, the row-dependent cells are: SELECT for any empty member of the 16-table SELECT-retaining class, and `admin_alerts`' SELECT/UPDATE/DELETE. The cells that are **not** row-dependent are `app_settings`' SELECT/UPDATE/DELETE (pre-seeded singleton, always present), `app_settings`' INSERT and `email_deliveries`' SELECT (both declared unavailable for structural reasons), and every grant-layer `42501` cell.
+**Row-dependence is a property of the matrix, not a footnote.** Every cell marked "behavioral when rows exist" degrades to `unavailable — no rows` on an empty table and is reported as such rather than passing (§6.2). Exhaustively, the row-dependent cells are: SELECT for any empty member of the 16-table SELECT-retaining class, and `admin_alerts`' SELECT/UPDATE/DELETE. The cells that are **not** row-dependent are `admin_alerts`' INSERT (an INSERT needs no pre-existing row, and `admin_alerts` requires only `code` and `context` — every other column defaults, per `supabase/migrations/20260501001000_internal_and_admin.sql:268`), `app_settings`' SELECT/UPDATE/DELETE (pre-seeded singleton, always present), `app_settings`' INSERT and `email_deliveries`' SELECT (both declared unavailable for structural reasons), and every grant-layer `42501` cell.
 
 Any future admin-only table that is not REVOKEd inherits the same treatment by registry posture.
 
@@ -420,7 +420,17 @@ Lands in the same PR as the migration:
 3. Apply surgically to validation project `vzakgrxqwcalbmagufjh` (`supabase db push` is blocked there), then `notify pgrst, 'reload schema';`.
 4. `validation-schema-parity` CI job green (Layer 1 catches a skipped step 2; Layer 2 catches a skipped step 3).
 
-Note: grants are not columns. The schema manifest tracks `public` tables/columns, so a REVOKE-only migration may produce an empty manifest diff — step 2 is still run and its no-op result recorded, and step 3 remains mandatory because the parity job cannot see grant drift at all.
+**What actually proves each step, for a REVOKE-only migration.** The generic framing — "Layer 1 catches a skipped step 2, Layer 2 catches a skipped step 3" — is **false here**, and saying it would misidentify the acceptance evidence. Grants are not columns: the schema manifest tracks `public` tables and columns, so this migration produces an **empty** manifest diff (verified by running the manifest parsers over the proposed SQL: `{"addColumns":[],"createdTables":[]}`). Both parity layers are therefore vacuously green whether or not steps 2 and 3 happened.
+
+Honest accounting per step:
+
+| Step | What proves it | 
+| --- | --- |
+| 1 apply locally | the new Layer 1 `has_table_privilege` rows go red→green |
+| 2 `gen:schema-manifest` | nothing — the diff is empty by construction. Run it anyway and record the no-op, so a future column-bearing migration is not skipped out of habit. |
+| 3 apply to validation | **not covered by `validation-schema-parity`.** The lockdown test's Layer 1 is the only grant-level assertion, and it runs against `TEST_DATABASE_URL`. Deployment to validation is proven by pointing that test at the validation project once, post-apply, and recording the output in the PR body. |
+
+Step 3 remains mandatory precisely because no automated gate will notice if it is skipped — that is the silent-drift class AGENTS.md warns about, and here the parity job genuinely cannot help.
 
 ## 11. Open decision for Eric (non-blocking; does not gate this cluster)
 
