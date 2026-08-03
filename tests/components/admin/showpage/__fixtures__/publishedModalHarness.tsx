@@ -94,6 +94,13 @@ export type HarnessOpts = {
   ignoredFingerprints?: ReadonlySet<string>;
   attentionItems?: PublishedReviewModalProps["attentionItems"];
   alertsDegraded?: boolean;
+  // Sync stamps, additive and default-preserving. The freshness-cue suite needs a
+  // re-render that moves ONLY these, which is the component-level twin of the
+  // detector's "a poll found nothing" case; without overrides that state cannot be
+  // expressed at all, since baseProps hardcodes them.
+  lastSyncedAt?: string | null;
+  lastCheckedAt?: string | null;
+  lastSyncStatus?: string | null;
 };
 
 function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): PublishedReviewModalProps {
@@ -115,9 +122,9 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
     finalizeOwned: false,
     setPublished: vi.fn(async () => ({ ok: true }) as const),
     isLive: false,
-    lastSyncedAt: "2026-07-16T11:48:00.000Z",
-    lastCheckedAt: "2026-07-16T11:58:00.000Z",
-    lastSyncStatus: "ok",
+    lastSyncedAt: opts.lastSyncedAt !== undefined ? opts.lastSyncedAt : "2026-07-16T11:48:00.000Z",
+    lastCheckedAt: opts.lastCheckedAt !== undefined ? opts.lastCheckedAt : "2026-07-16T11:58:00.000Z",
+    lastSyncStatus: opts.lastSyncStatus !== undefined ? opts.lastSyncStatus : "ok",
     now: NOW,
     attentionItems: opts.attentionItems ?? [],
     alertsDegraded: opts.alertsDegraded ?? false,

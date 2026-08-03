@@ -70,7 +70,7 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 - [x] T1 — the detector module and its unit suite (19 tests, 6 mutants killed)
 - [x] T2 — the normative CSS, DESIGN.md, contrast rows, structural pins
 - [x] T3 — threading the flashing id set to the panel card
-- [ ] T4 — the state machine and the announcement region
+- [x] T4 — the state machine and the announcement region (18 tests, 7 mutants)
 - [ ] T5 — real-browser dimension assertion
 - [ ] T6 — e2e coverage of a real broadcast
 - [ ] T7 — backlog graduation

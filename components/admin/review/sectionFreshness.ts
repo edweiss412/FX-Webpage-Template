@@ -208,3 +208,45 @@ export function changedSectionIds(
   }
   return out;
 }
+
+/**
+ * The announcement, from the SAME ids the visual cue uses so the two legs can
+ * never disagree.
+ *
+ * `labelOf` is a callback rather than a table in this module on purpose: the
+ * caller reads it from `step3Sections(data)`, the list that renders the rail chip
+ * and the section heading, so the spoken name is the rendered name by
+ * construction. An earlier draft wrote sample copy from memory and produced
+ * "Updated: Crew, Rooms and scope." — which no real combination can generate,
+ * because the registry label is the single item "Rooms & scope". A duplicated
+ * label map would have made that drift permanent and a "verbatim" test would have
+ * pinned the wrong strings.
+ *
+ * `stillRendered` gates rather than filters. Naming only the survivors when one
+ * section DISAPPEARED states something true and implies something false: that the
+ * survivors are all that moved. So any removal degrades the whole sentence to the
+ * surface statement, which is true and sends nobody hunting for a section that is
+ * no longer on screen.
+ */
+export function freshnessAnnouncement(
+  changed: readonly SectionId[],
+  stillRendered: ReadonlySet<SectionId>,
+  labelOf: (id: SectionId) => string | null,
+): string {
+  if (changed.length === 0) return "";
+  const anyRemoved = changed.some((id) => !stillRendered.has(id));
+  const labels = changed.map(labelOf).filter((l): l is string => l !== null && l.length > 0);
+  if (anyRemoved || labels.length !== changed.length) return SURFACE_ANNOUNCEMENT;
+  if (changed.length > SECTION_FRESHNESS_MAX_CUES) return SURFACE_ANNOUNCEMENT;
+  return `Updated: ${joinLabels(labels)}.`;
+}
+
+/** The whole-surface fallback: over the cap, or when a section is gone. */
+export const SURFACE_ANNOUNCEMENT = "Show details updated.";
+
+/** Commas between, "and" before the last. No em dashes, no apostrophes. */
+function joinLabels(labels: readonly string[]): string {
+  if (labels.length === 1) return labels[0] as string;
+  const head = labels.slice(0, -1).join(", ");
+  return `${head} and ${labels[labels.length - 1] as string}`;
+}

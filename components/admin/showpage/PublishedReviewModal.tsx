@@ -68,6 +68,16 @@ import { deriveRoutedWarnings } from "@/lib/admin/routedWarnings";
 import { CREW_CAP, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
 import { buildCrewRowResolver } from "@/lib/admin/crewRowMatch";
 import { StatusStrip } from "@/components/admin/showpage/StatusStrip";
+import {
+  buildSectionSignatures,
+  changedSectionIds,
+  freshnessAnnouncement,
+  SECTION_FRESHNESS_FLASH_MS,
+  SECTION_FRESHNESS_MAX_CUES,
+  type SectionSignatures,
+} from "@/components/admin/review/sectionFreshness";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
 import { OverviewSection } from "@/components/admin/showpage/OverviewSection";
@@ -421,6 +431,140 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const attentionSections = new Set<string>(
     actionable.map((i) => effectiveSectionId(i)).filter((s) => s !== "overview" && s !== "changes"),
   );
+
+  // ── Freshness cue (spec 2026-08-03-modal-freshness-cue §4.2) ───────────────
+  //
+  // A realtime broadcast, or any other in-place reconcile, swaps content under
+  // the reader with no signal at all. These derive WHICH sections changed and
+  // arm a one-shot cue on each.
+  //
+  // Memoised on prop IDENTITY so the stringify cost is paid once per RSC pass:
+  // a client-state render (nav click, scroll spy, the close transition) reuses
+  // the same props object and therefore the same signature, which is what makes
+  // branch 1 below reachable at all.
+  const attentionBySection = useMemo(() => {
+    const map = new Map<string, AttentionItem[]>();
+    for (const item of actionable) {
+      const id = effectiveSectionId(item);
+      const list = map.get(id);
+      if (list) list.push(item);
+      else map.set(id, [item]);
+    }
+    return map as ReadonlyMap<string, readonly AttentionItem[]>;
+    // `actionable` is derived from `attentionItems` each render, so key on the prop.
+  }, [attentionItems]); // eslint-disable-line react-hooks/exhaustive-deps
+  const signature = useMemo(
+    () => buildSectionSignatures({ data, bySection, attentionBySection }),
+    [data, bySection, attentionBySection],
+  );
+
+  // Labels from the RENDERED registry, never a copy of it: this is the same list
+  // that produces the rail chip and the section heading.
+  const sectionLabelOf = useCallback(
+    (id: SectionId): string | null =>
+      step3Sections(data).find((s) => s.id === id)?.label ?? null,
+    [data],
+  );
+
+  type Arming = { batch: number; value: "1" | "2" };
+  const EMPTY_ARMED: ReadonlyMap<SectionId, Arming> = useMemo(() => new Map(), []);
+  // ONE state cell holds the last-seen signature AND whether the mount baseline
+  // was taken. Both are per-COMMITTED-render facts. A ref written during render
+  // is written by renders React then abandons, so a suspended payload the reader
+  // never saw would consume the baseline and the first payload they DID see would
+  // be armed instead: the exact stale-prefetch flash the baseline exists to stop.
+  const [seen, setSeen] = useState<{ signature: SectionSignatures; baseline: boolean }>({
+    signature,
+    baseline: false,
+  });
+  const [armed, setArmed] = useState<ReadonlyMap<SectionId, Arming>>(EMPTY_ARMED);
+  const [freshBatch, setFreshBatch] = useState(0);
+  const [announced, setAnnounced] = useState<{ batch: number; text: string } | null>(null);
+
+  // Written over VISIBILITY, not over any one cause, the shape ShareHub uses for
+  // this same problem. A COMMITTED close unmounts this instance, but an ABORTED
+  // one does not: `closing` only hides the shell while this component stays
+  // mounted above it, so a live cue would otherwise survive the hide and resume
+  // on reopen with whatever was left of its timer. Dropping `baseline` makes the
+  // reopen re-baseline rather than flash what changed while it was hidden.
+  //
+  // Guarded setState-in-render, the ShowsTable idiom this file already uses a few
+  // lines above for the aborted-close self-heal: `react-hooks/set-state-in-effect`
+  // forbids the effect form outright, so this is not a preference. It self-heals
+  // once, since the guard is false on the very next render.
+  if (closing && (armed.size > 0 || announced !== null || seen.baseline)) {
+    setArmed(EMPTY_ARMED);
+    setAnnounced(null);
+    setSeen({ signature, baseline: false });
+  } else if (seen.signature !== signature) {
+    const changed = changedSectionIds(seen.signature, signature);
+    const isBaseline = !seen.baseline;
+    setSeen({ signature, baseline: true });
+    // Branch 2 (baseline) and branch 3 (nothing changed) both arm nothing; a live
+    // cue is deliberately left running in branch 3 rather than truncated for a
+    // refresh that changed nothing. Branch 4 arms.
+    if (!isBaseline && !closing && changed.length > 0) {
+      const next = freshBatch + 1;
+      setFreshBatch(next);
+      const overCap = changed.length > SECTION_FRESHNESS_MAX_CUES;
+      setArmed((prev) => {
+        if (overCap) return EMPTY_ARMED;
+        const map = new Map(prev);
+        for (const id of changed) {
+          if (!signature.has(id)) continue; // gone from the rail; nothing to paint
+          // Flip PER SECTION, so a section nobody re-armed keeps its value and a
+          // re-armed one changes `animation-name` and restarts.
+          map.set(id, { batch: next, value: prev.get(id)?.value === "1" ? "2" : "1" });
+        }
+        return map;
+      });
+      setAnnounced({
+        batch: next,
+        text: freshnessAnnouncement(changed, new Set(signature.keys()), sectionLabelOf),
+      });
+    }
+  }
+
+  // One timer PER BATCH, and deliberately no cleanup: a cleanup keyed on the
+  // batch would cancel batch N the moment batch N+1 armed, leaving batch N's
+  // cards lit forever. Each batch clears only its own entries.
+  const freshTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    if (freshBatch === 0) return;
+    const b = freshBatch;
+    const timers = freshTimersRef.current;
+    const handle = setTimeout(() => {
+      timers.delete(b);
+      setArmed((prev) => {
+        const map = new Map(prev);
+        for (const [id, a] of map) if (a.batch === b) map.delete(id);
+        return map;
+      });
+      setAnnounced((prev) => (prev?.batch === b ? null : prev));
+    }, SECTION_FRESHNESS_FLASH_MS);
+    // Replace this batch's OWN handle if one exists, so a re-invoked effect
+    // leaves one timer rather than leaking the first. Safe in a way a blanket
+    // cleanup is not: it touches no other batch.
+    const prior = timers.get(b);
+    if (prior !== undefined) clearTimeout(prior);
+    timers.set(b, handle);
+  }, [freshBatch]);
+
+  // The surface takes the VALUE only; the batch is bookkeeping this component owns.
+  const freshSections = useMemo(() => {
+    const map = new Map<SectionId, "1" | "2">();
+    for (const [id, a] of armed) map.set(id, a.value);
+    return map as ReadonlyMap<SectionId, "1" | "2">;
+  }, [armed]);
+
+  // The only cleanup, so a close mid-flash cannot orphan a timer.
+  useEffect(() => {
+    const timers = freshTimersRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
 
   const navigateTo = (item: AttentionItem) => {
     jumpNonceRef.current += 1;
@@ -905,7 +1049,29 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       // The control strip is its OWN band below the header seam
       // (modal-header-reconciliation §6.1): identity above, live controls below.
       subHeader={
-        <StatusStrip
+        <>
+          {/* Freshness announcement (spec 2026-08-03-modal-freshness-cue §4.6).
+              The REGION is branch-stable and always mounted: a region that mounts
+              at the same moment its text appears is unreliably announced. Its
+              CHILD is keyed by batch, because React reconciles an identical string
+              onto the same text node and that is not a DOM mutation, so a repeat
+              cue with identical copy would otherwise be silent to a screen reader.
+
+              In `subHeader`, not the body slot: the shell contracts that its
+              children mount directly in the panel flex column so the consumer's
+              surface root IS the body element, and ShowReviewSurface is that sole
+              child. This band is inside the same dialog subtree, so the region
+              announces identically. */}
+          <span
+            key="freshness-announce"
+            role="status"
+            aria-live="polite"
+            className="sr-only"
+            data-testid={`${TESTID_BASE}-freshness-announce`}
+          >
+            {announced === null ? null : <span key={announced.batch}>{announced.text}</span>}
+          </span>
+          <StatusStrip
           attentionMenuOpen={menuEffectivelyOpen}
           slug={slug}
           archived={archived}
@@ -948,7 +1114,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
             })
           }
         />
-      }
+        </>      }
     >
       {/* Body: the surface mounts DIRECTLY in the panel flex column (shell
           contract) — its root is the body element, its internal scroller fills
@@ -967,6 +1133,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         attentionJump={jump}
         sectionAttention={sectionAttention}
         crewUnderRowCards={crewUnderRowCards}
+        freshSections={freshSections}
       />
     </ReviewModalShell>
   );
