@@ -615,5 +615,30 @@ test.describe("font binding — the features render", () => {
       `.tabular-nums resolved to ${settings}, which does not carry ss04 — a ` +
         `number span containing letters would lose disambiguation`,
     ).toContain("ss04");
+    // And NOT the slashed zero. `.tabular-nums` sits on whole prose sentences in
+    // this codebase (the Right Now hero's 30px bold <h2>, the footer year), so a
+    // slash here lands mid-sentence and reads as a terminal readout. Impeccable
+    // critique P1 — it shipped that way for one round. `.code-value` is where
+    // `zero` belongs, asserted below.
+    expect(
+      settings,
+      `.tabular-nums resolved to ${settings}, which slashes zeros — that reaches ` +
+        `running prose; move it to .code-value`,
+    ).not.toContain("zero");
+  });
+
+  test("the code-value class DOES slash zeros", async ({ page }) => {
+    await page.goto("/auth/sign-in", { waitUntil: "load" });
+    const settings = await page.evaluate(() => {
+      const el = document.createElement("span");
+      el.className = "code-value";
+      el.textContent = "45846091";
+      document.body.appendChild(el);
+      return getComputedStyle(el).fontFeatureSettings;
+    });
+    // Where a crew member reads a confirmation number off the screen and types it
+    // back, 0-vs-O costs a failed check-in.
+    expect(settings).toContain("zero");
+    expect(settings, "and it keeps what it inherits").toContain("ss04");
   });
 });

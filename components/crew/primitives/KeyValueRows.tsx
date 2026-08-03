@@ -26,6 +26,14 @@ export type KeyValueRow = {
   /** Optional leading glyph rendered inline before the value. */
   icon?: ReactNode;
   /**
+   * The value is a CODE someone reads off and types or says back — a hotel
+   * confirmation number, a record locator — rather than something they glance
+   * at. Adds a slashed zero so `0` cannot be misread as `O`. Off by default:
+   * most rows here are dates and place names, where a slashed zero is noise.
+   * DESIGN.md §2.4.
+   */
+  code?: boolean;
+  /**
    * Grid-span hint, honored ONLY when the list is in 2-column mode
    * (`columns={2}`). `2` makes this row occupy the full card width (both
    * columns) at ≥720px — for a headline field (hotel/venue name, address) that
@@ -104,8 +112,15 @@ export function KeyValueRows({ rows, columns = 1 }: KeyValueRowsProps) {
                   confirmation codes (hotel check-in/out, conf #s) whose digits
                   should align and not shift width. tnum is a no-op on the
                   alphabetic-only values, so applying it to the shared value span
-                  is safe across every consumer. */}
-              <span className="min-w-0 wrap-break-word tabular-nums">{row.v}</span>
+                  is safe across every consumer. `code-value` is the NARROWER
+                  opt-in that adds a slashed zero, set only by rows that carry a
+                  transcribe-back code — a slashed zero on a date reads as a
+                  terminal readout. */}
+              <span
+                className={`min-w-0 wrap-break-word ${row.code === true ? "code-value" : "tabular-nums"}`}
+              >
+                {row.v}
+              </span>
             </span>
             {row.sub !== undefined ? (
               <span className="text-xs text-text-subtle">{row.sub}</span>

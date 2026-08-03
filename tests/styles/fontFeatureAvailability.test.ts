@@ -130,7 +130,7 @@ describe("font feature availability", () => {
     // `font-feature-settings` inherits as a WHOLE VALUE, not as a merged list, so
     // any rule that sets it replaces the root's `ss04` outright. A `.tabular-nums`
     // span containing letters — `A1 · Audio Lead`, a stage label, a plate number —
-    // would silently lose disambiguation. Stated structurally so a third rule
+    // would silently lose disambiguation. Stated structurally so a fourth rule
     // added later cannot reintroduce the hole quietly.
     const rules = [...css.matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].map((m) =>
       extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`),
@@ -143,5 +143,42 @@ describe("font feature availability", () => {
         expect(tags, `every rule repeats the root tag ${rootTag}`).toContain(rootTag);
       }
     }
+  });
+
+  describe("the slashed zero is scoped to codes, not to every aligned number", () => {
+    // Impeccable critique P1, 2026-08-03. `zero` shipped on the tabular rule for
+    // one review round, and `.tabular-nums` is NOT a "this is a code" marker in
+    // this codebase — it sits on whole prose sentences, including the Right Now
+    // hero's 30px bold <h2>. That rendered "Show day 1(slashed)0 of 12" in the
+    // product's single most expressive moment, against PRODUCT.md's explicit
+    // "not techie" anti-reference. The split is the fix; these tests are what
+    // stop it collapsing back.
+    const ruleTags = (selector: string): string[] => {
+      const match = new RegExp(`${selector}\\s*\\{[^}]*\\}`).exec(css);
+      expect(match, `${selector} exists in app/globals.css`).not.toBeNull();
+      return extractFeatureTags(match?.[0] ?? "");
+    };
+
+    test("the shared tabular rule does NOT slash zeros", () => {
+      const tags = ruleTags("\\.tabular-nums");
+      expect(tags).toContain("ss04");
+      expect(tags).toContain("tnum");
+      expect(
+        tags,
+        "`.tabular-nums` is applied to prose in this codebase, so a slashed zero " +
+          "there lands in running sentences — use `.code-value` instead",
+      ).not.toContain("zero");
+    });
+
+    test("the code-value rule DOES slash zeros, and keeps the inherited tags", () => {
+      expect(ruleTags("\\.code-value")).toEqual(["ss04", "tnum", "zero"]);
+    });
+
+    test("`zero` is declared in exactly one rule", () => {
+      const zeroRules = [...css.matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].filter((m) =>
+        extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`).includes("zero"),
+      );
+      expect(zeroRules.length, "only `.code-value` slashes zeros").toBe(1);
+    });
   });
 });

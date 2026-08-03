@@ -667,10 +667,34 @@ time,
      inherits as a whole value, not as a merged list, so this declaration
      REPLACES the inherited `"ss04" 1` outright — a `.tabular-nums` span that
      contains letters (`A1 - Audio Lead`, a stage label, a plate number) would
-     silently lose the disambiguation everything around it keeps. `zero` is
-     scoped HERE rather than at the root so a slashed zero appears only where a
-     number is a value to be transcribed, not in running prose. DESIGN.md 2.4;
-     tests/styles/fontFeatureAvailability.test.ts pins both halves. */
+     silently lose the disambiguation everything around it keeps. DESIGN.md 2.4;
+     tests/styles/fontFeatureAvailability.test.ts pins it. */
+  font-feature-settings:
+    "ss04" 1,
+    "tnum" 1;
+}
+
+/*
+ * A value someone reads off the screen and types or says back: a hotel
+ * confirmation number, a flight record locator, a service-account address.
+ * THIS is where a slashed zero earns its place -- the cost of confusing 0 with
+ * O is a failed check-in, not a moment's hesitation.
+ *
+ * Deliberately NARROWER than `.tabular-nums`, and the distinction is the whole
+ * point. `.tabular-nums` marks "digits that should not shift width", which in
+ * this codebase includes whole prose sentences -- the Right Now hero's lead is
+ * a 30px bold <h2> carrying it (components/crew/RightNowHero.tsx), and the
+ * footer's copyright year carries it too. Slashing zeros there reads as a
+ * terminal readout and works against the "not techie" anti-reference in
+ * PRODUCT.md. Impeccable critique P1, 2026-08-03: `zero` shipped on the
+ * tabular rule for exactly one review round and rendered "Show day 1(slashed)0
+ * of 12" in the product's single most expressive moment.
+ *
+ * `ss04` and `tnum` are repeated for the same whole-value-inheritance reason as
+ * above. DESIGN.md 2.4.
+ */
+.code-value {
+  font-variant-numeric: tabular-nums;
   font-feature-settings:
     "ss04" 1,
     "tnum" 1,

@@ -167,10 +167,21 @@ time,
   font-variant-numeric: tabular-nums;
   font-feature-settings:
     "ss04" 1,
+    "tnum" 1;
+}
+
+.code-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    "ss04" 1,
     "tnum" 1,
     "zero" 1;
 }
 ```
+
+**`zero` is on `.code-value`, NOT on the shared tabular rule.** An earlier revision of this spec put it on `time, .tabular-nums`, reasoning that the tabular rule marks "a number that is a value to be transcribed". It does not. In this codebase `.tabular-nums` means "digits that should not shift width", and it is applied to whole prose sentences — `components/crew/RightNowHero.tsx:524` is a 30px bold `<h2>` carrying it, `:532` is the detail paragraph, and `components/layout/Footer.tsx:145` is the copyright year. Shipped that way, the hero read *"Today: Show day 1(slashed)0 of 12"*: a terminal readout in the product's single most expressive moment, against the explicit "not techie" anti-reference in `PRODUCT.md`. Caught by impeccable critique (P1) after the first implementation commit.
+
+`.code-value` is the narrower opt-in, applied at three sites where a value genuinely gets transcribed: the `Confirmation` row in `components/crew/sections/TravelSection.tsx` (via a new `code?: boolean` on `KeyValueRow`), the flight record locator in the same file, and the service-account address in `components/admin/wizard/Step1Share.tsx`. The decision the user made — slash where a value is transcribed, not in prose — is unchanged; this is the implementation that actually delivers it.
 
 **`ss04` is repeated in the tabular rule deliberately.** `font-feature-settings` inherits as a whole value, not as a merged list, so a rule that sets it replaces the inherited `"ss04" 1` entirely. Without the repeat, a `.tabular-nums` span containing letters — `A1 · Audio Lead`, a stage label, a plate number — would silently lose the disambiguation the `html` rule grants everything else. This is the single most likely implementation defect in the change and the guard in §4.2 exists to catch it.
 
