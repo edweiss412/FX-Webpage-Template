@@ -40,7 +40,12 @@ import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { orderNotes, toNoteItem } from "@/lib/admin/parseAttentionNote";
 import { FAILED_KEYS_CAP, usableFailedKeys } from "@/components/admin/review/AttentionBanner";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
-import { isMessageCode, lookupHelpfulContext, type MessageParams } from "@/lib/messages/lookup";
+import {
+  PLACEHOLDER_RE,
+  isMessageCode,
+  lookupHelpfulContext,
+  type MessageParams,
+} from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
@@ -528,6 +533,27 @@ const BANNER_ALERT_KEYS = [
  * shape the formatter cannot read, fall back to the raw value: the cue may then
  * be conservative rather than exact, which is the correct direction to fail.
  */
+/**
+ * Every param name a template interpolates, in all three spellings the renderer
+ * will accept for it. `PLACEHOLDER_RE` is a module-level GLOBAL regex, so
+ * `lastIndex` is reset before use exactly as the renderer does
+ * (`components/messages/renderEmphasis.tsx:112`); skipping that would make the
+ * result depend on whoever scanned last.
+ */
+function placeholderNames(template: string): Set<string> {
+  const out = new Set<string>();
+  PLACEHOLDER_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = PLACEHOLDER_RE.exec(template)) !== null) {
+    const key = m[1];
+    if (key === undefined) continue;
+    out.add(key);
+    out.add(key.replace(/-/g, "_"));
+    out.add(key.replace(/_/g, "-"));
+  }
+  return out;
+}
+
 /** The catalog help copy for this alert, or null when the code has none. */
 function helpfulContextOf(code: unknown, params: Record<string, unknown>): string | null {
   if (typeof code !== "string" || !isMessageCode(code)) return null;
@@ -563,11 +589,22 @@ function renderedAlertState(alert: Record<string, unknown>): unknown {
     keys === null ? null : [keys.slice(0, FAILED_KEYS_CAP), keys.length],
     showGaps,
     showGaps ? paintedGapBreakdown(gaps) : null,
-    // PLACEHOLDER form, not a bare substring. `template.includes(k)` would match
-    // a param named `id` against a template containing "identity" and cue on a
-    // value that paints nothing.
+    // Through the SHIPPED placeholder regex, twice-corrected and now sourced
+    // rather than spelled.
+    //
+    // The first version tested `template.includes(k)`, a bare substring: a param
+    // named `id` matched a template containing "identity". The second hand-wrote
+    // `{k}` — and round-5 review render-probed it: the real syntax is `<k>`
+    // (`lib/messages/lookup.ts:12`), so that version dropped params that DO
+    // paint, turning a false-cue guard into a MISSED cue across 13 reachable
+    // templates. Guessing a syntax twice is what makes this an imported constant
+    // now: `PLACEHOLDER_RE` is the same binding the renderer interpolates with.
+    //
+    // The `-`/`_` normalization mirrors the renderer's own key lookup
+    // (`components/messages/renderEmphasis.tsx:116`), so `<crew-row-count>`
+    // resolves a `crew_row_count` param exactly as it does on screen.
     Object.keys(params)
-      .filter((k) => template.includes(`{${k}}`))
+      .filter((k) => placeholderNames(template).has(k))
       .sort()
       .map((k) => [k, params[k]]),
     // The OTHER place the payload paints copy: the help text, looked up from the

@@ -327,7 +327,7 @@ Worth stating plainly: this is the local-passes-CI-fails class, and it is the ex
 
 impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded
 
-**Why the gate was not re-run after the round-3 projection sweep.** Invariant 8
+**Why the gate was not re-run after the round-3 and round-4 sweeps.** Invariant 8
 scopes the dual gate to UI surfaces, and "any file under `components/`" is one of
 its triggers, so the question is fair and worth answering here rather than
 leaving a later reviewer to re-derive it. The sweep's only `components/` file is
@@ -339,3 +339,14 @@ gate reviewed, and `N2` pins it against the spec's normative block, so a silent
 drift there is not possible. No rendered output, no token, and no class changed,
 so there is nothing for a visual critique or an accessibility audit to see that
 they did not already see.
+
+Round 4 touched one MORE file under `components/`, and it is a real rendering
+component, so it is named rather than folded into the sentence above:
+`components/admin/review/AttentionBanner.tsx`. The change is two `export`
+keywords and their explaining comments — `FAILED_KEYS_CAP` and
+`usableFailedKeys` are now importable so the detector applies the SAME cap and
+the SAME key-dropping the banner renders under, instead of re-typing either.
+No JSX, no class, no token, no copy, and no control flow moved; `git diff` on
+that file is ten lines, all of them either the word `export` or a comment. A
+critique looks at what a surface shows and an audit at how it behaves, and
+neither changed.

@@ -499,7 +499,7 @@ describe("section freshness detector", () => {
       ({
         alertId: "al-1",
         code: "AMBIGUOUS_EMAIL_BINDING",
-        template: "Two crew share {email}.",
+        template: "Two crew share <email>.",
         params: { email: "a@b.c" },
         action: null,
         helpHref: null,
@@ -539,7 +539,29 @@ describe("section freshness detector", () => {
     const same = (a: readonly AttentionItem[], b: readonly AttentionItem[], why: string) =>
       expect(changedSectionIds(sigs(a), sigs(b)), why).toEqual([]);
 
-    // (1) A param the template never interpolates cannot change a glyph.
+    // (1a) A param the template DOES interpolate must cue. This direction is
+    // first on purpose: round-5 review found the filter written against `{k}`
+    // when the renderer interpolates `<k>` (`lib/messages/lookup.ts:12`), which
+    // silently dropped every real param across 13 reachable templates. The
+    // earlier fixture used brace syntax, so it asserted the broken behaviour and
+    // passed. A syntax guessed twice gets a positive case, not just a negative.
+    expect(
+      changedSectionIds(
+        sigs([banner({ params: { email: "a@b.c" } })]),
+        sigs([banner({ params: { email: "changed@example.com" } })]),
+      ),
+      "an INTERPOLATED param paints, so it must cue",
+    ).toEqual(["crew"]);
+    // (1b) A hyphen/underscore mismatch still resolves, exactly as the renderer
+    // resolves it (`components/messages/renderEmphasis.tsx:116`).
+    expect(
+      changedSectionIds(
+        sigs([banner({ template: "Rows: <crew-row-count>.", params: { crew_row_count: 3 } })]),
+        sigs([banner({ template: "Rows: <crew-row-count>.", params: { crew_row_count: 4 } })]),
+      ),
+      "a normalized key still paints, so it must cue",
+    ).toEqual(["crew"]);
+    // (1c) A param the template never interpolates cannot change a glyph.
     same(
       [banner({ params: { email: "a@b.c" } })],
       [banner({ params: { email: "a@b.c", unused: "zzz" } })],
