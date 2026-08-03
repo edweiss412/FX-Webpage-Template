@@ -195,7 +195,7 @@ ARM C / AFTER-C DOM <span>C</span>
 
 Render-phase `setState` on the same component does not have this problem: an abandoned render's queued state is thrown away with it.
 
-The map is what makes each cue expire on its own clock. A single shared cue object meant a change to Venue at T plus 400ms yanked Crew’s attribute mid-hold, and since the wash holds to 45% of 1600ms, Crew was still at full tint and snapped. Round 1 measured that. Per-section arming removes it.
+The map is what makes each cue expire on its own clock. A single shared cue object meant a change to Venue at T plus 400ms yanked Crew’s attribute mid-hold, and since the cue holds to 45% of 1600ms, Crew was still at full strength and snapped. Round 1 measured that. Per-section arming removes it.
 
 Branches, exhaustively, on `prevSignature !== signature`:
 
@@ -354,7 +354,7 @@ The reduced-motion block resolves `animation-name` to `none` AND pins the outlin
 
 A branch-stable sr-only region, per `DESIGN.md:479`. The REGION element is always mounted with a stable key and is never conditionally rendered and never `display: contents`, because a region that mounts at the same moment its text appears is unreliably announced.
 
-Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:1060`), with `key="freshness-announce"`.
+Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:1070`), with `key="freshness-announce"`.
 
 NOT the body slot, which was the first draft and is wrong. `ReviewModalShell` documents a contract that its `children` mount directly in the panel's flex column with no wrapper, so that the consumer's surface root IS the body element and owns the scroller (`components/admin/review/ReviewModalShell.tsx:20-21`, `ReviewModalShell.tsx:688-696`). `ShowReviewSurface` is that sole child. A second body child would contradict the contract for no gain. The `subHeader` band is inside the same dialog subtree, so the live region is announced identically, and it is where a status readout about this surface already lives.
 
@@ -432,7 +432,7 @@ Three visual states per card: **A** resting (no attribute), **B** flashing on va
 
 | Pair | Direction | Treatment |
 |---|---|---|
-| A to B | this section armed, previous value absent or `"2"` | animated: 1600ms `ease-out` wash plus outline, holding to 45% |
+| A to B | this section armed, previous value absent or `"2"` | animated: a 1600ms `ease-out` outline fade, holding to 45% |
 | B to A | this section's own batch timer expires | animated: the keyframe has already settled to resting by 100%, and the attribute is removed at exactly 1600ms, so removal is invisible |
 | A to C | this section armed, previous value `"1"` | animated: identical to A to B |
 | C to A | as B to A | animated: identical |
@@ -443,7 +443,7 @@ Compound transitions, enumerated:
 
 | Compound case | Behaviour |
 |---|---|
-| A refresh changes a DIFFERENT section while one is mid-flash | both flash, each on its own batch clock. The first card is NOT truncated: round 1 measured that the old shared-cue design yanked it at full tint, since the wash holds through 720ms of a 1600ms animation. Per-section expiry (§4.2) is the fix, and this row is what it is for. |
+| A refresh changes a DIFFERENT section while one is mid-flash | both flash, each on its own batch clock. The first card is NOT truncated: round 1 measured that the old shared-cue design yanked it at full tint, since the cue holds through 720ms of a 1600ms animation. Per-section expiry (§4.2) is the fix, and this row is what it is for. |
 | A refresh changes the SAME section mid-flash | B to C or C to B above: restart, no remount |
 | A refresh arrives mid-flash changing NO section | branch 3: every live flash runs to completion undisturbed |
 | A refresh takes the change count over the cap mid-flash | `armed` empties, so a mid-hold card DOES snap to resting. Deliberate and the one truncation left in the design: over the cap the announcement no longer supports a per-card claim, so leaving a card lit would assert something the announcement has stopped saying. Recorded as a documented limit (§8) rather than hidden. |
@@ -456,7 +456,7 @@ Compound transitions, enumerated:
 | The modal closes mid-flash | the instance unmounts and the unmount-only effect clears every outstanding batch timer |
 | A flash starts while the attention pill or banner is reconciling | independent subtrees, no shared state; the pill has no transition that the card's `animation` composes with |
 | A flash starts while the share-link flash is running in the open share popover | independent elements and independent constants; both are 1600ms one-shots and neither reads the other's state |
-| A flash starts while a warning-jump highlight (`data-step3-warning-flash`) is live on a row INSIDE the flashing card | both paint: the row keeps its own `background-color` animation, the card animates its own background behind it. The row's tint (`--color-warning-bg`) and the card's (`--color-accent-tint`) are distinct, so the row stays legible as the jump target |
+| A flash starts while a warning-jump highlight (`data-step3-warning-flash`) is live on a row INSIDE the flashing card | both paint, and they no longer compete: the row keeps its own `background-color` animation while the card animates only its OUTLINE, which is outside the card entirely. Removing the wash removed this compound case's only real hazard |
 | Reduced motion, any of the above | no visual state exists; only the announcement changes |
 
 Announcement transitions, which are separate from the card's and were the round-1 silent failure:
@@ -626,16 +626,16 @@ Mirrors `tests/components/admin/showpage/shareHubFlashTransitions.test.ts`.
 
 ### 11.4 Contrast (`tests/styles/status-token-contrast.test.ts`, new rows)
 
-The cue repurposes `--color-accent-tint` as a background for body text that has never been measured against it. Both themes, read from the live hex:
+The cue is an OUTLINE only, so the rows measure the outline against the two grounds it actually touches. Both themes, read from the live hex:
 
 | Id | Assertion | Floor | Measured light / dark |
 |---|---|---|---|
-| C1 | `--color-text` on `--color-accent-tint` | 4.5:1 | 15.16 / 13.03 |
-| C2 | `--color-text-subtle` on `--color-accent-tint` | 4.5:1 | 5.95 / 5.77 |
-| C3 | `--color-accent-edge` against `--color-accent-tint` (outline at the hold) | 3:1 | 7.41 / 8.03 |
-| C4 | `--color-accent-edge` against `--color-surface` (outline as it settles) | 3:1 | 8.42 / 8.84 |
+| C1 | `--color-accent-edge` against `--color-surface` (the card) | 3:1 | 8.42 / 8.84 |
+| C2 | `--color-accent-edge` against `--color-surface-sunken` (the band it marks over the cap) | 3:1 | 7.59 / 9.65 |
 
-Measured at spec time from the live hex in `app/globals.css`, both themes, with the same relative-luminance formula the harness uses. The C3 and C4 numbers reproduce the values `DESIGN.md:297` already pins for the share-link ring exactly, which is what validates the measurement rather than merely reporting it. C2 is the tightest at 5.77 in dark and still clears the text floor with margin; nothing in the cue sits below AA.
+**The text-on-tint rows this section used to carry are gone with the wash.** They measured `text` and `text-subtle` against `--color-accent-tint`, which was the right pin while the cue washed a whole card full of body text. It does not any more, and a row asserting a pairing that never renders is worse than no row: it reads as coverage. The numbers were fine; they simply stopped describing anything.
+
+Measured from the live hex in `app/globals.css` with the same relative-luminance formula the harness uses. Both reproduce values `DESIGN.md:297` already pins for the share-link ring, which is what validates the measurement rather than merely reporting it.
 
 C3 and C4 duplicate ratios the share-link rows already assert (`tests/styles/status-token-contrast.test.ts:248-261`). They are restated on this surface's own row because DESIGN.md's note that the outline carries the dark-theme signal makes it non-decorative here too, and a future edit to the share-link rows must not silently remove this surface's floor.
 
