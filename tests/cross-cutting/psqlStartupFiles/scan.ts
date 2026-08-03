@@ -1224,7 +1224,13 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
               sites.push(
                 reanchor(site, candidate, sliceStart, translated === attached, lineOffset),
               );
-            joinedHandled = true;
+            // NOT for `env`: it PREPENDS its split-string to the remaining argv
+            // rather than replacing it, so `env -S '-u PSQLRC' psql …` runs env's
+            // own option and then the TRAILING psql. Marking the argv handled hid
+            // that command entirely. A shell is the opposite — its trailing words
+            // are the script's positionals — which is why this is conditional
+            // rather than removed.
+            joinedHandled = !isDashS;
             break;
           }
           const next = argv[i + 1];
@@ -1233,7 +1239,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
             for (const site of scanShellText(translatedNext, file, lineOffset))
               sites.push(reanchor(site, next, 0, translatedNext === next.text, lineOffset));
           }
-          joinedHandled = true;
+          joinedHandled = !isDashS;
           break;
         }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
@@ -1248,7 +1254,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
           const translated = envSplitStringToShell(attached);
           for (const site of scanShellText(translated, file, lineOffset))
             sites.push(reanchor(site, candidate, sliceStart, translated === attached, lineOffset));
-          joinedHandled = true;
+          joinedHandled = !isDashS;
           break;
         }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
@@ -1259,7 +1265,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // `$1`, so psql runs UNSUPPRESSED; falling through to the generic argv
         // search read that `$0` VALUE as the command word and credited the
         // trailing `-X` to it. A false safe on all six recognized shells.
-        joinedHandled = true;
+        joinedHandled = !isDashS;
         if (script === undefined) break;
         // The script word was QUOTE-STRIPPED, so its characters are not
         // contiguous with its start; the per-character maps re-anchor it.

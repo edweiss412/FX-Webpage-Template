@@ -3167,3 +3167,97 @@ describe("R34 escaping mutants — a spliced word is one word", () => {
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R35 escaping mutants — env PREPENDS its split-string, it does not replace argv", () => {
+  // R32 made every script-consuming branch mark the argv handled, which is
+  // right for a SHELL — `bash -c 'script' psql -X` passes psql as `$0`, not as
+  // a command. It is WRONG for env: `env -S` splits its operand and PREPENDS
+  // it to the remaining argv, so `env -S '-u PSQLRC' psql -qAt mydb` runs
+  // env's own `-u` option and then executes the trailing psql, unsuppressed.
+  // Marking the argv handled made that trailing command invisible.
+  test.each([
+    ["a separate -S", "env -S '-u PSQLRC' psql -qAt mydb\n"],
+    ["a clustered -iS", "env -iS '-u PSQLRC' psql -qAt mydb\n"],
+    ["a separate --split-string", "env --split-string '-u PSQLRC' psql -qAt mydb\n"],
+    ["an attached --split-string=", "env --split-string='-u PSQLRC' psql -qAt mydb\n"],
+    ["an attached -S", "env -S'-u PSQLRC' psql -qAt mydb\n"],
+  ])("%s leaves the trailing psql visible and unprotected", (_label, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("a trailing psql that DOES suppress still certifies", () => {
+    const sites = sitesIn("env -S '-u PSQLRC' psql -X -qAt mydb\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // The command may also live INSIDE the operand, which is the R27 reading and
+  // must keep working — including its env-grammar translation, where `\_` is an
+  // argument separator so `-F\_ -X` makes `-X` the field separator's value.
+  test("the command inside the operand still reads under env's own grammar", () => {
+    const sites = sitesIn("env -S 'psql -F\\_ -X mydb'\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a protected command inside the operand still certifies", () => {
+    const sites = sitesIn("env -S 'psql -X -qAt mydb'\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // A SHELL must keep the R32 behaviour: its trailing words are positionals.
+  test("a shell's trailing positional is still not read as a command", () => {
+    const sites = sitesIn("bash -c '$0 -qAt mydb' psql -X\n", "x.sh");
+    expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
+  });
+
+  test.each([
+    [
+      "a workflow run block",
+      "jobs:\n  x:\n    steps:\n      - run: env -S '-u PSQLRC' psql -qAt mydb\n",
+      ".github/workflows/x.yml",
+    ],
+    [
+      "a custom shell template",
+      "jobs:\n  x:\n    steps:\n      - shell: env -S '-u PSQLRC' psql -f {0}\n        run: select 1;\n",
+      ".github/workflows/x.yml",
+    ],
+    [
+      "a container args SEQUENCE",
+      "runs:\n  entrypoint: env\n  args: ['-S', '-u PSQLRC', 'psql', '-qAt', 'mydb']\n",
+      "action.yml",
+    ],
+    [
+      "a container args SCALAR",
+      "runs:\n  entrypoint: env\n  args: -S '-u PSQLRC' psql -qAt mydb\n",
+      "action.yml",
+    ],
+  ])("the same escape through %s is caught", (_label, source, file) => {
+    const sites = sitesIn(source, file);
+    expect(
+      sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("the same escape inside a JS shell string is caught", () => {
+    const sites = sitesIn("execSync(\"env -S '-u PSQLRC' psql -qAt mydb\");\n", "x.mjs");
+    expect(
+      sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+    ).toBeGreaterThan(0);
+  });
+
+  test(
+    "the env-prepend reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
