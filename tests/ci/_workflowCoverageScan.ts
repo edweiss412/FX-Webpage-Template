@@ -694,11 +694,14 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [
       {
         text: "test-results/crew-e2e-report.json",
-        // Empty by live derivation, and correctly so: the crew-e2e step this key sits on carries
-        // a `--reporter=list,json` argument the census treats as an unmodelled invocation shape,
-        // so the census attributes no spec to it. The specs' CI coverage is asserted by
-        // tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts (which replays the command through
-        // Playwright) and by the executed-count oracle, not by this row.
+        // Empty by live derivation, and correctly so — but for the trigger, not the command:
+        // crew-e2e.yml filters with `pull_request.paths-ignore`, so the census classifies all four
+        // of its specs as path-gated and attributes none of them to this step. (An earlier version
+        // of this comment blamed the step's `--reporter=list,json`; that was wrong — whole-diff
+        // review R16 probed it by removing only the paths-ignore block, which made all four specs
+        // derive here with the reporter argument still in place.) Their CI coverage is asserted by
+        // tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts, which replays the command through
+        // Playwright, and by the executed-count oracle — not by this row.
         governs: [],
       },
     ],
