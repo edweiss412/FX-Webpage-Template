@@ -511,8 +511,14 @@ describe("lib/visibility/capabilityTransitions.ts prose", () => {
     // Instance C: the header claimed a predicate addition surfaces "as a
     // TypeScript error if the matrix is incomplete". Probed false: the union
     // had no link to the matrix. The real mechanism is a failing test.
+    // Positive assertion first: the header must name the test that actually
+    // enforces completeness. R5: a bare ban on the old phrase is satisfiable
+    // by "compile-time error", so the ban alone proves nothing.
     const src = read("lib/visibility/capabilityTransitions.ts");
-    expect(src).not.toMatch(/TypeScript error if the matrix is incomplete/);
+    expect(src).toContain("tests/visibility/capabilityTransitions.test.ts");
+    expect(src).toContain("CAPABILITY_PREDICATES");
+    // ...and no compiler-error claim survives, in any phrasing.
+    expect(src).not.toMatch(/(TypeScript|compile[- ]time|type)\s+error/i);
   });
 });
 ```
@@ -546,8 +552,14 @@ test("carries no gated-tile count that can drift from the GatedTile union", () =
   // deletes the count rather than correcting it, because a number that no
   // longer exists cannot drift; this pin forbids the count words returning.
   const src = read("lib/visibility/capabilityTransitions.ts");
-  expect(src).not.toMatch(/five gated tiles/i);
-  expect(src).not.toMatch(/Five derived predicates/i);
+  // Positive: the sentences must point at the definitions instead of counting.
+  expect(src).toContain("GatedTile");
+  expect(src).toContain("CAPABILITY_PREDICATES");
+  // Negative, phrasing-independent: no number word or digit may quantify the
+  // predicates or the gated tiles. R5: banning "five gated tiles" alone is
+  // satisfiable by "five capability predicates".
+  const COUNTED = /\b(two|three|four|five|six|\d+)\s+(derived\s+|capability\s+|gated\s+)?(predicates?|tiles?)\b/i;
+  expect(src).not.toMatch(COUNTED);
 });
 ```
 
@@ -579,12 +591,35 @@ Constraints: the row is a single markdown table cell, so the replacement must co
 **RED first.** Add the third pin to `tests/docs/_metaCapabilityProseClaims.test.ts` (AC-8):
 
 ```ts
-test("master spec MI-9 claims no admin grant for any role flag", () => {
-  // Instance B: MI-9 asserted "LEAD additionally grants the admin/ops
-  // surface". Probed false: is_admin() never reads role_flags, and it
-  // inverts §4.4, where admin implies LEAD-equivalence, not the reverse.
+test("no role flag grants admin: the fact MI-9 now describes", () => {
+  // Instance B's pin is on the CONTRACT, not on MI-9's wording. R5 showed a
+  // prose ban is satisfiable by a synonym ("administrative and operational
+  // surface"), so banning a phrase proves nothing. What is worth holding is
+  // the fact the sentence reports: is_admin() resolves admin identity from
+  // the JWT role claim and the admin_emails table, and never consults
+  // role_flags. If that ever changes, this fails and MI-9 must be revisited.
+  const sql = read(
+    "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql",
+  );
+  const body = sql.slice(
+    sql.indexOf("create or replace function public.is_admin()"),
+    sql.indexOf("revoke all on function public.is_admin()"),
+  );
+  expect(body).not.toBe("");
+  expect(body).toContain("app_metadata");
+  expect(body).toContain("admin_emails");
+  expect(body).not.toContain("role_flags");
+});
+
+test("MI-9 names what LEAD actually additionally unlocks", () => {
+  // Positive assertion, not a ban: the clause must name the three scope-tile
+  // predicates. A synonym for the OLD false claim cannot satisfy this.
   const src = read("docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md");
-  expect(src).not.toMatch(/admin\/ops/);
+  const mi9 = src.split("\n").find((l) => l.includes("| MI-9  |")) ?? "";
+  expect(mi9).not.toBe("");
+  expect(mi9).toContain("audioScopeVisible");
+  expect(mi9).toContain("videoScopeVisible");
+  expect(mi9).toContain("lightingScopeVisible");
 });
 ```
 

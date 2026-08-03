@@ -187,6 +187,10 @@ Three findings settle it:
 
 **Why the negative claim is included rather than just deleting the false half.** This is the second branch to touch this sentence and the third document to re-derive the same probe. Recording the result where the claim lived is what stops a fourth.
 
+**How the correction is held, and what a prose pin can and cannot do.** Review R5 established with a probe that banning a phrase proves nothing — "administrative and operational surface" satisfies a ban on "admin/ops" while asserting the same falsehood. So the guard does not pin MI-9's wording. It pins **the fact the sentence reports**: `is_admin()`'s body reads `app_metadata` and `admin_emails` and contains no `role_flags` reference (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`). If a future change ever does route admin through a role flag, that test fails and MI-9 is forced back open — which is the real protection, and it is one no phrasing can dodge. A second, positive assertion requires the clause to name the three scope-tile predicates, so a synonym for the old claim cannot satisfy it either.
+
+The same principle applies to instances C, D, and E: each pin asserts what the corrected text must CONTAIN (the enforcing test's path, `CAPABILITY_PREDICATES`, `GatedTile`) rather than only what it must not, and the negative halves are phrasing-independent patterns rather than literal strings. **Stated limit, unchanged:** a determined author can still write a false sentence that satisfies every pin. Prose is not machine-verifiable, and no assertion here claims otherwise; what these pins buy is that the specific falsehoods this branch corrected cannot silently return.
+
 ### 2.5 The one historical record that endorses the claim
 
 `docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md:142` does not merely quote the claim — it asserts "LEAD alone additionally grants the admin/ops surface, **stated correctly** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`", citing the exact line this branch rewrites. After the fix, that sentence endorses a claim its own citation no longer contains.
