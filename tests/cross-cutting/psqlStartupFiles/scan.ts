@@ -585,6 +585,9 @@ type ShellWord = {
   offset: number;
   /** Per character of `text`: quoted or escaped, so it cannot expand. */
   quoted: boolean[];
+  /** Per character of `text`: the physical line it came from. A QUOTED word can
+   * span lines, so the word's opening line is not every character's line. */
+  lines: number[];
   /** Raw index in the scanned text for EACH character of `text`. Quoting and
    * escaping mean the word's characters are not contiguous with its start —
    * adding an offset measured in the quote-stripped script to the opening
@@ -642,6 +645,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
    * when it is BARE, so `-c "select * from t"` must stay an ordinary token
    * while `-f optional/*.sql` must not be certified. */
   let bufferQuoted: boolean[] = [];
+  let bufferLines: number[] = [];
   let started = false;
   let startLine = 0;
   let startOffset = 0;
@@ -658,6 +662,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           offset: startOffset,
           offsets: bufferOffsets,
           quoted: bufferQuoted,
+          lines: bufferLines,
           operator: false,
         });
       dropWord = false;
@@ -665,6 +670,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     buffer = "";
     bufferOffsets = [];
     bufferQuoted = [];
+    bufferLines = [];
     started = false;
   };
   const begin = (index: number): void => {
@@ -675,6 +681,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       buffer = "";
       bufferOffsets = [];
       bufferQuoted = [];
+      bufferLines = [];
     }
   };
   /** Append to the current word, recording where each character came from and
@@ -684,6 +691,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     for (let k = 0; k < piece.length; k++) {
       bufferOffsets.push(at);
       bufferQuoted.push(quoted);
+      bufferLines.push(line);
     }
   };
 
@@ -824,7 +832,15 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     if (character === "\n") {
       flush();
-      words.push({ text: "\n", line, offset: i, offsets: [i], quoted: [true], operator: true });
+      words.push({
+        text: "\n",
+        line,
+        offset: i,
+        offsets: [i],
+        quoted: [true],
+        lines: [line],
+        operator: true,
+      });
       line++;
       continue;
     }
@@ -884,6 +900,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         offset: i,
         offsets: [...operator].map((_, k) => i + k),
         quoted: [...operator].map(() => true),
+        lines: [...operator].map(() => line),
         operator: true,
       });
       i += operator.length - 1;
@@ -900,6 +917,18 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 /** The command word, with any directory prefix removed. */
 function basename(word: string): string {
   return word.slice(word.lastIndexOf("/") + 1);
+}
+
+/**
+ * True when a word IS the psql command: the plain name, a path ending `/psql`,
+ * or an EXPANSION carrying the directory — `"${PSQL_DIR}psql"` is the ordinary
+ * trailing-slash pattern and runs psql, but its basename is the whole word, so
+ * an exact-name test missed it and neither tripwire fired. The boundary before
+ * `psql` must be a separator (`/`, `}`, `)`) so `$HOME/notpsql` stays out.
+ */
+function isPsqlCommandWord(word: string): boolean {
+  if (basename(word) === "psql") return true;
+  return word.includes("$") && /(?:\}|\))psql$/.test(word);
 }
 
 /** argv[0] values whose FLAGS may also deny (`command -v psql`). */
@@ -1061,12 +1090,14 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
             if (k > 0) {
               joined += " ";
               joinedOffsets.push(word.offset);
-              joinedLines.push(word.line);
+              joinedLines.push(word.lines[0] ?? word.line);
             }
             for (let c = 0; c < word.text.length; c++) {
               joined += word.text[c];
               joinedOffsets.push(word.offsets[c] ?? word.offset);
-              joinedLines.push(word.line);
+              // PER CHARACTER: a quoted word can span physical lines, so the
+              // word's opening line is not every character's line.
+              joinedLines.push(word.lines[c] ?? word.line);
             }
           }
           for (const site of scanShellText(joined, file, 0))
@@ -1145,7 +1176,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
     }
 
     if (joinedHandled) continue;
-    const index = argv.findIndex((word) => basename(word.text) === "psql");
+    const index = argv.findIndex((word) => isPsqlCommandWord(word.text));
     if (index === -1) continue;
     // The denylist decides whether psql is the COMMAND or an argument to a
     // probe, so it may only fire when the deny word is itself argv[0] (`which
@@ -1417,7 +1448,9 @@ function composedText(node: ts.Node, sourceFile: ts.SourceFile): Composed | null
 }
 
 function isPsqlBinary(text: string): boolean {
-  return text === "psql" || text.endsWith("/psql");
+  if (text === "psql" || text.endsWith("/psql")) return true;
+  // `execFileSync(`${binDir}psql`, …)` — the same trailing-slash pattern.
+  return text.includes("$") && /(?:\}|\))psql$/.test(text);
 }
 
 /**

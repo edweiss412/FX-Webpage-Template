@@ -1991,3 +1991,73 @@ describe("R21 escaping mutants", () => {
     expect(sites[1]!.exemptReason).toBeNull();
   });
 });
+
+describe("R22 escaping mutants", () => {
+  // A QUOTED word can span physical lines. Stamping every character with the
+  // word's OPENING line let a psql on a later line inherit a marker written
+  // above the outer command.
+  test.each([["ssh host"], ["eval"], ["watch"]])(
+    "%s: a multiline quoted argument reports the psql word's own line",
+    (head) => {
+      const source = [
+        `# ${EXEMPTION_MARKER} marker for an unrelated adjacent operation`,
+        `${head} "echo setup`,
+        'psql -qAt mydb"',
+        "",
+      ].join("\n");
+      const sites = sitesIn(source, "scripts/probe.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.line).toBe(3);
+      expect(sites[0]!.exemptReason).toBeNull();
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test("a multiline quoted argument in a workflow block reports its own line", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: |",
+      `          # ${EXEMPTION_MARKER} marker for an unrelated adjacent operation`,
+      '          ssh host "echo setup',
+      '          psql -qAt mydb"',
+      "",
+    ].join("\n");
+    const sites = scanSource(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(7);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // `"${PSQL_DIR}psql"` is the ordinary trailing-slash directory pattern. The
+  // literal `psql` survives but is JOINED to the expansion, so an exact
+  // basename test missed it on every surface the header claims to cover.
+  test.each([
+    ["a shell command word", '"${PSQL_DIR}psql" -qAt mydb\n', "x.sh"],
+    [
+      "a workflow run block",
+      'jobs:\n  a:\n    steps:\n      - run: |\n          "${PSQL_DIR}psql" -qAt mydb\n',
+      ".github/workflows/x.yml",
+    ],
+    ["a JS shell template", "execSync(`${PSQL_DIR}psql -qAt mydb`);", "x.mjs"],
+    ["a spawn-family argv[0] template", 'execFileSync(`${binDir}psql`, ["-qAt", dsn]);', "x.mjs"],
+  ])("%s is a site", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("the same word WITH -X still certifies", () => {
+    expect(sitesIn('"${PSQL_DIR}psql" -X -qAt mydb\n', "x.sh")[0]!.suppressesStartupFiles).toBe(
+      true,
+    );
+  });
+
+  test.each([
+    ["a word merely ENDING in psql", '"$HOME/notpsql" -qAt mydb\n'],
+    ["an unrelated expansion", '"${BIN_DIR}pg_dump" mydb\n'],
+  ])("%s is not a site", (_name, source) => {
+    expect(sitesIn(source, "x.sh")).toHaveLength(0);
+  });
+});
