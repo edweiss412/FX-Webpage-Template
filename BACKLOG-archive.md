@@ -8,6 +8,25 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-LEAD-CAPABILITY-PROSE-STALE — RESOLVED (2026-08-03, `docs/settle-lead-capability-prose`)
+
+**Settled.** Both filed claims were false, and the class sweep behind them found four more instances in the same files. `is_admin()` reads the JWT `app_metadata.role` claim and the `admin_emails` table and never consults `role_flags` (pinned by `tests/db/isAdminRoleFlagsContract.test.ts`), so MI-9's "LEAD additionally grants the admin/ops surface" was false AND inverted — §4.4 makes an admin a super-LEAD, not the reverse. What LEAD confers beyond FINANCIALS is the three scope tiles, which is what MI-9 now says. The `capabilityTransitions` block quoted `financialsVisible` without `FINANCIALS` inside a header declaring itself verbatim; it is now held to the live functions' behavior over every subset of the flag universe by `tests/visibility/_metaDocumentedPredicateParity.test.ts`. The header's promise of a TypeScript error for an incomplete matrix was probed false and is now true-by-construction: `CAPABILITY_PREDICATES` is the single source, the union derives from it, and the matrix tests derive their pair set from its length. A separate class the sweep surfaced — artifacts claiming e2e coverage from skipped suites — was descoped to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` with its full evidence. Design: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md`.
+
+Original entry follows, unedited, for provenance.
+
+### BL-LEAD-CAPABILITY-PROSE-STALE — two prose claims that LEAD grants an admin/ops surface (as filed)
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, spec review R1 finding 1) · **Class:** docs/copy + contract · **Severity:** low · **Effort:** S each, but each needs a contract read
+
+Probed while fixing `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: **no role flag grants admin access.** `is_admin()` (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`) reads the JWT `app_metadata.role` claim and the `admin_emails` table, and never consults `role_flags`; the admin tree gates on admin identity. Sweeping every production use of the LEAD flag finds financials entitlement (`lib/visibility/scopeTiles.ts`, `lib/data/getShowForViewer.ts`), the audio/video/lighting scope-tile predicates, and a "Lead" chip. No admin path exists.
+
+The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContext, its `longExplanation`, and the explainer mirror). Two prose claims were deliberately NOT edited, because each is a statement about what a capability confers rather than a copy string, and changing one is a ratification act:
+
+1. **`lib/visibility/capabilityTransitions.ts`** — its module-header predicate list carries `financialsVisible = isAdmin || LEAD (LEAD-or-admin)`, while the live predicate is `isAdmin || LEAD || FINANCIALS`. Whether the line is wrong or is an accurate description of a flip matrix that deliberately models `hasLead` only cannot be settled without reading the matrix contract.
+2. **Master spec MI-9** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — "LEAD additionally grants the admin/ops surface". Contradicted by the probe above. May encode intent rather than a stale description.
+
+**Fix (when prioritized):** read the matrix contract and settle (1); for (2), either correct the master-spec clause or record what "admin/ops surface" was meant to denote. Do not patch either from the probe alone — that is why this is filed rather than swept.
+
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access

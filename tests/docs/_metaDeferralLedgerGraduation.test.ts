@@ -88,6 +88,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // docs/settle-lead-capability-prose (2026-08-03): both filed claims settled by probe.
+  // is_admin() reads the JWT role claim and admin_emails and never role_flags, so MI-9's
+  // "LEAD additionally grants the admin/ops surface" was false AND inverted (§4.4 makes an
+  // admin a super-LEAD, not the reverse); what LEAD adds over FINANCIALS is the three scope
+  // tiles. The capabilityTransitions comment quoted financialsVisible without FINANCIALS
+  // inside a block declaring itself verbatim. The class sweep found four more instances in
+  // the same files. Both load-bearing claims are now machine-checked.
+  { id: "BL-LEAD-CAPABILITY-PROSE-STALE", provenance: "docs/settle-lead-capability-prose" },
   // test/parser-determinism-pair (2026-08-02): the venue typo-generator case. The entry's
   // recorded diagnosis was wrong — the generator has no RNG. The defect was order-coupled
   // sampling, and exhaustive enumeration of all 8453 neighbours found ZERO recovery gaps, so
