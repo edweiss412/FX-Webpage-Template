@@ -382,7 +382,15 @@ describe("unit-suite-db boot/install overlap (spec 2026-08-02 §5)", () => {
     const order: ReadonlyArray<readonly [string, number]> = [
       ["checkout", idxUses("actions/checkout@v4")],
       ["supabase/setup-cli", idxUses("supabase/setup-cli@v1")],
-      ["psql guard", idxRun("postgresql-client")],
+      // Identified by the real guarded-install shape, not by the package name
+      // alone: `echo postgresql-client` would satisfy a name-only match while the
+      // bootstrap lost the psql it shells out to, and nothing else in this repo
+      // REQUIRES the step to exist -- ci-workflow-speedup only constrains the
+      // install lines that DO appear.
+      ["psql guard", steps.findIndex((s) => {
+        const r = runOf(s);
+        return r.includes("sudo apt-get") && r.includes("postgresql-client") && r.includes("command -v psql");
+      })],
       ["pnpm/action-setup", idxUses("pnpm/action-setup@v4")],
       ["setup-node", idxUses("actions/setup-node@v4")],
       ["combined boot+install", idxRun("supabase-local-bootstrap.sh")],
@@ -444,10 +452,14 @@ describe("unit-suite-db boot/install overlap (spec 2026-08-02 §5)", () => {
     // Without the count assertion a SECOND run: prerequisite added to the composite
     // would leave the uses-keyed loop above matching nothing and passing vacuously.
     expect(runSteps.length, "the setup composite must declare exactly one run: step").toBe(1);
+    // EXACT line equality, not `includes`: the composite's command is a substring
+    // of the canonical one, so a substring check would stay green if the composite
+    // shortened to `pnpm install` while this job kept `--frozen-lockfile`.
+    const compositeInstall = String(runSteps[0]!.run).trim();
     expect(
-      normalizedBody(combinedStep()).includes(String(runSteps[0]!.run).trim()),
-      "the inlined install must be the composite's install command, verbatim",
-    ).toBe(true);
+      normalizedBody(combinedStep()).split("\n"),
+      "the inlined install must be the composite's install command, verbatim, as its own line",
+    ).toContain(compositeInstall);
   });
 
   it("(e) the install runs exactly once, and the setup composite is not also used", () => {
@@ -519,6 +531,19 @@ describe("unit-suite-db boot/install overlap (spec 2026-08-02 §5)", () => {
       existsSync(join(process.cwd(), ".pnpmfile.cjs")),
       `a repo-root pnpmfile executes at install time — ${RERUN}`,
     ).toBe(false);
+    // A tracked .npmrc can NAME a hook module from anywhere, so the repo-root check
+    // above does not cover it. The file is absent today; if one ever lands, it must
+    // not carry either hook key.
+    const npmrcPath = join(process.cwd(), ".npmrc");
+    if (existsSync(npmrcPath)) {
+      const npmrc = readFileSync(npmrcPath, "utf8");
+      for (const key of ["pnpmfile", "globalPnpmfile"]) {
+        expect(
+          new RegExp(`^\\s*${key}\\s*=`, "mi").test(npmrc),
+          `.npmrc declares \`${key}\`, which loads a module at install time — ${RERUN}`,
+        ).toBe(false);
+      }
+    }
 
     // Versions of every package whose code the install EXECUTES. A bump replaces
     // that code wholesale while allowBuilds stays identical; allowBuilds is keyed by

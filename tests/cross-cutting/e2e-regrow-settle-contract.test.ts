@@ -1,5 +1,3 @@
-// DRAFT of tests/cross-cutting/e2e-regrow-settle-contract.test.ts
-//
 // Structural guard for the T-REGROW settle contract (spec
 // docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md §6).
 //
@@ -34,11 +32,13 @@ const regrowSlice = (): string => {
 };
 
 /**
- * Characters after an arming site within which its retry must appear. Measured,
- * not guessed: applying the fix puts `.toPass(` at +333 for the ladder site and
- * +733 for the real-run site, whose retried block carries the two invariant
- * comments. 600 would fail the correct implementation; 900 clears the larger site
- * by ~170 and stays far short of the ~1,280 separating the two sites.
+ * Characters after an arming site within which its retry must appear. Measured
+ * against the real file, not guessed: the two sites put `.toPass(` at +734 and
+ * +735, so 900 clears both by ~165 while staying far short of the 2,304 that
+ * separate the sites. A 600-char window would REJECT the correct implementation —
+ * that was measured too. When prose pushed a site past the window, the comment
+ * moved above the arming click rather than the window widening: a window that
+ * grows to accommodate comments stops being a guard.
  */
 const ARM_WINDOW = 900;
 
@@ -69,15 +69,33 @@ describe("T-REGROW settle contract", () => {
     expect(sites.length, "T-REGROW should arm the confirm exactly twice (ladder + real run)").toBe(2);
     sites.forEach((at, n) => {
       const window = slice.slice(at, at + ARM_WINDOW);
-      expect(window, `arming site ${n + 1}: no measure() within ${ARM_WINDOW} chars`).toContain(
-        "measure()",
-      );
+      // Proximity alone would accept a one-shot measurement followed by an
+      // unrelated retry, so the three tokens are required IN ORDER: the retry
+      // callback opens, the measurement happens inside it, and the block closes
+      // with .toPass. That ordering is what establishes containment from source
+      // text — `expect(async () => {` … `measure()` … `}).toPass(`.
+      const opensAt = window.indexOf("expect(async () => {");
+      const measuresAt = window.indexOf("measure()");
+      const passesAt = window.indexOf(".toPass(");
       expect(
-        window,
+        opensAt,
+        `arming site ${n + 1}: no retry callback opens within ${ARM_WINDOW} chars`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        measuresAt,
+        `arming site ${n + 1}: no measure() within ${ARM_WINDOW} chars`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        passesAt,
         `arming site ${n + 1}: no .toPass( within ${ARM_WINDOW} chars — a slice-wide toPass COUNT ` +
           "would pass here on openHub's own retry plus one converted measurement, which is exactly " +
           "the half-done conversion this assertion exists to catch",
-      ).toContain(".toPass(");
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        opensAt < measuresAt && measuresAt < passesAt,
+        `arming site ${n + 1}: the measurement must sit INSIDE the retry callback ` +
+          `(callback opens at +${opensAt}, measure() at +${measuresAt}, .toPass( at +${passesAt})`,
+      ).toBe(true);
       expect(
         window.includes("waitForTimeout"),
         `arming site ${n + 1}: a fixed wait reappeared`,

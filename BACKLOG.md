@@ -207,7 +207,7 @@ Not fixed in the cluster that surfaced it: closing it means re-keying an existin
 registry and re-dispositioning seven files, which is its own change with its own
 review surface.
 
-## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (specced, not built)
+## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (implemented; accept/revert pending its CI measurement)
 
 **Status:** OPEN — IMPLEMENTED on `chore/ci-boot-overlap-and-popover-flake`, accept/revert decision pending that PR's real-CI measurement.
 
