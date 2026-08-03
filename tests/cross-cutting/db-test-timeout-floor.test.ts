@@ -109,22 +109,28 @@ const dbFileCache = new Map<string, boolean>();
 // a type-only reference to a DB helper is not database work, and counting it
 // selected files that touch no database.
 function runtimeSpecifiers(code: string): string[] {
+  // Erase `import type … from "x"` STATEMENTS, then scan what is left. An
+  // earlier version instead collected type-only specifiers into a set and
+  // filtered every occurrence of them, which dropped a module imported BOTH
+  // ways — the split form
+  //
+  //   import type { SeededShow } from "@/tests/db/_b2Helpers";
+  //   import { sqlClient } from "@/tests/db/_b2Helpers";
+  //
+  // is ordinary here, and it made a genuinely DB-touching suite invisible. An
+  // inline `import { type A, b }` is a value import and is correctly kept.
+  const runtime = code.replace(/\bimport\s+type\b[^;]*?from\s*["'][^"']+["']\s*;?/g, "");
   const out: string[] = [];
   const patterns = [
-    /(?<!\btype\s)\bfrom\s*["']([^"']+)["']/g,
+    /\bfrom\s*["']([^"']+)["']/g,
     /^\s*import\s+["']([^"']+)["']/gm,
     /\bimport\s*\(\s*["']([^"']+)["']/g,
     /\brequire\s*\(\s*["']([^"']+)["']/g,
   ];
   for (const pattern of patterns) {
-    for (const m of code.matchAll(pattern)) out.push(m[1]!);
+    for (const m of runtime.matchAll(pattern)) out.push(m[1]!);
   }
-  // `import type { X } from "y"` is erased; drop those specifiers.
-  const typeOnly = new Set<string>();
-  for (const m of code.matchAll(/\bimport\s+type\b[^;]*?from\s*["']([^"']+)["']/g)) {
-    typeOnly.add(m[1]!);
-  }
-  return out.filter((spec) => !typeOnly.has(spec));
+  return out;
 }
 
 function resolveTestModule(file: string, spec: string): string | null {
@@ -224,9 +230,29 @@ function testBudgets(file: string, body: string): Budget[] {
     }
   }
 
-  const fold = (expr: ts.Expression, seen = new Set<string>()): number | null => {
+  // `x as const`, `x satisfies T`, `(x)`, and `x!` are type-level wrappers with
+  // no runtime effect. Not seeing through them let `const opts = { timeout: 1000 }
+  // as const` — a spelling already used in DB tests here — hide a budget.
+  const unwrap = (expr: ts.Expression): ts.Expression => {
+    let cur = expr;
+    for (;;) {
+      if (
+        ts.isAsExpression(cur) ||
+        ts.isSatisfiesExpression(cur) ||
+        ts.isParenthesizedExpression(cur) ||
+        ts.isNonNullExpression(cur) ||
+        ts.isTypeAssertionExpression(cur)
+      ) {
+        cur = cur.expression;
+        continue;
+      }
+      return cur;
+    }
+  };
+
+  const fold = (raw: ts.Expression, seen = new Set<string>()): number | null => {
+    const expr = unwrap(raw);
     if (ts.isNumericLiteral(expr)) return Number(expr.getText(source).replaceAll("_", ""));
-    if (ts.isParenthesizedExpression(expr)) return fold(expr.expression, seen);
     if (ts.isPrefixUnaryExpression(expr) && expr.operator === ts.SyntaxKind.MinusToken) {
       const inner = fold(expr.operand, seen);
       return inner === null ? null : -inner;
@@ -355,10 +381,10 @@ function testBudgets(file: string, body: string): Budget[] {
   const readOptionsBag = (arg: ts.Expression, keys: Set<string>): void => {
     // A named options object — `const opts = { timeout: 1000 }; test(n, opts, fn)`
     // — is the same budget written one indirection away.
-    let bag: ts.Expression = arg;
+    let bag: ts.Expression = unwrap(arg);
     if (ts.isIdentifier(bag)) {
       const bound = consts.get(bag.text);
-      if (bound && ts.isObjectLiteralExpression(bound)) bag = bound;
+      if (bound) bag = unwrap(bound);
     }
     if (!ts.isObjectLiteralExpression(bag)) return;
     for (const prop of bag.properties) {
@@ -383,11 +409,15 @@ function testBudgets(file: string, body: string): Budget[] {
   // either written inline or resolves to a non-numeric binding; anything else
   // is treated as a budget, so an unreadable one is reported rather than
   // mistaken for a callback.
-  const isCallbackNotBudget = (arg: ts.Expression): boolean => {
+  const isCallbackNotBudget = (raw: ts.Expression): boolean => {
+    const arg = unwrap(raw);
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) return true;
     if (ts.isIdentifier(arg)) {
       const bound = consts.get(arg.text);
-      if (bound && (ts.isArrowFunction(bound) || ts.isFunctionExpression(bound))) return true;
+      if (bound) {
+        const inner = unwrap(bound);
+        if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) return true;
+      }
     }
     return false;
   };
