@@ -2816,3 +2816,110 @@ describe("R30 escaping mutants — an argv array is one command line", () => {
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R31 escaping mutants — dedupe, aliases, and the assignment grammar", () => {
+  const WORKFLOW = ".github/workflows/x.yml";
+  function yamlHits(source: string, file = WORKFLOW) {
+    return [...scanWorkflowIndirection(source, file), ...scanShellIndirection(source, file)];
+  }
+
+  // The raw and decoded passes deduped on ARGV ALONE, so a decoded site that
+  // differs from the raw one in exactly the field that decides safety was
+  // thrown away. A FOLDED scalar joins its lines with SPACES, so
+  // `$PG\npsql -X mydb` really runs `psql psql -X mydb` — `-X` after a
+  // positional, which POSIXLY_CORRECT discards — while the raw pass read the
+  // newline as a command separator and certified a bare `psql -X mydb`.
+  test("a folded scalar whose fold supplies the command word is NOT certified", () => {
+    const source =
+      "jobs:\n  x:\n    steps:\n      - run: >\n          $PG\n          psql -X mydb\n";
+    const sites = sitesIn(source, WORKFLOW);
+    expect(sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length).toBe(
+      1,
+    );
+  });
+
+  // Same defect, exemption side: an exempt raw site and an identical-argv
+  // UNPROTECTED decoded site deduped down to the exempt one, so the second
+  // invocation inherited a marker written for the first.
+  test("an exempt site does not absorb an identical unprotected one", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - run: "rows=$(psql -qAt mydb # ${EXEMPTION_MARKER} first call intentionally exempt\\n)\\npsql -qAt mydb"`,
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, WORKFLOW);
+    expect(sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length).toBe(
+      1,
+    );
+  });
+
+  // The composed argv resolved no aliases, while both the site path and the
+  // binding path have resolved them since R11 and R29. All three shapes are
+  // ordinary configuration reuse.
+  test.each([
+    ["an aliased entrypoint", "bin: &bin psql\nruns:\n  entrypoint: *bin\n  args: [-qAt, mydb]\n"],
+    [
+      "an aliased args SEQUENCE",
+      "argv: &argv [-c, psql -qAt mydb]\nruns:\n  entrypoint: sh\n  args: *argv\n",
+    ],
+    [
+      "an aliased args ITEM",
+      "cmd: &cmd psql -qAt mydb\nruns:\n  entrypoint: sh\n  args: [-c, *cmd]\n",
+    ],
+  ])("%s composes into an unprotected site", (_label, source) => {
+    const sites = sitesIn(source, "action.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("an aliased entrypoint still certifies when protected", () => {
+    const sites = sitesIn(
+      "bin: &bin psql\nruns:\n  entrypoint: *bin\n  args: [-X, -qAt, mydb]\n",
+      "action.yml",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // The assignment recognizer read one spelling of a binding. These are all
+  // ordinary bash, and each makes the later expanded command word psql.
+  test.each([
+    ["export, whole-argument single-quoted", "export 'PG=psql'\n\"$PG\" -qAt mydb\n"],
+    ["export, whole-argument double-quoted", 'export "PG=psql"\n"$PG" -qAt mydb\n'],
+    ["readonly, whole-argument quoted", 'readonly "PG=psql"\n"$PG" -qAt mydb\n'],
+    ["declare with no flag", 'declare "PG=psql"\n"$PG" -qAt mydb\n'],
+    ["local inside a function", 'f() { local "PG=psql"; "$PG" -qAt mydb; }\n'],
+    ["typeset", 'typeset "PG=psql"\n"$PG" -qAt mydb\n'],
+    ["an indexed element", 'PG[0]=psql\n"${PG[0]}" -qAt mydb\n'],
+    ["an append assignment", 'PG+=psql\n"$PG" -qAt mydb\n'],
+    ["read from a here-string", 'read -r PG <<< psql\n"$PG" -qAt mydb\n'],
+  ])("a binding through %s is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "probe.sh").length).toBeGreaterThan(0);
+  });
+
+  // PRECISION for the widened assignment grammar. Each is a real shape from
+  // this tree's own scripts and strings.
+  test.each([
+    ["an unrelated export", 'export "REF=main"\n'],
+    ["a prose sentence", 'MSG="psql failed to connect; retry"\n'],
+    ["an unrelated read", "read -r REF <<< main\n"],
+    ["an unrelated indexed element", "ARGS[0]=--verbose\n"],
+    ["a psql-free append", 'FLAGS+=" --quiet"\n'],
+  ])("%s is not reported", (_label, source) => {
+    expect(scanShellIndirection(source, "probe.sh")).toEqual([]);
+  });
+
+  test(
+    "the widened dedupe, alias, and assignment reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});

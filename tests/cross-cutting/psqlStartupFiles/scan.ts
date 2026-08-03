@@ -1927,10 +1927,31 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // replaces the whole expansion with an opaque word and the command name
     // only exists at runtime. Requiring the value to be ONE word keeps prose
     // like `MSG="psql failed"` out; `\bpsql\b` keeps `notpsql` out.
-    const assigned =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=(["']?)(?!\$\(|`)[^\s"';|&]*\bpsql\b[^\s"';|&]*\1(?:[\s;|&)]|$)/.exec(
-        code,
-      );
+    // One declaration grammar, not one spelling of it. Review demonstrated
+    // NINE ordinary bash bindings walking past the previous pattern, each of
+    // which makes the later expanded command word psql: whole-ARGUMENT quoting
+    // (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
+    // inside a function, `typeset`, an indexed element (`PG[0]=psql`), and an
+    // append (`PG+=psql`). The pattern now covers the declaration keywords with
+    // optional flags, both quoting positions, a subscript, and `+=`.
+    const DECLARE = "(?:(?:export|readonly|declare|local|typeset)\\s+(?:-\\w+\\s+)*)?";
+    const NAME = "[A-Za-z_]\\w*(?:\\[[^\\]]*\\])?\\+?=";
+    const VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
+    // The value may be quoted…
+    const assignedValueQuoted = new RegExp(
+      `(?:^|[\\s;&|(])${DECLARE}${NAME}(["']?)(?!\\$\\(|\`)${VALUE}\\1(?:[\\s;|&)]|$)`,
+    ).exec(code);
+    // …or the whole NAME=value argument may be, which is the form that carried
+    // `export "PG=psql"` past a pattern anchored on whitespace before the name.
+    const assignedWholeQuoted = new RegExp(
+      `(?:^|[\\s;&|(])${DECLARE}(["'])${NAME}${VALUE}\\1(?:[\\s;|&)]|$)`,
+    ).exec(code);
+    // `read -r PG <<< psql` binds the name from a here-string, which is not an
+    // assignment at all and so matched nothing.
+    const readBinding = new RegExp(
+      `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${VALUE}`,
+    ).exec(code);
+    const assigned = assignedValueQuoted ?? assignedWholeQuoted ?? readBinding;
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
@@ -2088,22 +2109,37 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       const argsPair = valueOf("args") as { value?: unknown } | undefined;
       if (!entrypointPair && !argsPair) return;
       const words: string[] = [];
+      // An ALIAS is not a Scalar and not a Seq, so every alias spelling — an
+      // aliased entrypoint, an aliased whole `args` sequence, an aliased ITEM
+      // inside one — composed to nothing. The site path has resolved aliases
+      // since R11 and the binding path since R29; this is the same contract.
+      const resolved = (n: unknown): unknown => {
+        let node = n;
+        for (let depth = 0; depth < 32; depth++) {
+          const asAlias = node as { resolve?: unknown };
+          if (typeof asAlias?.resolve !== "function") return node;
+          node = (asAlias as { resolve: (d: unknown) => unknown }).resolve(document);
+        }
+        return node;
+      };
       const scalarText = (n: unknown): string | null => {
-        if (!isScalar(n as YamlNode as never)) return null;
-        const text = (n as { value?: unknown }).value;
+        const node = resolved(n);
+        if (!isScalar(node as YamlNode as never)) return null;
+        const text = (node as { value?: unknown }).value;
         return typeof text === "string" ? text : null;
       };
       const entrypoint = scalarText(entrypointPair?.value);
       if (entrypoint !== null) words.push(shellQuoteWord(entrypoint));
       if (argsPair) {
-        const argsItems = (argsPair.value as { items?: unknown[] } | undefined)?.items;
+        const argsValue = resolved(argsPair.value);
+        const argsItems = (argsValue as { items?: unknown[] } | undefined)?.items;
         if (Array.isArray(argsItems)) {
           for (const item of argsItems) {
             const text = scalarText(item);
             if (text !== null) words.push(shellQuoteWord(text));
           }
         } else {
-          const inline = scalarText(argsPair.value);
+          const inline = scalarText(argsValue);
           if (inline !== null) words.push(inline);
         }
       }
@@ -2194,14 +2230,32 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // `run: "$(psql -X DSN)\npsql -qAt DSN"` has a raw-visible protected
       // substitution AND a decoded-only unprotected command, and "raw wins"
       // hid the second one entirely. Dedupe on the argv, not the line.
+      // On the argv AND on every other field that DECIDES the verdict. Deduping
+      // on argv alone threw away a decoded site that differed from the raw one
+      // in exactly the field that matters, and it was a false safe in both
+      // directions: a FOLDED scalar joins its lines with SPACES, so `run: >`
+      // over `$PG` and `psql -X mydb` really runs `psql psql -X mydb` — `-X`
+      // behind a positional, discarded under POSIXLY_CORRECT — while the raw
+      // pass read the newline as a command SEPARATOR and certified a bare
+      // `psql -X mydb`. The exemption side is the same defect: an exempt raw
+      // site absorbed an identical-argv UNPROTECTED decoded one, lending it a
+      // marker written for the first.
+      const verdictIdentity = (site: PsqlSite): string =>
+        [
+          site.tokens.join("\u0000"),
+          site.precedingWords.join("\u0000"),
+          String(site.suppressesStartupFiles),
+          site.exemptReason ?? "",
+          String(site.hasDynamicTokens),
+        ].join("\u0001");
       if (typeof decoded === "string" && decoded !== rawSlice) {
-        const seen = new Set(found.map((site) => site.tokens.join("\u0000")));
+        const seen = new Set(found.map(verdictIdentity));
         for (const site of scanShellText(substituteScriptPath(decoded), file, offset)) {
           // A DECODED line number is an offset into the decoded value, which
           // does not correspond to a physical line (an escaped `\n` consumes
           // none). Pin these to the `run:` key rather than inventing a line
           // that may be blank or absent.
-          if (!seen.has(site.tokens.join("\u0000"))) found.push({ ...site, line: offset + 1 });
+          if (!seen.has(verdictIdentity(site))) found.push({ ...site, line: offset + 1 });
         }
       }
       sites.push(...found);
