@@ -68,7 +68,10 @@ Remove the `Inter` import, the `inter` constant, and `${inter.variable}` from th
 
 ### 2.3 Dimensional invariants
 
-**N/A — declared explicitly.** This change introduces no fixed-dimension parent and no flex/grid child relationship; it alters only the resolved `font-family` on `<html>`. The Tailwind-v4 `align-items` caveat (`docs/agents/spec-self-review.md:11`) has no surface here. The **layout consequence** of the font change is nonetheless proven in a real browser (§4.2), because a font swap is a layout-affecting change even though it is not a dimensional-invariant change.
+**N/A — declared explicitly.** This change introduces no fixed-dimension parent and no flex/grid child relationship; it alters only the resolved `font-family` on `<html>`. The Tailwind-v4 `align-items` caveat (`docs/agents/spec-self-review.md:11`) has no surface here. The **layout consequence** of the font change is measured in a real browser regardless, because a font swap is layout-affecting even though it is not a dimensional-invariant change. Two measurements carry it, and the distinction matters (review R2 was right that an unconditional "is proven" here contradicted §4.2's permitted N/A branch):
+
+- **Unconditional:** §4.1 measures rendered TEXT ADVANCE with `getBoundingClientRect()` on three live routes. This runs always and is what proves the font actually changed the layout.
+- **Conditional:** §4.2's group-title row runs only under its branch (a). Under branch (b) it is recorded N/A with the navigation attempt shown. Nothing else in this spec depends on §4.2 landing.
 
 ### 2.4 Transition inventory
 
@@ -98,11 +101,13 @@ A new spec file, tests/e2e/font-binding.spec.ts (created by this change, so it i
 
 **Routes, corrected after review R1.** An earlier draft named `/sign-in`, which **does not exist** — the sign-in page is `app/auth/sign-in/page.tsx`, there is no redirect, and the run confirmed a `404`. A 404 still renders the ROOT layout, so a font probe on the not-found shell reads as a plausible pass for a surface never visited. Every case therefore asserts **status 200 AND page identity**, and the three routes are:
 
-| Case | Route | Auth | Proves |
-| --- | --- | --- | --- |
-| admin tree | `/admin` | `signInAs(page, ADMIN_FIXTURE)` (`tests/e2e/helpers/signInAs.ts:43`, `tests/e2e/helpers/fixtures.ts:25`) | `app/admin/layout.tsx` under the root layout — the tree the backlog entry is about |
-| public auth tree | `/auth/sign-in` | none | the root layout binds without any session, so a regression cannot hide behind auth |
-| crew tree | `/show/<slug>/<shareToken>` via `seedShowWithCrew()` (`tests/e2e/helpers/seedShowWithCrew.ts:108`) | none | the existing binding is not lost when the duplicate loader is removed; torn down with `deleteSeededShow` |
+| Case | Route | Auth | Identity assertion (named, per review R2) | Proves |
+| --- | --- | --- | --- | --- |
+| admin tree | `/admin` | `signInAs(page, ADMIN_FIXTURE)` (`tests/e2e/helpers/signInAs.ts:43`, `tests/e2e/helpers/fixtures.ts:25`) | `admin-layout` visible (`app/admin/layout.tsx:157`) AND `admin-layout-infra-error` absent (`app/admin/layout.tsx:92`) | `app/admin/layout.tsx` under the root layout — the tree the backlog entry is about |
+| public auth tree | `/auth/sign-in` | none | `sign-in-page` visible (the same testid `tests/e2e/sign-in-page.spec.ts:74` pins) | the root layout binds without any session, so a regression cannot hide behind auth |
+| crew tree | `/show/<slug>/<shareToken>` via `seedShowWithCrew()` (`tests/e2e/helpers/seedShowWithCrew.ts:108`) | none | `page-shell` visible | the existing binding is not lost when the duplicate loader is removed; torn down with `deleteSeededShow` |
+
+Each identity assertion names a testid **owned by the layout or page under test**, never a generic element. A generic `nav`-visible check would not structurally prevent the round-1 failure class (measuring the wrong 200 shell) from recurring.
 
 For each case, after `await page.evaluate(() => document.fonts.ready)`:
 
@@ -132,11 +137,15 @@ A structural test that walks `app/` from the filesystem (not a lexical file list
 
 **Corrected after review R1:** an earlier draft said "exactly one `next/font` import under `app/`", which is GREEN today (the crew layout is that one) and therefore could never go RED — violating invariant 1. Pinning the *path set* makes it RED pre-change (the set is the crew layout) and GREEN post-change. It also catches what a count cannot: a loader that MOVED to the wrong layout, and a second call site added without a second import.
 
-**Failure mode caught:** a future route layout re-adding its own `Inter()` call, silently re-registering a second face set under the same family name. The probe already observed seven `Inter` faces from a single loader; a second one compounds that invisibly.
+**Failure mode caught:** a future route layout re-adding its own loader call, silently re-registering a second face set under the same family name. The probe already observed seven `Inter` faces from a single loader; a second one compounds that invisibly.
+
+**Mutation-family closure (`docs/agents/writing-plans.md:24`), enumerated up front — this is the set the guard converges against.** Review R2 demonstrated a live escaping mutant against a line-oriented regex oracle, so the guard parses with the TypeScript compiler API and resolves import bindings instead: M1 a second loader in a NEW file; M2 a second NAMED import in the same file, both invoked (R2's probe); M3 the same loader invoked twice; M4 an ALIASED import; M5 a CONST alias chain (the regex's other escape); M6 the loader MOVED to another layout; M7 `next/font/local`; M8 a DEFAULT import; M9 a NAMESPACE import invoked by property access; M10 two invocations on ONE source line. Each has an executable fixture case, plus a negative case pinning that an identically-named import from an unrelated module is NOT counted. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard, not hypothesized.
 
 ### 4.4 Existing suites that must stay green
 
 `pnpm test`, `pnpm test:e2e`, `pnpm test:e2e:standalone`. The standalone suites are **expected unchanged** — they never load Next (R4) — which is itself a check on R4's claim: if a standalone measurement moves, R4 is wrong.
+
+**And the new spec must have a CI EXECUTION PATH, not merely a `testMatch` row.** Review R2 caught that registering in `playwright.config.ts` alone leaves the oracle dark in CI: `.github/workflows/crew-e2e.yml` invokes an explicit spec list, and the rest of the project is dead-in-CI by design. Three registrations are required, and the repo's own `tests/ci/_metaE2eWorkflowCoverage.test.ts` fails until they are all present: the Playwright `testMatch`, the crew-e2e workflow's spec list plus its post-run execution oracle `scripts/check-crew-e2e-executed.mjs` (collected is not executed), and a coverage-census allowlist row alongside the four existing crew-e2e specs. crew-e2e is also the right home on the merits: it builds and starts the PRODUCTION artifact, so the literal-family binding is proved against the build CI ships rather than only against a dev server.
 
 ---
 
@@ -187,7 +196,7 @@ If any local verification step runs `pnpm screenshot:help`, restore the committe
 | 3 — email canonicalization | N/A — no email boundary. |
 | 4 — no global sync cursor | N/A. |
 | 5 — no raw error codes in UI | N/A — no user-visible copy added or changed. |
-| 6 — commit per task | One commit per task, four in total for the code: `test(assets):` for T1 (font identity), `feat(assets):` for the wiring, `test(assets):` for T3 (single-loader guard), `test(assets):` for T2's row proof. **Corrected after review R1**, which noted three test tasks against two named commits. |
+| 6 — commit per task | One commit per task, and each task completes its own RED→GREEN cycle before committing, so no commit freezes a failing tree. **Corrected after review R2**, which was right that the earlier graph (test-commit, then implementation-commit) violated invariant 1's "failing test → minimal implementation → passing test → commit" ordering. The plan's task graph is the authority; the code commits are `feat(assets):` for T1 (all tests + implementation + CI wiring), optionally `test(assets):` for T2 under branch (a), `docs(assets):` for T4's closeout, and `docs(backlog):` for T5. |
 | 7 — spec is canonical | This spec implements `DESIGN.md:133` as written; no amendment proposed. |
 | 8 — impeccable dual gate | **ENGAGED** — `app/layout.tsx` and `app/show/[slug]/layout.tsx` are UI surfaces. `/impeccable critique` + `/impeccable audit` run on the diff with the canonical v3 setup gates before adversarial review; findings + dispositions in §12 of the closeout, which carries the `impeccable-gate:` marker line. |
 | 9 — Supabase call-boundary | N/A — no Supabase client call added. |
