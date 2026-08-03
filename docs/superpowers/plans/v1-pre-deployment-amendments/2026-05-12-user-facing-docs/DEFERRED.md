@@ -1,6 +1,6 @@
 # M11 user-facing-docs — DEFERRED.md
 
-Per `feedback_deferral_discipline.md` — items here are work that **will be done** with a concrete trigger or scheduled future-phase home inside the M11 plan tree. Items that **might be done** with no scheduled home go to `docs/superpowers/plans/BACKLOG.md` instead.
+Per `feedback_deferral_discipline.md` — items here are work that **will be done** with a concrete trigger or scheduled future-phase home inside the M11 plan tree. Items that **might be done** with no scheduled home go to `BACKLOG.md` instead.
 
 ---
 

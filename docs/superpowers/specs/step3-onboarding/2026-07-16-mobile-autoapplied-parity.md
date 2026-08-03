@@ -142,5 +142,5 @@ Anti-tautology: card chip expectations derive from the constructed `autoAppliedC
 ## 9. Close-out bookkeeping (same PR)
 
 - `DEFERRED.md`: FLOW4-1 → `[✅ RESOLVED 2026-07-16]` (strip on `/admin/needs-attention` + summary-card chip); FLOW4-7 → `[✅ RESOLVED 2026-07-16]` (`aria-labelledby`).
-- `BACKLOG.md`: no edit — verified no `BL-FLOW4-*` row exists in either `BACKLOG.md` or `docs/superpowers/plans/BACKLOG.md` (the DEFERRED refs were forward-looking ids that were never filed; same finding as the destructive-confirm arc).
+- `BACKLOG.md`: no edit — verified no `BL-FLOW4-*` row exists in either `BACKLOG.md` or `BACKLOG.md` (the DEFERRED refs were forward-looking ids that were never filed; same finding as the destructive-confirm arc).
 - Invariant-8 impeccable dual-gate (critique + audit) — UI surface touched (`app/admin/needs-attention/page.tsx`, `components/admin/*`), runs before whole-diff adversarial review.

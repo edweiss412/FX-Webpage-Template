@@ -1,7 +1,7 @@
 # Childless-growable static guard (BL-CHILDLESS-GROWABLE-STATIC-GUARD)
 
 <!-- spec-lint: not-ui — tests-only structural guard; components/ and app/ citations are census data, no UI surface ships -->
-<!-- spec-lint: ignore — bare BACKLOG.md means the repo-root file; docs/superpowers/plans/BACKLOG.md shadows the basename -->
+<!-- spec-lint: ignore — bare BACKLOG.md means the repo-root file; BACKLOG.md shadows the basename -->
 **Date:** 2026-07-26 · **Status:** draft under adversarial review — the review round at HEAD is identified by the latest `docs:` commit on this branch, not restated here · **Backlog:** `BACKLOG.md:169` (entry) and `BACKLOG.md:183` (revival mandate) — together "the backlog entry" wherever this spec says so · **Prior art:** descope record at `docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md:345` (§6)
 
 A source-scanning structural guard that fails-by-default when a NEW childless, unpainted, growable flex item lands anywhere under `components/` or `app/`. The five phantom-spacer sites repaired by PR #605 are covered by two layout oracles (`tests/e2e/pusher-alignment.layout.spec.ts`, `tests/e2e/section-header-layout.layout.spec.ts`) and the phantom-gap probe mounts; none of those instruments sees a SIXTH site written tomorrow. This guard closes that gap.

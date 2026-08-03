@@ -19,7 +19,7 @@ The link lands as precisely as the underlying sheet layout *honestly* allows —
 
 This spec is grounded in two live-code + live-sheet explorations performed 2026-06-21 (worktree `tile-source-deeplinks`):
 
-1. **Provenance-chain exploration** — confirmed source-cell coordinates are discarded across `Sheet → export → parse → DB → projection → tile`. The parser input is a flat markdown string (`lib/parser/index.ts:317` `parseSheet(markdown: string)`); every parsed type is value-only (`lib/parser/types.ts`); the DB stores only values; the projection surfaces only `drive_file_id`-class identifiers. `docs/superpowers/plans/BACKLOG.md` records "No source-cell provenance" as an intentional, deferred decision.
+1. **Provenance-chain exploration** — confirmed source-cell coordinates are discarded across `Sheet → export → parse → DB → projection → tile`. The parser input is a flat markdown string (`lib/parser/index.ts:317` `parseSheet(markdown: string)`); every parsed type is value-only (`lib/parser/types.ts`); the DB stores only values; the projection surfaces only `drive_file_id`-class identifiers. `BACKLOG.md` records "No source-cell provenance" as an intentional, deferred decision.
 
 2. **Full-corpus sheet sweep** — profiled all live "raw" sheets (per D11). Verdict: **Tier 3 (tab + A1 region range) is the right universal precision target, confirmed high-confidence.** Cell-exact (one source cell per rendered field) is rejected because it is, corpus-wide, **semantically wrong** (one packed multi-value cell backs many fields) and **brittle** (anchors drift several rows between sheets and the two format eras). See §10 and §15.
 
@@ -357,7 +357,7 @@ Per AGENTS.md "Every migration must reach the validation project":
 
 **EXPLICITLY DO NOT RELITIGATE** — each settled with evidence:
 
-- **Cell-exact precision (Tier 4) is out of scope.** Corpus sweep of all live sheets (D11) showed one packed multi-value cell backs many parsed fields on *every* sheet (crew `name+duties+role` in one cell; a flight itinerary's origin/airline/time/conf# in one cell; *all* crew members' hotel confirmation numbers in one cell). Cell-exact is semantically wrong, not merely hard. The only clean cell-exact pocket (AGENDA grid) is included opportunistically. `docs/superpowers/plans/BACKLOG.md` documents the reverse-mapping as deferred + brittle.
+- **Cell-exact precision (Tier 4) is out of scope.** Corpus sweep of all live sheets (D11) showed one packed multi-value cell backs many parsed fields on *every* sheet (crew `name+duties+role` in one cell; a flight itinerary's origin/airline/time/conf# in one cell; *all* crew members' hotel confirmation numbers in one cell). Cell-exact is semantically wrong, not merely hard. The only clean cell-exact pocket (AGENDA grid) is included opportunistically. `BACKLOG.md` documents the reverse-mapping as deferred + brittle.
 - **Crew-facing, always-shown is intentional (D1/D2).** Not a privacy regression: Doug already shares the raw, role-ungated sheet with all crew; app gating is additive UI, not a sheet boundary. Crew have view access.
 - **"Tab-level first" staging was considered and rejected.** For the legacy single-`INFO` sheets (majority, D11), tab-level ≈ whole-spreadsheet and does not serve the verify job. We build region-range directly behind a graceful fallback.
 - **Per-row / per-field links were considered and rejected.** Verified in visual brainstorming: a per-row glyph truncates dense rows (Crew role line). Affordance is per-source-backed-card → region anchor (D5).

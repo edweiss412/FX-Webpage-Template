@@ -29,7 +29,7 @@ One structural guard (new test file + helper + frozen debt ledger), two write-pa
 - `docs/superpowers/plans/` holds **301 units** (see §3.1, incl. the closeout-attach rule folding 8 sibling closeouts into their plan units) plus **13 undated files** (11 README.md at two depths, `BACKLOG.md`, `coverage.md`).
 - **195 units declare both gate halves** — 117 flat files, 78 directories. The old guard's discovery shape (top-level dir with `plan.md`) saw at most a dozen.
 - Closeout artifacts today (probe aggregates): 19 declaring units have a `*closeout*` file; 17 declaring units have a `## 12`-headed section somewhere; naming spans `closeout.md`, `CLOSEOUT.md`, `01-closeout.md`, `06-corpus-closeout.md`, `08-closeout.md`, flat sibling closeout files named after the plan stem, `handoffs/Phase-*.md-closeout.md`, and one closeout directory (`2026-07-26-ci-dark-descoped-closeout`).
-- Undated files declaring both halves: exactly one, `docs/superpowers/plans/BACKLOG.md` (an index quoting gate language, not a plan) — allowlisted in §4.4.
+- Undated files declaring both halves: exactly one, `BACKLOG.md` (an index quoting gate language, not a plan) — allowlisted in §4.4.
 - Hedge-word incidence in existing closeouts: 3 files (citations in §1.1.2) — all legitimate prose.
 
 ## 3 Definitions (input domains)

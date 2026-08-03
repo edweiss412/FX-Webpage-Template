@@ -690,7 +690,7 @@ and FLOW4-7 (`:503`) to:
 
 - [ ] **Step 2: Verify no BACKLOG edit needed**
 
-Run: `grep -rn "BL-FLOW4" BACKLOG.md docs/superpowers/plans/BACKLOG.md || echo "no backlog row (expected)"`
+Run: `grep -rn "BL-FLOW4" BACKLOG.md BACKLOG.md || echo "no backlog row (expected)"`
 Expected: `no backlog row (expected)` — the DEFERRED ref was a forward-looking id never filed (spec §9 verified NO `BL-FLOW4-*` row exists in either file). If a row IS found, mark it shipped in the same commit instead of skipping.
 
 - [ ] **Step 3: format:check the docs**
