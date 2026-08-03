@@ -327,6 +327,41 @@ the fallback is to move the fresh-extraction parity check into a dedicated CI jo
 default suite, keeping the artifact-reading consumers cheap. That fallback is named here so the
 choice is a decision rather than a discovery.
 
+### 3.5a Soundness boundary — where static recognition provably stops
+
+R5a demonstrated that the capture-links are **existential, not provenance-linked**: a link can be
+satisfied by an unrelated captured code while the site's own code came from nowhere captured. The
+four mutants all launder a code through `any` or reach a factory only by higher-order application
+(`["X"].map(make)`).
+
+**This is not a fixable defect of the rule; it is the boundary of static recognition.** Tracing a
+code's provenance through `any`, higher-order application, and dynamic dispatch is undecidable in
+general — any type-based recognizer can be defeated by `const w: ParseWarning = someAny`. Iterating
+further does not converge, which is exactly the unbounded-attack-space failure the AGENTS.md
+mutation-family rule warns about; "the reviewer imagines no further mutant" is not a fixed point.
+
+**Disposition, under the project's own finding-admissibility rule.** A hypothetical input is a
+finding only if a probe shows silent corruption *in the corpus*; where the worst case is a
+documented gap rather than a wrong auto-correct, it files here without a round. Probed: **zero
+`any`-laundered and zero higher-order-only warning constructions exist in `lib/` or `app/` today**
+— all 58 codes resolve statically, and all 22 skips pass both their local test and their capture
+link. The mutants are constructions, not corpus.
+
+So the contract is stated precisely rather than overclaimed:
+
+- **Sound** for every warning whose code is statically determinable — literal, union-typed,
+  shorthand, spread-preserved, `Object.assign`, awaited, or resolved at a direct call site.
+- **Loud** for anything else it reaches: the default is SIGNAL.
+- **Blind**, by construction, to a code whose provenance passes through `any`/`unknown` or reaches
+  its factory only by higher-order application. Such a code is neither captured nor signalled.
+
+**The real closure is not a better scanner.** `MESSAGE_CATALOG` (`lib/messages/catalog.ts:62`)
+already lists every §12.4 code but carries no field to partition parse-warnings from the rest —
+the exact gap `lib/dev/attentionScenarios/tier1.ts:117-121` records. A `class` field there would
+make the warning universe *enumerated* rather than *inferred*, and the scanner a cross-check
+instead of the source of truth. That is a §12.4 catalog change with the three-way lockstep it
+implies, out of scope here, and filed as `BL-CATALOG-PARTITION-WARNING-CLASS`.
+
 ### 3.6 Documented limits
 
 - A code assembled at runtime (a template literal, or a value read from config) has no literal
@@ -517,6 +552,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | B6 | HIGH (R5b) — AC-B5 silently misses one stale marker: the in-flight guard scans body lines 1-12 and `BL-LEDGER-GUARD-BODY-DEFINED-IDS` has its status at body line 13. | **Accepted.** AC-B5a asserts the transition directly instead of relying on that guard. The window limitation belongs to the sibling guard; it is covered here rather than assumed away. |
 | B7 | HIGH (R5b) — P5-sole is canonical in the spec but absent from all five executable plan sites. | **Accepted, and it is the same defect R4b raised about P5-live one round earlier — my repair patched one site instead of sweeping the class.** All plan sites now enumerate TEN plants (P1-P8, P5-live, P5-sole), verified by grep rather than by inspection. |
 | A7 | BLOCKING (R4a) — all four classifications can swallow a real definition: an `any`-sourced spread (FRAGMENT), an `unknown`-sourced validated copy (COPY), a `.map`-passed factory with zero direct call sites making "every call site resolves" vacuous (FACTORY_BODY), and a validate-and-return factory whose body contains no recognized site (USE). Four compiled mutants, all captured as nothing with no signal. | **Accepted — the decisive finding of the arc.** Each classification is now **capture-linked** in a second pass: FRAGMENT requires an enclosing warning site, COPY requires a warning-typed non-`any` spread source, FACTORY_BODY requires at least one DIRECT resolving call site, USE requires the callee's body to have actually produced a captured code. A local condition alone is no longer sufficient for any skip. Re-measured 58 / 0 / 22. |
+| A8 | BLOCKING (R5a) — capture links are existential, not provenance-linked; four compiled mutants launder a code through `any` or reach a factory only via `.map`, and are neither captured nor signalled. | **Accepted as correct, and dispositioned as a documented LIMIT rather than repaired — the fifth consecutive round on one vector.** Provenance tracing through `any` and higher-order application is undecidable; no type-based recognizer can be sound against `const w: ParseWarning = someAny`. Per the finding-admissibility rule a hypothetical is a finding only if the corpus shows silent corruption: probed, **zero** such constructions exist in `lib/` or `app/`. §3.5a states the sound/loud/blind contract precisely instead of overclaiming, and files `BL-CATALOG-PARTITION-WARNING-CLASS` as the real closure — an enumerated warning universe, not a better scanner. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 

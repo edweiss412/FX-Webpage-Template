@@ -125,9 +125,9 @@ provenance with `.toBe(...)`; left alone, confirmed still passing in Task 1's gr
 **Sweep 3 — the eight `KNOWN_DANGLING` rows Task 2 deletes.**
 
 ```
-$ rg -n 'BL-MUTATION-…|BL-SYNCFEED-UI-[123]' tests/docs/_metaLedgerReferentialIntegrity.test.ts
-96, 98, 100, 102, 104   the five BL-MUTATION-* rows
-108, 110, 112           the three BL-SYNCFEED-UI-* rows
+$ rg -n '<the five mutation ids>|<the three syncfeed ids>' tests/docs/_metaLedgerReferentialIntegrity.test.ts
+96, 98, 100, 102, 104   the five mutation-family rows
+108, 110, 112           the three syncfeed-ui rows
 ```
 
 `BL-RESOLVED` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`) stays — spec §1.

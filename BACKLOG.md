@@ -99,6 +99,30 @@ The `tier1.ts` comment attributes the miss to the content regex alone. Verified 
 
 ---
 
+## BL-CATALOG-PARTITION-WARNING-CLASS — the warning universe is inferred by a scanner, not enumerated by the catalog
+
+**Status:** OPEN · **Class:** registry completeness · **Effort:** M · **Filed:** 2026-08-03 (`chore/scanner-precision-cluster`, spec §3.5a)
+
+`MESSAGE_CATALOG` (`lib/messages/catalog.ts:62`) lists every §12.4 code but carries no field saying
+which are parse-warnings, so the attention-scenario gallery infers the warning universe by scanning
+source for ParseWarning constructions. `lib/dev/attentionScenarios/tier1.ts:117-121` records the gap
+verbatim: "MESSAGE_CATALOG holds all of them but carries no field to partition on."
+
+Inference has a hard ceiling, established by five adversarial rounds on `chore/scanner-precision-cluster`.
+The shipped recognizer is type-aware, fail-closed, and capture-linked, and it is still **blind by
+construction** to a code whose provenance passes through `any`/`unknown` or that reaches its factory
+only by higher-order application (`["X"].map(make)`) — tracing that is undecidable, not unimplemented.
+Zero such constructions exist today; the limit is documented in that spec's §3.5a.
+
+**Work:** add a partition field (e.g. `class: "parse_warning" | ...`) to the catalog row shape,
+backfill it, and invert the dependency — the gallery reads the catalog, and the source scanner
+becomes a CROSS-CHECK that fails when a constructed code is absent from the catalog or vice versa.
+That makes the universe enumerated rather than inferred, and turns the undecidable question into a
+registry lookup.
+
+**Cost:** a §12.4 catalog row-shape change, so it carries the three-way lockstep (master spec §12.4
+prose, `pnpm gen:spec-codes`, `lib/messages/catalog.ts`) plus the x1 catalog-parity gate.
+
 ## BL-HEADER-REACT-RECONCILE-HARNESS — the section-header layout proof serves static markup, so a JS-driven animation is uncovered
 
 **Filed:** 2026-08-02 (retroactively; cited by `tests/e2e/section-header-layout.layout.spec.ts:1185` as the filing that closes this gap, with no row anywhere). **Class:** test-coverage gap (harness capability). **Effort:** M.
