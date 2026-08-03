@@ -367,9 +367,30 @@ grep, and each round a different scoping decision hid a different class. Per the
 same-vector rule and the writing-plans structural-defense calibration, the third round is where
 prose patching stops and a guard ships.
 
-**A new retired-identifier-reference guard under `tests/docs/`** (created by the plan's Task 0,
-BEFORE any deletion): it walks every git-tracked file, greps for each retired identifier, and fails on any hit
-whose file is not in an explicit `RETIRED_IDENTIFIER_HISTORY` allowlist carrying a per-file reason.
+**A new retired-identifier-reference guard under `tests/docs/`** (created by the plan's Task 2,
+BEFORE any deletion): it walks every git-tracked file, greps for each retired identifier, and fails
+on any hit not covered by an explicit exemption row.
+
+**Exemptions are keyed by LINE CONTENT, not by file** — spec R4 BLOCKING. A file-keyed allowlist
+cannot distinguish a live occurrence from a historical one inside the SAME file, and this tree has
+exactly that case: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` carries the
+LIVE `RightNowCard` commitment at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:83`
+and resolved historical entries further down the same file. Allowlisting the file to keep the
+history also exempts the live row; refusing to allowlist it leaves the guard permanently red. Either
+way the class stays open, so the file key is not a viable design.
+
+Three row shapes, and the distinction is the whole point:
+
+| Shape | Key | When it is honest |
+| --- | --- | --- |
+| `archive` | whole file | The file is a dated record END TO END (`BACKLOG-archive.md`, `DEFERRED-archive.md`, `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records). No live commitment can appear in one by definition |
+| `line` | the exact trimmed line | A LIVE file whose specific line is historical. The row carries the matched line verbatim and matches only that content |
+| `pending` | the exact trimmed line | A live reference this branch will repair, owned by a named task. Task 13 asserts zero remain |
+
+A `line`/`pending` row that no longer matches any line FAILS rather than passing vacuously, so
+editing an exempted line invalidates its exemption instead of silently widening it. That is the
+fail-safe direction: the guard's default answer to "has this changed?" stops being "assume it is
+still fine".
 
 Why this ends the vector rather than deferring it:
 
@@ -380,8 +401,9 @@ Why this ends the vector rather than deferring it:
   is consulted.
 - **"History" becomes a claim with a reason attached**, reviewable per row, instead of an
   unstated scoping decision buried in a `--glob`. R3's finding is precisely that `DEFERRED.md`
-  ACTIVE tracking rows had been silently treated as history; an allowlist row for that file would
-  have had to state a reason, and no honest reason exists.
+  ACTIVE tracking rows had been silently treated as history — and R4's follow-up is why the claim
+  must be per LINE: in that one file some rows are history and one is a live commitment, so a
+  per-file claim would be false in one direction no matter which way it was written.
 - It **survives this branch**: the next retirement adds its identifier and gets the same guarantee.
 
 The table below stays as the EXPLANATION of what each hit is and what to do with it. The guard is

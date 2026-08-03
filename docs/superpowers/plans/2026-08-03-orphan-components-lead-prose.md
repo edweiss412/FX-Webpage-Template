@@ -104,8 +104,12 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    `tests/docs/_retiredIdentifiers.ts`:
    - `RETIRED_IDENTIFIERS`: `RightNowCard`, `PerShowCrewSection`, `PerShowCrewRow`,
      `ResolveAlertButton`, `RunFinalCASButton`.
-   - `RETIRED_IDENTIFIER_HISTORY`: `{ file, identifier, reason }` rows. A row is a CLAIM that the
-     file is a dated record, and it carries the reason inline so a reviewer can check it.
+   - `RETIRED_IDENTIFIER_EXEMPTIONS`: rows in the three shapes spec §5.0 defines — `archive`
+     (whole file, only for end-to-end dated records), `line` (exact trimmed line text in a LIVE
+     file), and `pending` (a live reference owned by `repairedBy`). **Never key an exemption by file
+     when the file is live** (spec R4 BLOCKING): the v1 plan's `DEFERRED.md` holds both a live
+     `RightNowCard` commitment and resolved history, so a file key is false in one direction
+     whichever way it is written.
    - Discovery is a walk of `git ls-files` (never a curated file list), excluding the guard's own
      ledger. Any hit in a file with no matching row FAILS, naming file, line, and identifier.
 2. **Derive the census mechanically, then commit GREEN.** Run the walker once with an empty
@@ -113,19 +117,24 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    the mechanically-derived replacement for the spec §5 table. Then seed the allowlist so the guard
    is GREEN at commit time (plan R1 BLOCKING-2 — a knowingly-red commit is mid-sequence breakage,
    not TDD). Every row is one of two kinds, and the KIND is a field, not a comment:
-   - `{ kind: "history", reason }` — a dated record (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
+   - `archive` — a dated record end to end (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
      `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records, this plan, the spec).
-   - `{ kind: "pending", repairedBy: "Task N", reason }` — a LIVE reference, owned by the task that
-     repairs it. Tasks 4-7 delete their `pending` rows as they repair the references.
+   - `line` — one historical line inside a LIVE file, keyed by that line's exact trimmed text.
+   - `pending` — a live reference, keyed the same way, owned by `repairedBy: "Task N"`.
+     Tasks 5-8 delete their `pending` rows as they repair the references.
 3. **Assert that `pending` is a transient state:** the guard fails if any `pending` row names a task
    number that no longer exists in this plan, and Task 12 asserts **zero** `pending` rows remain.
    Without that, "pending" would be an unbounded mute button — the exact failure the allowlist is
    supposed to prevent.
+   **And assert every `line`/`pending` row still MATCHES something:** a row whose text matches no
+   line in its file FAILS. Editing an exempted line invalidates its exemption instead of silently
+   widening it (spec §5.0's fail-safe direction).
 4. **RED first, against synthetic input (the honest form here).** Before the real ledger exists,
    write the two family proofs against a temp fixture directory, mirroring how
    `tests/components/_metaOrphanedComponents.test.ts` proves families (a)-(d) synthetically:
-   (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a `history`
-   row PASSES. Both must fail before the walker is written. This proves the contract regardless of
+   (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a matching
+   `line` row PASSES; (c) a file with TWO occurrences where only one carries a `line` row still
+   FAILS — the case a file-keyed allowlist cannot express, and the reason this design exists. Both must fail before the walker is written. This proves the contract regardless of
    what the real tree happens to contain.
 5. **Anti-vacuity:** assert the walk covers >100 tracked files and that every configured identifier
    was actually searched for (a typo'd identifier that matches nothing must fail, not pass).
