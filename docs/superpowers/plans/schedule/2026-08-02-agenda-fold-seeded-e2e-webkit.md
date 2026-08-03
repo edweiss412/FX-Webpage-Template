@@ -110,6 +110,16 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF24 — quarantine via `test.fail()` (whole-diff review R11 live mutant):** a declared
+  `test.fail(...)` case RUNS, fails before reaching its real assertions, is reported as outcome
+  "expected", and does not fail the run — so a fully quarantined suite looks executed. Two layers,
+  because one measurement decided the shape: `--list --reporter=json` reports expectedStatus
+  "passed" even for a `test.fail(...)` declaration (the expectation applies at RUN time), so
+  resolution-based detection is impossible. (1) The post-run oracle counts only results with
+  status `passed`, which is what actually fires in CI — proven end to end: with a quarantined case
+  the run printed "6 passed" and exited 0 while the oracle reported 5 of 6 and failed. (2) `.fail(`
+  joins the source bans in both guards as the cheap local twin, so the tree never reaches CI in
+  that state.
 - **MF22 — runtime skip (whole-diff review R10 live mutant), closed by a POST-RUN ORACLE:** a
   `beforeEach` calling `test.skip(<condition>)` skips every case at runtime while `--list` still
   counts them, so the count comparison, `EXPECTED_SKIPS` and the job's exit code all stay green on

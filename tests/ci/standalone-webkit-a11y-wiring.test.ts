@@ -60,11 +60,13 @@ describe("standalone WebKit a11y leg wiring", () => {
     // refactoring, not a contributor obfuscating an override inside the very spec whose coverage
     // is being asserted.
     expect(
-      [/\buse\b/, /\bbrowserName\b/, /test\s*\[/].filter((re) => re.test(specSrc)).map(String),
-      "tests/e2e/agendaScheduleLayout.spec.ts names use/browserName or bracket-accesses test. A " +
-        "file- or describe-scoped fixture override wins over the project's engine, so this leg " +
-        "could report a green WebKit run while executing Chromium. Put engine selection in the " +
-        "project only.",
+      [/\buse\b/, /\bbrowserName\b/, /test\s*\[/, /\.fail\s*\(/]
+        .filter((re) => re.test(specSrc))
+        .map(String),
+      "tests/e2e/agendaScheduleLayout.spec.ts names use/browserName, bracket-accesses test, or " +
+        "quarantines with .fail(). A fixture override wins over the project's engine (green " +
+        "WebKit run, Chromium execution); a quarantine lets the proof expected-fail before its " +
+        "role assertions. --list sees neither, so both are banned at the source.",
     ).toEqual([]);
 
     // Precedence, all three levels. R8 (HIGH) escaping mutant: a TOP-LEVEL
@@ -100,15 +102,20 @@ describe("standalone WebKit a11y leg wiring", () => {
       { cwd: ROOT, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
     );
     const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
-    const tests: { file: string; title: string }[] = [];
+    const tests: { file: string; title: string; expectedStatus: string }[] = [];
     const walk = (suites: unknown[]): void => {
       for (const suite of suites) {
         const s = suite as {
           file?: string;
           suites?: unknown[];
-          specs?: { title: string; file: string }[];
+          specs?: { title: string; file: string; tests?: { expectedStatus?: string }[] }[];
         };
-        for (const spec of s.specs ?? []) tests.push({ file: spec.file, title: spec.title });
+        for (const spec of s.specs ?? [])
+          tests.push({
+            file: spec.file,
+            title: spec.title,
+            expectedStatus: spec.tests?.[0]?.expectedStatus ?? "unknown",
+          });
         if (s.suites) walk(s.suites);
       }
     };
@@ -119,6 +126,12 @@ describe("standalone WebKit a11y leg wiring", () => {
         "agendaScheduleLayout.spec.ts. Zero = the grep regressed to non-matching (joined-title " +
         "trap); more = the dimensional suite leaked onto WebKit.",
     ).toHaveLength(1);
+    // Not quarantined (R11 HIGH): `test.fail()` would let the a11y proof fail before its role
+    // assertions while resolution, the baseline and the run's exit code all stay green.
+    expect(
+      tests[0]!.expectedStatus,
+      "the a11y test is marked test.fail() — it would expected-fail before proving anything",
+    ).toBe("passed");
     expect(tests[0]!.file).toContain("agendaScheduleLayout.spec.ts");
     expect(tests[0]!.title).toContain("a11y:");
   });

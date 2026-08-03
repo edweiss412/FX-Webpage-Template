@@ -291,12 +291,18 @@ function expectNoProjectGate(spec: string): void {
   // would defeat any bracket-aware successor. Every project-based gate must name `project` or
   // reach it through `testInfo`/`test.info()`, and neither spec uses either identifier for
   // anything else (verified 2026-08-02: zero occurrences in code, comments excluded).
-  const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/].filter((re) => re.test(code));
+  // `.fail(` joins the list for the quarantine class (R11 HIGH). Resolution cannot catch it:
+  // MEASURED 2026-08-02, `--list --reporter=json` reports expectedStatus "passed" even for a
+  // `test.fail(...)` declaration — the expectation is applied at RUN time. The executed-count
+  // oracle catches it in CI (it counts only PASSED results); this ban is the cheap local twin.
+  const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/, /\.fail\s*\(/].filter((re) =>
+    re.test(code),
+  );
   expect(
     banned.map(String),
-    `${spec} names project/testInfo in code. A project guard clause makes every case a silent ` +
-      "assertion-free PASS under any other project, so a one-word testMatch move turns the suite " +
-      "into a no-op that still reports green. Let it run and fail loudly instead.",
+    `${spec} names project/testInfo/.fail() in code. A project guard clause makes every case a ` +
+      "silent assertion-free PASS under any other project; a test.fail() quarantine makes it run, " +
+      "fail before its real assertions, and still report expected. Neither may appear here.",
   ).toEqual([]);
 }
 

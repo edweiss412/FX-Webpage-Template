@@ -52,9 +52,11 @@ const walk = (suites) => {
         .split("/")
         .pop();
       for (const test of spec.tests ?? []) {
-        const ran = (test.results ?? []).some(
-          (r) => r.status !== "skipped" && r.status !== undefined,
-        );
+        // PASSED, not merely "not skipped". Whole-diff review R11 (HIGH): `test.fail()` sets
+        // expectedStatus="failed", so the case runs, fails immediately before its real
+        // assertions, counts as outcome "expected", and does not fail the run — a quarantined
+        // suite that looks executed. A test that proves something ends green.
+        const ran = (test.results ?? []).some((r) => r.status === "passed");
         if (ran) executed.set(base, (executed.get(base) ?? 0) + 1);
       }
     }
