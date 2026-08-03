@@ -6,7 +6,7 @@
 // Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md §2.
 import { describe, expect, it } from "vitest";
 
-import { extractEntries, flattenLines, parseLedger } from "./_ledgerMdast";
+import { bodyDefinedIds, extractEntries, flattenLines, parseLedger } from "./_ledgerMdast";
 
 const BL = { requirePrefix: "BL-", levels: [2, 3] } as const;
 const DEF = { requirePrefix: null, levels: [3] } as const;
@@ -182,5 +182,79 @@ describe("flattenLines — §2 disposition table", () => {
 
   it("excludes autolinked URLs (GFM literal links become link nodes)", () => {
     expect(flat("see https://x.test/CLOSED-thing now")[0]!.text).toBe("see  now");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bodyDefinedIds — ids an entry defines in its BODY rather than in a heading
+//
+// Spec: docs/superpowers/specs/2026-08-03-ledger-body-defined-ids-and-enum-scan-widen-design.md §A.3.
+//
+// The live corpus carries TWO definition shapes (strong>inlineCode and
+// strong>text) and one near-miss that must NOT mint: a bullet that merely
+// ENUMERATES sibling ids, written with inlineCode and no strong wrapper. The
+// strong wrapper is the whole discriminator between defining and discussing,
+// so every plant below is aimed at it or at the separator that follows it.
+describe("bodyDefinedIds — body-bullet definitions", () => {
+  const entry = (body: string) => `## BL-PARENT — a parent entry\n\n${body}\n`;
+  const bodyIds = (text: string): string[] =>
+    extractEntries(text, BL).flatMap((e) => bodyDefinedIds(e));
+
+  it("mints from `- **`BL-A`** — text` (strong wrapping inlineCode)", () => {
+    expect(bodyIds(entry("- **`BL-A`** — the first shape\n"))).toEqual(["BL-A"]);
+  });
+
+  it("mints from `- **BL-B** — text` (strong wrapping plain text)", () => {
+    expect(bodyIds(entry("- **BL-B** — the second shape\n"))).toEqual(["BL-B"]);
+  });
+
+  it("does NOT mint from an enumeration bullet with no strong wrapper", () => {
+    // BACKLOG.md:83-84 — the bullet that DISCUSSES the eight body-defined ids.
+    // It leads with an id, so a "first token is an id" rule would mint from it.
+    expect(bodyIds(entry("- `BL-C`, `BL-D` — the ids enumerated above\n"))).toEqual([]);
+  });
+
+  it("does NOT mint from a strong id that is not the bullet LEAD", () => {
+    expect(bodyIds(entry("- see also **BL-E** — for context\n"))).toEqual([]);
+  });
+
+  it("does NOT mint when one strong run carries two ids", () => {
+    expect(bodyIds(entry("- **`BL-F`, `BL-G`** — a pair\n"))).toEqual([]);
+  });
+
+  it("does NOT mint without the em-dash separator — a mention is not a definition", () => {
+    expect(bodyIds(entry("- **BL-H** is discussed in the parent above\n"))).toEqual([]);
+  });
+
+  it("does NOT mint from a bullet that belongs to no entry", () => {
+    // Prose above the first heading (BACKLOG.md's reconciliation log lives
+    // there). extractEntries slices bodies from the first id-heading onward,
+    // so this is structural, but it is the property the guard leans on.
+    const md = "- **BL-I** — a bullet before any heading\n\n## BL-PARENT — a parent entry\n\nbody\n";
+    expect(bodyIds(md)).toEqual([]);
+  });
+
+  it("does NOT mint a lowercase token", () => {
+    expect(bodyIds(entry("- **BL-lower** — not an id\n"))).toEqual([]);
+  });
+
+  it("does NOT mint from a field label", () => {
+    expect(bodyIds(entry("- **Status:** IN PROGRESS · **Branch:** feat/x\n"))).toEqual([]);
+  });
+
+  it("mints from a bullet nested inside another list", () => {
+    // The live corpus has only flat lists; pinned so the behavior is decided
+    // rather than incidental.
+    expect(bodyIds(entry("- outer\n  - **BL-J** — nested one level\n"))).toEqual(["BL-J"]);
+  });
+
+  it("mints every id in a multi-bullet list, in source order", () => {
+    expect(
+      bodyIds(entry("- **`BL-K`** — first\n- **BL-L** — second\n- `BL-M` — third, no strong\n")),
+    ).toEqual(["BL-K", "BL-L"]);
+  });
+
+  it("mints nothing from an entry whose body has no bullets", () => {
+    expect(bodyIds(entry("Just prose about **BL-N** — with a strong id in it.\n"))).toEqual([]);
   });
 });

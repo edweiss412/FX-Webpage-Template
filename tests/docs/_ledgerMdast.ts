@@ -326,6 +326,94 @@ export function ledgerIds(text: string, opts: ExtractOpts): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Body-defined ids (BL-LEDGER-GUARD-BODY-DEFINED-IDS)
+// ---------------------------------------------------------------------------
+//
+// Some ids are defined deliberately in an entry's BODY rather than in a
+// heading: a parent enumerates its sub-items as bullets, and each bullet's id
+// is how that sub-item is referenced everywhere else. Promoting them was
+// ratified against on 2026-08-02 — a heading whose content is one bullet would
+// break the parent's ratchet or gate semantics, which is the thing that makes
+// them meaningful.
+//
+// WHAT DISCRIMINATES A DEFINITION FROM A MENTION. The live corpus writes a
+// definition two ways — `- **`BL-X`** — …` and `- **BL-X** — …` — and writes a
+// DISCUSSION of the same ids a third way, `- `BL-X`, `BL-Y` — …`, which leads
+// with an id and defines nothing (BACKLOG.md:83-84 versus :581-585 and
+// :1116-1118). A "first token is an id" rule mints from all three. The STRONG
+// wrapper is present on every definition and absent from every discussion, so
+// it is the load-bearing condition, and the em-dash after it is what separates
+// `**BL-X** — …` from `**BL-X** is discussed above`.
+//
+// DIVERGENCE FROM headingId, deliberately. headingId rejects a token in `code`
+// provenance, so `## `BL-X`` mints nothing. Here inlineCode inside the strong
+// lead is ACCEPTED, because that is how most of the corpus is written and the
+// strong wrapper — not the code span — is already carrying the discrimination.
+// Headings keep the strict rule; this is a second, narrower minting site with
+// its own evidence.
+//
+// SCOPE containment is structural rather than a predicate: only the ledger
+// files are ever offered to this function, so a bullet in a plan or spec can
+// never define anything, and a typo can never define itself.
+const BODY_ID = /^[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?$/;
+
+/** Text of a `strong` node, or null if it holds anything but text/inlineCode. */
+function strongText(node: Parent): string | null {
+  let out = "";
+  const walk = (n: Node): boolean => {
+    if (n.type === "text") {
+      out += String((n as Text).value);
+      return true;
+    }
+    if (n.type === "inlineCode") {
+      out += String((n as InlineCode).value);
+      return true;
+    }
+    // Any other wrapper (emphasis, delete, link, html) means this is not the
+    // plain `**id**` lead the corpus writes — stay conservative and mint
+    // nothing rather than guess at the author's intent.
+    return false;
+  };
+  for (const c of node.children) if (!walk(c)) return null;
+  return out;
+}
+
+/** The id a single list item DEFINES, or null when it defines nothing. */
+function listItemDefinedId(item: Parent): string | null {
+  const first = item.children[0];
+  if (first === undefined || first.type !== "paragraph" || !isParent(first)) return null;
+  const lead = first.children[0];
+  if (lead === undefined || lead.type !== "strong" || !isParent(lead)) return null;
+  const token = strongText(lead);
+  if (token === null || !BODY_ID.test(token)) return null;
+  // The separator must follow IMMEDIATELY: `**BL-X** — …` defines, while
+  // `**BL-X** is discussed above` mentions. An en-dash is accepted alongside
+  // the em-dash for the same reason the heading anchor does.
+  const after = first.children[1];
+  if (after === undefined || after.type !== "text") return null;
+  if (!/^\s*[—–]/.test(String((after as Text).value))) return null;
+  return token;
+}
+
+/**
+ * Ids DEFINED by body bullets of `entry`, in source order. Callers apply their
+ * own prefix filter — this mirrors headings, where `extractEntries` mints the
+ * token and `ExtractOpts.requirePrefix` decides whether it counts.
+ */
+export function bodyDefinedIds(entry: LedgerEntry): string[] {
+  const out: string[] = [];
+  const walk = (n: Node): void => {
+    if (n.type === "listItem" && isParent(n)) {
+      const id = listItemDefinedId(n);
+      if (id !== null) out.push(id);
+    }
+    if (isParent(n)) for (const c of n.children) walk(c);
+  };
+  for (const n of entry.body) walk(n);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Lane evaluation (spec §3)
 // ---------------------------------------------------------------------------
 
