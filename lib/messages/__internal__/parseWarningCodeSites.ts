@@ -173,6 +173,22 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         }
         const factoryName = enclosing.getName() ?? "(anonymous)";
 
+        // Ordered BEFORE call-site analysis: a union-typed parameter enumerates
+        // the universe exhaustively, whereas call sites enumerate only what is
+        // currently called. reelWarning's one call site passes its code
+        // dynamically, so call-site analysis alone would record nothing.
+        const parameterType = enclosing.getParameters()[parameterIndex]?.getType();
+        if (parameterType?.isUnion() && parameterType.getUnionTypes().every((u) => u.isStringLiteral())) {
+          for (const member of parameterType.getUnionTypes()) {
+            sites.push({ code: String(member.getLiteralValue()), file, line, via: "union" });
+          }
+          return;
+        }
+        if (parameterType?.isStringLiteral()) {
+          sites.push({ code: String(parameterType.getLiteralValue()), file, line, via: "union" });
+          return;
+        }
+
         let literalCallSites = 0;
         let dynamicCallSites = 0;
         for (const reference of enclosing.findReferencesAsNodes()) {

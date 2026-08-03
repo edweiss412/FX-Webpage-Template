@@ -88,4 +88,21 @@ describe("parse-warning code sites", () => {
     },
     SCAN_TIMEOUT_MS,
   );
+
+  it(
+    "enumerates a union-typed code parameter",
+    () => {
+      const { sites } = scan();
+      // reelWarning(code: ReelWarningCode) at lib/sync/phase2.ts:337-339 has ONE
+      // call site and it passes reel.warningCode dynamically (phase2.ts:385), so
+      // the factory rule finds zero literals. The union at
+      // lib/sync/verifyReelOnApply.ts:17-20 IS the enumeration — which is why the
+      // union rule has to be ordered ahead of the factory rule.
+      const reel = ["REEL_DRIFTED", "OPENING_REEL_PERMISSION_DENIED", "OPENING_REEL_NOT_VIDEO"];
+      for (const code of reel) {
+        expect(sites.find((s) => s.code === code)?.via, code).toBe("union");
+      }
+    },
+    SCAN_TIMEOUT_MS,
+  );
 });
