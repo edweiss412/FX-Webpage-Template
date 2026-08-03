@@ -10,6 +10,7 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+  CAPABILITY_PREDICATES,
   CAPABILITY_TRANSITION_MATRIX,
   affectedTilesOnFlip,
   type CapabilityPredicate,
@@ -23,21 +24,52 @@ import {
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag } from "@/lib/parser/types";
 
-const ALL_PREDICATES = [
-  "hasLead",
-  "hasA1",
-  "hasV1",
-  "hasL1",
-  "hasAdmin",
-] as const satisfies readonly CapabilityPredicate[];
+// Instance F of BL-LEAD-CAPABILITY-PROSE-STALE: this file used to hand-list
+// its own ALL_PREDICATES under `satisfies readonly CapabilityPredicate[]`.
+// `satisfies` permits a SUBSET, so that array could silently under-cover a
+// widened union — the same defect shape as the stale predicate comment. The
+// module's exported array is now the single source.
+const ALL_PREDICATES = CAPABILITY_PREDICATES;
+
+/** Pure — takes the list so a synthetic one can prove the count tracks n. */
+function allUnorderedPairs(items: readonly CapabilityPredicate[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      out.push(pairKey(items[i]!, items[j]!));
+    }
+  }
+  return out;
+}
 
 function pairKey(a: CapabilityPredicate, b: CapabilityPredicate): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
 describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
-  test("matrix has exactly 10 entries (C(5, 2) = 5*4/2)", () => {
-    expect(CAPABILITY_TRANSITION_MATRIX).toHaveLength(10);
+  test("matrix has exactly C(n, 2) entries, derived from CAPABILITY_PREDICATES", () => {
+    const n = CAPABILITY_PREDICATES.length;
+    expect(CAPABILITY_TRANSITION_MATRIX).toHaveLength((n * (n - 1)) / 2);
+  });
+
+  test("the matrix covers exactly the C(n,2) unordered pairs of CAPABILITY_PREDICATES", () => {
+    // Stronger than count-plus-no-duplicates: names the missing pair.
+    const actual = [...new Set(CAPABILITY_TRANSITION_MATRIX.map((e) => pairKey(e.a, e.b)))].sort();
+    expect(actual).toEqual([...allUnorderedPairs(CAPABILITY_PREDICATES)].sort());
+  });
+
+  test("allUnorderedPairs tracks n: a synthetic 6-predicate list demands 15 pairs", () => {
+    // Without this, allUnorderedPairs could return a hardcoded 10-element list
+    // and every other assertion here would still pass.
+    const synthetic = [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+    ] as unknown as readonly CapabilityPredicate[];
+    expect(allUnorderedPairs(synthetic)).toHaveLength(15);
   });
 
   test("no diagonals — every entry has a !== b", () => {
@@ -54,10 +86,10 @@ describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
       seen.add(key);
     }
     expect(dups).toEqual([]);
-    expect(seen.size).toBe(10);
+    expect(seen.size).toBe((CAPABILITY_PREDICATES.length * (CAPABILITY_PREDICATES.length - 1)) / 2);
   });
 
-  test("coverage — every predicate appears in exactly 4 entries (its 4 partners)", () => {
+  test("coverage — every predicate appears in exactly n-1 entries (its partners)", () => {
     const counts = new Map<CapabilityPredicate, number>();
     for (const p of ALL_PREDICATES) counts.set(p, 0);
     for (const entry of CAPABILITY_TRANSITION_MATRIX) {
@@ -65,7 +97,7 @@ describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
       counts.set(entry.b, (counts.get(entry.b) ?? 0) + 1);
     }
     for (const p of ALL_PREDICATES) {
-      expect(counts.get(p)).toBe(4);
+      expect(counts.get(p)).toBe(CAPABILITY_PREDICATES.length - 1);
     }
   });
 
