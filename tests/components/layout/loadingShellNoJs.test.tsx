@@ -128,10 +128,10 @@ describe("LoadingShell no-JavaScript notice", () => {
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     const heading = must(notice.querySelector("h1"), "the heading");
     const body = must(notice.querySelector("p"), "the body paragraph");
-    for (const cls of ["text-base", "font-semibold", "text-text-strong"]) {
+    for (const cls of ["text-2xl", "font-semibold", "text-text-strong"]) {
       expect(heading.classList.contains(cls), `heading is missing ${cls}`).toBe(true);
     }
-    for (const cls of ["mt-1", "text-sm", "text-text-subtle"]) {
+    for (const cls of ["mt-2", "text-base", "text-text-subtle"]) {
       expect(body.classList.contains(cls), `body is missing ${cls}`).toBe(true);
     }
   });

@@ -4,7 +4,7 @@
 **Branch:** `fix/nojs-loading-shell-notice`
 **Closes:** `BL-ADMIN-NOJS-LOADING-CONFLICT`
 
-impeccable-gate: critique=PENDING audit=PENDING p0=- p1=- dispositions=pending
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
 
 ---
 
@@ -196,4 +196,18 @@ Verification is folded into Task 3 rather than skipped: the JS-on control case l
 
 ## §12 — Impeccable findings + dispositions
 
-_Pending Task 5._
+Both halves run by EXTERNAL attestors (fresh subagents, not the implementing session), with the v3 setup gates completed in each. `critique` design health **25/40** (Acceptable); `audit` **18/20** (Excellent: a11y 3, perf 4, responsive 3, theming 4, anti-patterns 4, no AI tells).
+
+| # | Gate | Sev | Finding | Disposition |
+|---|---|---|---|---|
+| 1 | critique | **P1** | The notice inherited no page padding. Every `loading.tsx` puts its layout padding on a child of `data-loading-shell-content` — the half the rule hides — so the card ran flush to both edges of a 390px phone on the crew route (`app/show/[slug]/layout.tsx:47` adds none) and stretched past 1500px on wide admin. | **Fixed** (`9475a1657`). The notice carries its own `mx-auto w-full max-w-2xl px-4 py-8 sm:px-8` gutter, pinned by a component assertion. |
+| 2 | critique | P2 | Off the house scale: `rounded-lg` is the 16px radius DESIGN.md §4 reserves for modal/dialog surfaces, and on `border-border` cards the repo runs `rounded-md` ~129 times to `rounded-lg`'s 9 (9 of 10 being popovers). `p-4` vs the 64-use `p-tile-pad`. | **Fixed** (`9475a1657`). Now `rounded-md` + `p-tile-pad`, matching `components/admin/RecentAutoAppliedStrip.tsx:676`. |
+| 3 | critique | P2 | Copy named a location that does not exist on the primary persona's device: on iOS, JavaScript is under Settings → Apps → Safari → Advanced, not "your browser settings". | **Fixed** (`9475a1657`). Now "Turn it on, then reload", correct on every platform because it names none. |
+| 4 | audit | P2 | Type scale one to two steps below every comparable dead-end screen — `ShowUnavailable.tsx:33-38`, `app/admin/layout.tsx:95-96`, `app/admin/error.tsx:37` all pair `text-2xl` with `text-base`, while the notice carried the page's only instruction in the caption token. | **Fixed.** Now `text-2xl` heading + `text-base` body. Same job, same vocabulary. |
+| 5 | audit | P2 | The gutter fix is guarded only by a jsdom `classList.contains` assertion; no test measures a box, and `sm:px-8`/`py-8` are unasserted. DESIGN.md §7a's own rule is that a class-presence assertion only restates the fix. | **Deferred, with the risk retired by probe.** The attestor measured the shipped geometry headless with `javaScriptEnabled:false` and found it correct (x=16 w=358 at 390px; centered x=496 w=608 at 1600px), so this is a coverage gap rather than a defect. A real-browser box assertion would need a fifth e2e case whose only subject is padding on a state no user reaches with JS on; the class assertion plus that probe is proportionate. |
+| 6 | audit | P3 | The gutter double-applies on `/me` and `/help`, whose page padding sits on a *parent* of `LoadingShell` rather than a child. Measured: card 326px vs 358px at 390px, and left-aligned rather than centered on `/help` because of the `.help-prose` 70ch cap. | **Accepted.** A 32px difference on two of nine routes, in a state that is already a dead end. Scoping the gutter per-route would need a prop threaded through all nine `loading.tsx` files to fix a cosmetic delta. |
+| 7 | audit | P3 | No landmark element on the crew and admin routes (both wrap in bare divs). | **Accepted; the obvious fix is wrong.** A `<main>` inside `LoadingShell` would nest inside the `<main>` that `/me` and `/help` already provide. Correcting it belongs with those routes' chrome, not here. |
+| 8 | audit | P3 | `<style>` inside a body-level `<noscript>` is non-conforming per the HTML spec, which allows it only under `<head>`. | **Accepted.** Every browser honors it, and the alternative — hoisting a global rule into `<head>` — would apply outside this component's scope, which is the property that makes the mechanism safe. |
+| 9 | audit | P3 | No filesystem-walked test that a NEW `loading.tsx` wraps `LoadingShell`; one that did not would ship dark. | **Filed, not fixed.** Real and general, but it guards a convention this change consumes rather than introduces. Belongs in a structural meta-test of its own. |
+
+No P0 at either gate. The single P1 and all three P2s are fixed; the four P3s are dispositioned above.
