@@ -95,6 +95,17 @@ and each was class-swept rather than fixed as a single instance.
 | Joint R7 | BLOCKING | 1 BLOCKING, 1 HIGH | The archive glob swallowed `00-overview.md`, which is canonical, not a record — R4's defect one scope up; the claim guard scanned one spec row, leaving the production comment free to regress |
 | Joint R8 | BLOCKING | 3 BLOCKING | The ledger rule bound only Task 12; `RescanSheetButton.test.tsx` RENDERS the retired button (import-only deletion would have broken the build); flight markers cleared before merge |
 | Joint R9 | **APPROVE** | 0 | — |
+| Whole-diff R1 | BLOCKING | 1 BLOCKING, 5 MEDIUM, 2 LOW | Would not merge (origin/main had moved, and the naive conflict side would have resurrected closed work); the header-parity guard compared flag SETS, so `\|\|` → `&&` passed; three recognizer escapes; `reason` never validated non-empty; set-based exemption matching let one row cover a duplicated reference; a false "repo-wide" claim in three places; a wrong path; a dangling fragment |
+| Whole-diff R2 | NEEDS-ATTENTION | 1 HIGH, 1 MEDIUM, 3 LOW | A THIRD in-force claim in `00-overview.md` — canonical prose that fell in the gap between both guards; four more recognizer escapes including a fixed negation window that mis-cleared "No role_flags element grants admin access"; the master spec was archive-globbed, so an injected reference there was silently exempt; the census omitted `PublishShowButton`; four skipped e2e suites relabelled but still targeting the deleted hook |
+| **Real CI** | FAIL → fixed | 2 | Prettier on three files, and `_metaStripCommentsSingleSource` flagging a hand-rolled `//` strip in the new parity guard. **Both were invisible to every local run** — the meta-test walks `tests/`, so it only fires in a full-suite run. This is the local-passes-CI-fails class `AGENTS.md` names, caught by the gate that exists for it |
+
+**What the whole-diff rounds cost, and why it was worth it.** R1 and R2 together found
+seventeen issues in code that had already passed nine spec/plan rounds — because those rounds
+reviewed DOCUMENTS and these reviewed the artifact. Two would have broken the branch outright (the
+merge conflict, and `RescanSheetButton.test.tsx` rendering a deleted component, caught at plan R8).
+The rest were guards that looked right and were weaker than they read: comparing sets where
+operators mattered, a fixed-width negation window, a `reason` field nothing validated. The pattern
+worth carrying: **a new guard's first reviewer should try to escape it, not read it.**
 
 **Refuted / stale claims, recorded so a later reviewer does not re-derive them:**
 
