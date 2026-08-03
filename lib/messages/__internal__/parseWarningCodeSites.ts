@@ -26,9 +26,17 @@ export type ParseWarningCodeSite = {
 
 export type UnresolvedCodeSite = { file: string; line: number; why: string };
 
+/** A ParseWarning produced by something other than an object literal. */
+export type NonLiteralConstruction = {
+  file: string;
+  line: number;
+  kind: "class" | "object-assign";
+};
+
 export type ParseWarningCodeScan = {
   sites: ParseWarningCodeSite[];
   unresolved: UnresolvedCodeSite[];
+  nonLiteral: NonLiteralConstruction[];
 };
 
 const ROOT = resolve(__dirname, "../../..");
@@ -94,6 +102,7 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
 
   const sites: ParseWarningCodeSite[] = [];
   const unresolved: UnresolvedCodeSite[] = [];
+  const nonLiteral: NonLiteralConstruction[] = [];
 
   for (const sourceFile of project.getSourceFiles()) {
     const absolute = sourceFile.getFilePath();
@@ -101,6 +110,32 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
     const file = rel(absolute);
 
     sourceFile.forEachDescendant((node) => {
+      if (Node.isClassDeclaration(node)) {
+        // Same pre-filter trick as object literals: a class that cannot supply
+        // all three required members can never be assignable, so skip the
+        // expensive instance-type resolution on every unrelated class.
+        const members = new Set(
+          node.getMembers().map((m) => {
+            const getName = (m as { getName?: () => string }).getName;
+            return typeof getName === "function" ? getName.call(m) : "";
+          }),
+        );
+        if (members.has("severity") && members.has("code") && members.has("message")) {
+          const declaration = node.getSymbol()?.getDeclarations()?.[0];
+          if (declaration && isAssignableToParseWarning(checker.getTypeAtLocation(declaration))) {
+            nonLiteral.push({ file, line: node.getStartLineNumber(), kind: "class" });
+          }
+        }
+        return;
+      }
+
+      if (Node.isCallExpression(node) && node.getExpression().getText() === "Object.assign") {
+        if (isAssignableToParseWarning(node.getType())) {
+          nonLiteral.push({ file, line: node.getStartLineNumber(), kind: "object-assign" });
+        }
+        return;
+      }
+
       if (!Node.isObjectLiteralExpression(node)) return;
 
       const names = ownPropertyNames(node);
@@ -109,7 +144,26 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
       // Cheap syntactic pre-filter before any type work: ParseWarning requires
       // severity, code and message, so anything assignable supplies all three
       // directly or through a spread.
-      if (!names.has("code")) return;
+      if (!names.has("code")) {
+        // No own `code`: either PROPAGATION of an existing warning, or
+        // COMPOSITION where the code arrives via a spread fragment. Composition
+        // must be signaled — under a naive rule neither literal is a candidate,
+        // so the code would vanish with nothing reaching `unresolved`.
+        if (!hasSpread) return;
+        if (!isAssignableToParseWarning(node.getType())) return;
+        const spreadsAParseWarning = node
+          .getProperties()
+          .some(
+            (p) => Node.isSpreadAssignment(p) && isAssignableToParseWarning(p.getExpression().getType()),
+          );
+        if (spreadsAParseWarning) return; // propagation, not emission
+        unresolved.push({
+          file,
+          line: node.getStartLineNumber(),
+          why: "code composed via a non-ParseWarning spread",
+        });
+        return;
+      }
       if (!hasSpread && !(names.has("severity") && names.has("message"))) return;
       if (!isAssignableToParseWarning(node.getType())) return;
 
@@ -226,5 +280,5 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
     });
   }
 
-  return { sites, unresolved };
+  return { sites, unresolved, nonLiteral };
 }

@@ -105,4 +105,43 @@ describe("parse-warning code sites", () => {
     },
     SCAN_TIMEOUT_MS,
   );
+
+  it(
+    "signals a code composed through a non-ParseWarning spread",
+    () => {
+      const { unresolved } = scan();
+      // M8. `const p = {code:"X"}; const w: ParseWarning = {...p, severity, message}`
+      // defeats a naive pre-filter from both sides: the fragment has no
+      // severity/message, the enclosing literal has no own `code`. Neither is a
+      // candidate, so the code is missed with nothing reaching `unresolved`.
+      // The discriminator is whether any spread SOURCE is itself a ParseWarning:
+      // if one is, this is propagation (lib/parser/blocks/crew.ts:380-390
+      // re-stamps blockRef) and is skipped; if none is, the code entered from a
+      // non-warning fragment and must be signaled.
+      const propagationFalsePositives = unresolved.filter((u) =>
+        u.file.startsWith("lib/parser/blocks/crew.ts"),
+      );
+      expect(propagationFalsePositives).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "signals non-object-literal ParseWarning construction",
+    () => {
+      const { nonLiteral } = scan();
+      // M7. A class implementing ParseWarning and an Object.assign composition are
+      // both type-correct and runtime-valid, and both produce ZERO object-literal
+      // candidates — so they never reach `unresolved` either. Detected and
+      // signaled rather than modelled.
+      //
+      // `any`/`unknown` must be rejected before the assignability test:
+      // Object.assign(Object.create(null), {...}) at
+      // components/admin/review/PublishedArchivedTabOffer.tsx:26 is `any`, and
+      // `any` is assignable to everything, so without that exclusion this fails
+      // on existing production code before any mutant is planted.
+      expect(nonLiteral).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
 });
