@@ -2061,3 +2061,67 @@ describe("R22 escaping mutants", () => {
     expect(sitesIn(source, "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R23 escaping mutants — line advance is PER CHARACTER", () => {
+  // Every bulk append now advances `line` per character. Adding the newline
+  // count afterwards stamped a whole multiline body with its opening line, so a
+  // psql on a later line inherited a marker written above the command. R22
+  // tested only double quotes; single quotes and `${…}` took the same path.
+  const QUOTES: Array<[string, string]> = [
+    ["single", String.fromCharCode(39)],
+    ["double", '"'],
+  ];
+
+  test.each(
+    ["ssh host", "eval", "watch"].flatMap((head) =>
+      QUOTES.map(([kind, q]) => [head, kind, q] as const),
+    ),
+  )("%s with a %s-quoted multiline argument reports the psql line", (head, _kind, q) => {
+    const source = [
+      `# ${EXEMPTION_MARKER} unrelated adjacent operation`,
+      `${head} ${q}echo setup`,
+      `psql -qAt mydb${q}`,
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "scripts/probe.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(3);
+    expect(sites[0]!.exemptReason).toBeNull();
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each(
+    ["ssh host", "eval", "watch"].flatMap((head) =>
+      QUOTES.map(([kind, q]) => [head, kind, q] as const),
+    ),
+  )("%s with a %s-quoted multiline argument in a workflow block", (head, _kind, q) => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: |",
+      `          # ${EXEMPTION_MARKER} unrelated adjacent operation`,
+      `          ${head} ${q}echo setup`,
+      `          psql -qAt mydb${q}`,
+      "",
+    ].join("\n");
+    const sites = scanSource(source, ".github/workflows/probe.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(7);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a multiline `${…}` expansion does not shift the following line either", () => {
+    const source = [
+      `# ${EXEMPTION_MARKER} unrelated adjacent operation`,
+      'echo "${VAR:-a',
+      'b}"',
+      "psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "scripts/probe.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(4);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+});

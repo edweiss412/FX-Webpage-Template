@@ -684,6 +684,19 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       bufferLines = [];
     }
   };
+  /**
+   * Append a RUN of source text, advancing `line` PER CHARACTER. Every bulk
+   * append goes through this: adding the newline count AFTERWARDS stamped a
+   * whole multiline body with its opening line, so a psql on a later line
+   * inherited a marker written above the command. One helper means no branch
+   * can get it wrong — double quotes, single quotes and `${…}` alike.
+   */
+  const appendRun = (piece: string, at: number, quoted: boolean): void => {
+    for (let k = 0; k < piece.length; k++) {
+      append(piece[k]!, at + k, quoted);
+      if (piece[k] === "\n") line++;
+    }
+  };
   /** Append to the current word, recording where each character came from and
    * whether the shell had already removed its special meaning. */
   const append = (piece: string, at: number, quoted = false): void => {
@@ -740,8 +753,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           offset: i + 2 + entry.offset,
           backtick: entry.backtick,
         });
-      append(slice, i);
-      line += (slice.match(/\n/g) ?? []).length;
+      appendRun(slice, i, false);
       i = close;
       continue;
     }
@@ -781,8 +793,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       begin(i);
       const close = text.indexOf("'", i + 1);
       const body = close === -1 ? text.slice(i + 1) : text.slice(i + 1, close);
-      for (let k = 0; k < body.length; k++) append(body[k]!, i + 1 + k, true);
-      line += (body.match(/\n/g) ?? []).length;
+      appendRun(body, i + 1, true);
       i = close === -1 ? text.length : close;
       continue;
     }
@@ -818,8 +829,10 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           i = end;
           continue;
         }
-        if (text[i] === "\n") line++;
+        // Append with the CURRENT line, then advance: the newline belongs to
+        // the line it ends, and the next character starts the new one.
         append(text[i]!, i, true); // inside double quotes, globs do not expand
+        if (text[i] === "\n") line++;
       }
       continue;
     }
