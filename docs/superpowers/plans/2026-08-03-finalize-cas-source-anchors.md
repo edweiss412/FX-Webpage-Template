@@ -11,24 +11,51 @@ No file under `app/` outside `app/api/**`, none under `components/`, no `@theme`
 
 ## Meta-test inventory
 
-**CREATES none.** The change adds no registry-governed surface.
+**CREATES none.** The change adds no new registry.
 
-**EXTENDS none.** Declared explicitly, per surface:
+**EXTENDS three.** Each is a fail-by-default structural census, so an unnamed one does not go
+unnoticed — it turns `pnpm test` red on a suite that looks unrelated to the diff:
 
-- Supabase call boundary (`tests/auth/_metaInfraContract.test.ts`) — N/A. No Supabase client call is added; all three edits sit on postgres.js transaction objects.
-- Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — N/A, and see the topology enumeration below: no acquisition is added, so there is no new holder for the guard to pin.
-- Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — N/A. No route handler, no `"use server"` action, no mutation surface is added or removed. Both routes already carry their registered emits and neither route's exported surface changes.
-- Admin-alert catalog (`tests/messages/_metaAdminAlertCatalog.test.ts`) and the §12.4 catalog (`tests/cross-cutting/codes.test.ts`) — N/A. No new code; the anchors path has no user-visible error state.
-- Deferral-ledger graduation (`tests/docs/_metaDeferralLedgerGraduation.test.ts`) — **EXTENDS.** Task 4
-  moves `BL-ONBOARDING-CAS-SOURCE-ANCHORS` to the archive, and that guard protects archive-only
-  placement and provenance ONLY for ids registered in its `BACKLOG_GRADUATED` array
+- Sheet-deep-link census (`tests/components/admin/sheetIconLinkContainment.test.ts:1055`). It counts
+  every raw `buildSheetDeepLink` occurrence in non-test files against an exact map, and TYPE-ONLY
+  imports count — `lib/sync/phase2.ts` and `lib/admin/assembleStep3Row.ts` are both in the map for
+  exactly that reason. Task 1's `SourceAnchor` import therefore needs the row
+  `"lib/onboarding/shadowPayload.ts": 1` in `builderCounts`, in Task 1's own commit.
+- Local-DB URL guard (`tests/db/_metaLocalDbUrlGuard.test.ts:414`). It pins the scan set at exactly
+  65 files reading `LOCAL_TEST_DATABASE_URL`; Task 2's new real-DB file makes 66, so the count and
+  its rationale string change in Task 2's commit. The connection posture is not a style choice: use
+  `assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? <loopback>)` as
+  `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts:36` does, and do NOT copy the raw
+  `TEST_DATABASE_URL` read at `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts:32` — in this
+  repo that variable points at the VALIDATION project, and this suite writes and deletes rows.
+- Deferral-ledger graduation (`tests/docs/_metaDeferralLedgerGraduation.test.ts`). Task 4 moves
+  `BL-ONBOARDING-CAS-SOURCE-ANCHORS` to the archive, and that guard protects archive-only placement
+  and provenance ONLY for ids registered in its `BACKLOG_GRADUATED` array
   (`tests/docs/_metaDeferralLedgerGraduation.test.ts:90`, asserted at
   `tests/docs/_metaDeferralLedgerGraduation.test.ts:384` and
   `tests/docs/_metaDeferralLedgerGraduation.test.ts:393`). Without the row the graduation is
   unprotected and `pnpm vitest run tests/docs` passes vacuously. The row is
   `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }`, and
   the archived section must contain that branch name for the provenance assertion to hold.
-- Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`) — **activated, not edited.** The Stage-0 marker opts `BL-ONBOARDING-CAS-SOURCE-ANCHORS` into the guard for the life of the branch, which is why the branch was pushed at Stage 0 — the guard rejects an in-progress entry whose branch is not on `origin`. Task 4's graduation removes the entry and its marker together in the PR's own diff, which is what closes the guard out; see Task 4 for why after-the-merge is unfixable.
+
+**Activated, not edited.** Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`): the
+Stage-0 marker opts `BL-ONBOARDING-CAS-SOURCE-ANCHORS` into the guard for the life of the branch,
+which is why the branch was pushed at Stage 0 — the guard rejects an in-progress entry whose branch
+is not on `origin`. Task 4's graduation removes the entry and its marker together, in the PR's own
+diff; see Task 4 for why after-the-merge is unfixable.
+
+**Declared not applicable**, per surface:
+
+- Supabase call boundary (`tests/auth/_metaInfraContract.test.ts`) — no Supabase client call is
+  added; all three edits sit on postgres.js transaction objects.
+- Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no acquisition is added,
+  so there is no new holder to pin. See the topology enumeration below.
+- Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — no route
+  handler, no `"use server"` action, no mutation surface added or removed. Both routes already carry
+  their registered emits and neither route's exported surface changes.
+- Admin-alert catalog (`tests/messages/_metaAdminAlertCatalog.test.ts`) and the §12.4 catalog
+  (`tests/cross-cutting/codes.test.ts`) — no new code; the anchors path has no user-visible error
+  state.
 
 **Test-file wiring.** The one new test file lands under `tests/onboarding/`, matched by `BASE_INCLUDE` (`vitest.projects.ts:34`) and absent from `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`), so it joins the **serial** project by glob — no config edit, and CI runs it in `unit-suite-db` (`.github/workflows/unit-suite.yml:101`), which boots Supabase. It is not added to `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:69`); it self-skips when Postgres is unreachable, matching every sibling `*.db.test.ts`.
 
@@ -95,6 +122,10 @@ try {
 ```
 
 4. Return `sourceAnchors` in the `ok: true` object.
+5. Add `"lib/onboarding/shadowPayload.ts": 1` to `builderCounts` in
+   `tests/components/admin/sheetIconLinkContainment.test.ts:1055`. The `SourceAnchor` import is
+   type-only, and that census counts type-only imports (`lib/sync/phase2.ts` is in the map for the
+   same reason), so omitting the row fails `pnpm test` on an unrelated-looking suite.
 
 `coerceJsonbObject` is fail-closed by design: it returns a non-array object as-is
 (`lib/db/coerceJsonbObject.ts:65`), decodes a JSON-string-of-object
@@ -108,6 +139,7 @@ helper must NOT be changed to be tolerant — three other call sites depend on i
 
 ```
 pnpm vitest run tests/onboarding/shadowPayload.test.ts tests/onboarding/pullSheetOverridePropagation.test.ts
+pnpm vitest run tests/components/admin/sheetIconLinkContainment.test.ts
 pnpm typecheck
 ```
 
@@ -121,7 +153,7 @@ Commit: `feat(onboarding): surface staged source anchors on the shadow payload p
 
 ### 2.1 RED
 
-New file, at the exact path the verification commands below run (it does not exist yet, so it is named there rather than cited here), modeled on `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts` (which already drives Phase B via `handleOnboardingFinalize` and Phase D via `handleOnboardingFinalizeCas` against a live show) and on `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts` (which pins the Drive-free posture by `vi.mock`ing the export functions to throw).
+New file, at the exact path the verification commands below run (it does not exist yet, so it is named there rather than cited here). Its Postgres connection MUST be the guarded loopback form — `assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres")` — and the file must be added to the scan-set count in `tests/db/_metaLocalDbUrlGuard.test.ts:414` in this same commit. Modeled on `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts` (which already drives Phase B via `handleOnboardingFinalize` and Phase D via `handleOnboardingFinalizeCas` against a live show) and on `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts` (which pins the Drive-free posture by `vi.mock`ing the export functions to throw).
 
 This task adds only the Phase-B case:
 
@@ -141,6 +173,9 @@ Expected: FAIL — the payload has no `source_anchors` key, so the read is `null
 
 In `app/api/admin/onboarding/finalize/route.ts`:
 
+0. Bump the `tests/db/_metaLocalDbUrlGuard.test.ts` scan-set count from 65 to 66 and extend its
+   rationale string with this file — the guard is set-equality, so the RED above cannot go green
+   without it.
 1. `stageExistingShowShadow` gains a required parameter `sourceAnchors: Record<string, SourceAnchor>`, documented with the same reason `use_raw_decisions` carries (`app/api/admin/onboarding/finalize/route.ts:613-617`): Phase B deletes the `pending_syncs` row, so the value must ride in the payload or cease to exist.
 2. Add `'source_anchors', $14::jsonb` to the `jsonb_build_object`, and `sourceAnchors` as the 14th bind parameter — the raw object, never `JSON.stringify`d (`lib/sync/runScheduledCronSync.ts:1427` documents the double-encode trap).
 3. The call site at `app/api/admin/onboarding/finalize/route.ts:1140` passes the `sourceAnchors` local computed at `app/api/admin/onboarding/finalize/route.ts:1041`.
@@ -215,11 +250,18 @@ branch that no longer exists. It has to be in the PR's own diff.
 
 1. Full suite: `pnpm test`. Any failure triaged against the merge-base before it is treated as this
    branch's.
-2. `pnpm spec:lint` on both spec and plan; re-run the numeric and self-consistency sweeps over both
+2. `pnpm spec:lint` takes exactly one document path (`scripts/spec-lint.ts:101`), so run it twice —
+   once for the spec, once for this plan. Re-run the numeric and self-consistency sweeps over both
    after every repair round.
 3. **Final commit on the branch:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the whole entry
    moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the open-queue-only rule
-   at `BACKLOG.md:5`. The `**Status:** IN PROGRESS · **Branch:** …` line goes away with it, which is
+   at `BACKLOG.md:5`. **Rewrite the body as you move it** — the archived text is what `main` keeps,
+   and the entry as filed says Flow B "never computes/threads `source_anchors`", says cron
+   "repopulates on the next sheet edit", prescribes a pre-lock compute in `finalize-cas` that the
+   spec fenced as stale (spec §1.1), and reads as an open action ("Pick up if..."). Replace those
+   with what shipped: the payload channel, the never-pass-`{}` guard, and a pointer to the spec's
+   §4.1 limits. The graduation guard checks placement and provenance only, so nothing else catches a
+   stale body. The `**Status:** IN PROGRESS · **Branch:** …` line goes away with it, which is
    what satisfies invariant 12 and its guard. In the SAME commit, add the row
    `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }` to
    `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and make sure the
