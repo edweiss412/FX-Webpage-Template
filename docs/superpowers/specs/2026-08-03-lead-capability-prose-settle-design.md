@@ -32,7 +32,7 @@ Each item below is a decision already taken, with its ratification. A reviewer s
 
 ### 1.2 In scope
 
-Five instances of one class — **written claims about the code that the code does not support** — across two files, plus the ledger graduation.
+Six instances of one class — **a hand-maintained restatement of the code that nothing forces to stay true** — across three files, plus the ledger graduation.
 
 | # | Site | Claim | Status |
 | --- | --- | --- | --- |
@@ -41,8 +41,9 @@ Five instances of one class — **written claims about the code that the code do
 | C | `lib/visibility/capabilityTransitions.ts:47-52` | a predicate addition "surfaces … in the matrix as a TypeScript error if the matrix is incomplete" | **Found by class sweep** |
 | D | `lib/visibility/capabilityTransitions.ts:6-7` | "the five gated tiles" (four are then named) | **Found by class sweep** |
 | E | `lib/visibility/capabilityTransitions.ts:56` | "The five gated tiles whose visibility this matrix covers" | **Found by class sweep** |
+| F | `tests/visibility/capabilityTransitions.test.ts:26-32` | a hand-listed `ALL_PREDICATES` under `satisfies readonly CapabilityPredicate[]`, which permits a subset and so can silently under-cover a widened union | **Found by class sweep** |
 
-C, D, and E are not in the ledger entry. They are the same defect shape in the same file, and AGENTS.md requires sweeping the shape before patching the named instance.
+C through F are not in the ledger entry. They are the same defect shape — a hand-maintained restatement of something the code already knows, with nothing forcing the two to agree — and AGENTS.md requires sweeping the shape before patching the named instance.
 
 ### 1.3 Out of scope
 
@@ -125,6 +126,8 @@ export type CapabilityPredicate = (typeof CAPABILITY_PREDICATES)[number];
 
 The exported type is unchanged in every consumer (`transportTransitions.test.ts:26` imports it as a type only), so this is a widening of the module's exports, not a breaking change. Then the three hardcoded numbers in the test derive from `CAPABILITY_PREDICATES.length`: expected entries `n*(n-1)/2`, expected partners-per-predicate `n-1`, and — stronger than the current count-plus-no-duplicates pair — an explicit assertion that the matrix's unordered-pair set **equals** the full `C(n, 2)` pair set, which names the missing pair in its failure message.
 
+The same edit retires a **sixth instance of the class, found in the test file**: `tests/visibility/capabilityTransitions.test.ts:26-32` hand-lists its own `ALL_PREDICATES` under `satisfies readonly CapabilityPredicate[]`. `satisfies` permits a *subset*, so that array can silently under-cover a widened union — the identical defect shape as instances A and C, one file over. It is deleted in favour of the imported `CAPABILITY_PREDICATES`, leaving exactly one list in the codebase.
+
 Consequence, and the point of the exercise: adding a predicate now means adding it to `CAPABILITY_PREDICATES`, which raises `n`, which makes the derived expectations fail until the matrix carries every new pair. The header's claim becomes true. It is a test failure rather than literally a TypeScript error, so **the header text is corrected to say what actually happens** — claiming the stronger mechanism is how instance C arose in the first place.
 
 This is also what makes §1.1 item 3 cheaply reversible: whoever later decides FINANCIALS should be modeled adds one array element and is then *told by a failing test* exactly which five entries to write.
@@ -179,7 +182,7 @@ The `**Status:** IN PROGRESS · **Branch:** docs/settle-lead-capability-prose` m
 | --- | --- |
 | `lib/visibility/capabilityTransitions.ts` | `lib/visibility/capabilityTransitions.ts:124` predicate corrected; FINANCIALS exclusion stated; `lib/visibility/capabilityTransitions.ts:47-52` mechanism claim corrected; `CAPABILITY_PREDICATES` const added and the union derived from it; count words removed at `lib/visibility/capabilityTransitions.ts:6-7` and `lib/visibility/capabilityTransitions.ts:56` |
 | `tests/visibility/_metaDocumentedPredicateParity.test.ts` | **New.** Documented-predicate behavioral parity guard (§2.2b) |
-| `tests/visibility/capabilityTransitions.test.ts` | Three hardcoded counts derived from `CAPABILITY_PREDICATES.length`; pair-set equality assertion replaces count-plus-no-duplicates |
+| `tests/visibility/capabilityTransitions.test.ts` | Three hardcoded counts derived from `CAPABILITY_PREDICATES.length`; pair-set equality assertion replaces count-plus-no-duplicates; the duplicate `ALL_PREDICATES` list (instance F) deleted in favour of the import |
 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` | MI-9 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`) clause replaced (§2.4). Line-count neutral |
 | `BACKLOG.md` | Entry removed from the open queue; "Last reconciled" updated |
 | `BACKLOG-archive.md` | Entry added under a RESOLVED heading |
