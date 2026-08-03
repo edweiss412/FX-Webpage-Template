@@ -84,10 +84,23 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   const assignable = (t: Type | undefined): boolean =>
     rawAssignable(t) || rawAssignable(unwrapPromise(t));
 
+  /**
+   * String literals of a type, following unions — but ONLY when EVERY member is a
+   * literal. A union with a non-literal member (`string | "DECOY"`) means the value
+   * is not statically determined, and returning just the literal half reports a
+   * DECOY as fact: `{ code: "DECOY", ...patch }` where `patch: Partial<ParseWarning>`
+   * widens `code` exactly this way, and the later spread is what actually wins at
+   * runtime. Returning [] there routes the site to SIGNAL, which is correct.
+   */
   const literalsOf = (t: Type | undefined): string[] => {
     if (!t) return [];
     if (t.isStringLiteral()) return [t.getLiteralValueOrThrow() as string];
-    if (t.isUnion()) return t.getUnionTypes().flatMap(literalsOf);
+    if (t.isUnion()) {
+      const parts = t.getUnionTypes();
+      const lits = parts.flatMap(literalsOf);
+      const allLiteral = parts.every((m) => m.isStringLiteral() || m.isUndefined() || m.isNull());
+      return allLiteral ? lits : [];
+    }
     return [];
   };
 
@@ -110,6 +123,28 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   };
 
   const typeChecker = project.getTypeChecker();
+  /**
+   * Whether a call's callee has a body inside the scanned tree. Such a call must
+   * NOT read its own arguments: FACTORY_BODY already collects them using the
+   * parameter the BODY binds to `code`, which is not always the one named `code`.
+   * Reading them here re-introduces the name-bound answer and reports a decoy.
+   */
+  const hasScannedFactoryBody = (call: Node): boolean => {
+    if (!Node.isCallExpression(call)) return false;
+    const sym0 = call.getExpression().getSymbol();
+    const sym = sym0?.getAliasedSymbol?.() ?? sym0;
+    const decls = [...(sym?.getDeclarations() ?? []), ...(sym0?.getDeclarations() ?? [])];
+    return decls.some((d) => {
+      if (!options.include(relOf(d.getSourceFile().getFilePath()))) return false;
+      const fnLike =
+        Node.isFunctionDeclaration(d) ||
+        Node.isMethodDeclaration(d) ||
+        Node.isArrowFunction(d) ||
+        Node.isFunctionExpression(d);
+      return fnLike && Boolean((d as { getBody?: () => unknown }).getBody?.());
+    });
+  };
+
   const checkerSignatureOf = (call: Node) => {
     try {
       return typeChecker.getResolvedSignature(call as never) as
@@ -128,10 +163,12 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   const skips: Array<{ at: string; kind: SkipKind }> = [];
   const pending: Pending[] = [];
   /** Skips whose link is "a capture happened INSIDE this span" (USE, COPY). */
+  type Span = { rel: string; start: number; end: number };
   const pendingSpans: Array<{
     at: string;
     kind: SkipKind;
-    span: { rel: string; start: number; end: number };
+    span: Span;
+    alternatives?: Span[];
   }> = [];
 
   /** Where each capture happened, so a link can name a SPECIFIC body, not a file. */
@@ -168,8 +205,11 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
       // Contextual OR intrinsic: a warning passed to `sink(x: ParseWarning | Alert)`
       // has a non-assignable contextual type and an assignable own type.
       if (!assignable(contextual) && !assignable(own)) return;
-      // An awaited call is one site, not two — the `await` is the site.
-      if (Node.isCallExpression(node) && Node.isAwaitExpression(node.getParent())) return;
+      // An awaited call is one site, not two, and the CALL is the site: it is what
+      // carries the callee, so it can be classified as USE. Treating the `await` as
+      // the site instead orphans it — no callee, no classification, so it signals.
+      // `await` remains a site kind for a non-call operand (an awaited variable).
+      if (Node.isAwaitExpression(node) && Node.isCallExpression(node.getExpression())) return;
 
       const type = unwrapPromise(own) ?? own;
       const at = `${rel}:${node.getStartLineNumber()}`;
@@ -178,7 +218,21 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
       // DECLARED property type (`string`) and loses every literal.
       let found = literalsOf(type?.getProperty("code")?.getTypeAtLocation(node));
 
-      if (!found.length && Node.isObjectLiteralExpression(node)) {
+      // Only trust the syntactic `code:` initializer when NO spread follows it —
+      // a later spread or Object.assign argument overwrites it at runtime, and the
+      // type has already had its say above.
+      const spreadAfterCode = (o: typeof node): boolean => {
+        if (!Node.isObjectLiteralExpression(o)) return false;
+        const props = o.getProperties();
+        const codeIdx = props.findIndex(
+          (x) =>
+            (Node.isPropertyAssignment(x) || Node.isShorthandPropertyAssignment(x)) &&
+            x.getName() === "code",
+        );
+        if (codeIdx === -1) return false;
+        return props.slice(codeIdx + 1).some((x) => Node.isSpreadAssignment(x));
+      };
+      if (!found.length && Node.isObjectLiteralExpression(node) && !spreadAfterCode(node)) {
         const prop = node.getProperty("code");
         if (prop && Node.isPropertyAssignment(prop)) {
           found = literalsOf(prop.getInitializerOrThrow().getType());
@@ -193,7 +247,7 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             : Node.isAwaitExpression(node) && Node.isCallExpression(node.getExpression())
               ? node.getExpression()
               : undefined;
-        if (call) found = codeArgumentLiterals(call);
+        if (call && !hasScannedFactoryBody(call)) found = codeArgumentLiterals(call);
       }
 
       const resolved = found.filter((c) => SHOUTY.test(c));
@@ -237,13 +291,24 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             spread && Node.isSpreadAssignment(spread)
               ? spread.getExpression().getSymbol()?.getDeclarations()?.[0]
               : undefined;
-          const span = decl
-            ? {
-                rel: relOf(decl.getSourceFile().getFilePath()),
-                start: decl.getStart(),
-                end: decl.getEnd(),
-              }
-            : null;
+          // Link to the source's INITIALIZER — the expression that produced the
+          // value — so a declaration that merely CONTAINS an unrelated capture in
+          // one branch does not vouch for the other.
+          const init = decl && Node.isVariableDeclaration(decl) ? decl.getInitializer() : undefined;
+          const spanOf = (n: Node): Span => ({
+            rel: relOf(n.getSourceFile().getFilePath()),
+            start: n.getStart(),
+            end: n.getEnd(),
+          });
+          // A conditional initializer produces one value PER BRANCH; requiring only
+          // the whole expression to contain a capture lets an opaque branch ride
+          // the captured one.
+          const produced: Span[] = init
+            ? Node.isConditionalExpression(init)
+              ? [spanOf(init.getWhenTrue()), spanOf(init.getWhenFalse())]
+              : [spanOf(init)]
+            : [];
+          const span = produced[0] ?? null;
           // A PARAMETER receives its warning from call sites inside the scanned
           // program — including `.map((w) => ({ ...w, blockRef }))`, the shape of
           // every real copy here — so the origin is somebody else's captured site.
@@ -252,7 +317,8 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           // distinction, and it is why "warning-typed" alone was not a link.
           const fromParameter = Boolean(decl && Node.isParameterDeclaration(decl));
           if (warningTyped && fromParameter) skips.push({ at, kind: "COPY" });
-          else if (warningTyped && span) pendingSpans.push({ at, kind: "COPY", span });
+          else if (warningTyped && span)
+            pendingSpans.push({ at, kind: "COPY", span, alternatives: produced });
           else pending.push({ at, kind: "COPY", claim: null });
           return;
         }
@@ -273,6 +339,15 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           ?.getDeclarations()
           ?.some((d) => Node.isParameterDeclaration(d));
         if (isParameter) {
+          // Bind by the parameter the BODY actually assigns to `code`. Using the
+          // parameter NAMED `code` reads the wrong argument for
+          // `make(code, actual)` where the body returns `{ code: actual }`.
+          const boundParam = valueSymbol?.getDeclarations()?.[0];
+          const paramIndex = boundParam
+            ? ((boundParam.getParent() as unknown as { getParameters?: () => unknown[] })
+                ?.getParameters?.()
+                ?.indexOf(boundParam as never) ?? -1)
+            : -1;
           const fn = node.getFirstAncestor(
             (a) =>
               Node.isFunctionDeclaration(a) ||
@@ -286,7 +361,10 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             for (const ref of nameNode.findReferencesAsNodes()) {
               const call = ref.getParentIfKind(SyntaxKind.CallExpression);
               if (!call || call.getExpression() !== ref) continue;
-              const args = codeArgumentLiterals(call).filter((c) => SHOUTY.test(c));
+              const argNode = paramIndex >= 0 ? call.getArguments()[paramIndex] : undefined;
+              const args = (argNode ? literalsOf(argNode.getType()) : []).filter((c) =>
+                SHOUTY.test(c),
+              );
               if (args.length) {
                 anyDirect = true;
                 for (const code of args) capture(code, rel);
@@ -302,6 +380,9 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           }
           if (anyDirect && allResolve) {
             skips.push({ at, kind: "FACTORY_BODY" });
+            // A resolved factory body IS a definition — its codes came from the
+            // call sites above. A USE that returns it must therefore link.
+            captureSpans.push({ rel, start: node.getStart(), end: node.getEnd() });
             return;
           }
           pending.push({ at, kind: "FACTORY_BODY", claim: null });
@@ -336,7 +417,23 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           return isFnLike && Boolean((d as { getBody?: () => unknown }).getBody?.());
         });
         if (hasScannedBody && calleeBody) {
-          pendingSpans.push({ at, kind: "USE", span: calleeBody });
+          // Link to the RETURNED expression, not the whole body: a callee that
+          // emits an unrelated warning and then returns something opaque satisfies
+          // containment while the returned code is captured nowhere.
+          const decl = declarations.find(
+            (d) => relOf(d.getSourceFile().getFilePath()) === calleeBody.rel,
+          );
+          const returns = decl
+            ? decl.getDescendantsOfKind(SyntaxKind.ReturnStatement).map((r) => r.getExpression())
+            : [];
+          const spans = returns
+            .filter((e): e is NonNullable<typeof e> => Boolean(e))
+            .map((e) => ({ rel: calleeBody.rel, start: e.getStart(), end: e.getEnd() }));
+          if (!spans.length) {
+            signalled.push(`${at} USE (callee returns nothing inspectable)`);
+            return;
+          }
+          pendingSpans.push({ at, kind: "USE", span: spans[0]!, alternatives: spans });
           return;
         }
       }
@@ -362,8 +459,11 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
     captureSpans.some((c) => c.rel === span.rel && c.start >= span.start && c.end <= span.end);
 
   for (const p of pendingSpans) {
-    if (capturedInside(p.span)) skips.push({ at: p.at, kind: p.kind });
-    else signalled.push(`${p.at} ${p.kind} (nothing captured inside the linked body)`);
+    const candidates = p.alternatives ?? [p.span];
+    // EVERY value-producing expression must be captured: one captured return
+    // beside an opaque one still leaks the opaque path.
+    if (candidates.every((c) => capturedInside(c))) skips.push({ at: p.at, kind: p.kind });
+    else signalled.push(`${p.at} ${p.kind} (a produced value was captured nowhere)`);
   }
 
   return { codes, signalled, skips };

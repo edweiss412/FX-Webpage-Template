@@ -269,3 +269,64 @@ describe("scanParseWarningSites — whole-diff review regressions", () => {
     ).toBeGreaterThan(0);
   });
 });
+
+describe("scanParseWarningSites — whole-diff R2 regressions (ordering and value-linkage)", () => {
+  it("WD4: a later spread that OVERWRITES code is not reported as the earlier decoy", () => {
+    // `Partial<ParseWarning>` widens the union to `string | "DECOY_CODE"`, so
+    // reporting just the literal half named a value the runtime never uses.
+    const s = scanOf(`
+      const patch: Partial<ParseWarning> = { code: "HIDDEN_CODE" };
+      export const w: ParseWarning = { severity: "warn", code: "DECOY_CODE", message: "m", ...patch };
+    `);
+    expect(codesOf(s), "the overwritten literal must not be reported as fact").not.toContain(
+      "DECOY_CODE",
+    );
+    expect(s.signalled.length, "an undetermined code must signal").toBeGreaterThan(0);
+  });
+
+  it("WD5: FACTORY_BODY binds the parameter the BODY uses, not the one named `code`", () => {
+    const s = scanOf(`
+      function make(code: string, actual: string): ParseWarning {
+        return { severity: "warn", code: actual, message: code };
+      }
+      export const w = make("DECOY_CODE", "HIDDEN_CODE");
+    `);
+    expect(codesOf(s)).toContain("HIDDEN_CODE");
+    expect(codesOf(s), "the unused `code` parameter must not be read").not.toContain("DECOY_CODE");
+  });
+
+  it("WD6: USE links to the RETURNED expression, not to anything inside the body", () => {
+    // The callee emits an unrelated warning (satisfying containment) and then
+    // returns something opaque — the returned code is captured nowhere.
+    const s = scanOf(`
+      declare const opaque: ParseWarning;
+      declare function sink(w: ParseWarning): void;
+      function build(): ParseWarning {
+        sink({ severity: "warn", code: "DECOY_CODE", message: "m" });
+        return opaque;
+      }
+      export const w = build();
+    `);
+    expect(codesOf(s)).toEqual(["DECOY_CODE"]);
+    expect(
+      s.signalled.length,
+      "an opaque RETURN must signal even when the body captured something else",
+    ).toBeGreaterThan(0);
+  });
+
+  it("WD7: COPY links to the source's INITIALIZER, and every produced value must be captured", () => {
+    const s = scanOf(`
+      declare const opaque: ParseWarning;
+      declare const flag: boolean;
+      const source: ParseWarning = flag
+        ? { severity: "warn", code: "DECOY_CODE", message: "m" }
+        : opaque;
+      export const copied: ParseWarning = { ...source, message: "copy" };
+    `);
+    expect(codesOf(s)).toEqual(["DECOY_CODE"]);
+    expect(
+      s.signalled.length,
+      "a source whose other branch is opaque must signal, not ride the captured branch",
+    ).toBeGreaterThan(0);
+  });
+});
