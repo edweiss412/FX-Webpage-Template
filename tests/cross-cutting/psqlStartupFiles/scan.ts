@@ -474,7 +474,17 @@ export function scanSource(source: string, file: string): PsqlSite[] {
 }
 
 function walk(directory: string, out: string[]): void {
-  for (const entry of readdirSync(directory)) {
+  let entries: string[];
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    // An unreadable directory is skipped rather than crashing the scan. It
+    // cannot silently hide a call site: the walk starts at the repo root and
+    // the only thing that makes a directory unreadable here is a permission
+    // problem on a path git could not have checked out either.
+    return;
+  }
+  for (const entry of entries) {
     if (IGNORED_DIRS.has(entry)) continue;
     const full = join(directory, entry);
     let stats;
