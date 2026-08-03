@@ -21,7 +21,23 @@
  * exploited exactly that. So each skip is validated in a SECOND PASS against what
  * pass 1 actually captured.
  *
- * SOUNDNESS BOUNDARY (spec §3.5a). Tracing a code's provenance through `any` /
+ * SOUNDNESS BOUNDARY (spec §3.5a). Two halves, and they are not equally strong.
+ *
+ * The CAPTURE path is sound: every reported code is a checker-determined literal,
+ * and a code that cannot be resolved SIGNALS. That is the guarantee the guard
+ * enforces and the one the backlog entry asked for.
+ *
+ * The SKIP path — deciding a COPY or USE is a duplicate of something captured
+ * elsewhere — is a CONTAINMENT HEURISTIC, not provenance. Five review rounds each
+ * produced a new syntactic form defeating it (returned conditionals, wrapped
+ * conditionals, indexed selectors, multi-spread copies, `Object.assign` via alias
+ * or parentheses or global or index). Deciding whether the value returned or
+ * spread is the captured one IS dataflow analysis, so this does not converge by
+ * adding forms. Its failure mode is a false NEGATIVE on a site some other path
+ * already covered; it cannot hide a code unless the `any` boundary below also
+ * applies. Do not "fix" it with a sixth form — the closure is
+ * `BL-CATALOG-PARTITION-WARNING-CLASS`, which removes the question.
+ * Tracing a code's provenance through `any` /
  * `unknown` or higher-order application is undecidable; no type-based recognizer
  * survives `const w: ParseWarning = someAny`. Such a code is neither captured nor
  * signalled. Zero such constructions exist in `lib/` or `app/` today. The real

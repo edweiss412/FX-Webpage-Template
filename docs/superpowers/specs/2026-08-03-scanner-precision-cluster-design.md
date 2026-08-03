@@ -355,6 +355,31 @@ So the contract is stated precisely rather than overclaimed:
 - **Blind**, by construction, to a code whose provenance passes through `any`/`unknown` or reaches
   its factory only by higher-order application. Such a code is neither captured nor signalled.
 
+**Extended after R4/R5 (whole-diff): the SKIP JUSTIFICATION is heuristic, and stays that way.**
+Five consecutive rounds produced a new syntactic form defeating the current containment check —
+returned conditionals, wrapped conditionals, indexed collection selectors, multi-spread copies, and
+`Object.assign` reached via alias / parentheses / global / index. Each was fixed; each was followed
+by another. That is the signature of an undecidable problem wearing new clothes, not of a fixable
+rule: deciding whether the value a `USE` returns or a `COPY` spreads is the one that was captured IS
+dataflow analysis.
+
+The boundary is drawn where it actually falls:
+
+- **The CAPTURE path is sound and carries the entire value of this change.** 58 codes, 11 of them
+  previously dark, every one resolved from a checker-determined literal. A code that cannot be
+  resolved SIGNALS. That is what the backlog entry asked for and what the guard enforces.
+- **The SKIP path is a heuristic that decides whether a site the scan already reached is reported
+  as a duplicate.** Its failure mode is a false NEGATIVE on a site whose code some other path
+  already captured — it cannot cause a code to be missed unless an author deliberately writes a
+  warning whose code reaches no captured expression, which is the `any`-boundary case above.
+- Every one of the demonstrated defeats is a construction, not corpus. Probed at each round: the 38
+  live COPY/USE sites are `warn(...)` factory calls and `{ ...w, blockRef }` stamps.
+
+A registry pinning those 38 sites by file:line was considered and rejected: it would drift on every
+unrelated edit above them, converting a real guard into churn, and it would still not decide
+provenance — it would only record that a human looked once. The enumerated-catalog closure
+(`BL-CATALOG-PARTITION-WARNING-CLASS`) removes the question instead of re-encoding it.
+
 **The real closure is not a better scanner.** `MESSAGE_CATALOG` (`lib/messages/catalog.ts:62`)
 already lists every §12.4 code but carries no field to partition parse-warnings from the rest —
 the exact gap `lib/dev/attentionScenarios/tier1.ts:117-121` records. A `class` field there would
@@ -559,6 +584,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | B9 | HIGH (R6b) — one executable plan site still omitted P5-sole: Task 2's RED step scheduled only P5 and P5-live, so running the scheduled RED tests would not fail without it. | **Accepted. Third instance of this class** (P5-live at R4b, P5-sole at R5b, P5-sole again here), so the fix is not another mention: Task 2's RED step now enumerates the plant set explicitly and the plan states that the RED list is the scheduling site of record, with Verify referring back to it rather than restating it. |
 | B10 | HIGH (R7b) — P5-trace watches the injected spy, so a read that BYPASSES the spy is invisible: two compiled variants (a direct shadow read inside `definedIds`, a default adapter reading an extra path) stayed silent. P5-noio protects only `_ledgerMdast.ts`. | **Accepted.** Added **P5-noio-caller**: `definedIds`' body may contain no filesystem API, and the default reader is a single named one-liner. §4.2a gains the requirement that every physical read flow through the injected reader. |
 | B11 | HIGH (R7b) — Task 2's RED step still listed nine plants, not twelve. | **Accepted.** The RED list now names all of them, and it remains the single scheduling site. |
+| A9 | BLOCKING (R4/R5 whole-diff) — leaf decomposition is still containment, not provenance: indexed selectors, multi-spread copies, and `Object.assign` via alias/parens/global/index each defeat it. | **Accepted as accurate, and dispositioned as the documented limit rather than patched a sixth time.** Five rounds each produced a new syntactic form of one undecidable question. §3.5a now draws the line where it falls: the CAPTURE path is sound and carries the change's value; the SKIP path is a duplicate-suppression heuristic whose failure mode cannot hide a code unless the `any`-boundary case is also present. A file:line registry for the 38 live sites was considered and rejected — it drifts on unrelated edits and still decides nothing. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
