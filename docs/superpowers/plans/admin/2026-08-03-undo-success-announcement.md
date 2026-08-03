@@ -20,6 +20,19 @@
 - Copy: no em dash in any user-visible or announced string (`DESIGN.md:381`).
 - Commit style: conventional commits, one commit per task, `--no-verify` (shared lint-staged hook belongs to the main checkout).
 
+## Precedents to read before writing any of this
+
+Four adversarial rounds on this spec were spent rediscovering constraints this repository had already solved and written down. Read these four before touching the announcement code; each answers a question that otherwise costs a review round.
+
+| Precedent | What it already settles |
+|---|---|
+| `DESIGN.md:479` | The region node must be branch-stable, and single-return components render it as a key-stable sibling. This is the rule the whole design implements; it was not invented here. |
+| `components/admin/review/ReviewModalShell.tsx:690-695` | `PopoverHostContext` is the shell hosting one provider wrapping the entire panel interior, so content stays inside the focus trap / `aria-modal` / inert subtree. The dialog channel mirrors this placement exactly. |
+| `components/admin/review/ReviewModalShell.tsx:161-163` | The shell is inerted `aria-hidden` as belt-and-suspenders "beyond `aria-modal`, which browse-mode readers honor inconsistently". The premise for a dialog-local channel is already the codebase's stated position. |
+| `lib/a11y/dialogFocus.ts:60`, `dialogFocus.ts:117-122` | `reattachKey` is how the focus trap survives the `useHasMounted` portal flip that recreates host nodes. If the cold-load probe fails, this is the shape the fallback takes (spec §3.5.2). |
+
+The lesson worth carrying past this plan: on this codebase's modal surfaces, check `ReviewModalShell` and `DESIGN.md` for an existing answer before designing one.
+
 ## Meta-test inventory (mandatory declaration)
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
