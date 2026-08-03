@@ -43,7 +43,7 @@ The three codes in the gap carry a comma-joined multi-provenance string and are 
 | The guard fails on an **unrecognized construction**, not merely on a missing code. | §3.4, §5 |
 | The **scoped-`Project` optimization is rejected.** Globbing `lib|app|components|scripts` yields byte-identical output ~30% faster, but silently drops twelve root-level source files including the live Next.js entry point `instrumentation.ts` — reintroducing the maintained-list silent miss this design exists to remove. | §2.5 |
 | **No exemption mechanism ships.** Two schemas were tried and both admitted an escaping mutant; the list would be empty at ship time regardless. Adding an exemption is a deliberate guard code change. | §2.5 |
-| The guard carries **one hand-maintained anchor**, `EXPECTED_EMITTER_FILES`, because no check derived from the collector's own artifact can detect the collector narrowing. This is an accepted trade, stated plainly, not an oversight. | §3.5 |
+| The guard carries **one hand-maintained anchor**, `EXPECTED_PARSE_WARNING_CODES`, because no check derived from the collector's own artifact can detect the collector narrowing. This is an accepted trade, stated plainly, not an oversight. | §3.5 |
 
 ---
 
@@ -95,7 +95,8 @@ A ts-morph prototype using assignability to `ParseWarning` plus the resolution r
 | Recognized emit sites | 73 |
 | Distinct codes | **57** |
 | Unresolved sites | **0** |
-| Wall clock | ~2.1 s |
+| Wall clock, AST walk only | ~4.5 s |
+| Wall clock, end to end incl. program construction | **~19 s** (see §5 limit 8) |
 
 Site provenance: 50 literal, 19 factory-argument, 3 union-parameter, 1 imported const.
 
@@ -119,7 +120,7 @@ Recorded so no later round re-derives them, per the AGENTS.md triage-record rule
 
 ### 3.1 Unit 1 — `lib/messages/__internal__/parseWarningCodeSites.ts (new)`
 
-Sits beside the existing generator internals `walkSourceFiles.ts` and `stripLogEmissionCalls.ts`, which the generator already imports (`scripts/extract-internal-code-enums.ts:5-6`).
+Sits beside the existing generator internals `lib/messages/__internal__/walkSourceFiles.ts` and `lib/messages/__internal__/stripLogEmissionCalls.ts`, which the generator already imports (`scripts/extract-internal-code-enums.ts:5-6`).
 
 ```ts
 export type ParseWarningCodeSite = {
@@ -154,7 +155,7 @@ The precondition is that the factory be **exported**. All four factories today a
 
 ### 3.2 Unit 2 — generator change
 
-`scripts/extract-internal-code-enums.ts` replaces its `parse_warnings.code` block (`scripts/extract-internal-code-enums.ts:70-74`) with a call to `collectParseWarningCodeSites()`. The other three bucket blocks (`scripts/extract-internal-code-enums.ts:76-112`), `readFiles`, `addCodeLiteralsFromSource`, and the render/write path are untouched. Cost: `pnpm gen:internal-code-enums` gains ~2.1 s.
+`scripts/extract-internal-code-enums.ts` replaces its `parse_warnings.code` block (`scripts/extract-internal-code-enums.ts:70-74`) with a call to `collectParseWarningCodeSites()`. The other three bucket blocks (`scripts/extract-internal-code-enums.ts:76-112`), `readFiles`, `addCodeLiteralsFromSource`, and the render/write path are untouched. Cost: `pnpm gen:internal-code-enums` gains ~19 s end to end (§5 limit 8).
 
 ### 3.3 Recognition rules
 
@@ -172,7 +173,7 @@ const codePart = { code: "MUTANT_SPREAD_CODE" };
 const warning: ParseWarning = { ...codePart, severity: "warn", message: "x" };
 ```
 
-The discriminator is whether **any spread source is itself assignable to `ParseWarning`**. If one is, the literal propagates an existing warning and is skipped. If none is, the code entered from a non-warning fragment and the literal goes to `unresolved`. Probed: the composition mutant is signaled (`why: "code composed via a non-ParseWarning spread"`) while the live `crew.ts` propagation site stays clean, 0 unresolved tree-wide.
+The discriminator is whether **any spread source is itself assignable to `ParseWarning`**. If one is, the literal propagates an existing warning and is skipped. If none is, the code entered from a non-warning fragment and the literal goes to `unresolved`. Probed: the composition mutant is signaled (`why: "code composed via a non-ParseWarning spread"`) while the live `lib/parser/blocks/crew.ts` propagation site stays clean, 0 unresolved tree-wide.
 
 **Membership test.** `checker.isTypeAssignableTo(literalType, parseWarningType)` — assignability, not contextual-type name matching, because the decisive site has no contextual type:
 
@@ -206,25 +207,33 @@ Runs the same collector the generator runs. Assertions:
 0. **Provenance sentinels.** Three named codes of distinct provenance resolve through their intended rule (`SECTION_HEADER_NO_FIELDS` literal, `BLOCK_DISAPPEARED` const, `REEL_DRIFTED` union). A fast canary that names which rule broke.
 1. **Manifest agreement.** The recognized code set equals the set the committed manifest attributes to `parse_warnings.code`. Catches a stale manifest in both directions — a forgotten regeneration, and an additive implementation that retains the old regex scan.
 2. **Unrecognized construction.** `unresolved` is empty.
-3. **Emitter-file anchor.** See §3.5 — the independent oracle, and the only assertion that can detect the collector itself narrowing.
+3. **Golden code set.** See §3.5 — the independent oracle, and the only assertion that can detect the collector itself narrowing.
 4. **Non-object-literal construction.** See §3.6.
 5. **Mirror-class closure.** No file outside `tests/**` and `lib/dev/attentionScenarios/**` imports a **warning-producing factory** (`buildWarning`, `crewScopedWarning`) from the fixture tree. R2 finding 2 refuted the broader form of this assertion: ten production files legitimately import types and scenario data from that tree, so an all-imports ban is unpassable. The narrow form closes the actual mirror class — a factory whose body sits in an excluded tree would have its production call sites silently dropped — and passes today.
 
-### 3.5 The emitter-file anchor, and why the guard needs one
+### 3.5 The golden code set, and why the guard needs an independent anchor
 
-The design's central property is that the generator and the guard call the same collector, so they cannot disagree. That property is also a blind spot, and the plan's R2 proved it: if the collector narrows — a tightened file predicate, a broken glob — and the manifest is regenerated in the same commit as the plan requires, **both shrink together and every artifact-derived assertion stays green**. Probed: excluding one file drops the recognized set 57 → 51, the regenerated manifest also reports 51, and set equality passes.
+The design's central property is that the generator and the guard call the same collector, so they cannot disagree. That property is also a blind spot. If the collector narrows — a tightened predicate, a broken glob — and the manifest is regenerated in the same commit as the plan requires, **both shrink together and every artifact-derived assertion stays green**. Probed: excluding one file drops the recognized set 57 → 51, the regenerated manifest also reports 51, and set equality passes.
 
-No check derived from the collector's own output can close this. The guard therefore carries exactly one hand-maintained anchor:
+An emitter-**file** anchor was tried first and is **rejected**: sixteen of the twenty-two contributing files hold more than one site, so a narrowing that drops sites *within* files leaves the file set intact. Probed with a pre-filter tightened to require `blockRef`:
 
-```ts
-// Every file that contributes at least one parse-warning code site. Set equality:
-// a narrowed collector drops entries, a new emitter file adds one. Both fail loud.
-export const EXPECTED_EMITTER_FILES = [ /* 22 entries */ ];
+```
+within-file narrowing: codes 35 (baseline 57), sites 44 (baseline 73), unresolved 0
 ```
 
-Twenty-two files at `6a6ea124f`, spanning `lib/parser/blocks/**`, `lib/parser/{personalization,pull-sheet,sectionHeaderNormalize,warnings}.ts`, and eight `lib/sync/**` modules.
+Twenty-two of fifty-seven codes vanish silently, and a file-set anchor never fires.
 
-**This is a trade, and it should be read as one.** The change deletes a hand-maintained list of four codes and adds a hand-maintained list of twenty-two files. The justification is not that the new list is smaller — it is not. It is that the residue rotted *silently* (a code absorbed into the generated bucket left a dead row nobody could see), whereas this anchor fails loud in both directions: a dropped emitter file fails set equality, and a new one fails with a message naming the file to add. A guard that cannot be silently wrong is worth more than a shorter list.
+The anchor is therefore the **code set itself** — an ordinary golden-file snapshot, committed in the guard and independent of anything the collector produces:
+
+```ts
+// The parse-warning universe as of this commit. Changing it is a deliberate act:
+// a new emitter adds a line, a removed one deletes a line, and the diff is reviewable.
+export const EXPECTED_PARSE_WARNING_CODES = [ /* 57 entries */ ] as const;
+```
+
+Assertion 3 compares the recognized set to it by equality. Any narrowing that loses a code fails regardless of what the manifest says, because the pinned list does not move when the collector does.
+
+**This is a trade, and it should be read as one.** The change deletes a hand-maintained list of four codes and adds a hand-maintained list of fifty-seven. The justification is not size — it is failure mode and visibility. The residue rotted *silently*: a code absorbed into the generated bucket left a dead row that no test could see, which is how three of its four rows came to be load-bearing without anyone noticing. A golden set cannot rot silently: it fails loud in both directions, its diff is the review artifact, and updating it is one line with a reviewer looking at it. That is the difference between a list that decays and a list that is maintained.
 
 ### 3.6 Non-object-literal construction (R1 finding 2)
 
@@ -295,7 +304,7 @@ The acceptance posture is the preparedness-audit standard — every emitter is r
 6. **The recognizer models the TypeScript type `ParseWarning`, not a database column.** The `sync_log.parse_warnings` jsonb column also carries diagnostic payload rows (`lib/sync/runOnboardingScan.ts:669`, `lib/sync/syncLog.ts:31`) whose `code` is a sync-log status. Those are correctly out of scope.
 7. **The guard is only as fresh as the committed manifest.** Assertion 1 compares against the checked-in generated file.
 8. **Cost is ~19 s per program construction**, paid once by `pnpm gen:internal-code-enums` and once by the guard test: ~11.7 s program construction, ~2.8 s checker warm-up, ~4.5 s walk, over 2882 files. The scoped-`Project` optimization that would cut this to ~13 s is rejected in §1.1 — it trades the program-wide guarantee for wall clock.
-9. **The collector cannot certify its own completeness.** §3.5's `EXPECTED_EMITTER_FILES` is the one hand-maintained anchor, and it is load-bearing precisely because everything else in the guard derives from the collector.
+9. **The collector cannot certify its own completeness.** §3.5's `EXPECTED_PARSE_WARNING_CODES` is the one hand-maintained anchor, and it is load-bearing precisely because everything else in the guard derives from the collector. An emitter-file anchor was tried and rejected: a within-file narrowing drops 22 of 57 codes without changing the file set.
 
 Limits 1 and 2 are fenced in both directions on purpose: they are not defects to pre-solve, and a reviewer proposing to model them must show a live escaping site per the finding-admissibility contract in AGENTS.md.
 

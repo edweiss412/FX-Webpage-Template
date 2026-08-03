@@ -6,7 +6,7 @@
 
 impeccable-gate: N/A — no UI surface
 
-**Revision history:** R1 returned BLOCKING (2 P0, 2 P1, 1 P2) and R2 returned BLOCKING (2 P0, 2 P1, 1 P2). All ten confirmed by independent probe. R2 forced three structural changes: Tasks 7 and 8 merge (their split left Task 8 with no possible RED), the exemption mechanism is deleted rather than repaired (two schemas, two escaping mutants), and **set equality is conceded not to close M5** — the guard needs an independent anchor, added as `EXPECTED_EMITTER_FILES`. Task counts: 9 → 8 (R1) → 7 (R2).
+**Revision history:** R1 returned BLOCKING (2 P0, 2 P1, 1 P2) and R2 returned BLOCKING (2 P0, 2 P1, 1 P2). All ten confirmed by independent probe. R2 forced three structural changes: Tasks 7 and 8 merge (their split left Task 8 with no possible RED), the exemption mechanism is deleted rather than repaired (two schemas, two escaping mutants), and **set equality is conceded not to close M5** — the guard needs an independent anchor. The first anchor tried, an emitter-file set, was then refuted by a within-file narrowing and replaced with `EXPECTED_PARSE_WARNING_CODES`, a golden snapshot of the code set. Task counts: 9 → 8 (R1) → 7 (R2).
 
 ---
 
@@ -34,7 +34,7 @@ Per `docs/agents/writing-plans.md:24`, this enumeration IS the closure set the r
 | M2 | Unmodelled `code` shape | `` code: `PREFIX_${x}` ``; `code: MAP[k]`; a two-hop factory | assertion 2 — probed: `why: "code initializer is TemplateExpression"` |
 | M3 | Emitter in a directory nobody listed | a literal under `lib/reports/` | program-wide scan; probed present |
 | M4 | — | — | **removed by construction**: no exemption mechanism ships (see Task 6 deletion below) |
-| M5 | **Collector narrows** | tighten the file predicate, regenerate the manifest in the same commit | assertion 3 (`EXPECTED_EMITTER_FILES`) — **not** assertion 1 |
+| M5 | **Collector narrows**, at file OR site granularity | tighten the file predicate; or tighten the pre-filter so sites drop *within* files | assertion 3 (`EXPECTED_PARSE_WARNING_CODES`) — **not** assertion 1, and **not** an emitter-file anchor |
 | M6 | Test or fixture call site mints a code | export `lib/sync/enrichAgenda.ts:45`'s factory, call it from a test | scanned-file predicate on recorded sites; probed `false` after fix, `true` before |
 | M7 | Non-object-literal construction | class implementing `ParseWarning`; `Object.assign` composition | assertion 4, with `any`/`unknown` rejected first |
 | M8 | **Spread composition** | `const p = {code:"X"}; const w: ParseWarning = {...p, severity, message}` | pre-filter's spread-source discriminator — probed signaled, propagation site still clean |
@@ -45,7 +45,9 @@ Per `docs/agents/writing-plans.md:24`, this enumeration IS the closure set the r
 {"correctCodes":57,"degradedCodes":51,"manifestAfterRegenCodes":51,"setEqualityPasses":true,"namedPass":true}
 ```
 
-No assertion derived from the collector's own artifact can detect this. Assertion 3 is therefore an **independent anchor**: `EXPECTED_EMITTER_FILES`, the 22 files that contribute at least one site, compared by set equality. A narrowed predicate drops entries; a new emitter file adds one; both fail loud. The plan trades a hand-maintained 4-code residue for a hand-maintained 22-file anchor, and §3 states that trade rather than hiding it.
+No assertion derived from the collector's own artifact can detect this. Assertion 3 is therefore an **independent anchor**.
+
+An emitter-file anchor was the first attempt and it fails a second mutant: sixteen of the twenty-two contributing files hold more than one site, so tightening the pre-filter *within* files drops 22 of 57 codes while the file set is untouched (`codes 35, sites 44, unresolved 0`). The anchor is therefore the **code set itself**, `EXPECTED_PARSE_WARNING_CODES`, a golden snapshot of 57 codes compared by equality. The plan trades a hand-maintained 4-code residue for a hand-maintained 57-code snapshot, justified on failure mode rather than size — see spec §3.5 — and §3 carries that trade as a risk row rather than hiding it.
 
 **M4 is removed rather than defended.** R1 rejected `{file, reason}` as colliding file-wide; the `{file, why, reason}` repair was refuted in turn — replacing an exempted site with a different site in the same file drawing the same classifier leaves the multiset unchanged (`{"beforeEqual":true,"afterReplacementEqual":true,"escapedMutant":true}`). The list would be empty at ship time regardless, so the mechanism is dropped and `unresolved` must simply be empty.
 
@@ -158,24 +160,26 @@ and assert it reaches `unresolved`. Under a naive pre-filter neither literal is 
 
 **Commit:** `test(codes): signal non-object-literal and spread-composed construction`
 
-### Task 6 — the emitter-file anchor (assertion 3)
+### Task 6 — the golden code set (assertion 3)
 
-**RED.** Narrow the collector's file predicate to exclude `lib/sync/enrichWithDrivePins.ts`, regenerate the manifest, and assert the guard still fails. Against assertion 1 alone it does not — R2's probe shows recognized and manifest both drop to 51 and set equality passes. Against `EXPECTED_EMITTER_FILES` it fails, naming the dropped file.
+**RED, two mutants, because the first anchor design failed the second one:**
 
-**GREEN.** Export `EXPECTED_EMITTER_FILES` — the 22 files contributing at least one site, probed at `6a6ea124f`:
+1. Narrow the collector's file predicate to exclude `lib/sync/enrichWithDrivePins.ts`, regenerate the manifest, assert the guard fails. Assertion 1 alone does not catch it — recognized and manifest both drop to 51 and set equality passes.
+2. Narrow *within* files — tighten the pre-filter to also require `blockRef` — and assert the guard fails. Probed: `codes 35 (baseline 57), sites 44 (baseline 73), unresolved 0`. **An emitter-file anchor does not catch this**, because sixteen of the twenty-two contributing files hold more than one site, so the file set is unchanged while 22 of 57 codes vanish.
 
+**GREEN.** Pin the code set itself — an ordinary golden snapshot, independent of anything the collector produces:
+
+```ts
+export const EXPECTED_PARSE_WARNING_CODES = [ /* 57 entries, alphabetical */ ] as const;
 ```
-lib/parser/blocks/{agendaWarnings,client,crew,event,ops,rooms,transport,travelFlightWarnings,venue}.ts
-lib/parser/{personalization,pull-sheet,sectionHeaderNormalize,warnings}.ts
-lib/sync/{applyStaged,blockDisappearance,enrichAgenda,enrichTransportAssignees,enrichVenueGeocode,
-          enrichWithDrivePins,phase2,pullSheetOverride,snapshotAssets}.ts
-```
 
-Assertion 3 compares the contributing-file set to it by equality, so a narrowed predicate and a new emitter file both fail loud. The original Task 6 (exemption registry) is deleted — see §0.3's M4 row.
+Assertion 3 compares the recognized set to it by equality. Both mutants fail against it, because the pinned list does not move when the collector does.
 
-**Commit:** `test(codes): anchor the scan against its known emitter files`
+The emitter-file variant is recorded in spec §3.5 as tried-and-rejected so it is not re-proposed. The original Task 6 (exemption registry) is deleted — see §0.3's M4 row.
 
-### Task 7 — generator swap, gallery filter, residue deletion, regenerated manifest
+**Commit:** `test(codes): pin the parse-warning universe as a golden set`
+
+### Task 7 — generator swap, gallery filter, residue deletion, manifest, and guard assertions 0/1/2/5
 
 R1 merged the original Tasks 6 and 7; R2 showed Task 8 must merge in too. **These are not separable.** After a generator swap alone, the old strict filter plus the surviving residue already returns 57 and already contains `PULL_SHEET_ON_ARCHIVED_TAB`, so the planned Task 8 RED is green before its own GREEN:
 
@@ -228,7 +232,7 @@ Stage 4.4 then has no ledger work for this branch.
 - [ ] Task 3 — factory rule + M6 call-site exclusion
 - [ ] Task 4 — union-parameter rule
 - [ ] Task 5 — non-object-literal + spread-composition detectors
-- [ ] Task 6 — emitter-file anchor
+- [ ] Task 6 — golden code set
 - [ ] Task 7 — generator swap + gallery filter + residue deletion + manifest
 - [ ] Task 8 — ledger graduation + verification sweep
 - [ ] Self-review
@@ -246,4 +250,4 @@ Stage 4.4 then has no ledger work for this branch.
 | `checker.isTypeAssignableTo` is a TypeScript-internal API | `typescript@^5` and `ts-morph@^28` are already dependencies. The call sits behind one function in one module; the `OrThrow` posture makes a break loud. |
 | Recognizer and generator drift apart | Structurally impossible — same exported function. This is the design's central property. |
 | Set equality makes the guard brittle against legitimate churn | Intended. A new emitter changes the recognized set; regenerating the manifest is one command. |
-| `EXPECTED_EMITTER_FILES` is a hand-maintained list, the very thing this change deletes elsewhere | Stated as a trade, not hidden: 4 hand-maintained codes out, 22 hand-maintained files in. The justification is failure mode, not size — the residue rotted silently, whereas this anchor fails loud in both directions, and R2 proved no artifact-derived check can replace it. |
+| `EXPECTED_PARSE_WARNING_CODES` is a hand-maintained list, the very thing this change deletes elsewhere | Stated as a trade, not hidden: 4 hand-maintained codes out, 57 in. The justification is failure mode, not size — the residue rotted silently (a code absorbed into the bucket left a dead row no test could see), whereas a golden set fails loud in both directions and its diff is the review artifact. R2 proved no artifact-derived check can replace it, and the cheaper emitter-file variant was probed and rejected. |
