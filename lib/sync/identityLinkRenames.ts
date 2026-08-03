@@ -4,8 +4,9 @@ export type IdentityLinkRename = { removedName: string; addedName: string };
 
 /**
  * Spec §3.3 (2026-07-10-crew-rename-shrink-gate): MI-12 pairs (email-anchored, same person)
- * always identity-link; MI-13/MI-14 heuristic pairs link ONLY on the version-bound accepted
- * apply (the admin confirm is the vouch — an unconfirmed heuristic pair must never silently
+ * always identity-link; MI-13/MI-14 heuristic pairs link ONLY on a confirmed apply: cron's
+ * version-bound accept, or the staged per-item rename choice (the admin confirm is the vouch — an
+ * unconfirmed heuristic pair must never silently
  * merge two people's identities). Orphans and every other item never link.
  * Pairing is one-to-one by construction (invariants.ts pairing cascade: each removed name emits
  * at most one pair; already-claimed additions are skipped).

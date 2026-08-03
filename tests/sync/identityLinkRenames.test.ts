@@ -96,9 +96,9 @@ describe("computeStagedIdentityLinkRenames", () => {
       prior_email: "a@x.example",
       new_email: "b@x.example",
     };
-    expect(
-      computeStagedIdentityLinkRenames([mi11], [{ item_id: "6", action: "rename" }]),
-    ).toEqual([]);
+    expect(computeStagedIdentityLinkRenames([mi11], [{ item_id: "6", action: "rename" }])).toEqual(
+      [],
+    );
     expect(computeStagedIdentityLinkRenames([mi11], [{ item_id: "6", action: "apply" }])).toEqual(
       [],
     );

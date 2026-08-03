@@ -1,4 +1,5 @@
 import { canonicalize } from "@/lib/email/canonicalize";
+import { computeStagedIdentityLinkRenames } from "@/lib/sync/identityLinkRenames";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, ParseWarning, TriggeredReviewItem } from "@/lib/parser/types";
 import type { GatedRoleMapping, RoleTokenMapping } from "@/lib/sync/roleMappingOverlay";
@@ -550,7 +551,9 @@ export async function applyStagedCore(
   // discards BEFORE any mutation. Reject is only valid against an EXISTING show — the live
   // first-seen reject is INVALID_REVIEWER_ACTION (applyStaged.ts first-seen reject contract).
   // rename/independent/apply take NO dispatch branch: the staged parse applies WHOLESALE for all
-  // three — the per-action difference is ONLY in deriveAuthSideEffects floors + the audit record.
+  // three. Per-action differences: deriveAuthSideEffects floors, the audit record, and (spec
+  // 2026-08-03) rename-resolved MI-12/13/14 pairs threading identityLinkRenames so the apply is
+  // identity-preserving; independent pairs stay remove+add.
   if (validation.choices.some((choice) => choice.action === "reject")) {
     if (!args.show?.showId) {
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
@@ -577,6 +580,14 @@ export async function applyStagedCore(
     args.feedPolicy.kind === "choice_aware"
       ? choiceAwareFeedItems(args.triggeredReviewItems, validation.choices)
       : [];
+  // Identity-link renames (spec 2026-08-03 §3.2): a rename-resolved MI-12/13/14 item applies
+  // identity-preserving (in-place UPDATE, same crew_members.id); the reviewer's rename choice is
+  // the vouch. independent stays remove+add (R33-2 feed assertions untouched). Length-gated spread
+  // mirrors the cron producer (runScheduledCronSync).
+  const identityLinkRenames = computeStagedIdentityLinkRenames(
+    args.triggeredReviewItems,
+    validation.choices,
+  );
   const phase2 = await (deps.runPhase2 ?? defaultRunPhase2)(applyTx, {
     driveFileId: args.driveFileId,
     mode: "manual",
@@ -603,6 +614,7 @@ export async function applyStagedCore(
     // all-independent resolution would skip the feed write entirely and the g2 regression's
     // remove+add rows (R33-2 assertion ii) would never be written.
     ...(args.feedPolicy.kind === "choice_aware" ? { notableItems: feedItems } : {}),
+    ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
     binding: {
       bindingToken: args.stagedModifiedTime,
       modifiedTime: args.stagedModifiedTime,

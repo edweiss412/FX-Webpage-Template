@@ -95,8 +95,10 @@ export type ApplyParseResultArgs = {
   /**
    * Identity-link renames (spec 2026-07-10 §3.3/§3.4): classified rename pairs to apply as an
    * in-place UPDATE (same crew_members.id) instead of delete+insert. MI-12 pairs always; MI-13/
-   * MI-14 pairs only on the version-bound accepted apply. A skipped/absent pair degrades to
-   * today's delete+insert (fail-safe re-pick, never a wrong identity).
+   * MI-14 pairs only on the version-bound accepted apply (cron), or on the per-item rename
+   * reviewer choice (staged, spec 2026-08-03). A skipped/absent pair falls through to the ordinary
+   * delete+upsert flow; a hold-protected old name is retained, not replaced (fail-safe, never a
+   * wrong identity).
    */
   identityLinkRenames?: Array<{ removedName: string; addedName: string }>;
   // Task 6: KEPT "use raw" decisions from the runPhase2 overlay. Forwarded verbatim to
@@ -165,7 +167,8 @@ export async function applyParseResult(
   // drop the old-name row and leave nothing to rename. Guards: pair names must exist on their
   // respective sides, never touch hold-protected rows, and consume each name at most once
   // (pairing is one-to-one by construction — invariants.ts pairing cascade — so the consumed-set
-  // is a defensive belt; a skipped pair degrades to today's delete+insert, which is fail-safe).
+  // is a defensive belt; a skipped pair falls through to the ordinary delete+upsert flow (a
+  // hold-protected old name is retained), which is fail-safe).
   const previousNamesSet = new Set(args.snapshot.previousCrewNames);
   const nextNamesSet = new Set(nextCrewNames);
   const consumedRenameNames = new Set<string>();
