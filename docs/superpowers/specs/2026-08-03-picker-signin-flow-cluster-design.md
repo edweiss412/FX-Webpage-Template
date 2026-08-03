@@ -401,10 +401,14 @@ against a route unit test. If it fails, R1 did not actually ship.
   A future section id must be added to `BASE_SECTION_IDS` to survive bootstrap; that is the
   existing contract, not a new limit, and it fails closed (the param is dropped, the user lands on
   the show).
-- The stale-cleanup redirect is proved for one of the three stale reasons (`epoch_stale`). The
-  other two (`removed_from_roster`, `identity_invalidated`) share the same code path below the
-  branch that classifies them, so the coverage is representative rather than exhaustive. Stated
-  here rather than discovered in review.
+- The stale-cleanup redirect is proved for one of the **four** stale kinds (`epoch_stale`). The
+  other three — `removed_from_roster`, `selection_reset`, `identity_invalidated`
+  (`app/show/[slug]/[shareToken]/staleBanner.ts:9-13`, mirroring the resolver kinds at
+  `lib/auth/picker/resolveShowPageAccess.ts:20-34`) — share the same code path below the branch
+  that classifies them, so the coverage is representative rather than exhaustive. Note
+  `selection_reset` deliberately renders the SAME crew-facing copy as `epoch_stale`
+  (`staleBanner.ts:17-19`), so the pair is genuinely indistinguishable downstream of
+  classification; the remaining two differ only in banner code, not in cleanup behavior.
 - **Cancelled navigation leaves the row disabled.** Local pending state (§3.4) is cleared by
   navigating away or by `pageshow`. If the user taps and then stops the navigation before it
   commits (browser stop button, or a `/auth/sign-in` that hangs without ever completing), the row
