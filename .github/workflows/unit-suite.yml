@@ -108,7 +108,11 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
+      # The setup composite is NOT used here: this job inlines its install into the
+      # combined step below so the boot can overlap it. The composite's other two
+      # actions still run, and the topology meta-test derives what they must be from
+      # the composite itself, so they cannot drift apart. unit-suite-nodb still uses
+      # the composite normally.
       - uses: supabase/setup-cli@v1
         with:
           # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which
@@ -118,11 +122,34 @@ jobs:
           version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
-      - name: Boot local Supabase (guarded migrations)
-        # Shared bootstrap — same Supabase + GUC + guarded-migration setup
-        # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
-        # cannot drift between workflows. Each matrix leg boots its OWN instance.
-        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Boot local Supabase and install dependencies concurrently
+        # The bootstrap is network-bound (image pull) and pnpm install is
+        # registry-bound; they share no data, so running them in ONE shell overlaps
+        # the two and reclaims the install's ~16s from every leg. `wait` here is a
+        # NATIVE wait on a real child of this shell -- the cross-step variant is
+        # impossible (a later step is a different process), which is what made every
+        # earlier revision of this design fragile.
+        #
+        # Fail-closed: `wait` returns the bootstrap's real exit status and `set -e`
+        # fails the step. A failing install aborts before the wait, and the still
+        # running bootstrap then holds this step's stdout pipe -- delaying the
+        # failure report by roughly one boot. That delay is an ACCEPTED non-goal:
+        # correct cleanup needs process-group termination plus a join plus PID-reuse
+        # care, and must not interrupt the bootstrap's held-aside-migration restore
+        # trap. See docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md
+        # and its 2026-07-20 design authority. Same shared bootstrap script the other
+        # workflows use, so the hold-aside list cannot drift.
+        run: |
+          set -euo pipefail
+          bash scripts/ci/supabase-local-bootstrap.sh &
+          boot_pid=$!
+          pnpm install --frozen-lockfile
+          wait "$boot_pid"
       - name: Refuse node-killing pnpm settings (composite, pre-node, defaults-immune)
         uses: ./.github/actions/assert-pnpm-sources
       - name: Run serial project, shard ${{ matrix.shard }}/8
