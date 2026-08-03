@@ -32,6 +32,18 @@ Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip c
 
 Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
 
+## BL-UNPUBLISH-TO-HELD — RESOLVED (2026-08-03, `docs/graduate-bl-unpublish-to-held` — already shipped 2026-07-01; row filed on a false verification)
+
+## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
+
+The existing M12.13 token-unpublish ARCHIVES the show; there is no published→Held transition. Verified 2026-08-02: no such RPC exists in `supabase/migrations/` or `lib/`. So an operator who published early has one exit, and it is the destructive one.
+
+**Work:** a `published → held` RPC plus its admin affordance. Treat the state machine as the hard part, not the SQL: Held is the pre-publish review state, so returning to it has to say what happens to the share token, to any in-flight finalize, and to a crew member holding a live link, and it must not become a second path to the archived state. Advisory-lock discipline (invariant 2) and the `AUDITABLE_MUTATIONS` registry (invariant 10) both apply.
+
+**Resolution (2026-08-03):** already shipped a month before the row was filed. The published toggle (spec `docs/superpowers/specs/admin/2026-07-01-published-toggle.md`, commit 945bd4ef0) is exactly this feature: `unpublish_show` RPC (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:27`) does a pure `published=false` with archived untouched — which IS Held, since Held has no column of its own (`published=F ∧ archived=F`) — and is driven by `setShowPublishedAction(slug, false)` from the admin show review modal. Both of the row's factual claims were wrong at filing time: the RPC existed, and the M12.13 token-unpublish never archived — the emailed-link path is a pure unpublish too (`lib/sync/unpublishShow.ts`). Every state-machine question the row poses is answered in the shipped surface: the share token is deliberately not rotated (spec D1 — a crew member's live link lands on the paused-link UI via the `published≠true` check in `app/show/[slug]/[shareToken]/page.tsx` and revives on republish); in-flight finalize is refused (`FINALIZE_OWNED_SHOW`); archived rows are immutable (`SHOW_ARCHIVED_IMMUTABLE`), so the RPC cannot become a second path to archived; the advisory lock is held in-RPC with the single-holder topology pinned (`tests/sync/_advisoryLockSingleHolderContract.test.ts:528`); and the `AUDITABLE_MUTATIONS` row has executable behavioral proof including the performed-only emit contract (`tests/log/adminOutcomeBehavior.test.ts:1969`, commit 72862711f). A 10-point graduation audit found no functional gap; its one finding — the validation-schema-parity gate covers tables×columns and never functions — is repo-wide, not feature-specific, and is filed as `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED`.
+
 ## BL-PARSER-HOTEL-INLINE-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
 
 **Filed:** 2026-07-07 (ambiguity-warnings-v1 §6 deferred-exemption seed) · **Resolved:** 2026-07-26 · **Class:** parser observability · **Effort:** M

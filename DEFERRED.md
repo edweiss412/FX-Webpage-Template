@@ -10,6 +10,8 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)
 
+**Effort:** M
+
 Surfaced by whole-diff review R3 on `test/step3-live-render-cluster`, which proved the vector
 against the installed binary: with a `PSQLRC` (or `$HOME/.psqlrc`, or the compiled system psqlrc)
 containing `\connect postgresql://…@192.0.2.3:5432/postgres`, psql executes it BEFORE the
@@ -92,6 +94,8 @@ a documented deliberate revert from `next/image` (which drops cookies), mirrorin
 `components/diagrams/Gallery.tsx:130-144`.
 
 ### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+
+**Effort:** XS
 
 Ratified as accepted limits in spec §6.4 of
 `docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
@@ -260,6 +264,8 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 
 ### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
 
+**Effort:** L
+
 From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
 
 **Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
@@ -285,6 +291,8 @@ From the same audit. At 4s the live region empties and the button's accessible n
 **Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
 
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
+
+**Effort:** M
 
 From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
 
