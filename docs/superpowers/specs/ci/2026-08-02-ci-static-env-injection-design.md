@@ -187,6 +187,10 @@ Consequence bound per limit. LS1 is the single trust assumption; LS2/LS3 err in 
 
 ## §7 Review record (triage — findings and dispositions, so later rounds do not re-derive)
 
+**Final implementation review ROUND 10, split (b) docs (Codex, 2026-08-02, VERDICT: NEEDS-ATTENTION; one P2, ACCEPTED; LS8 re-probed and matching, counts and graduation re-derived clean):**
+
+1. **P2 — the graduated `BACKLOG-archive.md` resolution claimed "mutation families S1–S8 pinned in both self-suites,"** which overstates: S6 hygiene and S8 governance fixtures exist only in the SCANNER self-suite, and the census inventory covers S1–S3 and S7. Consequence: a maintainer could believe the census independently protects governance hygiene and weaken its sole scanner-side backstop. **Disposition:** the archive entry now states the split per layer and says why — reasons, the registry and the governance derivation are scanner-side concepts the census does not model.
+
 **Final implementation review ROUND 9, split (b) docs (Codex, 2026-08-02, VERDICT: NEEDS-ATTENTION; one P2, ACCEPTED; LS8 verified against the code by a five-case probe — guarded invocation, composite run, composite uses, and both guarded-parent shapes all derive empty governance with the claim covered, and substituting an off-list `PATH` rejects all five through the poison reason, exactly as LS8 claims):**
 
 1. **P2 — the §3 S1 row still claimed the governance position/cardinality matrix,** contradicting the same table's S8 row and the §4.2 inventory, both of which say those fixtures live under S8 and NOT under S1. With plan "Review + ship" designating S1–S8 as the convergence criterion, two homes for one fixture set is exactly the ambiguity that lets a maintainer prune the S8 truncation negatives. **Disposition:** S1 now covers the refusal path's traversal only and points at S8 for every governance axis; the S8 row remains the single home for the value-swap, credit-site, position, cardinality, precedence and action-scoped fixtures.
