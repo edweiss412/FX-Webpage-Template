@@ -83,7 +83,7 @@ export function LoadingShell({
           </p>
         </div>
       </noscript>
-      <div data-loading-shell-content>
+      <div data-loading-shell-content="">
         <p role="status" className="sr-only">
           {label}
         </p>
@@ -97,10 +97,21 @@ export function LoadingShell({
 **Element-by-element rationale.**
 
 - `<noscript>` first, so a no-JS visitor meets the notice before the (now hidden) shell in document order — this is also the reading order for a screen reader running without JS.
-- `dangerouslySetInnerHTML` on `<style>` rather than a text child: React treats `<style>` children as a hoistable-resource signal in some configurations, and the explicit `__html` form renders the rule in place unconditionally. The payload is a fixed string literal with no interpolation, so there is no injection surface.
+- `dangerouslySetInnerHTML` on `<style>` rather than a text child: React treats `<style>` children as a hoistable-resource signal in some configurations, and the explicit `__html` form renders the rule in place unconditionally. The payload is a fixed string literal with no interpolation, so there is no injection surface. **Verified, not assumed** — see §2.1.
+- `data-loading-shell-content=""` with an explicit empty string, not the bare JSX attribute. Bare `<div data-loading-shell-content>` is `={true}` in JSX and serializes to `data-loading-shell-content="true"`, which the attribute selector still matches, but the empty-string form keeps the rendered HTML and the test's expected markup identical and free of a meaningless value.
 - The selector is the attribute `[data-loading-shell-content]`, unique to this component, so the rule cannot reach any other element. It is inside `<noscript>`, so it exists only when JS is off.
 - `data-testid="loading-nojs-notice"` is the handle for both the component test and the e2e probe.
 - Tokens only: `border-border`, `bg-surface`, `text-text-strong`, `text-text-subtle` — all four are existing `@theme` tokens spanning light and dark (`app/globals.css`), so the notice inherits theme correctly with no new token and no new contrast row in `DESIGN.md` §1.2.
+
+### 2.1 SSR probe — React does not hoist the `<noscript>` `<style>`
+
+React 19 promotes some `<style>` elements to hoisted stylesheet resources, which would move the rule out of `<noscript>` and apply it to every visitor, hiding the skeleton for everyone. That risk was measured rather than reasoned about. A standalone script rendered the exact tree above through the worktree's own `react-dom/server` (React 19, from `node_modules`, run 2026-08-03) via both `renderToStaticMarkup` and `renderToString`. Both produced byte-identical output, with the rule in place:
+
+```html
+<div data-testid="shell"><noscript><style>[data-loading-shell-content]{display:none}</style><div data-testid="loading-nojs-notice">…</div></noscript><div data-loading-shell-content="true"><p role="status" class="sr-only">Loading your dashboard…</p><div data-testid="child"></div></div></div>
+```
+
+No hoisting, no dedupe, no drop. The `="true"` in that transcript is the bare-attribute JSX form; §2 pins the empty-string form instead, which is why the shipped markup reads `data-loading-shell-content=""`.
 
 **Visual treatment.** A quiet bordered card on the surface fill, with the skeleton hidden — chosen by the user on 2026-08-03 over an amber warning card above a still-shimmering skeleton, and over a bare line of text. Rationale: a shimmer that will never resolve is an active lie about the page's state, so removing it is the point of the change, not a side effect.
 
@@ -113,7 +124,9 @@ export function LoadingShell({
 | Title | `JavaScript is required` |
 | Body | `This page needs JavaScript to load. Turn it on in your browser settings, then reload.` |
 
-Constraints met: no em-dash (U+2014), pinned by `tests/components/crew/loading.test.tsx:67` which scans the crew loading tree's `textContent` and will now see this string; no `SCREAMING_SNAKE` token, pinned by `tests/components/crew/loading.test.tsx:69`; no occurrence of the word budget, pinned by `tests/components/crew/loading.test.tsx:60`; no apostrophes, so no straight-vs-curly question arises. States the fix, not only the fault.
+Constraints met: no em-dash (U+2014), no `SCREAMING_SNAKE` token, no occurrence of the word budget, no apostrophes (so no straight-vs-curly question arises). States the fix, not only the fault.
+
+Those first three mirror the scans at `tests/components/crew/loading.test.tsx:60`, `tests/components/crew/loading.test.tsx:67` and `tests/components/crew/loading.test.tsx:69`, but note that those scans do **not** reach this string: under jsdom the notice never enters the rendered tree at all (§7.0). The copy constraints are therefore enforced by the new SSR component test in §7.1, not inherited from the crew route's scans.
 
 ---
 
@@ -145,17 +158,42 @@ The one relationship worth stating: inserting a `<div>` between the outer wrappe
 
 ## 7. Tests
 
+### 7.0 Why the component test renders on the server, not through jsdom
+
+The obvious test — `render(<LoadingShell/>)` from `@testing-library/react`, then query the notice — **does not work, and this was measured before the test was designed.** A throwaway probe rendered the patched `LoadingShell` through the project's existing jsdom setup and reported:
+
+```json
+{ "found": true, "childElementCount": 0, "innerHTML": "",
+  "scopedQueryFindsNotice": false, "styleText": null,
+  "wrapperFound": true, "containerText": "Loading…" }
+```
+
+The `<noscript>` element exists; its children do not. React's client renderer leaves the subtree empty under jsdom, so nothing inside the block is queryable and its text never joins `container.textContent`.
+
+Two consequences, both load-bearing:
+
+1. **The component test must render through `react-dom/server`.** `renderToStaticMarkup` emits the block in full (verified — the exact output is in §7.1), which is also the more faithful test: a no-JS visitor receives server HTML, and server HTML is precisely what this feature is made of.
+2. **No existing jsdom test can see the notice**, which is why §7.3's three files are unaffected rather than merely believed to be.
+
+Anyone later "fixing" this test to use `@testing-library/react` will get a test that passes vacuously against a component that renders nothing. That is the trap this section exists to mark.
+
 ### 7.1 Component test — tests/components/layout/loadingShellNoJs.test.tsx (new file, so the path is unlinked)
 
-React renders `<noscript>` children as real DOM nodes under jsdom, so the block is directly assertable.
+`// @vitest-environment node`, asserting on `renderToStaticMarkup(<LoadingShell testId="probe" label="Loading your dashboard…"><div data-testid="child" /></LoadingShell>)`. That call was run against a throwaway patch and returns, verbatim:
+
+```html
+<div data-testid="probe"><noscript><style>[data-loading-shell-content]{display:none}</style><div data-testid="loading-nojs-notice" class="rounded-lg border border-border bg-surface p-4"><p class="font-semibold text-text-strong">JavaScript is required</p><p class="mt-1 text-sm text-text-subtle">This page needs JavaScript to load. Turn it on in your browser settings, then reload.</p></div></noscript><div data-loading-shell-content=""><p role="status" class="sr-only">Loading your dashboard…</p><div data-testid="child"></div></div></div>
+```
+
+Assertions run against that string. Substring matching is sufficient and unambiguous here; the test must NOT snapshot the whole string, which would fail on every unrelated class-order change.
 
 | Assertion | Failure it catches |
 |---|---|
-| A `<noscript>` element exists inside the `LoadingShell` wrapper, and `loading-nojs-notice` is a descendant **of that `<noscript>`**, queried via `container.querySelector("noscript")` and then scoped to that subtree. | The notice rendered outside `<noscript>`, which would show it to every visitor on every route load. This is the anti-tautology point of the test: a bare `getByTestId("loading-nojs-notice")` would pass in that broken state, so the query MUST be scoped to the `<noscript>` subtree. |
-| The `<noscript>` subtree contains a `<style>` whose text is exactly `[data-loading-shell-content]{display:none}`. | A typo'd selector or a renamed attribute leaves the skeleton visible under the notice. |
-| The element carrying `data-loading-shell-content` exists, contains the `role="status"` element, and contains the passed children (asserted with a sentinel child testid). | The attribute drifted off the wrapper, so the hide rule matches nothing. Asserting `role="status"` is *inside* it is what makes the misleading announcement provably suppressed. |
-| The `<style>` rule's selector, extracted from the rendered `<style>` text, is used to `querySelector` the container and MUST return the content wrapper. | Selector and attribute disagreeing — the single defect the two prior assertions cannot catch individually, because each is independently satisfiable. Derives the expectation from the rendered output rather than restating the literal. |
-| Notice copy contains no U+2014 and no `/[A-Z]{2,}_[A-Z0-9_]+/`. | Copy-convention drift, caught at the component rather than only through the crew route's tree scan. |
+| Slice the markup between `<noscript>` and `</noscript>`; assert `data-testid="loading-nojs-notice"` appears **in that slice** and **nowhere in the remainder** of the markup. | The notice rendered outside `<noscript>`, which would show the "JavaScript is required" card to every visitor on every route load. This is the anti-tautology point of the test: a bare `expect(html).toContain("loading-nojs-notice")` passes in exactly that broken state, so presence alone is not an assertion — position is. |
+| The `<noscript>` slice contains `<style>[data-loading-shell-content]{display:none}</style>`. | A typo'd selector, a renamed attribute, or React hoisting the style out of the block (§2.1) — any of which leaves the skeleton visible under the notice. |
+| Extract the selector from the rendered `<style>` text with a regex, then assert the markup contains an element carrying **that** attribute. | Selector and attribute disagreeing. Neither of the two prior assertions catches this, because each is independently satisfiable: the style can be present and correct while the wrapper attribute is misspelled. Deriving the expectation from the rendered output rather than restating the literal is what closes the gap. |
+| The `role="status"` element and the sentinel `data-testid="child"` both appear **after** the `data-loading-shell-content` attribute and **outside** the `<noscript>` slice. | The wrapper drifted off the announcement or the children, so the hide rule would leave a misleading "Loading…" announcement, or the skeleton itself, visible to a no-JS visitor. |
+| Notice copy contains no U+2014 and no `/[A-Z]{2,}_[A-Z0-9_]+/`. | Copy-convention drift. Necessary because no existing scan reaches this string (§7.0). |
 
 ### 7.2 Real-browser probe — tests/e2e/nojs-loading-notice.spec.ts (new file, so the path is unlinked)
 
@@ -173,11 +211,11 @@ Register the spec in `playwright.config.ts` under an existing project's `testMat
 
 ### 7.3 Existing tests that touch this component
 
-All were read before drafting; each is expected to keep passing, and the plan verifies rather than assumes:
+All three were read before drafting, then **measured**: the change from §2 was applied as a throwaway patch, `pnpm vitest run` was run across all three files, and **31 of 31 tests passed**; the patch was then reverted. This is a result, not a prediction. The mechanism is §7.0 — nothing the notice renders is visible to jsdom, so none of these scans can see it.
 
 - `tests/components/layout/PageTransition.test.tsx:94-103` — asserts the `role="status"` element is `sr-only` and is contained by the testId'd wrapper. Still true: containment is transitive through the new wrapper.
 - `tests/app/admin/loadingSkeletons.test.tsx:37-61` — wrapper testId present, exactly one `role="status"`, ≥3 `.animate-pulse.bg-surface-sunken` plates, no raw color class, no raw error code. The notice adds no plate, no second status element, no hex literal, and no code.
-- `tests/components/crew/loading.test.tsx:23-69` — 6 tab placeholders, no "budget", no em-dash, no error code. The notice text enters this tree's `textContent`; §3 confirms it violates none of the three scans.
+- `tests/components/crew/loading.test.tsx:23-69` — 6 tab placeholders, no "budget", no em-dash, no error code. The notice text does **not** enter this tree's `textContent` (§7.0), so all three scans are untouched. The copy satisfies them regardless (§3), which is belt-and-braces rather than the load-bearing reason.
 
 ---
 
