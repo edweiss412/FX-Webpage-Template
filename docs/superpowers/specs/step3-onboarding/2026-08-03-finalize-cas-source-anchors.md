@@ -20,7 +20,7 @@ Only one branch uses it:
 - **First-seen (Flow A)** spreads it into the apply core — `app/api/admin/onboarding/finalize/route.ts:1280`.
 - **Existing-show (Flow B)** drops it. `stageExistingShowShadow` (`app/api/admin/onboarding/finalize/route.ts:602`) writes a shadow payload that carries `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, and `use_raw_decisions` — but not the anchors. `deleteApprovedPending` (`app/api/admin/onboarding/finalize/route.ts:689`) then consumes the `pending_syncs` row in the same Phase-B transaction, so by Phase D the value no longer exists anywhere. `applyShadow` (`app/api/admin/onboarding/finalize-cas/route.ts:410`) builds its `applyStagedCore` args (`app/api/admin/onboarding/finalize-cas/route.ts:546`) with no `sourceAnchors` key.
 
-Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded: a show that never had anchors links safely at `#gid=0`, and the shared per-file sync pipeline (§5) is the other writer that can refresh them — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1; this change makes it rarer and does not claim to eliminate it, and §4.1 is explicit that no recovery bound exists.
+Consequence: a re-onboarded existing show keeps whatever anchors the last sync-pipeline pass left (§5 — cron, push or manual), even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded: a show that never had anchors links safely at `#gid=0`, and the shared per-file sync pipeline (§5) is the other writer that can refresh them — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1; this change makes it rarer and does not claim to eliminate it, and §4.1 is explicit that no recovery bound exists.
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -114,47 +114,53 @@ non-empty anchor map writes that map to `shows.source_anchors`; every other case
 map untouched. Nothing here guarantees the stored map is CURRENT. Two limits follow, and neither is
 introduced by this change.
 
-**Limit 1 — a preserved map can predate the applied revision.** A scan yields `{}` for four
-distinct reasons:
+**Limit 1 — a preserved map can predate the applied revision.** The wizard scan yields `{}` for four
+distinct reasons, and — unlike the sync pipeline — it cannot tell them apart. `pending_syncs.source_anchors`
+is `NOT NULL DEFAULT '{}'` (`supabase/migrations/20260701000001_pending_syncs_source_anchors.sql:9`)
+and `lib/sync/runOnboardingScan.ts:1332` collapses all four causes into that one value:
 
-| Cause | Character | Site |
-| --- | --- | --- |
-| The tab-gid fetch failed | fault, transient | `lib/sync/runOnboardingScan.ts:1353` |
-| The XLSX bytes are absent | fault, transient | the `if (bytes)` guard at `lib/sync/runOnboardingScan.ts:1336` leaves the initialized `{}` from `lib/sync/runOnboardingScan.ts:1332` in place |
-| `extractSourceAnchors` threw | fault, NOT transient if the workbook shape is what defeats it | `lib/sync/runOnboardingScan.ts:1348` |
-| Extraction SUCCEEDED and recognized no region | not a fault at all | `lib/drive/sourceAnchors.ts:188`; per-region omission on a successful extraction is pinned at `tests/drive/sourceAnchors.test.ts:37` and `tests/drive/sourceAnchors.test.ts:43`, and a workbook where every region omits yields the whole-map `{}` |
+| Cause | Character | Site | What the SYNC pipeline does with it |
+| --- | --- | --- | --- |
+| The tab-gid fetch failed | fault, transient | `lib/sync/runOnboardingScan.ts:1353` | preserves — this is the ONE case it emits `undefined` for (`lib/sync/runScheduledCronSync.ts:3073`) |
+| The XLSX bytes are absent | fault, transient | the `if (bytes)` guard at `lib/sync/runOnboardingScan.ts:1336` leaves the initialized `{}` in place | clears — a defined `{}` reaches the coalesce |
+| `extractSourceAnchors` threw | fault, NOT transient if the workbook shape is what defeats it | `lib/sync/runOnboardingScan.ts:1348` | N/A — the sync pipeline does not catch it there |
+| Extraction SUCCEEDED and recognized no region | not a fault at all | `lib/drive/sourceAnchors.ts:188`; per-region omission on a successful extraction is pinned at `tests/drive/sourceAnchors.test.ts:37` and `tests/drive/sourceAnchors.test.ts:43`, and a workbook where every region omits yields the whole-map `{}` | clears — a defined `{}` reaches the coalesce |
 
-In every one of them the apply advances `shows.last_seen_modified_time` while the coalesce keeps the
-previous anchor map (`lib/sync/runScheduledCronSync.ts:1524` and
-`lib/sync/runScheduledCronSync.ts:1527`). If rows moved between the two revisions, the retained
-anchor is still structurally valid — allowlisted title, numeric gid — so
-`lib/sheet-links/buildSheetDeepLink.ts:22` accepts it and the "In sheet" link opens the old range
-rather than falling back to `#gid=0`.
+**Flow B therefore diverges from the sync pipeline, deliberately.** Where a sync pass would CLEAR
+the map on rows 2 and 4 (defined `{}` at `lib/sync/runScheduledCronSync.ts:3073`, forwarded at
+`lib/sync/runScheduledCronSync.ts:3598`, overwriting through the coalesce at
+`lib/sync/runScheduledCronSync.ts:1527`), Flow B preserves it. That is not an oversight: the sync
+pipeline can afford to clear because it distinguishes the transient sheets-list failure from the
+rest, and Flow B cannot — the staged column has already flattened all four into `{}` by the time
+finalize reads it. Clearing on that ambiguous value would wipe good anchors on every transient Drive
+hiccup during a re-onboard. Preserving is the conservative read of an ambiguous signal, and the
+consequence is stated plainly: after a re-onboard whose scan came back empty, the show keeps its old
+anchors, which may describe an older revision.
+
+When that happens, the apply advances `shows.last_seen_modified_time` while the coalesce keeps the
+previous map (`lib/sync/runScheduledCronSync.ts:1524` and `lib/sync/runScheduledCronSync.ts:1527`).
+If rows moved between the two revisions, the retained anchor is still structurally valid —
+allowlisted title, numeric gid — so `lib/sheet-links/buildSheetDeepLink.ts:22` accepts it and the
+"In sheet" link opens the old range rather than falling back to `#gid=0`.
 
 **There is no recovery bound, and this spec does not claim one.** Recovery requires a later run of
-some anchor writer (§5) that produces a NON-EMPTY map. Which runs happen is not a function of edits
-alone: an automatic pass at or below the watermark skips (`lib/sync/perFileProcessor.ts:337`), while
-a manual re-sync bypasses the watermark check entirely (`lib/sync/perFileProcessor.ts:276`) and the
-recovery and role-vocab-drift branches proceed at or below it (`lib/sync/perFileProcessor.ts:322`,
-`lib/sync/perFileProcessor.ts:341`). So an edit is neither necessary nor sufficient, and no run is
-guaranteed. The bottom two rows of the table above have no self-limiting behavior at all: a workbook
-whose recognized regions were renamed or removed extracts cleanly to `{}` on every subsequent pass,
-so its older anchors persist until the sheet's structure is fixed. Wherever an earlier draft of this
-spec said stale anchors are "repopulated on the next sheet edit" or "covered by the cron refresh,"
-this paragraph is what it should have said.
+some anchor writer (§5) that either produces a non-empty map or clears the stale one. Which runs
+happen is not a function of edits alone: an automatic pass at or below the watermark skips
+(`lib/sync/perFileProcessor.ts:337`), while a manual re-sync bypasses the watermark check entirely
+(`lib/sync/perFileProcessor.ts:276`) and the recovery and role-vocab-drift branches proceed at or
+below it (`lib/sync/perFileProcessor.ts:322`, `lib/sync/perFileProcessor.ts:341`). So an edit is
+neither necessary nor sufficient, and no run is guaranteed. A sync pass over a workbook whose
+regions were renamed DOES resolve the stale link — by clearing to `{}`, which falls back to
+`#gid=0` — but nothing schedules that pass. Wherever an earlier draft of this spec said stale
+anchors are "repopulated on the next sheet edit" or "covered by the cron refresh," this paragraph is
+what it should have said.
 
-This is the shipped system's ratified posture, not something this change introduces. The cron path
-deliberately emits `undefined` rather than `{}` on a genuine sheets-list failure precisely so the
-coalesce preserves the stored anchors (`lib/sync/runScheduledCronSync.ts:3073`, and the audit
-idx12/idx63 comment above it). Flow A already behaves this way
-(`app/api/admin/onboarding/finalize/route.ts:1280`). Flow B today writes no anchors at all, so
-before this change EVERY existing-show re-onboard left the stored anchors untouched; after it, the
-re-onboards whose scan produced a non-empty map refresh them.
-
-The alternative — forwarding a defined `{}` so an empty scan clears the map — trades a stale range
-for a guaranteed loss of every good anchor on every transient Drive hiccup, on shows whose sheets
-did not change. That is why preserve-over-wipe is the ratified choice at all three call sites, and
-this spec does not reopen it.
+The preserve-on-ambiguity posture is the shipped system's, not this change's. Flow A already behaves
+this way (`app/api/admin/onboarding/finalize/route.ts:1280`), and the sync pipeline takes it for the
+one cause it can identify (`lib/sync/runScheduledCronSync.ts:3073`, and the audit idx12/idx63 comment
+above it). Flow B today writes no anchors at all, so before this change EVERY existing-show
+re-onboard left the stored anchors untouched; after it, the re-onboards whose scan produced a
+non-empty map refresh them.
 
 **Limit 2 — the read boundary validates two fields, not the entry.**
 `lib/sheet-links/buildSheetDeepLink.ts:22` checks `isAllowed(anchor.title)` and
@@ -272,7 +278,7 @@ Each task is failing test → minimal implementation → passing test → commit
 
 ## 10. Out of scope
 
-- **Backfilling existing shows.** No backfill job. A stale show is refreshed only by a later scan of its sheet that produces a non-empty map, which §4.1 is explicit is not guaranteed to happen.
+- **Backfilling existing shows.** No backfill job. A stale show is corrected only by a later anchor-writer run over its sheet — refreshed if that run produces a non-empty map, cleared to `#gid=0` if it produces an empty one — and §4.1 is explicit that no such run is guaranteed.
 - **The live dashboard staged-apply path** (`lib/sync/applyStaged.ts`). It has never carried anchors; adding them there is a separate change with its own review. Those shows keep the shared sync pipeline as their only anchor writer, subject to §4.1.
 - **Per-entry anchor validation** anywhere in the system (§1.1).
 - **The `#gid=0` fallback behavior** (`lib/sheet-links/buildSheetDeepLink.ts:22`) — unchanged. It is what makes a show with NO anchors link safely; it is not what makes a stale or malformed anchor safe, and §4.1 says so.
