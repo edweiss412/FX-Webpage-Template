@@ -17,6 +17,13 @@
 // it would let KNOWN_DANGLING justify its own rows, the exact tautology the
 // ratchet exists to prevent.
 //
+// Three things are not citations even inside a scanned file, each narrowed so
+// it cannot swallow a real reference: a FAMILY reference, where a real id
+// extends the token by a whole segment (isFamilyReference); a WORKED EXAMPLE,
+// declared per file and per id (NOT_A_CITATION); and a KNOWN_DANGLING row,
+// which is recorded debt rather than an exemption. All three are ratcheted —
+// nothing here goes quiet without a test noticing when it stops being true.
+//
 // This guard deliberately does NOT check field schemas or item shape. Those are
 // a separate change: the ledgers have no universal field set today (across 43
 // BACKLOG entries, Status appears on 34, Severity on 29, Class on 26, and ~20
@@ -83,8 +90,6 @@ const NOT_CITATIONS = new Set([
  * stale, and a row nobody cites any more fails as dead.
  */
 const KNOWN_DANGLING: Record<string, string> = {
-  "BL-904":
-    "cited in docs/superpowers/plans/2026-07-26-stripcomments-shared.md +2 more — no entry as of 2026-08-02",
   "BL-ADMIN-EYEBROW-FAINT-CONTRAST":
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-ATTENTION-PILL-FOCUS-UNWIRED":
@@ -99,16 +104,12 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-BLOCKRES-HELP-GATING":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-CASP2":
-    "cited in docs/superpowers/plans/2026-07-19-spec-lint.md — no entry as of 2026-08-02",
   "BL-CASP2-POPOVER-PROXIMITY":
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-CI-P3-FILE-GRANULAR-SERIAL":
     "cited in docs/superpowers/specs/ci/2026-07-20-ci-overlap-boot-with-setup.md — no entry as of 2026-08-02",
   "BL-CI-UNIT-SUITE-PHASE2":
     "cited in docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md — no entry as of 2026-08-02",
-  "BL-CLOSED-LOOP-FIX":
-    "cited in docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md — no entry as of 2026-08-02",
   "BL-COLLAPSEPANEL-REGION-OPTOUT":
     "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
   "BL-CRON-SYNTHETIC-SHOW-SKIP":
@@ -119,12 +120,8 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
   "BL-DESTRUCT-FORK-FOCUS-TRANSFER":
     "cited in docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md +1 more — no entry as of 2026-08-02",
-  "BL-DRIVE-RESOLVED":
-    "cited in docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md — no entry as of 2026-08-02",
   "BL-E2E-REPORT-MODAL-UNRUNNABLE":
     "cited in docs/superpowers/plans/2026-07-26-ci-dark-descoped-closeout/plan.md — no entry as of 2026-08-02",
-  "BL-EVENT-DETAILS":
-    "cited in docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md +1 more — no entry as of 2026-08-02",
   "BL-FLOW4":
     "cited in docs/superpowers/plans/step3-onboarding/2026-07-16-mobile-autoapplied-parity.md +1 more — no entry as of 2026-08-02",
   "BL-FLOW4-BULK-UNDO-ERROR-SURFACE":
@@ -145,8 +142,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-MUTATION-COLUMN-SHIFT":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-LEDGER":
-    "cited in BACKLOG-archive.md — no entry as of 2026-08-02",
   "BL-MUTATION-MERGED-CELL":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-MUTATION-REF-SUB":
@@ -155,24 +150,14 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-MUTATION-UNICODE":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-NAME":
-    "cited in docs/superpowers/plans/admin/2026-07-17-casp2-strip-polish.md — no entry as of 2026-08-02",
   "BL-NEEDS-ATTENTION-HOLDS-ROLLUP":
     "cited in docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md — no entry as of 2026-08-02",
-  "BL-NEWTAB-DOUBLE-ANNOUNCE":
-    "cited in docs/superpowers/specs/2026-08-01-announce-a11y-pass-design.md — no entry as of 2026-08-02",
   "BL-ONBOARDING-SCAN-EXPORT-HANG":
     "cited in tests/drive/fetch.test.ts — no entry as of 2026-08-02",
   "BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-OVERRIDE-ORPHAN-SALIENCE":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-P4":
-    "cited in docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md — no entry as of 2026-08-02",
-  "BL-P5":
-    "cited in docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md — no entry as of 2026-08-02",
-  "BL-PARSER":
-    "cited in BACKLOG-archive.md +2 more — no entry as of 2026-08-02",
   "BL-PARSER-ADDRESS-SPLIT-AMBIGUITY":
     "cited in docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md +3 more — no entry as of 2026-08-02",
   "BL-PARSER-HOTEL-INLINE-AMBIGUITY":
@@ -183,30 +168,20 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md — no entry as of 2026-08-02",
   "BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW":
     "cited in BACKLOG-archive.md +4 more — no entry as of 2026-08-02",
-  "BL-REAL-ID":
-    "cited in docs/superpowers/handoffs/2026-07-25-newtab-announcement-handoff.md — no entry as of 2026-08-02",
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
   "BL-RESYNC-STAGED-REVIEW-UI":
     "cited in docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md +1 more — no entry as of 2026-08-02",
-  "BL-ROOM-DETAIL":
-    "cited in docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md +1 more — no entry as of 2026-08-02",
   "BL-SHOWSTABLE-720-TITLE-FLOOR":
     "cited in docs/superpowers/plans/admin/2026-07-01-shows-720-title-floor.md +2 more — no entry as of 2026-08-02",
   "BL-STEP3-FULL-CREW-PREVIEW":
     "cited in docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md — no entry as of 2026-08-02",
-  "BL-STRIPCOMMENTS":
-    "cited in docs/superpowers/plans/2026-07-26-stripcomments-shared.md +1 more — no entry as of 2026-08-02",
-  "BL-STRUCK":
-    "cited in docs/superpowers/handoffs/2026-07-25-newtab-announcement-handoff.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-1":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-2":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-3":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-TEST":
-    "cited in tests/log/_metaMutationSurfaceObservability.test.ts — no entry as of 2026-08-02",
   "BL-TRANSPORT-VIEWER-NAME-MATCH":
     "cited in lib/data/getShowForViewer.ts +3 more — no entry as of 2026-08-02",
   "BL-UNPUBLISH-TO-HELD":
@@ -215,10 +190,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-VERSION-AMBIGUOUS-V1-OVERRIDE":
     "cited in docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md — no entry as of 2026-08-02",
-  "BL-WIZARD":
-    "cited in docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11.5-crew-auth-pivot.md — no entry as of 2026-08-02",
-  "BL-X":
-    "cited in docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md — no entry as of 2026-08-02",
 };
 
 type Cited = { id: string; files: string[] };
@@ -244,36 +215,124 @@ function definedIds(): Set<string> {
 
 /**
  * Prose routinely names a FAMILY of ids rather than one id — "the other
- * `BL-ADMIN-*` entries", "`BL-FLOW4-\*`". The citation regex stops at the `-`
- * before the glob, so the stem would be reported as its own dangling id.
+ * `BL-ADMIN-*` entries", "`BL-FLOW4-\*`", "§2.6 / BL-PARSER #3", "see
+ * BL-MUTATION-LEDGER status above". The citation regex stops before whatever
+ * followed the stem, so the stem gets reported as its own dangling id.
  *
- * A match is a family reference, not a citation, when BOTH hold: the character
- * that follows it continues an id or opens a glob (`-`, `*`, `\`), AND the stem
- * is a strict prefix of at least one id that really exists. Requiring the
- * second condition is what keeps this from swallowing genuine typos — a stem
- * matching no real id stays dangling and still fails.
+ * WHICH SIDE CARRIES THE EVIDENCE. The first version of this predicate keyed
+ * on the character AFTER the stem, admitting only `-`, `*`, `\` — it was
+ * written for globs, and a space defeated it. That is the wrong side to read:
+ * whether `BL-PARSER` names a family is a fact about the LEDGERS, not about
+ * the punctuation the sentence reached for. Nine of this guard's original
+ * KNOWN_DANGLING rows were prose family references matched out of sentences.
+ *
+ * So the load-bearing condition is the definition side: a real id extends the
+ * stem BY A WHOLE SEGMENT (`stem + "-" + …`). That is what keeps the widening
+ * from swallowing typos — `BL-ADMEN` extends nothing, stays dangling, still
+ * fails, whatever punctuation follows it. The segment boundary matters on its
+ * own: plain `startsWith` made `BL-X` a "family stem" of
+ * `BL-X5-INTROSPECTION-GAP`, which share a character run and no family, and
+ * under the widened boundary that would have silently swallowed an
+ * illustrative `BL-X`.
+ *
+ * The next-character test survives only to reject a lowercase suffix
+ * (`BL-ADMINs`) — the citation regex is maximal-munch over `[A-Z0-9-]`, so a
+ * letter there means the author wrote a token that is neither id nor glob.
  */
 export function isFamilyReference(text: string, end: number, stem: string, defined: Set<string>): boolean {
-  const next = text.charAt(end);
-  if (next !== "-" && next !== "*" && next !== "\\") return false;
+  if (/[A-Za-z0-9]/.test(text.charAt(end))) return false;
+  const segment = `${stem}-`;
   for (const id of defined) {
-    if (id.length > stem.length && id.startsWith(stem)) return true;
+    if (id.startsWith(segment)) return true;
   }
   return false;
 }
 
+/**
+ * Ids a named file writes as a WORKED EXAMPLE rather than as a reference:
+ * `file -> id -> why`. Specs about the ledger format quote id-shaped tokens to
+ * show what the format looks like, and a token quoted to illustrate a grammar
+ * resolves to nothing by construction. The sharpest case is this guard's own
+ * neighbour — `docs/…-ledger-guard-mdast-rewrite-design.md` documents the
+ * walker's id-extraction plants, so the ledger guard's spec tripped the ledger
+ * guard.
+ *
+ * WHY PER-FILE ROWS AND NOT A RESERVED PREFIX. A reserved prefix (`BL-EG-…`
+ * skipped everywhere) is the cheaper convention and the wrong one here, on the
+ * property the brief asks for — not silently swallowing a real id. A prefix is
+ * a global, permanent hole: any file may dodge the guard forever by naming a
+ * genuinely untracked item under it, and nothing can tell that from a worked
+ * example. A row here names BOTH the file and the id, so the identical token
+ * in any other file is still a dangling citation (probed below), and adding a
+ * hole costs a reviewed diff — the same posture as KNOWN_DANGLING.
+ *
+ * The prefix convention also cannot be adopted by the files that need it,
+ * because renaming these tokens would falsify what they record. `BL-904` is a
+ * measured case number. `BL-X` / `BL-STRUCK` / `BL-REAL-ID` are verbatim
+ * quotations of walker plants that must keep matching
+ * `tests/docs/_ledgerMdast.walker.test.ts`. `## BL-NAME — title` is a
+ * row-format template, and renaming it teaches the wrong format.
+ *
+ * Two ratchets, mirroring KNOWN_DANGLING: a row whose occurrence is gone fails
+ * as dead, and a row whose id becomes real fails as stale.
+ */
+const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md": {
+    "BL-X": "id-extraction plants — `## [URGENT] BL-X`, `## BL-X: open`, `## ~~BL-X~~ —`",
+    "BL-P4": "probe row P4's synthetic heading, `## BL-P4 — RESOLVED-vs-CLOSED naming sweep`",
+    "BL-P5": "probe row P5's synthetic heading, `## BL-P5 — DONE-state gallery polish`",
+    "BL-CLOSED-LOOP-FIX": "probe row P7's control token for the ratified dash-separator fix",
+    "BL-DRIVE-RESOLVED": "probe row P6's hyphenated-id token, showing `-RESOLVED:` is not a field claim",
+  },
+  "docs/superpowers/handoffs/2026-07-25-newtab-announcement-handoff.md": {
+    "BL-REAL-ID": "worked example of heading -> id extraction (`\"### BL-REAL-ID — text\"`)",
+    "BL-STRUCK": "the struck-heading example in the same table (`\"### ~~BL-STRUCK~~ — x\"`)",
+  },
+  "docs/superpowers/plans/admin/2026-07-17-casp2-strip-polish.md": {
+    "BL-NAME": "the `## BL-NAME — title` row-format template, quoting BACKLOG.md's shape",
+  },
+  "docs/superpowers/plans/2026-07-26-stripcomments-shared.md": {
+    "BL-904": "measured case number for the runaway-block-span repro, not a backlog id",
+  },
+  "docs/superpowers/specs/2026-07-26-stripcomments-shared-design.md": {
+    "BL-904": "same measured case number — 'cannot fail open the BL-904 way'",
+  },
+  "tests/_shared/stripComments.test.ts": {
+    "BL-904": "same measured case number, in the test name that pins the repro",
+  },
+};
+
+/**
+ * Whether `id` is a worked example in `rel` specifically. Scoped by BOTH keys
+ * on purpose: an exemption is a statement about one occurrence, never a
+ * blanket about a file or a token.
+ */
+export function isDeclaredPlaceholder(
+  exempt: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  rel: string,
+  id: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(exempt[rel] ?? {}, id);
+}
+
 /** id -> files citing it, across every tracked file but the excluded ones. */
-function citedIds(files: readonly string[], defined: Set<string>): Map<string, string[]> {
+export function citedIds(
+  files: readonly string[],
+  defined: Set<string>,
+  exempt: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  read: (rel: string) => string = (rel) => readFileSync(join(ROOT, rel), "utf8"),
+): Map<string, string[]> {
   const cited = new Map<string, string[]>();
   for (const rel of files) {
     let text: string;
     try {
-      text = readFileSync(join(ROOT, rel), "utf8");
+      text = read(rel);
     } catch {
       continue; // deleted-but-tracked during a rebase; not this guard's business
     }
     for (const m of text.matchAll(CITATION)) {
       if (isFamilyReference(text, m.index + m[0].length, m[0], defined)) continue;
+      if (isDeclaredPlaceholder(exempt, rel, m[0])) continue;
       const list = cited.get(m[0]);
       if (list) {
         if (!list.includes(rel)) list.push(rel);
@@ -307,7 +366,7 @@ export function unresolved(
 describe("BL- referential integrity", () => {
   const files = trackedFiles();
   const defined = definedIds();
-  const cited = citedIds(files, defined);
+  const cited = citedIds(files, defined, NOT_A_CITATION);
 
   it("every cited BL- id resolves to a ledger entry", () => {
     const bad = unresolved(cited, defined, KNOWN_DANGLING);
@@ -343,6 +402,42 @@ describe("BL- referential integrity", () => {
     ).toEqual([]);
   });
 
+  it("every NOT_A_CITATION row still describes a real occurrence", () => {
+    // Dead-row ratchet, the twin of KNOWN_DANGLING's. An exemption that has
+    // outlived its worked example is a standing hole nobody is watching.
+    const dead: string[] = [];
+    for (const [rel, ids] of Object.entries(NOT_A_CITATION)) {
+      let text: string;
+      try {
+        text = readFileSync(join(ROOT, rel), "utf8");
+      } catch {
+        dead.push(`${rel} (file is gone)`);
+        continue;
+      }
+      const present = new Set([...text.matchAll(CITATION)].map((m) => m[0]));
+      for (const id of Object.keys(ids)) {
+        if (!present.has(id)) dead.push(`${rel} → ${id}`);
+      }
+    }
+    expect(
+      dead.sort(),
+      `These worked examples are gone — delete their NOT_A_CITATION rows:\n  ${dead.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("no NOT_A_CITATION row names an id a ledger actually defines", () => {
+    // Stale-row ratchet. Once an id is real the citation resolves on its own,
+    // and leaving the row would keep a real id exempt in that file forever.
+    const stale = Object.entries(NOT_A_CITATION)
+      .flatMap(([rel, ids]) => Object.keys(ids).map((id) => `${rel} → ${id}`))
+      .filter((row) => defined.has(row.split(" → ")[1]!))
+      .sort();
+    expect(
+      stale,
+      `These ids are defined now — delete their NOT_A_CITATION rows: ${stale.join(", ")}`,
+    ).toEqual([]);
+  });
+
   it("the ledger set actually yields ids (guards a silent parse regression)", () => {
     // A walker change that stopped extracting ids would make every assertion
     // above vacuously green. Pin a floor well below the real count.
@@ -364,16 +459,93 @@ describe("BL- referential integrity", () => {
       expect(isFamilyReference(t, t.indexOf("-*"), "BL-ADMEN", real)).toBe(false);
     });
 
-    it("does NOT suppress a bare mention, even of a real stem", () => {
-      // "see BL-ADMIN status above" is an ambiguous reference, not a glob:
-      // it names one item that does not exist, and must keep failing.
-      const t = "see BL-ADMIN status above";
-      expect(isFamilyReference(t, t.indexOf(" status"), "BL-ADMIN", real)).toBe(false);
-    });
-
     it("does NOT suppress an exact id that merely prefixes a longer one", () => {
       // stem === a real id, but nothing longer extends it beyond itself
       expect(isFamilyReference("BL-ADMIN-EYEBROW-", 17, "BL-ADMIN-EYEBROW", real)).toBe(false);
+    });
+
+    // --- Widened boundary: prose names a family too ----------------------
+    // Prose names a family at least as often as a glob does — `§2.6 /
+    // BL-PARSER #3`, "the BL-MUTATION-LEDGER status above". The old rule read
+    // the punctuation the sentence happened to use; the widened rule reads the
+    // DEFINITION side instead, which is the side that carries the evidence.
+
+    it("suppresses a stem followed by prose when a real id extends it", () => {
+      for (const after of [" #3", ".", ",", ")", "'s", "`", '"', ":", "/", "\n"]) {
+        const t = `see BL-ADMIN${after} for the family`;
+        expect(
+          isFamilyReference(t, "see BL-ADMIN".length, "BL-ADMIN", real),
+          `expected suppression before ${JSON.stringify(after)}`,
+        ).toBe(true);
+      }
+    });
+
+    it("suppresses a stem at end-of-file, where there is no next character", () => {
+      const t = "the whole BL-ADMIN";
+      expect(isFamilyReference(t, t.length, "BL-ADMIN", real)).toBe(true);
+    });
+
+    it("does NOT suppress a typo followed by prose — the widening keeps its teeth", () => {
+      // The ONLY thing between prose suppression and a guard that passes
+      // everything is the extends-a-real-id test. This is that probe: the same
+      // sentence shapes as the case above, one letter different, all still red.
+      for (const after of [" #3", ".", ",", ")", "", "\n"]) {
+        const t = `filed as BL-ADMEN${after}`;
+        expect(
+          isFamilyReference(t, "filed as BL-ADMEN".length, "BL-ADMEN", real),
+          `a typo must stay dangling before ${JSON.stringify(after)}`,
+        ).toBe(false);
+      }
+    });
+
+    it("does NOT suppress a stem a real id extends only mid-segment", () => {
+      // `BL-X` is not the family stem of `BL-X5-INTROSPECTION-GAP`: they share
+      // a character run, not a segment. Accepting that relationship is how an
+      // illustrative `BL-X` placeholder came to read as a family reference —
+      // and, under the widened boundary, would have silently swallowed it.
+      // Extension must land on a `-` boundary.
+      const mid = new Set(["BL-X5-INTROSPECTION-GAP"]);
+      expect(isFamilyReference("`## BL-X: open`", "`## BL-X".length, "BL-X", mid)).toBe(false);
+      expect(isFamilyReference("BL-X-* items", "BL-X".length, "BL-X", mid)).toBe(false);
+    });
+
+    it("does NOT suppress a lowercase-suffixed token", () => {
+      // `BL-ADMINs` is a malformed token, not a stem: the citation regex
+      // stopped at a character it could not consume, so what the author wrote
+      // is neither an id nor a glob. Keep it visible.
+      const t = "the BL-ADMINs are noisy";
+      expect(isFamilyReference(t, "the BL-ADMIN".length, "BL-ADMIN", real)).toBe(false);
+    });
+  });
+
+  describe("worked-example exemptions", () => {
+    const exempt = { "docs/spec.md": { "BL-X": "illustrative heading in §4" } };
+
+    it("exempts the declared id in the declared file", () => {
+      expect(isDeclaredPlaceholder(exempt, "docs/spec.md", "BL-X")).toBe(true);
+    });
+
+    it("does NOT exempt the same id in any other file", () => {
+      expect(isDeclaredPlaceholder(exempt, "docs/other.md", "BL-X")).toBe(false);
+    });
+
+    it("does NOT exempt an undeclared id in a declared file", () => {
+      expect(isDeclaredPlaceholder(exempt, "docs/spec.md", "BL-Y")).toBe(false);
+    });
+
+    it("scans an exempt file for OTHER dangling ids — exemption is per id, not per file", () => {
+      // The failure this catches: a file earns one exemption and quietly
+      // becomes a blind spot for every id it names afterwards.
+      const cited = citedIds(["docs/spec.md"], new Set(), exempt, () => "BL-X and BL-REALLY-DANGLING");
+      expect([...cited.keys()]).toEqual(["BL-REALLY-DANGLING"]);
+    });
+
+    it("still reports the identical citation from a file with no row", () => {
+      // The probe for the property that picked this convention over a
+      // reserved prefix: the exemption is scoped to one worked example, so
+      // the same token elsewhere is still a dangling reference.
+      const cited = citedIds(["docs/spec.md", "docs/other.md"], new Set(), exempt, () => "see BL-X");
+      expect(cited.get("BL-X")).toEqual(["docs/other.md"]);
     });
   });
 
