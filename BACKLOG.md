@@ -8,6 +8,37 @@ Last reconciled: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-
 
 ---
 
+## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
+with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
+`fit-within-clip` import assertion and added rows, but did not introduce either gap.
+
+`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` compares a set
+of detected FILES against the registry's file rows, and `looksLikeAnchoredScroller`
+matches Tailwind class idiom in the source text. Two consequences:
+
+1. **Per-file, not per-overlay.** A second, undispositioned overlay added to an
+   already-registered file leaves the detected file set unchanged, so the guard stays
+   green. Reviewer probe: appending an `UndispositionedSecondOverlay` with
+   `className="absolute top-full overflow-y-auto"` to `ShareHub.tsx` gave
+   `SUMMARY 15/15 passed; undispositioned overlay appended in already-registered file=true`.
+   The same escape exists in all seven registered files.
+2. **Tailwind-only recognition.** An overlay written with inline styles
+   (`style={{ position: "absolute", top: "100%", overflowY: "auto" }}`) is genuinely an
+   anchored scroller but is not detected at all. Reviewer probe:
+   `CLASSIFIER inline-style mutant => false` and `SUMMARY 15/15 shipped guard cases passed`.
+
+So a new unsafe overlay can ship undispositioned despite the guard's stated
+fail-by-default contract. Fix shape: key the registry by OVERLAY (a stable per-element
+marker such as a testid or a declared symbol) rather than by file, and widen the
+classifier to computed/inline positioning as well as the class idiom — or state the
+limit explicitly in the registry header so the contract stops over-promising.
+
+Not fixed in the cluster that surfaced it: closing it means re-keying an existing
+registry and re-dispositioning seven files, which is its own change with its own
+review surface.
+
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (specced, not built)
 
 **Status:** OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.

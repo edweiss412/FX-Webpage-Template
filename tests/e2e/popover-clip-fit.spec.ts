@@ -167,6 +167,26 @@ async function openMenu(page: Page, a: number, n: number, s: number) {
  * on a correct implementation (observed twice across repeated runs of the two
  * O2 -> O1 flip cases). Callers poll this until it converges.
  */
+/**
+ * Two samples separated by a frame, agreeing.
+ *
+ * `expect.poll` resolves on the FIRST satisfying sample, so a correct
+ * intermediate fit that a later observer callback then breaks would satisfy the
+ * assertion and return before the regression appeared. Requiring the same
+ * verdict twice makes the assertion about a state that PERSISTED, which is what
+ * §9's "settled" means.
+ */
+async function settledGeometry(page: Page) {
+  const first = await fittedGeometry(page);
+  await page.waitForTimeout(50);
+  const second = await fittedGeometry(page);
+  if (first === null || second === null) return null;
+  return {
+    contained: first.contained && second.contained,
+    fitted: first.fitted && second.fitted,
+  };
+}
+
 async function fittedGeometry(page: Page) {
   return page.evaluate(
     ([panelSel, menuSel, scrollerSel, gutter]) => {
@@ -354,7 +374,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     await expect(page.locator('[data-testid="attention-needsyou-heading"]')).toBeVisible();
 
     await expect
-      .poll(() => fittedGeometry(page), {
+      .poll(() => settledGeometry(page), {
         message: "menu never settled contained + fitted after the O2 -> O1 flip",
       })
       .toMatchObject({ contained: true, fitted: true });
@@ -425,7 +445,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     );
 
     await expect
-      .poll(() => fittedGeometry(page), {
+      .poll(() => settledGeometry(page), {
         message: "menu never settled contained + fitted after a mid-entrance flip",
       })
       .toMatchObject({ contained: true, fitted: true });

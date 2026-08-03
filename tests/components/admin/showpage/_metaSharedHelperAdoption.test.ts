@@ -221,6 +221,84 @@ function declarationsOfName(source: ts.SourceFile, name: string): string[] {
   return hits;
 }
 
+/**
+ * Rule (vi): a constant-false conditional. These exist for exactly one reason in
+ * a consumer — to park an unreachable "adoption token" that satisfies an
+ * existence-based rule while the live path runs a private copy.
+ */
+function constantFalseBranches(source: ts.SourceFile): string[] {
+  const hits: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isIfStatement(node)) {
+      const c = node.expression;
+      const dead =
+        c.kind === ts.SyntaxKind.FalseKeyword ||
+        (ts.isNumericLiteral(c) && c.text === "0") ||
+        (ts.isPrefixUnaryExpression(c) &&
+          c.operator === ts.SyntaxKind.ExclamationToken &&
+          (c.operand.kind === ts.SyntaxKind.TrueKeyword ||
+            (ts.isNumericLiteral(c.operand) && c.operand.text === "1")));
+      if (dead) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        hits.push(`line ${line + 1}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return hits;
+}
+
+/**
+ * Rule (vii): a LOCAL re-implementation, detected by SHAPE rather than by name.
+ * The escaping mutant that motivated this renamed its copy `localRafCoalescer`,
+ * so the name-based rule (iii) never fired. Any local factory returning an
+ * object literal that exposes both `schedule` and `cancel` is a coalescer,
+ * whatever it is called.
+ */
+function localCoalescerShapes(source: ts.SourceFile): string[] {
+  const hits: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const names = new Set(
+        node.properties
+          .map((prop) => (prop.name && ts.isIdentifier(prop.name) ? prop.name.text : null))
+          .filter((n): n is string => n !== null),
+      );
+      if (names.has("schedule") && names.has("cancel")) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        hits.push(`line ${line + 1}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return hits;
+}
+
+/**
+ * Rule (viii): the instance that is cancelled must be the instance that is
+ * scheduled. Two different objects satisfying (ii) and (v) separately is exactly
+ * the dead-token shape.
+ */
+function scheduleAndCancelShareAnInstance(source: ts.SourceFile): boolean {
+  const scheduled = new Set<ts.Symbol>();
+  const cancelled = new Set<ts.Symbol>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const member = node.expression.name.text;
+      if (member === "schedule" || member === "cancel") {
+        const sym = checker.getSymbolAtLocation(node.expression.expression);
+        if (sym) (member === "schedule" ? scheduled : cancelled).add(sym);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  for (const sym of cancelled) if (scheduled.has(sym)) return true;
+  return false;
+}
+
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -273,6 +351,34 @@ describe("shared helper adoption (spec §7, §11 closure)", () => {
           `${row.consumer} has no call whose callee resolves to its "${row.module}" import of ${row.helper} — a same-named local, parameter, or decoy-module import does not count`,
         ).toBe(true);
       });
+
+      it("(vi) parks no adoption token behind a constant-false branch", () => {
+        const source = sourceOf(row.consumer);
+        const dead = constantFalseBranches(source);
+        expect(
+          dead,
+          `${row.consumer} has unreachable if-blocks at ${dead.join(", ")}; the only use for one here is smuggling a call that satisfies the adoption rules without ever running`,
+        ).toEqual([]);
+      });
+
+      if (row.requiresCancelAdoption) {
+        it("(vii) declares no local coalescer SHAPE, whatever it is named", () => {
+          const source = sourceOf(row.consumer);
+          const shapes = localCoalescerShapes(source);
+          expect(
+            shapes,
+            `${row.consumer} builds an object exposing both schedule and cancel at ${shapes.join(", ")} — that is a private coalescer, and renaming it is not adoption`,
+          ).toEqual([]);
+        });
+
+        it("(viii) the cancelled instance is the scheduled instance", () => {
+          const source = sourceOf(row.consumer);
+          expect(
+            scheduleAndCancelShareAnInstance(source),
+            `${row.consumer} schedules one object and cancels another — an existence-only pin passes that while the live path runs a private copy`,
+          ).toBe(true);
+        });
+      }
 
       if (row.requiresCancelAdoption) {
         it("(v) cleanup cancels through the shared instance, not a raw frame id", () => {
