@@ -119,6 +119,30 @@ function assertRendersInter(report: FontReport, surface: string): void {
     `${surface}: the document loaded an Inter face (registered families: ` +
       `${report.faces.map((f) => `${f.family}:${f.status}`).join(", ") || "none"})`,
   ).toBeGreaterThanOrEqual(1);
+
+  // (4) EXACTLY ONE FAMILY — the runtime closure over "is there a second
+  //     loader?", and the reason the static guard in
+  //     tests/assets/singleFontLoader.test.ts is a tripwire rather than the
+  //     oracle. Two adversarial rounds each produced new SYNTACTIC forms that
+  //     escaped a source-parsing check (`(0, Inter)(…)`, `Inter.call(…)`,
+  //     `fonts["Roboto"](…)`, and six more), which is the signature of an
+  //     unbounded space rather than an incomplete list. This observes what the
+  //     browser actually registered, so no syntax evades it: a second loader
+  //     for a DIFFERENT family shows up as a second family name here, whatever
+  //     shape its call site took.
+  //
+  //     `Inter Fallback` is next/font's generated size-adjusted companion, and
+  //     `__nextjs-*` faces belong to the dev-mode error overlay, not the app.
+  const appFamilies = new Set(
+    report.faces
+      .map((f) => f.family)
+      .filter((family) => !family.startsWith("__nextjs-") && !family.endsWith(" Fallback")),
+  );
+  expect(
+    [...appFamilies].sort(),
+    `${surface}: the document registers exactly one font family — a second ` +
+      `next/font loader anywhere would add one, in any call syntax`,
+  ).toEqual(["Inter"]);
 }
 
 /**

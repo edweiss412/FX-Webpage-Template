@@ -50,7 +50,7 @@ _(T1 is one task and one commit; these steps run inside it. See the task graph b
 
 **Creates** tests/e2e/font-binding.spec.ts (not yet tracked, so deliberately un-backticked).
 
-**Register it in TWO places — the Playwright project AND a CI workflow.** Spec review R2 caught that an earlier draft did only the first, which leaves the oracle runnable locally and dark in CI:
+**Register it in THREE places — the Playwright project, a CI workflow, and the coverage census.** Spec review R2 caught that an earlier draft did only the first, which leaves the oracle runnable locally and dark in CI:
 
 1. `playwright.config.ts:78-79`, the `desktop-chromium` `testMatch` alternation. Without this the spec runs nowhere even locally.
 2. `.github/workflows/crew-e2e.yml`'s explicit spec list, plus its post-run execution oracle `scripts/check-crew-e2e-executed.mjs` (`REQUIRED`, 3 cases — collected is not executed, and that registry is what makes a silently-skipped suite fail the job). **crew-e2e is the right home** rather than a dev-server-only run: it builds and starts the production artifact, and the binding rests on `next/font` registering the literal family name, which a dev-only run would leave unproved against the build CI actually ships.
@@ -66,7 +66,7 @@ Assertions, in order:
 2. `Math.abs(inherited - forcedInter) < 0.5`.
 3. `Math.abs(inherited - forcedSansSerif) > 1`.
 4. `fonts` contains at least one entry with `family === "Inter"` and `status === "loaded"`.
-5. `<html>` exposes `--font-inter`. Asserted separately because the token is NOT what binds the font (see Task 2) — every width check would still pass if the loader silently stopped emitting `variable:`.
+5. `<html>` exposes `--font-inter`. Asserted separately because the token is NOT what binds the font (see T1 step 3) — every width check would still pass if the loader silently stopped emitting `variable:`.
 
 **Concrete failure mode caught:** assertion 2 fails today on both non-crew routes, because no Inter face is registered there and the forced-`"Inter"` probe falls back to the default serif metric. (The 185.53-vs-167.14 figure in the spec's probe table was taken on the 404 shell; the real per-route numbers come from this task's own first RED run and are recorded in the closeout.) The crew case's assertion 5 is RED today too, since the `.variable` class currently sits on a nested `<div>` rather than `<html>`. It also catches a future Next release reverting to hashed `@font-face` family names, which would silently unbind `--font-sans`'s literal `"Inter"`; and assertion 3 stops a host that ships Inter as a *system* font from green-washing the result. It proves more than "the font is requested": nothing about a request is observed, only the resolved metric of rendered text.
 
@@ -77,6 +77,22 @@ Assertions, in order:
 **Verify:** `E2E_PORT=3010 pnpm exec playwright test tests/e2e/font-binding.spec.ts --project=desktop-chromium` → the two non-crew cases FAIL on assertion 2; the crew case fails only on assertion 5 (token scope) and passes 1-4. A crew-case failure on assertions 1-4 would falsify the spec's probe and must stop the task.
 
 **No commit at this step** — T1 commits once, after the implementation makes these green.
+
+---
+
+## T1, step 2 — RED: structural single-loader guard
+
+**Creates** tests/assets/singleFontLoader.test.ts (vitest, node env).
+
+Walk `app/` from the filesystem (not a lexical file list, so a NEW loader fails by default), collecting every file whose contents match `from "next/font/`. Assert the set is exactly one entry, the root layout path app/layout.tsx (paths written un-backticked here because a bracketed array literal is read as a citation by spec:lint). Also count loader CALL SITES (`Inter(` invocations), so a second call added without a second import is caught.
+
+**Concrete failure mode caught:** a future route layout adding its own `Inter()` call, which re-registers a second `@font-face` set under the same family name. The probe already observed **seven** `Inter` faces on the crew page from the single existing loader; a second loader compounds that silently, and nothing else in the repo would notice. Class-sweep discipline: filesystem walk, not a named-file scan.
+
+**Anti-tautology:** the assertion pins the exact path set, not a count. This matters concretely — spec review R1 caught an earlier spec wording of "exactly one `next/font` import under `app/`", which is GREEN today (the crew layout is that one) and could therefore never go RED, violating invariant 1. A count also cannot see a loader that MOVED to the wrong layout.
+
+**Verify:** written against the current tree it FAILS — the loader set is the crew layout, not the root — and it passes only after step 3 lands. Run: `pnpm vitest run tests/assets/singleFontLoader.test.ts`.
+
+**No commit at this step** — part of T1's single commit.
 
 ---
 
@@ -103,22 +119,6 @@ const inter = Inter({
 **Verify:** Task 1's spec now passes all three cases. Then `pnpm typecheck && pnpm lint`.
 
 **Commit (the whole of T1):** `feat(assets): load Inter at the root layout, per DESIGN.md 2.1`
-
----
-
-## T1, step 2 — RED: structural single-loader guard
-
-**Creates** tests/assets/singleFontLoader.test.ts (vitest, node env).
-
-Walk `app/` from the filesystem (not a lexical file list, so a NEW loader fails by default), collecting every file whose contents match `from "next/font/`. Assert the set is exactly one entry, the root layout path app/layout.tsx (paths written un-backticked here because a bracketed array literal is read as a citation by spec:lint). Also count loader CALL SITES (`Inter(` invocations), so a second call added without a second import is caught.
-
-**Concrete failure mode caught:** a future route layout adding its own `Inter()` call, which re-registers a second `@font-face` set under the same family name. The probe already observed **seven** `Inter` faces on the crew page from the single existing loader; a second loader compounds that silently, and nothing else in the repo would notice. Class-sweep discipline: filesystem walk, not a named-file scan.
-
-**Anti-tautology:** the assertion pins the exact path set, not a count. This matters concretely — spec review R1 caught an earlier spec wording of "exactly one `next/font` import under `app/`", which is GREEN today (the crew layout is that one) and could therefore never go RED, violating invariant 1. A count also cannot see a loader that MOVED to the wrong layout.
-
-**Verify:** written against the pre-Task-2 tree it fails (the set is the crew layout path instead); after Task 2 it passes. Run: `pnpm vitest run tests/assets/singleFontLoader.test.ts`.
-
-**No commit at this step** — part of T1's single commit.
 
 ---
 
@@ -194,7 +194,7 @@ Corrected: **T1 is one task** — every test for this change, plus the implement
 | # | Task | Commit |
 | --- | --- | --- |
 | T1 | Font-identity e2e (3 routes) + single-loader structural guard + CI wiring + root loader in, crew duplicate out. RED observed, then GREEN, then committed. | `feat(assets):` |
-| T2 | The 240px group-title row — branch (a) live assertion, or branch (b) recorded N/A. | `test(assets):` if (a); folded into T4's closeout commit if (b) |
+| T2 | The measured group-title row — branch (a) live assertion, or branch (b) recorded N/A. | `test(assets):` under (a); `docs(assets):` recording the disposition under (b). Either way T2 carries its OWN commit — review R3 was right that folding it into T4 would batch two tasks into one, against invariant 6. |
 | T3 | Regenerate the help-screenshot baselines from the pinned image. | the regen workflow's own commit |
 | T4 | Impeccable critique + audit; §12 dispositions and marker. | `docs(assets):` |
 | T5 | Backlog graduation + file `BL-HARNESS-FONT-FIDELITY`. | `docs(backlog):` |

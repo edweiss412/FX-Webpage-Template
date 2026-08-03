@@ -38,8 +38,29 @@
  *   M9  a NAMESPACE import (`import * as f`, `f.Inter()`)→ property-access callee
  *   M10 two invocations on ONE source line               → AST nodes, not lines
  *
- * A new family is admissible only with a live escaping mutant demonstrated
- * against this guard, not hypothesized.
+ * Review R3 then ran the shipped function in memory and demonstrated eight MORE
+ * escaping forms, all of which are now closed and fixtured:
+ *
+ *   M11 `(Inter)(...)`                  parenthesized callee
+ *   M12 `(0, Inter)(...)`               sequence-expression callee
+ *   M13 `{ Inter }.Inter(...)`          object-literal member
+ *   M14 `Inter.call(...)` / `.apply`    invoked through Function.prototype
+ *   M15 `let x; x = Inter; x(...)`      assignment alias
+ *   M16 `fonts["Roboto"](...)`          namespace ELEMENT access
+ *   M17 `const f2 = fonts; f2.Inter()`  namespace alias
+ *   M18 `const { Inter } = fonts`       namespace destructure
+ *
+ * **The syntactic space is open, and this guard does not pretend to close it.**
+ * Two rounds of review each produced new forms, which is the signature of an
+ * unbounded attack surface rather than an incomplete list. The CLOSURE
+ * mechanism is therefore not this file: `tests/e2e/font-binding.spec.ts`
+ * asserts at RUNTIME that the document registers exactly one font family, which
+ * no syntactic trick can evade because it observes what the browser actually
+ * loaded. This guard is the cheap fast-feedback tripwire that fails in
+ * milliseconds without a browser; that one is the oracle.
+ *
+ * A new syntactic family is admissible here only with a live escaping mutant
+ * demonstrated against this guard, not hypothesized.
  *
  * Spec: docs/superpowers/specs/2026-08-03-app-wide-font-binding.md §4.3
  */
@@ -82,61 +103,122 @@ export function countLoaderInvocations(source: string, fileName = "probe.tsx"): 
     if (!isFontModule(stmt.moduleSpecifier.text)) continue;
     const clause = stmt.importClause;
     if (!clause) continue;
-    // `import localFont from "next/font/local"` (M8)
-    if (clause.name) loaderBindings.add(clause.name.text);
+    if (clause.name) loaderBindings.add(clause.name.text); // default import (M8)
     const bindings = clause.namedBindings;
     if (!bindings) continue;
-    if (ts.isNamespaceImport(bindings)) {
-      // `import * as fonts from "next/font/google"` (M9)
-      namespaceBindings.add(bindings.name.text);
-    } else {
-      // `{ Inter }`, `{ Inter, Roboto }` (M2), `{ Inter as X }` (M4).
-      // `element.name` is the LOCAL name in every form, which is what a call
-      // site can actually reference.
-      for (const element of bindings.elements) loaderBindings.add(element.name.text);
-    }
+    if (ts.isNamespaceImport(bindings)) namespaceBindings.add(bindings.name.text); // M9
+    // `element.name` is the LOCAL name in every named form, aliased or not (M2, M4).
+    else for (const element of bindings.elements) loaderBindings.add(element.name.text);
   }
 
   if (loaderBindings.size === 0 && namespaceBindings.size === 0) return 0;
 
-  // Const aliases, to a fixpoint: `const F = Inter;` then later `const G = F;` (M5).
+  // Alias resolution to a FIXPOINT, over every form that can rebind a loader to
+  // a new name. Review R3 demonstrated escapes through several of these against
+  // an earlier version that handled only `const x = Inter`.
   let grew = true;
   while (grew) {
     grew = false;
+    const add = (name: string): void => {
+      if (!loaderBindings.has(name)) {
+        loaderBindings.add(name);
+        grew = true;
+      }
+    };
+    const rootsOf = (expr: ts.Expression): boolean => {
+      // Does this expression evaluate to a loader? Unwraps the wrappers that
+      // change nothing about what is called.
+      let e: ts.Expression = expr;
+      for (;;) {
+        if (ts.isParenthesizedExpression(e)) e = e.expression;
+        else if (ts.isAsExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
+        else if (ts.isNonNullExpression(e)) e = e.expression;
+        // `(0, Inter)` — the sequence's VALUE is its last operand.
+        else if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.CommaToken)
+          e = e.right;
+        else break;
+      }
+      if (ts.isIdentifier(e)) return loaderBindings.has(e.text);
+      // `fonts.Inter`, `fonts["Inter"]` — a namespace member — or a member of
+      // an object literal that holds a loader (`{ Inter }.Inter`).
+      if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) {
+        if (ts.isIdentifier(e.expression)) return namespaceBindings.has(e.expression.text);
+        return rootsOf(e.expression);
+      }
+      // `{ Inter }.Inter` is handled by the property-access branch above once its
+      // object is not an identifier; an object literal holding a loader is
+      // treated as a loader-valued expression.
+      if (ts.isObjectLiteralExpression(e)) {
+        return e.properties.some(
+          (prop) =>
+            (ts.isShorthandPropertyAssignment(prop) && loaderBindings.has(prop.name.text)) ||
+            (ts.isPropertyAssignment(prop) && rootsOf(prop.initializer)),
+        );
+      }
+      return false;
+    };
     const visitAlias = (node: ts.Node): void => {
+      // `const x = <loader>` / `let x = <loader>`
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        if (ts.isIdentifier(node.name) && rootsOf(node.initializer)) add(node.name.text);
+        // `const { Inter } = fonts` / `const { Inter: F } = fonts`
+        else if (
+          ts.isObjectBindingPattern(node.name) &&
+          ts.isIdentifier(node.initializer) &&
+          namespaceBindings.has(node.initializer.text)
+        ) {
+          for (const element of node.name.elements) {
+            if (ts.isIdentifier(element.name)) add(element.name.text);
+          }
+        }
+      }
+      // `x = Inter` (mutable alias, assigned after declaration)
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left) &&
+        rootsOf(node.right)
+      ) {
+        add(node.left.text);
+      }
+      // `const f2 = fonts` (namespace alias)
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
         node.initializer &&
         ts.isIdentifier(node.initializer) &&
-        loaderBindings.has(node.initializer.text) &&
-        !loaderBindings.has(node.name.text)
+        namespaceBindings.has(node.initializer.text) &&
+        !namespaceBindings.has(node.name.text)
       ) {
-        loaderBindings.add(node.name.text);
+        namespaceBindings.add(node.name.text);
         grew = true;
       }
       ts.forEachChild(node, visitAlias);
     };
     ts.forEachChild(sf, visitAlias);
-  }
 
-  let invocations = 0;
-  const visitCall = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      if (ts.isIdentifier(callee) && loaderBindings.has(callee.text)) invocations += 1;
-      else if (
-        ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        namespaceBindings.has(callee.expression.text)
-      ) {
-        invocations += 1;
+    let invocations = 0;
+    const visitCall = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        let callee: ts.Expression = node.expression;
+        // `Inter.call(...)` / `Inter.apply(...)` invoke Inter, not a method of it.
+        if (
+          ts.isPropertyAccessExpression(callee) &&
+          (callee.name.text === "call" || callee.name.text === "apply") &&
+          rootsOf(callee.expression)
+        ) {
+          invocations += 1;
+          ts.forEachChild(node, visitCall);
+          return;
+        }
+        if (rootsOf(callee)) invocations += 1;
       }
-    }
-    ts.forEachChild(node, visitCall);
-  };
-  ts.forEachChild(sf, visitCall);
-  return invocations;
+      ts.forEachChild(node, visitCall);
+    };
+    ts.forEachChild(sf, visitCall);
+    if (!grew) return invocations;
+  }
+  return 0;
 }
 
 function toRepoRelative(absolute: string): string {
@@ -281,6 +363,88 @@ export default function ShowLayout({ children }: { children: ReactNode }) {
           `const a = Inter({ subsets: ["latin"] }), b = Roboto({ subsets: ["latin"] });\n`,
       ),
     ).toBe(2);
+  });
+
+  it("M11 — parenthesized callee", () => {
+    expect(
+      countLoaderInvocations(
+        `import { Inter } from "next/font/google";\nconst a = (Inter)({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M12 — sequence-expression callee", () => {
+    expect(
+      countLoaderInvocations(
+        `import { Inter } from "next/font/google";\nconst a = (0, Inter)({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M13 — object-literal member", () => {
+    expect(
+      countLoaderInvocations(
+        `import { Inter } from "next/font/google";\nconst a = { Inter }.Inter({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M14 — invoked through Function.prototype.call", () => {
+    expect(
+      countLoaderInvocations(
+        `import { Inter } from "next/font/google";\nconst a = Inter.call(null, { subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M15 — assignment alias", () => {
+    expect(
+      countLoaderInvocations(
+        `import { Inter } from "next/font/google";\nlet x;\nx = Inter;\nconst a = x({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M16 — namespace element access", () => {
+    expect(
+      countLoaderInvocations(
+        `import * as fonts from "next/font/google";\nconst a = fonts["Roboto"]({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M17 — namespace alias", () => {
+    expect(
+      countLoaderInvocations(
+        `import * as fonts from "next/font/google";\nconst f2 = fonts;\nconst a = f2.Inter({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("M18 — namespace destructure", () => {
+    expect(
+      countLoaderInvocations(
+        `import * as fonts from "next/font/google";\nconst { Inter } = fonts;\nconst a = Inter({ subsets: ["latin"] });\n`,
+      ),
+    ).toBe(1);
+  });
+
+  it("R3's full escape set: one ordinary loader PLUS each exotic second loader counts 2", () => {
+    // The exact shape review R3 probed — the guard reported 1 for every one of
+    // these while two loaders executed.
+    const seconds = [
+      `const b = (Roboto)({ subsets: ["latin"] });`,
+      `const b = (0, Roboto)({ subsets: ["latin"] });`,
+      `const b = { Roboto }.Roboto({ subsets: ["latin"] });`,
+      `const b = Roboto.call(null, { subsets: ["latin"] });`,
+      `let z;\nz = Roboto;\nconst b = z({ subsets: ["latin"] });`,
+    ];
+    for (const second of seconds) {
+      const source =
+        `import { Inter, Roboto } from "next/font/google";\n` +
+        `const a = Inter({ subsets: ["latin"] });\n${second}\n`;
+      expect(countLoaderInvocations(source), `escaping form: ${second}`).toBe(2);
+    }
   });
 
   it("an identically-named import from an UNRELATED module is not counted", () => {
