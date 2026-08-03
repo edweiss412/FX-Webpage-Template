@@ -230,7 +230,12 @@ describe("claimed-row pending affordance", () => {
     expect(cls).not.toContain("text-text-subtle");
     // The fill alone is 1.02:1 against the row — the boundary is what makes
     // the chip a container, and the P1 disposition names both.
-    expect(cls).toContain("border-accent-on-bg");
+    // BOTH utilities: `border-accent-on-bg` sets the colour, `border` sets
+    // the width. Asserting only the colour leaves `border` deletable, which
+    // puts the width at zero and restores the 1.02:1 no-container defect with
+    // every oracle green.
+    expect(cls.split(/\s+/)).toContain("border");
+    expect(cls.split(/\s+/)).toContain("border-accent-on-bg");
 
     // The right column reserves width so the name does not gain then lose
     // 94px at 360px when the chip swaps in. The browser oracle measures

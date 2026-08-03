@@ -279,10 +279,11 @@ here**, and the row names the environment that can actually settle it.
 | P11 | A native GET submit tears down the component, so local pending state cannot leak | TRUE by navigation semantics; the observable consequence (row not stuck) is asserted in Playwright, and the bfcache exception is the reason `pageshow` exists (§9) | Playwright |
 | P12 | `truncate` + `min-w-0` + `shrink-0` + `whitespace-nowrap` + row `items-center` produce the claimed row layout | **Geometry alone settles none of them.** Height and name-edge survive deleting any of these classes; even a long-name fixture leaves `truncate`'s deletion invisible, and a spinner-centre check cannot see `items-center`'s deletion because the left group re-centres within a stretched row. §8.2 therefore pairs each class with a **computed-style or stretch** oracle chosen to kill exactly that mutation | Playwright only |
 
-A claim may legitimately end up as **unproven** (P10) — what R9 forbids is an unproven claim that
-is not *labelled* as such, or one the design silently depends on. P10 is load-bearing for nothing;
-P9 and P12 are load-bearing and are therefore assigned to the only environment that can settle
-them.
+A claim may legitimately end up as **partly unproven** — what R9 forbids is an unproven claim
+that is not *labelled* as such, or one the design silently depends on. P10 is the live case: its
+spoken text cannot be settled here, but its presence and placement ARE load-bearing and ARE
+asserted, so the unproven part is fenced rather than the whole row waved through. P9 and P12 are
+likewise load-bearing and assigned to the only environment that can settle them.
 
 **Consequences, wired into the design:**
 
