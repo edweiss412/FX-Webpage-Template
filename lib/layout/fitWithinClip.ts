@@ -81,3 +81,28 @@ export function computeFittedMaxHeight({
   const available = Math.floor(clipBottom - elementTop - gutter);
   return Math.max(MIN_FITTED_HEIGHT, Math.min(cap, available));
 }
+
+/**
+ * Whether {@link computeFittedMaxHeight} had to OVERRIDE the available room
+ * with {@link MIN_FITTED_HEIGHT} — i.e. whether the overlay now overhangs its
+ * clip edge.
+ *
+ * The returned height cannot answer this on its own: `48` is a legitimate fit
+ * when the room happens to be exactly 48, and an overhang when the room is
+ * less. Without a way to tell them apart, the overhang — the precise failure
+ * this module exists to prevent — is invisible to every caller.
+ *
+ * A `cap` below the floor is NOT clamping: that is the caller asking for a
+ * small box, not the geometry defeating it. Non-finite inputs fall back to
+ * `cap` in the computation, so they are not clamping either.
+ */
+export function isFloorClamped({
+  elementTop,
+  clipBottom,
+  cap,
+  gutter = DEFAULT_CLIP_GUTTER,
+}: FittedMaxHeightInput): boolean {
+  if (!Number.isFinite(elementTop) || !Number.isFinite(clipBottom)) return false;
+  const available = Math.floor(clipBottom - elementTop - gutter);
+  return available < MIN_FITTED_HEIGHT && cap >= MIN_FITTED_HEIGHT;
+}

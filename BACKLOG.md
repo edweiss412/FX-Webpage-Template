@@ -1308,3 +1308,38 @@ Speculative finish polish from the B2 UI external impeccable attestation (gate P
 - **BACKLOG-B2UI-1** — `DashboardBucketSegmentedControl`: disabled "Archived (0)" segment can read as clickable-but-dead on first encounter; consider `title="No archived shows"`.
 - **BACKLOG-B2UI-2** — `ArchiveShowButton`: two `min-w-[18rem]` arbitrary literals; tokenize (sibling of the shipped `--spacing-confirm-box`) or accept the one-off button-pair width.
 - **BACKLOG-B2UI-3** — `ArchiveShowButton`: armed confirm button's `hover:bg-warning-bg` equals its resting bg (no hover feedback); add a distinct `hover` token.
+
+---
+
+## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
+
+Filed 2026-08-02 alongside the anchor-room census that measured the other two.
+
+`lib/layout/fitWithinClip.ts` now carries a per-anchor reachability table instead of
+generalizing one measurement. Two of the three anchors have real numbers: the Re-sync band
+(209.75px at 375×667) and the AttentionMenu scroller (swept at 375×H — 844→563, 667→412,
+560→322, 400→186, 300→101, linear in viewport height). The third, the PublishedToggle refusal
+banner, does not.
+
+Two obstacles, both in the harness rather than the code:
+
+1. The banner mounts only on a REFUSAL, and the shared modal harness hardcodes
+   `setPublished: NOOP_OK` (`tests/e2e/_publishedReviewModalHarness.tsx`), so no refusal can be
+   driven through the real modal.
+2. Its anchor — the StatusStrip — renders BELOW the clip window in that fixture at 375×667.
+   Measured: strip `713.03..911.03` against a panel bottom of `667`. Room computed there is
+   `-257px`, which describes an anchor clipped entirely out of view rather than one an operator
+   interacts with.
+
+What IS pinned today is the structural premise the fit depends on: walking up from the anchor
+lands on the review-modal panel, asserted in the anchor-room census and proved live by mutation.
+The dedicated replica entry (`tests/e2e/_publishedToggleClipLiveEntry.tsx`) exercises the
+arithmetic and DOM wiring, but its ~80px of room is CHOSEN, so it cannot speak to reachability.
+
+Obstacle 2 is worth a second look on its own terms: a fixture that renders the strip fully
+outside the clip window may be an unrepresentative fixture, or may be a real responsive defect
+at that viewport. Nobody has established which.
+
+**Trigger:** a harness that can drive a refusal through the real modal (a `setPublished`
+override on the shared harness would do it), or a decision about obstacle 2. Until then the
+docblock states the gap rather than papering over it.

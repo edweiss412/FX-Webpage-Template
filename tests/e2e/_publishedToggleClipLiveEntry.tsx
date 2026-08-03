@@ -15,10 +15,18 @@
  * `setPublished` resolves a REFUSAL (`FINALIZE_OWNED_SHOW`), which is what
  * renders the anchored banner. The spacer above the toggle is deliberate
  * geometry: it pushes the banner's top far enough down the 220px panel that the
- * room available to the fit is ~80px — comfortably above MIN_FITTED_HEIGHT (48,
- * lib/layout/fitWithinClip.ts) so the case stays inside the ratified regime,
- * and comfortably below the banner's natural content height so the overflow
- * obligation is exercised rather than hoped for.
+ * room available to the fit is ~80px — above MIN_FITTED_HEIGHT (48,
+ * lib/layout/fitWithinClip.ts) so the fit is exercised rather than the floor,
+ * and below the banner's natural content height so the overflow obligation is
+ * exercised rather than hoped for.
+ *
+ * WHAT THIS PANEL CANNOT TELL YOU. That ~80px is CHOSEN, not measured. The panel
+ * is a replica sized to make the fit and overflow obligations observable, so it
+ * is evidence about the hook's ARITHMETIC and DOM wiring and about nothing else.
+ * In particular it says nothing about whether the floor is reachable on the real
+ * surface — a fixture built to sit above the floor cannot be evidence that the
+ * floor is unreachable. Real-surface anchor room is measured separately, in the
+ * anchor-room census in popover-clip-fit.spec.ts, against the real modal panel.
  *
  * Router: PublishedToggle calls useRouter and HelpAffordance calls usePathname,
  * so the tree is wrapped in AppRouterContext.Provider with a no-op stub
