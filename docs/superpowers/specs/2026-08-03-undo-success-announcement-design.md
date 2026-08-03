@@ -23,7 +23,9 @@ Three ledger dispositions ride along: `BL-SYNCFEED-UI-1` resolves, `BL-SYNCFEED-
 
 `UndoChangeButton` (`components/admin/UndoChangeButton.tsx`) submits a `<form action={dispatch}>` driven by `useActionState` (`UndoChangeButton.tsx:79`). On `{ok: true}` it renders nothing new — the comment at `UndoChangeButton.tsx:15` states the contract outright: "On `{ok:true}` the page revalidation flips the row to undone."
 
-That revalidation is precisely what destroys any announcement placed inside the button. In the feed, `ChangeFeedEntry` gates the control on `canUndo = entry.action === "undo" && entry.changeLogId != null` (`components/admin/ChangeFeedEntry.tsx:88`), rendered at `ChangeFeedEntry.tsx:141`. A successful undo flips `action` to `none`, `canUndo` goes false, and the whole `UndoChangeButton` subtree **unmounts**. A live region that unmounts cannot announce, and one that mounts already-populated is the documented not-announced pitfall (`docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md:139-142`).
+That revalidation is precisely what destroys any announcement placed inside the button. In the feed, `ChangeFeedEntry` gates the control on `canUndo = entry.action === "undo" && entry.changeLogId != null` (`components/admin/ChangeFeedEntry.tsx:88`), rendered at `ChangeFeedEntry.tsx:141`. A successful undo flips `action` to `none`, `canUndo` goes false, and the whole `UndoChangeButton` subtree **unmounts**.
+
+That flip is not inferred — it is what the read path computes. `action: "undo"` is returned only under `row.status === "applied" && isCrewDomainChangeKind(row.change_kind) && row.individually_undoable === true` (`lib/sync/feed/shapeChangeFeed.ts:65-69`); every other row falls through to the `action: "none"` base object at `lib/sync/feed/shapeChangeFeed.ts:52`. Undo moves the row to `undone`, so the first conjunct fails on the next read and the control is gone. A live region that unmounts cannot announce, and one that mounts already-populated is the documented not-announced pitfall (`docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md:139-142`).
 
 So the remedy the ledger note proposes — "consider an `aria-live` region" inside `UndoChangeButton` — cannot work where it is written. The region has to live in a component that outlives the button.
 
@@ -35,7 +37,7 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 |---|---|---|
 | R1 | The announcement region does **not** live inside `UndoChangeButton`. The button unmounts on success (`ChangeFeedEntry.tsx:88` + `ChangeFeedEntry.tsx:141`), so a region there is destroyed before AT can read it. The ledger note that proposed that placement is corrected by this spec, not followed. | §1.0 above |
 | R2 | The bulk "Undo all" announcement is **already shipped** and is NOT in scope. `RecentAutoAppliedStrip.tsx:544-558` renders a persistent sr-only `role="status"` region (`auto-applied-bulk-undo-status-${showId}`), covered by tests at `tests/components/admin/RecentAutoAppliedStrip.test.tsx:623`. It is left byte-identical. Only the **per-row** channel is new. | `RecentAutoAppliedStrip.tsx:544-558` |
-| R3 | The per-row channel uses the **append-shaped `role="log"`** mechanism, not `role="status"`. Two undoable rows can carry identical `summary` text, and an identical text change may not re-announce; an identical *addition* always does. This is the project's stated answer to that class. | `2026-07-22-warning-announcer-copy-design.md:134-137` |
+| R3 | The per-row channel uses the **append-shaped `role="log"`** mechanism, not `role="status"`. An identical text change may not re-announce; an identical *addition* always does. This is the project's stated answer to that class, and the collision is reachable here rather than theoretical — see §1.2. | `2026-07-22-warning-announcer-copy-design.md:134-137`, §1.2 |
 | R4 | Clear-then-set (blank the region, then write) is **forbidden** as a re-announce trick and is not an option under consideration. | `2026-07-22-warning-announcer-copy-design.md:361-362` |
 | R5 | The announcement copy is **hard-coded**, not a §12.4 catalog row. It is an admin-facing inline success sentence, not a user-visible error code, so invariant 5 does not reach it. | `2026-08-01-announce-a11y-pass-design.md:22` |
 | R6 | The shared announce-log module **retrofits** `ShowReviewSurface`'s warnings channel rather than existing alongside it. The alternative — a third near-verbatim copy of the same 12 lines — is the weaker outcome, and the retrofit is proven safe by that surface's existing MutationObserver tests (`tests/components/admin/review/warningsPanelStatusMount.test.tsx:105`), which fail loudly on any DOM change. | §3.1, §6 |
@@ -44,6 +46,16 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 | R9 | `BL-SYNCFEED-UI-2` (badge `title` tooltips are hover-only) ships **no code**. Its own text conditions action on "if touch-discoverability is raised"; it has not been. The badge already renders a real text label (`ChangeFeedBadge.tsx:55`), so the color-blind floor and the non-hover information floor are both met — the `title` is supplementary. | §9.2 |
 | R10 | `BL-SYNCFEED-UI-3` ships **no code**. The off-type fixture it describes was corrected at commit `c3920fe6a`; `tests/components/admin/ChangeFeedEntry.test.tsx:192` now reads `{ disposition: "removal" as const }` and no fixture in the tree carries `name` on a removal literal. The `Disposition` union is unchanged (`lib/sync/holds/types.ts:7-10`). | §9.3 |
 | R11 | Announcing the undo **failure** path through the catalog (routing `code` → copy inside the announcement string) is **out of scope**. The fix here makes the existing `ErrorExplainer` card announce by making its wrapper always-mounted; the card already owns the copy and already satisfies invariant 5. No catalog lookup moves into the announcement. | §4.2 |
+
+### 1.2 Why identical announcements are reachable
+
+The choice of an append-shaped region over a simpler one rests on two undoable rows being able to carry byte-identical announcement text. They can.
+
+Summaries are built from the crew member's **name alone**, with no row id, timestamp, or run discriminator: `Crew member ${prior} renamed to ${added}` (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`), `Crew member ${member.name} removed` (`writeAutoApplyChanges.ts:111`), and the matching added form. Within a single sync run a name appears at most once per kind, so a naive reading suggests collisions cannot happen.
+
+The feed is not a single run. It shows up to 50 rows accumulated across many runs (`ChangesFeed.tsx` truncation note). A crew member removed in one sync and re-added in a later one produces two `crew_added` rows with identical `summary`, both `applied`, both `individually_undoable` — simultaneously undoable, and indistinguishable by announcement text. Under `role="status"` the second undo would be silent. Under `role="log"` both are announced, because an identical *addition* always announces.
+
+This is the evidence behind R3; it is not a defensive over-build.
 
 ---
 
@@ -166,6 +178,8 @@ The announcement happens **inside the action's async flow**, before React can pr
 
 `data-testid="change-feed-undo-result"` moves from the conditional node to the persistent one. **Existing tests that assert this testid is absent before a failure now need `toHaveTextContent("")` instead of `toBeNull()`** — see §7.
 
+**No layout changes, and here is why.** The wrapper's parent is `flex flex-col gap-2` (`UndoChangeButton.tsx:83`; identically `AcceptChangeButton.tsx:77` and `Mi11GateActions.tsx:140`), so an always-present second child is the obvious suspicion — a phantom `gap-2` on every button that has never failed. It does not occur: `sr-only` sets `position: absolute`, and an absolutely positioned child is not a flex item, so it contributes neither a track nor a gap. In the failing state the element is back in flow with the same classes it has today. Rendered geometry is byte-identical to current behavior in both states, which is why this spec owes no Playwright layout assertion.
+
 **Guard conditions.**
 
 | Prop | Value | Behavior |
@@ -280,9 +294,21 @@ If any warnings-panel test needs editing to accommodate the retrofit, the retrof
 
 ## 7. Test-shape changes forced by the failure-card fix
 
-Making the error wrapper always-mounted changes what "no failure yet" looks like in the DOM. Every existing assertion of the form `expect(queryByTestId("<x>-result")).toBeNull()` becomes `expect(getByTestId("<x>-result")).toHaveTextContent("")`. The implementation task must sweep all three testids across the test tree — `change-feed-undo-result`, `change-feed-accept-result`, `mi11-gate-result` — and convert every instance, not only the ones a single failing run happens to surface.
+Making the error wrapper always-mounted changes what "no failure yet" looks like in the DOM. The sweep is closed at **ten** sites across three files, enumerated here so the implementation does not discover them one failing run at a time. No `e2e/` or Playwright test references any of the three testids.
 
-This is a widening of what the tests assert, not a weakening: the new form pins both that the node exists and that it is empty, where the old form only pinned absence.
+| File | Line | Current assertion | Disposition |
+|---|---|---|---|
+| `tests/components/admin/UndoChangeButton.test.tsx` | 38 | `findByTestId(…).toBeInTheDocument()` | **strengthen** |
+| `tests/components/admin/UndoChangeButton.test.tsx` | 50 | `findByTestId(…).toBeInTheDocument()` | **strengthen** |
+| `tests/components/admin/UndoChangeButton.test.tsx` | 61 | `queryByTestId(…).toBeNull()` | convert |
+| `tests/components/admin/AcceptChangeButton.test.tsx` | 53 | `getByTestId(…).toBeInTheDocument()` | **strengthen** |
+| `tests/components/admin/AcceptChangeButton.test.tsx` | 69 | `queryByTestId(…).toBeNull()` | convert |
+| `tests/components/admin/Mi11GateActions.test.tsx` | 95 | `findByTestId(…).toBeInTheDocument()` | **strengthen** |
+| `tests/components/admin/Mi11GateActions.test.tsx` | 252, 258, 282, 287 | `queryByTestId(…).toBeNull()` | convert (4 sites) |
+
+**Convert** means `expect(getByTestId("<x>-result")).toHaveTextContent("")`. That is a widening, not a weakening: it pins both that the node exists and that it is empty, where `toBeNull()` only pinned absence.
+
+**Strengthen is the load-bearing half, and the reason this section exists.** Once the node is always mounted, `toBeInTheDocument()` is true *before the action ever runs* — those four assertions would keep passing while proving nothing, which is precisely the tautology the anti-tautology rule forbids. Each must assert the rendered failure copy instead, scoped to the result node: `expect(getByTestId("<x>-result")).toHaveTextContent(<the catalog copy for the code under test>)`, or an assertion on the nested `error-explainer-message` testid. An implementation that converts the six `toBeNull()` sites and leaves these four untouched has silently deleted four tests.
 
 ---
 
@@ -292,6 +318,7 @@ This is a widening of what the tests assert, not a weakening: the new form pins 
 - **Long summaries.** `summary` is announced whole, with no truncation. Feed summaries are short generated sentences; a pathological one would be read in full. Accepted — truncating an announcement is worse than a long one.
 - **Announcement ordering under burst.** Two undos resolving in the same commit append in resolution order, which may not be visual row order. AT reads both; only the sequence is unspecified.
 - **Cap loss.** After 50 announcements in one mount, the oldest entries leave the DOM. They were announced when added; removals under `role="log"` are silent.
+- **An uncatalogued failure code announces nothing.** `ErrorExplainer` returns `null` when the code has no catalog row (`components/messages/ErrorExplainer.tsx:82`, and again at `ErrorExplainer.tsx:93`), so the always-mounted wrapper stays empty and neither AT nor a sighted user learns anything. This is today's behavior exactly — the conditional wrapper also rendered an empty card — so the change neither introduces nor fixes it. Recorded because a reader of §3.3b would otherwise assume every failure now announces.
 - **No success announcement for Accept or Approve/Reject.** Out of scope (§3.4).
 
 ---
