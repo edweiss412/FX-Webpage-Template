@@ -101,15 +101,20 @@
 
   /* ── Typography ── */
   /* `var(--font-inter)` first, NOT the literal "Inter". The token is defined by
-     next/font's generated class (app/fonts.ts) and carries BOTH `Inter` and its
-     generated `Inter Fallback` -- a face built with size-adjust/ascent-override
+     next/font's generated class (app/fonts.ts) and carries BOTH the generated
+     family and its generated companion -- a face built with size-adjust/ascent-override
      specifically so the `display: "swap"` window does not reflow. Naming the
      literal skipped that face entirely, so first paint used a system font at
      native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
-     real string) on every React-root route. The var() fallback keeps the literal pair for
-     any surface without the generated class -- notably the standalone test
-     harnesses, which compile this file with no Next runtime -- so the
-     declaration is never invalid at computed-value time. DESIGN.md 2.1. */
+     real string) on every React-root route. Since the loader moved to
+     next/font/local the generated family is `inter`, lowercased from the loader
+     module's variable name, where next/font/google emitted the literal `Inter` --
+     which is exactly why this token, not any spelled name, is the contract. The
+     var() fallback literals now reach only a surface without the generated class
+     -- notably the standalone test harnesses, which compile this file with no
+     Next runtime, where they name a host-INSTALLED Inter if one exists
+     (BL-HARNESS-FONT-FIDELITY) -- so the declaration is never invalid at
+     computed-value time. DESIGN.md 2.1. */
   --font-sans:
     var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", "Helvetica Neue", sans-serif;

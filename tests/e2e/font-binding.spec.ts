@@ -2,7 +2,7 @@
  * Font binding — does the app actually RENDER the family it commits to?
  *
  * `DESIGN.md:133` commits the product to Inter, "single contemporary sans for
- * all UI", loaded via `next/font/google` from `app/fonts.ts`. `app/globals.css`
+ * all UI", loaded via `next/font/local` from `app/fonts.ts`. `app/globals.css`
  * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` names the
  * LITERAL family `"Inter"` first. Nothing in that chain proves a face called
  * Inter is actually available — a missing loader degrades silently to the next
@@ -232,12 +232,17 @@ function assertRendersInter(report: FontReport, surface: string): void {
 }
 
 /**
- * `--font-inter` is the token `app/layout.tsx` asks the loader to expose. It is
- * NOT what binds the font — the loaded stylesheet registers the literal family
- * `Inter`, and `app/globals.css:103-104` names that literal in `--font-sans`,
- * so binding happens with or without this token. Asserted separately for that
- * reason: without it, a loader that silently stopped emitting `variable:` would
- * still pass every width check while the documented token vanished.
+ * `--font-inter` is the token `app/fonts.ts` asks the loader to expose, and it
+ * IS what binds the font. The generated family name is not stable across
+ * loaders: `next/font/google` emitted the literal `Inter`, and `next/font/local`
+ * emits `inter`, lowercased from the loader module's variable name. So every
+ * assertion here reads the family OUT of this token rather than comparing a
+ * spelled literal — a test that hard-coded `Inter` would have broken on a
+ * change that altered nothing a user can see.
+ *
+ * Asserted separately from the width checks because a loader that silently
+ * stopped emitting `variable:` would still pass them while the documented token
+ * vanished.
  */
 function assertExposesFontInterToken(report: FontReport, surface: string): void {
   expect(

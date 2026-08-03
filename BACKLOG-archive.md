@@ -8,6 +8,41 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-INTER-NUMERAL-DISAMBIGUATION — RESOLVED (2026-08-03, `feat/inter-numeral-disambiguation`)
+
+**Resolved by changing the font, not the CSS — the entry's premise was false.**
+
+The row asked for `"zero" 1, "cv05" 1` on the tabular rule. Probing the actual binaries first showed
+those features do not exist in the Inter build Google Fonts serves: measured live, the latin subset
+carries `calt ccmp dnom frac kern locl mark mkmk numr pnum tnum` and a `wght` axis, nothing more. The
+requested change would have rendered nothing — exactly as the `"cv11" 1` beside it had been rendering
+nothing since `78662acb5` (2026-05-03), silently, on every route, for three months.
+
+Two further defects in the row itself, independent of availability: `cv05` moves lowercase `l` only and
+never touches capital `I`, so the pair named in the row's own title was incomplete; and `ss04` is
+Inter's own "disambiguation without zero", which covers both letterforms in one tag.
+
+**Shipped:** the upstream `rsms/inter` v4.1 release vendored verbatim at `app/_fonts/InterVariable.woff2`
+(344 KB, checksummed in `app/_fonts/PROVENANCE.md`, OFL text alongside) and loaded via `next/font/local`;
+`ss04` at `html` and `ss04`/`tnum`/`zero` on the tabular rule, with `ss04` repeated because
+`font-feature-settings` inherits as a whole value rather than a merged list. Verbatim rather than
+subsetted so the artifact is a signed release file, not committed build output needing a
+reproducibility gate. The `opsz` axis arrived with it, making `DESIGN.md` §2.1's long-standing
+optical-sizing claim true for the first time.
+
+**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and six source
+comments — including that plan's own P3 disposition, which had recorded "now deterministically activates
+Inter's alternates … for the first time" as an accepted consequence. It activated nothing.
+
+**The guard is the real deliverable.** `tests/styles/fontFeatureAvailability.test.ts` derives the font
+path from `app/fonts.ts` and asserts every tag `app/globals.css` declares exists in that binary, so this
+class of silent failure fails the build instead. It carries a regression proof against the committed
+Google-served binary showing it would have caught the dead `cv11` on the day it was written. In the
+browser, `zero` is proven by a PIXEL oracle rather than a width one: `zero` and `zero.slash` share an
+xAdvance of 1292 units, so a width assertion can never see the feature work.
+
+---
+
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors

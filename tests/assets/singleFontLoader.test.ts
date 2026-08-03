@@ -2,7 +2,7 @@
  * Structural guard — exactly ONE `next/font` loader invocation, in `app/fonts.ts`.
  *
  * `DESIGN.md:133` commits the product to a single family loaded via
- * `next/font/google`. The call lives in `app/fonts.ts` rather than the root
+ * `next/font/local`. The call lives in `app/fonts.ts` rather than the root
  * layout because Next 16 has TWO roots: `app/global-error.tsx`
  * renders its own `<html>` and replaces the root layout, so it needs the font
  * too, and a second `Inter()` call there would emit a second `@font-face` set
