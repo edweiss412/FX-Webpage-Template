@@ -50,9 +50,9 @@ function inWarningScanRoots(rel: string): boolean {
 
 /**
  * Memoized: loading the ts-morph project costs ~39s and the scan ~65s end-to-end,
- * so a process pays once. Vitest rejects `isolate: false`, so cross-FILE reuse is
- * not available — which is why exactly ONE test file performs a fresh extraction
- * (spec §3.5).
+ * so a process pays once. Vitest runs each test FILE in its own worker process
+ * here, so a module-scope memo cannot be shared across files — which is why
+ * exactly ONE test file performs a fresh extraction (spec §3.5).
  */
 let warningScan: SiteScan | null = null;
 let injectedProject: Project | null = null;
