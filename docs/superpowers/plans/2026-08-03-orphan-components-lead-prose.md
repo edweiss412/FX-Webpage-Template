@@ -142,7 +142,10 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    - `pending` — a live reference, keyed the same way, owned by `repairedBy: "Task N"`.
      Tasks 5-8 delete their `pending` rows as they repair the references.
 3. **Assert that `pending` is a transient state:** the guard fails if any `pending` row names a task
-   number that no longer exists in this plan, and Task 13 asserts **zero** `pending` rows remain.
+   that no longer exists in this plan, and the LIVE zero-`pending` assertion lands in Task 13's
+   commit — the one that empties the ledger. Writing it here would knowingly commit a red guard for
+   eleven tasks, which is the mid-sequence breakage green-per-commit forbids; its CONTRACT is
+   proven here instead, by synthetic family (e), where it can still fail.
    Without that, "pending" would be an unbounded mute button — the exact failure the allowlist is
    supposed to prevent.
    **And assert every `line`/`pending` row still MATCHES something:** a row whose text matches no
@@ -567,12 +570,12 @@ move)
 
 ## Task 13 — closeout, UI gate, and whole-diff adversarial review
 
-1. **The zero-`pending` assertion is written in Task 2 and PROVEN there, not here** (plan R2
-   BLOCKING-3: an assertion first written at closeout, after Tasks 5-8 already emptied the ledger,
-   starts green and exercises nothing). Task 2 ships it with a synthetic proof — a fixture ledger
-   containing one `pending` row must FAIL the terminal assertion — so its contract is established
-   while it can still fail. Here it is only RUN, against the real ledger, and its green is the
-   mechanical statement that the census reached zero live references.
+1. **Add the LIVE zero-`pending` assertion in this commit**, the one that empties the ledger. Its
+   CONTRACT was established at Task 2 by synthetic family (e) — a fixture ledger holding one
+   `pending` row must FAIL it — so it is proven before use rather than asserted before it can hold
+   (plan R2 BLOCKING-3 wanted it exercised; a live version written at Task 2 would instead have
+   been knowingly red for eleven tasks). Its green here is the mechanical statement that the census
+   reached zero live references.
 2. **Run both halves of the invariant-8 UI gate** on the finished diff, with the canonical v3 setup
    gates (`context.mjs` context load of `PRODUCT.md` + `DESIGN.md`, then the register reference
    read). This branch DOES touch UI surfaces by the letter of `AGENTS.md` invariant 8 — see §12.
