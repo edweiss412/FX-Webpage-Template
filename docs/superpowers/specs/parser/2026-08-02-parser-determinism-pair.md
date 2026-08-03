@@ -170,10 +170,10 @@ the backlog entry asked for:
 
 | The entry asked for | Shipped as |
 | --- | --- |
-| "route ALL section-header detection through a single shared, introspectable constant/helper" | per-file `SECTION_HEADER_TOKENS` exports plus the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` (8 importers under `lib/parser/blocks/`, plus `lib/parser/index.ts`) |
+| "route ALL section-header detection through a single shared, introspectable constant/helper" | per-file `SECTION_HEADER_TOKENS` exports + the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` (8 importers under `lib/parser/blocks/`, plus `lib/parser/index.ts`). **Partially, by ratified design:** the walker proves each exporter IMPORTS the factory, not exclusive use — `rooms.ts` is import-link-exempt and keeps capture/shape matchers. Residual at walker spec §6.7; do not relitigate. |
 | "have the meta-test import each parser's constant and assert it ⊆ `KNOWN_SECTION_HEADERS`" | walker step 3, exact-subset, `tests/parser/_metaKnownSectionsWalker.test.ts:167` |
 | "Add a proof test that an unregistered header fails" | non-vacuity proof block, `tests/parser/_metaKnownSectionsWalker.test.ts:271`, 6 cases including negative controls |
-| (implied) a new parser must not pass silently | filesystem walk at `tests/parser/_metaKnownSectionsWalker.test.ts:133` — a new `blocks/*.ts` fails unless it exports tokens or is allowlisted |
+| (implied) a new parser must not pass silently | filesystem walk at `tests/parser/_metaKnownSectionsWalker.test.ts:133` — a new `blocks/*.ts` fails unless it exports tokens or is allowlisted. Scope is a new FILE: a hand-rolled matcher for an UNREGISTERED header added inside an already-annotated parser is NOT caught, because the source-text backstop is registry-keyed (walker spec §6.7). |
 
 ### 2.7 A BL-citation freshness guard is measured and refused
 

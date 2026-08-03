@@ -10,8 +10,12 @@
  * KNOWN_SECTION_HEADERS. The PRIMARY guard is the source walker at
  * `tests/parser/_metaKnownSectionsWalker.test.ts` (shipped 2026-07-06), which reads
  * `lib/parser/blocks/` from the filesystem, fails by default for a new block parser, and asserts
- * every exported `SECTION_HEADER_TOKENS` entry is an exact registry member. A new parser header
- * registered in NEITHER list therefore does NOT pass green any more; the walker catches it.
+ * every exported `SECTION_HEADER_TOKENS` entry is an exact registry member. A NEW FILE under
+ * lib/parser/blocks/ therefore cannot add an unregistered header silently. Its ratified residual
+ * still applies (walker spec §6.7, do not relitigate): the walker proves factory IMPORT rather
+ * than exclusive use (`rooms.ts` is exempt), and its source-text backstop is keyed on REGISTERED
+ * tokens, so a hand-rolled matcher for an UNREGISTERED header inside an ALREADY-annotated parser
+ * is not caught.
  *
  * WHY THIS PIN SURVIVES ANYWAY: the walker's subset check catches a registry deletion only while
  * some parser still exports that token. A single edit removing a header from BOTH

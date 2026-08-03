@@ -14,11 +14,22 @@
  * PRIMARY — `tests/parser/_metaKnownSectionsWalker.test.ts` (shipped 2026-07-06). A real source
  * walker: it reads `lib/parser/blocks/` from the filesystem, so a NEW block parser fails by
  * default unless it exports `SECTION_HEADER_TOKENS` or is explicitly allowlisted, and every
- * exported token must be an EXACT member of this set. Header detection is no longer heterogeneous
- * — the parsers build their matchers from the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts`
- * and export their tokens for introspection. A registry-keyed source-text backstop also flags a
- * hand-rolled matcher for a registered opener a file neither owns nor allowlists, and a no-orphan
- * check fails for any registry entry no parser opens.
+ * exported token must be an EXACT member of this set. Most parsers now build their matchers from
+ * the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` and export their tokens for
+ * introspection. A registry-keyed source-text backstop also flags a hand-rolled matcher for a
+ * REGISTERED opener a file neither owns nor allowlists, and a no-orphan check fails for any
+ * registry entry no parser opens (minus eight declared EXPECTED_ORPHANS: aliases, prefix-family
+ * variants, scalar-field labels, and sections parsed outside `lib/parser/blocks/`).
+ *
+ * WHAT THE WALKER DOES NOT CATCH (ratified residual, spec
+ * docs/superpowers/specs/parser/2026-07-06-known-sections-walker.md §6.7 — do not relitigate): it
+ * proves each token-exporter IMPORTS the factory, not that the factory is used EXCLUSIVELY —
+ * `rooms.ts` is deliberately import-link-exempt and keeps capture/shape matchers the presence
+ * factory cannot express. And because the backstop is keyed on REGISTERED tokens, a hand-rolled
+ * matcher for an UNREGISTERED header added inside an already-annotated parser (e.g.
+ * `label === "CATERING"` with CATERING in neither list) is NOT detected. The fails-by-default
+ * guarantee covers a NEW FILE under `lib/parser/blocks/`, which is the common drift; behaviour on
+ * shipped fixtures is pinned by the parser test suite instead.
  *
  * SECONDARY — `tests/parser/_metaKnownSectionsRegistry.test.ts` pins a hand-maintained
  * `REQUIRED_HEADERS` ⊆ this registry. Not redundant with the walker: the walker's subset check
