@@ -51,27 +51,49 @@
  * consumed as another option's ARGUMENT (`-FX`, `-F -X`), and a flag sitting
  * after the first positional, which `POSIXLY_CORRECT=1` discards entirely.
  *
- * ── What is NOT statically detectable, and what backstops it ───────────────
+ * ── What this guard IS, and what it is not ────────────────────────────────
  *
- * • A binary name behind an identifier (`const PSQL = "psql"; execFileSync(PSQL,
- *   …)`) hides the args from the AST match. BACKSTOP: `scanBinaryIndirection`
- *   is a hard tripwire — any `"psql"` string literal that is NOT argv[0] of a
- *   recognized call fails the meta-test with "pass it as a literal argv[0]".
- *   There is no such site in the tree today and this keeps it that way.
- * • A shell command assembled entirely at runtime (`execSync(buildCmd())`),
- *   where no fragment of the command word survives as source text. Templates
- *   and concatenations ARE read (`composedText`), so this is narrower than it
- *   sounds. BACKSTOP: the indirection tripwire, which fires on any `"psql"`-ish
- *   literal that is not argv[0] of a recognized call.
- * • Shell recognition is word-level, so a `psql` word produced by EXPANSION
- *   (`$PG psql`, `eval "$cmd"`, an alias) is invisible. Lexical spellings are
- *   not: `p"s"ql`, `p\\s\\q\\l` and a backslash-newline splice all resolve to the
- *   same word and are found. `command psql …` is caught too, because only `-v`
- *   (not `command`) is denied, which still excludes `command -v psql`.
+ * It is a REGRESSION NET for ordinary code: it makes an unprotected psql call
+ * added in the normal course of work fail loudly, and it enforces the two
+ * things that make `-X` actually work (a real flag, placed before the first
+ * positional). It is NOT a security boundary against an author who is trying to
+ * evade it — a static reader of two grammars cannot be, and pretending
+ * otherwise would be the same overclaim that made earlier cuts of this file
+ * wrong.
+ *
+ * Where it cannot read something it REFUSES TO CERTIFY rather than guessing, so
+ * the failure mode is a loud message a human resolves. Five rounds of
+ * cross-model review drove that posture into the following, each verified
+ * against the installed binary:
+ *
+ * • An expanded word is not its source spelling. `z=F; psql -${z}X` runs as
+ *   `psql -FX`, where X is the field separator. Any token carrying `$`, and any
+ *   argv element the AST cannot read, refuses to certify.
+ * • argv position matters. Under `POSIXLY_CORRECT=1` getopt stops permuting at
+ *   the first non-option, so a flag after the DSN is discarded — suppression is
+ *   only credited before the first positional.
+ * • psql's own option grammar decides what an `X` is: arg-taking shorts
+ *   (`-FX`, `-F -X`), long options and their UNIQUE abbreviations (`--co -X`),
+ *   and `--` end-of-options.
+ *
+ * Genuinely out of reach, with what backstops each:
+ *
+ * • A command word produced by EXPANSION (`$PG psql`, `eval "$cmd"`, an alias).
+ *   Lexical spellings ARE read — `p"s"ql`, `p\s\q\l`, a backslash-newline
+ *   splice, a `/path/psql` — but a name that only exists at runtime is not
+ *   there to read. BACKSTOP: `scanBinaryIndirection`, which fires on any
+ *   `"psql"`-ish literal or psql command-line string that is not argv[0] of a
+ *   recognized call. Assembling such a command still requires that literal.
+ * • A command assembled with no surviving literal at all (`execSync(build())`,
+ *   a name from config or env). Nothing static can see it. BACKSTOP: none —
+ *   this is the acknowledged hole, and it is why `-X` is ALSO enforced by
+ *   position at every real call site rather than only by this scan.
  * • Anything outside the scanned extensions — a Makefile, a package.json
- *   script. Checked at authoring time (2026-08-03): no Makefile/justfile exists
- *   and no package.json script mentions psql. A new one would be invisible
- *   here; extend SCANNED_EXTENSIONS with it.
+ *   script. Checked at authoring time (2026-08-03): neither exists here. A new
+ *   one would be invisible; extend SCANNED_EXTENSIONS with it.
+ * • Deliberately adversarial spellings beyond the above. The lexer handles the
+ *   ones review demonstrated, but the space is unbounded and this file does not
+ *   claim to close it.
  *
  * ── Exemptions ─────────────────────────────────────────────────────────────
  *
