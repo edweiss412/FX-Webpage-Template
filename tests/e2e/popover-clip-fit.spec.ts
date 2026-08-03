@@ -127,6 +127,12 @@ const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
 const GUTTER = 8;
 /** The scroller's declared CSS cap (`max-h-96`). */
 const CSS_CAP = 384;
+/** Mirrors MIN_FITTED_HEIGHT (lib/layout/fitWithinClip.ts) — the collapse floor. */
+const FLOOR = 48;
+/** The refusal banner's offset below the strip it anchors to (`mt-1`). */
+const BANNER_OFFSET = 4;
+/** The strip is the banner's positioned ancestor (`sticky` ⇒ positioned). */
+const STRIP = '[data-testid="show-status-strip"]';
 
 type SetItems = (a: number, n: number, s: number, degraded: boolean) => void;
 
@@ -689,5 +695,92 @@ test.describe("§3.4 — opening one overlay dismisses the other, by keyboard to
 
     await expect(page.locator(HUB_POPOVER)).toBeVisible();
     await expect(page.locator(MENU), "the menu survived the hub opening").toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Anchor-room census — closes the reachability gap in the MIN_FITTED_HEIGHT
+// docblock (lib/layout/fitWithinClip.ts).
+//
+// That docblock used to generalize ONE measurement, taken at the Re-sync band
+// (209.75px at 375x667), to a hook now serving three anchors. The two anchors
+// this cluster added had never been measured at all, so "the floor is
+// unreachable" was a claim about one anchor doing duty for three.
+//
+// These cases measure the OTHER two on the real surface, at the tightest
+// viewport the app supports. The floor winning is not a cosmetic outcome: when
+// it does, the overlay overhangs its clip edge — the exact defect the hook
+// exists to prevent — so the margin is worth pinning rather than asserting once
+// in prose.
+// ---------------------------------------------------------------------------
+
+test.describe("anchor-room census — what the MIN_FITTED_HEIGHT docblock may claim", () => {
+  test("the AttentionMenu scroller clears the floor at every supported height", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 375, height: 844 });
+    await openMenu(page, 10, 10, 10);
+
+    // Swept rather than sampled once, because the question the docblock got
+    // wrong was not "what is the room here" but "can the floor ever bind".
+    // Measured room at 375xH, from the same quantities computeFittedMaxHeight
+    // sees: 844->563, 667->412, 560->322, 400->186, 300->101. Linear in
+    // viewport height, and still 2x the floor at a height no phone has.
+    const measured: Array<{ height: number; available: number }> = [];
+    for (const height of [844, 667, 560, 400]) {
+      await page.setViewportSize({ width: 375, height });
+      // The cap re-applies on a coalesced frame after the resize.
+      await page.waitForTimeout(80);
+      const geo = await fittedGeometry(page);
+      expect(geo, `the menu anchor did not render at 375x${height}`).not.toBeNull();
+      measured.push({ height, available: geo!.available });
+    }
+
+    for (const { height, available } of measured) {
+      expect(available, `room ${available}px at 375x${height} is at or under the ${FLOOR}px floor`).toBeGreaterThan(FLOOR);
+    }
+    // Not merely clear — clear by a margin ordinary variation cannot cross.
+    const tightest = Math.min(...measured.map((m) => m.available));
+    expect(tightest, `tightest measured room was ${tightest}px`).toBeGreaterThan(FLOOR * 2);
+  });
+
+  test("the banner's clip ancestor really is the review-modal panel", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openMenu(page, 10, 10, 10);
+
+    // ROOM at this anchor is deliberately NOT asserted. The banner mounts only
+    // on a refusal, which the real modal harness cannot drive, and its anchor
+    // (the strip) renders BELOW the clip window in this fixture at 375x667 --
+    // measured: strip 713.03..911.03 against a panel bottom of 667. A room
+    // figure taken there would describe a clipped-away anchor, not one an
+    // operator sees, so it would be a number without a meaning. Recorded in
+    // BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED rather than faked here.
+    //
+    // What IS checkable is the STRUCTURAL premise the fit depends on: that
+    // walking up from this anchor lands on the modal panel, the same node the
+    // hook's own findClippingAncestor would resolve. If the strip ever stops
+    // living inside the clipping panel, the hook silently stops capping this
+    // overlay and nothing else would notice.
+    const verdict = await page.evaluate(
+      ([stripSel, panelSel]) => {
+        const strip = document.querySelector(stripSel as string);
+        const panel = document.querySelector(panelSel as string);
+        if (!strip || !panel) return null;
+        for (let el = (strip as HTMLElement).parentElement; el !== null; el = el.parentElement) {
+          const { overflowX, overflowY } = getComputedStyle(el);
+          if (overflowX !== "visible" || overflowY !== "visible") return { isPanel: el === panel };
+        }
+        return { isPanel: false };
+      },
+      [STRIP, PANEL] as const,
+    );
+
+    expect(verdict, "the strip or clip panel did not render").not.toBeNull();
+    expect(
+      verdict!.isPanel,
+      "the first clipping ancestor above the banner anchor is not the modal panel",
+    ).toBe(true);
   });
 });

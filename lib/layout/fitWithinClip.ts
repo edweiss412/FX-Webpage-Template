@@ -29,17 +29,24 @@ export const DEFAULT_CLIP_GUTTER = 8;
  * `MIN_FITTED_HEIGHT` of the clip edge the overlay overhangs the clip rather
  * than collapsing — the least-bad of two bad options.
  *
- * Reachability is measured PER ANCHOR, and only one anchor has been measured:
- * the Re-sync band, with 209.75px of room at 375×667 against a 320px CSS cap.
- * That number says nothing about the two anchors added by the popover/overlay
- * cluster (the AttentionMenu scroller and the PublishedToggle refusal banner) —
- * an earlier version of this comment generalized it to the whole hook, which is
- * a claim it does not support. Static estimates put both well clear of the
- * floor, but neither has been measured on the real surface.
+ * Reachability is measured PER ANCHOR, and each anchor gets its own number:
  *
- * Callers that must know they are in that regime can compare against
- * {@link MIN_FITTED_HEIGHT} — note that none currently do, so an overhang is
- * silent today.
+ *   - Re-sync band: 209.75px of room at 375×667, against a 320px CSS cap.
+ *   - AttentionMenu scroller: swept in a real browser at 375×H — 844→563,
+ *     667→412, 560→322, 400→186, 300→101. Linear in viewport height, still
+ *     twice the floor at a height no phone has. The floor cannot bind here.
+ *   - PublishedToggle refusal banner: room NOT measured. The banner mounts only
+ *     on a refusal, which the real-modal harness cannot drive, and its anchor
+ *     renders below the clip window in that fixture. What IS pinned is the
+ *     structural premise — that the first clipping ancestor above the anchor is
+ *     the review-modal panel (tests/e2e/popover-clip-fit.spec.ts). See
+ *     BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED.
+ *
+ * An earlier version of this comment generalized the Re-sync number to the
+ * whole hook, which is a claim one anchor cannot make for three.
+ *
+ * When the floor DOES win, {@link computeFittedMaxHeight} returns `clamped`
+ * true and warns in dev, because the overhang is otherwise silent.
  */
 export const MIN_FITTED_HEIGHT = 48;
 
