@@ -51,7 +51,7 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 
 The choice of an append-shaped region over a simpler one rests on two undoable rows being able to carry byte-identical announcement text. They can.
 
-Summaries are built from the crew member's **name alone**, with no row id, timestamp, or run discriminator: `Crew member ${prior} renamed to ${added}` (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`), `Crew member ${member.name} removed` (`writeAutoApplyChanges.ts:111`), and the matching added form. Within a single sync run a name appears at most once per kind, so a naive reading suggests collisions cannot happen.
+Summaries are built from the crew member's **name alone**, with no row id, timestamp, or run discriminator: `Crew member ${prior} renamed to ${added}` (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`), `Crew member ${member.name} removed` (`writeAutoApplyChanges.ts:112`), and the matching added form. Within a single sync run a name appears at most once per kind, so a naive reading suggests collisions cannot happen.
 
 The feed is not a single run. It shows up to 50 rows accumulated across many runs (`ChangesFeed.tsx` truncation note). A crew member removed in one sync and re-added in a later one produces two `crew_added` rows with identical `summary`, both `applied`, both `individually_undoable` — simultaneously undoable, and indistinguishable by announcement text. Under `role="status"` the second undo would be silent. Under `role="log"` both are announced, because an identical *addition* always announces.
 
@@ -84,7 +84,7 @@ This is the evidence behind R3; it is not a defensive over-build.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 ### 3.1 `components/admin/announceLog.tsx`
 
-Extracted verbatim in behavior from `ShowReviewSurface.tsx:382-392` (state + `announce`) and `ShowReviewSurface.tsx:1160-1170` (the region JSX).
+Extracted verbatim in behavior from `ShowReviewSurface.tsx:382-392` (state + `announce`) and `ShowReviewSurface.tsx:1160-1171` (the region JSX).
 
 ```ts
 export const ANNOUNCE_LOG_CAP = 50;
@@ -144,7 +144,7 @@ export const NOOP_UNDO_ANNOUNCE: UndoAnnounce = { announce: () => {} };
 export const UndoAnnounceContext = createContext<UndoAnnounce>(NOOP_UNDO_ANNOUNCE);
 ```
 
-Modeled on `components/admin/review/warningAnnounceContext.ts:11-15`. The no-op default means a button mounted outside a provider — a standalone test harness, a future surface — announces nothing and never throws. That silence is a real hazard, so §5 pins it with a structural guard rather than trusting it.
+Modeled on `components/admin/review/warningAnnounceContext.ts:12-16`. The no-op default means a button mounted outside a provider — a standalone test harness, a future surface — announces nothing and never throws. That silence is a real hazard, so §5 pins it with a structural guard rather than trusting it.
 
 ### 3.3 `components/admin/UndoChangeButton.tsx`
 
@@ -213,8 +213,8 @@ Two review rounds moved this defect one component further out each time, which i
 |---|---|
 | `UndoChangeButton` | `canUndo` flips false (`ChangeFeedEntry.tsx:88`) |
 | `GroupSection` | the group empties as its rows leave the `applied` set |
-| `RecentAutoAppliedStrip` root | zero-groups and `infra_error` returns are different shapes; and `Dashboard.tsx:563` returns an entirely different tree on an infra result, which does not contain the strip at all |
-| `ChangesFeed` | `ChangesSection.tsx:60` chooses between the error rendering and `<ChangesFeed>` on `feed === null` |
+| `RecentAutoAppliedStrip` root | zero-groups and `infra_error` returns are different shapes; and `components/admin/Dashboard.tsx:565` returns an entirely different tree on an infra result, which does not contain the strip at all |
+| `ChangesFeed` | `components/admin/showpage/ChangesSection.tsx:60` chooses between the error rendering and `<ChangesFeed>` on `feed === null` |
 
 The pattern is not "pick a component further out." It is that **any owner below a data-dependent branch is wrong**, and every one of these surfaces sits below one.
 
@@ -245,6 +245,25 @@ Two properties make this immune rather than merely further away:
 - **The wrapper sits above the layout's own branching.** `app/admin/layout.tsx` itself returns three different trees (`app/admin/layout.tsx:90`, and again at `layout.tsx:155` and `layout.tsx:177`); wrapping the selected branch rather than editing each return means even a layout-level branch flip preserves the region's position. Those branches key on admin identity and the finalize checkpoint, neither of which an undo can change — but the design does not rely on that argument, which is the kind of reasoning the previous two rounds refuted.
 
 The precedent is already in the file: `DeveloperFlagProvider` (`app/admin/layout.tsx:170`) is a client context provider mounted from this server layout. `AdminAnnounceProvider` goes **outside** `PageTransition` (`app/admin/layout.tsx:171`), because a keyed page transition is exactly the sort of thing that remounts its subtree.
+
+#### 3.5.1 The region must be a SIBLING of `[data-inert-root]`, never a descendant
+
+This is the single most important placement constraint in the spec, and following the `DeveloperFlagProvider` precedent literally would violate it.
+
+**Every feed undo happens inside a modal that hides the layout from assistive technology.** `ChangesFeed` has exactly one render site, `components/admin/showpage/ChangesSection.tsx:71`; `ChangesSection` has exactly one render site, `components/admin/showpage/PublishedReviewModal.tsx:673`. That modal renders through `ReviewModalShell`, whose mount effect queries `[data-inert-root]` and sets both `inert` and `aria-hidden="true"` on every match (`components/admin/review/ReviewModalShell.tsx:180-189`). The matches are the admin layout's own shells (`app/admin/layout.tsx:160` and `app/admin/layout.tsx:182`).
+
+So a region placed *inside* the layout's root div is `aria-hidden` during exactly the interaction it exists to announce. Nothing reaches the accessibility tree. The feature would be dead on its primary surface.
+
+**The wrap-the-branch shape avoids this, and that is why it is mandatory.** The layout's main return *is* the inert-root div (`app/admin/layout.tsx:177-182`). Wrapping the returned element in `AdminAnnounceProvider` puts the region as its **preceding sibling**, outside the subtree `ReviewModalShell` hides. Nesting the provider inside that div — the shape `DeveloperFlagProvider` uses at `app/admin/layout.tsx:170` — puts the region inside the hidden subtree and silently kills the feature.
+
+| Placement | Result |
+|---|---|
+| `<AdminAnnounceProvider>` wrapping the returned root div | region is a sibling of `[data-inert-root]`; unaffected by the modal. **Required.** |
+| provider nested inside the root div, beside `DeveloperFlagProvider` | region is a descendant of `[data-inert-root]`; `aria-hidden="true"` whenever the review modal is open. **Forbidden.** |
+
+**jsdom cannot catch this**, which is why it is also an e2e obligation. `ReviewModalShell.tsx:176` says so outright, and Testing Library ignores `aria-hidden` when querying. A unit test therefore stays green on a completely dead feature. §11 carries a real-browser assertion for it, and §5's A3 pins the structural shape.
+
+One residual interaction, documented rather than defended: `FinalizeButton` inerts every direct child of `<body>` except its own portal while the finalize overlay is open. The undo region is a body-level sibling under that rule, so an announcement raised *during* a finalize overlay would not be read. Undo is not reachable from that overlay, so this is unreachable today; it is recorded in §8 as a constraint any future body-level inerting must respect.
 
 **Consequences, all simplifications.** `ChangesFeed`, `ChangeFeedEntry`, `RecentAutoAppliedStrip`, and `GroupSection` gain **no** provider, **no** region, and **no** state. `RecentAutoAppliedStrip` keeps `return null` at `RecentAutoAppliedStrip.tsx:685` and its `infra_error` return exactly as they are — the "no empty card" intent is untouched, and the earlier proposal to return a bare `sr-only` span is withdrawn. The only edits to those four files are threading `announceLabel` to the two `UndoChangeButton` call sites.
 
@@ -284,12 +303,13 @@ One exported function, so both surfaces are provably one string (`2026-08-01-ann
 // components/admin/undoAnnounceContext.ts
 export function undoneAnnouncement(label?: string): string {
   const trimmed = label?.trim() ?? "";
-  return trimmed === "" ? "Change undone." : `Change undone: ${trimmed}`;
+  return trimmed === "" ? "Change undone." : `Change undone: ${trimmed}.`;
 }
 ```
 
 - No em dash (`DESIGN.md:381`, `scripts/spec-lint.ts`).
-- Sentence case, terminal period on the bare form; the labelled form ends with the summary's own text and takes no added period, because `summary` is itself a sentence-shaped string rendered as a visible paragraph.
+- Sentence case, and **both forms end in a period the function supplies**. An earlier draft omitted it on the labelled form, reasoning that `summary` is already sentence-shaped. It is not: all three generators emit an unterminated fragment (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`, `writeAutoApplyChanges.ts:112`, `writeAutoApplyChanges.ts:126` produce `Crew member <name> renamed to <name>`, `Crew member <name> removed`, `Crew member <name> added`), so that draft announced `Change undone: Crew member Alice Chen removed` with no terminal punctuation. Screen readers use sentence-final punctuation for prosody, so `undoneAnnouncement` appends it rather than expecting it from the caller.
+- **Fixtures must use a real summary shape.** The literal an earlier draft used in §11 (`… removed from crew.`) is not a string any generator produces. A fixture that misrepresents production is the anti-tautology rule's exact failure mode: the assertion passes while proving nothing about real output. Fixtures use `Crew member <name> removed` and its siblings verbatim.
 - The colon form leads with the outcome so an AT user hears "Change undone" before the detail, and can stop listening there.
 
 ### 4.2 Failure
@@ -307,10 +327,13 @@ Moving the channel to the layout (§3.5) changes what a guard can usefully asser
 
 | Assertion | Why it is checkable | Planted violation that must fail it |
 |---|---|---|
-| **A1 — the layout mounts the channel.** `app/admin/layout.tsx` references `AdminAnnounceProvider`, and **every `return` in the file** is wrapped in it. | The layout has three returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | A copy of the layout source with one `return` unwrapped. |
+| **A1 — every layout return is wrapped.** Each `return` in `app/admin/layout.tsx` yields a tree wrapped in `AdminAnnounceProvider`. One shared wrapper around the selected branch (the shape §3.5 shows, and the one to implement) and a wrapper per return both satisfy it. | The layout has three returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | The layout source with the wrapper removed from one branch's path. |
+| **A3 — the region is never inside an inert root.** `AdminAnnounceProvider` is not rendered as a descendant of any element carrying `data-inert-root` (§3.5.1). | Structural, and the difference between a working feature and a silently dead one. | The layout source with the provider nested inside the `data-inert-root` div instead of wrapping it. |
 | **A2 — nothing else provides the context.** No file outside the provider module references `UndoAnnounceContext.Provider`. | A second provider anywhere below the layout would shadow the layout's channel with a shorter-lived one, silently reintroducing the whole defect. | A file rendering `<UndoAnnounceContext.Provider>`. |
 
-A1 is checked by parsing the layout's returns from comment-stripped source; A2 by a walk over `components/` and `app/` (excluding `app/api/**`). Both use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each of the two branches carries its own planted violation** — the previous round's finding was that a widened guard shipped with a mutant for only one branch, so a guard ignoring the new branch entirely would still pass.
+A1 and A3 are checked against `app/admin/layout.tsx` from comment-stripped source; A2 by a walk over `components/` and `app/` (excluding `app/api/**`). All three use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each assertion carries its own planted violation** — an earlier round's finding was that a widened guard shipped a mutant for only one branch, so a guard silently ignoring another would still pass.
+
+A1 and A3 are deliberately shallow string-and-nesting checks over one known file rather than general JSX analysis. A guard needing a real parser to state its invariant is one nobody can trust; the runtime proof is the e2e assertion in §11.
 
 No file needs an exemption comment, because no surface component provides anything any more. `ChangeFeedEntry` and `RecentAutoAppliedStrip` simply consume a context their layout guarantees.
 
@@ -319,7 +342,7 @@ No file needs an exemption comment, because no surface component provides anythi
 
 ## 6. Retrofit contract for `ShowReviewSurface`
 
-The swap is behavior-preserving and must be provably so. The retrofit replaces `ShowReviewSurface.tsx:382-392` with `useAnnounceLog()` and `ShowReviewSurface.tsx:1160-1170` with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`.
+The swap is behavior-preserving and must be provably so. The retrofit replaces `ShowReviewSurface.tsx:382-392` with `useAnnounceLog()` and `ShowReviewSurface.tsx:1160-1171` with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`.
 
 Pinned invariants, all already asserted by that surface's existing tests:
 
@@ -369,6 +392,7 @@ Making the error wrapper always-mounted changes what "no failure yet" looks like
 - **Announcement ordering under burst.** Two undos resolving in the same commit append in resolution order, which may not be visual row order. AT reads both; only the sequence is unspecified.
 - **Cap loss.** After 50 announcements in one mount, the oldest entries leave the DOM. They were announced when added; removals under `role="log"` are silent.
 - **An uncatalogued failure code announces nothing.** `ErrorExplainer` returns `null` when the code has no catalog row (`components/messages/ErrorExplainer.tsx:82`, and again at `ErrorExplainer.tsx:93`), so the always-mounted wrapper stays empty and neither AT nor a sighted user learns anything. This is today's behavior exactly — the conditional wrapper also rendered an empty card — so the change neither introduces nor fixes it. Recorded because a reader of §3.3b would otherwise assume every failure now announces.
+- **Body-level inerting would suppress the channel.** `FinalizeButton` inerts every direct child of `<body>` except its own portal while its overlay is open (`components/admin/FinalizeButton.tsx:660`). The undo region is a body-level sibling, so an announcement raised during that overlay would not be read. Unreachable today (undo is not available from the finalize overlay), but any future body-level inerting must exempt the region, and §5's A3 is the structural reminder.
 - **No success announcement for Accept or Approve/Reject.** Out of scope (§3.4).
 
 ---
@@ -529,11 +553,23 @@ Every assertion below names the failure it catches; an assertion that only prove
 | Strip with one undoable row; action resolves `{ok:true}`; parent re-renders with `groups: []` so the strip returns `null`; region is the same node and holds the announcement | The original F1 sequence, now expected to be trivially safe because the owner is above the strip |
 | Same, with the re-render interleaved **while the action promise is unresolved**, resolving after | A continuation running after its own component is gone |
 | Strip re-rendered into its `infra_error` state mid-action; same node, announcement present | The error branch replacing the region (round-2 F1, second instance) |
-| The provider's `children` swapped for an entirely different subtree mid-action; same node, announcement present | The `Dashboard.tsx:563` shape, where an infra result returns a tree that does not contain the strip at all |
+| The provider's `children` swapped for an entirely different subtree mid-action; same node, announcement present | The `components/admin/Dashboard.tsx:565` shape, where an infra result returns a tree that does not contain the strip at all |
 | Feed re-rendered with the undone row's `action` flipped to `"none"` mid-action; same node, announcement present | The feed's version, where the button unmounts but the layout does not |
-| `ChangesSection` flipped to its `feed === null` error rendering mid-action; same node, announcement present | `ChangesSection.tsx:60` replacing `ChangesFeed` entirely (round-2 F1, fourth instance) |
+| `ChangesSection` flipped to its `feed === null` error rendering mid-action; same node, announcement present | `components/admin/showpage/ChangesSection.tsx:60` replacing `ChangesFeed` entirely (round-2 F1, fourth instance) |
 
-Each of the six names a branch a previous round proved could replace a per-surface region. Under §3.5 all six must now pass without the region ever being re-created; if any fails, the layout-level owner is not immune either and the design is wrong again.
+| Provider re-rendered across the layout's own branch flip (its `children` replaced with the tree a different layout `return` produces); same node, announcement present | §3.5's central claim that the wrapper sits above the layout's three-way branch (`app/admin/layout.tsx:90`) — which until now shipped with no falsifier at all |
+
+Each names a branch a previous round proved could replace a per-surface region. Under §3.5 all seven must pass without the region ever being re-created; if any fails, the layout-level owner is not immune either and the design is wrong again.
+
+**One test-shape caveat, so these are not read as more than they are.** A jsdom test renders `ChangesFeed` directly inside `AdminAnnounceProvider`. Production nests it further: provider → `[data-inert-root]` → the review modal → `ChangesSection` → `ChangesFeed`. These probes prove node survival across React reconciliation; they say nothing about the accessibility tree, which is the next assertion's job.
+
+**Real-browser assertion (mandatory, and the only proof of §3.5.1).** jsdom enforces neither `inert` nor `aria-hidden` (`components/admin/review/ReviewModalShell.tsx:176`), and Testing Library ignores `aria-hidden` when querying, so every test above stays green even if the region is hidden from assistive technology. A Playwright spec must:
+
+1. Open the published review modal on a seeded show whose feed has an undoable row.
+2. Assert the region resolves and is **not** `aria-hidden` while the modal is open — `expect(page.getByTestId("admin-undo-status")).toBeAttached()` plus an explicit check that no ancestor carries `aria-hidden="true"` or `inert`.
+3. Click Undo and assert the announcement text lands in that region.
+
+Without step 2 the feature can ship completely dead with a green unit suite. This obligation is why the plan's e2e-readiness section is not N/A.
 
 **Class-sweep tests** — `AcceptChangeButton` and `Mi11GateActions` each get the same always-mounted / same-node assertion as Undo.
 

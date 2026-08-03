@@ -31,9 +31,15 @@
 
 No fixed-dimension parent gains a flex or grid child. Every element added is `sr-only` (`position: absolute`, therefore not a flex item) or an existing wrapper whose classes are unchanged in the failing state. Spec §3.3b carries the argument. No Playwright assertion is owed.
 
-## e2e harness readiness: N/A
+## e2e harness readiness — REQUIRED (was N/A; corrected in review)
 
-No Playwright test is added. The repo sweep in spec §7 confirmed no e2e file references any of the three result testids.
+An earlier draft declared this N/A. That was wrong, and the reason is the whole point of spec §3.5.1: every feed undo happens inside `PublishedReviewModal`, which sets `inert` and `aria-hidden="true"` on the admin layout's shells while open (`components/admin/review/ReviewModalShell.tsx:180-189`, `app/admin/layout.tsx:160`, `layout.tsx:182`). jsdom enforces neither attribute (`ReviewModalShell.tsx:176`) and Testing Library ignores `aria-hidden`, so the entire unit suite stays green on a feature that announces nothing. Only a real browser can prove the region is in the accessibility tree at the moment it matters.
+
+- **Server boot:** the existing published-review-modal e2e project; no new server mechanism.
+- **Readiness gate:** the suite's existing row-hydration gate before the first assertion, never `networkidle` alone.
+- **Detach safety:** the undo click removes its own row, so the post-click assertion targets the region (a stable body-level node), never the removed button; no `locator.evaluate` on an element that can unmount.
+
+Covered by Task 8b.
 
 ---
 
@@ -143,12 +149,20 @@ Branches covered, each one a case a prior review round proved could replace a pe
 
 If any probe fails, the layout-level owner is not immune and the design is wrong again. Do not weaken a probe to make it pass.
 
+## Task 8b — Real-browser accessibility-tree assertion
+
+- [ ] Add a Playwright spec: open the published review modal on a seeded show with an undoable feed row; assert `admin-undo-status` is attached **and** that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
+- [ ] Commit `test(admin): prove the undo region stays in the a11y tree under the review modal`.
+
+Failure caught: the region nested inside `[data-inert-root]` instead of wrapping it — a placement that passes every jsdom test in this plan while the feature is completely dead for screen-reader users. This is the only assertion that can catch it.
+
 ## Task 9 — Structural guard
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 - [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the two assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
 - [ ] **A1** — `app/admin/layout.tsx` references `AdminAnnounceProvider` and every `return` in the file is wrapped in it. Planted violation: a copy of the layout source with one `return` unwrapped.
 - [ ] **A2** — no file outside the provider module references `UndoAnnounceContext.Provider`. Planted violation: a file rendering `<UndoAnnounceContext.Provider>`.
+- [ ] **A3** — `AdminAnnounceProvider` is not a descendant of any `data-inert-root` element in the layout. Planted violation: the layout source with the provider nested inside that div.
 - [ ] Commit `test(admin): guard the announce channel's single layout-level owner`.
 
 Each assertion carries its **own** planted violation. Round 2's finding was a widened guard shipping a mutant for only one branch, so a guard silently ignoring the second would still have passed.
