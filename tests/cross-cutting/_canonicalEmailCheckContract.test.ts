@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { stripSqlComments } from "../_shared/stripComments";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -215,5 +216,94 @@ describe("canonical email CHECK contract", () => {
     });
 
     expect(failures).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Live-catalog completeness (spec §5.3; plan Task 5).
+//
+// The static walk above is aperture-limited by CONSTRAINT NAMING: it skips any
+// constraint whose name lacks "email_canonical" (:126). Three live canonical
+// CHECKs are invisible to it for that reason alone, and a 20th table named
+// outside the convention would pass silently.
+//
+// This assertion sources from pg_constraint instead, so naming is irrelevant.
+// Catalog-sourcing is also drop-aware, which is why admin_field_overrides —
+// whose CHECK still sits in migration text but whose table was dropped by
+// 20260710000000_remove_admin_field_overrides.sql — correctly does not appear.
+//
+// DELIBERATELY a separate registry from expectedBoundaryChecks: that one also
+// requires an AC-X.5 manifest entry (see the test at the end of this file), and
+// EMAIL_BOUNDARIES derives from master spec AC-X.5 prose. The three tables
+// below are absent from that manifest by design. Registering
+// role_token_mappings.decided_by there needs a master-spec §17.2 amendment and
+// is filed as BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY. The two registries police
+// different contracts: that one says "an app write path must canonicalize",
+// this one says "every canonical CHECK that exists is known and intended".
+// =============================================================================
+
+const CATALOG_CANONICAL_CHECKS: readonly string[] = [
+  "admin_alert_reads.admin_alert_reads_admin_email_canonical",
+  "admin_alerts.admin_alerts_resolved_by_email_canonical",
+  "admin_bell_state.admin_bell_state_admin_email_canonical",
+  // Name lacks "email_canonical", so the static walk at :126 skips it entirely.
+  "admin_emails.admin_emails_canonical_email",
+  "app_settings.app_settings_pending_folder_set_by_email_canonical",
+  "app_settings.app_settings_watched_folder_set_by_email_canonical",
+  "contacts.contacts_email_canonical",
+  "crew_members.crew_members_email_canonical",
+  "deferred_ingestions.deferred_ingestions_deferred_by_email_canonical",
+  "email_deliveries.email_deliveries_recipient_email_canonical",
+  // Name lacks "email_canonical", so the static walk at :126 skips it entirely.
+  "ignored_warnings.ignored_warnings_ignored_by_canonical",
+  "pending_syncs.pending_syncs_wizard_approved_by_email_canonical",
+  "report_rate_limits.report_rate_limits_admin_identity_email_canonical",
+  "reports.reports_admin_reported_by_email_canonical",
+  // Name lacks "email_canonical", so the static walk at :126 skips it entirely.
+  "role_token_mappings.role_token_mappings_decided_by_canonical",
+  "shows_pending_changes.shows_pending_changes_applied_by_email_canonical",
+  "sync_audit.sync_audit_applied_by_email_canonical",
+  "transportation.transportation_driver_email_canonical",
+  "transportation.transportation_loadout_email_canonical",
+];
+
+function liveCanonicalChecks(): string[] {
+  const out = execFileSync(
+    "psql",
+    [
+      process.env.TEST_DATABASE_URL?.trim() ||
+        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-qAt",
+    ],
+    {
+      input: `
+        select rel.relname || '.' || con.conname
+        from pg_constraint con
+        join pg_class rel on rel.oid = con.conrelid
+        join pg_namespace ns on ns.oid = rel.relnamespace
+        where ns.nspname = 'public'
+          and con.contype = 'c'
+          and pg_get_constraintdef(con.oid) ~* 'lower\\s*\\(\\s*(btrim|trim)'
+        order by 1;
+      `,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { ...process.env, PGCONNECT_TIMEOUT: "10" },
+    },
+  ).trim();
+  return out === "" ? [] : out.split("\n");
+}
+
+describe("canonical email CHECK contract — live catalog completeness", () => {
+  test("every canonical-shaped CHECK in the catalog is registered", () => {
+    const live = liveCanonicalChecks();
+    const registered = new Set(CATALOG_CANONICAL_CHECKS);
+    const unregistered = live.filter((k) => !registered.has(k)).map((k) => `${k}:unregistered`);
+    const stale = CATALOG_CANONICAL_CHECKS.filter((k) => !live.includes(k)).map(
+      (k) => `${k}:registered-but-absent-from-catalog`,
+    );
+    expect([...unregistered, ...stale]).toEqual([]);
   });
 });
