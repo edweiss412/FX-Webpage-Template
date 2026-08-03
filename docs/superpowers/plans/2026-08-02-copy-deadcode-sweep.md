@@ -222,7 +222,7 @@ The gate earned its place here, which is worth recording: this was expected to b
 
 ## 12. Close-out — invariant-8 gate findings and dispositions
 
-**Critique** — dual-agent, 25/40, target `app/help/admin/per-show-panel/page.mdx`. Snapshot in `.impeccable/critique/`. The deterministic detector returned zero findings; browser overlays were not produced (no dev server, and booting Next.js to render a prose-only page was not justified), so static evidence stood in: 249 help tests green, all 9 links resolve, no skipped heading levels, 28 bold labels crosswalk-clean, zero em-dashes, zero raw error codes.
+**Critique** — dual-agent, 25/40, target `app/help/admin/per-show-panel/page.mdx`. Its snapshot is written under `.impeccable/`, which `.gitignore` excludes, so the table below is the tracked record rather than a pointer to one. The deterministic detector returned zero findings; browser overlays were not produced (no dev server, and booting Next.js to render a prose-only page was not justified), so static evidence stood in: 249 help tests green, all 9 links resolve, no skipped heading levels, 28 bold labels crosswalk-clean, zero em-dashes, zero raw error codes.
 
 **Audit** — 17/20 (Good). Accessibility 3, Performance 3, Theming 4, Responsive 4, Anti-patterns 3. Verified for this diff: the ParsePanel deletion leaves no dangling import and no rendered surface (the dev page's same-named local function is unrelated); the new guard is test-only and reaches no app bundle; nothing under `public/help/screenshots/` changed.
 
@@ -244,3 +244,24 @@ The gate earned its place here, which is worth recording: this was expected to b
 Every P0 and P1 was fixed, so no `DEFERRED.md` entry is required (that mechanism covers deferred P0/P1 only). The five deferred rows are all P3, all pre-existing, and none is touched by this diff.
 
 **Systemic note for a future pass:** the audit found the bare `⋮` glyph used as a control name across five help pages with no consistent pairing to the real accessible names. That is one repo-wide copy pass, not five per-page edits, and it is out of scope here.
+
+---
+
+## 13. Note on this branch's history
+
+The commits on this branch are a **rebuild**, and the record should say so rather than let a linear history imply a linear process.
+
+The work happened in a different order. The invariant-8 gate ran mid-branch and surfaced four help-copy corrections; those were committed, and their assertions followed in a later commit. The same held for the resolver's per-site resolution mode, whose end-to-end pin arrived after the code. Whole-diff review R3 called that what it is: an invariant-1 violation, which AGENTS.md classifies P0 regardless of test status. Post-hoc red verification does not satisfy "never write implementation before the test."
+
+The owner's disposition was to rewrite. The branch was rebuilt linearly off `origin/main` as five commits, each carrying its tests with the implementation they pin, and each verified red-then-green **before** it was committed:
+
+| Commit | RED | GREEN |
+| ------ | --- | ----- |
+| `fix(messages)` | the frozen oracle at the corrected string, against the unchanged catalog | the five lockstep surfaces |
+| `refactor(admin)` | the guard, naming ParsePanel | the deletion |
+| `fix(help)` | all six assertions, against the shipped page | the corrected copy |
+| `docs(backlog)` | three registry rows, none archived | the archive move |
+
+The final tree is byte-identical to the tree that was reviewed (`git diff` between them was empty before the branch pointer moved). What changed is the order of the record, not the content.
+
+Two things this does NOT claim. The rebuild does not make the original process compliant; it makes the shipped history compliant, and this section exists so that distinction is not lost. And the four help corrections still originated from a gate rather than from a plan task — the honest reading is that the gate found work the sweep missed, which is the gate doing its job, not the plan anticipating it.
