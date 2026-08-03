@@ -60,36 +60,43 @@
  *   M17 `const f2 = fonts; f2.Inter()`  namespace alias
  *   M18 `const { Inter } = fonts`       namespace destructure
  *
- * **WHAT EACH ASSERTION ACTUALLY PROVES — stated precisely after review R5,
- * which was right that an earlier revision overclaimed "closure".**
+ * **THIS GUARD IS A TRIPWIRE. IT IS NOT A CENSUS, AND IT PROVES NO CLOSURE.**
  *
- *   - **The PATH SET assertion is the strong one, and it is keyed on the IMPORT**
- *     (`hasFontImport`), independently of the invocation counter. Calling a
- *     `next/font` loader requires importing the module, and an import
- *     declaration is static and unaliasable — `Reflect.apply` and every other
- *     exotic call form still need one. So a second loader in a NEW file cannot
- *     hide from the path set, which is the case that motivated this guard.
- *     (Until review R7 the path set was DERIVED from the counter, so it
- *     inherited every one of the counter's blind spots and this property was
- *     claimed but not tested.)
- *   - **The CALL-COUNT assertion is best-effort**, covering the eighteen forms
- *     above. Its residual gap is narrow but real: a second loader call inside
- *     the ONE file already on the allowed path list, invoked through a form not
- *     enumerated. R5 demonstrated `Reflect.apply` doing exactly that.
- *   - **The runtime assertions in `tests/e2e/font-binding.spec.ts` corroborate
- *     rather than close.** They observe what the browser registered — one
- *     family, no duplicate face tuple, one weight descriptor — so they catch a
- *     second loader whose config differs in any of those. They do NOT catch a
- *     byte-identical second call (it would register the same faces), and they
- *     only observe the routes the spec visits.
+ * That is a deliberate descope, taken after FOUR consecutive adversarial rounds
+ * (R8, R9, R10, R11) each demonstrated a fresh location the file-walk could not
+ * see: `lib/` and `components/` and `.js`; then root-level modules, arbitrary
+ * shared directories and `.mdx`; then basenames matched at depth; then a
+ * `.next`-prefixed directory at depth, five more MDX escape encodings, and
+ * `.mts`/`.cts`. `AGENTS.md`'s same-vector rule says that after three rounds on
+ * one vector you stop patching and change the approach or descope it — a rule
+ * this file spent two extra rounds ignoring.
  *
- * Neither layer is a proof, and the combination is not either. What the pair
- * buys is that every cheap accident is caught statically and every
- * differently-CONFIGURED duplicate is caught at runtime. A byte-identical
- * second call inside this one allowed file registers identical faces and is
- * invisible to both — recorded as the known residual rather than papered over. A new syntactic family
- * is admissible here only with a live escaping mutant demonstrated against the
- * shipped guard, not hypothesized.
+ * The right replacement, if one is ever wanted, is module-graph resolution
+ * through the TypeScript compiler and the MDX compiler rather than a directory
+ * walk plus a handwritten extension list plus a regex. That is a real piece of
+ * work with its own failure modes, and it is not justified by the risk here: a
+ * SECOND font loader is not an attack, it is a mistake, and mistakes are made
+ * in ordinary places.
+ *
+ * So what this guard is for, precisely:
+ *
+ *   - **It catches the ordinary accident** — a second loader added in a normal
+ *     source location, in any of the eighteen call forms fixtured below. That
+ *     is the actual failure this project has experienced: the bug that started
+ *     this work was a loader in `app/show/[slug]/layout.tsx`, a completely
+ *     ordinary place.
+ *   - **It does NOT prove a second loader is absent.** A loader in an unusual
+ *     directory, at an unlisted extension, or written to evade the MDX text
+ *     match will pass it. Do not read a green run as that proof.
+ *   - **The runtime checks in `tests/e2e/font-binding.spec.ts` are independent
+ *     corroboration**, catching any second loader whose faces differ in family,
+ *     descriptor pair, or tuple — on the routes that suite visits. They do not
+ *     catch a byte-identical duplicate, and they cannot see a module used only
+ *     by a route they do not visit.
+ *
+ * Between them the ordinary mistake is caught twice over. A deliberately hidden
+ * duplicate is caught by neither, and that is a documented limit rather than a
+ * gap anyone intends to close.
  *
  * Spec: docs/superpowers/specs/2026-08-03-app-wide-font-binding.md §4.3
  */
@@ -118,7 +125,6 @@ const REPO_ROOT = join(__dirname, "..", "..");
  * textually rather than parsed.
  */
 const NEVER_SOURCE = new Set(["node_modules", ".git"]);
-const NEVER_SOURCE_PREFIXES = [".next"];
 
 /**
  * Skipped at the REPO ROOT ONLY, never by basename at depth.
@@ -144,7 +150,7 @@ const ROOT_ONLY_SKIP = new Set([
   ".claude",
 ]);
 
-const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 const TEXT_SCANNED_EXTENSIONS = [".mdx"];
 
 function censusFiles(dir: string, isRoot = false): string[] {
@@ -153,8 +159,11 @@ function censusFiles(dir: string, isRoot = false): string[] {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (NEVER_SOURCE.has(entry.name)) continue;
-      if (NEVER_SOURCE_PREFIXES.some((p) => entry.name.startsWith(p))) continue;
+      // Everything else is skipped at the ROOT only. R11 showed a recursive
+      // `.next`-prefix skip hid `@/shared/.next-font/rogue`, which is
+      // importable — the same basename-at-depth defect twice over.
       if (isRoot && ROOT_ONLY_SKIP.has(entry.name)) continue;
+      if (isRoot && entry.name.startsWith(".next")) continue;
       out.push(...censusFiles(full));
       continue;
     }
@@ -352,10 +361,10 @@ export function countLoaderInvocations(source: string, fileName = "probe.tsx"): 
  * set too — so the documented "an import cannot hide" property was not the
  * property being tested.
  *
- * This one IS that property. Calling a loader requires importing the module,
- * and an import declaration is static and unaliasable: there is no call syntax
- * that removes it. So the path set below holds regardless of how the call is
- * written.
+ * Within the census this holds regardless of how the CALL is written — an
+ * import declaration is static and unaliasable, so no call syntax removes it.
+ * What it cannot do is see a file the census never walked, which is why the
+ * header above calls this a tripwire rather than a proof.
  */
 export function hasFontImport(source: string, fileName = "probe.tsx"): boolean {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
