@@ -42,7 +42,7 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 | R5 | The announcement copy is **hard-coded**, not a §12.4 catalog row. It is an admin-facing inline success sentence, not a user-visible error code, so invariant 5 does not reach it. | `2026-08-01-announce-a11y-pass-design.md:22` |
 | R6 | The shared announce-log module **retrofits** `ShowReviewSurface`'s warnings channel rather than existing alongside it. The alternative — a third near-verbatim copy of the same 12 lines — is the weaker outcome, and the retrofit is proven safe by that surface's existing MutationObserver tests (`tests/components/admin/review/warningsPanelStatusMount.test.tsx:105`), which fail loudly on any DOM change. | §3.1, §6 |
 | R7 | The failure-path fix covers **all three** feed action buttons, not only Undo. Patching the named instance while two siblings carry the identical shape is the whack-a-mole the class-sweep rule exists to prevent. | `AGENTS.md` "Class-sweep before patching adversarial findings" |
-| R8 | Failure announcements accept a **documented limit**: two consecutive failures with the *same* error code do not re-announce (`role="status"` text-change semantics). The visible card is present throughout, and the repeat conveys information the user already received. Upgrading the failure channel to append-shape is deliberately not done — it would put error copy through a log region whose entries persist after the card is gone. | §8 |
+| R8 | Failure announcements accept a **documented limit on two of the three controls**: for Undo and Accept, two consecutive failures with the *same* error code do not re-announce (`role="status"` text-change semantics; their `failing` ignores pending — `UndoChangeButton.tsx:80`, `AcceptChangeButton.tsx:74`). `Mi11GateActions` is exempt: its `failing` is gated on `!lastPending` (`Mi11GateActions.tsx:137`), so a retry blanks the region and settlement refills it, giving an empty→text transition that announces even for a repeat code. The visible card is present throughout in all three cases. Upgrading the failure channel to append-shape is deliberately not done — it would put error copy through a log region whose entries persist after the card is gone. | §8 |
 | R9 | `BL-SYNCFEED-UI-2` (badge `title` tooltips are hover-only) ships **no code**. Its own text conditions action on "if touch-discoverability is raised"; it has not been. The badge already renders a real text label (`ChangeFeedBadge.tsx:55`), so the color-blind floor and the non-hover information floor are both met — the `title` is supplementary. | §9.2 |
 | R10 | `BL-SYNCFEED-UI-3` ships **no code**. The off-type fixture it describes was corrected at commit `c3920fe6a`; `tests/components/admin/ChangeFeedEntry.test.tsx:192` now reads `{ disposition: "removal" as const }` and no fixture in the tree carries `name` on a removal literal. The `Disposition` union is unchanged (`lib/sync/holds/types.ts:7-10`). | §9.3 |
 | R11 | Announcing the undo **failure** path through the catalog (routing `code` → copy inside the announcement string) is **out of scope**. The fix here makes the existing `ErrorExplainer` card announce by making its wrapper always-mounted; the card already owns the copy and already satisfies invariant 5. No catalog lookup moves into the announcement. | §4.2 |
@@ -72,7 +72,7 @@ This is the evidence behind R3; it is not a defensive over-build.
 7. **`components/admin/review/ShowReviewSurface.tsx`** — retrofitted onto the extracted module (R6), DOM output unchanged.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 8. **`tests/styles/_metaUndoAnnounceProvider.test.ts`** (new) — a structural guard so a future parent cannot render `UndoChangeButton` outside a provider and silently get the no-op.
-9. **`BACKLOG.md`** — the four ledger dispositions; **`DESIGN.md`** — the announcement contract paragraph.
+9. **`BACKLOG.md`** — the four ledger dispositions plus two filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`); **`DESIGN.md`** — the announcement contract paragraph.
 
 ---
 
@@ -219,17 +219,39 @@ The provider wraps the section's contents; the region renders **inside the `<sec
 
 ### 3.6 `components/admin/RecentAutoAppliedStrip.tsx`
 
-Same shape, scoped to `GroupSection` so each show group owns its channel — parity with the existing per-group bulk region.
+**The region lives at the strip root, NOT in `GroupSection`** — and the reason is the whole point of this spec applied one level further out.
+
+The strip reads only `status='applied'` rows: `loadRecentAutoApplied` filters `.eq("status", "applied")` (`lib/admin/loadRecentAutoApplied.ts:164`). A successful undo moves the row to `undone`, so it leaves the strip's result set entirely. Undo the last undoable row in a show's group and that `GroupSection` disappears; undo the last row across all shows and `RecentAutoAppliedStrip` hits `if (data.groups.length === 0) return null;` (`RecentAutoAppliedStrip.tsx:685`). A group-owned region would therefore vanish on exactly the success it exists to announce — the identical defect as putting the region in the button, displaced by one component.
+
+The fix has two halves:
+
+1. **State and region live in `RecentAutoAppliedStrip` itself**, above every group, with one channel for the whole strip.
+2. **The zero-groups early return renders the region instead of `null`.** `return null` becomes a return of the bare `AnnounceLogRegion` — an `sr-only` span. The "no empty card" intent (`RecentAutoAppliedStrip.tsx:684`) is preserved exactly: `sr-only` is invisible and occupies no layout, so nothing appears on screen where nothing appeared before. The `infra_error` early return (`RecentAutoAppliedStrip.tsx:670-681`) already renders a `<section>`; the region is added inside it too, so the channel survives a transient read failure.
+
+That leaves one way for the region to die: the strip element itself being unmounted by a parent. It is not. Both consumers render it unconditionally, with no `key` and no surrounding conditional — `components/admin/Dashboard.tsx:791` and `app/admin/needs-attention/page.tsx:105`. React reconciles the same element type at the same position across a revalidation, so the instance and its `useAnnounceLog` state persist even as the group list empties underneath it.
 
 | Element | Value |
 |---|---|
-| Region `testId` | `auto-applied-undo-status-${group.showId}` |
+| Region `testId` | `auto-applied-undo-status` (no `showId` suffix — the channel is strip-wide) |
 | Region `label` | `"Undo updates"` |
-| Placement | Sibling of the existing bulk region (`RecentAutoAppliedStrip.tsx:544-558`), immediately after it |
+| Placement | Last child of the strip's `<section>`; and the sole child of both early returns |
 
 `AutoAppliedRow` passes `announceLabel={row.summary}` to the `UndoChangeButton` at `RecentAutoAppliedStrip.tsx:298`. `summary` is a non-nullable `string` on the row type (`lib/admin/loadRecentAutoApplied.ts:39`).
 
-The existing bulk region and its `bulkUndoOutcome` state are **not** migrated to the log channel (R2).
+The existing bulk region and its `bulkUndoOutcome` state are **not** migrated to the log channel (R2). See §8 for the pre-existing defect that decision leaves standing, and the row it is filed under.
+
+### 3.7 Why the announcement is order-insensitive
+
+The announcement crosses a component that is being unmounted, so the natural question is whether it wins a race against RSC reconciliation. The design's answer is that **there is no race to win** — and that property is load-bearing enough to state as a contract rather than leave implicit.
+
+Two independent facts make the ordering irrelevant:
+
+- **The state owner outlives the announcement.** After §3.5 and §3.6, the component holding `useAnnounceLog` is `ChangesFeed` (rendered whenever `feed !== null`, `components/admin/showpage/ChangesSection.tsx:71`, and unaffected by undo because the feed keeps `undone` rows and renders an Undone badge for them) or `RecentAutoAppliedStrip` (never unmounted by either consumer, and no longer returning `null`). Whether the announce lands before or after the revalidation commits, it lands in a live region on a mounted component.
+- **The async continuation does not depend on the caller surviving.** `announce` is called after `await undoAction(...)` inside the wrapped action. That continuation runs regardless of whether `UndoChangeButton` has since unmounted; it closes over the parent's `announce`, not over its own component instance. Setting state on a live parent from a dead child's continuation is ordinary React, not a leak.
+
+The earlier draft of this spec justified the wrapped-action placement by asserting it necessarily precedes RSC reconciliation while an effect necessarily races it. That claim was framework-lifecycle speculation of exactly the kind `docs/agents/spec-self-review.md:21` forbids without a probe, and it is withdrawn. The wrapped action is still the chosen placement, but for a reason that needs no ordering guarantee: an effect on the `{ok:true}` commit is not guaranteed to run at all when the component unmounts in the same commit, whereas an already-executing async continuation always finishes.
+
+**This is proved, not argued.** §11 requires an executable probe that drives an undo through a parent whose row list empties mid-action, asserting the announcement still lands. If the probe fails, this section is wrong and the design changes — that is the point of writing it as a test rather than a paragraph.
 
 ---
 
@@ -272,7 +294,20 @@ This is the `_metaDestructiveConfirm` T4 shape (`2026-08-01-announce-a11y-pass-d
 | `components/admin/RecentAutoAppliedStrip.tsx:298` | yes (in `AutoAppliedRow`) | yes (in `GroupSection`, same file) | passes on the file-level rule |
 | `components/admin/ChangesFeed.tsx` | **no** — it imports only `type UndoButtonResult` (`ChangesFeed.tsx:17`) | yes | not a member; the walk never sees it |
 
-`ChangesFeed.tsx` is not a guard member despite owning a provider, and `ChangeFeedEntry.tsx` is a member despite owning nothing. A file-level rule cannot see across the module boundary between them, which is exactly why the exemption comment exists rather than being a smell.
+`ChangesFeed.tsx` is not a guard member despite owning a provider, and `ChangeFeedEntry.tsx` is a member despite owning nothing.
+
+**A file-local walk cannot enforce the contract, and pretending otherwise would be the worst outcome** — a guard that looks authoritative while permitting the exact regression it names. Exempt `ChangeFeedEntry` and two real breakages sail through: deleting the provider from `ChangesFeed` (invisible to the walk, which never scans that file), and rendering `ChangeFeedEntry` from some future parent that provides nothing (the exemption travels with the child, not the parent).
+
+The contract is therefore enforced in two layers, with the walk demoted to what it can actually do:
+
+| Layer | Enforces | Catches | Blind to |
+|---|---|---|---|
+| **Behavioral tests** (§11) — render `ChangesFeed` and the strip, undo a row, assert the region received the text | that the provider is actually wired on each shipped surface | provider deleted from `ChangesFeed`; provider misplaced; context value wrong | a NEW surface nobody wrote a test for |
+| **Structural walk** — files rendering `<UndoChangeButton` **or** `<ChangeFeedEntry` must reference `UndoAnnounceContext.Provider` or carry `// no-undo-announce: <reason>` | that a new direct parent cannot be added silently | a new file rendering either component with no provider | transitive chains more than one component deep |
+
+Adding `<ChangeFeedEntry` to the scanned set is what closes the first breakage: `ChangesFeed.tsx` becomes a member (it renders `<ChangeFeedEntry` at `ChangesFeed.tsx:85`) and must keep its provider or fail. `ChangeFeedEntry.tsx` still takes the exemption, but the exemption is now backed by a guard on its only importer rather than trusting prose.
+
+The residual blind spot — a chain two components deep — is accepted and stated rather than papered over. The behavioral tests are the real proof that the wiring works; the walk is a tripwire for the common case of someone adding a parent. Neither is claimed to be complete on its own.
 
 Two implementation details the walk must get right, both learned from `_metaDestructiveConfirm`: detection of `<UndoChangeButton` runs against **comment-stripped** source (`tests/styles/_classScanUtils` exposes `stripCommentsForFile`), so a commented-out usage cannot make a file a member; the exemption is matched against the **raw** source, because the exemption is itself a comment.
 
@@ -322,11 +357,14 @@ Making the error wrapper always-mounted changes what "no failure yet" looks like
 
 **Strengthen is the load-bearing half, and the reason this section exists.** Once the node is always mounted, `toBeInTheDocument()` is true *before the action ever runs* — those four assertions would keep passing while proving nothing, which is precisely the tautology the anti-tautology rule forbids. Each must assert the rendered failure copy instead, scoped to the result node: `expect(getByTestId("<x>-result")).toHaveTextContent(<the catalog copy for the code under test>)`, or an assertion on the nested `error-explainer-message` testid. An implementation that converts the six `toBeNull()` sites and leaves these four untouched has silently deleted four tests.
 
+**One of the four is worse than redundant.** The Undo and Accept tests each carry an independent catalog-copy assertion alongside the node check, so losing the node check costs them redundancy, not coverage. `Mi11GateActions.test.tsx:95` has no such companion — its only positive evidence that a failure rendered is the node's presence plus the absence of a raw code. Convert it without strengthening and the file retains **zero** proof that MI-11 failures surface at all. That test gets a catalog-copy assertion as a hard requirement, not a nicety.
+
 ---
 
 ## 8. Documented limits
 
-- **Repeat-identical failure.** Two consecutive failures with the same code do not re-announce; `role="status"` announces on text change, and the text is unchanged. The visible card is present throughout. Not fixed (R8).
+- **Repeat-identical failure, on Undo and Accept only.** Two consecutive failures with the same code do not re-announce there; `role="status"` announces on text change, and the text is unchanged. `Mi11GateActions` does not share the limit — its pending-gated `failing` (`Mi11GateActions.tsx:137`) blanks the region on retry, so settlement is a real text change. The visible card is present throughout in every case. Not fixed (R8).
+- **The bulk "Undo all" announcement can still be lost, and is filed rather than fixed.** `bulkUndoOutcome` lives in `GroupSection` (`RecentAutoAppliedStrip.tsx:331`) and its region renders inside that group's panel (`RecentAutoAppliedStrip.tsx:544-558`). Undoing every undoable row in a show empties the group, so the group unmounts and the all-success announcement goes with it — the same defect class this spec fixes for the per-row channel, one component over. It is **pre-existing**, not introduced here. Fixing it means hoisting per-group state and per-group copy to the strip root, which is a redesign of the very channel R2 fences as out of scope and promises to leave byte-identical; doing it under this spec would make the retrofit claim in §6 untrue of §3.6 as well. Filed as **`BL-BULK-UNDO-ANNOUNCE-UNMOUNT`** with this analysis. Recorded here so a reviewer does not read the surviving per-group region as an oversight.
 - **Long summaries.** `summary` is announced whole, with no truncation. Feed summaries are short generated sentences; a pathological one would be read in full. Accepted — truncating an announcement is worse than a long one.
 - **Announcement ordering under burst.** Two undos resolving in the same commit append in resolution order, which may not be visual row order. AT reads both; only the sequence is unspecified.
 - **Cap loss.** After 50 announcements in one mount, the oldest entries leave the DOM. They were announced when added; removals under `role="log"` are silent.
@@ -355,7 +393,9 @@ All three children disposed. The parent graduates to `BACKLOG-archive.md` at its
 
 **The three `KNOWN_DANGLING` rows stay** (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:108-113`). This is the non-obvious part and the implementation must not "tidy" them away: the guard scans `BACKLOG-archive.md` (`_metaLedgerReferentialIntegrity.test.ts:57`), so an archived entry's body still counts as a citation, and the ids remain heading-less body bullets there — still dangling by the guard's definition. The guard's dead-row ratchet (`_metaLedgerReferentialIntegrity.test.ts:316-322`) fires only when an id is cited **nowhere**, which is not the case here. Their reason strings are refreshed to name the archive as the citing file instead of `BACKLOG.md`.
 
-What does change is `BL-LEDGER-GUARD-BODY-DEFINED-IDS`: the three ids leave its enumeration, because it tracks ids whose definition site is a body bullet of an **open** parent, and this parent is no longer open. Its set drops from eight to five (the `BL-MUTATION-*` family), and its prose must be edited to say five rather than left claiming eight. Its stated work — teach the guard to resolve body-defined ids — is unchanged in kind and simply covers a smaller set.
+**`BL-LEDGER-GUARD-BODY-DEFINED-IDS` keeps all eight ids.** An earlier draft of this spec dropped the three from its enumeration on the theory that the entry tracks body-defined ids of *open* parents. It does not say that. Its contract is a body-leading bullet inside a parent whose own heading resolves (`BACKLOG.md:75-86`), and an archived parent's heading resolves through the same scanned ledger set — so the three ids remain exactly the examples the future body-definition guard will have to understand. Narrowing that entry to five would quietly shrink its documented scope while its actual work stayed the same size.
+
+The edit that does land is additive: a parenthetical on the `BL-SYNCFEED-UI-*` bullet noting that its parent now lives in `BACKLOG-archive.md`, so a reader chasing the reference knows where to look. The count stays eight.
 
 ### 9.5 Filed, not fixed
 
@@ -403,16 +443,27 @@ The added regions have two visual states and no visual transition, because they 
 
 Runner: Vitest 4.1.5, jsdom via the per-file `// @vitest-environment jsdom` pragma.
 
+New test files created by this work, named exactly so the runner below is complete:
+
+<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
+- `tests/components/admin/announceLog.test.tsx` — the extracted hook and region
+<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
+- `tests/styles/_metaUndoAnnounceProvider.test.ts` — the structural walk
+
 ```
-pnpm exec vitest run tests/components/admin/UndoChangeButton.test.tsx \
+pnpm exec vitest run tests/components/admin/announceLog.test.tsx \
+  tests/components/admin/UndoChangeButton.test.tsx \
   tests/components/admin/ChangesFeed.test.tsx \
   tests/components/admin/ChangeFeedEntry.test.tsx \
   tests/components/admin/ChangesFeed.a11y.test.tsx \
   tests/components/admin/RecentAutoAppliedStrip.test.tsx \
   tests/components/admin/AcceptChangeButton.test.tsx \
   tests/components/admin/Mi11GateActions.test.tsx \
-  tests/components/admin/review/warningsPanelStatusMount.test.tsx
+  tests/components/admin/review/warningsPanelStatusMount.test.tsx \
+  tests/styles/_metaUndoAnnounceProvider.test.ts
 ```
+
+Both new files sit under directories the existing vitest projects already match, so no `testMatch` or workflow path-filter entry is added; the implementation task verifies that by running the command above and confirming ten files are collected, not nine.
 
 Every assertion below names the failure it catches; an assertion that only proves "the function was called" is not admissible (`2026-08-01-announce-a11y-pass-design.md:140`).
 
@@ -450,9 +501,21 @@ Every assertion below names the failure it catches; an assertion that only prove
 
 | Assertion | Failure caught |
 |---|---|
-| Per-group `auto-applied-undo-status-${showId}` exists, empty, `role="log"` | Missing region |
-| A single-row undo in group A appends to group A's region and leaves group B's empty | Cross-group leakage |
+| `auto-applied-undo-status` exists at strip level, empty, `role="log"` | Missing region |
+| A single-row undo appends one child naming that row's summary | The channel not wired |
 | The existing bulk region `auto-applied-bulk-undo-status-${showId}` still has `role="status"` and its existing behavior | R2 regression — the bulk channel being swept into the refactor |
+| Rendering the strip with `groups: []` still renders `auto-applied-undo-status`, and renders no `recent-auto-applied-strip` section | The `return null` path silently dropping the channel; and the "no empty card" intent being broken in the fix |
+| Rendering the strip in its `infra_error` state still renders the region | The error early-return dropping the channel |
+
+**Unmount probe — the executable form of §3.7** (the finding this spec's first round was blocked on)
+
+| Assertion | Failure caught |
+|---|---|
+| Strip rendered with one undoable row in one group; the undo action resolves `{ok:true}`; the parent then re-renders with `groups: []` **before** the assertion — the region still contains the announcement | The whole §3.7 contract. This is the exact production sequence: the last undoable row leaves the `applied` result set, the group and then the strip body disappear, and a group-owned region would take the announcement with it |
+| Same sequence driven with the re-render interleaved **while the action promise is unresolved**, resolving after | The narrower race: an announcement whose continuation runs after its own component is gone |
+| Feed equivalent: `ChangesFeed` re-rendered with the undone row's `action` flipped to `"none"` mid-action; region still holds the text | The feed's own version of the same sequence, where the button unmounts but the section does not |
+
+These three are not a formality. If any fails, §3.7 is false, the wrapped-action placement is not sufficient, and the design needs an owner further out than this spec proposes — so they run before the implementation of §3.5/§3.6 is considered done.
 
 **Class-sweep tests** — `AcceptChangeButton` and `Mi11GateActions` each get the same always-mounted / same-node assertion as Undo.
 
