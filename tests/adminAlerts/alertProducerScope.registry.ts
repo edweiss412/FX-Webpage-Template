@@ -172,13 +172,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:73",
+    site: "app/api/auth/picker-bootstrap/route.ts:91",
     contextKeys: ["route", "rpc_error_code", "rpc_error_message", "slug", "stage"],
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:100",
+    site: "app/api/auth/picker-bootstrap/route.ts:118",
     contextKeys: [
       "attempted_email_hash",
       "route",
