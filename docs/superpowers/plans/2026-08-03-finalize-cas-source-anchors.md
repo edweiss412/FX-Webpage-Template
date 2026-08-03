@@ -153,6 +153,8 @@ Extend the Task-2 file with two cases, both running Phase B then Phase D end to 
 
 Both cases assert the apply actually succeeded (the row's result code is the OK code and the shadow row is consumed) before asserting on anchors — an apply that refused would trivially "preserve" `PRIOR` and make the wipe guard vacuous.
 
+What the wipe guard does NOT prove is spec §4.1: a preserved `PRIOR` map can predate the revision just applied, and no assertion at this layer can tell that apart from a correctly preserved one. The test is a guard against wiping, not a claim of freshness.
+
 Keep the `vi.mock` of the Drive export functions from `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts:16-30` so the file also pins that Phase D performs no XLSX export.
 
 Expected: refresh FAILS (anchors still `PRIOR`), wipe guard PASSES (vacuously — Phase D forwards nothing today). Record both; the wipe guard becomes load-bearing the moment 3.2 lands.
