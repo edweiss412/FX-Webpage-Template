@@ -1,7 +1,7 @@
 // tests/show/pickerAffordance.test.tsx
 // @vitest-environment jsdom
-import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
 import { PickerInterstitial } from "@/app/show/[slug]/[shareToken]/_PickerInterstitial";
 import { messageFor } from "@/lib/messages/lookup";
 
@@ -120,6 +120,44 @@ describe("claimed-row pending affordance", () => {
 
     expect(row.getAttribute("aria-busy")).toBeNull();
     expect(row.querySelector('[data-testid="picker-row-lock"]')).not.toBeNull();
+  });
+
+  test("pending self-clears so a hung sign-in does not leave the row inert", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
+      const row = claimedRowIn(container);
+
+      fireEvent.click(row);
+      expect(row.getAttribute("aria-busy")).toBe("true");
+
+      // Re-tapping WAS the recovery for a sign-in that never lands, and the
+      // pending guard removes it. Without this timeout a hung hop leaves the
+      // row permanently inert (impeccable critique P0).
+      act(() => {
+        vi.advanceTimersByTime(8_000);
+      });
+
+      expect(row.getAttribute("aria-busy")).toBeNull();
+      expect(row.querySelector(String.raw`[data-testid="picker-row-lock"]`)).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the pending state is announced, not just aria-busy", () => {
+    const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
+    const row = claimedRowIn(container);
+    const live = row.querySelector(String.raw`[role="status"]`);
+
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    expect(live?.textContent).toBe("");
+
+    fireEvent.click(row);
+
+    // aria-busy alone is weakly supported by assistive tech (audit P1 /
+    // WCAG 2.2 SC 4.1.3), so the transition carries a live-region message.
+    expect(live?.textContent).toContain("Alice Cooper");
   });
 
   test("two pointer activations issue exactly one submit", () => {

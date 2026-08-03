@@ -3,7 +3,7 @@
 /**
  * app/show/[slug]/[shareToken]/_StaleCleanupAutoSubmit.tsx
  *
- * M11.5 §B Task C3. The ONLY 'use client' component in the picker tree
+ * M11.5 §B Task C3. One of the picker tree's 'use client' components
  * (spec §4.7 R25). Mounted by `<PickerInterstitial>` when the resolver
  * returns any of `epoch_stale | removed_from_roster | identity_invalidated`
  * — it renders an invisible form with the expected (epoch, crewMemberId)
@@ -14,7 +14,7 @@
  *
  * Why a separate client file: server components cannot run useEffect, and
  * Next App Router Server Action forms only auto-submit with client JS.
- * Keeping this the SOLE client boundary minimises hydration cost on the
+ * Keeping client boundaries few and small minimises hydration cost on the
  * picker page.
  */
 

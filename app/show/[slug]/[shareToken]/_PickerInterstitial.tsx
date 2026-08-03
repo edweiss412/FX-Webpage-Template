@@ -1,7 +1,7 @@
 /**
  * app/show/[slug]/[shareToken]/_PickerInterstitial.tsx (M11.5 §B Task C2)
  *
- * The picker. Server Component (no `'use client'`) — the one client
+ * The picker. Server Component (no `'use client'`) — its client
  * boundary in the tree is `<StaleCleanupAutoSubmit>` (Task C3, spec §4.7
  * R25), which we mount when the resolver hands us a `staleCleanupHint`.
  *

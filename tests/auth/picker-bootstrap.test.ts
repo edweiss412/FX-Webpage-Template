@@ -18,11 +18,13 @@ const state = vi.hoisted(() => ({
     throws: false,
   },
   alerts: [] as Array<{ showId: string | null; code: string; context: Record<string, unknown> }>,
+  rpcCalls: [] as Array<{ name: string; args: unknown }>,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
-    rpc: async (name: string) => {
+    rpc: async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
       if (name === "resolve_show_by_slug_and_token") {
         if (state.resolveShow.throws) throw new Error("resolve exploded");
         return { data: state.resolveShow.data, error: state.resolveShow.error };
@@ -87,6 +89,7 @@ describe("/api/auth/picker-bootstrap", () => {
     state.google = { kind: "continue" };
     state.claim = { data: null, error: null, throws: false };
     state.alerts = [];
+    state.rpcCalls = [];
   });
 
   test("resolve_show returned-error is a pre-session 502 alert without share token or email", async () => {
@@ -271,6 +274,20 @@ describe("/api/auth/picker-bootstrap — query-bearing next (spec §2.1)", () =>
     const location = res.headers.get("location") ?? "";
     expect(location).toContain("s=schedule");
     expect(location).not.toContain("evil");
+  });
+
+  test("resolve_show receives the PARSED slug and token, never the whole next string", async () => {
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+
+    await GET(request({ next: `${BASE}?s=schedule&gate=skip` }));
+
+    // Without this, mutating the RPC call to pass `nextOutcome.path` would leave
+    // every status and Location assertion green while production resolution
+    // received the entire route (query included) instead of the 64-hex token,
+    // and returned 403. The mock ignores its arguments, so nothing else here
+    // can see that.
+    const resolve = state.rpcCalls.find((c) => c.name === "resolve_show_by_slug_and_token");
+    expect(resolve?.args).toEqual({ p_slug: "sample-show", p_share_token: SHARE_TOKEN });
   });
 
   test("an intent token signed for a different slug still 403s when next carries a query", async () => {

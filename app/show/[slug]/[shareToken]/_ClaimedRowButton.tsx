@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -31,6 +31,18 @@ import { Loader2 } from "lucide-react";
  * cancel a submit button's default action — measured `submits=2` for an early
  * return alone, `1` with `preventDefault`. Both halves are load-bearing.
  */
+
+/**
+ * Pending self-clears after this long.
+ *
+ * Re-tapping WAS the recovery for a sign-in that never lands; suppressing the
+ * second tap removes it, so without this a hung hop leaves the row permanently
+ * inert (impeccable critique P0). A navigation that is actually going to
+ * happen has replaced this document long before 8s, so clearing here cannot
+ * re-open the double-submit window it exists to close.
+ */
+const PENDING_TIMEOUT_MS = 8_000;
+
 export function ClaimedRowButton({
   name,
   role,
@@ -48,6 +60,7 @@ export function ClaimedRowButton({
   chipClassName: string;
 }) {
   const [pending, setPending] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // A bfcache restore returns the page with its DOM and React state intact
   // rather than remounting, so without this the restored row would still read
@@ -60,6 +73,12 @@ export function ClaimedRowButton({
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
   return (
     <button
       type="submit"
@@ -68,7 +87,7 @@ export function ClaimedRowButton({
       data-crew-member-id={crewMemberId}
       aria-disabled={pending || undefined}
       aria-busy={pending || undefined}
-      className={`${rowClassName} aria-disabled:bg-surface-sunken aria-disabled:cursor-default`}
+      className={`${rowClassName} aria-disabled:cursor-default aria-disabled:bg-surface-sunken`}
       onClick={(event) => {
         if (pending) {
           // Both statements are required: aria-disabled does not stop
@@ -77,6 +96,7 @@ export function ClaimedRowButton({
           return;
         }
         setPending(true);
+        timeoutRef.current = setTimeout(() => setPending(false), PENDING_TIMEOUT_MS);
       }}
     >
       <span className="flex min-w-0 items-center gap-2 text-base font-semibold">
@@ -87,35 +107,56 @@ export function ClaimedRowButton({
             <Loader2
               aria-hidden="true"
               data-testid="picker-row-spinner"
-              className="size-4 animate-spin motion-reduce:animate-none"
+              // motion-reduce HIDES rather than freezing: a stalled spinner
+              // mid-arc reads as stuck, which is the opposite of the signal.
+              // The chip text carries the state when motion is suppressed.
+              className="size-4 animate-spin motion-reduce:hidden"
             />
           ) : (
-            <span data-testid="picker-row-lock" aria-label={lockHint} className="text-text-subtle">
-              {/* Plain unicode lock — DESIGN.md §8 ratifies lucide-react but the
-                  picker row's restraint rules out icon-as-image; a 16px glyph
-                  matches the type rhythm here. */}
-              🔒
-            </span>
+            <>
+              {/* The glyph is decorative to AT — aria-label on a span with an
+                  implicit generic role is dropped (ARIA 1.2), so the hint rides
+                  a visually-hidden sibling instead. */}
+              <span data-testid="picker-row-lock" aria-hidden="true" className="text-text-subtle">
+                {/* Plain unicode lock — DESIGN.md §8 ratifies lucide-react but
+                    the picker row's restraint rules out icon-as-image; a 16px
+                    glyph matches the type rhythm here. */}
+                🔒
+              </span>
+              <span className="sr-only">{lockHint}</span>
+            </>
           )}
         </span>
         <span className="truncate">{name}</span>
       </span>
-      {pending ? (
-        <span
-          data-testid="picker-role-chip"
-          className={`${chipClassName} whitespace-nowrap`}
-          // R4: renders even when `role` is empty — in that case it is the only
-          // right-side signal that the tap landed.
-        >
-          Signing in…
-        </span>
-      ) : (
-        role && (
-          <span data-testid="picker-role-chip" className={chipClassName}>
-            {role}
+
+      {/* Right column keeps a reserved minimum so the name does not gain and
+          then lose width when the chip swaps in (critique P2). */}
+      <span className="flex min-w-24 shrink-0 justify-end">
+        {pending ? (
+          <span
+            data-testid="picker-role-chip"
+            // The idle chip's fill is surface-sunken on a surface-sunken row —
+            // 1.00:1, no container at all. The pending chip is the load-bearing
+            // signal, so it gets its own fill AND a boundary: text 4.91:1
+            // (light) / 8.03:1 (dark), border 5.02:1 / 8.21:1 against the row.
+            className={`${chipClassName} whitespace-nowrap border border-accent-on-bg bg-accent-tint text-accent-on-bg`}
+          >
+            Signing in…
           </span>
-        )
-      )}
+        ) : (
+          role && (
+            <span data-testid="picker-role-chip" className={chipClassName}>
+              {role}
+            </span>
+          )
+        )}
+      </span>
+
+      {/* aria-busy alone is weakly supported; the transition is announced. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {pending ? `Signing in as ${name}` : ""}
+      </span>
     </button>
   );
 }
