@@ -42,6 +42,15 @@ import vitestConfig from "@/vitest.config";
 // Cost of the floor, stated plainly: a genuinely hung DB test now burns 30s
 // before failing instead of 5s. That is the right trade for a gate whose other
 // failure mode is going red on healthy code.
+//
+// A config default is not a floor on its own. A per-test or per-suite
+// `{ timeout: N }` option wins over `runner.config.testTimeout`, so a file
+// carrying one BELOW the floor keeps its old exposure while this guard's other
+// assertions stay green. Every such override in the repo was written to RAISE a
+// budget over the old 5s default, which the floor now does better; left alone
+// they would silently become CAPS. So they are banned below the floor too, with
+// an inline `timeout-floor-exempt: <reason>` escape for a test that genuinely
+// wants a short budget (asserting something completes quickly, say).
 
 const ROOT = process.cwd();
 const TIMEOUT_FLOOR_MS = 30_000;
@@ -59,6 +68,18 @@ const runtimeConfig = (
     __vitest_worker__?: { config?: { testTimeout?: number; hookTimeout?: number } };
   }
 ).__vitest_worker__?.config;
+
+// A vitest test/suite options object carrying a `timeout`. Covers the plain
+// `test("name", { timeout: N }, fn)` and `describe("name", { timeout: N }, fn)`
+// forms, the multi-line spelling, the chained-modifier one (`test.skipIf(x)(…)`,
+// `it.each(…)(…)`), and an identifier rather than a literal for the name. It
+// deliberately does NOT match `sql.end({ timeout: 5 })`, postgres.js
+// `idle_timeout`/`connect_timeout`, or an `execFileSync` options bag — those are
+// not test budgets, and there are many of them.
+const TEST_TIMEOUT_OPTION =
+  /\b(?:test|it|describe)(?:\.[A-Za-z]+)*\s*(?:\([^()]*\)\s*)?\(\s*(?:`[^`]*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[A-Za-z_$][\w$]*)\s*,\s*\{[^{}]*?\btimeout\s*:\s*([0-9][0-9_]*)/g;
+
+const EXEMPT_MARKER = "timeout-floor-exempt:";
 
 function testFiles(): string[] {
   const out: string[] = [];
@@ -116,6 +137,38 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
         "DB round-trip polled this way flakes no matter how high the test budget goes. Await " +
         "an explicit barrier the mock resolves instead — see awaitCreateIssueEntered in " +
         "tests/reports/_createIssueBarrier.ts",
+    ).toEqual([]);
+  });
+
+  it("no DB-touching test caps itself below the floor with a per-test timeout option", () => {
+    const offenders: string[] = [];
+    for (const file of testFiles()) {
+      const body = readFileSync(file, "utf8");
+      if (!DB_MARKERS.some((marker) => marker.test(body))) continue;
+
+      const code = stripCommentsForFile(body, file);
+      // Line numbers come from the STRIPPED text and the exemption is read from
+      // the RAW line at the same index: stripCommentsForFile blanks comment
+      // content in place rather than deleting lines, so the two stay aligned.
+      const rawLines = body.split("\n");
+      TEST_TIMEOUT_OPTION.lastIndex = 0;
+      for (let m = TEST_TIMEOUT_OPTION.exec(code); m; m = TEST_TIMEOUT_OPTION.exec(code)) {
+        const ms = Number(m[1]!.replaceAll("_", ""));
+        if (ms >= TIMEOUT_FLOOR_MS) continue;
+        const line = code.slice(0, m.index + m[0].length).split("\n").length;
+        if (rawLines[line - 1]?.includes(EXEMPT_MARKER)) continue;
+        offenders.push(`${relative(ROOT, file)}:${line} — ${ms}ms`);
+      }
+    }
+
+    expect(
+      offenders,
+      "a per-test or per-suite `{ timeout: N }` wins over the config's testTimeout, so an " +
+        "override below the floor keeps the exposure the floor exists to remove. Every one of " +
+        "these was written to RAISE a budget over vitest's old 5s default, which the root " +
+        `config now does — drop the option, or raise it to at least ${TIMEOUT_FLOOR_MS}ms. If ` +
+        `a short budget is the POINT of the test, add an inline \`${EXEMPT_MARKER} <reason>\` ` +
+        "comment on that line",
     ).toEqual([]);
   });
 });
