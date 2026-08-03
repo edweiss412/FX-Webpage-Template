@@ -92,7 +92,7 @@ admin_session_direct_INSERT_rows=1     -- forged alert row, bypassing upsert_adm
 admin_session_direct_DELETE_rows=2
 ```
 
-An **admin-authenticated session** can INSERT/UPDATE/DELETE these tables directly through PostgREST, bypassing every SECURITY DEFINER RPC gate — its advisory locks, its atomicity, and its audit emission. On `admin_alerts` specifically this bypasses `upsert_admin_alert` and forges `resolved_by`, which is the precise exposure the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` backlog entry describes.
+An **admin-authenticated session** can INSERT/UPDATE/DELETE these tables directly through PostgREST, bypassing any SECURITY DEFINER RPC gate that exists — its advisory locks, its atomicity, and its audit emission. On `admin_alerts` specifically this bypasses `upsert_admin_alert` and forges `resolved_by`, which is the precise exposure the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` backlog entry describes.
 
 Statement-level baseline for all 10 (`delete ... where false` as `authenticated`): **`STATEMENT_PERMITTED` on every one.** This is the "before" fixture the new Layer 1 rows invert.
 
@@ -135,7 +135,7 @@ admin_only policy, not in ADMIN_TABLES: ignored_warnings
 | --- | --- | --- |
 | `anon` (no session) | statement permitted, RLS denies rows | statement denied (`42501`) |
 | crew `authenticated` (non-admin) | statement permitted, RLS denies rows | statement denied (`42501`) |
-| **admin `authenticated`** | **full direct DML, RPC gates bypassed** | statement denied; must go through the RPC |
+| **admin `authenticated`** | **full direct DML, any RPC gate bypassed** | statement denied; must use the RPC (class (a)) or a service-role path (class (b)) |
 | `service_role` / raw SQL (`postgres`) | unaffected | unaffected |
 
 The value is not "stop an attacker" — Doug is the trusted business owner, and that framing was already rejected in the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` backlog entry. What it buys differs by class, and conflating the two overstates it:

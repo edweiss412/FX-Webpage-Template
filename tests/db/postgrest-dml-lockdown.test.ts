@@ -9,9 +9,15 @@
  * For every table in RPC_GATED_TABLES, anon + authenticated must NOT
  * carry INSERT/UPDATE/DELETE privileges at the table-grant layer
  * AND must receive 403/401 (with PG SQLSTATE 42501) on PostgREST
- * POST/PATCH/DELETE. Mutations flow EXCLUSIVELY through SECURITY
- * DEFINER RPCs that hold the per-show advisory lock per AGENTS.md
- * invariant 2. SELECT posture is per-table — some tables (crew_members,
+ * POST/PATCH/DELETE. Where a SECURITY DEFINER RPC exists, mutations then
+ * flow EXCLUSIVELY through it and it holds the per-show advisory lock per
+ * AGENTS.md invariant 2. Not every registered table HAS an RPC, though:
+ * several (sync_log, sync_audit, drive_watch_channels,
+ * pending_snapshot_uploads, recovery_drift_cooldowns, ...) are written only
+ * by service-role or cron, and for those the REVOKE means the table is
+ * simply unreachable from a browser session. Service-role and direct-postgres
+ * writes are unaffected in BOTH cases, by design.
+ * SELECT posture is per-table — some tables (crew_members,
  * shows, validation_state) keep SELECT for viewer/admin PostgREST reads;
  * others (show_share_tokens, admin_emails-for-anon) revoke SELECT
  * entirely and route reads through SECURITY DEFINER RPCs.
@@ -108,9 +114,13 @@ function runPsql(sql: string): string {
 }
 
 /**
- * Registry of tables whose mutations are required to flow EXCLUSIVELY
- * through a SECURITY DEFINER RPC. New RPC-gated tables MUST register
- * here. Adding a row also requires landing the corresponding REVOKE
+ * Registry of tables whose mutations must NOT be reachable from anon or
+ * authenticated via PostgREST. For the subset that has a SECURITY DEFINER
+ * RPC, that RPC becomes the only PostgREST door; for the rest, the table is
+ * service-role/cron-written and the REVOKE simply closes the browser path.
+ * (The registry name predates the widening and is kept for continuity.)
+ * New locked-down tables MUST register here. Adding a row also requires
+ * landing the corresponding REVOKE
  * block in the migration that introduces the table — Layer 4 enforces
  * the lockstep automatically.
  *
@@ -187,18 +197,6 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "sync_log",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:45",
-    // SELECT is retained (spec §4.2): this migration revokes only the three DML
-    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
-    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
-    // either, so the retained SELECT is harmless.
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: { id: "00000000-0000-0000-0000-000000000000" },
-    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
-  },
-  {
-    table: "reports",
     closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:46",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
@@ -210,7 +208,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
-    table: "sync_audit",
+    table: "reports",
     closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:47",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
@@ -222,8 +220,20 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
-    table: "drive_watch_channels",
+    table: "sync_audit",
     closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:48",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "drive_watch_channels",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:49",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -235,7 +245,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "report_rate_limits",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:49",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:50",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -247,7 +257,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "pending_snapshot_uploads",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:50",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:51",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -259,7 +269,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "revision_race_cooldowns",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:51",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:52",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -271,7 +281,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "recovery_drift_cooldowns",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:52",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:53",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to

@@ -2,8 +2,9 @@
 -- Statement-level lockdown for the eight remaining §4.3 admin-only tables whose
 -- DML was never revoked. Probe evidence in spec §2.3: an ADMIN-authenticated
 -- session could INSERT/UPDATE/DELETE these tables directly through PostgREST,
--- bypassing every SECURITY DEFINER RPC gate -- its advisory locks, its
--- atomicity, and its audit emission. Non-admin crew were already blocked at
+-- bypassing any SECURITY DEFINER RPC gate that exists -- its advisory locks,
+-- its atomicity, and its audit emission -- and reaching the rest, which have
+-- no RPC, from a browser session at all. Non-admin crew were already blocked at
 -- the row level by admin_only RLS; this closes the admin-session bypass on the
 -- eight tables listed below.
 --
