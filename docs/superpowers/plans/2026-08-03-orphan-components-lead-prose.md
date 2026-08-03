@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-03-orphan-components-lead-prose-design.md` (canonical;
 every decision below is settled there, with citations). **Branch:**
-`chore/orphan-components-lead-prose` off `origin/main` @ `369bfcce0`. **Implementer:** Opus /
+`chore/orphan-components-lead-prose` off `origin/main` @ `67074d4dc` (rebased 2026-08-03 from `369bfcce0`). **Implementer:** Opus /
 Claude Code (`components/` is Opus-owned by the AGENTS.md routing hard rule). **Reviewer:** Codex,
 adversarially, never as implementer.
 
@@ -33,7 +33,7 @@ adds no new assertion, it says so plainly instead of inventing one.
 
 | Claim the plan relies on | Command | Result |
 | --- | --- | --- |
-| 5 orphans on current `main` | `orphanScan()` via `tsx` against `369bfcce0` | 191 components, 5 orphans, identical to `ORPHAN_ALLOWLIST` |
+| 5 orphans on current `main` | `orphanScan()` via `tsx`, re-confirmed after the rebase onto `67074d4dc` | 191 components, 5 orphans, identical to `ORPHAN_ALLOWLIST` |
 | The guard's failure families | read `tests/components/_metaOrphanedComponents.test.ts:52-80` | (a) unlisted orphan, (b) row for a deleted file, (c) newly orphaned, (d) row for an imported file |
 | `admin-alert-confirm-resolve-button` is dead | `rg -n "admin-alert-confirm-resolve-button" app components tests` | 6 hits, all in `ResolveAlertButton.tsx` + its own test |
 | `WrappedTile` is the sole prod importer of two files | `rg -n "TileServerFallback\|TileErrorBoundary" app components lib` | `TileServerFallback` ← `WrappedTile` only; `TileErrorBoundary` ← `WrappedTile` only; `TileErrorFallback` ← `TileServerFallback` + `WrappedSection` (live) |
@@ -119,8 +119,14 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    the mechanically-derived replacement for the spec §5 table. Then seed the allowlist so the guard
    is GREEN at commit time (plan R1 BLOCKING-2 — a knowingly-red commit is mid-sequence breakage,
    not TDD). Every row is one of two kinds, and the KIND is a field, not a comment:
-   - `archive` — a dated record end to end (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
-     `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records, this plan, the spec).
+   - `archive` — a path GLOB whose every match is a dated record end to end:
+     `docs/superpowers/specs/**`, `docs/superpowers/plans/**`, `docs/audits/**`,
+     `docs/superpowers/artifacts/**`, `BACKLOG-archive.md`, `DEFERRED-archive.md`. Globs, not files,
+     because the census over `git ls-files` finds roughly forty matching documents under
+     `docs/superpowers/**` alone and forty hand rows would be a curated list by another name.
+     **Carve out the LIVE LEDGERS from those globs** — `BACKLOG.md` and every `DEFERRED.md` under
+     `docs/superpowers/plans/**` — they carry commitments, not records, and must use `line`/`pending`
+     rows. A glob that swallowed a live ledger would reintroduce spec R4's defect at directory scale.
    - `line` — one historical line inside a LIVE file, keyed by that line's exact trimmed text.
    - `pending` — a live reference, keyed the same way, owned by `repairedBy: "Task N"`.
      Tasks 5-8 delete their `pending` rows as they repair the references.
@@ -137,7 +143,8 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a matching
    `line` row PASSES; (c) a file with TWO occurrences where only one carries a `line` row still
    FAILS — the case a file-keyed allowlist cannot express, and the reason this design exists;
-   (d) a `line` row whose text matches nothing FAILS (the fail-safe direction); (e) **the terminal
+   (d) a `line` row whose text matches nothing FAILS (the fail-safe direction); (d2) a live-ledger
+   path is NOT covered by an `archive` glob even when the glob would otherwise match it; (e) **the terminal
    zero-`pending` assertion FAILS against a fixture ledger holding one `pending` row.** (e) is
    written HERE, where it can still fail, not at Task 13 where the real ledger is already empty —
    plan R2 BLOCKING-3. Both must fail before the walker is written. This proves the contract regardless of
@@ -490,20 +497,26 @@ settled decision that reads as open work.
 3. **`BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` is ALREADY FILED (Task 1) — do not re-file it**
    (plan R2 HIGH-1 caught the duplicate). Verify only that its text still matches what Tasks 10 and
    11 shipped; amend it if the header-parity guard changed what the entry can assume.
-4. **Amend `BL-ACCENT-BUTTON-ATOM-SWEEP` (`BACKLOG.md:1120`) — it does NOT graduate here.** Its
+4. **Amend `BL-ACCENT-BUTTON-ATOM-SWEEP` (`BACKLOG.md:1192`, description at `BACKLOG.md:1198`) — it does NOT graduate here.** Its
    description names `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call
-   sites; two of those are retired by Tasks 5 and 6. Record that in the entry so its census stays
+   sites; two of those are retired by Tasks 7 and 8. Record that in the entry so its census stays
    true, and leave the entry open (spec R2). This is the one `BACKLOG.md` hit the sweep must NOT
    treat as graduating with this branch.
 5. **`BL-BELLPANEL-DISMISS-COMMENT-DRIFT` is ALSO ALREADY FILED (Task 1) — do not re-file it.**
    Same R2 HIGH-1 duplicate. Verify its text only.
-6. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
+6. **Maintain the guard ledger in THIS commit** (plan R3 BLOCKING-1). Task 12 rewrites
+   `BACKLOG.md` lines that Task 2's ledger exempts by exact text: the four orphan-table rows and the
+   accent-sweep description. Every `line`/`pending` row whose text this task changes must be updated
+   or deleted in the same commit — an unmatched row FAILS by design — and
+   `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts` must be GREEN before committing.
+   This is the general rule, not a one-off: any task that edits an exempted line owns its row.
+7. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
    dispositions.
-7. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
+8. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
    from the same file concurrently. Resolve by keeping BOTH sides — the entries are disjoint and
    the reconciliation line concatenates. Do not drop a sibling's segment.
 
-**Verify:** `pnpm test -- tests/docs/backlogClusterArchival.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts`
+**Verify:** `pnpm test -- tests/docs` (the whole directory — it covers the graduation, referential-integrity, in-flight, and retired-identifier guards, all of which this task can move)
 **Commit:** `docs(backlog): graduate the LEAD-prose entry, amend the orphan and accent-sweep entries`
 
 ## Task 13 — closeout, UI gate, and whole-diff adversarial review
@@ -561,9 +574,15 @@ rather than to argue the definition.
 **What the gate will find, stated in advance so the run is a check and not a discovery:** no
 rendered output changes on this branch. Every edit inside a UI-surface file is a comment or prose
 line, except whole-file deletions of components with no call site. Task 13 records that claim
-MECHANICALLY — `git diff origin/main -- 'app/**' 'components/**' DESIGN.md app/globals.css` filtered
-to non-comment, non-deleted-file lines must be empty — and the gate's own findings go in the ledger
-below either way. If the gate surfaces a P0/P1 anyway, it is fixed or deferred with a `DEFERRED.md`
+MECHANICALLY, with the exception enumerated rather than hand-waved (plan R3 HIGH): run
+`git diff origin/main -- 'app/**' 'components/**' DESIGN.md app/globals.css` and classify every
+changed line into exactly one of three buckets — (a) a comment line in a code file, (b) a line
+inside a wholly deleted file, (c) **the `DESIGN.md` prose line Task 5 repoints**
+(`DESIGN.md:216`), which is Markdown, not a comment, and is the ONE rendered-document line this
+branch edits. Any line that falls in none of the three buckets is a rendered-output change and the
+"no rendered change" claim is withdrawn. The draft's "must be empty" condition was unsatisfiable by
+a correct implementation, which is worse than no condition: it would have been quietly ignored.
+The gate's own findings go in the ledger either way. If the gate surfaces a P0/P1 anyway, it is fixed or deferred with a `DEFERRED.md`
 entry; "we expected nothing" is not a disposition.
 
 **Findings ledger:** filled in at close-out — one row per adversarial-review finding across the

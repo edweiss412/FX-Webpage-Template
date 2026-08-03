@@ -1,13 +1,13 @@
 # Orphaned components + the LEAD capability prose — design
 
-**Date:** 2026-08-03 · **Branch:** `chore/orphan-components-lead-prose` · **Base:** `origin/main` @ `369bfcce0`
+**Date:** 2026-08-03 · **Branch:** `chore/orphan-components-lead-prose` · **Base:** `origin/main` @ `67074d4dc` (rebased 2026-08-03; the branch started at `369bfcce0`)
 
 Settles the two entries `chore/copy-deadcode-sweep` filed on 2026-08-02 because each needed a
 decision or a contract read that a copy-sweep diff was not entitled to make:
 
-- **Item A** — `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` (`BACKLOG.md:641`): five components
+- **Item A** — `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` (`BACKLOG.md:635`): five components
   under `components/` that no file under `app/`, `components/`, or `lib/` imports.
-- **Item B** — `BL-LEAD-CAPABILITY-PROSE-STALE` (`BACKLOG.md:663`): two prose claims that a LEAD
+- **Item B** — `BL-LEAD-CAPABILITY-PROSE-STALE` (`BACKLOG.md:659`): two prose claims that a LEAD
   role flag confers an admin/ops surface.
 
 Both are answer-first, edit-second. The research is recorded here so the next reader does not
@@ -50,7 +50,7 @@ than re-deriving the decision.
    `tests/components/admin/FinalizeRunModes.test.tsx:101-109` pins finish-only routing.
 
 9. **Keeping `WrappedTile` is a DECIDED terminal state, not unfinished work** (§3.5). The entry
-   shrinks from five rows to one and stays open by design; `BACKLOG.md:661` explicitly admits
+   shrinks from five rows to one and stays open by design; `BACKLOG.md:657` explicitly admits
    "record the blocking dependency in the row's reason" as a resolution.
 
 ---
@@ -59,8 +59,8 @@ than re-deriving the decision.
 
 ### 2.1 Item A — the orphan probe
 
-Re-ran `orphanScan()` from `tests/components/_orphanedComponents.ts` against
-`369bfcce0`: **191 files under `components/`, 5 with zero production importers** — exactly the
+Re-ran `orphanScan()` from `tests/components/_orphanedComponents.ts` against the branch base
+(`369bfcce0`, re-confirmed after the rebase onto `67074d4dc`): **191 files under `components/`, 5 with zero production importers** — exactly the
 five in `ORPHAN_ALLOWLIST` (`tests/components/_orphanedComponents.ts:53-79`). The filing branch
 measured 192/6 on `c29d3eb68` before `ParsePanel` was deleted; the delta is that deletion. No new
 orphan appeared, none of the five was rescued.
@@ -383,9 +383,27 @@ Three row shapes, and the distinction is the whole point:
 
 | Shape | Key | When it is honest |
 | --- | --- | --- |
-| `archive` | whole file | The file is a dated record END TO END (`BACKLOG-archive.md`, `DEFERRED-archive.md`, `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records). No live commitment can appear in one by definition |
+| `archive` | a path GLOB | Everything it matches is a dated record END TO END. No live commitment can appear in one by definition |
 | `line` | the exact trimmed line | A LIVE file whose specific line is historical. The row carries the matched line verbatim and matches only that content |
 | `pending` | the exact trimmed line | A live reference this branch will repair, owned by a named task. Task 13 asserts zero remain |
+
+**Why `archive` is a glob and not a file.** The census measured over `git ls-files` (4262 tracked
+files) finds the four identifiers in roughly forty documents under `docs/superpowers/**` alone —
+handoffs, shape sessions, and closed milestone plans and specs, each quoting the code as it stood.
+Forty hand-written rows would be a curated list by another name, which is the thing §5.0 exists to
+stop. The corpus splits cleanly instead:
+
+| Glob | Why it is a dated record |
+| --- | --- |
+| `docs/superpowers/specs/**`, `docs/superpowers/plans/**` | Design records: what was true when written. Superseded ones are not corrected, they are superseded |
+| `docs/audits/**`, `docs/superpowers/artifacts/**` | Dated snapshots. Rewriting one falsifies it |
+| `BACKLOG-archive.md`, `DEFERRED-archive.md` | Terminal-state archives |
+
+**With one carve-out that is the whole reason the design is line-keyed:** the LIVE LEDGERS inside
+those globs — `BACKLOG.md`, and every `DEFERRED.md` under `docs/superpowers/plans/**` — carry
+COMMITMENTS, not records. They are excluded from the globs and require `line` or `pending` rows,
+which is exactly the mixed-liveness case R4 found. A glob that swallowed a live ledger would
+reintroduce R4's defect at directory scale.
 
 A `line`/`pending` row that no longer matches any line FAILS rather than passing vacuously, so
 editing an exempted line invalidates its exemption instead of silently widening it. That is the
@@ -456,7 +474,7 @@ The full table, from a bare-string sweep of all four retired identifiers run 202
 | `tests/components/crew/rightNowHero.test.tsx:5`, `tests/components/crew/rightNowHero.test.tsx:7` | provenance prose | Rewrite as retirement-aware provenance |
 | `tests/e2e/right-now-transitions.spec.ts` (3 hits) | header prose names the card | Prose only; assertions untouched |
 | `tests/e2e/right-now.spec.ts:128` | a skipped `test.describe` whose TITLE names the card, not header prose | Rename the describe title to the hero. Found at spec R2; the draft authorized "header prose" only, which would have left the identifier live in a test name |
-| `BACKLOG.md:1120` (`BL-ACCENT-BUTTON-ATOM-SWEEP`) | a DIFFERENT active entry naming `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call sites | **Does NOT graduate with this branch.** Amend that entry in Task 12 to record that two of the eight named call sites have since been retired, so its census stays true |
+| `BACKLOG.md:1192` (`BL-ACCENT-BUTTON-ATOM-SWEEP`, description at `BACKLOG.md:1198`) | a DIFFERENT active entry naming `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call sites | **Does NOT graduate with this branch.** Amend that entry in Task 12 to record that two of the eight named call sites have since been retired, so its census stays true |
 | `components/admin/ArchiveShowButton.tsx:9` | cites `ResolveAlertButton` as a pattern exemplar | Repoint to a live exemplar |
 | `tests/components/atoms/AccentButton.test.tsx:7` | lists both retired buttons | Repoint to live call sites |
 | `DEFERRED-archive.md` (3 hits, `RunFinalCASButton`) | archived deferrals naming the button | **History — left alone.** An archive records what was true when it closed |
