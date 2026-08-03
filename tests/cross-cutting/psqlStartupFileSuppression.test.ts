@@ -28,6 +28,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import { stripCommentsForFile } from "../_shared/stripComments";
+
 import {
   EXEMPTION_MARKER,
   argvSuppressesStartupFiles,
@@ -44,6 +46,7 @@ const REPO_ROOT = join(__dirname, "..", "..");
  * `args.includes("-X")` guard reports as unprotected. */
 const SEPARATE_X_SITE = "tests/db/show_share_tokens.test.ts";
 const COMBINED_CLUSTER_SITE = "tests/db/crew-rpc-lifecycle-guard-meta.test.ts";
+const GUARD_MODULE = "tests/cross-cutting/psqlStartupFiles/scan.ts";
 
 function sitesIn(source: string, file: string) {
   return scanSource(source, file);
@@ -304,6 +307,98 @@ describe("R3 escaping mutants — each was certified SAFE before the fix", () =>
       `execFileSync("psql", ["-qAt", d]); ${tail.replace("MARKER", EXEMPTION_MARKER)}`,
       "scripts/x.mjs",
     );
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+});
+
+// ── R4: nested shells, option abbreviations, and the prefilter ─────────
+
+describe("R4 escaping mutants — each was certified SAFE or invisible before", () => {
+  test("the walk has NO psql prefilter — it would undo every decoding fix", () => {
+    // `p"s"ql -qAt $DSN` invokes psql and contains no literal "psql", so a
+    // `source.includes("psql")` prefilter never hands it to the scanner that
+    // knows how to read it. That prefilter shipped, and silently disabled the
+    // R3 fixes on the live tree.
+    const source = 'p"s"ql -qAt $DSN\n';
+    expect(source.includes("psql")).toBe(false);
+    expect(sitesIn(source, "x.sh")).toHaveLength(1);
+    // Strip comments first: the module DOCUMENTS the removed prefilter, and a
+    // raw substring check would match the prose that explains why it is gone.
+    const guardCode = stripCommentsForFile(
+      readFileSync(join(REPO_ROOT, GUARD_MODULE), "utf8"),
+      GUARD_MODULE,
+    );
+    expect(guardCode).not.toContain('includes("psql")');
+  });
+
+  test.each([
+    // psql resolves UNIQUE long-option abbreviations, so `--co` is `--command`
+    // and swallows the -X: `psql --co` errors "requires an argument".
+    [["--co", "-X", "dsn"], false],
+    [["--fil", "-X", "dsn"], false],
+    [["--ho", "-X", "dsn"], false],
+    [["--no-psq", "dsn"], true],
+    // Ambiguous prefixes (--no-psqlrc vs --no-password vs --no-align) are an
+    // error in psql too, so refusing to certify is correct.
+    [["--no-p", "dsn"], false],
+  ])("%j -> %s (long-option abbreviation)", (argv, expected) => {
+    expect(argvSuppressesStartupFiles(argv)).toBe(expected);
+  });
+
+  test.each([
+    ["command substitution", 'out="$(psql -qAt DSN)"\n'],
+    ["bare command substitution", "out=$(psql -qAt DSN)\n"],
+    ["backticks in a string", 'out="`psql -qAt DSN`"\n'],
+    ["bare backticks", "out=`psql -qAt DSN`\n"],
+    ["process substitution", "cat <(psql -qAt DSN)\n"],
+    ["ANSI-C quoting", "$'psql' -qAt DSN\n"],
+    ["locale quoting", '$"psql" -qAt DSN\n'],
+  ])("a psql inside %s executes, so it is a site", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a brace expansion cannot split a redirection target into a phantom flag", () => {
+    // The shell removes `>${x// /}` entirely, so -F swallows -X.
+    const sites = sitesIn("psql -F >${x// /} -X DSN\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["a command line bound to a variable", 'const cmd = "psql -qAt $DSN"; execSync(cmd);'],
+    ["an aliased runner", 'const run = execSync; run("psql -qAt $DSN");'],
+  ])("%s trips the indirection tripwire", (_name, source) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  test("an error message that merely opens with psql is NOT an indirection hit", () => {
+    expect(scanBinaryIndirection("const m = `psql failed: ${String(err)}`;", "x.mjs")).toHaveLength(
+      0,
+    );
+  });
+
+  test("a leading * outside a block comment does not exempt", () => {
+    const source = [
+      "const n = 1",
+      `  * "${EXEMPTION_MARKER} unrelated data value";`,
+      `execFileSync("psql", ["-qAt", dsn]);`,
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a cooked \\n in a literal does not push the site onto the next line", () => {
+    // Otherwise a marker written for the NEXT site retroactively exempts this one.
+    const source = [
+      'execSync("echo\\npsql -qAt $DSN");',
+      `// ${EXEMPTION_MARKER} intended for the next site only`,
+      `execFileSync("psql", ["-qAt", dsn]);`,
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites[0]!.line).toBe(1);
     expect(sites[0]!.exemptReason).toBeNull();
   });
 });

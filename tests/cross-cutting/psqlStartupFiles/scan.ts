@@ -141,12 +141,16 @@ const YAML_EXTENSIONS = [".yml", ".yaml"];
 const SCANNED_EXTENSIONS = [...JS_EXTENSIONS, ...SHELL_EXTENSIONS, ...YAML_EXTENSIONS];
 
 /**
- * The guard's own source. It holds `"psql"` string literals (the binary-name
- * comparison) that are not call sites and would otherwise trip the indirection
- * tripwire on itself. Excluded from indirection scanning only — it is still
- * walked and still scanned for call sites, and it has none.
+ * The guard's own two files. They hold `"psql"` literals (the binary-name
+ * comparison) and dozens of psql command-line FIXTURES that are not call sites,
+ * and would otherwise trip the indirection tripwire on the guard itself.
+ * Excluded from indirection scanning only — both are still walked and still
+ * scanned for call sites, and neither has one.
  */
-const SELF = "tests/cross-cutting/psqlStartupFiles/scan.ts";
+const SELF = [
+  "tests/cross-cutting/psqlStartupFiles/scan.ts",
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts",
+];
 
 /** Directories the walk never descends into. `docs` is deliberate: spec and
  * plan prose quotes `execFileSync("psql", …)` and is not a call site. */
@@ -182,6 +186,57 @@ export function tokenSuppressesStartupFiles(token: string): boolean {
 /** psql short options that CONSUME the next argument (`psql --help`). An `X`
  * sitting in that slot is a value, not a flag. */
 const SHORT_WITH_ARG = new Set(["c", "d", "f", "v", "L", "o", "F", "P", "R", "T", "h", "p", "U"]);
+
+/** Every long option psql accepts, so an abbreviation can be resolved. */
+const ALL_LONG_OPTIONS = [
+  "--command",
+  "--dbname",
+  "--file",
+  "--list",
+  "--set",
+  "--variable",
+  "--version",
+  "--no-psqlrc",
+  "--help",
+  "--echo-all",
+  "--echo-errors",
+  "--echo-queries",
+  "--echo-hidden",
+  "--log-file",
+  "--no-readline",
+  "--output",
+  "--quiet",
+  "--single-step",
+  "--single-line",
+  "--no-align",
+  "--field-separator",
+  "--html",
+  "--pset",
+  "--record-separator",
+  "--tuples-only",
+  "--table-attr",
+  "--expanded",
+  "--field-separator-zero",
+  "--record-separator-zero",
+  "--host",
+  "--port",
+  "--username",
+  "--no-password",
+  "--password",
+  "--csv",
+];
+
+/**
+ * Resolve a long option the way getopt_long does: an exact match, or a prefix
+ * that is UNAMBIGUOUS. `psql --co -X` errors "option `--co\' requires an
+ * argument" and then consumes `-X` as the command — so an abbreviation that the
+ * guard read as an unknown flag would certify a call that suppresses nothing.
+ */
+function resolveLongOption(name: string): string | null {
+  if (ALL_LONG_OPTIONS.includes(name)) return name;
+  const matches = ALL_LONG_OPTIONS.filter((option) => option.startsWith(name));
+  return matches.length === 1 ? matches[0]! : null;
+}
 
 /** The long spellings of the same, in their separated (`--field-separator X`)
  * form. The `--opt=value` form carries its own argument and is not listed. */
@@ -229,7 +284,8 @@ export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
     const token = tokens[i]!;
     if (token === "--") return false; // rest is positional
     if (token.startsWith("--")) {
-      const name = token.split("=", 1)[0]!;
+      const spelled = token.split("=", 1)[0]!;
+      const name = resolveLongOption(spelled) ?? spelled;
       if (name === "--no-psqlrc") return true;
       if (LONG_WITH_ARG.has(name) && !token.includes("=")) i++; // eats the next token
       continue;
@@ -323,7 +379,6 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
     // A single/double-quoted string does not survive a newline in either
     // grammar; a JS template literal does.
     carriedQuote = quote === "`" ? "`" : null;
-    if (found === -1 && style === "js") found = line.search(/^\s*\*(?!\/)/);
     out.push(found);
   }
   return out;
@@ -374,7 +429,22 @@ type ShellWord = { text: string; line: number; operator: boolean };
 
 const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
-function lexShellWords(text: string): ShellWord[] {
+/** Index of the closing delimiter matching the opener at `start`. */
+function matchBrace(text: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === open) depth++;
+    else if (text[i] === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length - 1;
+}
+
+type NestedShell = { text: string; line: number };
+
+function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
   let started = false;
@@ -420,6 +490,44 @@ function lexShellWords(text: string): ShellWord[] {
       continue;
     }
 
+    // `$(...)`, `` `...` ``, `<(...)` and `>(...)` all EXECUTE their body, so
+    // the body is scanned as shell text in its own right. `${...}` is an
+    // expansion, not execution: it is consumed whole so brace-protected
+    // whitespace cannot split a redirection target into a phantom argv word.
+    if (character === "$" && text[i + 1] === "{") {
+      begin();
+      const close = matchBrace(text, i + 1, "{", "}");
+      buffer += text.slice(i, close + 1);
+      i = close;
+      continue;
+    }
+    if (
+      (character === "$" && text[i + 1] === "(") ||
+      character === "`" ||
+      ((character === "<" || character === ">") && text[i + 1] === "(")
+    ) {
+      const isBacktick = character === "`";
+      const open = isBacktick ? i : i + 1;
+      const close = isBacktick
+        ? text.indexOf("`", i + 1) === -1
+          ? text.length
+          : text.indexOf("`", i + 1)
+        : matchBrace(text, open, "(", ")");
+      nested.push({ text: text.slice(open + 1, close), line });
+      line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
+      // The substitution stands in as an opaque word so surrounding argv is
+      // still read correctly.
+      begin();
+      buffer += "${}";
+      i = close;
+      continue;
+    }
+
+    // ANSI-C (`$'…'`) and locale (`$"…"`) quoting are ordinary quoted words.
+    if (character === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
+      continue; // the quote itself is handled on the next iteration
+    }
+
     if (character === "'") {
       begin();
       const close = text.indexOf("'", i + 1);
@@ -437,6 +545,22 @@ function lexShellWords(text: string): ShellWord[] {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
           i++;
           buffer += text[i];
+          continue;
+        }
+        // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
+        if (text[i] === "$" && text[i + 1] === "(") {
+          const close = matchBrace(text, i + 1, "(", ")");
+          nested.push({ text: text.slice(i + 2, close), line });
+          buffer += "${}";
+          i = close;
+          continue;
+        }
+        if (text[i] === "`") {
+          const close = text.indexOf("`", i + 1);
+          const end = close === -1 ? text.length : close;
+          nested.push({ text: text.slice(i + 1, end), line });
+          buffer += "${}";
+          i = end;
           continue;
         }
         if (text[i] === "\n") line++;
@@ -479,7 +603,7 @@ function lexShellWords(text: string): ShellWord[] {
           // An attached target follows immediately; otherwise the next word is
           // the target and is dropped when it is flushed.
           const rest = text.slice(i + 1);
-          const attached = /^[^\s;&|()<>]+/.exec(rest);
+          const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
           if (attached) i += attached[0].length;
           else dropWord = true;
           continue;
@@ -550,7 +674,11 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   const commentAt = commentIndexPerLine(text, "hash");
   const sites: PsqlSite[] = [];
 
-  const words = lexShellWords(text);
+  const nested: NestedShell[] = [];
+  const words = lexShellWords(text, nested);
+  for (const inner of nested) {
+    for (const site of scanShellText(inner.text, file, lineOffset + inner.line)) sites.push(site);
+  }
   let command: ShellWord[] = [];
   const commands: ShellWord[][] = [];
   for (const word of words) {
@@ -592,13 +720,18 @@ function shellStringSites(
   line: number,
   lines: string[],
   commentAt: readonly number[],
+  sourceLineSpan = 0,
 ): PsqlSite[] {
   // `line` is where the literal OPENS; a multi-line template puts psql further
   // down, so the shell scanner's own relative line is ADDED rather than
   // discarded. Reporting the opening line for every hit inside a multi-line
   // literal was an R2 finding.
   return scanShellText(value, file, 0).map((site) => {
-    const actualLine = line + site.line - 1;
+    // The literal's VALUE may contain cooked `\n` that consume no physical
+    // source line; clamp to how many lines the literal actually spans, or an
+    // invocation on line 1 gets reported on line 2 and inherits a comment that
+    // was written for the NEXT site.
+    const actualLine = line + Math.min(site.line - 1, sourceLineSpan);
     return {
       ...site,
       line: actualLine,
@@ -647,6 +780,19 @@ function composedText(node: ts.Node): string | null {
 
 function isPsqlBinary(text: string): boolean {
   return text === "psql" || text.endsWith("/psql");
+}
+
+/**
+ * A string that IS a psql command line, not merely the binary name. The
+ * tripwire has to see these: `const cmd = "psql -qAt $DSN"; execSync(cmd)` is
+ * ordinary code, and reading only argv[0]-shaped literals let it through with
+ * zero sites AND zero indirections.
+ */
+function looksLikePsqlCommandLine(text: string): boolean {
+  // The word must be FOLLOWED by something argument-shaped — a flag, a
+  // variable, a quote, or a DSN. Otherwise every error message that opens
+  // "psql failed: …" is an indirection hit, which is noise, not a finding.
+  return /^\s*(?:[^\s;&|()<>]*\/)?psql\s+(?:-|\$|["']|postgres(?:ql)?:\/\/)/.test(text);
 }
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
@@ -714,7 +860,8 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           const text = composedText(argument);
           if (text === null) continue;
           const line = lineOf(sourceFile, argument.getStart(sourceFile));
-          sites.push(...shellStringSites(text, file, line, lines, commentAt));
+          const span = lineOf(sourceFile, argument.getEnd()) - line;
+          sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
         }
       }
 
@@ -733,7 +880,8 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
             const text = composedText(element);
             if (text === null) continue;
             const line = lineOf(sourceFile, element.getStart(sourceFile));
-            sites.push(...shellStringSites(text, file, line, lines, commentAt));
+            const span = lineOf(sourceFile, element.getEnd()) - line;
+            sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
           }
         }
       }
@@ -772,7 +920,8 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
 
   const visitNode = (node: ts.Node): void => {
     const text = composedText(node);
-    if (text !== null && isPsqlBinary(text) && !recognized.has(node.getStart(sourceFile))) {
+    const suspicious = text !== null && (isPsqlBinary(text) || looksLikePsqlCommandLine(text));
+    if (suspicious && !recognized.has(node.getStart(sourceFile))) {
       hits.push({
         file,
         line: lineOf(sourceFile, node.getStart(sourceFile)),
@@ -886,10 +1035,14 @@ export function collectPsqlUsage(repoRoot: string): PsqlUsage {
       unreadable.push(relative(repoRoot, full).split(sep).join("/"));
       continue;
     }
-    if (!source.includes("psql")) continue;
+    // NO `source.includes("psql")` prefilter. It looks free and it silently
+    // undid every decoding fix in this file: `p"s"ql`, `p\s\q\l`, a
+    // backslash-newline splice, YAML `\x70sql`, and `"ps" + "ql"` all invoke
+    // psql while containing no literal `psql`, so the prefiltered walk never
+    // handed them to the scanner that knows how to read them.
     const rel = relative(repoRoot, full).split(sep).join("/");
     sites.push(...scanSource(source, rel));
-    if (JS_EXTENSIONS.includes(extensionOf(full)) && rel !== SELF)
+    if (JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
       indirections.push(...scanBinaryIndirection(source, rel));
   }
   return { sites, indirections, unreadable, filesScanned: files.length };
