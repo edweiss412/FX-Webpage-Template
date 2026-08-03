@@ -64,7 +64,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 **Read the deferral before picking this up.** The reason it is open is not that nobody thought about it: an admin override IS an approve-ambiguous path, which is the exact thing the gate exists to prevent. Any design here has to explain why it is not that, and a real legacy-v1 sheet appearing is the trigger that would make the question live.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** docs/close-v1-override-wont-build
 
 ---
 
