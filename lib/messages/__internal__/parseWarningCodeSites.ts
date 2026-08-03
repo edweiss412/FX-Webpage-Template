@@ -154,7 +154,8 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         const spreadsAParseWarning = node
           .getProperties()
           .some(
-            (p) => Node.isSpreadAssignment(p) && isAssignableToParseWarning(p.getExpression().getType()),
+            (p) =>
+              Node.isSpreadAssignment(p) && isAssignableToParseWarning(p.getExpression().getType()),
           );
         if (spreadsAParseWarning) return; // propagation, not emission
         unresolved.push({
@@ -214,10 +215,16 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         // The code is chosen at the CALL SITE, not here.
         const enclosing = property.getFirstAncestor(
           (a) =>
-            Node.isFunctionDeclaration(a) || Node.isArrowFunction(a) || Node.isFunctionExpression(a),
+            Node.isFunctionDeclaration(a) ||
+            Node.isArrowFunction(a) ||
+            Node.isFunctionExpression(a),
         );
         if (!enclosing || !Node.isFunctionDeclaration(enclosing)) {
-          unresolved.push({ file, line, why: "shorthand code, enclosing function is not a declaration" });
+          unresolved.push({
+            file,
+            line,
+            why: "shorthand code, enclosing function is not a declaration",
+          });
           return;
         }
         const parameterIndex = enclosing.getParameters().findIndex((p) => p.getName() === "code");
@@ -232,7 +239,10 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         // currently called. reelWarning's one call site passes its code
         // dynamically, so call-site analysis alone would record nothing.
         const parameterType = enclosing.getParameters()[parameterIndex]?.getType();
-        if (parameterType?.isUnion() && parameterType.getUnionTypes().every((u) => u.isStringLiteral())) {
+        if (
+          parameterType?.isUnion() &&
+          parameterType.getUnionTypes().every((u) => u.isStringLiteral())
+        ) {
           for (const member of parameterType.getUnionTypes()) {
             sites.push({ code: String(member.getLiteralValue()), file, line, via: "union" });
           }

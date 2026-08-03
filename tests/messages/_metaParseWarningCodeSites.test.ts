@@ -102,7 +102,6 @@ const EXPECTED_PARSE_WARNING_CODES: readonly string[] = [
   "VENUE_TIMEZONE_UNRESOLVED",
 ];
 
-
 /**
  * Structural guard over the parse-warning emit surface.
  *
@@ -117,9 +116,9 @@ describe("parse-warning code sites", () => {
     () => {
       const { sites } = scan();
       const hit = sites.find((s) => s.code === "SECTION_HEADER_NO_FIELDS");
-    // emitEmptySection pushes the literal into agg.warnings (lib/parser/warnings.ts:44-51).
-    // Asserting file AND via, not merely presence, so a later rule cannot satisfy
-    // this through the wrong path.
+      // emitEmptySection pushes the literal into agg.warnings (lib/parser/warnings.ts:44-51).
+      // Asserting file AND via, not merely presence, so a later rule cannot satisfy
+      // this through the wrong path.
       expect(hit?.file).toBe("lib/parser/warnings.ts");
       expect(hit?.via).toBe("literal");
     },
@@ -279,7 +278,7 @@ describe("parse-warning code sites", () => {
       // legitimately import types and scenario data from that tree.
       const offenders = execSync(
         "rg -l --glob '!tests/**' --glob '!lib/dev/attentionScenarios/**' " +
-          "\"import[^;]*\\b(buildWarning|crewScopedWarning)\\b[^;]*from .@/lib/dev/attentionScenarios\" . || true",
+          '"import[^;]*\\b(buildWarning|crewScopedWarning)\\b[^;]*from .@/lib/dev/attentionScenarios" . || true',
         { cwd: process.cwd(), encoding: "utf8" },
       ).trim();
       expect(offenders).toBe("");
