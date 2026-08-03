@@ -410,8 +410,11 @@ describe(
           "+ tests/db/resetValidationDataDriveKeyedAudit.test.ts (the four whole-DB-wipe " +
           "suites, swept off TEST_DATABASE_URL onto the loopback-only variable 2026-08-01 — " +
           "they execute reset_validation_data(), so they were the highest-blast-radius " +
-          "readers still outside this scan set)",
-      ).toBe(65);
+          "readers still outside this scan set) " +
+          "+ tests/onboarding/finalizeCasSourceAnchors.db.test.ts (existing-show re-onboard " +
+          "source-anchor thread, 2026-08-03; seeds and deletes shows/pending_syncs rows, " +
+          "local-only)",
+      ).toBe(66);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
