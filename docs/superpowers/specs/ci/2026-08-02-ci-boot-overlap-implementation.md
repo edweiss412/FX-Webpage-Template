@@ -236,8 +236,9 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES no new 
 (h) **Install write-surface guard, corrected inventory.** Three pins, all with failure messages naming §3.2 as the audit to re-run:
 
   - **Root lifecycle keys.** `package.json` declares no install-lifecycle script beyond `prepare`. The forbidden set is the one `pnpm install` actually executes, which is NOT the same as `pnpm rebuild`'s: `preinstall`, `install`, `postinstall`, `preprepare`, `postprepare`, `prepublish`, `prepublishOnly`, **and `pnpm:devPreinstall`** — pnpm's own root-only hook, which runs BEFORE dependency resolution on a dev install and is invisible to every npm-lifecycle name in that list. (`preprepare`/`postprepare` run on install and NOT on rebuild — omitting them would leave an executable hole the guard reported green on. See §3.2's stated delta.) Plus: `scripts.prepare === "simple-git-hooks"` and `pkg["simple-git-hooks"]` equals `{"pre-commit": "pnpm exec lint-staged"}`.
+  - **No tracked `simple-git-hooks` CONFIG FILE.** 2.13.1's loader checks a repo-root `.simple-git-hooks` file (extensions cjs, js, mjs, json) BEFORE the `package.json` object this guard pins, and the JS forms are executed at load. A newly tracked one could perform a top-level write under `supabase/` while the lifecycle key, the `package.json` config, the `allowBuilds` map and every pinned version stayed identical. The guard asserts none of those four paths exists.
   - **The `allowBuilds` map**, equal to the audited five-key inventory of §3.1 **including each boolean** — `simple-git-hooks: false` flipping to `true` is a new executing build script and must fail.
-  - **The audited VERSIONS of the four enabled build packages**, read from `pnpm-lock.yaml`. The versions are the SUFFIXES of the `packages:` map keys, not their values — the Sentry CLI key at `pnpm-lock.yaml:1625`, and the corresponding keys at `pnpm-lock.yaml:2692`, `pnpm-lock.yaml:4220` and `pnpm-lock.yaml:4597`, giving 2.58.5, 0.28.0, 0.34.5 and 1.11.1. The assertion is on the COMPLETE set of keys whose package name matches each of the four, compared with `toEqual` against a one-element expected set — not on a first match. `allowBuilds` is keyed by NAME, so if a future lockfile carries two versions of an allow-listed package, BOTH versions' install scripts are permitted to run; a first-match check would stay green over the unaudited second one. Without this, a routine lockfile bump replaces an allow-listed package's install script wholesale while the five-key map is untouched, and the guard stays green over code nobody audited — the most ROUTINE way this premise rots, more likely than a new key. Pinning versions makes a bump of one of these four fail with an instruction to re-run §3.2 and update the literal. That friction is the point, and it is bounded to four packages; this is the same structural-pin posture the repo already uses for `MEASURED_HEAVY` in the shard-balance test.
+  - **The audited VERSIONS of the five packages whose code the install EXECUTES** — the four with `allowBuilds: true`, plus `simple-git-hooks`, which the root `prepare` runs on every install and whose 2.13.1 body the §3.2 probes actually observed executing. Omitting it would leave a lockfile bump swapping concurrently-executed code with every other assertion green. Read from `pnpm-lock.yaml`. The versions are the SUFFIXES of the `packages:` map keys, not their values — the Sentry CLI key at `pnpm-lock.yaml:1625`, and the corresponding keys at `pnpm-lock.yaml:2692`, `pnpm-lock.yaml:4220` and `pnpm-lock.yaml:4597`, giving 2.58.5, 0.28.0, 0.34.5 and 1.11.1. The assertion is on the COMPLETE set of keys whose package name matches each of the four, compared with `toEqual` against a one-element expected set — not on a first match. `allowBuilds` is keyed by NAME, so if a future lockfile carries two versions of an allow-listed package, BOTH versions' install scripts are permitted to run; a first-match check would stay green over the unaudited second one. Without this, a routine lockfile bump replaces an allow-listed package's install script wholesale while the five-key map is untouched, and the guard stays green over code nobody audited — the most ROUTINE way this premise rots, more likely than a new key. Pinning versions makes a bump of one of these four fail with an instruction to re-run §3.2 and update the literal. That friction is the point, and it is bounded to four packages; this is the same structural-pin posture the repo already uses for `MEASURED_HEAVY` in the shard-balance test.
 
 (i) **Unchanged and must stay green:** the 8/3-leg matrix + `--shard` denominator pins, the `unit-suite-nodb`-boots-nothing guard, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, and `tests/cross-cutting/ci-workflow-speedup.test.ts` (notably its guarded-psql-install assertion, which the moved psql step must still satisfy).
 
@@ -284,7 +285,12 @@ Timeouts: `toPass({ timeout: 15_000 })`, matching `openHub`'s existing retry bud
 
 ```bash
 legfix () {  # usage: legfix <RUN_ID> -> per-leg lines on stderr, one summary line on stdout
-  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
+  # A `gh api` failure (auth, rate limit, transport) yields NO rows, which would be
+  # indistinguishable from a run with no legs — and a fabricated "legs=0" must never
+  # reach the decision procedure as measurement data. So the fetch is a separate,
+  # status-checked step, and its failure is reported as TRANSPORT-FAIL, not as data.
+  local raw
+  if ! raw=$(gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
     --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
           | ( if (.started_at != null and .completed_at != null)
               then ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))
@@ -292,8 +298,12 @@ legfix () {  # usage: legfix <RUN_ID> -> per-leg lines on stderr, one summary li
           | ( [ .steps[]? | select(.name | startswith("Run serial project"))
                 | select(.started_at != null and .completed_at != null)
                 | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ] ) as $v
-          | "\(.name)\t\($wall)\t\(if ($v|length) > 0 then ($v[0]|tostring) else "NA" end)"' \
-  | awk -F'\t' '
+          | "\(.name)\t\($wall)\t\(if ($v|length) > 0 then ($v[0]|tostring) else "NA" end)"'); then
+    echo "TRANSPORT-FAIL: gh api could not read run $1 — this is NOT measurement data" >&2
+    echo "jobs=TRANSPORT-FAIL legs=TRANSPORT-FAIL median=TRANSPORT-FAIL max-fixed-overhead=TRANSPORT-FAIL"
+    return 2
+  fi
+  printf '%s\n' "$raw" | awk -F'\t' '
       { jobs++
         if ($2 == "NA" || $3 == "NA") {
           printf "leg %s: wall=%s vitest=%s -> no fixed-overhead value\n", $1, $2, $3 > "/dev/stderr"
@@ -318,18 +328,25 @@ legfix () {  # usage: legfix <RUN_ID> -> per-leg lines on stderr, one summary li
 **Max leg is a DIFFERENT quantity from max fixed overhead** — 2026-07-20 §2 records 91s fixed overhead against a 245s max leg on the same run, and its §5.4 requires the LATTER in the PR body. It is total job wall clock, so it does not subtract vitest:
 
 ```bash
-legwall () {  # usage: legwall <RUN_ID> -> "legs=N max-leg=S", or NA
-  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
+legwall () {  # usage: legwall <RUN_ID> -> "legs=N max-leg=S", NA, or TRANSPORT-FAIL
+  local raw
+  if ! raw=$(gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
     --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
           | select(.started_at != null and .completed_at != null)
-          | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))' \
-  | sort -n | awk '{ last = $1; n++ }
+          | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))'); then
+    echo "TRANSPORT-FAIL: gh api could not read run $1 — this is NOT measurement data" >&2
+    echo "legs=TRANSPORT-FAIL max-leg=TRANSPORT-FAIL"
+    return 2
+  fi
+  printf '%s\n' "$raw" | sort -n | awk '{ last = $1; n++ }
                    END { if (n == 0) { print "NA"
                                        print "FAIL: no unit-suite-db job reported a wall clock" > "/dev/stderr"; exit 1 }
                          printf "legs=%d max-leg=%s\n", n, last
                          if (n != 8) { print "FAIL: " n " legs, expected 8 — PARTIAL" > "/dev/stderr"; exit 1 } }'
 }
 ```
+
+Exit status is a three-way signal, not a boolean: **0** = a complete, comparable measurement; **1** = a real but PARTIAL run (the figures printed are real, just not the accept figure); **2** = the API could not be read at all, so there is no measurement and the decision procedure must not treat it as one.
 
 **Validated, not just written down.** Four cases, run rather than reasoned about:
 
@@ -348,7 +365,7 @@ The all-green median of **96s** is close to the 101s the 2026-07-20 spec measure
 
 1. All 8 `unit-suite-db` legs, all 3 `unit-suite-nodb` legs, and the `unit-suite` aggregator green; the boot log present in each db leg's job output (backgrounding must not hide it).
 2. Comparison metric is **leg-median fixed overhead** for `unit-suite-db` — `(job wall) − (vitest step)` — not max leg, whose noise is dominated by test distribution. The baseline is computed the SAME way from a `main` run of the CURRENT topology, not from the stale 2026-07-20 §2 table.
-3. **Accept** if median fixed overhead drops by **≥8s** versus that baseline AND every leg is green. **Revert item 1** when the median gate is missed, or when ANY failing cause is the combined step itself. **A revert is TERMINAL for item 1 on this branch:** once it has happened, the accept path does not re-open on a later green run, the ≥8s gate is not re-applied, and `BL-CI-OVERLAP-BOOT-WITH-SETUP` does not graduate — there is no overlap left to measure, and runner noise on a reverted tree could otherwise "clear" a threshold for a change that is gone. A persistent failure elsewhere is NOT a revert — reverting the overlap cannot fix a `unit-suite-nodb`, prerequisite or aggregator regression and would discard a change the evidence does not implicate. Its disposition depends on where it reproduces, and the plan's T4 step 2 owns that decision per cause: a branch-only regression is repaired here; one that reproduces on `main` is pre-existing, recorded, and escalated to the user, because merging while a required context is red on `main` is their call and not the run's. The 8s floor is half the theoretical 16s: it demands a real effect while tolerating contention, and is far enough from zero that runner noise cannot manufacture it. A one-second difference is not a gain.
+3. **Accept** if median fixed overhead drops by **≥8s** versus that baseline AND every leg is green. **Revert item 1** when any §7.3 accept criterion fails on an otherwise-complete run (the median gate or the boot-log criterion), or when the combined step itself failed in any db leg. **Any OTHER non-`success` outcome is not the run's decision to make** — it is a scope question (is this regression this branch's? does it reproduce on `main`? should the branch merge while a required context is red?) and those are the user's calls under this project's autonomy contract, so the procedure stops and escalates with the evidence rather than choosing for them. **A revert is TERMINAL for item 1 on this branch:** once it has happened, the accept path does not re-open on a later green run, the ≥8s gate is not re-applied, and `BL-CI-OVERLAP-BOOT-WITH-SETUP` does not graduate — there is no overlap left to measure, and runner noise on a reverted tree could otherwise "clear" a threshold for a change that is gone. A persistent failure elsewhere is NOT a revert — reverting the overlap cannot fix a `unit-suite-nodb`, prerequisite or aggregator regression and would discard a change the evidence does not implicate. Its disposition depends on where it reproduces, and the plan's T4 step 2 owns that decision per cause: a branch-only regression is repaired here; one that reproduces on `main` is pre-existing, recorded, and escalated to the user, because merging while a required context is red on `main` is their call and not the run's. The 8s floor is half the theoretical 16s: it demands a real effect while tolerating contention, and is far enough from zero that runner noise cannot manufacture it. A one-second difference is not a gain.
 4. Record both the median fixed overhead and the max leg in the PR body either way, so a revert is as legible as an accept.
 
 **Item 2:** `lifecycle-layout-e2e` green on the PR, and the modified test observed green locally. Item 2's value is the removal of a timing-dependent read; a single green run is not proof of a flake's absence and is not claimed as such.
