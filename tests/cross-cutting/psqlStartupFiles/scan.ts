@@ -63,7 +63,7 @@
  * wrong.
  *
  * Where it cannot read something it REFUSES TO CERTIFY rather than guessing, so
- * the failure mode is a loud message a human resolves. Five rounds of
+ * the failure mode is a loud message a human resolves. Ten rounds of
  * cross-model review drove that posture into the following, each verified
  * against the installed binary:
  *
@@ -102,11 +102,16 @@
  *
  * A site may opt out with `psql-startup-files-ok: <reason>` in a comment on the
  * invocation line or the line above (`//` in JS/TS, `#` in shell/YAML). The
- * reason is mandatory — a bare marker does not exempt — and the marker must sit
- * inside an actual COMMENT: a review probe drove
+ * reason is mandatory — a bare marker does not exempt — and BOTH the marker and
+ * its reason must sit inside an actual COMMENT. Two review probes drove that:
  * `psql … ; x="psql-startup-files-ok: unrelated value"` past an earlier cut that
- * matched the marker anywhere on the line, which turned a data value into a
- * silent exemption. No site in the tree uses one: `scripts/ci/supabase-local-bootstrap.sh` was the candidate (it runs psql
+ * matched the marker anywhere on the line, turning a data value into a silent
+ * exemption; and a bare marker inside a CLOSED block comment, immediately
+ * followed on the same line by `execFileSync("psql", …)`, past a later cut that
+ * took the reason to end-of-line — letting the statement itself serve as the
+ * justification. The reason is now clamped to the end of the containing comment
+ * range.
+ * No site in the tree uses one: `scripts/ci/supabase-local-bootstrap.sh` was the candidate (it runs psql
  * via `docker exec` inside the supabase_db container, where HOME is the
  * container's, not the runner's) and took a plain inline `-X` instead, because
  * a mounted or image-baked psqlrc is exactly as invisible there and `-X` costs
