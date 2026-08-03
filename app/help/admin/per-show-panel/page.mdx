@@ -4,13 +4,13 @@ The per-show panel (`/admin?show=<slug>`) is what one show looks like to the app
 
 The panel's main parts:
 
-- **Status strip.** Right under the title: the publish toggle, the Live badge when the show is running, the sync status, and the copy-link for the crew URL.
+- **Status strip.** Right under the title: the publish toggle, the Live badge when the show is running, the sync status with **Re-sync** beside it, and the **Share link** button for the crew URL. The **⋮** button next to it opens the same panel.
 - **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced in the Overview section.
 - **Crew & share access.** The crew roster (each row has a **⋮ menu** with **Preview as** and **Reset name picker**), the show's share-link, and the share-token controls.
 - **Sheet changes.** The show's feed of what synced recently: edits applied on their own, plus anything waiting for your OK. ([Jump](#changes-feed).)
-- **[Sync health](#sync-health).** The status strip's quiet sync line, with **Re-sync** beside it in the same strip.
+- **[Sync health](#sync-health).** What the quiet sync line is telling you, and what to do when it stops updating.
 
-There is no footer bar: publishing lives in the status strip, and archiving is a row in the Overview section. On a quiet show the Sheet changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
+There is no footer bar: publishing lives in the status strip, and archiving lives in the **Share link** panel, under **Show**. On a quiet show the Sheet changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
 
 <h2 id="changes-feed">The Sheet changes feed</h2>
 
@@ -27,7 +27,7 @@ Brand-new sheets are different: a sheet the app has never published waits for yo
 
 Sync health lives in the status strip at the top of the show details: a health dot beside two quiet lines, **"Synced …"** (the last time the app reached the sheet) and **"Edited …"** (the last time the sheet's content changed). When something is off, the line shows a plain-language problem label instead (the same labels the dashboard's [Sync status column](/help/admin/dashboard#active-shows) uses).
 
-The **Re-sync** button sits in the status strip, between the sync line and the copy-link button. It makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
+The **Re-sync** button sits in the status strip, between the sync line and the **Share link** button. It makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
 
 - You've just edited the sheet and want the change to land now.
 - You're fixing a cell a previous sync complained about.
@@ -62,6 +62,6 @@ The alerts area in the Overview section is where the app surfaces any soft signa
 
 <h2 id="crew-preview-links">Crew section and share access</h2>
 
-The **Share link** button in the status band opens one panel holding the show's URL, a **Copy** button, **Email this link to crew**, a **Rotate share link** control, and a **Reset everyone's pick** control for cases where the whole show needs a fresh start. To reset one crew member instead, use that row's **⋮ menu** in the crew section. Archived shows are read-only and show no share controls at all.
+The **Share link** button in the status band opens one panel holding the show's URL, a **Copy** button, **Email this link to crew**, a **Rotate share link** control, and a **Reset everyone's pick** control for cases where the whole show needs a fresh start. To reset one crew member instead, use that row's **⋮ menu** in the crew section. The button reads **Share link · paused** while the show is unpublished, and on an archived show it relabels to **Show actions**: the crew-link controls drop away, but the panel still holds **Unarchive**, which lives nowhere else.
 
 The crew section lists one row per crew member from the sheet, with their name and role. To preview the page as a specific crew member, open that row's **⋮ menu** and choose **Preview as** (see the [Preview as a crew member](#preview-as-crew-member) section above). For the deeper sharing workflow follow [Sharing crew links](/help/admin/sharing-links).
