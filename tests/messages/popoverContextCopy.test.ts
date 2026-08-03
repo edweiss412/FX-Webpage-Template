@@ -45,7 +45,7 @@ const FROZEN: Record<string, string> = {
   ASSET_RECOVERY_BYTES_EXCEEDED:
     "The cap keeps one big gallery from blocking other shows' syncs. Crew see placeholders for the missing diagrams; trim the set under the limit, or ask the developer to raise the ceiling if this show genuinely needs it.",
   ROLE_FLAGS_NOTICE:
-    "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
+    "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
   SHOW_FIRST_PUBLISHED:
     "It auto-published because the sheet came through clean. If it's the wrong sheet or bad timing, flip Published off on the show's page; crew lose access until you turn it back on, and the same link works again when you do.",
   SHOW_UNPUBLISHED:
