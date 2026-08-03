@@ -158,13 +158,31 @@ describe("scanParseWarningSites — fail-closed default", () => {
     expect(s.signalled.length).toBeGreaterThan(0);
   });
 
-  it("A-m: a declaration-only const factory SIGNALS — no body to scan (R3a mutant)", () => {
+  it("A-m: a declaration-only const factory has no scanned body, so its OWN argument is read", () => {
+    // R3a's point was that such a factory must not be treated as a scanned USE.
+    // It is not: with no body to define the code, the call's own argument is the
+    // only evidence, and it is read by parameter NAME through the resolved
+    // signature. The earlier assertion was an OR that accepted either outcome and
+    // so pinned neither — it passed while capturing, never testing the signal path.
     const s = scanOf(`
       declare const factory: (code: string) => ParseWarning;
       export const w = factory("DECL_ONLY_DARK");
     `);
-    // Either the call's own literal argument is captured, or it signals — never silent.
-    expect(codesOf(s).includes("DECL_ONLY_DARK") || s.signalled.length > 0).toBe(true);
+    expect(codesOf(s)).toEqual(["DECL_ONLY_DARK"]);
+    expect(
+      s.skips.map((k) => k.kind),
+      "no scanned body means it is not a USE",
+    ).not.toContain("USE");
+  });
+
+  it("A-m2: a declaration-only factory whose code is NOT a literal signals", () => {
+    const s = scanOf(`
+      declare const factory: (code: string) => ParseWarning;
+      declare const dynamic: string;
+      export const w = factory(dynamic);
+    `);
+    expect(codesOf(s)).toEqual([]);
+    expect(s.signalled.length).toBeGreaterThan(0);
   });
 });
 
@@ -221,11 +239,11 @@ describe("scanParseWarningSites — whole-diff review regressions", () => {
     // Taking "any SHOUTY argument" captured the WRONG literal whenever a factory
     // carries a second code-shaped parameter and the real code is dynamic — the
     // unrelated literal was captured and the site never signalled.
+    // The callee is DECLARATION-ONLY on purpose: a local body would route this
+    // through FACTORY_BODY and never reach the argument-binding path under test.
     const s = scanOf(`
       declare const dynamic: string;
-      function make(code: string, fallback: string): ParseWarning {
-        return { severity: "warn", code, message: fallback };
-      }
+      declare function make(code: string, fallback: string): ParseWarning;
       export const w = make(dynamic, "UNRELATED_LITERAL");
     `);
     expect(codesOf(s), "an unrelated argument must not be read as the code").not.toContain(
@@ -328,5 +346,51 @@ describe("scanParseWarningSites — whole-diff R2 regressions (ordering and valu
       s.signalled.length,
       "a source whose other branch is opaque must signal, not ride the captured branch",
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("scanParseWarningSites — whole-diff R3 regressions (provenance and Object.assign order)", () => {
+  it("R3a: a returned CONDITIONAL is decomposed — an opaque branch signals", () => {
+    // Lexical containment vouched for both branches at once: the captured branch
+    // sat inside the returned expression's span, so the opaque one rode along.
+    const s = scanOf(`
+      declare const opaque: ParseWarning;
+      declare const flag: boolean;
+      function build(): ParseWarning {
+        return flag ? { severity: "warn", code: "DECOY_USE", message: "m" } : opaque;
+      }
+      export const w = build();
+    `);
+    expect(codesOf(s)).toEqual(["DECOY_USE"]);
+    expect(s.signalled.length, "the opaque branch must signal").toBeGreaterThan(0);
+  });
+
+  it("R3b: a WRAPPED conditional is decomposed too — parens and `as` do not hide it", () => {
+    const s = scanOf(`
+      declare const opaque: ParseWarning;
+      declare const flag: boolean;
+      const source: ParseWarning = (
+        flag ? ({ severity: "warn", code: "DECOY_COPY", message: "m" } as ParseWarning) : opaque
+      );
+      export const copied: ParseWarning = { ...source, message: "copy" };
+    `);
+    expect(codesOf(s)).toEqual(["DECOY_COPY"]);
+    expect(s.signalled.length, "a wrapper must not defeat decomposition").toBeGreaterThan(0);
+  });
+
+  it("R3c: Object.assign trusts the LAST code-bearing argument, not the intersection", () => {
+    // The result type is an intersection that preserves the target's earlier
+    // literal, while at runtime the later argument overwrites it.
+    const s = scanOf(`
+      const patch: Partial<ParseWarning> = { code: "HIDDEN_ASSIGN" };
+      export const w: ParseWarning = Object.assign(
+        { severity: "warn" as const, code: "DECOY_ASSIGN" as const, message: "m" },
+        patch,
+      );
+    `);
+    expect(codesOf(s), "the overwritten literal must not be reported").not.toContain(
+      "DECOY_ASSIGN",
+    );
+    expect(s.signalled.length, "an undetermined assign result must signal").toBeGreaterThan(0);
   });
 });

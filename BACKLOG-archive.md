@@ -34,7 +34,7 @@ was already absorbed, so one of the four residue rows was long dead, and **eleve
 codes were dark that the residue never listed. `warningCodes()` de-duplicates, so under-coverage
 had no symptom at all — which is exactly why the entry asked for a guard.
 
-Measured: 58 codes, 0 unresolved, 22 capture-linked skips, zero admin-alert leakage.
+Measured: 58 codes, 0 unresolved, 44 capture-linked skips, zero admin-alert leakage.
 `EXTRA_WARNING_CODES` is gone and the consumer filter moved from exact equality to provenance
 membership, which alone had been dropping three genuine warnings.
 

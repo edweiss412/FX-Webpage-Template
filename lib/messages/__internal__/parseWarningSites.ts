@@ -164,6 +164,32 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   const pending: Pending[] = [];
   /** Skips whose link is "a capture happened INSIDE this span" (USE, COPY). */
   type Span = { rel: string; start: number; end: number };
+
+  /**
+   * The LEAF expressions a value-producing expression can actually yield.
+   *
+   * Lexical containment is not provenance: a returned or assigned conditional
+   * contains a captured branch AND an opaque one, and the containing span vouches
+   * for both. Parentheses, `as` assertions, and `||` / `??` wrappers hide the same
+   * shape. Every leaf must be captured for the skip to hold.
+   */
+  const leafProducers = (node: Node): Node[] => {
+    if (Node.isParenthesizedExpression(node)) return leafProducers(node.getExpression());
+    if (Node.isAsExpression(node) || Node.isSatisfiesExpression(node)) {
+      return leafProducers(node.getExpression());
+    }
+    if (Node.isNonNullExpression(node)) return leafProducers(node.getExpression());
+    if (Node.isConditionalExpression(node)) {
+      return [...leafProducers(node.getWhenTrue()), ...leafProducers(node.getWhenFalse())];
+    }
+    if (Node.isBinaryExpression(node)) {
+      const op = node.getOperatorToken().getText();
+      if (op === "||" || op === "??") {
+        return [...leafProducers(node.getLeft()), ...leafProducers(node.getRight())];
+      }
+    }
+    return [node];
+  };
   const pendingSpans: Array<{
     at: string;
     kind: SkipKind;
@@ -210,13 +236,46 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
       // the site instead orphans it — no callee, no classification, so it signals.
       // `await` remains a site kind for a non-call operand (an awaited variable).
       if (Node.isAwaitExpression(node) && Node.isCallExpression(node.getExpression())) return;
+      // An argument to Object.assign CONTRIBUTES to the result; it is not itself a
+      // site. Treating the target literal as one captures its `code` before a later
+      // argument overwrites it — the exact ordering bug the assign rule below fixes.
+      {
+        const parent = node.getParent();
+        if (
+          parent &&
+          Node.isCallExpression(parent) &&
+          parent.getExpression().getText() === "Object.assign" &&
+          parent.getArguments().some((a) => a === node)
+        ) {
+          return;
+        }
+      }
 
       const type = unwrapPromise(own) ?? own;
       const at = `${rel}:${node.getStartLineNumber()}`;
 
+      // Object.assign's result TYPE is an intersection that preserves the target's
+      // earlier literal, while at RUNTIME a later argument overwrites it. Trust only
+      // the last argument that can carry `code`; if that is not a determined
+      // literal, the code is undetermined and the site signals.
+      const objectAssignCode = (): string[] | null => {
+        if (!Node.isCallExpression(node)) return null;
+        if (node.getExpression().getText() !== "Object.assign") return null;
+        const bearers = node
+          .getArguments()
+          .filter((a) => Boolean(a.getType().getProperty("code")));
+        const last = bearers[bearers.length - 1];
+        if (!last) return [];
+        return literalsOf(last.getType().getProperty("code")?.getTypeAtLocation(last));
+      };
+      const assignCodes = objectAssignCode();
+
       // The code is read off the node's OWN type: the contextual type reports the
       // DECLARED property type (`string`) and loses every literal.
-      let found = literalsOf(type?.getProperty("code")?.getTypeAtLocation(node));
+      let found =
+        assignCodes !== null
+          ? assignCodes
+          : literalsOf(type?.getProperty("code")?.getTypeAtLocation(node));
 
       // Only trust the syntactic `code:` initializer when NO spread follows it —
       // a later spread or Object.assign argument overwrites it at runtime, and the
@@ -232,6 +291,10 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
         if (codeIdx === -1) return false;
         return props.slice(codeIdx + 1).some((x) => Node.isSpreadAssignment(x));
       };
+      if (assignCodes !== null && !found.length) {
+        signalled.push(`${rel}:${node.getStartLineNumber()} Object.assign (code undetermined)`);
+        return;
+      }
       if (!found.length && Node.isObjectLiteralExpression(node) && !spreadAfterCode(node)) {
         const prop = node.getProperty("code");
         if (prop && Node.isPropertyAssignment(prop)) {
@@ -303,11 +366,7 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           // A conditional initializer produces one value PER BRANCH; requiring only
           // the whole expression to contain a capture lets an opaque branch ride
           // the captured one.
-          const produced: Span[] = init
-            ? Node.isConditionalExpression(init)
-              ? [spanOf(init.getWhenTrue()), spanOf(init.getWhenFalse())]
-              : [spanOf(init)]
-            : [];
+          const produced: Span[] = init ? leafProducers(init).map(spanOf) : [];
           const span = produced[0] ?? null;
           // A PARAMETER receives its warning from call sites inside the scanned
           // program — including `.map((w) => ({ ...w, blockRef }))`, the shape of
@@ -428,6 +487,7 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             : [];
           const spans = returns
             .filter((e): e is NonNullable<typeof e> => Boolean(e))
+            .flatMap((e) => leafProducers(e))
             .map((e) => ({ rel: calleeBody.rel, start: e.getStart(), end: e.getEnd() }));
           if (!spans.length) {
             signalled.push(`${at} USE (callee returns nothing inspectable)`);
