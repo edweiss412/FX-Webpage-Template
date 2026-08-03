@@ -150,6 +150,37 @@ describe("section freshness cue: stylesheet contract", () => {
     expect(MODULE_SRC).toMatch(/export const SECTION_FRESHNESS_MAX_CUES = 3;/);
   });
 
+  it("N8: the surface only emits the attribute when a caller supplies the id map", () => {
+    // The blast-radius guard for a SHARED component. `ShowReviewSurface` and
+    // `step3ReviewSections` are used by the staged wizard as well, and the staged
+    // caller passes no freshness prop. Both emit sites are gated on a value that
+    // originates in that prop, so an absent prop cannot produce the attribute.
+    //
+    // Asserted structurally rather than by rendering the wizard: the wizard's own
+    // harness would prove one fixture emits nothing, while this proves the emit is
+    // UNREACHABLE without the prop, which is the actual contract.
+    const surface = readFileSync(join(ROOT, "components/admin/review/ShowReviewSurface.tsx"), "utf8");
+    const sections = readFileSync(
+      join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
+      "utf8",
+    );
+
+    // Exactly one emit site, and it is guarded by the chrome value.
+    const emits = sections.split("data-section-freshness-flash").length - 1;
+    expect(emits, "the attribute must be written in exactly one place").toBe(1);
+    expect(sections).toContain(
+      'chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined',
+    );
+
+    // The chrome value can only come from the surface's optional prop.
+    expect(surface).toContain("freshSections?: ReadonlyMap<SectionId,");
+    expect(surface).toContain("freshSections?.get(s.id) !== undefined");
+    // And the staged caller passes nothing: the wizard's own modal must not
+    // mention the prop at all.
+    const wizard = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
+    expect(wizard).not.toContain("freshSections");
+  });
+
   it("the attribute rule sets a transparent outline so only its colour animates", () => {
     const block = normativeBlock();
     expect(block).toContain("[data-section-freshness-flash] {");

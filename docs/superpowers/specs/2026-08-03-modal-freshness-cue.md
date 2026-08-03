@@ -538,8 +538,8 @@ Single source of truth for every literal in this document.
 | `outline-offset: 0` | outline placement | same | §4.5 only |
 | `0.5px` | the real-browser rect tolerance | the dimension task | the dimensional-invariants and real-browser sections |
 | the text and non-text contrast floors | `TEXT_FLOOR` and `DOT_FLOOR` | `tests/styles/status-token-contrast.test.ts:81-82` | §11.4 |
-| the measured ratios | recorded once in §11.4's table and quoted in DESIGN.md | measured at spec time | §11.4 and DESIGN.md |
-| `400ms` | the burst example's spacing, illustrative only | not a constant anywhere | §4.7 and §6 |
+| the measured ratios | recorded once in the contrast table, quoted in DESIGN.md | measured at spec time | the contrast section, plus DESIGN.md |
+| `400ms` | the burst example's spacing, illustrative only | not a constant anywhere | the restart section, plus the transition inventory |
 
 ---
 

@@ -19,12 +19,12 @@ Run before drafting, per `docs/agents/writing-plans.md:7`. Every name below was 
 | That module is client-safe, not merely server-safe: it has no `"use client"` directive, imports only types, and the `"use client"` module `step3ReviewSections.tsx` already imports from it | `components/admin/wizard/step3ReviewSections.tsx:99`, `components/admin/review/sectionInclusion.ts:19-20` |
 | `includesAgenda(d)` gating the agenda id on `agendaBaseline.length > 0` | `components/admin/review/sectionInclusion.ts:27-29` |
 | `Step3SectionChrome` type, `exactOptionalPropertyTypes` discipline stated in-type | `components/admin/wizard/step3ReviewSections.tsx:449`, `step3ReviewSections.tsx:465-467` |
-| `Step3SectionChromeContext` | `components/admin/wizard/step3ReviewSections.tsx:552` |
-| `ModalSectionChrome`, exported for test | `components/admin/wizard/step3ReviewSections.tsx:867` |
-| Panel-card div and its conditional testid | `components/admin/wizard/step3ReviewSections.tsx:1029-1038` |
-| Per-section chrome provider value | `components/admin/review/ShowReviewSurface.tsx:1060-1146` |
+| `Step3SectionChromeContext` | `components/admin/wizard/step3ReviewSections.tsx:558` |
+| `ModalSectionChrome`, exported for test | `components/admin/wizard/step3ReviewSections.tsx:874` |
+| Panel-card div and its conditional testid | `components/admin/wizard/step3ReviewSections.tsx:1036-1044` |
+| Per-section chrome provider value | `components/admin/review/ShowReviewSurface.tsx:1068-1158` |
 | Section wrapper keyed by rail id | `components/admin/review/ShowReviewSurface.tsx:1047-1056` |
-| Scroll container carrying `scrollerRef` | `components/admin/review/ShowReviewSurface.tsx:1027-1029` |
+| Scroll container carrying `scrollerRef` | `components/admin/review/ShowReviewSurface.tsx:1036` |
 | Modal open-time `router.refresh()` ref-guarded once per instance | `components/admin/showpage/PublishedReviewModal.tsx:174-193` |
 | `SHARE_LINK_FLASH_MS` and its render-phase-state idiom | `components/admin/showpage/ShareHub.tsx:138`, `ShareHub.tsx:470-497` |
 | ShareHub sr-only announce region shape | `components/admin/showpage/ShareHub.tsx:836-841` |
@@ -68,8 +68,8 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 ## 2. Task list
 
 - [x] T1 — the detector module and its unit suite (19 tests, 6 mutants killed)
-- [ ] T2 — the normative CSS, DESIGN.md, contrast rows, structural pins
-- [ ] T3 — threading the flashing id set to the panel card
+- [x] T2 — the normative CSS, DESIGN.md, contrast rows, structural pins
+- [x] T3 — threading the flashing id set to the panel card
 - [ ] T4 — the state machine and the announcement region
 - [ ] T5 — real-browser dimension assertion
 - [ ] T6 — e2e coverage of a real broadcast
@@ -108,7 +108,7 @@ export function freshnessAnnouncement(
 ): string;
 ```
 
-`buildSectionSignatures` walks the spec §4.1 projection table, restricted to `renderedSectionIds(data)`. It takes `bySection` as well as `data` because a section's content includes the warnings routed to it, the use-raw decision attached to each of those, and the section's own source anchor: all three render inside the panel card and all three change independently of the section's own fields. The use-raw match goes through the canonical `findUseRawDecision` (`components/admin/wizard/step3ReviewSections.tsx:572`) rather than a reimplementation, and the anchor through `SECTION_REGION_MAP` (`lib/admin/step3SectionStatus.ts:53-68`).
+`buildSectionSignatures` walks the spec §4.1 projection table, restricted to `renderedSectionIds(data)`. It takes `bySection` as well as `data` because a section's content includes the warnings routed to it, the use-raw decision attached to each of those, and the section's own source anchor: all three render inside the panel card and all three change independently of the section's own fields. The use-raw match goes through the canonical `findUseRawDecision` (`components/admin/wizard/step3ReviewSections.tsx:580`) rather than a reimplementation, and the anchor through `SECTION_REGION_MAP` (`lib/admin/step3SectionStatus.ts:53-68`).
 
 `changedSectionIds` diffs over the UNION of both maps' keys, so a section that DISAPPEARED is reported. Results are sorted by registry order so the announcement reads in document order rather than hash order. `freshnessAnnouncement` implements the §4.6 copy table over `changed` intersected with `stillRendered`, and returns the surface sentence when that intersection is empty but `changed` is not.
 
