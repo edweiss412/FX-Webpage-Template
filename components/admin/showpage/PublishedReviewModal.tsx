@@ -561,8 +561,22 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         for (const [id, a] of map) if (a.batch === b) map.delete(id);
         return map;
       });
-      setAnnounced((prev) => (prev?.batch === b ? null : prev));
-      // Batch-owned, exactly like the cards and the announcement. Clearing it
+      // The ANNOUNCEMENT is deliberately NOT cleared here.
+      //
+      // Round-3 review: a `polite` live region is delivered when the screen
+      // reader is next idle, which can be well after 1600ms — that number is the
+      // duration of a CSS animation, and a sighted-motion deadline has no
+      // business deciding when assistive tech has finished speaking. Removing
+      // the child on it can retract a queued message before it is ever read,
+      // and a stable region with a keyed child does not protect queued content
+      // from early removal.
+      //
+      // Leaving it costs nothing. The region is `sr-only`, so stale text is
+      // invisible; it is not re-announced, because React reconciles an equal
+      // string onto the same text node and that is not a DOM mutation; and the
+      // next batch replaces it wholesale. The one state that DOES clear it is
+      // the modal hiding, which is a real end-of-context.
+      // Batch-owned, exactly like the cards. Clearing it
       // unconditionally let an OLD batch's timer truncate a NEWER band cue: the
       // whole-diff review probed a second cue armed at 400ms disappearing at
       // 1650ms instead of its own 2000ms deadline.

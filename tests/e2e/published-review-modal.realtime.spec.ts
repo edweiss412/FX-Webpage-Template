@@ -461,8 +461,56 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       await page.evaluate(() => {
         (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen = [];
       });
+      const noopAt = Date.now();
       const noopRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
       expect(noopRes.error, "no-op publish rpc").toBeNull();
+
+      // PROVE THE TRIGGER FIRED before asserting that nothing came of it.
+      //
+      // Round-3 review: waiting a fixed interval and asserting an empty record
+      // makes this row pass for the WRONG reason whenever the frame never
+      // arrives — a dropped broadcast, a disconnected socket, a debounce that
+      // never elapsed all look identical to "the refresh correctly cued
+      // nothing". The claim here is "a refresh THAT HAPPENED changed nothing",
+      // so the refresh has to be observed, exactly as E1 observes it: the
+      // invalidation frame, then the ?show= RSC request it debounces into, then
+      // that request completing. Only then is an empty record evidence.
+      const noopInval = await poll(
+        () =>
+          frames.find(
+            (f) =>
+              f.at > noopAt &&
+              !f.text.startsWith("SENT") &&
+              isInvalidationFrame(f.text, seeded.showId),
+          ),
+        INVALIDATION_FRAME_TIMEOUT_MS,
+      );
+      expect(noopInval, "no-op invalidation frame received").toBeTruthy();
+      const noopRsc = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > noopInval!.at &&
+              r.text.startsWith("REQ RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        POST_FRAME_REQUEST_TIMEOUT_MS,
+      );
+      expect(noopRsc, "no-op frame debounced into a ?show= RSC request").toBeTruthy();
+      const noopRscDone = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > noopRsc!.at &&
+              r.text.startsWith("RESP RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        CONTENT_SWAP_TIMEOUT_MS,
+      );
+      expect(noopRscDone, "the no-op RSC response completed").toBeTruthy();
+
+      // The reconcile has now demonstrably happened. Give the arming commit a
+      // beat to land, so an empty record cannot mean "measured too early".
       await page.waitForTimeout(CONTENT_SWAP_TIMEOUT_MS);
       const cuedAfterNoop = await page.evaluate(
         () => (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],

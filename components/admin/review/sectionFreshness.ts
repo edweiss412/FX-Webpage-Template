@@ -37,6 +37,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
+import { toNoteItem } from "@/lib/admin/parseAttentionNote";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
   CREW_CAP,
@@ -44,6 +45,7 @@ import {
   EVENT_DETAIL_GROUPS,
   HOTELS_CAP,
   PACK_LIST_CASES_CAP,
+  hasContent,
   PACK_LIST_ITEMS_CAP,
   ROOMS_CAP,
   SCHEDULE_DAYS_CAP,
@@ -91,14 +93,55 @@ export type SectionSignatureInput = {
 };
 
 /**
- * djb2 over the JSON form, joined with the length so two strings that collide on
- * the integer still have to agree on size.
+ * Every string leaf, normalized the way EVERY card body normalizes it before it
+ * paints: `String(v ?? "").trim()`, with empty collapsing to `null`
+ * (`components/admin/wizard/step3ReviewSections.tsx:256`, and `hasContent` at
+ * `:223` which is the same predicate spelled as a guard).
+ *
+ * WHY THIS IS A NORMALIZER AND NOT A LIST OF FIELDS. Round-3 review probed the
+ * shipped renderers and found that changing `"x"` to `" x "` on ANY of ~40 fields
+ * across venue, event, billing and transport moved the signature while the DOM
+ * stayed byte-identical. That is one defect with forty faces, and patching forty
+ * projections would leave the forty-first. Normalizing at the leaf closes it for
+ * every field that exists now and every one added later, because the detector
+ * and the renderer now agree on what "the same value" means.
+ */
+function normalize(value: unknown): unknown {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  }
+  if (Array.isArray(value)) return value.map(normalize);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = normalize(v);
+    return out;
+  }
+  return value ?? null;
+}
+
+/**
+ * Two independent rolling hashes over the normalized JSON form, joined with its
+ * length.
+ *
+ * WHY TWO. A single 32-bit djb2 plus a length has constructible same-length
+ * collisions, and round-3 review constructed one: two crew payloads that render
+ * DIFFERENT HTML hashed identically, which is a MISSED cue on a card that really
+ * changed. A second lane with a different multiplier and seed makes an accidental
+ * collision require agreement on both lanes and the length at once. Still a change
+ * DETECTOR, not a digest: nothing here is a security boundary, so the bar is
+ * "does not collide on real payloads", not preimage resistance.
  */
 function hash(value: unknown): string {
-  const s = JSON.stringify(value ?? null) ?? "null";
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return `${h}:${s.length}`;
+  const s = JSON.stringify(normalize(value)) ?? "null";
+  let a = 5381;
+  let b = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    a = ((a << 5) + a + c) | 0;
+    b = (Math.imul(b ^ c, 16777619) + i) | 0;
+  }
+  return `${a}:${b}:${s.length}`;
 }
 
 /**
@@ -175,6 +218,20 @@ const ROOM_KEYS = [
   "lighting",
   "scenic",
   "other",
+] as const;
+/** The contact and vehicle fields the transportation body renders. */
+const TRANSPORT_KEYS = [
+  "driver_name",
+  "driver_phone",
+  "driver_email",
+  "loadout_name",
+  "loadout_phone",
+  "loadout_email",
+  "vehicle",
+  "license_plate",
+  "color",
+  "parking",
+  "notes",
 ] as const;
 
 /** Only the closed event-detail vocabulary renders; any other key is invisible. */
@@ -257,6 +314,24 @@ function renderedDiagrams(d: PublishedSectionData): unknown {
   return [dg.linkedFolder ?? null, images.slice(0, DIAGRAM_TILE_CAP), images.length, items.length];
 }
 
+/**
+ * Transportation as the body renders it: the contact/vehicle block, plus only
+ * those schedule legs with a real stage (`step3ReviewSections.tsx:1349`). A
+ * stage-less leg is filtered out before paint, so mutating its date, time or
+ * assigned names changes nothing on screen.
+ */
+function renderedTransportation(d: PublishedSectionData): unknown {
+  const t = (d.transportation ?? null) as Record<string, unknown> | null;
+  if (t === null) return null;
+  const legs = Array.isArray(t.schedule) ? t.schedule : [];
+  return [
+    pick(t, TRANSPORT_KEYS),
+    legs
+      .filter((leg) => hasContent((leg as Record<string, unknown>)?.stage))
+      .map((leg) => pick(leg as object, ["stage", "date", "time", "assigned_names"])),
+  ];
+}
+
 const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData) => unknown> = {
   venue: (d) => pick(d.venue, VENUE_KEYS),
   event: renderedEventDetails,
@@ -276,7 +351,11 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
   schedule: (d) => [renderedRunOfShow(d), pick(d.dates, DATE_KEYS)],
   agenda: (d) => d.agendaBaseline,
   hotels: (d) => pickAll(d.hotels, HOTEL_KEYS, HOTELS_CAP),
-  transport: (d) => d.transportation,
+  // The SAME leg filter the body applies (`step3ReviewSections.tsx:1349`): a leg
+  // whose stage is blank is dropped before render, so its other fields cannot
+  // reach the DOM and must not reach the signature. Round-3 review found four
+  // of them cueing a byte-identical card.
+  transport: (d) => renderedTransportation(d),
   rooms: (d) => [pickAll(d.rooms, ROOM_KEYS, ROOMS_CAP), renderedDiagrams(d)],
   // The archived-tab affordances are gated on the same lifecycle pair
   // (`step3ReviewSections.tsx:4310`), so they belong to this section's render.
@@ -322,6 +401,7 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
    * `pointerSentenceParts` consumes, so named / extra / missCount are all
    * derived from what is hashed here rather than approximated.
    */
+  const warningsRendered = ids.includes("warnings");
   const warningsHasOwnRows = warningsOf(bySection.warnings ?? null).length > 0;
   const pointerTargets = ids.filter(
     (id) => id !== "warnings" && warningsOf(bySection[id] ?? null).length > 0,
@@ -352,7 +432,9 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
     const region = SECTION_REGION_MAP[id];
     const anchor = region === null ? null : (data.sourceAnchors?.[region] ?? null);
     const href = buildSheetDeepLink(ANCHOR_PROBE_DFID, anchor);
-    const attention = (attentionBySection.get(id) ?? []).map(renderedAttentionState);
+    const attention = (attentionBySection.get(id) ?? []).map((item) =>
+      renderedAttentionState(item, warningsRendered),
+    );
     out.set(
       id,
       hash([
@@ -376,25 +458,61 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
 const ANCHOR_PROBE_DFID = "anchor-probe";
 
 /**
- * ONLY the parts of an attention item that `AttentionBanner` renders: the alert
- * payload, the tone that picks its stripe, the actionable/clearing pair that
- * picks its copy, and the id it anchors on
- * (`components/admin/review/AttentionBanner.tsx:103`, `:108`, `:162`, `:261`).
+ * An attention item contributes ONLY what its own render site paints, and there
+ * are TWO sites with disjoint field sets.
  *
- * `menuTitle` / `menuSubtitle` are deliberately absent: they render in the
- * attention MENU, which is modal chrome and not a section card, so a refresh
- * that rewrites only the menu copy must not flash the card below it. `crewKey`,
- * `crewMatch` and `sectionId` are routing inputs the caller has already consumed
- * by bucketing the item.
+ * ROUND-3 REVIEW probed this exhaustively and reported that every field of the
+ * payload was a false cue. That is true of the NOTE channel and false of the
+ * banner: the probe used a note-path item, where the composer reads two fields
+ * and nothing else. Branching here on the SAME predicate the router uses is what
+ * makes both answers right at once.
+ *
+ * - **Note channel** (`lib/admin/sectionAttention.ts:143`): an item enters it
+ *   only if `toNoteItem` accepts it AND it routed to `warnings` AND that section
+ *   is rendered. `composeParseNote` then reads `alert.code` and
+ *   `alert.errorCode` (`lib/admin/parseAttentionNote.ts:44`, `:48`), and the DOM
+ *   adds `item.id` as key and testid (`step3ReviewSections.tsx:2883`). The
+ *   warning COUNT in that sentence comes from `rows.length`, not the item, and
+ *   the routed warnings are already in the signature.
+ * - **Banner channel** (`components/admin/review/AttentionBanner.tsx`): the
+ *   stripe reads `tone` (`:108`), the clearing copy reads `actionable` and
+ *   `clearingKind` (`:162`), the anchor reads `id` (`:261`), and the payload
+ *   renders `alertId`, `code`, `template`, `params`, `action`, `helpHref`,
+ *   `raisedAt`, `autoClearNote`, `failedKeys` and `dataGaps`.
+ *
+ * `occurrenceCount` is excluded from BOTH: it is written at
+ * `lib/admin/attentionItems.ts:311` and has no non-test reader anywhere, so a
+ * repeated occurrence bumped the signature and cued a byte-identical card.
+ * `errorCode` is excluded from the BANNER only, where nothing reads it.
+ *
+ * `menuTitle` / `menuSubtitle` stay excluded from both: they paint in the
+ * attention MENU, which is modal chrome rather than a section card.
  */
-function renderedAttentionState(item: AttentionItem): unknown {
+const BANNER_ALERT_KEYS = [
+  "alertId",
+  "code",
+  "template",
+  "params",
+  "action",
+  "helpHref",
+  "raisedAt",
+  "autoClearNote",
+  "failedKeys",
+  "dataGaps",
+] as const;
+
+function renderedAttentionState(item: AttentionItem, warningsRendered: boolean): unknown {
+  const note = toNoteItem(item);
+  if (note !== null && item.sectionId === "warnings" && warningsRendered) {
+    return ["note", item.id, note.alert.code, note.alert.errorCode ?? null];
+  }
   return [
+    "banner",
     item.id,
-    item.kind,
     item.tone,
     item.actionable,
     item.clearingKind ?? null,
-    item.kind === "alert" ? item.alert : null,
+    item.kind === "alert" ? pick(item.alert, BANNER_ALERT_KEYS) : null,
   ];
 }
 

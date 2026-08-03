@@ -526,6 +526,34 @@ describe("published review modal: freshness cue", () => {
     expect(bandCue(), "the band carries it instead").not.toBeNull();
   });
 
+  it("S11d: the announcement OUTLIVES the flash, and is not re-announced", () => {
+    // Round-3 HIGH. The 1600ms constant is the duration of a CSS animation. A
+    // `polite` region is delivered when the screen reader is next idle, which can
+    // be later than that, so clearing the message on the visual deadline can
+    // retract it before it is ever spoken. The cue and the announcement are two
+    // legs of one signal with two different clocks, and only the visual leg has a
+    // deadline.
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_CREW));
+    expect(announcementText()).toBe("Updated: Crew.");
+    const node = announcementNode().firstElementChild;
+
+    act(() => void vi.advanceTimersByTime(SECTION_FRESHNESS_FLASH_MS + 50));
+    // The CARDS go bare on that deadline; the message does not.
+    expect(armedCards(), "the visual cue still expires on its own clock").toEqual([]);
+    expect(announcementText(), "the message survives the animation").toBe("Updated: Crew.");
+    // Node IDENTITY, not text: the region must not have been emptied and refilled,
+    // which would be a DOM mutation and therefore a SECOND announcement of a
+    // change the reader was already told about.
+    expect(announcementNode().firstElementChild).toBe(node);
+
+    // And the next batch still replaces it wholesale, so stale text cannot pile up.
+    rerender(publishedModalElement(B_CREW_ROOMS));
+    expect(announcementText()).not.toBe("Updated: Crew.");
+    expect(announcementText().startsWith("Updated: ")).toBe(true);
+  });
+
   it("S19: the clear-on-hide branch is wired to `closing`", () => {
     // WHY THIS IS STRUCTURAL AND WHAT THAT COSTS. The behaviour it guards is real
     // and was found by a surviving mutant: an ABORTED close does not unmount this
@@ -539,9 +567,17 @@ describe("published review modal: freshness cue", () => {
     // rather than assumed: a click-driven version of this row sat at "still
     // armed" through a render-phase implementation AND a commit-phase one.
     //
-    // So this asserts the WIRING, and the behavioural twin lives in the realtime
-    // e2e where a real browser can drive a real close. A guard that says what it
-    // does not prove is worth more than one that quietly proves nothing.
+    // So this asserts the WIRING ONLY, and that is the whole of its value.
+    //
+    // An earlier version of this comment claimed a behavioural twin "lives in the
+    // realtime e2e". Round-3 review probed for it and it does not exist: no test
+    // under `tests/e2e` combines an aborted close with the freshness attribute,
+    // and the freshness e2e coverage there is geometry and broadcast attribution.
+    // The claim is removed rather than softened, because a false citation in a
+    // guard's own comment is worse than an acknowledged gap — it tells the next
+    // reader the branch is covered somewhere it is not. Filed as
+    // BL-FRESHNESS-ABORTED-CLOSE-E2E; the honest state today is that this branch
+    // has a structural guard and no behavioural proof.
     const src = readFileSync(
       join(__dirname, "..", "..", "..", "..", "components/admin/showpage/PublishedReviewModal.tsx"),
       "utf8",
