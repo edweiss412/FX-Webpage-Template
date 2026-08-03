@@ -336,25 +336,6 @@ PR #505 measured local realtime silently dropping ~9% of broadcast frames on an 
 
 **Status:** open (watch).
 
-## BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT — refresh known-holes fingerprints after parser autocorrect field (2026-07-22)
-
-**Effort:** XS · **Status:** IN PROGRESS · **Branch:** chore/close-mutation-autocorrect-drift
-
-The `autocorrect` field populated at all 13 parser producers (`7295d794c`, merged via the
-warning-card-identity-placement chain, PR #543-era) changes parse output for corpus fixtures whose
-mutated cells produce autocorrect-bearing warnings, so the redacted parse-output fingerprints in
-`tests/parser/mutation/knownHoles.ts` drift. Nightly run 29907734946 (2026-07-22): DRIFTED
-fingerprint rows across 7 shards — SAME siteIds, fingerprint-only, zero NEW siteIds, zero fixed
-holes — the benign class per the 2026-07-09 triage discipline (see BL-MUTATION-LEDGER-ROLETOKEN-DRIFT
-and BL-MUTATION-LEDGER-REFRESH-AMBIGUITY in `BACKLOG-archive.md` for the identical prior instances and
-their resolution mechanics). The nightly `mutation-harness`
-workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it gates no PR.
-**Refresh:** `VITEST_INCLUDE_MUTATION_HARNESS=1 COLLECT_MUTATION_ALARMS=<dir> pnpm exec vitest run
---project mutation`, then surgical re-bless via `reconcileLedger` (drift bucket only). Trigger: the
-next mutation-file-touching PR or the next post-merge nightly triage.
-
----
-
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
 **Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17
