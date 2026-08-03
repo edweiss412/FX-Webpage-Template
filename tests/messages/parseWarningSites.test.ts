@@ -215,3 +215,57 @@ describe("scanParseWarningSites — classifications are CAPTURE-LINKED (R4a muta
     expect(s.signalled).toEqual([]);
   });
 });
+
+describe("scanParseWarningSites — whole-diff review regressions", () => {
+  it("WD1: a call's code comes from the `code` PARAMETER, not any code-shaped argument", () => {
+    // Taking "any SHOUTY argument" captured the WRONG literal whenever a factory
+    // carries a second code-shaped parameter and the real code is dynamic — the
+    // unrelated literal was captured and the site never signalled.
+    const s = scanOf(`
+      declare const dynamic: string;
+      function make(code: string, fallback: string): ParseWarning {
+        return { severity: "warn", code, message: fallback };
+      }
+      export const w = make(dynamic, "UNRELATED_LITERAL");
+    `);
+    expect(codesOf(s), "an unrelated argument must not be read as the code").not.toContain(
+      "UNRELATED_LITERAL",
+    );
+    expect(s.signalled.length, "a dynamic code must signal").toBeGreaterThan(0);
+  });
+
+  it("WD2: USE links to the CALLEE's body, not merely to its file", () => {
+    // A file-wide link accepted any warning captured anywhere in the same file,
+    // so a typed passthrough beside an unrelated emitter vanished silently.
+    const s = scanOf(`
+      declare const opaque: ParseWarning;
+      export const unrelated: ParseWarning = {
+        severity: "warn", code: "UNRELATED_CAPTURE", message: "m",
+      };
+      function passthrough(): ParseWarning { return opaque; }
+      export const w = passthrough();
+    `);
+    expect(codesOf(s)).toEqual(["UNRELATED_CAPTURE"]);
+    expect(
+      s.signalled.length,
+      "a passthrough whose own body captured nothing must signal, even beside a captured sibling",
+    ).toBeGreaterThan(0);
+  });
+
+  it("WD3: COPY links to the SOURCE's declaration, not merely to it being warning-typed", () => {
+    // `declare const external: ParseWarning` is warning-typed and non-any, which
+    // the first capture-link accepted — while its code was captured nowhere.
+    const s = scanOf(`
+      declare const external: ParseWarning;
+      export const unrelated: ParseWarning = {
+        severity: "warn", code: "UNRELATED_CAPTURE", message: "m",
+      };
+      export const copied: ParseWarning = { ...external, message: "copy" };
+    `);
+    expect(codesOf(s)).toEqual(["UNRELATED_CAPTURE"]);
+    expect(
+      s.signalled.length,
+      "a copy of an externally-declared warning has no captured origin and must signal",
+    ).toBeGreaterThan(0);
+  });
+});

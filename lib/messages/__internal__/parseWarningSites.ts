@@ -91,6 +91,35 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
     return [];
   };
 
+  /**
+   * The literals of the argument bound to the callee's `code` PARAMETER.
+   *
+   * Taking "any code-shaped argument" reads the wrong value whenever a factory
+   * carries a second SHOUTY-typed parameter and the real code is dynamic: the
+   * unrelated literal is captured and the site never signals. Binding by
+   * parameter name means an unresolvable code falls through to SIGNAL instead.
+   */
+  const codeArgumentLiterals = (call: Node): string[] => {
+    if (!Node.isCallExpression(call) && !Node.isNewExpression(call)) return [];
+    const signature = checkerSignatureOf(call);
+    const parameters = signature?.getParameters() ?? [];
+    const index = parameters.findIndex((p) => p.getName() === "code");
+    if (index === -1) return [];
+    const arg = call.getArguments()[index];
+    return arg ? literalsOf(arg.getType()) : [];
+  };
+
+  const typeChecker = project.getTypeChecker();
+  const checkerSignatureOf = (call: Node) => {
+    try {
+      return typeChecker.getResolvedSignature(call as never) as
+        | { getParameters(): Array<{ getName(): string }> }
+        | undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
   const root = `${process.cwd()}/`;
   const relOf = (p: string): string => (p.startsWith(root) ? p.slice(root.length) : p);
 
@@ -98,6 +127,15 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   const signalled: string[] = [];
   const skips: Array<{ at: string; kind: SkipKind }> = [];
   const pending: Pending[] = [];
+  /** Skips whose link is "a capture happened INSIDE this span" (USE, COPY). */
+  const pendingSpans: Array<{
+    at: string;
+    kind: SkipKind;
+    span: { rel: string; start: number; end: number };
+  }> = [];
+
+  /** Where each capture happened, so a link can name a SPECIFIC body, not a file. */
+  const captureSpans: Array<{ rel: string; start: number; end: number }> = [];
 
   const capture = (code: string, rel: string): void => {
     if (!SHOUTY.test(code)) return;
@@ -148,19 +186,20 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           found = literalsOf(prop.getNameNode().getType());
         }
       }
-      if (!found.length && (Node.isCallExpression(node) || Node.isNewExpression(node))) {
-        for (const arg of node.getArguments()) found.push(...literalsOf(arg.getType()));
-      }
-      if (!found.length && Node.isAwaitExpression(node)) {
-        const inner = node.getExpression();
-        if (Node.isCallExpression(inner)) {
-          for (const arg of inner.getArguments()) found.push(...literalsOf(arg.getType()));
-        }
+      if (!found.length) {
+        const call =
+          Node.isCallExpression(node) || Node.isNewExpression(node)
+            ? node
+            : Node.isAwaitExpression(node) && Node.isCallExpression(node.getExpression())
+              ? node.getExpression()
+              : undefined;
+        if (call) found = codeArgumentLiterals(call);
       }
 
       const resolved = found.filter((c) => SHOUTY.test(c));
       if (resolved.length) {
         for (const code of resolved) capture(code, rel);
+        captureSpans.push({ rel, start: node.getStart(), end: node.getEnd() });
         return;
       }
 
@@ -186,12 +225,35 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             spread && Node.isSpreadAssignment(spread)
               ? spread.getExpression().getType()
               : undefined;
-          const traceable =
+          const warningTyped =
             Boolean(sourceType) &&
             assignable(sourceType) &&
             !sourceType!.isAny() &&
             !sourceType!.isUnknown();
-          pending.push({ at, kind: "COPY", claim: traceable ? "traceable" : null });
+          // Warning-TYPED is necessary but nowhere near sufficient: `declare const
+          // external: ParseWarning` satisfies it while its code was captured
+          // nowhere. The link is the SOURCE's declaration containing a capture.
+          const decl =
+            spread && Node.isSpreadAssignment(spread)
+              ? spread.getExpression().getSymbol()?.getDeclarations()?.[0]
+              : undefined;
+          const span = decl
+            ? {
+                rel: relOf(decl.getSourceFile().getFilePath()),
+                start: decl.getStart(),
+                end: decl.getEnd(),
+              }
+            : null;
+          // A PARAMETER receives its warning from call sites inside the scanned
+          // program — including `.map((w) => ({ ...w, blockRef }))`, the shape of
+          // every real copy here — so the origin is somebody else's captured site.
+          // An AMBIENT declaration (`declare const external: ParseWarning`) has no
+          // such flow: warning-typed and non-any, yet captured nowhere. That is the
+          // distinction, and it is why "warning-typed" alone was not a link.
+          const fromParameter = Boolean(decl && Node.isParameterDeclaration(decl));
+          if (warningTyped && fromParameter) skips.push({ at, kind: "COPY" });
+          else if (warningTyped && span) pendingSpans.push({ at, kind: "COPY", span });
+          else pending.push({ at, kind: "COPY", claim: null });
           return;
         }
       }
@@ -224,12 +286,15 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             for (const ref of nameNode.findReferencesAsNodes()) {
               const call = ref.getParentIfKind(SyntaxKind.CallExpression);
               if (!call || call.getExpression() !== ref) continue;
-              const args = literalsOf(call.getArguments()[0]?.getType()).filter((c) =>
-                SHOUTY.test(c),
-              );
+              const args = codeArgumentLiterals(call).filter((c) => SHOUTY.test(c));
               if (args.length) {
                 anyDirect = true;
                 for (const code of args) capture(code, rel);
+                captureSpans.push({
+                  rel: relOf(call.getSourceFile().getFilePath()),
+                  start: call.getStart(),
+                  end: call.getEnd(),
+                });
               } else {
                 allResolve = false;
               }
@@ -254,9 +319,13 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
           ...(aliased?.getDeclarations() ?? []),
           ...(symbol?.getDeclarations() ?? []),
         ];
-        const bodyFile = declarations
-          .map((d) => relOf(d.getSourceFile().getFilePath()))
-          .find((f) => options.include(f));
+        const calleeBody = declarations
+          .map((d) => ({
+            rel: relOf(d.getSourceFile().getFilePath()),
+            start: d.getStart(),
+            end: d.getEnd(),
+          }))
+          .find((d) => options.include(d.rel));
         const hasScannedBody = declarations.some((d) => {
           if (!options.include(relOf(d.getSourceFile().getFilePath()))) return false;
           const isFnLike =
@@ -266,8 +335,8 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
             Node.isFunctionExpression(d);
           return isFnLike && Boolean((d as { getBody?: () => unknown }).getBody?.());
         });
-        if (hasScannedBody) {
-          pending.push({ at, kind: "USE", claim: bodyFile ?? null });
+        if (hasScannedBody && calleeBody) {
+          pendingSpans.push({ at, kind: "USE", span: calleeBody });
           return;
         }
       }
@@ -277,19 +346,24 @@ export function scanParseWarningSites(project: Project, options: ScanOptions): S
   }
 
   // ── Pass 2: every deferred skip is validated against what pass 1 captured ───
-  const capturedFiles = new Set<string>();
-  for (const files of codes.values()) for (const f of files) capturedFiles.add(f);
-
   for (const p of pending) {
     if (p.kind === "FRAGMENT" || p.kind === "COPY") {
       if (p.claim) skips.push({ at: p.at, kind: p.kind });
       else signalled.push(`${p.at} ${p.kind} (untraceable source)`);
-    } else if (p.kind === "USE") {
-      if (p.claim && capturedFiles.has(p.claim)) skips.push({ at: p.at, kind: "USE" });
-      else signalled.push(`${p.at} USE (callee body captured nothing)`);
     } else {
       signalled.push(`${p.at} FACTORY_BODY (no resolving direct call site)`);
     }
+  }
+
+  // Span-linked skips: a capture must have happened INSIDE the specific callee
+  // body (USE) or source declaration (COPY). A file-wide check accepts any
+  // unrelated warning in the same file and lets the real code vanish.
+  const capturedInside = (span: { rel: string; start: number; end: number }): boolean =>
+    captureSpans.some((c) => c.rel === span.rel && c.start >= span.start && c.end <= span.end);
+
+  for (const p of pendingSpans) {
+    if (capturedInside(p.span)) skips.push({ at: p.at, kind: p.kind });
+    else signalled.push(`${p.at} ${p.kind} (nothing captured inside the linked body)`);
   }
 
   return { codes, signalled, skips };
