@@ -70,6 +70,8 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-LEDGER-GUARD-BODY-DEFINED-IDS — the citation guard resolves headings only, so a deliberate sub-item reads as dangling
 
+**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
+
 **Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
 
 `tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
@@ -86,6 +88,8 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 ---
 
 ## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — the parse-warning enum generator scans one directory, so four live emitters are hand-listed
+
+**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
 
 **Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
 
