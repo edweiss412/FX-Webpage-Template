@@ -3344,11 +3344,17 @@ describe("R36 escaping mutants — repeated env options, and a non-POSIX shell",
     expect(unprotected + hits.length).toBeGreaterThan(0);
   });
 
-  test("a python step whose psql IS protected certifies", () => {
+  // R36 asserted a python body could CERTIFY. R37 disproved the design behind
+  // that: `subprocess.run([...], shell=True)` uses only the first element as
+  // the command, so a `-X` in the list never reaches psql and the reader called
+  // it safe. A body in a language this reader does not parse is now reported
+  // and NEVER certified — which is strictly stronger than what this test used
+  // to assert.
+  test("a python step whose psql LOOKS protected is still never certified", () => {
     const source = pythonStep('import subprocess\nsubprocess.run(["psql", "-X", "-qAt", "mydb"])');
     const sites = sitesIn(source, ".github/workflows/x.yml");
-    expect(sites.length).toBeGreaterThan(0);
-    expect(sites.every((s) => s.suppressesStartupFiles)).toBe(true);
+    expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml").length).toBeGreaterThan(0);
   });
 
   test("the same body under `defaults.run.shell: python` is caught", () => {
@@ -3364,10 +3370,7 @@ describe("R36 escaping mutants — repeated env options, and a non-POSIX shell",
       '          subprocess.run(["psql", "-qAt", "mydb"])',
       "",
     ].join("\n");
-    const sites = sitesIn(source, ".github/workflows/x.yml");
-    expect(
-      sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
-    ).toBeGreaterThan(0);
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml").length).toBeGreaterThan(0);
   });
 
   // PRECISION: a python step with no psql, and an ordinary bash step, unchanged.
@@ -3384,6 +3387,155 @@ describe("R36 escaping mutants — repeated env options, and a non-POSIX shell",
 
   test(
     "the repeated-option and non-POSIX-shell reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
+
+describe("R37 escaping mutants — a non-POSIX body is REPORTED, never certified", () => {
+  const WF = ".github/workflows/x.yml";
+  function caught(source: string) {
+    const sites = sitesIn(source, WF);
+    const unprotected = sites.filter(
+      (s) => !s.suppressesStartupFiles && s.exemptReason === null,
+    ).length;
+    const hits = [...scanWorkflowIndirection(source, WF), ...scanShellIndirection(source, WF)]
+      .length;
+    return { unprotected, hits, certified: sites.filter((s) => s.suppressesStartupFiles).length };
+  }
+  const step = (shell: string, body: string): string =>
+    [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - shell: ${shell}`,
+      "        run: |",
+      ...body.split("\n").map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+
+  // R36's reader pulled literals out of a python body and lexed each as a
+  // command line, which meant it could CERTIFY one. Python's `shell=True` uses
+  // only the FIRST sequence element as the command, so `-X` becomes the
+  // shell's `$0` and never reaches psql — and the reader called it safe. A
+  // reader that can certify a language it does not parse is the wrong shape:
+  // a non-POSIX body is now reported and never certified.
+  test("`subprocess.run([...], shell=True)` is never certified", () => {
+    const result = caught(
+      step("python", 'import subprocess\nsubprocess.run(["psql", "-X", "mydb"], shell=True)'),
+    );
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ["subprocess.run", 'import subprocess\nsubprocess.run(["psql", "-qAt", "mydb"])'],
+    ["os.system", 'import os\nos.system("psql -qAt mydb")'],
+    ["a protected-looking call", 'import subprocess\nsubprocess.run(["psql", "-X", "mydb"])'],
+  ])("a python body using %s is reported and never certified", (_label, body) => {
+    const result = caught(step("python", body));
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // A CUSTOM template whose command is a non-POSIX interpreter runs the body in
+  // that language too. Exact-keyword matching missed every one.
+  test.each([["python {0}"], ["python3 -u {0}"], ["pwsh -File {0}"], ["/usr/bin/python {0}"]])(
+    "a custom `shell: %s` body is reported",
+    (shell) => {
+      const result = caught(
+        step(shell, 'import subprocess\nsubprocess.run(["psql", "-qAt", "mydb"])'),
+      );
+      expect(result.certified).toBe(0);
+      expect(result.unprotected + result.hits).toBeGreaterThan(0);
+    },
+  );
+
+  // `defaults.run.shell` was ONE document-wide variable, so a job-level bash
+  // default overwrote the workflow-level python default for unrelated jobs.
+  test("a job-level default does not leak into another job", () => {
+    const source = [
+      "defaults:",
+      "  run:",
+      "    shell: python",
+      "jobs:",
+      "  inherits:",
+      "    steps:",
+      "      - run: |",
+      "          import subprocess",
+      '          subprocess.run(["psql", "-qAt", "mydb"])',
+      "  overrides:",
+      "    defaults:",
+      "      run:",
+      "        shell: bash",
+      "    steps:",
+      "      - run: psql -X -qAt mydb",
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  test("a step-level shell does not leak to the next step", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - shell: python",
+      "        run: |",
+      "          import subprocess",
+      '          subprocess.run(["psql", "-qAt", "mydb"])',
+      "      - run: psql -X -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, WF);
+    // The second step is ordinary bash and must still certify on its own.
+    expect(sites.filter((s) => s.suppressesStartupFiles).length).toBe(1);
+    expect(caught(source).hits).toBeGreaterThan(0);
+  });
+
+  // A shell name spelled as an ALIAS is documented configuration reuse.
+  test.each([
+    [
+      "a step-level alias",
+      'py: &py python\njobs:\n  x:\n    steps:\n      - shell: *py\n        run: |\n          import subprocess\n          subprocess.run(["psql", "-qAt", "mydb"])\n',
+    ],
+    [
+      "a defaults alias",
+      'py: &py python\ndefaults:\n  run:\n    shell: *py\njobs:\n  x:\n    steps:\n      - run: |\n          import subprocess\n          subprocess.run(["psql", "-qAt", "mydb"])\n',
+    ],
+  ])("%s is resolved", (_label, source) => {
+    const result = caught(source);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // PRECISION: a non-POSIX body with no psql stays quiet, and ordinary bash
+  // steps are untouched.
+  test.each([
+    [
+      "a psql-free python body",
+      step("python", 'import subprocess\nsubprocess.run(["pg_dump", "mydb"])'),
+    ],
+    ["an ordinary bash step", "jobs:\n  x:\n    steps:\n      - run: psql -X -qAt mydb\n"],
+    [
+      "a bash step under a bash default",
+      "defaults:\n  run:\n    shell: bash\njobs:\n  x:\n    steps:\n      - run: psql -X -qAt mydb\n",
+    ],
+  ])("%s reports nothing", (_label, source) => {
+    const result = caught(source);
+    expect(result.unprotected).toBe(0);
+    expect(result.hits).toBe(0);
+  });
+
+  test(
+    "the non-POSIX tripwire leaves the tree certified",
     () => {
       const usage = liveTreeUsage();
       expect(

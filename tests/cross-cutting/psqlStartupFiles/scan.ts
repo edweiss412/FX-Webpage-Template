@@ -2111,6 +2111,18 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
   const sourceFile = parseJs(source, file);
   const recognized = new Set<number>();
   const hits: IndirectionHit[] = [];
+  // NESTED nodes produce overlapping composed texts, so the shell rules ran
+  // over the same string many times per file — the dominant cost of the walk
+  // once those rules grew. Memoised per call, which changes no verdict: the
+  // rules are pure in `text` (and `file`, fixed here).
+  const shellBoundCache = new Map<string, boolean>();
+  const isShellBound = (text: string): boolean => {
+    const cached = shellBoundCache.get(text);
+    if (cached !== undefined) return cached;
+    const bound = scanShellIndirection(text, file).length > 0;
+    shellBoundCache.set(text, bound);
+    return bound;
+  };
 
   const mark = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
@@ -2136,7 +2148,7 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
     // executes an unprotected call, and yields no site — the command word only
     // exists after expansion. The header named this exact example as covered;
     // it was not, because the shell rules ran only on `.sh` and `.yml`.
-    const shellBound = text !== null && scanShellIndirection(text, file).length > 0;
+    const shellBound = text !== null && isShellBound(text);
     const suspicious =
       text !== null && (isPsqlBinary(text) || looksLikePsqlCommandLine(text) || shellBound);
     // A shell-BOUND string is reported even when the node is a recognized
@@ -2200,47 +2212,115 @@ const BINDING_WORKFLOW_KEYS = new Set(["env", "matrix", "inputs"]);
  */
 const NON_POSIX_SHELLS = new Set(["python", "python3", "pwsh", "powershell", "cmd", "node"]);
 
-/** A quoted literal in a non-POSIX body, with its offset. */
-type BodyLiteral = { text: string; at: number };
-
-function literalsIn(body: string): BodyLiteral[] {
-  const out: BodyLiteral[] = [];
-  const pattern = /(['"])((?:[^\\'"]|\\.)*)\1/g;
-  for (let m = pattern.exec(body); m !== null; m = pattern.exec(body))
-    out.push({ text: m[2] ?? "", at: m.index });
-  return out;
+/**
+ * A non-POSIX `run:` body is PYTHON or POWERSHELL source, not shell text, and
+ * the reader does not parse either language.
+ *
+ * R36 tried: it pulled the body's literals out and lexed each as a command
+ * line. That reader could CERTIFY, and certifying a language you do not parse
+ * is the wrong shape — Python's `subprocess.run([...], shell=True)` uses only
+ * the FIRST element as the command, so `["psql", "-X", "mydb"]` runs `psql`
+ * with `-X` as the SHELL's `$0`, reaching psql never, and the reader called it
+ * safe. Four more defects followed from the same design.
+ *
+ * So it does the one thing that cannot be wrong in the certifying direction: a
+ * non-POSIX body that mentions psql is REPORTED, and no site is ever produced
+ * from one. That is the same posture the whole file takes toward anything it
+ * cannot read — refuse to certify, fail loudly, let a human resolve it.
+ */
+function nonPosixBodyMentionsPsql(body: string): boolean {
+  return /\bpsql\b/.test(body);
 }
 
 /**
- * Read a non-POSIX `run:` body the way `scanBinaryIndirection` reads JS: pull
- * out its literals and lex each as a command line. An argv LIST
- * (`["psql", "-qAt", "mydb"]`) is one command, so its elements are joined and
- * quoted per element; every other string is lexed on its own, which covers
- * `os.system("psql -qAt mydb")` and `subprocess.run("…", shell=True)`.
+ * The effective shell for a `run:` body: the step's own `shell`, else the
+ * nearest enclosing `defaults.run.shell`, resolving YAML aliases.
  *
- * It is a reader for literals, not a Python parser, and does not claim to be:
- * a command assembled from variables is the same acknowledged hole it is on
- * every other surface.
+ * SCOPED, not document-wide. One shared variable let a job-level `bash`
+ * default overwrite the workflow-level `python` default for unrelated jobs,
+ * so their python bodies were read as shell and their psql calls vanished.
  */
-function scanNonPosixBody(body: string, file: string, lineOffset: number): PsqlSite[] {
-  const sites: PsqlSite[] = [];
-  const consumed = new Set<number>();
-  const lineAt = (at: number): number => lineOffset + body.slice(0, at).split("\n").length - 1;
-  const brackets = /\[[^\]\[]*\]/g;
-  for (let m = brackets.exec(body); m !== null; m = brackets.exec(body)) {
-    const inner = literalsIn(m[0]);
-    if (inner.length === 0) continue;
-    for (const literal of inner) consumed.add(m.index + literal.at);
-    const command = inner.map((literal) => shellQuoteWord(literal.text)).join(" ");
-    for (const site of scanShellText(command, file, 0))
-      sites.push({ ...site, line: lineAt(m.index) + 1, offset: m.index });
-  }
-  for (const literal of literalsIn(body)) {
-    if (consumed.has(literal.at)) continue;
-    for (const site of scanShellText(literal.text, file, 0))
-      sites.push({ ...site, line: lineAt(literal.at) + 1, offset: literal.at });
-  }
-  return sites;
+const NON_POSIX_INTERPRETERS = new Set([
+  "python",
+  "python3",
+  "pwsh",
+  "powershell",
+  "cmd",
+  "node",
+  "perl",
+  "ruby",
+]);
+
+/** A `shell:` value names a non-POSIX language, as a bare KEYWORD (`python`)
+ * or as a custom TEMPLATE whose command word is one (`python -u {0}`, an
+ * absolute path). */
+function shellIsNonPosix(shell: string): boolean {
+  const head = shell.trim().split(/\s+/)[0] ?? "";
+  return NON_POSIX_INTERPRETERS.has(head.slice(head.lastIndexOf("/") + 1));
+}
+
+/**
+ * Which SHELL each `run:` body is written in — the step's own `shell:`, else
+ * the nearest enclosing `defaults.run.shell`, with YAML aliases resolved.
+ *
+ * SCOPED by construction: the walk descends from the document root and each
+ * subtree inherits its parent's default and overrides only itself. One
+ * document-wide variable let a job-level `bash` default overwrite the
+ * workflow-level `python` default for UNRELATED jobs, so their python bodies
+ * were read as shell and their psql calls vanished.
+ *
+ * Shared by both workflow scanners so they can never disagree about what
+ * language a body is in.
+ */
+function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unknown, string> {
+  const runShell = new Map<unknown, string>();
+  const resolveNode = (n: unknown): unknown => {
+    let node = n;
+    for (let depth = 0; depth < 32; depth++) {
+      const asAlias = node as { resolve?: unknown };
+      if (typeof asAlias?.resolve !== "function") return node;
+      node = (asAlias as { resolve: (d: unknown) => unknown }).resolve(document);
+    }
+    return node;
+  };
+  const scalarOf = (n: unknown): string | null => {
+    const node = resolveNode(n);
+    const text = (node as { value?: unknown } | undefined)?.value;
+    return typeof text === "string" ? text : null;
+  };
+  const pairIn = (mapNode: unknown, name: string): { value?: unknown } | undefined => {
+    const items = (resolveNode(mapNode) as { items?: unknown[] } | undefined)?.items;
+    if (!Array.isArray(items)) return undefined;
+    return items.find(
+      (item) =>
+        isPair(item as YamlNode as never) &&
+        (item as { key?: { value?: unknown } }).key?.value === name,
+    ) as { value?: unknown } | undefined;
+  };
+  const descend = (node: unknown, inherited: string | null, seen: Set<unknown>): void => {
+    const resolved = resolveNode(node);
+    if (resolved === null || resolved === undefined || seen.has(resolved)) return;
+    seen.add(resolved);
+    const items = (resolved as { items?: unknown[] } | undefined)?.items;
+    if (!Array.isArray(items)) return;
+    const defaultsRun = pairIn(pairIn(resolved, "defaults")?.value, "run");
+    const scoped = scalarOf(pairIn(defaultsRun?.value, "shell")?.value) ?? inherited;
+    const ownShell = scalarOf(pairIn(resolved, "shell")?.value);
+    const runPair = pairIn(resolved, "run");
+    if (runPair !== undefined) {
+      const effective = ownShell ?? scoped;
+      if (effective !== null) runShell.set(runPair, effective);
+    }
+    for (const item of items) {
+      if (isPair(item as YamlNode as never)) {
+        descend((item as { value?: unknown }).value, scoped, seen);
+        continue;
+      }
+      descend(item, scoped, seen);
+    }
+  };
+  descend(document.contents, null, new Set());
+  return runShell;
 }
 
 export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
@@ -2253,31 +2333,7 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   }
   const lineStartOf = (offset: number): number => source.slice(0, offset).split("\n").length - 1;
 
-  // Which SHELL a `run:` body is written in decides how to READ it, and that
-  // lives in a SIBLING key (`shell:`) or in `defaults.run.shell` at the job or
-  // workflow level. Collected up front, because the Pair visitor sees a pair
-  // without its parent.
-  let defaultShell: string | null = null;
-  const ownShell = new Map<unknown, string>();
-  visit(document, {
-    Map(_k: unknown, mapNode: unknown) {
-      const items = (mapNode as { items?: unknown[] }).items;
-      if (!Array.isArray(items)) return;
-      const pairFor = (name: string): { value?: unknown } | undefined =>
-        items.find(
-          (item) =>
-            isPair(item as YamlNode as never) &&
-            (item as { key?: { value?: unknown } }).key?.value === name,
-        ) as { value?: unknown } | undefined;
-      const shellText = (pairFor("shell")?.value as { value?: unknown } | undefined)?.value;
-      if (typeof shellText !== "string") return;
-      const runPair = pairFor("run");
-      // `defaults: {run: {shell: python}}` — the map holds `shell` but no `run`
-      // body of its own, and it sets the default for every step that omits one.
-      if (runPair === undefined) defaultShell = shellText;
-      else ownShell.set(runPair, shellText);
-    },
-  });
+  const runShell = resolveRunShells(document);
 
   visit(document, {
     /**
@@ -2365,16 +2421,10 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       if (!key || !EXECUTABLE_WORKFLOW_KEYS.has(key.value as string)) return;
       const isShellKey = key.value === "shell";
       if (key.value === "run") {
-        const shellName = (ownShell.get(pair) ?? defaultShell ?? "").split("/").pop() ?? "";
-        // A CUSTOM shell is a command line, not a keyword, and is handled by
-        // the `shell:` pair itself; only the standard non-POSIX KEYWORDS
-        // change how the body is read.
-        if (NON_POSIX_SHELLS.has(shellName)) {
-          const bodyNode = node.value as { value?: unknown; range?: [number, number, number] };
-          const body = bodyNode?.value;
-          const keyAt = (node.key as { range?: [number, number, number] } | undefined)?.range;
-          if (typeof body === "string")
-            sites.push(...scanNonPosixBody(body, file, keyAt ? lineStartOf(keyAt[0]) : 0));
+        const effective = runShell.get(pair);
+        // A body in a language this reader does not parse produces NO site —
+        // never a certified one — and is reported instead.
+        if (effective !== undefined && shellIsNonPosix(effective)) {
           return;
         }
       }
@@ -2584,11 +2634,29 @@ export function scanWorkflowIndirection(source: string, file: string): Indirecti
    * no precision here — the `command -v psql` availability probe writes no
    * environment file.
    */
+  const runShellFor = resolveRunShells(document);
   visit(document, {
     Pair(_key: unknown, pair: unknown) {
       if (!isPair(pair as YamlNode as never)) return;
       const node = pair as { key?: { value?: unknown }; value?: unknown };
       if (node.key?.value !== "run") return;
+      // A body in a language this reader does not parse is REPORTED rather
+      // than read. `scanWorkflowSource` produces no site from one, so without
+      // this it would be silent — and silence is the one outcome a guard may
+      // never give a command it cannot read.
+      const effectiveShell = runShellFor.get(pair);
+      if (effectiveShell !== undefined && shellIsNonPosix(effectiveShell)) {
+        const body = (node.value as { value?: unknown } | undefined)?.value;
+        if (typeof body === "string" && nonPosixBodyMentionsPsql(body)) {
+          const at = (node.key as { range?: [number, number, number] } | undefined)?.range;
+          hits.push({
+            file,
+            line: at ? lineStartOf(at[0]) + 1 : 1,
+            text: `${effectiveShell.trim()} body mentions psql`,
+          });
+          return;
+        }
+      }
       const text = (node.value as { value?: unknown } | undefined)?.value;
       if (typeof text !== "string") return;
       if (!/\bGITHUB_(?:ENV|OUTPUT)\b/.test(text) || !/\bpsql\b/.test(text)) return;
