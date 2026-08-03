@@ -33,7 +33,7 @@ export const REQUIRED = {
   "stage-restricted-crew-schedule.spec.ts": 6,
   // Three routes: /admin behind signInAs, the public /auth/sign-in, and a seeded
   // crew route. All three, or the oracle is dark on whichever tree stopped binding.
-  "font-binding.spec.ts": 3,
+  "font-binding.spec.ts": 4,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

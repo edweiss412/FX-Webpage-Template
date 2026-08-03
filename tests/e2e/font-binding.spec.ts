@@ -20,9 +20,11 @@
  * Spec: docs/superpowers/specs/2026-08-03-app-wide-font-binding.md
  */
 import { expect, test, type Page } from "@playwright/test";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs } from "./helpers/signInAs";
+import { admin } from "./helpers/supabaseAdmin";
 
 /** The label `BL-HEADER-FONT-FALLBACK-WRAP` measured wrapping under a wide
  *  fallback. Reused here so the probe measures the product's own worst string,
@@ -185,5 +187,154 @@ test.describe("font binding", () => {
       // this every run leaves a row behind.
       await deleteSeededShow(seeded.driveFileId);
     }
+  });
+});
+
+/**
+ * The row `BL-HEADER-FONT-FALLBACK-WRAP` actually measured.
+ *
+ * Under a wide fallback the event-detail group title "Wardrobe & key moments"
+ * fills the narrowest real row unaided and wraps to two lines (CI measured
+ * 33.59px against 16.8px), leaving no room for the decorative rule beside it.
+ * Under the loaded font it fits. This asserts the row on a LIVE Next-rendered
+ * surface, which is only worth anything now that the live surface renders the
+ * font the design commits to.
+ *
+ * REACHABILITY, established by navigation rather than assumed: the group is
+ * rendered by `EventDetailsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:4155`),
+ * which reaches a live route through `step3Sections()` in `ShowReviewSurface`
+ * (`components/admin/review/ShowReviewSurface.tsx:259`), mounted by
+ * `PublishedReviewModal` (`components/admin/showpage/PublishedReviewModal.tsx:957`),
+ * which `/admin?show=<slug>` opens from the query param. Empty groups are
+ * filtered out before render (`components/admin/wizard/step3ReviewSections.tsx:2216-2221`),
+ * so `event_details` has to carry at least one of that group's three keys —
+ * `seedShowWithCrew` does not set the column, so this seeds it directly.
+ */
+test.describe("font binding — the measured row", () => {
+  const GROUP_TITLE = "Wardrobe & key moments";
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  let restoreDashboardState: (() => Promise<void>) | null = null;
+
+  test.beforeAll(async () => {
+    // The modal mounts only on the SETTLED dashboard branch — wizard-mode
+    // ignores `?show` entirely, so without this the modal never appears.
+    restoreDashboardState = await settleDashboardAdminState();
+    seeded = await seedShowWithCrew({ title: "Font Binding Row E2E Show" });
+    const { error } = await admin
+      .from("shows")
+      .update({
+        event_details: {
+          // One key from the group under test. Kept SHORT so the group's own
+          // title, not a long value, is what has to fit the row.
+          keynote_requirements: "TBD",
+        },
+      })
+      .eq("id", seeded.showId);
+    if (error) throw new Error(`seeding event_details failed: ${error.message}`);
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+    if (restoreDashboardState) await restoreDashboardState();
+  });
+
+  test("the event-detail group title occupies ONE line at the narrowest viewport", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    // 320px is the narrowest supported viewport; the row the title lands in is
+    // whatever the modal gives it there, and is MEASURED below rather than
+    // assumed to be 240px (that figure is hard-coded by the standalone harness
+    // at tests/e2e/section-header-layout.layout.spec.ts:72-76, not produced by
+    // any viewport).
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto(`/admin?show=${seeded.slug}`);
+    await expect(page.locator("[data-review-modal-panel]")).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => document.fonts.ready);
+
+    const measured = await page.evaluate((title: string) => {
+      // Deliberately WIDE probe face. Measured on this row: "Courier New",
+      // serif, fantasy and monospace all still FIT (190-210px in a 238px row),
+      // so none of them can demonstrate falsifiability. `cursive` reaches 212px
+      // and wraps, which is what makes the non-vacuity check below meaningful.
+      const WIDE_PROBE_FACE = "cursive";
+      const label = Array.from(document.querySelectorAll("span, h3, h4")).find(
+        (el) => (el.textContent ?? "").trim() === title,
+      );
+      if (!(label instanceof HTMLElement)) return { error: "group title not rendered" };
+      // Line count from the TEXT NODE's own client rects, never the element
+      // box: a box reports one line even when its text wraps, if a sibling
+      // inflates it (the technique at
+      // tests/e2e/section-header-layout.layout.spec.ts:381-391).
+      const textNode = Array.from(label.childNodes).find(
+        (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "",
+      );
+      if (!textNode) return { error: "group title has no text node" };
+      const countLines = () => {
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        return Array.from(range.getClientRects()).filter((r) => r.width > 0.5).length;
+      };
+      const lines = countLines();
+      const row = label.parentElement;
+      const rowWidth =
+        row instanceof HTMLElement ? Math.round(row.getBoundingClientRect().width) : 0;
+
+      // NON-VACUITY, measured rather than asserted: force the label onto a
+      // deliberately WIDE face and confirm the same measurement then reports a
+      // wrap. Without this, `lines === 1` is satisfied by any row roomy enough
+      // that no font could ever wrap it — which would make the assertion above
+      // prove nothing about the font. 'Courier New' is present on macOS,
+      // Windows and the Ubuntu runner (or resolves to a monospace of similar
+      // advance), and is wider per character than any UI sans.
+      const authored = label.style.fontFamily;
+      label.style.fontFamily = WIDE_PROBE_FACE;
+      void label.offsetWidth;
+      const linesUnderWideFont = countLines();
+      const widthUnderWideFont = Math.round(label.getBoundingClientRect().width);
+      label.style.fontFamily = authored;
+      void label.offsetWidth;
+
+      return {
+        error: null,
+        lines,
+        linesUnderWideFont,
+        linesRestored: countLines(),
+        rowWidth,
+        widthUnderWideFont,
+        fontSize: getComputedStyle(label).fontSize,
+        whiteSpace: getComputedStyle(label).whiteSpace,
+        labelWidth: Math.round(label.getBoundingClientRect().width),
+        fontFamily: getComputedStyle(label).fontFamily,
+      };
+    }, GROUP_TITLE);
+
+    expect(measured.error, "the group under test actually rendered").toBeNull();
+    if (measured.error !== null) return;
+
+    // Anti-vacuity: a zero-width row means the group rendered collapsed and the
+    // line count below would be meaningless.
+    expect(measured.rowWidth, "the row has a real width").toBeGreaterThan(0);
+
+    // The measurement can SEE a wrap at this row width. Asserted before the
+    // real assertion, so a row too roomy to ever wrap fails loudly here rather
+    // than green-washing the one below.
+    expect(
+      measured.linesUnderWideFont,
+      `the row is tight enough that a wide face wraps this title (row ` +
+        `${measured.rowWidth}px, label ${measured.widthUnderWideFont}px under the ` +
+        `probe face) — otherwise "stays on one line" is unfalsifiable here`,
+    ).toBeGreaterThan(1);
+    expect(measured.linesRestored, "the probe restored the authored font").toBe(measured.lines);
+
+    // THE ASSERTION. Under the font the app actually loads, the title fits.
+    expect(
+      measured.lines,
+      `"${GROUP_TITLE}" stays on one line (row ${measured.rowWidth}px, ` +
+        `label ${measured.labelWidth}px, font ${measured.fontFamily}; ` +
+        `at ${measured.fontSize}/${measured.whiteSpace}; the same row wraps to ` +
+        `${measured.linesUnderWideFont} lines under a wide face)`,
+    ).toBe(1);
   });
 });
