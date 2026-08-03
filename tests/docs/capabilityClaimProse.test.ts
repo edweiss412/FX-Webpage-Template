@@ -19,6 +19,35 @@
 // could never go green. So the matcher requires a capability SUBJECT, a granting
 // VERB, and an admin OBJECT in one sentence, with a negation guard. Six fixtures
 // below make that reviewable instead of a regex nobody can audit.
+// DOCUMENTED LIMITS — read before filing a paraphrase as a defect.
+//
+// This is a REGRESSION GUARD over a corpus, not a proof that no phrasing can
+// express the claim. English paraphrase is an open space; three consecutive
+// adversarial rounds each produced a new form (R2: `administrator access`,
+// cross-sentence subjects; R3: `admin privileges`, `admin dashboard`, claims in
+// string literals; R4: `allows access to`, `permits entry to`, contrastive
+// "not only … but", three-line wraps). Every one was real and every one is now a
+// fixture — but a fourth round would find a fifth family, and patching toward
+// completeness has no fixed point.
+//
+// So the contract is the one AGENTS.md sets for detector surfaces (see
+// docs/agents/adversarial-round-economy-2026-07-31.md): a new paraphrase is a
+// FIXTURE, filed when someone demonstrates it, not a blocker. What the guard
+// guarantees:
+//
+//   1. The three instances this branch found can never return silently — they are
+//      pinned by name, in the two documents and the source tree that held them.
+//   2. The recognizer's shape is auditable: SUBJECT + granting VERB + admin/ops
+//      OBJECT, minus clause-scoped negation, minus contrastive idioms. Every
+//      widening so far has been to the vocabulary, never to that shape.
+//   3. It never fires on the CORRECTED prose, which is the property that makes it
+//      usable at all — a guard that flags its own fix gets deleted.
+//
+// What it does NOT guarantee: that an author determined to phrase the claim
+// unusually cannot. That is the accepted residue, and the reason the corrected
+// prose also names `is_admin()` explicitly — a reader who checks the code is the
+// backstop this guard is not.
+
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
