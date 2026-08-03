@@ -254,10 +254,7 @@ describe("RLS coverage derived from spec §4.3", () => {
         `[rls-coverage] behavioral SELECT unavailable — no rows: ${degraded.join(", ")}`,
       );
     }
-    expect(
-      degraded.length,
-      "every behavioral cell degraded — the matrix proved nothing",
-    ).toBeLessThan(behavioral.length);
+    expect(floorFailures(degraded, behavioral.length)).toEqual([]);
   });
 });
 

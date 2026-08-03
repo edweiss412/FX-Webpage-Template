@@ -49,7 +49,7 @@
  * Actions secret/var. Partial-set → fail loud (mis-config detection).
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, test } from "vitest";
@@ -187,7 +187,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "sync_log",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:25",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:29",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -199,54 +199,6 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "reports",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:26",
-    // SELECT is retained (spec §4.2): this migration revokes only the three DML
-    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
-    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
-    // either, so the retained SELECT is harmless.
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: { id: "00000000-0000-0000-0000-000000000000" },
-    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
-  },
-  {
-    table: "sync_audit",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:27",
-    // SELECT is retained (spec §4.2): this migration revokes only the three DML
-    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
-    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
-    // either, so the retained SELECT is harmless.
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: { id: "00000000-0000-0000-0000-000000000000" },
-    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
-  },
-  {
-    table: "drive_watch_channels",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:28",
-    // SELECT is retained (spec §4.2): this migration revokes only the three DML
-    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
-    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
-    // either, so the retained SELECT is harmless.
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: { id: "lockdown-probe" },
-    rowFilter: "?id=eq.lockdown-probe",
-  },
-  {
-    table: "report_rate_limits",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:29",
-    // SELECT is retained (spec §4.2): this migration revokes only the three DML
-    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
-    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
-    // either, so the retained SELECT is harmless.
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: { kind: "admin", identity: "lockdown-probe" },
-    rowFilter: "?kind=eq.admin&identity=eq.lockdown-probe",
-  },
-  {
-    table: "pending_snapshot_uploads",
     closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:30",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
@@ -258,8 +210,56 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
-    table: "revision_race_cooldowns",
+    table: "sync_audit",
     closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:31",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "drive_watch_channels",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:32",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "lockdown-probe" },
+    rowFilter: "?id=eq.lockdown-probe",
+  },
+  {
+    table: "report_rate_limits",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:33",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { kind: "admin", identity: "lockdown-probe" },
+    rowFilter: "?kind=eq.admin&identity=eq.lockdown-probe",
+  },
+  {
+    table: "pending_snapshot_uploads",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:34",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "revision_race_cooldowns",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:35",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -271,7 +271,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "recovery_drift_cooldowns",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:32",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:36",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -388,7 +388,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "email_deliveries",
-    closed_at: "supabase/migrations/20260602000004_b3_email_deliveries.sql:19",
+    closed_at: "supabase/migrations/20260602000004_b3_email_deliveries.sql:21",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -579,7 +579,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "admin_alert_reads",
-    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:26",
+    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:38",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -590,7 +590,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "admin_bell_state",
-    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:27",
+    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:39",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: { admin_email: "lockdown-test@example.com" },
@@ -1096,5 +1096,33 @@ describe("PostgREST DML lockdown — registry meta-assertion (Layer 4)", () => {
       `RPC_GATED_TABLES entries with no detectable live REVOKE in supabase/migrations: ${orphanedRegistryEntries.join(", ")}. ` +
         "The REVOKE migration may have been removed/renamed, or the migration uses a syntax Layer 4's regex doesn't match.",
     ).toEqual([]);
+  });
+});
+
+describe("PostgREST DML lockdown — closed_at anchors point at a real REVOKE", () => {
+  // A closed_at line anchor is only useful if it lands on the statement it
+  // claims. This guard exists because editing the migration's HEADER COMMENT
+  // silently shifted all eight anchors by four lines — the rot a file:line
+  // citation is meant to prevent, reintroduced by an unrelated edit.
+  test("every closed_at with a line anchor resolves to a REVOKE for that table", () => {
+    const failures: string[] = [];
+    for (const entry of RPC_GATED_TABLES) {
+      const match = entry.closed_at.match(/^(.*\.sql):(\d+)$/);
+      if (!match) continue; // file-only anchors are legacy; not tightened here
+      const [, path, lineNo] = match;
+      if (!path || !lineNo || !existsSync(path)) {
+        failures.push(`${entry.table}:closed_at-file-missing:${entry.closed_at}`);
+        continue;
+      }
+      const line = readFileSync(path, "utf8").split("\n")[Number(lineNo) - 1];
+      if (line === undefined) {
+        failures.push(`${entry.table}:closed_at-line-out-of-range:${entry.closed_at}`);
+        continue;
+      }
+      if (!/\brevoke\b/i.test(line) || !line.includes(`public.${entry.table}`)) {
+        failures.push(`${entry.table}:closed_at-does-not-point-at-its-revoke:${entry.closed_at}`);
+      }
+    }
+    expect(failures).toEqual([]);
   });
 });

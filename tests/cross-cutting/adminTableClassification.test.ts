@@ -438,13 +438,21 @@ describe("admin-table classification reconciled against the live catalog", () =>
     // review time, so it must point somewhere real. Two paths in the first draft
     // of this registry were invented; this arm is why that is now impossible.
     const failures = Object.entries(PUBLIC_TABLE_CLASSIFICATION).flatMap(([table, row]) => {
+      // file:LINE, not just a file. A file-only citation cannot falsify a wrong
+      // location inside a real migration — and hand-written citations in this
+      // registry were wrong twice, so the anchor is enforced, not trusted.
       const cited = row.reason.match(
-        /(?:supabase|docs|app|lib|tests)\/[A-Za-z0-9_./-]+\.(?:sql|md|ts)/g,
+        /(?:supabase|docs|app|lib|tests)\/[A-Za-z0-9_./-]+\.(?:sql|md|ts):\d+/g,
       );
-      if (!cited || cited.length === 0) return [`${table}:reason-has-no-citation`];
-      return cited
-        .filter((path) => !existsSync(path))
-        .map((path) => `${table}:cited-file-missing:${path}`);
+      if (!cited || cited.length === 0) return [`${table}:reason-has-no-file-line-citation`];
+      return cited.flatMap((ref) => {
+        const [path, line] = ref.split(":");
+        if (!path || !existsSync(path)) return [`${table}:cited-file-missing:${path}`];
+        const lineCount = readFileSync(path, "utf8").split("\n").length;
+        return Number(line) >= 1 && Number(line) <= lineCount
+          ? []
+          : [`${table}:cited-line-out-of-range:${ref}`];
+      });
     });
     expect(failures).toEqual([]);
   });

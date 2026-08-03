@@ -1,11 +1,15 @@
 -- DB-lockdown-trio Task 2 (spec docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md §4.2).
 -- Statement-level lockdown for the eight remaining §4.3 admin-only tables whose
--- DML was never revoked. Probe evidence in spec §2.3: before this migration an
--- ADMIN-authenticated session could INSERT/UPDATE/DELETE these tables directly
--- through PostgREST, forging admin_alerts.resolved_by and bypassing every
--- SECURITY DEFINER RPC gate -- its advisory locks, its atomicity, and its audit
--- emission. Non-admin crew were already blocked at the row level by admin_only
--- RLS; this closes the admin-session bypass so the RPC is the only door.
+-- DML was never revoked. Probe evidence in spec §2.3: an ADMIN-authenticated
+-- session could INSERT/UPDATE/DELETE these tables directly through PostgREST,
+-- bypassing every SECURITY DEFINER RPC gate -- its advisory locks, its
+-- atomicity, and its audit emission. Non-admin crew were already blocked at
+-- the row level by admin_only RLS; this closes the admin-session bypass on the
+-- eight tables listed below, so the RPC is the only door FOR THOSE EIGHT.
+--
+-- The §2.3 probe was demonstrated on admin_alerts (forging resolved_by), but
+-- admin_alerts is deliberately NOT revoked here -- see the class-(c) note
+-- below. That bypass remains open by decision, not by oversight.
 --
 -- SELECT is deliberately RETAINED: admin UI reads and the observe CLI depend on
 -- it, and admin_only RLS remains the row-level gate for reads.
