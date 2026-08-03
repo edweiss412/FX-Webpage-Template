@@ -1047,6 +1047,46 @@ describe("R12 escaping mutants — a wrong line is a FALSE SAFE", () => {
   });
 });
 
+describe("R13 escaping mutants — bash dynamic-FD redirections", () => {
+  // Bash REMOVES `{fd}>…` exactly as it removes `2>…`, so the real argv of
+  // `psql -F {fd}>/dev/null -X mydb` is `-F -X mydb` — where `-X` is the field
+  // separator and suppresses nothing (probed: `psql -F` errors "option requires
+  // an argument -- F", `psql -F -X --version` connects). Keeping the phantom
+  // word as `-F`'s value certified the `-X` behind it: a false safe.
+  test.each([
+    "{fd}>/dev/null",
+    "{fd}>>/dev/null",
+    "{fd}</dev/null",
+    "{fd}<>/dev/null",
+    "{fd}<<<data",
+    "{fd}<<EOF",
+    "{fd}<<-EOF",
+    "{myFd_2}>/dev/null",
+    // The numeric and bare forms must keep behaving the same way.
+    "2>/dev/null",
+    ">/dev/null",
+  ])("`psql -F %s -X mydb` does NOT count as suppressed", (redirection) => {
+    const sites = sitesIn(`psql -F ${redirection} -X mydb\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.tokens).toEqual(["-F", "-X", "mydb"]);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a dynamic FD does not swallow a genuinely separate -X", () => {
+    // Precision: with -X BEFORE the option that would eat it, suppression holds.
+    const sites = sitesIn("psql -X -F {fd}>/dev/null mydb\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("a brace word that is NOT an fd prefix stays an argv token", () => {
+    // `{a,b}` is brace expansion, not a file descriptor, so it must not be
+    // silently dropped the way `{fd}>` is.
+    const sites = sitesIn("psql -X -c {a,b} mydb\n", "x.sh");
+    expect(sites[0]!.tokens).toContain("{a,b}");
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

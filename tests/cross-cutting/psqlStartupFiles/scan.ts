@@ -565,6 +565,11 @@ type ShellWord = {
 
 const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
+/** A file descriptor sitting in front of a redirection operator: a plain number
+ * (`2>err`) or bash's dynamic form (`{fd}>err`, which assigns the fd to `fd`).
+ * Neither reaches argv. */
+const FD_PREFIX = /^(?:\d+|\{[A-Za-z_]\w*\})$/;
+
 /** Index of the closing delimiter matching the opener at `start`. */
 function matchBrace(text: string, start: number, open: string, close: string): number {
   let depth = 0;
@@ -788,15 +793,24 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     // Redirections: an optional fd, the operator, and an optionally ATTACHED
     // target. The shell strips all of it, so neither reaches argv.
-    if (!started || /^\d+$/.test(buffer)) {
-      const redirection = /^(?:&>>?|>>|>&|<<|[<>])/.exec(text.slice(i));
+    if (!started || FD_PREFIX.test(buffer)) {
+      // Longest-first: `<<<` before `<<`, `<>` and `>|` before the bare forms,
+      // or the shorter match leaves a stray `<`/`>` that reads as a SECOND
+      // redirection and eats the following argv word.
+      const redirection = /^(?:&>>|&>|<<<|<<-|<<|>>|>&|<&|<>|>\||[<>])/.exec(text.slice(i));
       if (redirection && (character === "<" || character === ">" || character === "&")) {
         const isBackgroundAmp = character === "&" && text[i + 1] !== ">";
         if (!isBackgroundAmp) {
-          // A pending all-digit buffer is this redirection's FD (`2>err`), not
-          // a word — discard it rather than emitting it as an argv token.
-          if (!/^\d+$/.test(buffer)) flush();
+          // A pending FD buffer belongs to this redirection (`2>err`, and
+          // bash's dynamic `{fd}>err`), not to argv — discard it rather than
+          // emitting it as a token. Missing `{fd}` was a FALSE SAFE: bash
+          // removes the whole redirection, so `psql -F {fd}>/dev/null -X mydb`
+          // really runs as `-F -X mydb`, where `-X` is the field separator and
+          // suppresses nothing — while the scanner consumed the phantom word as
+          // `-F`'s value and certified the `-X` behind it.
+          if (!FD_PREFIX.test(buffer)) flush();
           buffer = "";
+          bufferOffsets = [];
           started = false;
           i += redirection[0].length - 1;
           // An attached target follows immediately; otherwise the next word is
