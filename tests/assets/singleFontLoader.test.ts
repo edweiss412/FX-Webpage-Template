@@ -106,6 +106,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { stripMdxComments } from "../_shared/stripComments";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
@@ -191,18 +192,19 @@ function censusFiles(dir: string, isRoot = false): string[] {
  *   import { Inter } from\/*comment*\/"next/font/google"   (comment between)
  *   import { Inter } from "next\u002ffont/google"          (escaped slash)
  *
- * So the text is NORMALISED first — block and line comments stripped, `\uXXXX`
- * decoded — and then matched on the bare module path anywhere in the file
+ * So the text is NORMALISED first — comments stripped via the repo's shared
+ * `stripMdxComments` (a local regex duplicated it and tripped
+ * `_metaStripCommentsSingleSource`), `\uXXXX` decoded — and then matched on
+ * the bare module path anywhere in the file
  * rather than on an import-statement shape. Deliberately loose in that
  * direction: an MDX author has no reason to write `next/font` except to load a
  * font, and over-matching costs a false failure a human resolves in seconds
  * while under-matching costs a silent second font.
  */
 function mdxMentionsFontModule(source: string): boolean {
-  const normalised = source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/\/\/[^\n]*/g, " ")
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, hex) => String.fromCharCode(parseInt(hex, 16)));
+  const normalised = stripMdxComments(source).replace(/\\u([0-9a-fA-F]{4})/g, (_m, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
   return /next\/font\//.test(normalised);
 }
 
