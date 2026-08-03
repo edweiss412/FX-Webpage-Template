@@ -66,8 +66,8 @@ Assertions, in order:
 2. `Math.abs(inherited - forcedInter) < 0.5`.
 3. `Math.abs(inherited - forcedSansSerif) > 1`.
 4. `fonts` contains at least one `loaded` entry whose family is the one `--font-inter` names.
-5. `<html>` exposes `--font-inter`. Asserted separately because the token is NOT what binds the font (see T1 step 3) — every width check would still pass if the loader silently stopped emitting `variable:`.
-6. The resolved cascade NAMES `Inter Fallback`, **and** a face by that name is actually registered. The cascade string alone is not enough: computed style preserves a family name whether or not any face answers to it.
+5. `<html>` exposes `--font-inter`. Asserted separately because it is the token every other assertion READS its expected family from — if the loader stopped emitting `variable:`, the rest would lose their oracle rather than fail informatively.
+6. The resolved cascade NAMES the companion family `--font-inter` lists second, **and** a face by that name is actually registered. Read from the token, never spelled literally (R16). The cascade string alone is not enough either: computed style preserves a family name whether or not any face answers to it.
 7. The document registers exactly one font family (excluding the generated companion and the dev overlay's `__nextjs-*`).
 8. No `@font-face` is registered twice on its `(family, style, weight, unicodeRange)` tuple.
 9. Every app face shares ONE weight+style descriptor PAIR — a second pair means a second, differently-configured loader for the same family, which 7 and 8 both miss. Keyed on the pair, not weight alone: review R6 demonstrated a `style: "italic"` second loader keeping family `Inter` and weight `100 900`.
