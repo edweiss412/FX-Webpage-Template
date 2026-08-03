@@ -218,10 +218,14 @@ export const PRE_GUARD_DEBT: ReadonlySet<string> = new Set([
  * Undated files (outside every dated unit) allowed to name both gate halves.
  * Same staleness contract: rows red when the file vanishes or stops declaring.
  */
-export const UNDATED_DECLARING_ALLOWLIST: ReadonlySet<string> = new Set([
-  // Backlog index quoting gate language; not a plan.
-  "BACKLOG.md",
-]);
+/**
+ * Empty since 2026-08-02: its only row was the plans tree's own `BACKLOG.md`, a
+ * second `BL-` registry that was merged into the root ledger pair and deleted.
+ * The set stays because the allowlist is a real escape hatch for an undated
+ * non-plan file that quotes gate language — and because the guard also fails on
+ * a row pointing at a file that no longer exists, which is how this row was found.
+ */
+export const UNDATED_DECLARING_ALLOWLIST: ReadonlySet<string> = new Set([]);
 
 /**
  * Files where the TEMPLATE marker form is valid (and non-conferring), and

@@ -36,7 +36,7 @@ Spec: `docs/superpowers/specs/parser/2026-06-26-hotel-viewer-name-match.md` (Cod
 - Commit `fix(parser): split slash-separated guests in parseGuestCell`.
 
 ### Task 4 — close-out
-- Mark BL-HOTEL-VIEWER-NAME-MATCH ✅ done in `docs/superpowers/plans/BACKLOG.md` (cite the matcher + slash-split + the UX-not-security ratification). Commit `docs(plan): mark BL-HOTEL-VIEWER-NAME-MATCH done`.
+- Mark BL-HOTEL-VIEWER-NAME-MATCH ✅ done in `BACKLOG.md` (cite the matcher + slash-split + the UX-not-security ratification). Commit `docs(plan): mark BL-HOTEL-VIEWER-NAME-MATCH done`.
 
 ## Anti-tautology / test rules
 - Matcher expectations come from the §1 oracle data table (cited provenance); the fixture-derived integration test reads names from `parseSheet`, never hardcodes them.

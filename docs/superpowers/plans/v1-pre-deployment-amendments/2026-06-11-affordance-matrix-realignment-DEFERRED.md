@@ -1,6 +1,6 @@
 # M12.12 affordance-matrix realignment — DEFERRED.md
 
-Per `feedback_deferral_discipline.md` — items here are work that **will be done** with a concrete trigger. Items that **might be done** with no scheduled home go to `docs/superpowers/plans/BACKLOG.md` instead.
+Per `feedback_deferral_discipline.md` — items here are work that **will be done** with a concrete trigger. Items that **might be done** with no scheduled home go to `BACKLOG.md` instead.
 
 ---
 

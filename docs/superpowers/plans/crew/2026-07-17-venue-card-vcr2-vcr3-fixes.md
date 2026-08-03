@@ -27,7 +27,7 @@
 - **Modify** `components/admin/wizard/VenueMapTile.tsx` — theme mount-gate (VCR-2) + guard change (VCR-3).
 - **Modify** `components/admin/wizard/step3ReviewSections.tsx:973` — region-mount gate `query` → `query || mapHref` (VCR-3).
 - **Modify (tests)** `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/e2e/step3-review-modal.layout.spec.ts`, `tests/components/admin/wizard/venueTransitionAudit.test.ts`.
-- **Modify (docs)** `DEFERRED.md`, `docs/superpowers/plans/BACKLOG.md` — close-out.
+- **Modify (docs)** `DEFERRED.md`, `BACKLOG.md` — close-out.
 
 ---
 
@@ -405,7 +405,7 @@ git commit --no-verify -m "fix(crew-page): mount venue map region + degraded Dir
 
 ## Task 3: Close-out docs (DEFERRED + BACKLOG)
 
-**Files:** `DEFERRED.md` (VCR-2 `:376`, VCR-3 `:382`), `docs/superpowers/plans/BACKLOG.md`. Docs-only — no TDD cycle.
+**Files:** `DEFERRED.md` (VCR-2 `:376`, VCR-3 `:382`), `BACKLOG.md`. Docs-only — no TDD cycle.
 
 - [ ] **Step 1: Mark DEFERRED.md entries resolved**
 
@@ -421,7 +421,7 @@ In `DEFERRED.md`, append `— ✅ RESOLVED …` to the VCR-2 (`:376`) and VCR-3 
 
 - [ ] **Step 2: Mark BACKLOG.md entries shipped**
 
-Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && grep -n "BL-VENUE-MAP-DARK-DOUBLE-FETCH\|BL-VENUE-LINK-ONLY-EMPTY-CARD" docs/superpowers/plans/BACKLOG.md`
+Run: `cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3 && grep -n "BL-VENUE-MAP-DARK-DOUBLE-FETCH\|BL-VENUE-LINK-ONLY-EMPTY-CARD" BACKLOG.md`
 Then mark each matched entry `✅ SHIPPED (2026-07-17, fix/venue-card-vcr2-vcr3)` with a one-line reference, keeping the original text (mirror the existing `✅ SHIPPED` formatting in BACKLOG.md). If either id is absent, add a one-line `✅ SHIPPED` note in the appropriate section rather than inventing a new backlog row.
 
 - [ ] **Step 3: Verify prettier + full venue-suite green**
@@ -433,7 +433,7 @@ Expected: format clean (docs edits can trip prettier — run `pnpm format` if so
 
 ```bash
 cd /Users/ericweiss/fxav-worktrees/venue-card-vcr2-vcr3
-git add DEFERRED.md docs/superpowers/plans/BACKLOG.md
+git add DEFERRED.md BACKLOG.md
 git commit --no-verify -m "docs(crew-page): mark VCR-2/VCR-3 resolved + backlog shipped"
 ```
 

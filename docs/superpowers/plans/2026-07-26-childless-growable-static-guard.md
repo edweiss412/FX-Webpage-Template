@@ -1,6 +1,6 @@
 # Plan: childless-growable static guard
 
-<!-- spec-lint: ignore — bare BACKLOG.md means the repo-root file; docs/superpowers/plans/BACKLOG.md shadows the basename -->
+<!-- spec-lint: ignore — bare BACKLOG.md means the repo-root file; BACKLOG.md shadows the basename -->
 **Spec (canonical, APPROVE at review round 8, 2026-07-26):** `docs/superpowers/specs/2026-07-26-childless-growable-static-guard-design.md`. Every predicate, probe, and residual in this plan is DEFINED there; this plan does not restate them, because a second copy of a 26-findings-hardened rule set is a drift surface. Where a task says "per §N," the spec section is the single source of truth. **Branch:** `feat/childless-growable-static-guard` (worktree `../FX-worktrees/childless-growable-guard`, env linked, preflight green).
 
 ## Pre-draft verification (writing-plans mandate)
