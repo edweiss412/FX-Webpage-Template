@@ -321,4 +321,59 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
       if (parsed.ok) expect(parsed.reviewerChoices).toEqual(choices);
     }
   });
+
+  // ── source_anchors: the ONE tolerant field on this fail-closed boundary ──────
+  // Deep-link anchors are cosmetic: a corrupt map must degrade to {} (which the Phase-D
+  // call site turns into an OMITTED core arg, preserving whatever shows.source_anchors
+  // holds), never refuse a whole shadow and block a publish. Spec §3.2 / §1.1.
+  // Every case asserts ok:true explicitly — a fail-closed implementation must fail here.
+
+  test("source_anchors: a populated map surfaces verbatim on parsed.sourceAnchors", () => {
+    const anchors = {
+      schedule: { title: "AGENDA", gid: 1490737099, a1: "A1:X999" },
+      venue: { title: "INFO", gid: 0, a1: "A1:E10" },
+    };
+    const parsed = parseShadowPayloadForApply(payload({ source_anchors: anchors }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.sourceAnchors).toEqual(anchors);
+  });
+
+  test("source_anchors: a legacy double-encoded JSON string decodes to the map", () => {
+    const anchors = { venue: { title: "INFO", gid: 7, a1: "B2:C3" } };
+    const parsed = parseShadowPayloadForApply(payload({ source_anchors: JSON.stringify(anchors) }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.sourceAnchors).toEqual(anchors);
+  });
+
+  test("source_anchors: every unusable value degrades to {} WITHOUT refusing the shadow", () => {
+    // The absent-key case comes first and is the legacy-shadow contract: a row staged
+    // before this field existed must apply exactly as it did before.
+    const unusable: Array<[string, Record<string, unknown>]> = [
+      ["absent", {}],
+      ["explicit null", { source_anchors: null }],
+      ["array", { source_anchors: [] }],
+      ["number scalar", { source_anchors: 42 }],
+      ["unparseable string", { source_anchors: "not-json" }],
+      ["string decoding to a non-object", { source_anchors: '"just a string"' }],
+    ];
+    for (const [label, override] of unusable) {
+      const parsed = parseShadowPayloadForApply(payload(override));
+      expect(parsed, `${label} must not refuse the shadow`).toMatchObject({ ok: true });
+      if (!parsed.ok) continue;
+      expect(parsed.sourceAnchors, `${label} must degrade to {}`).toEqual({});
+    }
+  });
+
+  test("source_anchors: a malformed ENTRY passes through — no per-entry validation (spec §1.1)", () => {
+    // Ratified: the only producer is extractSourceAnchors, and the read boundary
+    // (buildSheetDeepLink) is where a bad entry is handled. Validating here would
+    // diverge from Flow A and the cron path, which both pass entries through.
+    const anchors = { schedule: { title: 5, gid: "nope" } };
+    const parsed = parseShadowPayloadForApply(payload({ source_anchors: anchors }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.sourceAnchors).toEqual(anchors);
+  });
 });

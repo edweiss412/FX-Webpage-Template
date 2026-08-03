@@ -8,6 +8,22 @@ Last reconciled: 2026-08-03 — `docs/close-v1-override-wont-build` graduated `B
 
 ---
 
+## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
+
+**Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
+
+Every writer of `shows.source_anchors` preserves the stored map rather than clearing it when a scan could not compute anchors: the cron path emits `undefined` on a genuine sheets-list failure so the coalesce keeps the old value (`lib/sync/runScheduledCronSync.ts:3073`, `lib/sync/runScheduledCronSync.ts:1527`), the wizard scan degrades to `{}` on a gid-fetch failure (`lib/sync/runOnboardingScan.ts:1350`), and both finalize flows omit the arg rather than passing a defined `{}`. That is the right trade — the alternative wipes every good anchor on a transient Drive hiccup — but it has a blind spot: the same apply advances `shows.last_seen_modified_time`, so the show now carries data from revision R2 alongside anchors computed for R1.
+
+`lib/sheet-links/buildSheetDeepLink.ts:22` cannot detect this. It guards structure only (allowlisted title, numeric gid), so an R1 anchor is accepted and the "In sheet" link opens the old range instead of falling back to `#gid=0`. The mis-link persists until a later anchor-writer run over that sheet either produces a non-empty map or clears the stale one — and nothing schedules such a run. Below the watermark an automatic pass skips the file entirely (`lib/sync/perFileProcessor.ts:337`). The wizard re-onboard path is the one that can hold a stale map indefinitely: it preserves on ANY empty scan because `pending_syncs.source_anchors` cannot distinguish a transient Drive failure from a workbook with no recognized regions, whereas a sync pass distinguishes exactly one cause and clears on the rest (`lib/sync/runScheduledCronSync.ts:3073`).
+
+**Work:** store the revision the anchors were computed from (a `source_anchors_modified_time` column, or a stamp inside the jsonb) and have the deep-link builder fall back to `#gid=0` when it does not match `last_seen_modified_time`. The schema decision is the gate — a sibling column is simplest but adds a write to every anchor-writing path; an in-jsonb stamp keeps it to one column and one coalesce but changes the map's shape for every reader.
+
+**Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
+
+**Status:** OPEN.
+
+---
+
 ## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
@@ -831,14 +847,6 @@ Promotion path these were filed under, retained: spec at `docs/superpowers/specs
 plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then list it in
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
-
-### BL-ONBOARDING-CAS-SOURCE-ANCHORS — Compute source_anchors on the existing-show finalize-cas apply
-
-**Origin:** PR #179 (2026-06-28) wired `source_anchors` computation into the FIRST-SEEN onboarding materialization (`handleOnboardingFinalize` → `processApprovedRow` → `applyStagedCore`) so freshly-onboarded shows get correct "In sheet" deep-link anchors immediately, matching the cron path. The EXISTING-SHOW re-onboard path (`finalize-cas` shadow apply → `applyShadow` → `applyStagedCore`) has the same gap: it never computes/threads `source_anchors`, so a re-onboarded existing show is not refreshed at apply time.
-
-**Effort:** S
-
-**Why backlog (not deferred):** lower-impact — existing shows already carry anchors from prior cron syncs, and the cron re-populates on the next sheet edit; the `#gid=0` fallback (PR #178) keeps any missing-anchor "In sheet" link safe in the meantime. The fix is symmetric to PR #179: compute anchors **pre-lock** in `finalize-cas`'s apply path and thread the `sourceAnchors` arg into its `applyStagedCore` call (the `ApplyStagedCoreArgs.sourceAnchors` field + the `runPhase2` → `applyShowSnapshot` plumbing already exist; only the compute + the call-site spread are missing). No migration. Pick up if existing-show re-onboard deep-link fidelity becomes a real need. Flagged by the cross-model (Codex) review of PR #179.
 
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
