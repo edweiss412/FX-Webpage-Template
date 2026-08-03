@@ -553,6 +553,7 @@ describe("identity_hold card", () => {
     const toggle = within(card).getByTestId("identity-hold-toggle-sX");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-controls")).toBe("identity-hold-panel-sX");
+    expect(document.querySelector('#identity-hold-panel-sX[role="region"]')).toBeNull(); // repeated-landmark opt-out
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const panel = document.getElementById("identity-hold-panel-sX");
@@ -619,7 +620,11 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
         <ChevronRight aria-hidden="true" className={`size-4 shrink-0 transition-transform duration-fast ${open ? "rotate-90" : ""}`} />
         <span>{verb} details</span>
       </button>
-      <CollapsePanel open={open} id={panelId} label={title ? `Held changes for ${title} (${slug})` : `Held changes for ${slug}`}>
+      {/* region={false}: this card repeats per show (20 dashboard / 100 page cap), and
+          CollapsePanel mandates the landmark opt-out for many-panel callers
+          (CollapsePanel.tsx:40-47; RecentAutoAppliedStrip precedent). The toggle's
+          aria-expanded + aria-controls remain the accessible wiring. */}
+      <CollapsePanel open={open} id={panelId} region={false} label={title ? `Held changes for ${title} (${slug})` : `Held changes for ${slug}`}>
         {children}
       </CollapsePanel>
     </div>
@@ -673,7 +678,7 @@ Tooltip copy — dashboard (replace the sentence at `Dashboard.tsx:769-772`): `S
   1. **Representation compatibility (spec §9.12):** holds row with `created_at` as a `Date` (postgres.js shape) between two pending items' timestamps → merged model order places the hold between them (fails if the adapter passed a non-ISO string or the raw Date).
   2. **Uncapped (spec §9.13):** 21 pending syncs + 1 hold older than all → hold present in `shows` groups; `sourceTotals.holdShows === 1`; holds-only digest (`ingestions=syncs=[]`, one hold) is NOT `no_send`.
   3. **Literals:** invalid-recipient `no_send` returns `sourceTotals.holdShows === 0`; `runNotify` synthesized model carries `holdShows: 0` (assert via its existing monitor-only test).
-  4. **Selective fault (spec §9.14):** ingestion/sync/shows stubs succeed, holds stub rejects → `buildDigestModel` rejects.
+  4. **Selective fault (spec §9.14):** ingestion/sync/shows stubs succeed, holds stub rejects → `buildDigestModel` RESOLVES to `{ kind: "infra_error" }` (it never throws — `lib/notify/digest.ts:238-239`; existing tests pin that contract).
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement** in `buildDigestModel` after the syncs query:
 
 ```ts
@@ -710,6 +715,7 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
 
 - Modify: `app/help/admin/dashboard/page.mdx:35-43` (inventory list gains a held-changes bullet) and `page.mdx:51-53` (live-change description mentions holds clearing on approve/reject), `app/help/admin/review-queues/page.mdx:5-12` + `page.mdx:50-60` (overview + live-change guidance), `app/help/daily-rhythm/page.mdx:12-14` (inbox description), `app/help/admin/settings/page.mdx:33-38` (digest description mentions held identity changes).
 
+- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). Read these six sources and assert EACH matches /held.{0,30}(identity|crew).{0,30}change/i (case-insensitive, markdown-bold normalized): `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/admin/dashboard/page.mdx`, `app/help/admin/review-queues/page.mdx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`. Run: FAIL on all six. _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
 - [ ] **Step 1:** Exact edits (each in the file's existing voice; no em-dashes):
   1. `app/help/admin/dashboard/page.mdx:37` — change "Three kinds of cards show up here:" to "Four kinds of cards show up here:" and append a fourth bullet: `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`
   2. `app/help/admin/dashboard/page.mdx:51-53` ("Changes and review" paragraph) — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
@@ -717,8 +723,8 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
   4. `app/help/admin/review-queues/page.mdx:57-59` (the identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
   5. `app/help/daily-rhythm/page.mdx:13` (the Needs attention inbox bullet) — append: `Held crew identity changes appear here too, until you approve or reject them.`
   6. `app/help/admin/settings/page.mdx:35` (Daily review digest bullet) — append: `It also lists crew identity changes that are held for your review.`
-- [ ] **Step 2:** `grep -n "held" <each file>` to confirm each landed; run any help-content suite that matches (`ls tests | grep -i help`), else note the skip in the commit body.
-- [ ] **Step 3: Commit** `docs(admin): help + tooltip copy mentions held identity changes`
+- [ ] **Step 2:** Run `pnpm vitest run tests/help/heldChangesCopy.test.ts` — PASS; also run the existing `tests/help` suite (walker tests must stay green with the new copy).
+- [ ] **Step 3: Commit** `docs(admin): held-changes copy across tooltips + help, with source-walk contract test`
 
 ---
 
@@ -728,7 +734,7 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
 
 - Create: tests/components/identityHoldTransitionAudit.test.tsx
 
-Spec Transition Inventory (verbatim contract under test): states **single / multi-collapsed / multi-expanded**; ONLY animated pair = CollapsePanel height-morph (collapsed↔expanded); every other pair instant; expansion persistence across `router.refresh()` UNRATIFIED (both outcomes in-contract); compound (a) summaries change while expanded; (b) group clears while expanded → card unmounts, no exit animation; (c) toggle mid-refresh.
+Spec Transition Inventory (verbatim contract under test): states **single / multi-collapsed / multi-expanded**; ONLY animated pair = CollapsePanel height-morph on USER toggle (collapsed↔expanded); refresh-remount collapse is instant; every other pair instant; expansion persistence across `router.refresh()` UNRATIFIED (both outcomes in-contract); compound (a) summaries change while expanded; (b) group clears while expanded → card unmounts, no exit animation; (c) toggle mid-refresh.
 
 - [ ] **Step 1: Write the audit test:** (1) source-level assertions — IdentityHoldDisclosure.tsx and the inbox branch contain NO `AnimatePresence`, NO `motion.` import, and exactly one `CollapsePanel` usage (read the file with `fs.readFileSync`, assert on content — this pins "instant everywhere else" structurally); (2) behavioral — rerender single→multi and multi→single (props change, same key): no throw, correct mode elements mount/unmount; toggle open, then rerender with a DIFFERENT summaries array (compound a): panel children update; rerender with `summaries: ["only"]` while open (multi-expanded→single): island gone, summary line rendered. _Failure modes: an exit animation sneaking in; mode fork crashing on live data changes; compound (a) rendering stale summaries._
 - [ ] **Step 2: Run — FAIL** (file assertions first run against not-yet-final source are fine; behavioral parts fail until Task 6 branch handles rerenders — order this task AFTER Task 6; if all passes immediately, verify each assertion can fail by temporarily inverting one locally, then restore).
@@ -747,7 +753,7 @@ Spec Transition Inventory (verbatim contract under test): states **single / mult
 - [ ] **Step 1: Write the spec:** prefix-namespace `e2e-needs-attention-holds-`; seed two shows (`shows` insert, archived=false) + `sync_holds` rows: show 1 one `mi11_pending` email_change (proposed_value `{"disposition":"email_change","email":"new@x.com"}`, held_value `{"email":"old@x.com"}`, `base_modified_time` set — the kind-shape CHECK at `supabase/migrations/20260608000000_sync_holds.sql:30-37` requires both), show 2 three holds (distinct `entity_key`, distinct domains/keys under the uniq constraint). Pre-clean by prefix; cleanup in `finally`. Assert:
   1. `/admin/needs-attention` renders both cards; single-hold card copy contains the seeded entity name (scoped `within` the card testid — the per-show feed is NOT mounted here, but scope anyway per anti-tautology); multi card shows `3 held changes waiting`.
   2. Badge (`admin-nav` attention badge testid, per `needs-attention-page.spec.ts` badge assertion) equals seeded expectation: 2 hold-shows + 0 pending.
-  3. At 390px width the summary card chip `summary-chip-identity-holds` shows `2 held`.
+  3. Navigate to `/admin` at 390px (the summary card exists ONLY on the dashboard, `components/admin/Dashboard.tsx:738-745`): chip `summary-chip-identity-holds` shows `2 held`.
   4. Expand multi card: three seeded summaries visible inside `identity-hold-panel-…`; **probe (spec G3):** trigger a data refresh (insert a pending row server-side, `router.refresh` via the page's existing refresh affordance or `page.reload()`), record whether the panel stayed open in a comment-visible assertion accepting EITHER (`expect([true, false]).toContain(panelOpen)`) plus a console annotation of the observed value — the pinning assertion is mode correctness, not persistence.
   5. Single-hold card link navigates to `/admin?show={slug}` and `mi11-approve` / `mi11-reject` (`components/admin/Mi11GateActions.tsx:70`) are visible.
   6. Exclusions (spec §9.7/§9.8): seed a THIRD show with `archived=true` plus one `mi11_pending` hold, and (on show 1) one `undo_override` row. Assert neither adds a card and the badge still reads the value from step 2 (2 hold-shows).
