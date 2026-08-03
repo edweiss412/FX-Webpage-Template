@@ -56,7 +56,15 @@ describe("standalone WebKit a11y leg wiring", () => {
         "green WebKit run while executing Chromium. Put engine selection in the project only.",
     ).toEqual([]);
 
-    const engine = project!.use?.browserName ?? project!.use?.defaultBrowserType;
+    // Precedence, all three levels. R8 (HIGH) escaping mutant: a TOP-LEVEL
+    // `use: { browserName: "chromium" }` beats the project's device default, and reading only
+    // `project.use` still answered "webkit". Playwright resolves a direct `browserName` — wherever
+    // it is declared — over the device spread's `defaultBrowserType`, and the project's own `use`
+    // wins over the config's.
+    const engine =
+      project!.use?.browserName ??
+      standaloneConfig.use?.browserName ??
+      project!.use?.defaultBrowserType;
     expect(
       engine,
       `${PROJECT} must launch WebKit — a Chromium device OR an explicit browserName override ` +

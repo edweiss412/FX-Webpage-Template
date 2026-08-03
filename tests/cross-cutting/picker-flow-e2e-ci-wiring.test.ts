@@ -26,6 +26,7 @@
  * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
 import { execFileSync } from "node:child_process";
+import { parse as parseYaml } from "yaml";
 import ts from "typescript";
 
 import { stripCommentsSafely } from "../_shared/stripComments";
@@ -387,6 +388,24 @@ describe("picker-flow e2e CI wiring", () => {
       "tests/e2e/stage-restricted-crew-schedule.spec.ts",
       "The seeded agenda-fold cases",
     );
+  });
+
+  it("crew-e2e.yml's pull_request trigger narrows on NOTHING but paths-ignore", () => {
+    // R8 (HIGH) escaping mutant: `types: [closed]` left every other trigger predicate green while
+    // the job stopped running on open/synchronize/reopen — i.e. on every PR event that matters.
+    // `branches:`/`branches-ignore:` are the same hole by a different key. The contract this file
+    // pins is "this job runs on essentially every PR", so the trigger may carry the docs-only
+    // exclusion and nothing else; any other narrowing key fails, fail-closed.
+    const trigger = parseYaml(read("crew-e2e.yml")) as {
+      on?: { pull_request?: Record<string, unknown> };
+    };
+    const keys = Object.keys(trigger.on?.pull_request ?? {}).sort();
+    expect(
+      keys,
+      "crew-e2e.yml's pull_request trigger carries a narrowing key beyond paths-ignore. `types`, " +
+        "`branches` and `branches-ignore` each silence the job for real PR events while every " +
+        "other assertion here stays green.",
+    ).toEqual(["paths-ignore"]);
   });
 
   it("crew-e2e.yml uses paths-ignore, so a new code path cannot silently skip it", () => {

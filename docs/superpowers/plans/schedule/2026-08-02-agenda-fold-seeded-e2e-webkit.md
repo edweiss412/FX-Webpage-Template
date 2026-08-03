@@ -110,6 +110,14 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF20 — config-level engine override + trigger narrowing (whole-diff review R8 live mutants):**
+  a TOP-LEVEL `use: { browserName: "chromium" }` in `standalone.config.ts` beats the project's
+  device default while a `project.use`-only read still answered "webkit"; and on the trigger side,
+  `types: [closed]` (or `branches:`/`branches-ignore:`) silenced the crew job for every PR event
+  that matters while every other trigger assertion stayed green. Closed by resolving the engine
+  across all three levels (`project.use.browserName ?? config.use.browserName ??
+  project.use.defaultBrowserType`) and by requiring the `pull_request` trigger to carry
+  `paths-ignore` and NOTHING else.
 - **MF19 — activation-parser gaps + file-scoped engine override (whole-diff review R7 live
   mutants):** four escapes against the first structural version — `continue-on-error: ${{ true }}`
   parses as a STRING so an `=== true` test misses it; `needs:` a gate job carrying `if: false`
