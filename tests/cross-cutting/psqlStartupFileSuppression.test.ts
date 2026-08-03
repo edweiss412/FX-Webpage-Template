@@ -1797,3 +1797,72 @@ describe("R18 escaping mutants — executable discovery, every spelling", () => 
     expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
   });
 });
+
+describe("R19 escaping mutants", () => {
+  // The argv[0]-probe denylist may only fire on the probe's OWN first argument.
+  // `command env -u echo psql` has `echo` three words in, under a DIFFERENT
+  // program that `command` merely executes.
+  test.each([
+    ["under command", "command env -u echo psql -qAt mydb\n", "x.sh"],
+    ["under command with a path", "command /usr/bin/env -u echo psql -qAt mydb\n", "x.sh"],
+    ["in a JS shell string", `execSync("command env -u echo psql -qAt mydb");`, "x.mjs"],
+    [
+      "in a workflow run block",
+      "jobs:\n  a:\n    steps:\n      - run: |\n          command env -u echo psql -qAt mydb\n",
+      ".github/workflows/x.yml",
+    ],
+  ])("`env -u echo psql` is still a site %s", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["command -v psql", "command -v psql\n"],
+    ["which psql", "which psql\n"],
+    ["type psql", "type psql\n"],
+    ["hash psql", "hash psql\n"],
+  ])("%s is still NOT an invocation", (_name, source) => {
+    expect(sitesIn(source, "x.sh")).toHaveLength(0);
+  });
+
+  // A literal command fed to a shell through STDIN. The psql text is an
+  // argument to printf, so no allowlisted `-c` consumer is involved — but the
+  // next pipeline stage is a bare shell, and that argument IS its script.
+  test.each([
+    ["printf into bash", "printf 'psql -qAt mydb\\n' | bash\n", "x.sh"],
+    ["echo into sh", "echo 'psql -qAt mydb' | sh\n", "x.sh"],
+    ["printf into zsh", "printf 'psql -qAt mydb\\n' | zsh\n", "x.sh"],
+    ["a JS shell string", `execSync("printf 'psql -qAt mydb\\n' | bash");`, "x.mjs"],
+    [
+      "a workflow run block",
+      "jobs:\n  a:\n    steps:\n      - run: |\n          printf 'psql -qAt mydb\\n' | bash\n",
+      ".github/workflows/x.yml",
+    ],
+  ])("%s is a site", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a protected command piped into a shell still counts", () => {
+    expect(
+      sitesIn("printf 'psql -X -qAt mydb\\n' | bash\n", "x.sh")[0]!.suppressesStartupFiles,
+    ).toBe(true);
+  });
+
+  test.each([
+    ["a pipeline mentioning no psql", "printf 'echo hi\\n' | bash\n"],
+    ["a pipe into a NON-shell", "printf 'psql -qAt mydb\\n' | tee out.txt\n"],
+  ])("%s is not a site", (_name, source) => {
+    expect(sitesIn(source, "x.sh")).toHaveLength(0);
+  });
+
+  test("a `bash -c` on the right of a pipe is read from -c, not from stdin", () => {
+    // Precision: the stdin rule must not double-report when `-c` supplies the
+    // script; `-c` wins and the printf argument is not a script.
+    const sites = sitesIn("printf 'x' | bash -c 'psql -X -qAt mydb'\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+});

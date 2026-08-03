@@ -961,15 +961,41 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   }
   let command: ShellWord[] = [];
   const commands: ShellWord[][] = [];
+  /** The operator that FOLLOWED each command, so a PIPELINE stays visible. */
+  const followedBy: string[] = [];
   for (const word of words) {
     if (word.operator) {
-      if (command.length > 0) commands.push(command);
+      if (command.length > 0) {
+        commands.push(command);
+        followedBy.push(word.text);
+      }
       command = [];
       continue;
     }
     command.push(word);
   }
-  if (command.length > 0) commands.push(command);
+  if (command.length > 0) {
+    commands.push(command);
+    followedBy.push("");
+  }
+
+  // `printf 'psql …\n' | bash` feeds a literal command to a shell through
+  // STDIN, so the psql text is an argument to printf and no allowlisted `-c`
+  // consumer is involved. When a pipeline's next stage is a BARE shell (no
+  // `-c`), this stage's arguments ARE the script it will run.
+  for (const [position, argv] of commands.entries()) {
+    if (followedBy[position] !== "|") continue;
+    const next = commands[position + 1];
+    if (next === undefined) continue;
+    const nextHead = next[0];
+    if (nextHead === undefined || !SHELL_BINARIES.has(basename(nextHead.text))) continue;
+    if (next.slice(1).some((word) => /^-[a-z]*c[a-z]*$/.test(word.text))) continue; // has -c
+    for (const word of argv.slice(1)) {
+      if (!/\bpsql\b/.test(word.text)) continue;
+      for (const site of scanShellText(word.text, file, lineOffset + word.line))
+        sites.push({ ...site, offset: word.offsets[site.offset] ?? word.offset });
+    }
+  }
 
   for (const argv of commands) {
     // `bash -c "psql …"`, `sh -lc "…"`, `docker exec … sh -c "…"`, `eval "…"`,
@@ -1075,10 +1101,16 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
     // psql …` runs psql, and so does `xargs -I -v psql …`.
     const previous = argv[index - 1];
     const head = argv[0];
+    // …and, for the argv[0]-probe form, the deny word must be the probe's OWN
+    // first argument. `command env -u echo psql` has `echo` three words in,
+    // under a DIFFERENT program that `command` merely executes — treating it as
+    // `command`'s probe flag hid an invocation the header already documents as
+    // caught (`env -u echo psql` runs psql).
     const denied =
       previous !== undefined &&
       NOT_AN_INVOCATION.has(previous.text) &&
-      (previous === head || (head !== undefined && PROBE_COMMANDS.has(basename(head.text))));
+      (previous === head ||
+        (head !== undefined && PROBE_COMMANDS.has(basename(head.text)) && index === 2));
     if (denied) continue;
 
     const rest = argv.slice(index + 1);
