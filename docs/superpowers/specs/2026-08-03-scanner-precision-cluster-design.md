@@ -450,6 +450,12 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
 **Item B**
 
 - **AC-B1** All eight ids resolve; `KNOWN_DANGLING` retains exactly one row, `BL-RESOLVED`.
+- **AC-B5a** **The transition is asserted directly, not via the in-flight guard.** After the move,
+  `IN PROGRESS` appears nowhere in `BACKLOG-archive.md` for either id, and each archived section
+  contains `chore/scanner-precision-cluster`. R5b probed that
+  `_metaLedgerInProgress.test.ts` scans only body lines 1-12 while
+  `BL-LEDGER-GUARD-BODY-DEFINED-IDS` carries its status at body line 13, so relying on that guard
+  would let a missed transition pass silently.
 - **AC-B5** **Graduation state transition.** On graduation each entry's meta line goes from
   `**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster` to
   `**Status:** RESOLVED on branch \`chore/scanner-precision-cluster\` (2026-08-03)`. That single
@@ -499,6 +505,8 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | B4 | HIGH (R4b) — P5-live pins results, not the default; a default widened with a currently-harmless plan path survives every declared assertion. | **Accepted.** P5-live now asserts EXACT membership of the default list (§4.2). |
 | B5 | HIGH (R4b) — the plan never schedules P5-live; Tasks 2-3 say "P1-P8" throughout, so an implementer could omit the accepted regression test. | **Accepted.** The plan names the family "P1-P8 plus P5-live" at every site. |
 | A6 | BLOCKING (R3a) — clauses 1/5/6 still permit three escape classes: a spread whose result preserves a literal code, declaration-only and callback factories treated as scanned uses, and `await asyncFactory()` outside the site kinds. | **Accepted, and answered structurally rather than by adding three more clauses.** This was round 3 on one vector, so §3.1 was INVERTED to fail-closed: the default is now SIGNAL, and a skip requires one of four machine-checkable classifications. `await` is a site kind; the USE test now requires a function-like declaration WITH A BODY (following import aliases), so declaration-only and callback factories signal; spread-preserved literals are captured by reading the OWN type. Re-measured 58 codes, 0 signalled, 22 classified skips. |
+| B6 | HIGH (R5b) — AC-B5 silently misses one stale marker: the in-flight guard scans body lines 1-12 and `BL-LEDGER-GUARD-BODY-DEFINED-IDS` has its status at body line 13. | **Accepted.** AC-B5a asserts the transition directly instead of relying on that guard. The window limitation belongs to the sibling guard; it is covered here rather than assumed away. |
+| B7 | HIGH (R5b) — P5-sole is canonical in the spec but absent from all five executable plan sites. | **Accepted, and it is the same defect R4b raised about P5-live one round earlier — my repair patched one site instead of sweeping the class.** All plan sites now enumerate TEN plants (P1-P8, P5-live, P5-sole), verified by grep rather than by inspection. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 

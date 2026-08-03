@@ -42,7 +42,7 @@ and the ratified `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-de
 - `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — eight `KNOWN_DANGLING` rows deleted
   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:95`), `definedIds()`
   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:127`) unions in body-defined ids.
-- `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P8; **P5 and P5-live live in `tests/docs/_metaLedgerReferentialIntegrity.test.ts`** instead, because both need the file-scoping seam.
+- `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P4 and P6–P8. **P5, P5-live and P5-sole live in `tests/docs/_metaLedgerReferentialIntegrity.test.ts`** instead: all three are about file scoping, which `bodyDefinedIds(text, opts)` cannot see.
 
 **Declared not applicable:** Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) — no
 Supabase call added. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no
@@ -81,9 +81,10 @@ while PASSING the type-aware one:**
 | A-f | `code` resolvable to no literal at all | **reported and fails** — never dropped | **AC-A7** |
 | A-g | `severity: "info"` rather than `"warn"` | both are members of the union (`lib/parser/types.ts:68`) | AC-A1 |
 
-**Item B — the nine plants P1–P8 plus P5-live of spec §4.2 ARE the family enumeration.** P7/P8 exist
-because R1 demonstrated the intervening-non-id-heading mutant; **P5-live** exists because R4b
-demonstrated a widened-default mutant that survived every earlier P5 assertion.
+**Item B — the TEN plants P1–P8, P5-live and P5-sole (spec §4.2, §4.2a) ARE the family
+enumeration.** P7/P8 exist because R1 demonstrated the intervening-non-id-heading mutant;
+**P5-live** because R4b demonstrated a widened-default mutant; **P5-sole** because the §4.2a
+re-analysis found nothing pinned that `bodyDefinedIds` has no second production caller.
 
 ---
 
@@ -238,8 +239,8 @@ uses (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:240-244`), then implem
 (`tests/docs/_ledgerMdast.ts:302`). Union into `definedIds()`. Delete the eight `KNOWN_DANGLING`
 rows.
 
-**Verify.** AC-B1, AC-B2 (all nine plants, P5-live included — it is the R4b regression test and
-omitting it is the failure this row exists to prevent), AC-B3 (exactly 8 over the live ledgers, not
+**Verify.** AC-B1, AC-B2 (**all ten plants**, P5-live AND P5-sole included — each is a prior
+round's regression test, and omitting one is precisely the failure R4b and R5b each caught), AC-B3 (exactly 8 over the live ledgers, not
 11), AC-B4. The guard's
 existing stale-row ratchet is what proves the eight deletions were required rather than optional.
 
@@ -260,6 +261,14 @@ marker instead fails the `BACKLOG_GRADUATED` provenance assertion
 (`tests/docs/_metaDeferralLedgerGraduation.test.ts:393-396`), because that marker is the section's
 only mention of the branch; leaving it fails `_metaLedgerInProgress.test.ts`, because an archive may
 not hold in-flight work. R3b found this collision.
+
+**Do NOT rely on `_metaLedgerInProgress.test.ts` to catch a missed transition.** R5b probed it:
+that guard scans only body lines 1–12 of an entry, and `BL-LEDGER-GUARD-BODY-DEFINED-IDS` carries
+its status at body line **13**, so leaving that entry's marker unchanged passes both real guards
+silently. Task 3 therefore asserts the transition DIRECTLY — after the move, `rg 'IN PROGRESS'
+BACKLOG-archive.md` returns nothing for either id, and each archived section contains
+`chore/scanner-precision-cluster`. The window limitation is the sibling guard's, not this plan's;
+it is recorded here so the gap is covered rather than assumed away.
 
 **Ordering that matters:** `BL-LEDGER-GUARD-BODY-DEFINED-IDS`'s body contains the
 `BACKLOG.md:79` bullets enumerating the eight ids as code spans, not strong — so under Task 2's
