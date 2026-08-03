@@ -3,7 +3,7 @@
 **Date:** 2026-08-02
 **Branch:** `test/parser-determinism-pair`
 **Backlog entries:** `BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE`, `BL-KNOWN-SECTIONS-WALKER`
-**Status:** spec, revised after cross-model review rounds 1-6 (7 + 2 + 5 + 2 + 3 + 3 findings, all landed)
+**Status:** spec, revised after cross-model review rounds 1-7 (7 + 2 + 5 + 2 + 3 + 3 + 1 findings, all landed)
 
 ---
 
@@ -370,17 +370,23 @@ vocabulary const**; venue's derived list is the better source (it cannot drift f
 ### 4.6 Red state (invariant 1) for a test-only deliverable
 
 The rewritten assertions pass against unmodified `main`, so the red state is established by
-mutation rather than by production code that does not yet exist, and the chronology matters (review
-round 6): mutations B–H exercise assertions that do not exist until the case is written, so they
-cannot precede it. The order is:
+mutation rather than by production code that does not yet exist. The order below is literally
+red-first — the new case is **written while the tree is broken, and observed failing, before it is
+observed passing** — because review round 7 correctly refused a chronology that wrote the case on a
+clean tree and proved sensitivity only afterwards:
 
-1. **Defect proof, before any rewrite.** Apply Mutation A to the unmodified tree and run the
-   **existing** case at `tests/parser/blocks/venue.test.ts:311`. It stays **GREEN**. That is the
-   documented failure this work removes: a test that cannot fail when the parser does nothing.
-2. **Write the case** (§4.2, §4.3) and confirm it is green on the clean tree.
-3. **Mutation battery.** Run A–H against the new case; each must go red for its own stated reason.
-   For a test-only deliverable this battery *is* the red state invariant 1 requires — each mutation
-   is a state in which the assertion fails — and step 1 is the evidence the prior test had none.
+1. **Defect proof.** Apply Mutation A (`parseVenue` returns `null`). Run the **existing** case at
+   `tests/parser/blocks/venue.test.ts:311`: it stays **GREEN**. That is the documented failure this
+   work removes — a test that cannot fail when the parser does nothing.
+2. **Failing test first.** With Mutation A **still applied**, write the new case (§4.2, §4.3) and
+   run it: **RED**, all 8453 cases. Capture the output. This is invariant 1's failing state, and it
+   precedes any observation of the case passing.
+3. **Green.** Revert Mutation A. Re-run: **GREEN**. For a test-only deliverable the "minimal
+   implementation" that turns the failing test green is the parser behavior the mutation removed;
+   there is no production code to add, because probe §2.4 shows none is missing.
+4. **Sensitivity battery.** Run B–H against the new case; each must go red for its own stated
+   reason, and be reverted before the next. This proves each assertion is load-bearing rather than
+   decorative — it is not the red state, step 2 is.
 
 All eight mutations are run, their output recorded in the task commit message, and none is
 committed:

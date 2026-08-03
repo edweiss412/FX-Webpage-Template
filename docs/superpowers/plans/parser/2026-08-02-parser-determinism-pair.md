@@ -44,22 +44,23 @@ N/A — no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and n
 
 **Implements:** spec §4.
 
-### 1.1 Red first — defect proof, then an eight-mutation battery (spec §4.6)
+### 1.1 Red first — write the case against a broken tree (spec §4.6)
 
-The deliverable is a test, so the red state comes from mutating the tree rather than from
-production code that does not yet exist — and the chronology matters (review round 6): mutations
-B–H exercise assertions that do not exist until §1.2 is written, so they cannot precede it.
+The deliverable is a test, so there is no production code to add — probe evidence (spec §2.4) shows
+the parser has no defect. Invariant 1 is still satisfied literally: the new case is **written while
+the tree is broken, observed failing, and only then observed passing.**
 
-1. **Defect proof, first, before touching anything.** Apply Mutation A to the unmodified tree and
-   run the **existing** case at `tests/parser/blocks/venue.test.ts:311`. It stays **GREEN** — the
-   documented failure this task removes. Revert.
-2. **Write the case** (§1.2, §1.3); confirm green on the clean tree.
-3. **Mutation battery.** Run A–H against the new case; each must red for its own stated reason.
-   For a test-only deliverable this battery *is* invariant 1's red state, and step 1 is the
-   evidence the prior test had none.
+1. **Defect proof.** Apply Mutation A (`parseVenue` returns `null`). Run the **existing** case at
+   `tests/parser/blocks/venue.test.ts:311` — it stays **GREEN**. That is the failure this task
+   removes. Capture it.
+2. **Failing test first.** With Mutation A **still applied**, write the case (§1.2, §1.3) and run
+   it: **RED**, all 8453 cases. Capture it. This is the red state, and it precedes any green.
+3. **Green.** Revert Mutation A; re-run: **GREEN**. The "minimal implementation" that turns it green
+   is the parser behavior the mutation removed.
+4. **Sensitivity battery.** Run B–H, each red for its own stated reason, reverting before the next.
+   This proves every assertion is load-bearing; it is not the red state — step 2 is.
 
-Paste every result into the commit message; revert each mutation before the next. **None is
-committed.**
+Paste every result into the commit message. **No mutation is committed.**
 
 | Mutation | Edit | Required result |
 | --- | --- | --- |
