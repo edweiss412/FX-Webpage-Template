@@ -1957,8 +1957,11 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // requires whitespace or line start before the name) cannot see it. Gated
     // on the destination file so relaxing the boundary costs no precision
     // anywhere else: a line that writes neither is read exactly as before.
+    // The destination is matched as a NAME, not as `$GITHUB_ENV`: PowerShell
+    // spells it `$env:GITHUB_ENV`, where the `$` sits before `env:` and a
+    // `\$\{?GITHUB_` pattern matches nothing.
     const githubEnvWrite =
-      /\$\{?GITHUB_(?:ENV|OUTPUT)\}?/.test(code) &&
+      /\bGITHUB_(?:ENV|OUTPUT)\b/.test(code) &&
       /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(code)
         ? ["", ""]
         : null;
@@ -2025,7 +2028,24 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
  * container action's `entrypoint`/`args`). Every other key in the schema names
  * data, a label, or a reference.
  */
-const EXECUTABLE_WORKFLOW_KEYS = new Set(["run", "shell", "entrypoint", "args"]);
+const EXECUTABLE_WORKFLOW_KEYS = new Set(["run", "shell"]);
+
+/**
+ * `entrypoint` and `args` are deliberately NOT in that set: they are not two
+ * independent scalars, they are ONE argv, and reading them apart is a false
+ * safe. `entrypoint: env` + `args: ['-S', 'psql -F\_ -X mydb']` runs
+ * `psql -F -X mydb` — env's split-string grammar makes `\_` an argument
+ * separator, so `-X` is `-F`'s VALUE — while an item read as ordinary shell
+ * text lexed one token `-F_` and certified the `-X` behind it. They are
+ * composed into a command line by `composeContainerArgv` instead, which puts
+ * every consumer grammar the reader already knows back in play.
+ */
+const CONTAINER_ARGV_KEYS = new Set(["entrypoint", "args"]);
+
+/** Quote a word so the lexer re-splits it exactly as this argv element. */
+function shellQuoteWord(word: string): string {
+  return `'${word.split("'").join(`'\\''`)}'`;
+}
 
 /**
  * YAML keys under which a scalar BINDS A COMMAND NAME for later expansion.
@@ -2047,10 +2067,58 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   const lineStartOf = (offset: number): number => source.slice(0, offset).split("\n").length - 1;
 
   visit(document, {
+    /**
+     * A container action's command is `entrypoint` PLUS `args`, one argv. Read
+     * apart they are two unrelated scalars and every consumer grammar is lost;
+     * composed, `entrypoint: env` gets env's split-string rules, `sh` gets
+     * `-c`, and so on. Each SEQUENCE item is one argv element and is quoted so
+     * the lexer re-splits it identically; a SCALAR `args` is a command line
+     * GitHub itself splits, so it goes in as written.
+     */
+    Map(_key: unknown, mapNode: unknown) {
+      const items = (mapNode as { items?: unknown[] }).items;
+      if (!Array.isArray(items)) return;
+      const valueOf = (name: string): unknown =>
+        items.find(
+          (item) =>
+            isPair(item as YamlNode as never) &&
+            (item as { key?: { value?: unknown } }).key?.value === name,
+        );
+      const entrypointPair = valueOf("entrypoint") as { value?: unknown } | undefined;
+      const argsPair = valueOf("args") as { value?: unknown } | undefined;
+      if (!entrypointPair && !argsPair) return;
+      const words: string[] = [];
+      const scalarText = (n: unknown): string | null => {
+        if (!isScalar(n as YamlNode as never)) return null;
+        const text = (n as { value?: unknown }).value;
+        return typeof text === "string" ? text : null;
+      };
+      const entrypoint = scalarText(entrypointPair?.value);
+      if (entrypoint !== null) words.push(shellQuoteWord(entrypoint));
+      if (argsPair) {
+        const argsItems = (argsPair.value as { items?: unknown[] } | undefined)?.items;
+        if (Array.isArray(argsItems)) {
+          for (const item of argsItems) {
+            const text = scalarText(item);
+            if (text !== null) words.push(shellQuoteWord(text));
+          }
+        } else {
+          const inline = scalarText(argsPair.value);
+          if (inline !== null) words.push(inline);
+        }
+      }
+      if (words.length === 0) return;
+      const anchor = (
+        (entrypointPair ?? argsPair) as { key?: { range?: [number, number, number] } }
+      ).key?.range;
+      sites.push(...scanShellText(words.join(" "), file, anchor ? lineStartOf(anchor[0]) : 0));
+    },
     Pair(_key: unknown, pair: unknown) {
       const node = pair as { key?: unknown; value?: unknown };
       if (!isPair(pair as YamlNode as never)) return;
       const key = node.key as { value?: unknown } | undefined;
+      // Handled as one argv by the Map visitor above, never as scalars here.
+      if (CONTAINER_ARGV_KEYS.has(key?.value as string)) return;
       // `run:` is the obvious executable scalar. `shell:` is the other one: a
       // CUSTOM shell is a documented TEMPLATE — GitHub substitutes the path of
       // the temporary script at `{0}` and runs the result — so
@@ -2068,25 +2136,6 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // summary string — and scanning all of it would report prose.
       if (!key || !EXECUTABLE_WORKFLOW_KEYS.has(key.value as string)) return;
       const isShellKey = key.value === "shell";
-      // An action's `runs.args` is documented as an ARRAY passed to the
-      // container entrypoint, so the executable text is the ITEMS, not a
-      // scalar: `entrypoint: sh` + `args: ["-c", "psql -qAt mydb"]` runs an
-      // unprotected psql, and a reader that required a scalar returned
-      // immediately on every one of them. Each item is scanned on its own —
-      // `-c`'s operand is a whole command line, and a bare argv item is a word
-      // of one — which is the conservative reading either way.
-      const seqItems = (node.value as { items?: unknown[] } | undefined)?.items;
-      if (Array.isArray(seqItems)) {
-        for (const item of seqItems) {
-          if (!isScalar(item as YamlNode as never)) continue;
-          const itemText = (item as { value?: unknown }).value;
-          if (typeof itemText !== "string") continue;
-          const itemRange = (item as { range?: [number, number, number] }).range;
-          const itemOffset = itemRange ? lineStartOf(itemRange[0]) : 0;
-          sites.push(...scanShellText(itemText, file, itemOffset));
-        }
-        return;
-      }
       // A `run: *cmd` ALIAS is not a scalar node. Anchors/aliases are
       // documented GitHub Actions reuse, so resolving is required, not
       // generous.
@@ -2261,6 +2310,36 @@ export function scanWorkflowIndirection(source: string, file: string): Indirecti
     });
   };
   walkNode(document.contents, false);
+
+  /**
+   * An environment-file write is a binding whose NAME and VALUE need not share
+   * a physical line. GitHub documents a multiline DELIMITER form —
+   * `echo 'PSQL<<EOF'`, the value, `echo 'EOF'`, redirected to `$GITHUB_ENV` —
+   * and PowerShell writes through `$env:GITHUB_ENV`. A line-scoped rule saw
+   * neither. Scoped to the `run:` SCALAR, which is the unit that actually runs:
+   * a step that writes an environment file and mentions psql anywhere in the
+   * same script is binding one, and reporting it is the fail-loud direction.
+   * Checked against this tree at authoring time (2026-08-03): zero `run:`
+   * blocks pair an environment-file write with any psql mention, so this costs
+   * no precision here — the `command -v psql` availability probe writes no
+   * environment file.
+   */
+  visit(document, {
+    Pair(_key: unknown, pair: unknown) {
+      if (!isPair(pair as YamlNode as never)) return;
+      const node = pair as { key?: { value?: unknown }; value?: unknown };
+      if (node.key?.value !== "run") return;
+      const text = (node.value as { value?: unknown } | undefined)?.value;
+      if (typeof text !== "string") return;
+      if (!/\bGITHUB_(?:ENV|OUTPUT)\b/.test(text) || !/\bpsql\b/.test(text)) return;
+      const keyRange = (node.key as { range?: [number, number, number] } | undefined)?.range;
+      hits.push({
+        file,
+        line: keyRange ? lineStartOf(keyRange[0]) + 1 : 1,
+        text: text.trim().split("\n")[0] ?? text.trim(),
+      });
+    },
+  });
   return hits;
 }
 

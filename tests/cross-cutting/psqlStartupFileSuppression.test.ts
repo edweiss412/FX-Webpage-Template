@@ -2701,3 +2701,118 @@ describe("R29 escaping mutants — the binding surface YAML can spell", () => {
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R30 escaping mutants — an argv array is one command line", () => {
+  const WORKFLOW = ".github/workflows/x.yml";
+  function yamlHits(source: string, file = WORKFLOW) {
+    return [...scanWorkflowIndirection(source, file), ...scanShellIndirection(source, file)];
+  }
+
+  // Scanning `args` items INDEPENDENTLY threw away the entrypoint, and with it
+  // every consumer grammar the reader already knows. `entrypoint: env` is the
+  // sharpest case: env's split-string grammar makes `\_` an ARGUMENT
+  // SEPARATOR, so `-F\_ -X mydb` really passes `-F -X mydb` where `-X` is
+  // `-F`'s VALUE and suppresses nothing — while an item read as ordinary shell
+  // text lexed one token `-F_` and certified the `-X` behind it. A FALSE SAFE,
+  // the one failure mode this file exists to prevent.
+  test.each([
+    ["a separated -S", "runs:\n  entrypoint: env\n  args: ['-S', 'psql -F\\_ -X mydb']\n"],
+    [
+      "a separated --split-string",
+      "runs:\n  entrypoint: env\n  args: ['--split-string', 'psql -F\\_ -X mydb']\n",
+    ],
+    ["an attached -S", "runs:\n  entrypoint: env\n  args: ['-Spsql -qAt mydb']\n"],
+    [
+      "an attached --split-string=",
+      "runs:\n  entrypoint: env\n  args: ['--split-string=psql -qAt mydb']\n",
+    ],
+  ])("`entrypoint: env` with %s is NOT certified", (_label, source) => {
+    const sites = sitesIn(source, "action.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+  });
+
+  // The entrypoint's OWN grammar must still be read, not just env's: an argv
+  // array under `sh -c` is a command string, and it certifies when protected.
+  test("`entrypoint: sh` with a protected `-c` argv certifies", () => {
+    const sites = sitesIn(
+      'runs:\n  entrypoint: sh\n  args: ["-c", "psql -X -qAt mydb"]\n',
+      "action.yml",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("`entrypoint: sh` with an unprotected `-c` argv is a site", () => {
+    const sites = sitesIn(
+      'runs:\n  entrypoint: sh\n  args: ["-c", "psql -qAt mydb"]\n',
+      "action.yml",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // A GitHub environment-file write is documented in a MULTILINE delimiter form
+  // (the name and the value are on different physical lines) and in PowerShell
+  // through `$env:GITHUB_ENV`. Requiring the assignment and a Bourne-style
+  // destination on ONE line missed every one of them.
+  const DELIM_ENV = [
+    "jobs:",
+    "  x:",
+    "    steps:",
+    "      - run: |",
+    "          {",
+    "            echo 'PSQL<<EOF'",
+    "            echo 'psql'",
+    "            echo 'EOF'",
+    '          } >> "$GITHUB_ENV"',
+    "",
+  ].join("\n");
+  const DELIM_OUTPUT = DELIM_ENV.replace("GITHUB_ENV", "GITHUB_OUTPUT");
+  const PWSH_ENV = [
+    "jobs:",
+    "  x:",
+    "    steps:",
+    "      - shell: pwsh",
+    '        run: "PSQL=psql" | Out-File -FilePath $env:GITHUB_ENV -Append',
+    "",
+  ].join("\n");
+  const PWSH_OUTPUT = PWSH_ENV.replace("GITHUB_ENV", "GITHUB_OUTPUT");
+
+  test.each([
+    ["a multiline delimiter write to GITHUB_ENV", DELIM_ENV],
+    ["a multiline delimiter write to GITHUB_OUTPUT", DELIM_OUTPUT],
+    ["a PowerShell write through $env:GITHUB_ENV", PWSH_ENV],
+    ["a PowerShell write through $env:GITHUB_OUTPUT", PWSH_OUTPUT],
+  ])("%s is reported", (_label, source) => {
+    expect(yamlHits(source).length).toBeGreaterThan(0);
+  });
+
+  // PRECISION: an environment-file write that binds nothing psql-shaped stays
+  // quiet, and so does a step that merely NAMES psql without writing one.
+  test.each([
+    [
+      "a psql-free delimiter write",
+      DELIM_ENV.replace("echo 'psql'", "echo 'main'").replace("PSQL<<EOF", "REF<<EOF"),
+    ],
+    [
+      "the availability probe with no env write",
+      "jobs:\n  x:\n    steps:\n      - run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client\n",
+    ],
+    ["a psql-free PowerShell write", PWSH_ENV.replace('"PSQL=psql"', '"REF=main"')],
+  ])("%s is not reported", (_label, source) => {
+    expect(yamlHits(source)).toEqual([]);
+  });
+
+  test(
+    "the composed-argv and environment-file reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
