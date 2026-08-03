@@ -289,6 +289,41 @@ function testBudgets(file: string, body: string): Budget[] {
   // unrelated `check(a, b, c)` in another function look like a test call, which
   // is a false positive on code that is not a test at all.
   const budgetNames = new Set(BUDGET_APIS);
+  // Does this initializer bind one of vitest's budget-bearing functions? Covers
+  // a direct alias, a modifier or `it.extend(...)` chain, and — the form this
+  // repo actually uses at five DB suites — a CONDITIONAL one:
+  //
+  //   const maybe = dbUp ? describe : describe.skip;
+  //   maybe("DB suite", fn, 1_000);
+  //
+  // Either branch being a test function is enough: the budget is live whichever
+  // way the condition falls.
+  const bindsBudgetApi = (expr: ts.Expression): boolean => {
+    const node = unwrap(expr);
+    if (ts.isIdentifier(node)) return budgetNames.has(node.text);
+    if (ts.isPropertyAccessExpression(node) || ts.isCallExpression(node)) {
+      let base: ts.Node = node;
+      while (ts.isPropertyAccessExpression(base) || ts.isCallExpression(base)) {
+        base = base.expression;
+      }
+      return ts.isIdentifier(base) && budgetNames.has(base.text);
+    }
+    if (ts.isConditionalExpression(node)) {
+      return bindsBudgetApi(node.whenTrue) || bindsBudgetApi(node.whenFalse);
+    }
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken ||
+        kind === ts.SyntaxKind.AmpersandAmpersandToken
+      ) {
+        return bindsBudgetApi(node.left) || bindsBudgetApi(node.right);
+      }
+    }
+    return false;
+  };
+
   const namespaces = new Set<string>();
   const viNames = new Set(["vi", "vitest"]);
   for (const stmt of source.statements) {
@@ -309,16 +344,7 @@ function testBudgets(file: string, body: string): Budget[] {
     if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
-      const from = decl.initializer;
-      if (ts.isIdentifier(from) && budgetNames.has(from.text)) budgetNames.add(decl.name.text);
-      // `it.extend({...})` / `test.extend(...)` returns a test function.
-      if (ts.isCallExpression(from)) {
-        let base: ts.Node = from.expression;
-        while (ts.isPropertyAccessExpression(base) || ts.isCallExpression(base)) {
-          base = base.expression;
-        }
-        if (ts.isIdentifier(base) && budgetNames.has(base.text)) budgetNames.add(decl.name.text);
-      }
+      if (bindsBudgetApi(decl.initializer)) budgetNames.add(decl.name.text);
     }
   }
 
