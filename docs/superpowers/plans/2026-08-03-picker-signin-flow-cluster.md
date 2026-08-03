@@ -73,21 +73,54 @@ Checked and ruled out, explicitly:
   `onClick` handler and the real submission path intact, so the production code path is what gets
   exercised.
 
-## 0.3 Closeout marker
+## 0.3 Closeout marker — deferred to close-out, deliberately
 
-impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
+This plan touches UI surface, so invariant 8 applies and its marker line is required. **The marker
+is written at close-out (Task 9), not here, and the gate half-names are spelled out there too.**
 
-UI surface is touched (`_PickerInterstitial.tsx`, new `_ClaimedRowButton`), so the invariant-8 dual
-gate runs at close-out and this line is filled in then.
+Reason, verified against the guard rather than assumed: `tests/docs/_invariant8Closeout.ts:127-164`
+accepts exactly two marker forms outside registered template files — the RAN form with real counts,
+and the N/A form. The fill-in TEMPLATE form is classified **malformed** anywhere except
+`HANDOFF-TEMPLATE.md` (`tests/docs/invariant8/preGuardDebt.ts:236-238` is the only allowlist).
+An earlier revision of this plan carried the template placeholder and turned
+`tests/docs/_metaInvariant8Closeout.test.ts` red on the live tree — measured, not hypothetical:
+
+```text
+§4.1.1 every declaring unit conforms or carries a PRE_GUARD_DEBT row — FAIL
+§4.1.2 no malformed marker line anywhere in the plans tree — FAIL
+  2026-08-03-picker-signin-flow-cluster.md: malformed marker line: impeccable-gate: critique=<...>
+```
+
+`declaresGate` (`tests/docs/_invariant8Closeout.ts:109-118`) folds a unit as *declaring* when some
+file in it names both gate halves, and a declaring unit must then carry a conforming marker. Since
+neither honest form exists before the gate has run, the half-names and the marker land together in
+the same close-out commit. Precedent: `docs/superpowers/plans/2026-08-02-admin-popover-overlay-cluster.md:307`
+carries only its final RAN line.
+
 
 ---
 
 ## Tasks
 
-**Every task is a complete TDD cycle** — failing test → minimal implementation → passing test →
-one commit (AGENTS.md invariants 1 and 6). A task is never RED-only or GREEN-only: splitting them
-would commit a red suite, which invariant 6's one-commit-per-task rule turns into a broken HEAD.
-Plan R1 finding 1.
+Tasks come in two kinds, and R2 was right that calling all of them "TDD" was false.
+
+**Implementation tasks** (1, 3, 4) are strict TDD cycles: failing test → minimal implementation →
+passing test → one commit (AGENTS.md invariants 1 and 6). Never RED-only or GREEN-only — splitting
+those would commit a red suite, which the one-commit-per-task rule turns into a broken HEAD (plan
+R1 finding 1).
+
+**Proof tasks** (2, 5, 6, 7, 8) add or change tests for behavior an earlier task already
+implemented. They cannot have a natural red phase, and pretending otherwise is how a tautological
+test ships. Instead each carries a **falsification requirement**: the task is done only when the
+implementer has demonstrated a concrete mutation that makes the new assertion FAIL, and recorded
+that mutant and its output in the commit message. A proof task whose mutant cannot be produced is
+not proving anything and must be strengthened or dropped. The specific mutant is named in each
+task body.
+
+**Task 9 is process**, not a test task, and is labelled as such.
+
+This division is the honest form of invariant 1 for a plan that closes three defects with layered
+unit, component, and browser evidence. R2 finding 3.
 
 ### Task 1 — bootstrap accepts a query-bearing `next`
 
@@ -139,8 +172,11 @@ route-level test passes against a broken parser.
 - `/show/<slug>/<64hex>` → same pair.
 - `/show/<SLUG-with-caps>/<64hex>` → `null` (case grammar unchanged).
 
-**GREEN.** No implementation change — Task 1 already wrote it. This task's deliverable is the test
-plus the recorded mutant result, committed together.
+**Falsification requirement (proof task).** No implementation change — Task 1 already wrote it. The
+deliverable is the test PLUS the recorded mutant: delete the `$` from `SHOW_NEXT_RE`, run both, and
+paste the result in the commit message. Expected, and already confirmed by review probe:
+the new unit test FAILS while the route-level test stays green — which is exactly why the unit test
+has to exist.
 
 Two route-level guards stay, because they pin different seams:
 
@@ -216,8 +252,10 @@ spec §3.4. Local `useState` for pending, flipped in `onClick`, reset on `pagesh
 
 **Busy signalling is `aria-disabled`, NOT the `disabled` attribute** (spec §3.5). A natively
 disabled button leaves the focusable set, so a keyboard user loses their place the moment the row
-goes busy. `aria-disabled` keeps it focusable; the `onClick` early-return is what actually blocks
-the second activation, and is therefore load-bearing. Pending background is set via an
+goes busy. `aria-disabled` keeps it focusable. **The `onClick` handler MUST call
+`e.preventDefault()` on the pending path** — measured: an early return alone leaves `submits=2`,
+with `preventDefault` it is 1, and `aria-disabled` alone does not block activation (spec §3.6
+P1/P2). Without it the row looks busy and still double-submits, i.e. the defect is untouched. Pending background is set via an
 `aria-disabled:` variant declared after the hover rule — `disabled:` variants do not apply and
 hover is NOT suppressed for free.
 
@@ -230,7 +268,10 @@ a claimed and an unclaimed row:
    unscoped query passes on the wrong node.
 2. **`useFormStatus` regression guard** — test 1's real job. A `useFormStatus` implementation leaves
    pending false forever and fails it. Name that failure mode in a comment citing spec §3.4.
-3. `role={null}` → no chip idle, `Signing in…` chip pending (spec R4).
+3. `role=""` → no chip idle, `Signing in…` chip pending (spec R4). **Not `role={null}`** — the prop
+   is `string` (`_PickerInterstitial.tsx:50`), the seed helper types it `string`
+   (`tests/e2e/helpers/seedShowWithCrew.ts:33-42`), and the column is `role text not null`. A null
+   fixture does not typecheck and cannot be seeded.
 4. Unclaimed row never renders `picker-row-spinner` (spec R5).
 5. `pageshow` with `persisted: true` after pending → back to idle.
 6. **Double-activation guard.** Two clicks issue one submit. Failure mode: relying on
@@ -260,10 +301,15 @@ route.abort())`) so the navigation never commits and the element cannot detach. 
 intact, so the test still exercises the production code path rather than a neutered one. Register
 the interception BEFORE the click, and assert the row is still attached before each measurement.
 
+**Falsification requirement (proof task):** revert the fixed-width lock/spinner slot and show 5a's
+name-edge assertion failing; revert the `aria-disabled:` background precedence and show 5b failing;
+swap `aria-disabled` for `disabled` and show 5c failing. Record all three in the commit message.
+
 **5a — height invariance over two fixtures.** Claimed row `getBoundingClientRect().height` idle vs
-pending, equal within 0.5px, for a row WITH a role and a row with `role={null}`. The null-role case
-is the one that matters: with a role present pending swaps chip text, but with `role={null}`
-pending ADDS a chip idle does not have. A role-bearing fixture alone proves the easy substitution
+pending, equal within 0.5px, PLUS the name span's left edge unchanged within 0.5px (the
+lock-vs-spinner width invariant, spec §5), for a row WITH a role and a row with `role=""`. The
+roleless case is the one that matters: with a role present pending swaps chip text, but with
+`role=""` pending ADDS a chip idle does not have. A role-bearing fixture alone proves the easy substitution
 and never exercises R4's addition (spec R1 finding 4).
 
 Spec §5 invariant list, verbatim, is this task's checklist:
@@ -287,6 +333,10 @@ the row. Failure mode: shipping `disabled`, which drops focus to `<body>`.
 `aria-disabled` still convey pending. Spec §4.3 requires motion never be the sole signal.
 
 ### Task 6 — transition audit
+
+**Falsification requirement (proof task):** add a fourth conditional branch to `_ClaimedRowButton`
+with no declared treatment and show the audit failing on it. If the audit passes with an
+undeclared branch present, it is enumerating nothing.
 
 Enumerate every conditional branch in `_ClaimedRowButton` and assert each is animated as stated or
 deliberately instant, against spec §6:
@@ -312,8 +362,11 @@ claims about them were false, and a static conditional scan proves no browser be
 URL, deleting the comment block at each.
 
 **This is the highest-value task in the plan.** It is the only place the bootstrap fix is proved
-end-to-end against a real browser and a real Google session rather than a route unit test. If it
-fails, Task 1 did not actually ship.
+end-to-end against a real browser and a real Google session rather than a route unit test.
+
+**Falsification requirement (proof task):** it is self-falsifying — revert Task 1's `parseNextPath`
+change and the direct navigation 403s. Record that run. If it does NOT fail with Task 1 reverted,
+the two-step workaround was never load-bearing and this task proves nothing.
 
 ### Task 8 — stale-cleanup e2e
 
@@ -337,18 +390,31 @@ Sequence:
 `<SignInOrSkipGate>` — the wrong-screen bug from spec R1 finding 2 — because that gate has no stale
 hint either. Derive the expected URL from the fixture's slug/token; never hardcode.
 
+**Falsification requirement (proof task):** drop `gate` from the redirect in Task 3 and show this
+e2e failing on `picker-interstitial-root` (it should land on the sign-in gate). That is the
+assertion's whole reason for existing — a URL-only assertion would stay green.
+
 Coverage is 1 of the 4 stale kinds (`epoch_stale`), per the documented-limits rationale in spec §9.
 
 ### Task 9 — close-out
 
-1. Invariant-8 dual gate: `/impeccable critique` AND `/impeccable audit` on the diff. Fill in the
-   §0.3 marker; record findings + dispositions.
-2. Graduate the three backlog entries to `BACKLOG-archive.md`, and correct the dangling
+1. **Invariant-8 dual gate.** Run BOTH halves named in `AGENTS.md` invariant 8, with their
+   canonical setup gates first: the skill's context-load step (PRODUCT.md + DESIGN.md), then its
+   register reference read (the brand or product register named in AGENTS.md invariant 8). Then add a `## 12` section to this plan
+   containing the real marker line in the RAN form with actual counts, and record findings +
+   dispositions there. The half-names and the marker land in this same commit (§0.3).
+2. **Whole-diff cross-model review to APPROVE, INCLUDING any repair commits it forces.** This runs
+   BEFORE the ledger graduation, not after. R2 finding 6: an earlier ordering made the graduation
+   "the last commit before the PR" and then put review after it, so any ordinary review repair
+   would land later and break that rule. Review first; repair until APPROVE; only then graduate.
+3. **Graduate the three backlog entries** to `BACKLOG-archive.md`, and correct the dangling
    "master spec §16.6" citation in `BL-PICKER-CLAIMED-ROW-PENDING-STATE` to
-   `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`. **Last commit before
-   the PR** — another session owns the ledger files; rebase onto it if it has not merged (spec §11).
-3. Whole-diff cross-model review to APPROVE.
-4. Push → real CI green → `gh pr merge --merge` → verify `0  0`.
+   `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`. This is now genuinely
+   the last commit before the PR. Another session owns the ledger files — check `git worktree list`
+   and rebase onto that branch if it has not merged (spec §11).
+4. Push → real CI green → `gh pr merge --merge` → verify `0  0`. If CI forces a fix, the ledger
+   commit is re-applied on top rather than amended, and step 3's last-commit rule is restated as
+   "last commit authored before the PR opens" — CI repairs are exempt by construction.
 
 ---
 
