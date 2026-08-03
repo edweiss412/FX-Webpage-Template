@@ -20,7 +20,7 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
 | R1 | The bootstrap handler **preserves** the allow-listed `next` query rather than stripping to the canonical bare URL. | Owner, 2026-08-03, this branch's brainstorming gate. Rationale: `lib/auth/validateNextParam.ts:77` has already reduced the query to an allow-list before the handler sees it, and the handler already redirects to that same query-carrying string at `app/api/auth/picker-bootstrap/route.ts:189` and `app/api/auth/picker-bootstrap/route.ts:211`. |
 | R2 | `cleanupStaleEntry` gains the validate-then-redirect its sibling already has, **and** a new prod-build e2e lands in the same PR. Not e2e-only, not won't-fix. | Owner, 2026-08-03, brainstorming gate. The entry's own precondition ("write a prod-build e2e first so the change is provable") is satisfied by shipping both together. |
 | R3 | The claimed-row pending affordance is **spinner in place of the lock + role chip text swapped to `Signing in…`** (mockup option C). Not a bare fade, not a spinner alone, not a second line under the name. | Owner, 2026-08-03, brainstorming gate, chosen against a rendered four-option mockup. |
-| R4 | When a claimed row has no **displayable** role, the pending chip **still renders** (it is the only right-side signal) and unmounts on completion. **Premise corrected in R2:** originally written as `role={null}`, which is unrealizable — `role` is non-nullable at `_PickerInterstitial.tsx:50`, `app/show/[slug]/[shareToken]/page.tsx:59`, and in the schema (`supabase/migrations/20260501000000_initial_public_schema.sql:37`, `role text not null`). The `c.role &&` guard at `_PickerInterstitial.tsx:227` is an **empty-string** check. The owner's decision stands; only the triggering input is corrected to `role: ""`. | Owner, 2026-08-03; premise corrected against live code in spec review R2. |
+| R4 | When a claimed row has no **displayable** role, the pending chip **still renders** (it is the only right-side signal) and unmounts on completion. **Premise corrected in R2:** originally written as `role=""`, which is unrealizable — `role` is non-nullable at `_PickerInterstitial.tsx:50`, `app/show/[slug]/[shareToken]/page.tsx:59`, and in the schema (`supabase/migrations/20260501000000_initial_public_schema.sql:37`, `role text not null`). The `c.role &&` guard at `_PickerInterstitial.tsx:227` is an **empty-string** check. The owner's decision stands; only the triggering input is corrected to `role: ""`. | Owner, 2026-08-03; premise corrected against live code in spec review R2. |
 | R5 | **Unclaimed** rows are out of scope and get no pending state. Their form posts a local Server Action, not a three-hop OAuth journey. | This spec, §4.2 mode boundary. The backlog item is scoped to the claimed row (`BACKLOG.md`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`). |
 | R6 | `SHOW_NEXT_RE` stays `$`-anchored against the **path portion**. The fix splits the query off before matching; it does not loosen the path grammar. | This spec, §3.2. Loosening the anchor would admit `/show/<slug>/<token>/anything`. |
 | R7 | No DB, migration, RPC, or advisory-lock surface is touched. Invariant 2 and the migration→validation parity checklist are N/A for this diff. | This spec, §7. |
@@ -272,7 +272,7 @@ and the **disable mechanism** (below).
 | Lock glyph (`data-testid="picker-row-lock"`) | 🔒 with `aria-label` | not rendered |
 | Spinner | not rendered | `<Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />`, `data-testid="picker-row-spinner"` |
 | Name | truncated | unchanged |
-| Role chip (`data-testid="picker-role-chip"`) | `role` if present, else absent | text `Signing in…` (R4: renders even when `role` is null) |
+| Role chip (`data-testid="picker-role-chip"`) | `role` if present, else absent | text `Signing in…` (R4: renders even when `role` is the empty string) |
 | `<button>` | interactive | `aria-disabled="true"`, `aria-busy="true"`, `onClick` guard returns early; **NOT** the `disabled` attribute |
 
 **Why `aria-disabled` and not `disabled`.** A natively `disabled` button is removed from the
@@ -359,7 +359,7 @@ The unclaimed branch (`_PickerInterstitial.tsx:240-260`) is untouched by this di
 - `name` empty → empty truncating span; row keeps its 44px floor.
 - `lockHint` missing → the existing literal fallback.
 - Pending with `prefers-reduced-motion: reduce` → spinner renders but does not animate; the chip
-  text swap and the `disabled` state still convey pending. Motion is never the sole signal.
+  text swap and the `aria-disabled` state still convey pending. Motion is never the sole signal.
 - Rapid double-tap → the second tap reaches the `onClick` guard, which calls `e.preventDefault()`
   and returns because `pending` is already true, so no second submit is issued. Both halves are
   required: `aria-disabled` does not stop activation (§3.6 P2) and an early return alone does not
@@ -490,7 +490,7 @@ idiom at `tests/components/RetryWatchButton.test.tsx:50-56` exists to hold a Ser
 does not apply to a native GET form (§3.4).
 
 - Component test: pending renders `picker-row-spinner`, drops `picker-row-lock`, sets
-  `disabled` + `aria-busy="true"`, and shows `Signing in…` in `picker-role-chip`. Scope the chip
+  `aria-disabled="true"` + `aria-busy="true"` (NEVER the native `disabled` attribute — §3.5), and shows `Signing in…` in `picker-role-chip`. Scope the chip
   query to the claimed row's subtree — the unclaimed rows in the same list render
   `picker-role-chip` too, and an unscoped query would pass on the wrong node.
 - **Anti-regression on the probe (§3.4):** the fixture roster must contain BOTH a claimed and an
@@ -498,23 +498,25 @@ does not apply to a native GET form (§3.4).
   implementation would leave `pending` false forever and fail here — this is the test that catches
   a future "cleanup" back to the admin idiom. Concrete failure mode: pending never appears.
 - Component test, R4: a claimed row with `role=""` renders no chip in idle and the `Signing in…`
-  chip in pending. **Not `role={null}`** — the prop is `string` and the column is `not null`, so a
+  chip in pending. **Not `role=""`** — the prop is `string` and the column is `not null`, so a
   null fixture is unrealizable and would only prove the test harness accepts an impossible input.
 - **Component test, double-activation (the R2 BLOCKING regression guard).** Attach a submit
   listener to the row's form, fire TWO activations, assert exactly ONE submit. Failure mode caught:
   an `onClick` that early-returns without `e.preventDefault()` — measured `submits=2` (§3.6 P1),
   i.e. the row looks busy and still double-submits, leaving the entire defect unfixed. Repeat for
-  keyboard activation (Enter and Space both dispatch a click), since a pointer-only assertion
-  passes while keyboard users still double-submit.
+  keyboard activation. **The keyboard half runs in Playwright, not jsdom** — jsdom does not
+  synthesize button activation from Enter/Space (measured: `keyboardClicks=0`) and this repo does
+  not install `@testing-library/user-event`, so a jsdom keyboard assertion would be vacuously
+  green. A pointer-only proof would leave keyboard users still double-submitting.
 - Component test, R5: an unclaimed row never renders `picker-row-spinner` in any state.
 - Component test, bfcache reset: dispatch a `pageshow` event with `persisted: true` after reaching
   pending, and assert the row returns to idle. Failure mode caught: a restored page showing a
   permanently disabled row.
 - Real-browser layout: idle vs pending row `getBoundingClientRect().height` equal within 0.5px
   (§5), plus the name span's left edge unchanged within 0.5px (the lock-vs-spinner width
-  invariant), run over **two** fixtures — one row WITH a role and one with `role=""`. The null-role
+  invariant), run over **two** fixtures — one row WITH a role and one with `role=""`. The roleless
   case is the higher-risk one and must not be omitted: with a role present, pending merely swaps
-  one chip's text for another, but with `role={null}` pending ADDS a chip that idle does not have,
+  one chip's text for another, but with `role=""` pending ADDS a chip that idle does not have,
   which is the configuration most likely to change the row's height. A single role-bearing fixture
   would prove the easy substitution case and never exercise the addition that R4 introduces.
   jsdom cannot compute layout; this runs in Playwright.
