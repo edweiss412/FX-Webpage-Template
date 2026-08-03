@@ -690,6 +690,24 @@ export type EnvKeyAllowlist = Record<
  *  because it cannot occur in YAML scalar text. */
 export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  PLAYWRIGHT_JSON_OUTPUT_NAME: {
+    values: [
+      {
+        text: "test-results/crew-e2e-report.json",
+        // Empty by live derivation, and correctly so: the crew-e2e step this key sits on carries
+        // a `--reporter=list,json` argument the census treats as an unmodelled invocation shape,
+        // so the census attributes no spec to it. The specs' CI coverage is asserted by
+        // tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts (which replays the command through
+        // Playwright) and by the executed-count oracle, not by this row.
+        governs: [],
+      },
+    ],
+    reason:
+      "Destination for the crew-e2e run's own json report, which the post-run executed-count " +
+      "oracle (scripts/check-crew-e2e-executed.mjs) reads. Inert with respect to what runs: it " +
+      "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
+      "wrong value makes the oracle fail closed on a missing report rather than pass.",
+  },
   SUPABASE_URL: {
     values: [
       { text: "${{ secrets.SUPABASE_URL }}", governs: [] },
