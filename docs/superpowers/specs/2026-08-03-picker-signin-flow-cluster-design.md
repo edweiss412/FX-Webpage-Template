@@ -268,6 +268,18 @@ here**, and the row names the environment that can actually settle it.
 | P3 | `useFormStatus` reports pending for a string-action GET form | **FALSE** (`NATIVE_GET=false`, `FUNCTION_ACTION=true`) | jsdom |
 | P4 | A natively `disabled` button loses focus | **NOT SETTLEABLE IN JSDOM** — jsdom reports `stillFocused=true`, real browsers blur. Must be asserted in Playwright | Playwright only |
 | P5 | Tailwind's `hover:` variant is suppressed by a disabled/`aria-disabled` element | **FALSE** — compiles to a bare hover pseudo-class inside `@media (hover: hover)` with no not-disabled guard | Tailwind source + Playwright |
+| P6 | The compiled `aria-disabled:` rule comes AFTER the `hover:` rule, so pending background wins on precedence | TRUE — measured in R3: `hoverRuleIndex=139`, `ariaRuleIndex=258`, `ariaAfterHover=true` | Tailwind source |
+| P7 | `motion-reduce:animate-none` actually emits suppression | TRUE — measured in R3: `@media (prefers-reduced-motion: reduce) { animation: none }` | Tailwind source |
+| P8 | jsdom synthesizes button activation from Enter/Space | **FALSE** — measured in R3: `keyboardClicks=0`, and `@testing-library/user-event` is not installed. A jsdom keyboard assertion is vacuously green | jsdom (negative result) |
+| P9 | `aria-disabled` retains focus AND the focus ring | **UNSETTLED in jsdom** — jsdom reports `stillFocused=true` for the native-`disabled` case too (P4), so it discriminates nothing here. Asserted only in Playwright (§8.2 4c) | Playwright only |
+| P10 | A screen reader announces the `aria-disabled` row usefully while busy | **NOT MEASURED — accepted as unproven.** No automated harness in this repo can settle AT announcement text. The design does not depend on it: the chip text swap and the disabled-looking styling carry the state visually, and `aria-busy` is the standard signal. Recorded here rather than asserted | none — documented limit |
+| P11 | A native GET submit tears down the component, so local pending state cannot leak | TRUE by navigation semantics; the observable consequence (row not stuck) is asserted in Playwright, and the bfcache exception is the reason `pageshow` exists (§9) | Playwright |
+| P12 | `truncate` + `min-w-0` + `shrink-0` produce the claimed row layout | Asserted, not assumed — this is exactly what §8.2 4a measures in a real browser (height AND name-edge). No jsdom claim is made | Playwright only |
+
+A claim may legitimately end up as **unproven** (P10) — what R9 forbids is an unproven claim that
+is not *labelled* as such, or one the design silently depends on. P10 is load-bearing for nothing;
+P9 and P12 are load-bearing and are therefore assigned to the only environment that can settle
+them.
 
 **Consequences, wired into the design:**
 
