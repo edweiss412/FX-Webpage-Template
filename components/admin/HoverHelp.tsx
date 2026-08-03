@@ -60,6 +60,7 @@ import {
 import { createPortal } from "react-dom";
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import type { ReactNode } from "react";
 
@@ -155,7 +156,6 @@ export function HoverHelp({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const caretRef = useRef<HTMLDivElement | null>(null);
-  const frameRef = useRef<number | null>(null);
 
   const clearCloseTimer = () => {
     if (closeTimer.current !== null) {
@@ -306,21 +306,21 @@ export function HoverHelp({
     }
   };
 
-  /** Coalescer: no-op while closed or when a frame is already pending (§4.3). */
-  const schedule = () => {
-    if (!open || frameRef.current !== null) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null; // cleared BEFORE running so later events can schedule anew
-      measureAndApply();
-    });
-  };
-
   // (a) open -> synchronous pre-paint measurement (NOT via schedule()); the
   // deps re-run the effect when the placement props or portal availability
   // change while open, so no stale capture survives (plan R2 F3).
   useLayoutEffect(() => {
     if (!open || !mounted) return;
     measureAndApply();
+    // Shared leading-edge throttle (lib/popover/rafCoalescer.ts). The open-gate
+    // stays at the CALL SITE (§4.3): a listener that fires from a stale capture
+    // after a close must not schedule, and the coalescer itself knows nothing
+    // about open state.
+    const coalescer = createRafCoalescer(measureAndApply);
+    const schedule = () => {
+      if (!open) return;
+      coalescer.schedule();
+    };
     const host = hostRef?.current ?? document.body;
     const trigger = triggerRef.current;
     const body = bodyRef.current;
@@ -347,10 +347,7 @@ export function HoverHelp({
       if (body) ro.unobserve(body);
       ro.unobserve(host);
       ro.disconnect();
-      if (frameRef.current !== null) {
-        cancelAnimationFrame(frameRef.current);
-        frameRef.current = null;
-      }
+      coalescer.cancel();
       // attribute lifecycle (§4.6): a closed body never claims a side
       if (body) {
         delete body.dataset["popoverSide"];

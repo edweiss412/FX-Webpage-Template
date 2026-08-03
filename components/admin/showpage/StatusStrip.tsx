@@ -96,6 +96,8 @@ function stateBadge(archived: boolean, isLive: boolean, published: boolean): Sta
 }
 
 export type StatusStripProps = {
+  /** Forwarded verbatim to ShareHub's trigger-elevation gate (spec §3.1). */
+  attentionMenuOpen?: boolean | undefined;
   /** Stable subject id for the bound publish action + crew-URL path. Feeds the crew
    *  copy URL and the bound publish toggle — NOT a display label (the strip renders no
    *  title; the modal's `<h2>` owns it). */
@@ -139,6 +141,7 @@ export type StatusStripProps = {
 };
 
 export function StatusStrip({
+  attentionMenuOpen,
   slug,
   archived,
   published,
@@ -416,6 +419,7 @@ export function StatusStrip({
         className="ml-auto flex shrink-0 items-center max-sm:w-full"
       >
         <ShareHub
+          attentionMenuOpen={attentionMenuOpen}
           slug={slug}
           showId={showId}
           published={published}

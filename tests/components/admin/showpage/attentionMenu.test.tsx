@@ -10,10 +10,11 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote } from "@/lib/adminAlerts/audience";
+import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 function mk(over: Partial<AttentionItem>): AttentionItem {
   return {
@@ -176,5 +177,223 @@ describe("AttentionMenu", () => {
     expect(panel.className).toContain("duration-fast");
     expect(panel.className).toContain("ease-out-quart");
     expect(panel.className).toContain("motion-reduce:transition-none");
+  });
+});
+
+/**
+ * Clip-fit + scrollable-region contract
+ * (spec 2026-08-01-admin-popover-overlay-cluster §4.2, §8, §11).
+ *
+ * The role sits on the SCROLLER, not on the panel: the panel already carries a
+ * group role naming the leading section ("Needs you" / "Monitoring"), and it is
+ * the scroller that owns the scroll range a keyboard user must be able to reach.
+ */
+describe("AttentionMenu clip fit (§4.2)", () => {
+  const CAP_PX = 384; // the scroller's declared `max-h-96`
+  const CLIP_BOTTOM = 560;
+  const CLIP_BOTTOM_AFTER = 460;
+  const SCROLLER_TOP = 230;
+
+  let geometry: { scrollerTop: number; clipBottom: number };
+  /** ResizeObserver callbacks captured so a test can fire one deliberately. */
+  let observerCallbacks: ResizeObserverCallback[];
+  let observedTargets: Element[];
+
+  function installLayoutStubs() {
+    geometry = { scrollerTop: SCROLLER_TOP, clipBottom: CLIP_BOTTOM };
+    observerCallbacks = [];
+    observedTargets = [];
+
+    // The clip ancestor is a real DOM node OUTSIDE the rendered menu, so the
+    // hook's upward walk has somewhere distinct to land.
+    const clip = document.createElement("div");
+    clip.setAttribute("data-clip-ancestor", "");
+    document.body.appendChild(clip);
+
+    // Delegates to the REAL declaration and overrides only the two properties
+    // this contract is about: Testing Library computes accessible roles through
+    // getComputedStyle too, and a plain object literal loses getPropertyValue.
+    const realComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) => {
+        const real = realComputedStyle(el, pseudo ?? undefined);
+        const isClip = el.hasAttribute?.("data-clip-ancestor") ?? false;
+        const isScroller = (el as HTMLElement).className?.includes?.("overflow-y-auto") ?? false;
+        return new Proxy(real, {
+          get(target, key) {
+            if (key === "overflowX" || key === "overflowY") return isClip ? "clip" : "visible";
+            if (key === "maxHeight" && isScroller) return `${CAP_PX}px`;
+            const value = Reflect.get(target, key) as unknown;
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const isClip = this.hasAttribute?.("data-clip-ancestor");
+      const top = isClip ? 0 : geometry.scrollerTop;
+      const bottom = isClip ? geometry.clipBottom : geometry.scrollerTop + 100;
+      return {
+        left: 0,
+        right: 300,
+        width: 300,
+        top,
+        bottom,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON: () => "",
+      } as DOMRect;
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          observerCallbacks.push(cb);
+        }
+        observe(target: Element) {
+          observedTargets.push(target);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    return clip;
+  }
+
+  /** Derived from the mocked rects through the exported pure core. */
+  function expectedFitted(): string {
+    return `${computeFittedMaxHeight({
+      elementTop: geometry.scrollerTop,
+      clipBottom: geometry.clipBottom,
+      cap: CAP_PX,
+    })}px`;
+  }
+
+  /** Renders the menu INSIDE the clip ancestor so the hook walk lands on it. */
+  function renderMenuInto(
+    clip: HTMLElement,
+    over: Partial<Parameters<typeof AttentionMenu>[0]> = {},
+  ) {
+    const pillRef = createRef<HTMLButtonElement>();
+    const pill = document.createElement("button");
+    document.body.appendChild(pill);
+    (pillRef as { current: HTMLButtonElement | null }).current = pill;
+    const props = {
+      items: [HOLD, ALERT, CLEARING],
+      open: true,
+      onClose: vi.fn(),
+      onNavigate: vi.fn(),
+      pillRef,
+      ...over,
+    };
+    return { ...render(<AttentionMenu {...props} />, { container: clip }), props };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  test("the scroller is an accessible, tabbable scrollable region", () => {
+    renderMenu();
+    const scroller = screen.getByRole("group", { name: "Show issues" });
+    expect(scroller.tabIndex).toBe(0);
+    expect(scroller.className).toContain("max-h-96");
+    expect(scroller.className).toContain("overflow-y-auto");
+    // The panel keeps its own group role — this is a SECOND, nested region.
+    expect(scroller).not.toBe(screen.getByTestId("published-show-review-attention-menu"));
+  });
+
+  test("the scroller is capped against the clip ancestor, not just by the CSS cap", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    const scroller = screen.getByRole("group", { name: "Show issues" });
+    expect(scroller.style.maxHeight).toBe(expectedFitted());
+    expect(scroller.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
+      `${CAP_PX}px`,
+    );
+  });
+
+  test("an observer callback re-applies the fit even before the entrance settles", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const first = scroller.style.maxHeight;
+
+    // A React rerender cannot fire a ResizeObserver in jsdom, so the captured
+    // callback is invoked directly. The claim is bounded to exactly that: the
+    // observer path re-applies independent of entrance progress. That the
+    // O2 -> O1 structural flip actually triggers observation is proven by the
+    // useFitWithinClip offsetParent case and the real-browser frame-hold
+    // compound in popover-clip-fit.spec.ts.
+    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+    act(() => {
+      for (const cb of observerCallbacks) cb([], {} as ResizeObserver);
+    });
+
+    expect(scroller.style.maxHeight).toBe(expectedFitted());
+    expect(scroller.style.maxHeight).not.toBe(first);
+  });
+
+  test("transition audit: entrance classes on the panel, instant unmount on close", () => {
+    const { rerender, props } = renderMenu();
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    expect(panel.className).toContain("transition-[opacity,transform]");
+    expect(panel.className).toMatch(/scale-(?:95|100)/);
+    expect(panel.className).toMatch(/opacity-(?:0|100)/);
+
+    rerender(<AttentionMenu {...props} open={false} />);
+    // Instant unmount — no exit animation, so the node is simply gone.
+    expect(screen.queryByTestId("published-show-review-attention-menu")).toBeNull();
+  });
+});
+
+/**
+ * Focus-leave light dismiss (spec §3.4).
+ *
+ * Inside-set for this surface: the panel's own descendants, and the pill.
+ * Anything else taking focus dismisses. The point is keyboard parity with
+ * click-outside: a Tab out of the menu should not leave a floating panel behind
+ * two overlays deep.
+ */
+describe("AttentionMenu focus-leave dismiss (§3.4)", () => {
+  function outsideTarget() {
+    const el = document.createElement("button");
+    el.setAttribute("data-testid", "outside-focus-target");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  test("focusin outside the menu and the pill closes it", () => {
+    const { props } = renderMenu();
+    const outside = outsideTarget();
+    fireEvent.focusIn(outside);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("focusin on a panel descendant does NOT close it", () => {
+    const { props } = renderMenu();
+    fireEvent.focusIn(screen.getByTestId("attention-menu-row-alert:a1"));
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test("focusin on the pill does NOT close it", () => {
+    const { props, pill } = renderMenu();
+    fireEvent.focusIn(pill);
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test("window blur alone does NOT close it (ratified §3.4/§10 exception)", () => {
+    const { props } = renderMenu();
+    // Switching apps or focusing the URL bar must not dismiss: there is no
+    // subsequent in-document focusin, so nothing inside the page took over.
+    fireEvent.blur(window);
+    fireEvent.focusOut(screen.getByTestId("attention-menu-row-alert:a1"), {
+      relatedTarget: null,
+    });
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 });

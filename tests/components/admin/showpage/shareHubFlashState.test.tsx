@@ -365,9 +365,19 @@ describe("teardown", () => {
     openPanel();
 
     // Baseline AFTER opening, deliberately. Opening the panel arms a timer that
-    // is not the cue's and that survives unmount (pre-existing; filed as
-    // BL-SHAREHUB-OPEN-TIMER-LEAK). Asserting a global count of zero would
-    // measure that leak rather than this cleanup.
+    // is not the cue's and that survives unmount, so asserting a global count of
+    // zero would measure that timer rather than this cleanup.
+    //
+    // ROOT CAUSE, measured and closed 2026-08-02 (spec
+    // 2026-08-01-admin-popover-overlay-cluster §2.3/§6, BL-SHAREHUB-OPEN-TIMER-LEAK):
+    // it is a jsdom ARTIFACT, not a product leak. The open-focus effect
+    // (ShareHub.tsx, `panelRef.current?.focus()` when the popover opens) makes
+    // jsdom run Selection._associateRange, which arms a `setTimeout(0)` of its
+    // own. Under fake timers that pending macrotask is never drained, so it
+    // shows up in getTimerCount(); in a real browser there is no such timer.
+    // No component change was warranted, and the delta style STAYS — a global
+    // zero-count assertion is unusable in jsdom by construction. Recorded here
+    // so the next reader does not re-bisect it.
     const baseline = vi.getTimerCount();
 
     remoteRotate(0);

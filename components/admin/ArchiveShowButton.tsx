@@ -50,6 +50,14 @@ type LifecycleResult = { ok: true } | { ok: false; code: string };
 const KNOWN_REFUSAL_CODES = new Set(["FINALIZE_OWNED_SHOW", "SHOW_ARCHIVED_IMMUTABLE"]);
 
 export type ArchiveShowButtonProps = {
+  /**
+   * The show's title, so the armed confirm can say WHICH show it is about
+   * (spec §5.1/§5.2). Consumed ONLY by the `asRow` armed branch — the morph
+   * variants ignore it entirely. Absent, empty or whitespace-only renders
+   * today's copy byte-identically, because every non-hub call site passes
+   * nothing and partial data is normal during editing.
+   */
+  showName?: string | undefined;
   /** Pre-bound (to this show's slug) Archive server action. */
   archiveAction: () => Promise<LifecycleResult>;
   /**
@@ -93,6 +101,7 @@ export function ArchiveShowButton({
   onBusyChange,
   rowLabel,
   rowDescription,
+  showName,
 }: ArchiveShowButtonProps) {
   const router = useRouter();
   const descId = useId();
@@ -103,6 +112,8 @@ export function ArchiveShowButton({
    *  show" text — a §4.1 row with an empty label would be an unnamed
    *  destructive button (spec §2.1, R1 finding 2). */
   const asRow = compact && rowLabel != null && rowLabel.trim() !== "";
+  /** Blank-safe (§5.1): absent / "" / whitespace all fall back to today's copy. */
+  const namedShow = showName != null && showName.trim() !== "" ? showName.trim() : null;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   /** Set only when the operator cancels, so a restore never fires on the
@@ -276,14 +287,29 @@ export function ArchiveShowButton({
         ) : (
           <div
             role="group"
-            aria-label="Confirm archiving this show"
+            aria-label={
+              namedShow
+                ? `Confirm archiving \u201C${namedShow}\u201D`
+                : "Confirm archiving this show"
+            }
             data-testid="archive-show-confirm-row"
             className="flex flex-col gap-2 py-3"
           >
             {labelHeader}
+            {/* Wraps, never truncates (§10): a pathological title must not elide
+                the very context a destructive confirm depends on. */}
             <p id={warnId} className="text-sm text-text-subtle">
-              Crew links stop working now and won&rsquo;t come back until you re-publish and issue a
-              new link.
+              {namedShow ? (
+                <>
+                  Crew links for &ldquo;{namedShow}&rdquo; stop working now and won&rsquo;t come
+                  back until you re-publish and issue a new link.
+                </>
+              ) : (
+                <>
+                  Crew links stop working now and won&rsquo;t come back until you re-publish and
+                  issue a new link.
+                </>
+              )}
             </p>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <form

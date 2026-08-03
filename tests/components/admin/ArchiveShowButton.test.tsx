@@ -605,3 +605,143 @@ describe("arm-expiry announcement — ArchiveShowButton", () => {
     expect(getByTestId("archive-show-confirm-button")).toBeTruthy();
   });
 });
+
+/**
+ * Self-describing armed confirm (spec §5.1/§5.2, BL-SHAREHUB-CONFIRM-NAMES-SHOW).
+ *
+ * Owner-ratified copy, pinned BYTE-EXACT in both directions: with a name, and
+ * with the three blank shapes that must render exactly today's strings. Curly
+ * quotes (U+201C/U+201D) and the existing curly apostrophe per the repo
+ * apostrophe/em-dash invariants.
+ */
+describe("ArchiveShowButton — armed confirm names the show (§5.2)", () => {
+  const NAMED_PROSE =
+    "Crew links for “Spring Gala” stop working now and won’t come back until you re-publish and issue a new link.";
+  const UNNAMED_PROSE =
+    "Crew links stop working now and won’t come back until you re-publish and issue a new link.";
+  const NAMED_LABEL = "Confirm archiving “Spring Gala”";
+  const UNNAMED_LABEL = "Confirm archiving this show";
+
+  const renderNamed = (showName?: string) =>
+    render(
+      <ArchiveShowButton
+        archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+        compact
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working immediately"
+        {...(showName === undefined ? {} : { showName })}
+      />,
+    );
+
+  /** Arms the row and returns the prose node the confirm points at. */
+  function armAndRead(view: ReturnType<typeof renderNamed>) {
+    fireEvent.click(view.getByTestId("archive-show-button"));
+    const confirm = view.getByTestId("archive-show-confirm-button");
+    const prose = document.getElementById(confirm.getAttribute("aria-describedby")!)!;
+    const group = view.getByTestId("archive-show-confirm-row");
+    return { confirm, prose, group };
+  }
+
+  it("with a showName: prose and group label name the show, button label unchanged", () => {
+    const view = renderNamed("Spring Gala");
+    const { confirm, prose, group } = armAndRead(view);
+    expect(prose.textContent).toBe(NAMED_PROSE);
+    expect(group.getAttribute("aria-label")).toBe(NAMED_LABEL);
+    // The consequence lives in the prose the button is describedby-bound to;
+    // the label itself stays short.
+    expect(confirm.textContent).toBe("Confirm archive");
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["empty", ""],
+    ["whitespace", "   "],
+  ])("with a %s showName: both strings are byte-identical to today", (_label, showName) => {
+    const view = renderNamed(showName);
+    const { confirm, prose, group } = armAndRead(view);
+    expect(prose.textContent).toBe(UNNAMED_PROSE);
+    expect(group.getAttribute("aria-label")).toBe(UNNAMED_LABEL);
+    expect(confirm.textContent).toBe("Confirm archive");
+  });
+
+  it("a pathological title appears COMPLETE and wraps — never truncated (§10)", () => {
+    // show.title is parser-derived with no application-level length cap, so a
+    // long one is reachable. Truncating context on a DESTRUCTIVE decision is the
+    // failure mode: the operator would be confirming against an elided name.
+    const long =
+      "Aurora Fall Tour Twenty Twenty Six Northeast Regional Leg With The Extended Production Crew And Guests";
+    expect(long.length).toBeGreaterThan(100);
+    const view = renderNamed(long);
+    const { prose } = armAndRead(view);
+    expect(prose.textContent).toContain(long);
+    for (const banned of [
+      "truncate",
+      "line-clamp",
+      "overflow-hidden",
+      "whitespace-nowrap",
+      "text-ellipsis",
+    ]) {
+      expect(prose.className, `prose must wrap, not ${banned}`).not.toContain(banned);
+    }
+  });
+
+  it("mode boundary: the MORPH variants ignore showName entirely", () => {
+    const MORPH_LABEL =
+      "Confirm archive: crew links stop working now and won’t come back until you re-publish and issue a new link.";
+    for (const compact of [true, false]) {
+      const { getByTestId, unmount } = render(
+        <ArchiveShowButton
+          archiveAction={vi.fn(async () => ({ ok: true }) as const)}
+          showName="Spring Gala"
+          {...(compact ? { compact: true } : {})}
+        />,
+      );
+      fireEvent.click(getByTestId("archive-show-button"));
+      expect(getByTestId("archive-show-confirm-button").textContent).toBe(MORPH_LABEL);
+      unmount();
+    }
+  });
+});
+
+/**
+ * post-failure → armed (spec §8 transition inventory row).
+ *
+ * The live suite proves refusal → resting-with-banner and Cancel-from-ordinary-
+ * armed, but not RE-ARM after a refusal with the banner cleared: an operator who
+ * retries must not be looking at the previous attempt's error while deciding.
+ */
+describe("ArchiveShowButton — re-arm after a refusal clears the banner", () => {
+  it("refusal → re-arm shows the armed group with NO stale banner, and Cancel returns clean", async () => {
+    let settle: ((v: { ok: false; code: string }) => void) | null = null;
+    const action = vi.fn(() => new Promise<{ ok: false; code: string }>((res) => (settle = res)));
+    const { getByTestId, queryByTestId } = render(
+      <ArchiveShowButton
+        archiveAction={action}
+        compact
+        rowLabel="Archive show"
+        rowDescription="Crew links stop working immediately"
+      />,
+    );
+
+    fireEvent.click(getByTestId("archive-show-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("archive-show-confirm-button"));
+    });
+    await act(async () => {
+      settle?.({ ok: false, code: "FINALIZE_OWNED_SHOW" });
+    });
+    expect(getByTestId("archive-show-error")).toBeTruthy();
+
+    // Re-arm.
+    fireEvent.click(getByTestId("archive-show-button"));
+    expect(getByTestId("archive-show-confirm-row")).toBeTruthy();
+    expect(
+      queryByTestId("archive-show-error"),
+      "the previous attempt's refusal is still on screen while re-deciding",
+    ).toBeNull();
+
+    fireEvent.click(getByTestId("archive-show-cancel-button"));
+    expect(queryByTestId("archive-show-confirm-row")).toBeNull();
+    expect(queryByTestId("archive-show-error")).toBeNull();
+  });
+});
