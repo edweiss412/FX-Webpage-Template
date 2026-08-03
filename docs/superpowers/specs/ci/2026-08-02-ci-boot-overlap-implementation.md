@@ -83,9 +83,9 @@ Root lifecycle: `package.json` declares exactly one install-lifecycle script, `p
 
 2026-07-20 §4h states the honest limitation: `allowBuilds` holds names and booleans, not commands, so pinning the set cannot prove where an allow-listed dependency writes. This spec closes that by OBSERVING the writes instead of reasoning about them.
 
-Procedure, run in a clean worktree at this branch's tree: mark a timestamp, run `pnpm rebuild` (which executes exactly the enabled build scripts plus the root `prepare` — the install's entire executable surface), then look for anything under `supabase/` newer than the mark, and for any git-visible change under `supabase/`.
+Two probes, because one of them alone would not settle it.
 
-Result:
+**Probe A — host, `pnpm rebuild` (Darwin arm64).** Mark a timestamp, run `pnpm rebuild`, then look for anything under `supabase/` newer than the mark and for any git-visible change under `supabase/`:
 
 ```
 $ pnpm rebuild
@@ -101,16 +101,36 @@ $ git status --porcelain supabase/
 (no output)
 ```
 
-All four enabled build scripts plus the root `prepare` executed; **zero writes under `supabase/`**. The disjointness premise now has an audited basis, and it is an observation, not an inference from package names.
+**Probe A is not sufficient, for two reasons, and both are why probe B exists.** First, `pnpm rebuild` and `pnpm install` do NOT execute the same lifecycle set: rebuild runs `preinstall`/`install`/`postinstall`/`prepublish`/`prepare`, while install additionally runs `preprepare` and `postprepare` (pnpm 10.33.2). This tree declares only `prepare`, so the two coincide TODAY — but the guard must forbid the install set, not the rebuild set, which is why §5h's forbidden list includes `preprepare` and `postprepare`. Second, these build scripts branch on platform — Sentry picks a download per platform, esbuild selects a platform package, sharp branches on platform and prebuilt availability — and a rebuild of an already-materialized Darwin tree is not evidence about the operation that actually runs in CI: a FRESH install on x86_64 Linux.
+
+**Probe B — fresh install, x86_64 Linux, from a clean tree.** `git archive HEAD` (so no `node_modules/` comes along) piped into a `--platform linux/amd64` `node:20-bookworm` container: same glibc/x86_64/Linux profile as the `ubuntu-latest` runner, corepack resolving the same pinned pnpm 10.33.2, then `pnpm install --frozen-lockfile` and the same two checks.
+
+```
+.../node_modules/@sentry/cli postinstall$ node ./scripts/install.js
+.../node_modules/unrs-resolver postinstall$ napi-postinstall unrs-resolver 1.11.1 check
+.../esbuild@0.28.0/node_modules/esbuild postinstall$ node install.js
+.../sharp@0.34.5/node_modules/sharp install$ node install/check.js || npm run build
+. prepare$ simple-git-hooks
+│   Ignored build scripts: @parcel/watcher@2.6.0.                              │
+Done in 9.5s using pnpm v10.33.2
+=== supabase writes ===
+(end)                        # find supabase -newer "$MARK" -type f  -> nothing
+$ uname -m                   -> x86_64
+$ /etc/os-release            -> Debian GNU/Linux 12 (bookworm)
+```
+
+All four enabled build scripts plus the root `prepare` executed on the target architecture, from a fresh install, and **wrote nothing under `supabase/`**. That is the observation the disjointness premise rests on.
+
+**One thing probe B surfaced that probe A could not:** on Linux, a FIFTH build-script candidate exists — `@parcel/watcher` version 2.6.0, a platform-conditional optional dependency absent from the macOS resolution — and pnpm **ignored** it, because it is not in `allowBuilds`. That is the allow-list working as designed: the concurrent install's executable surface is exactly the four enabled entries, on either platform. It also means `allowBuilds` is an ALLOW-list of what may run, not an inventory of what pnpm would otherwise want to run; §5h pins the former, which is the set that matters here.
 
 ### 3.3 Disjointness in the other direction
 
 The premise also requires the BOOTSTRAP not to touch the install's surface. Audited against `scripts/ci/supabase-local-bootstrap.sh`:
 
-- It invokes `supabase`, `docker`, `psql`, `mv`, `mkdir`, `sleep`, `echo` — and **no `node`, `npm`, `npx`, or `pnpm` at all** (grep for those four tokens returns nothing). It therefore never reads `node_modules/`, which is the install's principal write target.
+- Its full external-command vocabulary is `supabase`, `docker`, `psql`, `mktemp`, `basename`, `mv`, `head`, `test`, `sleep`, `echo`, `exit` — and **no `node`, `npm`, `npx`, or `pnpm`** (grep for those four tokens over the script returns nothing). No repo-local Node tooling is invoked, so nothing in the script resolves `node_modules/`, which is the install's principal write target.
 - Its held-aside stash is `STASH_DIR="$(mktemp -d)"` (`scripts/ci/supabase-local-bootstrap.sh:49`), outside the repo entirely. The migrations it moves and restores live under `supabase/migrations/` (`scripts/ci/supabase-local-bootstrap.sh:50-66`), which §3.2 just showed the install never touches.
 
-So the two surfaces are disjoint in both directions, by observation on one side and by enumeration of an eleven-line command vocabulary on the other.
+**What this does and does not prove.** Token absence bounds what the SCRIPT reads; it says nothing about what the three vendored binaries it drives read. `supabase`, `docker` and `psql` are standalone executables with no knowledge of this repository's `node_modules/`, so the residual risk is theoretical rather than argued away — and it is also the one thing the §7 accept gate directly observes: if the boot depended in any way on a complete `node_modules/`, overlapping it with the install that produces `node_modules/` would fail, loudly, on some fraction of the eight legs. Eight green legs is the observation; this section is the reason to expect it.
 
 ### 3.4 What the guard can still prove, and what it cannot
 
@@ -158,8 +178,13 @@ Existing guards over this file, each verified against the planned diff:
 | `tests/cross-cutting/unit-suite-shard-topology.test.ts:313` | zero `\|\| true` anywhere in `unit-suite.yml` | the combined step has none; this is also §5c |
 | `scripts/ci/assert-pnpm-sources-clean.sh:67-73` (runs live in this job) | refuses `node[_-]?options`, a `defaults:` key, `\x`/`\u`/`\U` escapes, and non-ASCII outside `#` comment lines | the combined step's body and its comments are plain ASCII |
 | `tests/cross-cutting/unit-suite-shard-topology.test.ts:183-198` | the no-Supabase guard and the exactly-three-`uses:` count are scoped to `unit-suite-nodb` | `unit-suite-nodb` is untouched; the db job's `uses:` count is unconstrained |
+| `tests/cross-cutting/vitest-projects-partition.test.ts:372-388` | reads `unit-suite.yml` directly; pins `VITEST_EXCLUDE_ENV_BOUND` present and `vitest run --exclude` absent | the vitest step and its `env:` are untouched |
+| `tests/cross-cutting/ci-workflow-speedup.test.ts:24-52` | `unit-suite.yml` is in the dynamically-discovered PR-firing set; pins its `concurrency` shape | `on:` and `concurrency:` are untouched |
+| `tests/cross-cutting/unit-suite-shard-topology.test.ts:131-141` | the vitest step's keys are exactly `env`/`name`/`run`, and no `defaults:` exists at workflow or job scope | no `defaults:` is added; the vitest step is untouched |
 
-**Why inline rather than a nested composite.** 2026-07-20 §3 states the composite cannot simply be dropped, since `pnpm/action-setup@v4` and `actions/setup-node@v4` (with `cache: pnpm`) are prerequisites of the install, and prescribes pinning them ahead of the combined step (§4d). Splitting the composite into a toolchain-only child action would preserve D12's single-version-source property more elegantly, but it changes a composite that ~20 jobs across 8 workflows consume — a blast radius disproportionate to this change. Inlining plus a meta-test that derives its expectations FROM the composite's own YAML (§5d) buys the same anti-drift guarantee with a two-line diff outside `unit-suite.yml`. Recorded here so it is not re-litigated as an oversight.
+**Log interleaving, stated rather than glossed.** Both processes inherit the step's stdout, so nothing is buffered and nothing is lost — but the two output streams now INTERLEAVE within one step's log, where today they are two clean consecutive step logs. 2026-07-20 §3's "output streams exactly as it does now" is true about liveness and false about ordering. This is accepted: the install is ~16s of mostly-quiet progress lines against a ~70s boot, both are line-oriented, and §7.1 gates on green legs plus the boot log being PRESENT, not on it being contiguous. Anyone reading a failed leg's log should expect the two woven together.
+
+**Why inline rather than a nested composite.** 2026-07-20 §3 states the composite cannot simply be dropped, since `pnpm/action-setup@v4` and `actions/setup-node@v4` (with `cache: pnpm`) are prerequisites of the install, and prescribes pinning them ahead of the combined step (§4d). Splitting the composite into a toolchain-only child action would preserve D12's single-version-source property more elegantly, but it changes a composite that **31 job steps across 17 workflows** consume (`grep -rc 'uses: ./.github/actions/setup$' .github/workflows/`, measured 2026-08-02 — the composite's own header comment still says "~20 jobs across 8 workflows" and is stale) — a blast radius disproportionate to this change. Inlining plus a meta-test that derives its expectations FROM the composite's own YAML (§5d) buys the same anti-drift guarantee with a two-line diff outside `unit-suite.yml`. Recorded here so it is not re-litigated as an oversight.
 
 ## 5. Meta-test inventory (mandatory declaration)
 
@@ -169,9 +194,14 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES no new 
 
 (b) **The combined step's shape** — the whole contract: its `run:` body contains the bootstrap invocation suffixed with `&`, captures the PID, runs `pnpm install --frozen-lockfile` in the foreground, and ends with `wait` on that captured PID, under `set -euo pipefail`.
 
-(c) **Fail-closed**: the `wait` is the step's last command and carries no `|| true`, no `set +e`, and no trailing `exit 0`.
+(c) **Fail-closed, at BOTH levels.** Body level: the `wait` is the step's last command and carries no `|| true`, no `set +e`, no `trap`, and no trailing `exit 0`. Step level: the combined step's key set is exactly `["name", "run"]`. Body equality alone does not pin fail-closed behaviour — an expression-valued `continue-on-error`, a `shell:` override that re-points or appends to the command, an `if:` that skips the step, or a `working-directory:` all mask or redirect a byte-identical body. This is the same qualification the file already applies to the vitest step and to the `assert-pnpm-sources` guard (`tests/cross-cutting/unit-suite-shard-topology.test.ts:131-141`, `tests/cross-cutting/unit-suite-shard-topology.test.ts:164-166`), applied to the one step whose failure semantics this change is about.
 
-(d) **Prerequisites preserved, derived from the composite rather than hardcoded.** Parse `.github/actions/setup/action.yml`; take its steps other than the `pnpm install` run-step; assert each appears in `unit-suite-db` before the combined step with identical `uses` AND identical `with` (so `node-version: 20` and `cache: pnpm` cannot silently drop). A change to the composite that this job does not mirror fails the test, which is the anti-drift property inlining would otherwise lose.
+(d) **Prerequisites preserved, derived from the composite rather than hardcoded.** Parse `.github/actions/setup/action.yml` and partition its steps:
+
+  - every `uses:` step must appear in `unit-suite-db` before the combined step with identical `uses`, identical `with`, and an identical full key set (so `node-version: 20` or `cache: pnpm` cannot silently drop, and so an added `env:`/`if:` on the composite's copy is not silently unmirrored);
+  - the composite must contain **exactly one** `run:` step, and its command must equal the install line inside the combined step's body. This is the part a naive "mirror the non-install steps" matcher gets wrong: if someone adds a SECOND `run:` prerequisite to the composite, a matcher keyed on `uses`/`with` matches nothing and passes vacuously. Requiring the composite's run-step count to be exactly one turns that into a loud failure, and pinning the command equal to the inlined one keeps the two install invocations from diverging.
+
+  A change to the composite that this job does not mirror fails the test, which is the anti-drift property inlining would otherwise lose. Stated honestly: this is anti-drift for the composite's STEP SHAPE and its install command, not for everything the composite could ever grow (an added step-level `env` on the install step, for instance, is caught by the key-set comparison only for `uses:` steps). The residual is bounded and named rather than claimed away.
 
 (e) **Install runs exactly once** in `unit-suite-db`: `pnpm install` appears once in the job, and `./.github/actions/setup` is not also invoked there (a double install would erase the saving and could race itself).
 
@@ -179,7 +209,11 @@ EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES no new 
 
 (g) **Step body pinned by EQUALITY, not by a forbidden-substring list.** 2026-07-20 rounds 5–7 showed a denylist cannot close the class: `pnpm install ... || kill "$boot_pid"` contains neither `trap` nor `|| true`, yet masks the install failure whenever the final `wait` succeeds. The guard asserts the `run:` body, with comments and leading whitespace stripped, EQUALS the canonical five lines. Any cleanup re-introduction, conditional wrapper, or reordering fails the equality.
 
-(h) **Install write-surface guard, corrected inventory.** Assert `package.json` declares no install-lifecycle script beyond `prepare` (checking `preinstall`, `install`, `postinstall`, `prepublish`, `prepublishOnly` are all absent), that `prepare`'s command is still `simple-git-hooks` and its `simple-git-hooks` config is still `{"pre-commit": "pnpm exec lint-staged"}`, and that `pnpm-workspace.yaml`'s `allowBuilds` map equals the audited five-key inventory of §3.1 **including each boolean** — `simple-git-hooks: false` flipping to `true` is a new executing build script and must fail. The failure message names §3.2 as the audit to re-run.
+(h) **Install write-surface guard, corrected inventory.** Three pins, all with failure messages naming §3.2 as the audit to re-run:
+
+  - **Root lifecycle keys.** `package.json` declares no install-lifecycle script beyond `prepare`. The forbidden set is the one `pnpm install` actually executes, which is NOT the same as `pnpm rebuild`'s: `preinstall`, `install`, `postinstall`, `preprepare`, `postprepare`, `prepublish`, `prepublishOnly`. (`preprepare`/`postprepare` run on install and NOT on rebuild — omitting them would leave an executable hole the guard reported green on. See §3.2's stated delta.) Plus: `scripts.prepare === "simple-git-hooks"` and `pkg["simple-git-hooks"]` equals `{"pre-commit": "pnpm exec lint-staged"}`.
+  - **The `allowBuilds` map**, equal to the audited five-key inventory of §3.1 **including each boolean** — `simple-git-hooks: false` flipping to `true` is a new executing build script and must fail.
+  - **The audited VERSIONS of the four enabled build packages**, read from `pnpm-lock.yaml` (the four keys `pnpm-lock.yaml:1625`, `pnpm-lock.yaml:2692`, `pnpm-lock.yaml:4220` and `pnpm-lock.yaml:4597`, whose values are 2.58.5, 0.28.0, 0.34.5 and 1.11.1 respectively). Without this, a routine lockfile bump replaces an allow-listed package's install script wholesale while the five-key map is untouched, and the guard stays green over code nobody audited — the most ROUTINE way this premise rots, more likely than a new key. Pinning versions makes a bump of one of these four fail with an instruction to re-run §3.2 and update the literal. That friction is the point, and it is bounded to four packages; this is the same structural-pin posture the repo already uses for `MEASURED_HEAVY` in the shard-balance test.
 
 (i) **Unchanged and must stay green:** the 8/3-leg matrix + `--shard` denominator pins, the `unit-suite-nodb`-boots-nothing guard, the no-`continue-on-error` guard, the aggregator name/`needs`/`if: always()` pins, and `tests/cross-cutting/ci-workflow-speedup.test.ts` (notably its guarded-psql-install assertion, which the moved psql step must still satisfy).
 
@@ -218,6 +252,40 @@ Timeouts: `toPass({ timeout: 15_000 })`, matching `openHub`'s existing retry bud
 
 ## 7. Accept criteria
 
+### 7.1 The metric, defined executably
+
+2026-07-20 §5.2 says to "measure with P1's `measure()`". That helper is not a repo artifact — it was an ad-hoc shell function in the P1 session and does not exist under `scripts/`. Since a metric that cannot be re-run is not an accept gate, it is defined here instead, as a command against the GitHub API:
+
+```bash
+# LEG FIXED OVERHEAD for one run: per unit-suite-db leg,
+#   (job wall clock) - (duration of the "Run serial project" step)
+gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/<RUN_ID>/jobs" \
+  --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
+        | { leg: .name,
+            wall: (( (.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601) )),
+            vitest: ( .steps[] | select(.name | startswith("Run serial project"))
+                      | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ) }
+        | .wall - .vitest'
+```
+
+Wrapped so the arithmetic is not left to the operator either — it must emit exactly eight legs or fail, and it computes the median itself:
+
+```bash
+legfix () {  # usage: legfix <RUN_ID>  -> prints "<n legs> <median seconds>"
+  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
+    --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
+          | ( ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))
+              - ( .steps[] | select(.name | startswith("Run serial project"))
+                  | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ) )' \
+  | sort -n | awk '{ a[NR] = $1 }
+                   END{ n = NR
+                        if (n != 8) { print "FAIL: " n " legs, expected 8" > "/dev/stderr"; exit 1 }
+                        print n, (n % 2 ? a[(n+1)/2] : (a[n/2] + a[n/2+1]) / 2) }'
+}
+```
+
+**Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is at or before this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, and both medians go in the PR body.
+
 **Item 1 (real CI, per 2026-07-20 §5, restated against the current topology):**
 
 1. All 8 `unit-suite-db` legs, all 3 `unit-suite-nodb` legs, and the `unit-suite` aggregator green; the boot log present in each db leg's job output (backgrounding must not hide it).
@@ -233,10 +301,10 @@ The two items are independently revertible: item 1 touches `.github/workflows/un
 
 - Everything in §1.1.
 - The ~60 app-dependent dark e2e specs of `BL-E2E-LIFECYCLE-SPECS-CI-DARK`.
-- The `tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView` assertion in the T-CONFIRM-SCROLL case, which the PR #604 run also touched. It has no fixed wait in its measurement path; it is not the same defect shape and is not changed here.
+- The T-CONFIRM-SCROLL case, whose `scrollIntoView` assertion at `tests/e2e/admin-lifecycle-layout.spec.ts:411` the PR #604 run also failed. **It carries the same defect shape** — a fixed `waitForTimeout(250)` at `tests/e2e/admin-lifecycle-layout.spec.ts:378`, immediately before the geometry and call-record reads. It is excluded on SCOPE, not because the shape is absent, and the class sweep required by this project's discipline is discharged by enumerating the residue rather than by silently stopping: the file's remaining fixed waits are at `tests/e2e/admin-lifecycle-layout.spec.ts:378` (T-CONFIRM-SCROLL), `tests/e2e/admin-lifecycle-layout.spec.ts:916` and `tests/e2e/admin-lifecycle-layout.spec.ts:998` (other cases). Each needs its own settle condition — T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`", which is a different predicate from T-REGROW's growth-then-replace and carries its own risk of being converted into a tautology. §6's change is the one the backlog names and the one whose settle condition is established. The residue is filed as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` in `BACKLOG.md`, so it is tracked rather than forgotten.
 - Promoting any e2e job into branch protection's required-context set (an owner GitHub-settings action, `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`).
 - The next wall-clock lever, a pre-baked Postgres image removing the ~14s schema+migration phase.
 
 ## 9. Numeric self-consistency register
 
-Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by the §3.2 probe, zero writes under `supabase/`; `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
+Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by each of the two §3.2 probes, zero writes under `supabase/` in both; audited build-package versions `@sentry/cli` 2.58.5, `esbuild` 0.28.0, `sharp` 0.34.5, `unrs-resolver` 1.11.1 (§3.1, pinned by §5h); one Linux-only ignored build candidate, `@parcel/watcher` 2.6.0 (§3.2); the setup composite consumed by 31 job steps across 17 workflows (§4); `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
