@@ -5,7 +5,9 @@
 **Class:** generated-registry completeness
 **Surface:** generator script + one new lib-internal module + one structural guard test + one gallery filter fix. No UI, no DB, no migration, no advisory-lock path.
 
-**Revision history:** R1 (Codex, spec) returned NEEDS-ATTENTION with four findings, all four confirmed by independent probe and all four repaired here. R1 finding 1 inverted this document's original central claim — see §2.3, which now records the correction rather than the original assertion.
+<!-- spec-lint: not-ui — no rendered surface; the components/ and app/ paths cited here are probe evidence about existing code, not files this change touches -->
+
+**Revision history:** R1 returned NEEDS-ATTENTION (4 findings) and R2 returned NEEDS-ATTENTION (3 HIGH). All seven were confirmed by independent probe and repaired. Two of them overturned claims this document made: R1 finding 1 inverted §2.3's central claim, and R2 finding 2 refuted the assertion-5 clean-tree claim. §2.5 records both, plus the M5 concession forced by the plan's R2.
 
 ---
 
@@ -33,12 +35,15 @@ The three codes in the gap carry a comma-joined multi-provenance string and are 
 | The backlog row's literal prescription ("widen the scan roots (and the content predicate…)") is **superseded by this spec**, on probe evidence in §2. Root-widening is rejected; type-aware extraction replaces the roots list entirely. | §2.1, §2.2; row text at `BACKLOG.md` under `## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` |
 | The row's **Effort: S** estimate is superseded by **M**. | §2.3 |
 | Only the `parse_warnings.code` bucket changes. The other three buckets keep their existing root+regex extraction verbatim (`scripts/extract-internal-code-enums.ts:76-112`). | §3.2 |
-| **`warningCodes()` moves from strict equality to `.includes(...)`**, matching the observe CLI. This is a required part of the change, not an incidental cleanup: without it, deleting the residue removes live gallery scenarios (§2.3). | §3.6 |
+| **`warningCodes()` moves from strict equality to `.includes(...)`**, matching the observe CLI. This is a required part of the change, not an incidental cleanup: without it, deleting the residue removes live gallery scenarios (§2.3). | §3.7 |
 | `VERSION_AMBIGUOUS` and `MI-1_VERSION_DETECTION_FAILED` losing their `parse_warnings.code` attribution is a **correction, not a regression**. Both are `ParseError`-shaped (`lib/parser/types.ts:118`), constructed as `{code, message}` at `lib/parser/index.ts:550`, `lib/parser/index.ts:559`, and `lib/parser/index.ts:578`, and are in the bucket today only because the current content predicate matches the token `hardErrors`. | §4.2 |
 | `ParseWarning["code"]` stays `string` (`lib/parser/types.ts:69`). Union-narrowing was probed and rejected: `buildWarning(code: string)` (`lib/dev/attentionScenarios/tier1.ts:152`), `crewScopedWarning(code: string)` (`lib/dev/attentionScenarios/tier2.ts:590`), and DB-read paths carrying an unconstrained string (`lib/admin/needsAttention.ts:117`). | §4.4 |
 | `GAP_CLASSES` (`lib/parser/dataGaps.ts:30`) is **not** the warning universe. Probed: it misses 17 recognizer codes including every `*_AUTOCORRECTED` code. | §2.2 |
 | The gallery fixture tree `lib/dev/attentionScenarios/**` is excluded from the scan, and **the exclusion is a property of recorded SITES, not of the file walk** — see §3.1, where the factory rule would otherwise leak. | §3.1, §4.3 |
 | The guard fails on an **unrecognized construction**, not merely on a missing code. | §3.4, §5 |
+| The **scoped-`Project` optimization is rejected.** Globbing `lib|app|components|scripts` yields byte-identical output ~30% faster, but silently drops twelve root-level source files including the live Next.js entry point `instrumentation.ts` — reintroducing the maintained-list silent miss this design exists to remove. | §2.5 |
+| **No exemption mechanism ships.** Two schemas were tried and both admitted an escaping mutant; the list would be empty at ship time regardless. Adding an exemption is a deliberate guard code change. | §2.5 |
+| The guard carries **one hand-maintained anchor**, `EXPECTED_EMITTER_FILES`, because no check derived from the collector's own artifact can detect the collector narrowing. This is an accepted trade, stated plainly, not an oversight. | §3.5 |
 
 ---
 
@@ -75,7 +80,7 @@ Probed:
 strict-equality bucket: 43   residue: 4   overlap: []   => warningCodes() today: 47
 ```
 
-Zero overlap. All four residue rows are load-bearing, none has rotted, and the original claim inverted the finding. Deleting the residue while keeping strict equality would **remove** a live gallery scenario, not shrink a no-op. §3.6 is the fix that makes the deletion safe.
+Zero overlap. All four residue rows are load-bearing, none has rotted, and the original claim inverted the finding. Deleting the residue while keeping strict equality would **remove** a live gallery scenario, not shrink a no-op. §3.7 is the fix that makes the deletion safe.
 
 The row remains worth closing — the residue is hand-maintained and the generator cannot see three of its four codes at any root — but the justification is completeness, not rot.
 
@@ -95,6 +100,18 @@ A ts-morph prototype using assignability to `ParseWarning` plus the resolution r
 Site provenance: 50 literal, 19 factory-argument, 3 union-parameter, 1 imported const.
 
 Every one of the 62 rejected candidates was inspected for a false negative. All are genuine non-warnings: `lib/log/logger.ts:58` telemetry records, the eleven `lib/specLint/**` finding objects, admin-alert emits, route response bodies, and DB-read deserialization at `lib/observe/query/serializeWarning.ts:37` and `lib/observe/query/serializeWarning.ts:43` (rejected because `severity: string` is not `"info" | "warn"`). Two spread-plus-`code` cases were checked specifically — `lib/sync/runOnboardingScan.ts:669` and `lib/sync/syncLog.ts:31` — and both write a diagnostic **payload row** into the `sync_log.parse_warnings` jsonb column, where `entry.code` is a sync-log status, not a warning code. Correct rejections.
+
+### 2.5 Claims this document got wrong, and what refuted them
+
+Recorded so no later round re-derives them, per the AGENTS.md triage-record rule.
+
+| Claim | Refutation |
+| --- | --- |
+| "The residue has already rotted to a no-op" (original §2.3) | Inverted. The gallery filters on strict equality, so a multi-provenance entry is invisible to it; the residue row was the only thing supplying that code. Probed: strict 43, residue 4, overlap 0, gallery 47. |
+| "No production file imports from `lib/dev/attentionScenarios/`" | False — **ten** do (`app/admin/dev/page.tsx:45`, `app/admin/dev/actions.ts:89`, `app/admin/dev/attention-gallery/buildSwitcherScenarios.ts:23`, `lib/dev/deriveScenarioAttention.ts:20`, `lib/dev/buildScenarioModalData.ts:23`, `lib/dev/materialize/run.ts:39`, `lib/dev/materialize/plan.ts:16`, `lib/dev/galleryActionScripts.ts:23`, `lib/dev/galleryModalTypes.ts:17`, `lib/dev/publishedModalFixture.ts:26`). My probe searched for factory *call sites*, not module imports. Every one imports a type or scenario data; **none imports a warning factory**, which is the narrower assertion that actually closes the mirror class. |
+| "The recognizer costs ~2.1 s" | Off by ~9x. That timer started after `new Project()` returned. End-to-end is ~19 s: ~11.7 s program construction, ~2.8 s checker warm-up, ~4.5 s walk, over a 2882-file program. |
+| "10 codes enter the bucket" | 13 enter the manifest bucket (46 → 57, with 2 leaving). The 10 figure counted additions against the gallery's *union* of manifest and residue, not against the bucket. The gallery separately gains 10 net scenarios, 47 → 57. Both numbers are real and §4.1 now labels them distinctly. |
+| "Set equality closes M5" | It does not. The generator and the guard share the collector, so a narrowed collector plus its normally-regenerated manifest stay equal and both pass. This is the cost of the shared-recognizer design, and §3.6 is the independent anchor it forces. |
 
 ---
 
@@ -143,7 +160,19 @@ The precondition is that the factory be **exported**. All four factories today a
 
 **Candidate pre-filter (syntactic, cheap).** An object literal is a candidate when it has an own property named `code` AND either (own `severity` AND own `message`) or a spread element. Sound for object literals because `severity`, `code`, and `message` are all required on `ParseWarning` (`lib/parser/types.ts:67-71`). Measured: 118 candidates program-wide, which is what keeps the pass at ~2 s.
 
-An object literal that has a spread and **no** own `code` is not a candidate at all — it is propagation, not emission (`lib/parser/blocks/crew.ts:380-390` re-stamps `blockRef` onto an existing warning). This is handled by the pre-filter's `code` requirement; an earlier draft of this spec listed it as a separate resolution rule, which was unreachable, since a value reaching the rule table has already been required to carry an own `code`.
+**Spread without an own `code` is two different things, and the pre-filter must tell them apart** (R2 finding 1). A literal may lack an own `code` because it *propagates* an existing warning, or because the code arrives through a *composition* fragment:
+
+```ts
+// propagation - skip (lib/parser/blocks/crew.ts:380-390 re-stamps blockRef)
+return { ...w, blockRef: crewBlockRef };
+
+// composition - MUST NOT be skipped: neither literal is a candidate under a naive rule,
+// so the code would be silently missed with nothing reaching `unresolved`
+const codePart = { code: "MUTANT_SPREAD_CODE" };
+const warning: ParseWarning = { ...codePart, severity: "warn", message: "x" };
+```
+
+The discriminator is whether **any spread source is itself assignable to `ParseWarning`**. If one is, the literal propagates an existing warning and is skipped. If none is, the code entered from a non-warning fragment and the literal goes to `unresolved`. Probed: the composition mutant is signaled (`why: "code composed via a non-ParseWarning spread"`) while the live `crew.ts` propagation site stays clean, 0 unresolved tree-wide.
 
 **Membership test.** `checker.isTypeAssignableTo(literalType, parseWarningType)` — assignability, not contextual-type name matching, because the decisive site has no contextual type:
 
@@ -172,16 +201,32 @@ Rule 3 precedes rule 4 deliberately: a union-typed parameter enumerates the univ
 
 ### 3.4 Unit 3 — guard test `tests/messages/_metaParseWarningCodeSites.test.ts (new)`
 
-Runs the same collector the generator runs, so the two cannot disagree. Assertions:
+Runs the same collector the generator runs. Assertions:
 
-0. **Anti-tautology floor.** `sites.length` is at or above a floor, and three named codes of *distinct provenance* are present with the expected `via`. Without this, a collector degraded to `{sites: [], unresolved: []}` makes every other assertion pass vacuously.
-1. **Regen-forgotten.** Every recognized code appears in the committed manifest with a source containing `parse_warnings.code`.
+0. **Provenance sentinels.** Three named codes of distinct provenance resolve through their intended rule (`SECTION_HEADER_NO_FIELDS` literal, `BLOCK_DISAPPEARED` const, `REEL_DRIFTED` union). A fast canary that names which rule broke.
+1. **Manifest agreement.** The recognized code set equals the set the committed manifest attributes to `parse_warnings.code`. Catches a stale manifest in both directions — a forgotten regeneration, and an additive implementation that retains the old regex scan.
 2. **Unrecognized construction.** `unresolved` is empty.
-3. **Exemption integrity.** See §4.3 — set equality, not a filter.
-4. **Non-object-literal construction.** See §3.5.
-5. **Mirror-class closure.** No file outside `tests/**` and `lib/dev/attentionScenarios/**` imports from `lib/dev/attentionScenarios/`. The fixture-tree exclusion means a factory whose *body* lives in that tree would have its production call sites silently dropped; probed, no production file imports from it today, and this assertion keeps it that way. (Without the exclusion this class would not exist, so the assertion is part of its cost.)
+3. **Emitter-file anchor.** See §3.5 — the independent oracle, and the only assertion that can detect the collector itself narrowing.
+4. **Non-object-literal construction.** See §3.6.
+5. **Mirror-class closure.** No file outside `tests/**` and `lib/dev/attentionScenarios/**` imports a **warning-producing factory** (`buildWarning`, `crewScopedWarning`) from the fixture tree. R2 finding 2 refuted the broader form of this assertion: ten production files legitimately import types and scenario data from that tree, so an all-imports ban is unpassable. The narrow form closes the actual mirror class — a factory whose body sits in an excluded tree would have its production call sites silently dropped — and passes today.
 
-### 3.5 Non-object-literal construction (R1 finding 2)
+### 3.5 The emitter-file anchor, and why the guard needs one
+
+The design's central property is that the generator and the guard call the same collector, so they cannot disagree. That property is also a blind spot, and the plan's R2 proved it: if the collector narrows — a tightened file predicate, a broken glob — and the manifest is regenerated in the same commit as the plan requires, **both shrink together and every artifact-derived assertion stays green**. Probed: excluding one file drops the recognized set 57 → 51, the regenerated manifest also reports 51, and set equality passes.
+
+No check derived from the collector's own output can close this. The guard therefore carries exactly one hand-maintained anchor:
+
+```ts
+// Every file that contributes at least one parse-warning code site. Set equality:
+// a narrowed collector drops entries, a new emitter file adds one. Both fail loud.
+export const EXPECTED_EMITTER_FILES = [ /* 22 entries */ ];
+```
+
+Twenty-two files at `6a6ea124f`, spanning `lib/parser/blocks/**`, `lib/parser/{personalization,pull-sheet,sectionHeaderNormalize,warnings}.ts`, and eight `lib/sync/**` modules.
+
+**This is a trade, and it should be read as one.** The change deletes a hand-maintained list of four codes and adds a hand-maintained list of twenty-two files. The justification is not that the new list is smaller — it is not. It is that the residue rotted *silently* (a code absorbed into the generated bucket left a dead row nobody could see), whereas this anchor fails loud in both directions: a dropped emitter file fails set equality, and a new one fails with a message naming the file to add. A guard that cannot be silently wrong is worth more than a shorter list.
+
+### 3.6 Non-object-literal construction (R1 finding 2)
 
 The pre-filter walks object literals. Two type-correct, runtime-valid ways to produce a `ParseWarning` produce **zero candidates**, and therefore never reach `unresolved` — a silent miss, which defeats the "recognized or signaled" bound:
 
@@ -190,11 +235,13 @@ The pre-filter walks object literals. Two type-correct, runtime-valid ways to pr
 
 Both were demonstrated live by R1 with clean type diagnostics and valid runtime warnings. Neither exists in the tree today. Rather than model them (speculative depth is the tightening the round-economy retrospective warns against), the guard **detects and signals** them: assertion 4 fails when the program contains a class whose instance type is assignable to `ParseWarning`, or an `Object.assign` call whose result type is assignable to `ParseWarning`. That restores the bound for both demonstrated families at a fixed cost, and leaves modelling to whoever actually introduces one.
 
-### 3.6 Unit 4 — the gallery filter (required, not incidental)
+**`any` and `unknown` must be rejected before the assignability test.** `any` is assignable to everything, and `Object.assign(Object.create(null), {…})` at `components/admin/review/PublishedArchivedTabOffer.tsx:26` has result type `any` — so without the exclusion assertion 4 fails on existing production code before any mutant is planted. R2 finding 3 caught this against the spec text; probed clean both with and without planted mutants once the exclusion is in place. A syntactic member pre-filter on classes (skip unless the class declares `severity`, `code`, and `message`) avoids resolving the instance type of every unrelated class in the program.
+
+### 3.7 Unit 4 — the gallery filter (required, not incidental)
 
 `warningCodes()` (`lib/dev/attentionScenarios/tier1.ts:138-143`) moves from `v.source === "parse_warnings.code"` to `v.source.includes("parse_warnings.code")`, matching `lib/observe/query/serializeWarning.ts:29`. Per §2.3 this is what makes the residue deletion safe: three codes carry multi-provenance strings today and would otherwise vanish from the gallery. It also removes the standing disagreement between the bucket's two readers.
 
-### 3.7 Unit 5 — delete the residue
+### 3.8 Unit 5 — delete the residue
 
 `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`) and its explanatory block (`lib/dev/attentionScenarios/tier1.ts:114-129`) are deleted, along with the residue assertions at `tests/dev/attentionScenariosWarnings.test.ts:36-38`. The surrounding test that every generated `parse_warnings.code` entry appears in `warningCodes()` stays.
 
@@ -202,11 +249,13 @@ Both were demonstrated live by R1 with clean type diagnostics and valid runtime 
 
 ## 4. Consequences
 
-### 4.1 Codes entering the bucket (10)
+### 4.1 Codes entering the bucket (13), and gallery scenarios gained (10)
 
 `DIAGRAMS_TAB_MISSING`, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE`, `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `EMBEDDED_ASSET_DRIFTED`, `LINKED_FOLDER_OVERFLOW_TRUNCATED`, `REEL_DRIFTED`, `OPENING_REEL_PERMISSION_DENIED`, `OPENING_REEL_NOT_VIDEO`.
 
-All ten already carry a `lib/messages/catalog.ts` row and a §12.4 entry in `lib/messages/__generated__/spec-codes.ts` — verified by probe — so the three-way §12.4 lockstep does **not** apply. No spec prose edit, no `pnpm gen:spec-codes` run, no catalog row.
+Plus the three codes the gallery already showed via the residue but the manifest bucket never carried: `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`. **Thirteen codes enter the manifest bucket** (46 → 57 with the two departures in §4.2); the **gallery gains ten net scenarios** (47 → 57). Both numbers are real and describe different sets — an earlier draft reported only the 10, having counted against the gallery's union of manifest and residue rather than against the bucket.
+
+All thirteen already carry a `lib/messages/catalog.ts` row and a §12.4 entry in `lib/messages/__generated__/spec-codes.ts` — verified by probe — so the three-way §12.4 lockstep does **not** apply. No spec prose edit, no `pnpm gen:spec-codes` run, no catalog row.
 
 ### 4.2 Codes leaving the bucket (2)
 
@@ -214,18 +263,18 @@ All ten already carry a `lib/messages/catalog.ts` row and a §12.4 entry in `lib
 
 Consequences: `isParseWarningCode` (`lib/observe/query/serializeWarning.ts:26-30`) flips from `true` to `false` for both. Neither produces a gallery scenario today (both are multi-provenance, and today's gallery filter is strict), so the gallery is unaffected by their departure.
 
-### 4.3 Exemptions (R1 finding 4)
+### 4.3 No exemption mechanism ships
 
-`PARSE_WARNING_SITE_EXEMPTIONS` is a module-level array in the collector. R1 demonstrated that a `{file, reason}` schema collides: a file holding one approved unresolved site and one later unrelated emitter matches file-wide, hiding the new emitter while both assertions pass.
+R1 finding 4 showed a `{file, reason}` exemption schema collides file-wide. The repair to `{file, why, reason}` compared by set equality was then refuted in turn: replacing an exempted site with a different site in the same file that draws the same classifier string leaves the multiset unchanged, so the mutant escapes.
 
-The schema is therefore `{ file, why, reason }` — `why` being the collector's own classification string — and **assertion 3 is set equality, not a filter**: the multiset of unresolved sites must equal the multiset of exemption rows. A new unresolved site in an already-exempted file changes the set and fails, and an exemption whose site is gone also fails. The list is empty at ship time; set equality means the empty case asserts `unresolved === []`, so assertion 3 is not vacuous even before the first exemption.
+Two schemas, two escaping mutants, and an empty list at ship time. **The mechanism is dropped.** `unresolved` must simply be empty. Adding an exemption later is a deliberate change to the guard's own code — reviewable, and impossible to do by accident. This removes mutation family M4 by removing its surface rather than by defending it.
 
 ### 4.4 Blast radius to verify
 
 | Surface | Why it moves | Check |
 | --- | --- | --- |
-| `lib/dev/attentionScenarios/tier1.ts` | gallery filter change (§3.6) plus residue deletion; scenario count 47 → 57 | `tests/dev/attentionScenariosWarnings.test.ts` |
-| `tests/observe/serializeWarning.test.ts` | membership flips for the 10 additions and the 2 departures | full suite |
+| `lib/dev/attentionScenarios/tier1.ts` | gallery filter change (§3.7) plus residue deletion; scenario count 47 → 57 | `tests/dev/attentionScenariosWarnings.test.ts` |
+| `tests/observe/serializeWarning.test.ts` | membership flips for the 13 additions and the 2 departures | full suite |
 | `tests/cross-cutting/no-raw-codes.test.ts` (x2) | consumes the regenerated manifest | `pnpm test:audit:x2-no-raw-codes` |
 | `tests/cross-cutting/codes.test.ts` (x1 catalog parity) | unaffected — no §12.4 or catalog change (§4.1) | full suite |
 | `lib/messages/__generated__/internal-code-enums.ts` | regenerated; committed in the same commit as the generator change | `pnpm gen:internal-code-enums` + `git diff --exit-code` |
@@ -242,9 +291,11 @@ The acceptance posture is the preparedness-audit standard — every emitter is r
 2. **Computed codes.** `code: \`PREFIX_${x}\`` or a map lookup is unresolvable in principle — fails assertion 2, forcing an explicit decision rather than a silent gap.
 3. **Rule 4 records only what is called.** A `string`-typed factory parameter enumerates its literal call sites, so a code existing only as an uncalled possibility is not recorded. Rule 3 is the escape hatch: type the parameter as a union.
 4. **Non-object-literal construction** (`Object.assign`, class instances) is detected and signaled by assertion 4, not modelled. Adding one is a deliberate act that fails CI with a pointer to this section.
-5. **Dynamic-code consumers must be excluded by directory**, or their fixtures mint codes — today `lib/dev/attentionScenarios/**`. Assertion 5 closes the mirror class that exclusion opens.
+5. **Dynamic-code consumers must be excluded by directory**, or their fixtures mint codes — today `lib/dev/attentionScenarios/**`. Assertion 5 closes the mirror class that exclusion opens, narrowed to warning factories because ten production files legitimately import types and scenario data from that tree.
 6. **The recognizer models the TypeScript type `ParseWarning`, not a database column.** The `sync_log.parse_warnings` jsonb column also carries diagnostic payload rows (`lib/sync/runOnboardingScan.ts:669`, `lib/sync/syncLog.ts:31`) whose `code` is a sync-log status. Those are correctly out of scope.
 7. **The guard is only as fresh as the committed manifest.** Assertion 1 compares against the checked-in generated file.
+8. **Cost is ~19 s per program construction**, paid once by `pnpm gen:internal-code-enums` and once by the guard test: ~11.7 s program construction, ~2.8 s checker warm-up, ~4.5 s walk, over 2882 files. The scoped-`Project` optimization that would cut this to ~13 s is rejected in §1.1 — it trades the program-wide guarantee for wall clock.
+9. **The collector cannot certify its own completeness.** §3.5's `EXPECTED_EMITTER_FILES` is the one hand-maintained anchor, and it is load-bearing precisely because everything else in the guard derives from the collector.
 
 Limits 1 and 2 are fenced in both directions on purpose: they are not defects to pre-solve, and a reviewer proposing to model them must show a live escaping site per the finding-admissibility contract in AGENTS.md.
 

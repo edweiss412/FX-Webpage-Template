@@ -6,7 +6,7 @@
 
 impeccable-gate: N/A — no UI surface
 
-**Revision history:** plan R1 (Codex) returned BLOCKING with two P0s, two P1s, and one P2. All five confirmed by independent probe and repaired here. The two P1s collapsed into a single change — assertion 1 is now **set equality** rather than a subset check — which closes both. R1's P0-2 forced a task restructure: nine tasks became eight, because three of the original REDs could not fail.
+**Revision history:** R1 returned BLOCKING (2 P0, 2 P1, 1 P2) and R2 returned BLOCKING (2 P0, 2 P1, 1 P2). All ten confirmed by independent probe. R2 forced three structural changes: Tasks 7 and 8 merge (their split left Task 8 with no possible RED), the exemption mechanism is deleted rather than repaired (two schemas, two escaping mutants), and **set equality is conceded not to close M5** — the guard needs an independent anchor, added as `EXPECTED_EMITTER_FILES`. Task counts: 9 → 8 (R1) → 7 (R2).
 
 ---
 
@@ -30,31 +30,28 @@ Per `docs/agents/writing-plans.md:24`, this enumeration IS the closure set the r
 
 | # | Family | Mutant | Caught by |
 | --- | --- | --- | --- |
-| M1 | Emitter lands, manifest not regenerated | add a `ParseWarning` literal with a fresh code, skip `pnpm gen:internal-code-enums` | assertion 1 (set equality) |
-| M2 | Emitter lands with an unmodelled `code` shape | `` code: `PREFIX_${x}` ``; `code: MAP[k]`; a two-hop factory | assertion 2 (`unresolved` non-empty) |
-| M3 | Emitter lands in a directory nobody listed | a `ParseWarning` literal under `lib/reports/` | covered by construction (program-wide scan); pinned by Task 1's planted mutant |
-| M4 | Exemption outlives its site | an exemption row whose site no longer exists | assertion 3 (set equality) |
-| M5 | **Collector degrades to a partial or empty scan** | `{sites: [], unresolved: []}`; or a narrowed file filter that silently drops live sites | assertion 1 (set equality) — see below |
-| M6 | **Fixture or test call site mints a code** | export the factory at `lib/sync/enrichAgenda.ts:45`, call it from a test with a literal | Task 3's scanned-file predicate on recorded sites |
-| M7 | **Non-object-literal construction** | a class implementing `ParseWarning`; `Object.assign` composition | assertion 4 (§ Task 5) |
+| M1 | Emitter lands, manifest not regenerated | a `ParseWarning` literal with a fresh code, no `pnpm gen:internal-code-enums` | assertion 1 (manifest set equality) |
+| M2 | Unmodelled `code` shape | `` code: `PREFIX_${x}` ``; `code: MAP[k]`; a two-hop factory | assertion 2 — probed: `why: "code initializer is TemplateExpression"` |
+| M3 | Emitter in a directory nobody listed | a literal under `lib/reports/` | program-wide scan; probed present |
+| M4 | — | — | **removed by construction**: no exemption mechanism ships (see Task 6 deletion below) |
+| M5 | **Collector narrows** | tighten the file predicate, regenerate the manifest in the same commit | assertion 3 (`EXPECTED_EMITTER_FILES`) — **not** assertion 1 |
+| M6 | Test or fixture call site mints a code | export `lib/sync/enrichAgenda.ts:45`'s factory, call it from a test | scanned-file predicate on recorded sites; probed `false` after fix, `true` before |
+| M7 | Non-object-literal construction | class implementing `ParseWarning`; `Object.assign` composition | assertion 4, with `any`/`unknown` rejected first |
+| M8 | **Spread composition** | `const p = {code:"X"}; const w: ParseWarning = {...p, severity, message}` | pre-filter's spread-source discriminator — probed signaled, propagation site still clean |
 
-**M5 is why assertion 1 is set equality, not a subset check** (R1 P1-1). The original design asserted only "every recognized code is in the manifest" plus a numeric floor of 60. R1 demonstrated that excluding a single file (`lib/sync/enrichWithDrivePins.ts`) silently drops **nine live sites** while `sites.length >= 60`, all three provenance sentinels, and `unresolved === []` all stay green:
-
-```json
-{"mutation":"exclude lib/sync/enrichWithDrivePins.ts","sites":64,"unresolved":0,"floorPass":true,"namedPass":true}
-```
-
-Set equality catches it: the recognized code set shrinks, the committed manifest does not, and the assertion fails. **The numeric floor is deleted** — R1 is right that 60 encodes a nonsemantic corpus count that would start failing after fourteen legitimate net site removals, and set equality makes it redundant. The three provenance sentinels survive as a fast, readable canary that names which rule broke, not as the load-bearing check.
-
-Set equality also closes R1 P1-2 in the other direction: an additive implementation that *retains* the old regex scan alongside the collector adds `parse_warnings.code` provenance the collector never produced, so the manifest set exceeds the recognized set and the assertion fails. R1's probe showed the old subset assertion passing under exactly that mutant:
+**M5 is the concession this round forced.** R1 showed a numeric floor missing a partial scan, and the repair was set equality. R2 then showed set equality *also* fails to close M5, because the generator and the guard share the collector: narrow the collector, regenerate the manifest as Task 7 requires, and both shrink together.
 
 ```json
-{"mutation":"retain old scan + add collector output","missing":[],"VERSION_AMBIGUOUS":"parse_warnings.code,pending_ingestions.last_error_code"}
+{"correctCodes":57,"degradedCodes":51,"manifestAfterRegenCodes":51,"setEqualityPasses":true,"namedPass":true}
 ```
+
+No assertion derived from the collector's own artifact can detect this. Assertion 3 is therefore an **independent anchor**: `EXPECTED_EMITTER_FILES`, the 22 files that contribute at least one site, compared by set equality. A narrowed predicate drops entries; a new emitter file adds one; both fail loud. The plan trades a hand-maintained 4-code residue for a hand-maintained 22-file anchor, and §3 states that trade rather than hiding it.
+
+**M4 is removed rather than defended.** R1 rejected `{file, reason}` as colliding file-wide; the `{file, why, reason}` repair was refuted in turn — replacing an exempted site with a different site in the same file drawing the same classifier leaves the multiset unchanged (`{"beforeEqual":true,"afterReplacementEqual":true,"escapedMutant":true}`). The list would be empty at ship time regardless, so the mechanism is dropped and `unresolved` must simply be empty.
 
 ### 0.4 Snippet typecheck posture
 
-Snippets are written against the repo's strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`). The manifest lookup uses an explicit widening rather than a `keyof typeof` cast — the cast compiles and is runtime-correct, but it tells the compiler a lookup always succeeds when the assertion's whole purpose is the case where it does not:
+Snippets are written against the repo's strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) and every one is compiled before dispatch. R2 P2 found the Task 5 mutant snippet referencing an undeclared `base` (`TS2304`); it now declares it. The manifest lookup uses an explicit widening rather than a `keyof typeof` cast — the cast compiles and is runtime-correct, but it tells the compiler a lookup always succeeds when the assertion's whole purpose is the case where it does not:
 
 ```ts
 const manifest: Record<string, { source: string } | undefined> = INTERNAL_CODE_ENUMS;
@@ -62,7 +59,7 @@ const manifest: Record<string, { source: string } | undefined> = INTERNAL_CODE_E
 
 ### 0.5 Test wiring
 
-`tests/messages/_metaParseWarningCodeSites.test.ts (new)` lands in the **PARALLEL** vitest project — `vitest.config.ts` splits the suite via `vitest.projects.ts`, and `tests/messages/**/*.test.{ts,tsx}` is listed in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:89`). It is concurrency-safe there: the partition's stated hazard is on-disk state mutated mid-run (`vitest.projects.ts:130`), and this test only reads source files. Its cost is one TypeScript program (~2.1 s locally), measured on the first real CI run per §3. No workflow path filter needs an entry (R1 confirmed this independently).
+`tests/messages/_metaParseWarningCodeSites.test.ts (new)` lands in the **PARALLEL** vitest project — `vitest.config.ts` splits the suite via `vitest.projects.ts`, and `tests/messages/**/*.test.{ts,tsx}` is listed in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:89`). It is concurrency-safe there: the partition's stated hazard is on-disk state mutated mid-run (`vitest.projects.ts:130`), and this test only reads source files. Its cost is one TypeScript program (~19 s end-to-end, see §3), measured on the first real CI run. No workflow path filter needs an entry (R1 confirmed this independently).
 
 ### 0.6 Probes run at plan time
 
@@ -134,7 +131,15 @@ Both the export and the plant are reverted after the assertion is confirmed red.
 **RED.** Plant both mutants in a non-dot directory (`lib/__m7probe/`, deleted after):
 
 ```ts
-export class MutantWarning implements ParseWarning { severity: "warn" = "warn"; code = "MUTANT_CLASS_INSTANCE"; message = "x"; }
+import type { ParseWarning } from "@/lib/parser/types";
+
+export class MutantWarning implements ParseWarning {
+  severity: "warn" = "warn";
+  code = "MUTANT_CLASS_INSTANCE";
+  message = "x";
+}
+
+const base = { severity: "warn" as const, message: "x" };
 export const assigned: ParseWarning = Object.assign({}, base, { code: "MUTANT_OBJECT_ASSIGN" });
 ```
 
@@ -142,64 +147,75 @@ Assert the guard fails while they are present. Measured at plan time: both are d
 
 **GREEN.** Assertion 4 — fail when the program holds a class whose instance type is assignable to `ParseWarning`, or an `Object.assign` call whose result type is. **`any` and `unknown` are rejected before the assignability test**, or `Object.assign(Object.create(null), {…})` at `components/admin/review/PublishedArchivedTabOffer.tsx:26` false-positives (its result type is `any`, and `any` is assignable to everything). That false positive is the concrete failure mode this exclusion prevents.
 
-**Commit:** `test(codes): signal non-object-literal ParseWarning construction`
+Also lands **M8**, the spread-composition family R2 found (spec §3.3): plant
 
-### Task 6 — exemption registry with set-equality integrity
-
-**RED.** Assert that a planted unresolved site in a file that already holds an *approved* exemption still fails the guard. R1's P1 probe showed a `{file, reason}` schema hiding it:
-
-```json
-{"visibleAfterOnlyRepresentableFileMatch":[],"assertion2Passes":true,"assertion3Passes":true,"silentlyHidden":[10,40]}
+```ts
+const codePart = { code: "MUTANT_SPREAD_CODE" };
+export const w: ParseWarning = { ...codePart, severity: "warn", message: "x" };
 ```
 
-**GREEN.** `PARSE_WARNING_SITE_EXEMPTIONS` rows are `{file, why, reason}`, and assertion 3 compares the unresolved multiset against the exemption multiset by **equality**. With the list empty at ship time this degenerates to `unresolved === []`, so it is not vacuous before the first exemption — the defect R1 named.
+and assert it reaches `unresolved`. Under a naive pre-filter neither literal is a candidate — the fragment has no `severity`/`message`, the enclosing literal has no own `code` — so the code is silently missed with nothing signaled. GREEN adds the spread-source discriminator: skip only when some spread source is itself assignable to `ParseWarning`. Probed both ways — mutant signaled (`why: "code composed via a non-ParseWarning spread"`), and the live propagation site at `lib/parser/blocks/crew.ts:380-390` still clean at 0 unresolved.
 
-**Commit:** `test(codes): make exemptions site-scoped and non-vacuous`
+**Commit:** `test(codes): signal non-object-literal and spread-composed construction`
 
-### Task 7 — generator swap, guard assertions 0-2, regenerated manifest
+### Task 6 — the emitter-file anchor (assertion 3)
 
-Tasks 6 and 7 of the original plan are merged. R1 P0-2 was right that the original Task 6 committed a knowingly-failing assertion and deferred its GREEN to Task 7, which violates invariant 1's "passing test → commit."
+**RED.** Narrow the collector's file predicate to exclude `lib/sync/enrichWithDrivePins.ts`, regenerate the manifest, and assert the guard still fails. Against assertion 1 alone it does not — R2's probe shows recognized and manifest both drop to 51 and set equality passes. Against `EXPECTED_EMITTER_FILES` it fails, naming the dropped file.
 
-**RED.** Assertion 1 as set equality: the collector recognizes 57 codes, the committed manifest attributes `parse_warnings.code` to 46. Fails in both directions at once.
+**GREEN.** Export `EXPECTED_EMITTER_FILES` — the 22 files contributing at least one site, probed at `6a6ea124f`:
 
-**GREEN.** Replace `scripts/extract-internal-code-enums.ts:70-74` with a `collectParseWarningCodeSites()` call. Leave `scripts/extract-internal-code-enums.ts:76-112`, `readFiles`, `addCodeLiteralsFromSource`, and the render/write path untouched. Run `pnpm gen:internal-code-enums`; commit the regenerated manifest in the **same** commit; verify `git diff --exit-code lib/messages/__generated__/internal-code-enums.ts` is clean.
+```
+lib/parser/blocks/{agendaWarnings,client,crew,event,ops,rooms,transport,travelFlightWarnings,venue}.ts
+lib/parser/{personalization,pull-sheet,sectionHeaderNormalize,warnings}.ts
+lib/sync/{applyStaged,blockDisappearance,enrichAgenda,enrichTransportAssignees,enrichVenueGeocode,
+          enrichWithDrivePins,phase2,pullSheetOverride,snapshotAssets}.ts
+```
 
-Also lands assertion 0 (three provenance sentinels — `literal`, `const`, `union` — as a rule-level canary, no numeric floor) and assertion 2 (`unresolved` empty).
+Assertion 3 compares the contributing-file set to it by equality, so a narrowed predicate and a new emitter file both fail loud. The original Task 6 (exemption registry) is deleted — see §0.3's M4 row.
 
-Expected manifest delta, to be re-derived rather than trusted: +10 codes gain `parse_warnings.code`; `VERSION_AMBIGUOUS` and `MI-1_VERSION_DETECTION_FAILED` lose it while keeping their other provenances.
+**Commit:** `test(codes): anchor the scan against its known emitter files`
 
-**Commit:** `feat(codes): extract parse-warning codes by type, not by directory`
+### Task 7 — generator swap, gallery filter, residue deletion, regenerated manifest
 
-### Task 8 — gallery filter, residue deletion, mirror-class guard
+R1 merged the original Tasks 6 and 7; R2 showed Task 8 must merge in too. **These are not separable.** After a generator swap alone, the old strict filter plus the surviving residue already returns 57 and already contains `PULL_SHEET_ON_ARCHIVED_TAB`, so the planned Task 8 RED is green before its own GREEN:
 
-**RED.** `expect(warningCodes()).toHaveLength(57)` and `expect(warningCodes()).toContain("PULL_SHEET_ON_ARCHIVED_TAB")`. Before the change `warningCodes()` returns 47 — genuinely red, and it is red for the reason spec §2.3 records: the strict-equality filter excludes the three multi-provenance codes, so the residue is load-bearing rather than rotted.
+```json
+{"currentBucket":46,"plannedEntering":13,"plannedBucket":57,"strictAfterTask7":55,
+ "oldFilterPlusResidueAfterTask7":57,"containsPull":true}
+```
+
+Splitting them the other way is no better: deleting the residue before the generator swap drops `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, and `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` from the gallery, because the manifest does not carry them yet. Either split leaves a commit where the gallery is wrong. One task, one atomic behavioural change.
+
+**RED.** Assertion 1 as set equality: the collector recognizes 57 codes, the committed manifest attributes `parse_warnings.code` to 46. Fails in both directions.
 
 **GREEN.**
 
+- Replace `scripts/extract-internal-code-enums.ts:70-74` with a `collectParseWarningCodeSites()` call; leave `scripts/extract-internal-code-enums.ts:76-112`, `readFiles`, `addCodeLiteralsFromSource`, and the render/write path untouched.
 - `warningCodes()` (`lib/dev/attentionScenarios/tier1.ts:138-143`) moves to `v.source.includes("parse_warnings.code")`, matching `lib/observe/query/serializeWarning.ts:29`.
-- Delete `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`) and its explanatory block (`lib/dev/attentionScenarios/tier1.ts:114-129`), replaced by a two-line note pointing at `lib/messages/__internal__/parseWarningCodeSites.ts (new)`.
-- Delete the residue assertions at `tests/dev/attentionScenariosWarnings.test.ts:36-38`. Keeping the surrounding test that every generated entry appears in `warningCodes()`.
-- Add assertion 5: no file outside `tests/**` and `lib/dev/attentionScenarios/**` imports from `lib/dev/attentionScenarios/`. This closes the mirror class the fixture-tree exclusion opens — a factory whose body lives in that tree would have its production call sites silently dropped. Probed: no production file imports from it today.
+- Delete `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`) and its explanatory block (`lib/dev/attentionScenarios/tier1.ts:114-129`); delete the residue assertions at `tests/dev/attentionScenariosWarnings.test.ts:36-38`.
+- Add assertion 5, narrowed per spec §3.4: no file outside `tests/**` and `lib/dev/attentionScenarios/**` imports a warning **factory** (`buildWarning`, `crewScopedWarning`) from the fixture tree. R2 refuted the all-imports form — ten production files legitimately import types and scenario data from that tree, four as value imports.
+- Run `pnpm gen:internal-code-enums`; commit the regenerated manifest in this same commit; verify `git diff --exit-code lib/messages/__generated__/internal-code-enums.ts`.
 
-R1 P0-2 correctly rejected the original Task 8 RED (deleting test assertions leaves a valid export and only an unused import). The filter change supplies a real one.
+Expected delta, re-derived at implementation rather than trusted: **13 codes enter** the manifest bucket, **2 leave** (`VERSION_AMBIGUOUS`, `MI-1_VERSION_DETECTION_FAILED`), 46 → 57. The gallery separately goes 47 → 57, a net gain of 10 scenarios — a different set from the 13, since three of the entering codes were already shown via the residue.
 
-**Commit:** `refactor(codes): align the gallery filter and delete the code residue`
+**Commit:** `feat(codes): extract parse-warning codes by type, not by directory`
 
-### Task 9 — verification sweep and ledger graduation
+### Task 8 — verification sweep and ledger graduation
 
-Run, recording output in the commit body:
+**RED — and it is a real one.** Move the `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` entry from `BACKLOG.md` to `BACKLOG-archive.md` **while leaving its `IN PROGRESS` marker in place**, then run `pnpm test tests/docs/_metaLedgerInProgress.test.ts`. It fails: `tests/docs/_metaLedgerInProgress.test.ts:149-153` forbids an archived entry from being in flight. R2 P0-4 was right that the original ordering ran the ledger test *before* the mutation, so its green transcript never exercised the state R1's repair depends on. Mutating first makes the guard do real work.
+
+**GREEN.** Clear the marker. Re-run the meta-test — green.
+
+Then the rest of the sweep, recording output in the commit body:
 
 - `pnpm test` (full suite)
-- `pnpm test:audit:x2-no-raw-codes`, **then `git diff --exit-code lib/messages/__generated__/internal-code-enums.ts`** — that audit regenerates the manifest, and the canonical CI job treats regeneration and cleanliness as two steps (`.github/workflows/x-audits.yml:121-125`). R1 P2 caught the omission.
+- `pnpm test:audit:x2-no-raw-codes`, **then `git diff --exit-code lib/messages/__generated__/internal-code-enums.ts`** — that audit regenerates the manifest, and the canonical CI job treats regeneration and cleanliness as two steps (`.github/workflows/x-audits.yml:121-125`)
 - `pnpm typecheck`, `pnpm lint`
-- `pnpm test tests/docs/_metaInvariant8Closeout.test.ts` — this plan carries `impeccable-gate: N/A — no UI surface`, grammar pinned by `NA_FORM` at `tests/docs/_invariant8Closeout.ts:46`
-- `pnpm test tests/docs/_metaLedgerInProgress.test.ts`
+- `pnpm test tests/docs/_metaInvariant8Closeout.test.ts` — grammar pinned by `NA_FORM` at `tests/docs/_invariant8Closeout.ts:46`
 
-Then graduate `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` from `BACKLOG.md` to `BACKLOG-archive.md`, recording (a) the prescribed fix superseded on probe evidence, (b) Effort S→M, (c) that the residue was **load-bearing, not rotted** — the spec's original claim was inverted, and the strict-vs-`includes` reader disagreement was the cause.
+The archive entry records (a) the prescribed fix superseded on probe evidence, (b) Effort S→M, (c) that the residue was **load-bearing, not rotted** — the spec's original claim was inverted, and the strict-vs-`includes` reader disagreement was the cause. Add the reconciliation-log line at `BACKLOG.md:7`.
 
-**The `IN PROGRESS` marker is cleared in THIS commit, as part of the graduation** — not at Stage 4.4. R1 P0-1: `tests/docs/_metaLedgerInProgress.test.ts:149-153` forbids an archived entry from being in flight, and CI runs before merge, so deferring the clear to Stage 4.4 would ship a PR that required CI rejects. AGENTS.md invariant 12 already says an entry graduating to an archive "takes its marker with it by construction"; the original plan misread it. Stage 4.4 then has no ledger work for this branch.
-
-Add the reconciliation-log line at `BACKLOG.md:7`.
+Stage 4.4 then has no ledger work for this branch.
 
 **Commit:** `docs(plan): graduate BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`
 
@@ -211,11 +227,10 @@ Add the reconciliation-log line at `BACKLOG.md:7`.
 - [ ] Task 2 — const rule
 - [ ] Task 3 — factory rule + M6 call-site exclusion
 - [ ] Task 4 — union-parameter rule
-- [ ] Task 5 — non-object-literal detector
-- [ ] Task 6 — exemption set-equality
-- [ ] Task 7 — generator swap + manifest
-- [ ] Task 8 — gallery filter + residue deletion + mirror guard
-- [ ] Task 9 — verification sweep + graduation
+- [ ] Task 5 — non-object-literal + spread-composition detectors
+- [ ] Task 6 — emitter-file anchor
+- [ ] Task 7 — generator swap + gallery filter + residue deletion + manifest
+- [ ] Task 8 — ledger graduation + verification sweep
 - [ ] Self-review
 - [ ] Adversarial review (cross-model, Codex) — to APPROVE
 - [ ] Whole-diff cross-model review — to APPROVE
@@ -227,7 +242,8 @@ Add the reconciliation-log line at `BACKLOG.md:7`.
 
 | Risk | Mitigation |
 | --- | --- |
-| Full-program TS load slower in CI than 2.1 s locally | One program over 887 files, syntactic pre-filter to 118 candidates. Memoizable per process if needed — measure on the first CI run, do not pre-optimize. |
+| Full-program TS load costs **~19 s**, paid once by the generator and once by the guard | Measured end-to-end: ~11.7 s program construction, ~2.8 s checker warm-up, ~4.5 s walk, 2882 files. An earlier draft's "~2.1 s" timed only the walk. The scoped-`Project` variant (~13 s, byte-identical output) is rejected in spec §1.1: its globs miss twelve root-level files including `instrumentation.ts`, reintroducing the silent miss the design removes. Measure on the first CI run; do not pre-optimize further. |
 | `checker.isTypeAssignableTo` is a TypeScript-internal API | `typescript@^5` and `ts-morph@^28` are already dependencies. The call sits behind one function in one module; the `OrThrow` posture makes a break loud. |
 | Recognizer and generator drift apart | Structurally impossible — same exported function. This is the design's central property. |
-| Set equality makes the guard brittle against legitimate churn | Intended. A legitimate new emitter changes the recognized set, and regenerating the manifest is one command. That coupling is the point of the guard. |
+| Set equality makes the guard brittle against legitimate churn | Intended. A new emitter changes the recognized set; regenerating the manifest is one command. |
+| `EXPECTED_EMITTER_FILES` is a hand-maintained list, the very thing this change deletes elsewhere | Stated as a trade, not hidden: 4 hand-maintained codes out, 22 hand-maintained files in. The justification is failure mode, not size — the residue rotted silently, whereas this anchor fails loud in both directions, and R2 proved no artifact-derived check can replace it. |
