@@ -29,7 +29,7 @@
 // lives HERE rather than in the generator — scripts/generate-admin-tables.ts is
 // deliberately unmodified (spec §4.5).
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { ADMIN_TABLES } from "@/lib/audit/admin-tables.generated";
 
@@ -78,75 +78,93 @@ interface Classification {
 const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   shows_internal: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   sync_log: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   reports: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   pending_syncs: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   pending_ingestions: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   app_settings: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   deferred_ingestions: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   admin_alerts: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   sync_audit: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   drive_watch_channels: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   report_rate_limits: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   onboarding_scan_manifest: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   pending_snapshot_uploads: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   revision_race_cooldowns: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   validation_state: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   wizard_finalize_checkpoints: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   shows_pending_changes: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   recovery_drift_cooldowns: {
     posture: "admin_only",
-    reason: "spec §4.3 admin-only table; admin_only FOR ALL policy on is_admin()",
+    reason:
+      "spec §4.3 admin-only bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641); admin_only FOR ALL policy on is_admin()",
   },
   email_deliveries: {
     posture: "deny_all",
@@ -156,103 +174,112 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   shows: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   crew_members: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   hotel_reservations: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   rooms: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   transportation: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   contacts: {
     posture: "crew_readable",
     reason:
-      "spec §4.3 first bullet — readable by crew whose email matches for that show, or by admins",
+      "spec §4.3 crew-readable bullet (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:639) — readable by crew whose email matches for that show, or by admins",
   },
   _allowed_watermark_columns: {
     posture: "infra",
     reason:
-      "watermark-column allowlist read by the X.4 audit; RLS on, zero grants to anon/authenticated",
+      "watermark-column allowlist read by the X.4 audit; RLS on, zero grants to anon/authenticated (supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql)",
   },
   admin_alert_reads: {
     posture: "infra",
     reason:
-      "per-admin bell read state; mutations flow through the bell_mark_read RPC (supabase/migrations/20260705100000_bell_state_tables.sql)",
+      "per-admin bell read state; mutations flow through the bell_mark_read RPC (supabase/migrations/20260705100000_bell_state_tables.sql) (supabase/migrations/20260705100000_bell_state_tables.sql:19)",
   },
   admin_bell_state: {
     posture: "infra",
-    reason: "per-admin bell open state; same RPC gate as admin_alert_reads",
+    reason:
+      "per-admin bell open state; same RPC gate as admin_alert_reads (supabase/migrations/20260705100000_bell_state_tables.sql:32)",
   },
   admin_emails: {
     posture: "infra",
     reason:
-      "admin roster; carries an admin_only FOR SELECT policy under the C9 SELECT-only grant pattern, so it is allowlisted rather than treated as a 4.3 member",
+      "admin roster; carries an admin_only FOR SELECT policy under the C9 SELECT-only grant pattern, so it is allowlisted rather than treated as a 4.3 member (supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:28)",
   },
   agenda_extract_leases: {
     posture: "infra",
     reason:
-      "agenda-extraction lease ledger; RLS off by design, all anon/authenticated privileges revoked so the grant layer is the gate",
+      "agenda-extraction lease ledger; RLS off by design, all anon/authenticated privileges revoked so the grant layer is the gate (supabase/migrations/20260629000001_agenda_extract_leases.sql)",
   },
   app_events: {
     posture: "infra",
-    reason: "append-only app event stream; service-role writer only",
+    reason:
+      "append-only app event stream; service-role writer only (supabase/migrations/20260501001000_internal_and_admin.sql)",
   },
   data_migration_markers: {
     posture: "infra",
-    reason: "one-shot migration bookkeeping; service-role only",
+    reason:
+      "one-shot migration bookkeeping; service-role only (supabase/migrations/20260501001000_internal_and_admin.sql)",
   },
   destructive_reset_gate: {
     posture: "infra",
-    reason: "validation destructive-reset interlock, read through assert_destructive_reset_enabled",
+    reason:
+      "validation destructive-reset interlock, read through assert_destructive_reset_enabled (supabase/migrations/20260527204241_validation_state.sql)",
   },
   drive_watch_reconcile_state: {
     posture: "infra",
-    reason: "Drive watch reconciliation cursor; cron writer only",
+    reason:
+      "Drive watch reconciliation cursor; cron writer only (supabase/migrations/20260501001000_internal_and_admin.sql)",
   },
   geocode_cache: {
     posture: "infra",
-    reason: "venue geocode cache; no admin data",
+    reason:
+      "venue geocode cache; no admin data (supabase/migrations/20260501001000_internal_and_admin.sql)",
   },
   ignored_warnings: {
     posture: "infra",
     reason:
-      "operator-dismissed parse warnings; carries an admin_only policy but is not a 4.3 member, so it is allowlisted",
+      "operator-dismissed parse warnings; carries an admin_only policy but is not a 4.3 member, so it is allowlisted (supabase/migrations/20260702120000_ignored_warnings.sql:8)",
   },
   onboarding_rebuild_attempts: {
     posture: "infra",
     reason:
-      "wizard rebuild attempt ledger; RLS off by design, all anon/authenticated privileges revoked",
+      "wizard rebuild attempt ledger; RLS off by design, all anon/authenticated privileges revoked (supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql)",
   },
   role_token_mappings: {
     posture: "infra",
     reason:
-      "role-token grant mappings; service-role writes behind requireAdmin (app/admin/show/[slug]/_actions/roleToken.ts:57)",
+      "role-token grant mappings; service-role writes behind requireAdmin (app/admin/show/[slug]/_actions/roleToken.ts:57) (supabase/migrations/20260716000000_role_token_mappings.sql:8)",
   },
   show_change_log: {
     posture: "infra",
-    reason: "per-show change feed; service-role sync writer only",
+    reason:
+      "per-show change feed; service-role sync writer only (supabase/migrations/20260601000000_b2_show_lifecycle.sql)",
   },
   show_share_tokens: {
     posture: "infra",
-    reason: "share-token epochs; mutations flow through rotate_show_share_token",
+    reason:
+      "share-token epochs; mutations flow through rotate_show_share_token (supabase/migrations/20260523000002_show_share_tokens.sql:43)",
   },
   sync_holds: {
     posture: "infra",
-    reason: "per-show sync hold ledger; service-role only",
+    reason:
+      "per-show sync hold ledger; service-role only (supabase/migrations/20260601000000_b2_show_lifecycle.sql)",
   },
 };
 
@@ -378,6 +405,22 @@ describe("admin-table classification reconciled against the live catalog", () =>
 
   test("C total: every live public relation is classified", () => {
     expect(directionC(PUBLIC_TABLE_CLASSIFICATION, liveRelations())).toEqual([]);
+  });
+
+  test("every classification reason carries a citation to a file that exists", () => {
+    // The reason field is the only thing making a wrong posture falsifiable at
+    // review time, so it must point somewhere real. Two paths in the first draft
+    // of this registry were invented; this arm is why that is now impossible.
+    const failures = Object.entries(PUBLIC_TABLE_CLASSIFICATION).flatMap(([table, row]) => {
+      const cited = row.reason.match(
+        /(?:supabase|docs|app|lib|tests)\/[A-Za-z0-9_./-]+\.(?:sql|md|ts)/g,
+      );
+      if (!cited || cited.length === 0) return [`${table}:reason-has-no-citation`];
+      return cited
+        .filter((path) => !existsSync(path))
+        .map((path) => `${table}:cited-file-missing:${path}`);
+    });
+    expect(failures).toEqual([]);
   });
 
   test("tripwire: ADMIN_TABLES length matches §4.3's declared counts", () => {
