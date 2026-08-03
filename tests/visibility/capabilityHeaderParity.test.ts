@@ -25,11 +25,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { stripCommentsSafely } from "@/tests/_shared/stripComments";
 
 const ROOT = process.cwd();
 const HEADER = readFileSync(join(ROOT, "lib/visibility/capabilityTransitions.ts"), "utf8");
-const SCOPE = readFileSync(join(ROOT, "lib/visibility/scopeTiles.ts"), "utf8");
+// The predicate bodies are read from COMMENT-STRIPPED source, via the project's
+// single-source stripper — a local `//`-strip here would be exactly the duplicated
+// comment handling tests/cross-cutting/_metaStripCommentsSingleSource.test.ts
+// forbids, and it is the reason that guard exists: hand-rolled strippers disagree.
+const SCOPE_RAW = readFileSync(join(ROOT, "lib/visibility/scopeTiles.ts"), "utf8");
+const SCOPE = stripCommentsSafely(SCOPE_RAW, ts.ScriptKind.TS);
 
 /** The predicates the header block quotes, in the order it quotes them. */
 const QUOTED_PREDICATES = [
@@ -74,7 +82,6 @@ function terms(text: string): Set<string> {
  */
 export function normalizeExpression(text: string): string {
   return text
-    .replace(/\/\/[^\n]*/g, " ")
     .replace(/\breturn\b/g, " ")
     .replace(/flags\s*\.\s*includes\s*\(\s*["'`]([A-Z0-9]+)["'`]\s*\)/g, "$1")
     .replace(/[;{}]/g, " ")

@@ -22,7 +22,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { commentRanges } from "@/tests/_shared/stripComments";
 
 import { walkPlansTree } from "@/tests/docs/_invariant8Closeout";
 
@@ -221,34 +224,35 @@ describe("no in-force prose claims a role flag grants admin access", () => {
     for (const file of productionFiles()) {
       const text = readFileSync(join(ROOT, file), "utf8");
       if (!SUBJECT.test(text) || !OBJECT.test(text)) continue;
-      // Analyze CONTIGUOUS COMMENT BLOCKS, not single lines: whole-diff review
-      // finding 3 showed a claim wrapped across two comment lines escaped a
-      // line-at-a-time scan, and comment reflow is exactly how that happens.
-      const lines = text.split("\n");
-      let blockStart = 0;
-      let block: string[] = [];
-      const flush = (): void => {
-        if (block.length === 0) return;
-        const joined = block.join(" ").replace(/\s+/g, " ").trim();
-        for (const s of withCarriedSubject(sentences(joined))) {
-          if (claimsAdminGrant(s)) offending.push(`${file}:${blockStart + 1} ${s}`);
+      // Analyze whole COMMENTS, not single lines: whole-diff R1 finding 3 showed a
+      // claim wrapped across two comment lines escaped a line-at-a-time scan, and
+      // comment reflow is exactly how that happens. Comment boundaries come from
+      // the project's single-source stripper rather than a local `//` test — the
+      // rule tests/cross-cutting/_metaStripCommentsSingleSource.test.ts enforces,
+      // and the reason it exists: hand-rolled comment logic disagrees with itself.
+      const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+      const lineStarts = [0, ...[...text.matchAll(/\n/g)].map((m) => (m.index ?? 0) + 1)];
+      const lineOf = (pos: number): number => {
+        let lo = 0;
+        let hi = lineStarts.length - 1;
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          if ((lineStarts[mid] ?? 0) <= pos) lo = mid;
+          else hi = mid - 1;
         }
-        block = [];
+        return lo + 1;
       };
-      for (const [i, line] of lines.entries()) {
-        const t = line.trim();
-        const isComment = /^(\/\/|\*|\/\*)/.test(t);
-        if (isComment) {
-          if (block.length === 0) blockStart = i;
-          block.push(t.replace(/^(\/\/+|\*+|\/\*+)\s?/, ""));
-        } else {
-          flush();
-          for (const s of sentences(line)) {
-            if (claimsAdminGrant(s)) offending.push(`${file}:${i + 1} ${s}`);
-          }
+      for (const [start, end] of commentRanges(text, kind)) {
+        const body = text
+          .slice(start, end)
+          .replace(/^\/\*+|\*+\/$|^\/\/+/gm, " ")
+          .replace(/^\s*\*/gm, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        for (const s of withCarriedSubject(sentences(body))) {
+          if (claimsAdminGrant(s)) offending.push(`${file}:${lineOf(start)} ${s}`);
         }
       }
-      flush();
     }
     expect(offending, "production source asserting a capability flag grants admin/ops access").toEqual([]);
   });
