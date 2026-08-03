@@ -1932,3 +1932,62 @@ describe("R20 escaping mutants", () => {
     expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
   });
 });
+
+describe("R21 escaping mutants", () => {
+  // `__generated__` is TRACKED source here: lib/admin/__generated__ is imported
+  // at runtime. Skipping it contradicted the fail-by-default contract.
+  const generatedUsage = collectPsqlUsage(REPO_ROOT);
+
+  test.each(["lib/admin/__generated__", "lib/messages/__generated__", "supabase/__generated__"])(
+    "an unprotected call under %s is a violation",
+    (directory) => {
+      const sites = scanSource(`execFileSync("psql", ["-qAt", dsn]);`, `${directory}/probe.ts`);
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test("the walk reaches a REAL tracked __generated__ file", () => {
+    // devPanelPresent.ts exists and is runtime-imported; if the walk skipped
+    // its directory the census would silently shrink.
+    expect(existsSync(join(REPO_ROOT, "lib/admin/__generated__/devPanelPresent.ts"))).toBe(true);
+    expect(collectPsqlUsage(join(REPO_ROOT, "lib", "admin", "__generated__")).filesScanned).toBe(1);
+    expect(generatedUsage.filesScanned).toBeGreaterThan(2946);
+  });
+
+  // A joined consumer's command may span physical lines. The site must report
+  // the line the psql WORD is on, or exemptionOnLines reads a marker written
+  // for something else.
+  test.each([["ssh host"], ["eval"], ["watch"]])(
+    "%s: a psql in a LATER fragment reports its own physical line",
+    (head) => {
+      const source = [
+        'import { spawnSync } from "node:child_process";',
+        `// ${EXEMPTION_MARKER} unrelated marker for adjacent operation`,
+        "spawnSync(`" + head + " env FOO=bar \\",
+        "  psql -qAt mydb`, { shell: true });",
+        "",
+      ].join("\n");
+      const sites = scanSource(source, "scripts/probe.mjs");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.line).toBe(4);
+      expect(sites[0]!.exemptReason).toBeNull();
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test("the same holds in a shell file, and the FIRST site keeps its marker", () => {
+    const source = [
+      `psql -qAt a # ${EXEMPTION_MARKER} marker for the first only`,
+      "ssh host env FOO=bar \\",
+      "  psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(2);
+    expect(sites[0]!.line).toBe(1);
+    expect(sites[0]!.exemptReason).toBe("marker for the first only");
+    expect(sites[1]!.line).toBe(3);
+    expect(sites[1]!.exemptReason).toBeNull();
+  });
+});

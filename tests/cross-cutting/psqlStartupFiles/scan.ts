@@ -211,7 +211,12 @@ const SELF = [
 
 /** Directories the walk never descends into. `docs` is deliberate: spec and
  * plan prose quotes `execFileSync("psql", …)` and is not a call site. */
-const IGNORED_ANYWHERE = new Set([".git", "node_modules", "__generated__"]);
+// `__generated__` is NOT here: `lib/admin/__generated__` and
+// `lib/messages/__generated__` are TRACKED TypeScript, and the first is
+// imported at runtime. Skipping them contradicted the tracked-source,
+// fail-by-default contract — an unprotected call committed there was never
+// read. Only genuinely untracked machinery is skipped at any depth.
+const IGNORED_ANYWHERE = new Set([".git", "node_modules"]);
 
 /**
  * Skipped only at the REPO ROOT. Matching these by basename at every depth is
@@ -1045,9 +1050,36 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         }
         if (remaining.length > 0) {
           const anchor = remaining[0]!;
-          const joined = remaining.map((word) => word.text).join(" ");
-          for (const site of scanShellText(joined, file, lineOffset + anchor.line))
-            sites.push({ ...site, offset: anchor.offsets[site.offset] ?? anchor.offset });
+          // Map EVERY character of the joined string back to the raw offset and
+          // the physical line it came from. Mapping through the first argument
+          // alone gave a psql in a later fragment the anchor's line, and
+          // `exemptionOnLines` then read a marker written for something else.
+          let joined = "";
+          const joinedOffsets: number[] = [];
+          const joinedLines: number[] = [];
+          for (const [k, word] of remaining.entries()) {
+            if (k > 0) {
+              joined += " ";
+              joinedOffsets.push(word.offset);
+              joinedLines.push(word.line);
+            }
+            for (let c = 0; c < word.text.length; c++) {
+              joined += word.text[c];
+              joinedOffsets.push(word.offsets[c] ?? word.offset);
+              joinedLines.push(word.line);
+            }
+          }
+          for (const site of scanShellText(joined, file, 0))
+            sites.push({
+              ...site,
+              offset: joinedOffsets[site.offset] ?? anchor.offset,
+              line: lineOffset + (joinedLines[site.offset] ?? anchor.line) + 1,
+              exemptReason: exemptionOnLines(
+                rawLines,
+                (joinedLines[site.offset] ?? anchor.line) + 1,
+                commentAt,
+              ),
+            });
         }
         joinedHandled = true;
         break;
