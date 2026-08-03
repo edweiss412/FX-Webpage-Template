@@ -448,3 +448,36 @@ the two-step workaround was never load-bearing and this task proves nothing.
 - [ ] Self-review
 - [ ] Adversarial review (cross-model)
 - [ ] Task 7 — close-out (invariant-8 dual gate, whole-diff review, ledger commit, merge)
+
+---
+
+## 12. Close-out — invariant-8 dual gate
+
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded
+
+Both halves run against the UI diff (`_ClaimedRowButton.tsx`, `_PickerInterstitial.tsx`) with the
+canonical setup: context load (PRODUCT.md + DESIGN.md), then the `product` register reference — this
+surface is app UI serving the product, not a brand surface.
+
+**Critique 20/40 · Audit 14/20** (a11y 2 · perf 3 · responsive 3 · theming 3 · anti-patterns 3).
+
+### Findings and dispositions
+
+| Sev | Finding | Disposition |
+|---|---|---|
+| P0 | Pending never exited. Re-tapping was the recovery for a sign-in that never lands, and the double-submit guard removed it, so a hung hop left the row permanently inert. | **Fixed** — pending self-clears after `PENDING_TIMEOUT_MS` (8s), covered by a fake-timer test. A real navigation replaces the document long before 8s, so this cannot re-open the double-submit window. |
+| P1 | No live region; the flip was silent to assistive tech. `aria-busy` is weakly supported (WCAG 2.2 SC 4.1.3 Status Messages). | **Fixed** — `sr-only role="status" aria-live="polite"` announcing the transition, with a test. |
+| P1 | Pending chip had no container: `bg-surface-sunken` chip on a `bg-surface-sunken` row is **1.00:1**, and it is the load-bearing signal. | **Fixed** — own fill plus a boundary. Text 4.91:1 (light) / 8.03:1 (dark); border 5.02:1 / 8.21:1 against the row. Computed, not estimated. |
+| P1 | `aria-label` on a span with an implicit `generic` role is dropped by AT (ARIA 1.2), so the lock hint reached nobody. | **Fixed** — glyph is `aria-hidden`, hint moved to an `sr-only` sibling. |
+| P2 | Right column reflowed on tap — the name lost 94px (roleless) at 360px. | **Fixed** — `min-w-24` reserves the column. |
+| P2 | `motion-reduce` froze `Loader2` mid-arc, which reads as stuck. | **Fixed** — `motion-reduce:hidden`; the chip text carries the state when motion is suppressed. |
+| P3 | Emoji lock vs vector spinner is an unmatched icon idiom; platform emoji is theme-invariant. | **Deferred** — the plain-glyph choice is pre-existing and ratified in `_PickerInterstitial`'s own comment (DESIGN.md §8 restraint call). Changing it is a design decision beyond this diff's scope. |
+| P3 | Both chip states share one `data-testid`. | **Won't fix** — deliberate. They are one slot in two states, and the tests assert on its text, which is what distinguishes them. |
+| P3 | ~421B of static class strings serialized per claimed row (~12.3KB at 30 rows). | **Deferred** — `rowClassName`/`chipClassName` are computed server-side precisely so the island holds no role-flag logic. Hoisting them inverts that. Real but small; not worth the coupling here. |
+| P3 | One `window` `pageshow` listener per row. | **Deferred** — bounded by roster size, and lifting it needs shared state across rows, which buys nothing at this scale. |
+
+**Refuted during the gate, recorded so a later reviewer does not re-derive them:** the
+hover-vs-pending cascade concern (the compiled `aria-disabled` rule emits after `hover:`, and
+`@media (hover: hover)` gates it further — e2e 4b confirms in a real browser); and
+`text-subtle`/`surface-sunken` at 6.09 / 6.94, which is a ratified pinned AA pair. The 44px tap
+floor passes.
