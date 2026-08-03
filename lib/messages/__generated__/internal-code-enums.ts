@@ -108,7 +108,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code"
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "admin_alerts.code,parse_warnings.code,pending_ingestions.last_error_code"
   },
   EXTRA_REVIEWER_CHOICE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"

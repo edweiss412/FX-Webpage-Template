@@ -74,6 +74,42 @@ function unwrapAsExpressions(node: Node | undefined): Node | undefined {
   return current;
 }
 
+/**
+ * Resolve an identifier to the string literal a `const X = "LIT"` declares,
+ * following the import alias first — the emit site usually reads a const
+ * imported from another module, so the local symbol is an alias, not the
+ * declaration.
+ */
+/**
+ * The string-literal members of a type, when the type is made entirely of them
+ * (a lone literal counts). `null` / `undefined` members are ignored so an
+ * optional union still enumerates. Returns undefined when the type is not an
+ * enumeration of literals.
+ */
+function stringLiteralMembers(type: Type): string[] | undefined {
+  const parts = type.isUnion() ? type.getUnionTypes() : [type];
+  const meaningful = parts.filter((t) => !t.isNull() && !t.isUndefined());
+  if (meaningful.length === 0) return undefined;
+  if (!meaningful.every((t) => t.isStringLiteral())) return undefined;
+  return meaningful.map((t) => String(t.getLiteralValue()));
+}
+
+function resolveStringConst(identifier: Node): string | undefined {
+  if (!Node.isIdentifier(identifier)) return undefined;
+  let symbol = identifier.getSymbol();
+  try {
+    symbol = symbol?.getAliasedSymbol() ?? symbol;
+  } catch {
+    // not an alias; keep the local symbol
+  }
+  for (const declaration of symbol?.getDeclarations() ?? []) {
+    if (!Node.isVariableDeclaration(declaration)) continue;
+    const value = unwrapAsExpressions(declaration.getInitializer());
+    if (value && Node.isStringLiteral(value)) return value.getLiteralValue();
+  }
+  return undefined;
+}
+
 export function collectParseWarningCodeSites(): ParseWarningCodeScan {
   const project = new Project({ tsConfigFilePath: `${ROOT}/tsconfig.json` });
   const checker = project.getTypeChecker();
@@ -151,17 +187,31 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         // so the code would vanish with nothing reaching `unresolved`.
         if (!hasSpread) return;
         if (!isAssignableToParseWarning(node.getType())) return;
-        const spreadsAParseWarning = node
-          .getProperties()
-          .some(
-            (p) =>
-              Node.isSpreadAssignment(p) && isAssignableToParseWarning(p.getExpression().getType()),
-          );
-        if (spreadsAParseWarning) return; // propagation, not emission
+        // ORDER matters. `{...priorWarning, ...codePart}` is propagation only if
+        // nothing after the warning spread can overwrite `code`; a later
+        // non-ParseWarning spread can, and a rule that asks merely whether ANY
+        // spread is a warning skips it as propagation while recording neither a
+        // site nor an unresolved construction.
+        const spreads = node.getProperties().filter((p) => Node.isSpreadAssignment(p));
+        const lastWarningSpread = spreads.reduce(
+          (acc, p, i) => (isAssignableToParseWarning(p.getExpression().getType()) ? i : acc),
+          -1,
+        );
+        // Only a later spread that can actually CARRY `code` overwrites it.
+        // crew.ts:382 spreads an autocorrect-only fragment after the warning,
+        // which cannot, so a mere "something follows" test false-positives.
+        const overwrittenAfterwards =
+          lastWarningSpread >= 0 &&
+          spreads
+            .slice(lastWarningSpread + 1)
+            .some((p) => p.getExpression().getType().getProperty("code") !== undefined);
+        if (lastWarningSpread >= 0 && !overwrittenAfterwards) return; // propagation, not emission
         unresolved.push({
           file,
           line: node.getStartLineNumber(),
-          why: "code composed via a non-ParseWarning spread",
+          why: overwrittenAfterwards
+            ? "a non-ParseWarning spread follows the warning spread and can overwrite `code`"
+            : "code composed via a non-ParseWarning spread",
         });
         return;
       }
@@ -178,21 +228,10 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
           return;
         }
         if (initializer && Node.isIdentifier(initializer)) {
-          // Follow the import alias: the emit site reads a const imported from
-          // another module, so the local symbol is an alias, not the declaration.
-          let symbol = initializer.getSymbol();
-          try {
-            symbol = symbol?.getAliasedSymbol() ?? symbol;
-          } catch {
-            // not an alias; keep the local symbol
-          }
-          for (const declaration of symbol?.getDeclarations() ?? []) {
-            if (!Node.isVariableDeclaration(declaration)) continue;
-            const value = unwrapAsExpressions(declaration.getInitializer());
-            if (value && Node.isStringLiteral(value)) {
-              sites.push({ code: value.getLiteralValue(), file, line, via: "const" });
-              return;
-            }
+          const resolved = resolveStringConst(initializer);
+          if (resolved !== undefined) {
+            sites.push({ code: resolved, file, line, via: "const" });
+            return;
           }
           unresolved.push({
             file,
@@ -239,22 +278,15 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         // currently called. reelWarning's one call site passes its code
         // dynamically, so call-site analysis alone would record nothing.
         const parameterType = enclosing.getParameters()[parameterIndex]?.getType();
-        if (
-          parameterType?.isUnion() &&
-          parameterType.getUnionTypes().every((u) => u.isStringLiteral())
-        ) {
-          for (const member of parameterType.getUnionTypes()) {
-            sites.push({ code: String(member.getLiteralValue()), file, line, via: "union" });
+        const parameterMembers = parameterType ? stringLiteralMembers(parameterType) : undefined;
+        if (parameterMembers?.length) {
+          for (const member of parameterMembers) {
+            sites.push({ code: member, file, line, via: "union" });
           }
           return;
         }
-        if (parameterType?.isStringLiteral()) {
-          sites.push({ code: String(parameterType.getLiteralValue()), file, line, via: "union" });
-          return;
-        }
 
-        let literalCallSites = 0;
-        let dynamicCallSites = 0;
+        let callSites = 0;
         for (const reference of enclosing.findReferencesAsNodes()) {
           const call = reference.getParent();
           if (!call || !Node.isCallExpression(call)) continue;
@@ -263,24 +295,44 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
           // factory with a literal mints that code into the production manifest.
           const callFile = call.getSourceFile().getFilePath();
           if (!isScannedFile(callFile)) continue;
+          callSites += 1;
+          const callAt = { file: rel(callFile), line: call.getStartLineNumber() };
           const argument = unwrapAsExpressions(call.getArguments()[parameterIndex]);
+
           if (argument && Node.isStringLiteral(argument)) {
-            sites.push({
-              code: argument.getLiteralValue(),
-              file: rel(callFile),
-              line: call.getStartLineNumber(),
-              via: "factory",
-            });
-            literalCallSites += 1;
-          } else if (argument) {
-            dynamicCallSites += 1;
+            sites.push({ code: argument.getLiteralValue(), ...callAt, via: "factory" });
+            continue;
           }
+          const resolved = argument ? resolveStringConst(argument) : undefined;
+          if (resolved !== undefined) {
+            sites.push({ code: resolved, ...callAt, via: "const" });
+            continue;
+          }
+          // The argument is dynamic, but its TYPE may still enumerate the
+          // universe — `warning(reelVerification.warningCode)` passes a
+          // `ReelWarningCode | null`. Same treatment rule 3 gives a union-typed
+          // parameter, applied here to the argument.
+          const argumentMembers = argument ? stringLiteralMembers(argument.getType()) : undefined;
+          if (argumentMembers?.length) {
+            for (const member of argumentMembers)
+              sites.push({ code: member, ...callAt, via: "union" });
+            continue;
+          }
+          // Judged PER CALL SITE, never in aggregate. A sibling literal call
+          // must NOT mask a dynamic one: `warning("EMBEDDED_ASSET_DRIFTED")`
+          // and `warning(reelVerification.warningCode)` live two lines apart in
+          // lib/sync/applyStaged.ts, and an aggregate "no literal call sites"
+          // test silently dropped the second.
+          unresolved.push({
+            ...callAt,
+            why: `factory ${factoryName}: call argument is ${argument?.getKindName() ?? "absent"}`,
+          });
         }
-        if (literalCallSites === 0) {
+        if (callSites === 0) {
           unresolved.push({
             file,
             line,
-            why: `factory ${factoryName}: no literal call sites (${dynamicCallSites} dynamic)`,
+            why: `factory ${factoryName}: no call sites in scanned files`,
           });
         }
         return;

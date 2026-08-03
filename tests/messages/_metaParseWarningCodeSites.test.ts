@@ -64,6 +64,7 @@ const EXPECTED_PARSE_WARNING_CODES: readonly string[] = [
   "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
   "DIAGRAMS_TAB_MISSING",
   "EMBEDDED_ASSET_DRIFTED",
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
   "FIELD_LABEL_AUTOCORRECTED",
   "FIELD_UNREADABLE",
   "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
@@ -224,6 +225,22 @@ describe("parse-warning code sites", () => {
       // `any` is assignable to everything, so without that exclusion this fails
       // on existing production code before any mutant is planted.
       expect(nonLiteral).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "recognizes a factory argument that a sibling literal call could mask",
+    () => {
+      const { sites } = scan();
+      // M9 (Codex whole-diff P1). `warning("EMBEDDED_ASSET_DRIFTED")` and
+      // `warning(reelVerification.warningCode)` sit two lines apart in
+      // lib/sync/applyStaged.ts. An aggregate "no literal call sites" test is
+      // satisfied by the first and silently drops the second, so
+      // EMBEDDED_RECOVERY_REQUIRES_RESTAGE — which genuinely reaches
+      // shows_internal.parse_warnings — went unrecognized. Call sites are now
+      // judged one at a time.
+      expect(sites.map((s) => s.code)).toContain("EMBEDDED_RECOVERY_REQUIRES_RESTAGE");
     },
     SCAN_TIMEOUT_MS,
   );
