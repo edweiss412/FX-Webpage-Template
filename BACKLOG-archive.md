@@ -2432,6 +2432,33 @@ Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cro
 
 ---
 
+## BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — RESOLVED (2026-08-03, `fix/db-test-timeout-flake`)
+
+**Resolution:** the entry named two files; the flake was a class of ~190. Both halves of the diagnosis were right and neither was sufficient alone.
+
+The default-timeout half is fixed at the ROOT of `vitest.config.ts` (`testTimeout`/`hookTimeout` at 30_000), which both projects inherit via `extends: true`, rather than per-file as the entry proposed — a sweep found ~190 test files reaching a real database and NONE setting their own budget, so per-file would have fixed the two that happened to flake first and left the shape everywhere else. Files needing more still raise their own (`vi.setConfig` wins over the config file), so the already-bumped 90s doc-scan in `tests/scripts/validation-report-fixtures.test.ts` is unaffected. That alone closes `tests/db/show_share_tokens.test.ts`, whose exposure was purely the 5s default across three synchronous psql spawns.
+
+The entry's second suggestion — an explicit barrier instead of wall-clock `vi.waitFor` — turned out to be load-bearing rather than optional, because **`vi.waitFor`'s own timeout defaults to 1000ms and is not derived from `testTimeout`**: raising the test budget to 30s would have left the poll one second to cover a DB round-trip, and `concurrentRetry` would have kept flaking. `tests/reports/_createIssueBarrier.ts` gives the mock a deferred it resolves when `createIssue` is ENTERED; `awaitCreateIssueEntered` races that against every in-flight submit settling, so the "nobody ever entered createIssue" case throws one descriptive line instead of hanging to the timeout. It waits on ALL submits deliberately — in the first-submit race the loser legitimately 409s before the winner enters `createIssue`, so a single-promise race would fail healthy runs. A class sweep found the same shape in `tests/reports/firstSubmitRace.test.ts`, which the entry did not name; both were converted.
+
+The third suggestion, a scoped `retry: 1`, was NOT taken: retries mask nondeterminism in DB tests, and with the two real causes removed there is nothing left for it to paper over.
+
+Pinned by `tests/cross-cutting/db-test-timeout-floor.test.ts` — the floor against both the authored and the RESOLVED runtime config (so a CLI override cannot pass on the strength of the file alone), plus a filesystem-walked ban on `vi.waitFor` in DB-touching files, which fails by default for a newly added one. `vi.waitFor` in `tests/components/**` and `tests/admin/**` is deliberately untouched: those poll an in-process React state flush with no I/O in it.
+
+### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+
+**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
+
+**Effort:** S
+
+A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
+
+- `tests/reports/concurrentRetry.test.ts` — "only one retry claims the expired lease while the other sees in-flight contention": fires concurrent `submitReport` DB calls racing for an expired processing lease + `await vi.waitFor(() => createIssue called once)`, with an `afterEach` `cleanupReportFixtures` DB call. It uses Vitest's **default** 5s test / 10s hook timeouts (no `vi.setConfig`), so it exceeds them when the local Supabase is momentarily slow.
+- `tests/db/show_share_tokens.test.ts` — "new show insert auto-creates a 64-character lowercase hex token" (trigger-driven) — same default-timeout exposure.
+
+**When picked up:** bump per-file timeouts (`vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })`, mirroring the already-bumped `tests/scripts/validation-report-fixtures.test.ts` at 90s) and/or make the contention test deterministic (gate the second submit on an explicit barrier rather than wall-clock `vi.waitFor`); optionally scope a Vitest `retry: 1` to the DB-concurrency files only. Technical home: the two test files (± `vitest.config.ts`). Cheap to do; low value until the flake rate is annoying enough (a leg re-run currently clears it). Related class: `BL-NEEDS-ATTENTION-DARK-CAPTURE-FLAKE` (CI nondeterminism).
+
+---
+
 ## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 
 **Resolution:** the entry's recorded diagnosis was wrong in both halves, and the corrected work is test-only. **There is no RNG.** `singleEditNeighbors` / `unambiguousTypos` (`tests/parser/_typoGenerator.ts`) are pure, `REVERSE_MAP` is built once at module load and never mutated, `lib/parser/` reads no env and holds no module-level mutable state, and vitest isolates modules per file — cross-model review confirmed it independently, with five separate processes producing the identical 8453-case SHA-256. So "the input set varies per run" is disproven; what varied was coverage per _edit_, because the case sampled `.slice(0, 4)` aliases x `.slice(0, 6)` typos off a list ordered by `FIELD_ALIASES` insertion order. Worse, that window covered only the five aliases whose canonicals `parseVenue` never assigns (`venue.contact_info`, `venue.in_house_av`, `venue.hotel_reservations` — owned by `contacts.ts` / `hotels.ts`), so not one of the 24 sampled cases could ever prove a value reached a venue field.

@@ -1283,21 +1283,6 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
 
-### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
-
-**Status:** IN PROGRESS · **Branch:** fix/db-test-timeout-flake
-
-**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
-
-**Effort:** S
-
-A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
-
-- `tests/reports/concurrentRetry.test.ts` — "only one retry claims the expired lease while the other sees in-flight contention": fires concurrent `submitReport` DB calls racing for an expired processing lease + `await vi.waitFor(() => createIssue called once)`, with an `afterEach` `cleanupReportFixtures` DB call. It uses Vitest's **default** 5s test / 10s hook timeouts (no `vi.setConfig`), so it exceeds them when the local Supabase is momentarily slow.
-- `tests/db/show_share_tokens.test.ts` — "new show insert auto-creates a 64-character lowercase hex token" (trigger-driven) — same default-timeout exposure.
-
-**When picked up:** bump per-file timeouts (`vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })`, mirroring the already-bumped `tests/scripts/validation-report-fixtures.test.ts` at 90s) and/or make the contention test deterministic (gate the second submit on an explicit barrier rather than wall-clock `vi.waitFor`); optionally scope a Vitest `retry: 1` to the DB-concurrency files only. Technical home: the two test files (± `vitest.config.ts`). Cheap to do; low value until the flake rate is annoying enough (a leg re-run currently clears it). Related class: `BL-NEEDS-ATTENTION-DARK-CAPTURE-FLAKE` (CI nondeterminism).
-
 ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
 
 **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
