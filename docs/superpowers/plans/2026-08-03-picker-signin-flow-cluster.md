@@ -24,14 +24,11 @@ written.
 | `SHOW_NEXT_RE` is `$`-anchored, no query | `app/api/auth/picker-bootstrap/route.ts:21` |
 | the handler already redirects to the query-carrying string | `route.ts:189`, `route.ts:211` |
 | `hostRelativeRedirect` imposes no query restriction, and blocks `//`, `\`, control chars | `lib/http/hostRelativeRedirect.ts:28-46` |
-| `revalidatePath` call with no redirect in the file | `lib/auth/picker/cleanupStaleEntry.ts:107` |
-| the sibling's ratified redirect pattern | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:113-114` |
 | claimed row is a native GET form with a hidden `next` | `_PickerInterstitial.tsx:197-202` |
 | `--spacing-tap-min: 44px` | `app/globals.css:162` |
 | `--duration-fast: 120ms` | `app/globals.css:223` |
 | 3 `TWO-STEP navigation` workaround sites | `tests/e2e/stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`, `stage-restricted-crew-schedule.spec.ts:461` |
 | component-test harness for the picker | `tests/show/pickerAffordance.test.tsx:1-26` (jsdom + testing-library, renders `PickerInterstitial` with a roster fixture) |
-| e2e seed helper returns `pickerEpoch` | `tests/e2e/helpers/seedShowWithCrew.ts:85-92` |
 | layout-measurement pattern | `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101`. NOT hosted in `crew-layout-dimensions.spec.ts` — that file is `PATH_GATED` debt (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and CI runs only its `T-NOPHANTOM-CREW` grep (`.github/workflows/phantom-gap-e2e.yml:175`). Task 5 hosts them in `picker-flow.spec.ts`. |
 | e2e workflow already runs picker-flow on desktop-chromium | `.github/workflows/crew-e2e.yml:151` |
 
@@ -47,6 +44,13 @@ regression test that encodes the same fact against our own component.
 hard two-entry allowlist of `"use client"` files under `app/show/[slug]/[shareToken]/`. The new
 `_ClaimedRowButton` is a third client island and MUST be added there, in Task 4, or the required
 unit workflow goes red. Missing this was plan R1 finding 5.
+
+**Checked and deliberately NOT disturbed:** `scripts/check-crew-e2e-executed.mjs:22-34` pins
+`picker-flow.spec.ts` at six executable cases and
+`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:456-498` asserts that threshold equals live
+Playwright resolution. Task 4 extends the existing claimed-row case rather than adding a seventh
+`test()`, which keeps this diff off that registry. Any change to that decision must update the
+script, the wiring test, and `.github/workflows/crew-e2e.yml:138` in one commit.
 
 Checked and ruled out, explicitly:
 
@@ -119,7 +123,7 @@ task body.
 
 **Task 7 is process**, not a test task, and is labelled as such.
 
-This division is the honest form of invariant 1 for a plan that closes three defects with layered
+This division is the honest form of invariant 1 for a plan that closes two defects with layered
 unit, component, and browser evidence. R2 finding 3.
 
 ### Task 1 — bootstrap accepts a query-bearing `next`
@@ -230,8 +234,10 @@ a claimed and an unclaimed row:
    `aria-disabled` to block activation (it does not) and omitting the early return — the row would
    look busy and still double-submit, which is the whole defect.
 
-Also add `whitespace-nowrap` to `chipBase` (`_PickerInterstitial.tsx:182`) — `Signing in…` is wider
-than most role strings and the chip must not wrap (spec §5).
+Also add `whitespace-nowrap` **to the pending chip only**, NOT to the shared `chipBase` at
+`_PickerInterstitial.tsx:182`. `chipBase` also styles the unclaimed chip
+(`_PickerInterstitial.tsx:253-257`), and changing unclaimed-row overflow behavior for arbitrary
+`role` text is out of scope under R5 (spec §5, spec §1.1 R5).
 
 ### Task 4 — real-browser proof, in a file CI actually runs
 
@@ -245,6 +251,15 @@ there would be green locally and never execute on a PR. Plan R1 finding 6, and a
 
 These assertions go in `tests/e2e/picker-flow.spec.ts`, which `crew-e2e.yml:151` runs on
 `desktop-chromium` for every PR that touches the paths.
+
+**They EXTEND the existing claimed-row case at `tests/e2e/picker-flow.spec.ts:434`; they do not add
+new `test()` blocks.** This is deliberate and load-bearing:
+`scripts/check-crew-e2e-executed.mjs:22-34` pins this spec at six executable cases and
+`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:456-498` asserts that threshold equals live
+Playwright resolution, so a seventh `test()` fails CI unless the registry and the workflow's
+case census move in the same commit. Extending the existing case keeps the count at six and keeps
+this diff off that registry entirely. If a future revision does need a new case, it must update
+`check-crew-e2e-executed.mjs`, the wiring test, and `.github/workflows/crew-e2e.yml:138` together.
 
 **Detach safety — one strategy, chosen.** The row submits a native GET that would navigate away
 mid-measure. Use Playwright **route interception** (`page.route("**/auth/sign-in*", route =>
@@ -272,13 +287,36 @@ Spec §5 invariant list, verbatim, is this task's checklist:
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
 
+**A short-name fixture cannot prove the layout classes.** Height plus name-edge both survive
+deleting `truncate`, `min-w-0`, `shrink-0`, or `whitespace-nowrap` when the content is short, so
+4a additionally runs a LONG-name fixture at a narrow viewport and asserts: (i) the pending chip's
+right edge stays inside the row's content box, and (ii) the pending chip's computed `white-space`
+is `nowrap`. Without these, spec §3.6 P12 would be labelled settled while proving nothing
+(R4 finding 4).
+
 **4b — hover precedence.** Pointer over the row, pending active: computed background is the pending
 background, not the hover background. Failure mode: assuming busy suppresses hover. It does not —
 Tailwind emits the hover variant with no not-disabled guard, and CSS hover matches by pointer
 position regardless.
 
-**4c — focus retention.** Focus the row, drive to pending, assert `document.activeElement` is still
-the row. Failure mode: shipping `disabled`, which drops focus to `<body>`.
+**4c — focus retention AND the ring.** Focus the row, drive it to pending, then assert BOTH:
+
+1. `document.activeElement` is still the row — failure mode: shipping `disabled`, which drops
+   focus to `<body>`.
+2. the focused row's computed **`boxShadow`** is not `none` — failure mode: the ring classes being
+   deleted or overridden. `document.activeElement` alone cannot see that, and neither can an
+   `outline` check: `focus-visible:ring-2` paints a box-shadow while Chromium draws its own
+   default outline on any focused element, so an outline assertion stays green with every ring
+   class removed. Copy the oracle and its rationale from
+   `tests/e2e/agendaScheduleLayout.spec.ts:542-555` (R4 finding 3).
+
+**4e — keyboard double-activation.** Focus the row, press Enter, then press Enter again while
+pending; assert exactly ONE navigation request to `/auth/sign-in` (count via the route
+interception already registered for detach safety). Repeat for Space. This is the keyboard half of
+Task 3's double-activation guard and it MUST live here, not in jsdom: jsdom does not synthesize
+activation from Enter/Space (spec §3.6 P8, `keyboardClicks=0`) and this repo does not install
+`@testing-library/user-event`, so a jsdom keyboard assertion is vacuously green. Without 4e the
+pointer path is guarded and keyboard users still double-submit (R4 finding 2).
 
 **4d — reduced motion.** Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
 `motion-reduce:animate-none` suppresses its animation, while the chip text swap and
@@ -286,8 +324,20 @@ the row. Failure mode: shipping `disabled`, which drops focus to `<body>`.
 
 ### Task 5 — transition audit
 
-**Falsification requirement (proof task):** add a fourth conditional branch to `_ClaimedRowButton`
-with no declared treatment and show the audit failing on it. If the audit passes with an
+`docs/agents/writing-plans.md:9` requires listing EVERY ternary and conditional block, not just
+the state pairs. `_ClaimedRowButton` has five, and each needs a declared treatment:
+
+| # | Conditional | Treatment |
+|---|---|---|
+| C1 | `onClick` pending guard (early return + `preventDefault`) | not a render branch — no animation; asserted by Task 3 test 6 and Task 4e |
+| C2 | lock rendered vs spinner rendered | instant swap in a shared fixed-width slot |
+| C3 | chip present vs absent (empty `role`, idle only) | instant |
+| C4 | chip text: `role` vs `Signing in…` | instant |
+| C5 | `pageshow` listener resetting pending | instant, no exit animation |
+
+**Falsification requirement (proof task):** add a SIXTH conditional to `_ClaimedRowButton` with no
+row in the table above and show the audit failing on it. The earlier wording said "a fourth",
+which was undefined — the component already has five (R4 finding 5). If the audit passes with an
 undeclared branch present, it is enumerating nothing.
 
 Enumerate every conditional branch in `_ClaimedRowButton` and assert each is animated as stated or
@@ -301,8 +351,8 @@ deliberately instant, against spec §6:
 The compound rows are **asserted in Task 4, not enumerated here** — R1 showed the original prose
 claims about them were false, and a static conditional scan proves no browser behavior:
 
-- pointer-over-row during pending → Task 5b
-- keyboard focus during pending → Task 5c
+- pointer-over-row during pending → Task 4b
+- keyboard focus during pending → Task 4c
 - pending arriving mid-hover-transition → Task 4b covers the end state
 - two different rows tapped → each owns its own state; two pending rows is accepted, not a bug
 
@@ -331,7 +381,11 @@ the two-step workaround was never load-bearing and this task proves nothing.
    BEFORE the ledger graduation, not after. R2 finding 6: an earlier ordering made the graduation
    "the last commit before the PR" and then put review after it, so any ordinary review repair
    would land later and break that rule. Review first; repair until APPROVE; only then graduate.
-3. **Graduate the three backlog entries** to `BACKLOG-archive.md`, and correct the dangling
+3. **Graduate TWO backlog entries** (`BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`,
+   `BL-PICKER-CLAIMED-ROW-PENDING-STATE`) to `BACKLOG-archive.md`. **Do NOT graduate
+   `BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT`** — it stays OPEN and is AMENDED in place with the
+   refuted-premise correction from spec §1.3, so a known-false cause is not re-filed as fact.
+   Also correct the dangling
    "master spec §16.6" citation in `BL-PICKER-CLAIMED-ROW-PENDING-STATE` to
    `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`. This is now genuinely
    the last commit before the PR. Another session owns the ledger files — check `git worktree list`

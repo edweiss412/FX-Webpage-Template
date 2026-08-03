@@ -271,10 +271,10 @@ here**, and the row names the environment that can actually settle it.
 | P6 | The compiled `aria-disabled:` rule comes AFTER the `hover:` rule, so pending background wins on precedence | TRUE — measured in R3: `hoverRuleIndex=139`, `ariaRuleIndex=258`, `ariaAfterHover=true` | Tailwind source |
 | P7 | `motion-reduce:animate-none` actually emits suppression | TRUE — measured in R3: `@media (prefers-reduced-motion: reduce) { animation: none }` | Tailwind source |
 | P8 | jsdom synthesizes button activation from Enter/Space | **FALSE** — measured in R3: `keyboardClicks=0`, and `@testing-library/user-event` is not installed. A jsdom keyboard assertion is vacuously green | jsdom (negative result) |
-| P9 | `aria-disabled` retains focus AND the focus ring | **UNSETTLED in jsdom** — jsdom reports `stillFocused=true` for the native-`disabled` case too (P4), so it discriminates nothing here. Asserted only in Playwright (§8.2 4c) | Playwright only |
+| P9 | `aria-disabled` retains focus AND the focus ring | **UNSETTLED in jsdom** — jsdom reports `stillFocused=true` for the native-`disabled` case too (P4), so it discriminates nothing here. Playwright only, and the ring half needs the computed **`boxShadow`** oracle, not `document.activeElement`: `focus-visible:ring-2` paints a box-shadow while Chromium draws its own default outline on any focused element, so an outline check (or a bare activeElement check) stays green with every ring class deleted. Precedent + rationale: `tests/e2e/agendaScheduleLayout.spec.ts:542-555` | Playwright only |
 | P10 | A screen reader announces the `aria-disabled` row usefully while busy | **NOT MEASURED — accepted as unproven.** No automated harness in this repo can settle AT announcement text. The design does not depend on it: the chip text swap and the disabled-looking styling carry the state visually, and `aria-busy` is the standard signal. Recorded here rather than asserted | none — documented limit |
 | P11 | A native GET submit tears down the component, so local pending state cannot leak | TRUE by navigation semantics; the observable consequence (row not stuck) is asserted in Playwright, and the bfcache exception is the reason `pageshow` exists (§9) | Playwright |
-| P12 | `truncate` + `min-w-0` + `shrink-0` produce the claimed row layout | Asserted, not assumed — this is exactly what §8.2 4a measures in a real browser (height AND name-edge). No jsdom claim is made | Playwright only |
+| P12 | `truncate` + `min-w-0` + `shrink-0` + `whitespace-nowrap` produce the claimed row layout | **Only partly settled by a short-name fixture.** Height and name-edge alone survive deleting any of those four classes when the content is short. §8.2 4a therefore adds a LONG-name, narrow-viewport fixture and asserts the chip stays inside the row box and the pending chip's computed `white-space` is `nowrap`. Without that oracle this row would be mislabelled settled | Playwright only |
 
 A claim may legitimately end up as **unproven** (P10) — what R9 forbids is an unproven claim that
 is not *labelled* as such, or one the design silently depends on. P10 is load-bearing for nothing;
@@ -431,7 +431,7 @@ does not apply to a native GET form (§3.4).
   implementation would leave `pending` false forever and fail here — this is the test that catches
   a future "cleanup" back to the admin idiom. Concrete failure mode: pending never appears.
 - Component test, R4: a claimed row with `role=""` renders no chip in idle and the `Signing in…`
-  chip in pending. **Not `role=""`** — the prop is `string` and the column is `not null`, so a
+  chip in pending. **Not `role={null}`** — the prop is `string` and the column is `not null`, so a
   null fixture is unrealizable and would only prove the test harness accepts an impossible input.
 - **Component test, double-activation (the R2 BLOCKING regression guard).** Attach a submit
   listener to the row's form, fire TWO activations, assert exactly ONE submit. Failure mode caught:
@@ -497,16 +497,16 @@ against a route unit test. If it fails, R1 did not actually ship.
 
 | File | Change |
 |---|---|
-| `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` splits the query before matching (§3.2) |
+| `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` splits the query before matching (§3.2), and is exported so §8.1's grammar test can reach it directly |
 | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | claimed `<button>` subtree extracted; `whitespace-nowrap` goes on the PENDING chip only, not shared `chipBase` (§5) |
 | `_ClaimedRowButton` | **new**, `"use client"` (§3.4) |
 | `tests/components/StaleCleanupAutoSubmit.test.tsx` | `SANCTIONED` gains `_ClaimedRowButton`, else the client-island guard at `StaleCleanupAutoSubmit.test.tsx:61-79` fails. This is the ONLY change to that file — the five-hidden-input assertion stays five, since §1.3 is descoped |
 | `tests/auth/picker-bootstrap.test.ts` | §8.1 cases |
 | `tests/e2e/picker-flow.spec.ts` | §8.2 real-browser claimed-row assertions (this file, not `crew-layout-dimensions.spec.ts`, because CI runs it) |
 | `tests/e2e/stage-restricted-crew-schedule.spec.ts` | §8.3 workaround retired at three sites |
-| `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` exported for direct unit testing |
-| new component + layout + transition tests | §8.3 |
-| `BACKLOG.md` | three entries graduated to `BACKLOG-archive.md` (last commit; see §11) |
+
+| new component + layout + transition tests | §8.2 |
+| `BACKLOG.md` | TWO entries graduated to `BACKLOG-archive.md`; the descoped third is amended and stays OPEN (last commit; see §11 and §1.3) |
 
 ## 11. Ledger contention
 
