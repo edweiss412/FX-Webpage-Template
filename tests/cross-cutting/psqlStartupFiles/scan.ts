@@ -84,12 +84,18 @@
  *   `/path/psql` — and so are `bash -c "…"`, `eval "…"`, `{ shell: true }`, and
  *   command substitutions. BACKSTOPS, one per surface: `scanBinaryIndirection`
  *   on JS, which LEXES every string literal rather than requiring it to start
- *   with psql; and `scanShellIndirection` on shell/YAML, which reports a
+ *   with psql; `scanShellIndirection` on shell/YAML, which reports a
  *   variable assigned `psql`, an `alias psql=`, and a shell function named
- *   psql. Both are TRIPWIRES — they fail loudly rather than resolving anything.
+ *   psql; and `scanWorkflowIndirection` on YAML, which reports the bindings
+ *   only a workflow can spell — `env:` at the workflow, job, or step level, and
+ *   a `matrix` value — since those are `NAME: value`, not the `NAME=value` the
+ *   shell reader looks for. All are TRIPWIRES — they fail loudly rather than
+ *   resolving anything.
  *   This file previously named the JS one as the backstop for both surfaces
  *   while it ran only on JS files, so `PG=psql; "$PG" …` was invisible and
- *   `alias psql="psql -F"` could turn a certified `-X` into `-F`'s value.
+ *   `alias psql="psql -F"` could turn a certified `-X` into `-F`'s value; and
+ *   it claimed a backstop for the workflow surface while `env: {PSQL: psql}`
+ *   plus `run: $PSQL …` produced neither a site nor a hit.
  * • Anything whose argv CARDINALITY is decided at runtime. A bare glob or brace
  *   (`-f optional/*.sql` under `nullglob`, `{a,b}.sql`) carries no `$` yet can
  *   expand to zero or many words, so `-f` may swallow the following `-X`.
@@ -110,9 +116,17 @@
  *   retry"`, `"psql output must contain ---LOCKS--- marker"` — and every
  *   loosening tried on them turned a real string into a false positive. A
  *   flagless psql IS caught everywhere it can be read structurally (a `.sh`
- *   file, a workflow `run:`, a short `execSync` string, any `-c` consumer); the
- *   uncovered case is specifically a long, prose-shaped literal. BACKSTOP: the
- *   site path, plus `-X` enforced by POSITION at every real call site.
+ *   file, a workflow `run:` or custom `shell:` template, a short `execSync`
+ *   string, an ALLOWLISTED command-string consumer); the uncovered case is
+ *   specifically a long, prose-shaped literal. BACKSTOP: the site path, plus
+ *   `-X` enforced by POSITION at every real call site.
+ * • A command-string consumer OUTSIDE that allowlist. Knowing which argument a
+ *   program executes requires knowing the program, so the reader keeps a list
+ *   (`DASH_C_CONSUMERS` and its siblings) rather than a rule about `-c` — and a
+ *   list is incomplete by construction. This file said "any `-c` consumer" until
+ *   review demonstrated `flock -c`, `script -c`, and `tmux new-session` walking
+ *   straight through it; those three are closed, and the next three are not.
+ *   The claim is now the accurate one: what is on the list is read.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
  *   claim to close it.
@@ -1121,9 +1135,10 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // `psql -c VACUUM; -X mydb` — the `;` terminates psql and the `-X`
         // becomes a separate command. Reading the words directly certified it.
         const remaining = [];
-        // Only ssh takes a HOST before the command, and it is the FIRST
-        // non-option word — not a fixed position, since options may precede it.
-        let hostPending = name === "ssh";
+        // ssh takes a HOST before the command and tmux takes a SUBCOMMAND; both
+        // are the FIRST non-option word — not a fixed position, since options
+        // may precede it.
+        let hostPending = LEAD_WORD_CONSUMERS.has(name);
         for (let i = position + 1; i < argv.length; i++) {
           const candidate = argv[i]!;
           if (remaining.length === 0) {
@@ -1635,16 +1650,34 @@ function looksLikePsqlCommandLine(text: string): boolean {
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
 
-/** Programs whose `-c` argument is a command STRING the shell then runs. */
-const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas"]);
+/**
+ * Programs whose `-c` argument is a command STRING the shell then runs.
+ *
+ * `flock` and `script` are here because review demonstrated both escaping:
+ * `flock /tmp/db.lock -c "psql -qAt mydb"` and `script -q -c "psql -qAt mydb"
+ * /dev/null` each execute their quoted argument, and neither produced a site.
+ * NOT every program with a `-c` belongs here — `screen -c file` names an INIT
+ * FILE, not a command — which is exactly why this stays an allowlist keyed to
+ * each program's documented grammar rather than to the spelling `-c`.
+ */
+const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas", "flock", "script"]);
 
 /** Programs whose FIRST non-option argument is a command string the shell runs
  * later: `trap 'psql …' EXIT`. */
 const FIRST_ARG_SCRIPT_CONSUMERS = new Set(["trap"]);
 
 /** Programs whose command string is simply a later word (`ssh host "psql …"`,
- * `watch "psql …"`), with no flag naming it. */
-const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch"]);
+ * `watch "psql …"`, `tmux new-session "psql …"`), with no flag naming it. */
+const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch", "tmux"]);
+
+/**
+ * Consumers whose command string is preceded by ONE ordinary word that is not
+ * an option: ssh's HOST, and tmux's SUBCOMMAND (`new-session`, `run-shell`,
+ * `split-window`, …). Counting that word as part of the command line put
+ * `new-session` in command position and psql behind it, where the prose bounds
+ * then discarded the whole thing.
+ */
+const LEAD_WORD_CONSUMERS = new Set(["ssh", "tmux"]);
 
 /**
  * `env -S` does NOT use shell quoting: it has its own split-string grammar in
@@ -1968,6 +2001,24 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
 
 // ── workflow YAML ────────────────────────────────────────────────────────
 
+/**
+ * Workflow keys whose scalar value is TEXT THAT RUNS. `run:` is the obvious
+ * one; the other three were each invisible until review demonstrated them (a
+ * custom `shell:` template) or the sweep for that same shape found them (a
+ * container action's `entrypoint`/`args`). Every other key in the schema names
+ * data, a label, or a reference.
+ */
+const EXECUTABLE_WORKFLOW_KEYS = new Set(["run", "shell", "entrypoint", "args"]);
+
+/**
+ * YAML keys under which a scalar BINDS A COMMAND NAME for later expansion.
+ * `env` and `matrix` reach a `run:` as `$PSQL` / `${{ matrix.bin }}`; a
+ * reusable workflow's or composite action's `inputs.<name>.default` reaches it
+ * as `${{ inputs.bin }}`. None is statically resolvable, so all three are
+ * tripwires rather than sites.
+ */
+const BINDING_WORKFLOW_KEYS = new Set(["env", "matrix", "inputs"]);
+
 export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
   const sites: PsqlSite[] = [];
   let document;
@@ -1983,7 +2034,23 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       const node = pair as { key?: unknown; value?: unknown };
       if (!isPair(pair as YamlNode as never)) return;
       const key = node.key as { value?: unknown } | undefined;
-      if (!key || key.value !== "run") return;
+      // `run:` is the obvious executable scalar. `shell:` is the other one: a
+      // CUSTOM shell is a documented TEMPLATE — GitHub substitutes the path of
+      // the temporary script at `{0}` and runs the result — so
+      // `shell: psql -f {0}` executes psql and reads startup files. It applies
+      // at the step, and through `defaults.run.shell` at the job and workflow
+      // level; all three are the same pair, so keying on the name covers them.
+      // Requiring `{0}` is what keeps the STANDARD shells out: `shell: bash`,
+      // `pwsh`, `python` are keywords GitHub maps to its own command lines, not
+      // text it runs, and they name no psql in any case.
+      // A container action (`uses: docker://…`) takes its command from
+      // `with.entrypoint` and `with.args`, which GitHub passes to the container
+      // as its command line. Same shape as `shell:`: a key other than `run:`
+      // whose value is executable text. Scoped to those two names because the
+      // rest of `with:` is ordinary action INPUT DATA — `node-version: 20`, a
+      // summary string — and scanning all of it would report prose.
+      if (!key || !EXECUTABLE_WORKFLOW_KEYS.has(key.value as string)) return;
+      const isShellKey = key.value === "shell";
       // A `run: *cmd` ALIAS is not a scalar node. Anchors/aliases are
       // documented GitHub Actions reuse, so resolving is required, not
       // generous.
@@ -1996,6 +2063,20 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       const range = (value as { range?: [number, number, number] }).range;
       if (!range) return;
       const rawSlice = source.slice(range[0], range[1]);
+      // A `shell:` value is only executable text when it is a CUSTOM TEMPLATE,
+      // which GitHub identifies by the `{0}` placeholder it substitutes the
+      // temporary script path into. Without one the value is a keyword
+      // (`bash`, `pwsh`, `python`) naming a shell GitHub itself invokes.
+      if (isShellKey && !rawSlice.includes("{0}")) return;
+      // GitHub substitutes the script PATH for `{0}` before any shell runs, so
+      // by the time the command line exists the placeholder is an ordinary
+      // word. Leaving it in place read it as a shell BRACE, whose cardinality
+      // is undecidable, and the reader then refused to certify a
+      // `shell: psql -X -f {0}` that is in fact protected. The stand-in is
+      // exactly three characters wide so every downstream offset — the ones
+      // that map a site back to its physical line — still lines up.
+      const substituteScriptPath = (text: string): string =>
+        isShellKey ? text.split("{0}").join("_0_") : text;
       // A BLOCK scalar's first line is its HEADER (`|` or `>`, with optional
       // chomping/indent indicators and a trailing comment), not shell text. A
       // bare `>` was lexed as a redirection whose target swallowed the `psql`
@@ -2016,7 +2097,7 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // workflow reported its site on line 10. Pin every site from an alias to
       // the key itself, which is the documented anchoring contract.
       const aliased = range[0] < (keyRange?.[0] ?? 0);
-      const found = scanShellText(raw, file, offset).map((site) =>
+      const found = scanShellText(substituteScriptPath(raw), file, offset).map((site) =>
         aliased ? { ...site, line: offset + 1 } : site,
       );
       // A double-quoted scalar can DECODE to a psql command whose raw slice
@@ -2030,7 +2111,7 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // hid the second one entirely. Dedupe on the argv, not the line.
       if (typeof decoded === "string" && decoded !== rawSlice) {
         const seen = new Set(found.map((site) => site.tokens.join("\u0000")));
-        for (const site of scanShellText(decoded, file, offset)) {
+        for (const site of scanShellText(substituteScriptPath(decoded), file, offset)) {
           // A DECODED line number is an offset into the decoded value, which
           // does not correspond to a physical line (an escaped `\n` consumes
           // none). Pin these to the `run:` key rather than inventing a line
@@ -2042,6 +2123,72 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
     },
   });
   return sites;
+}
+
+/**
+ * The workflow twin of `scanShellIndirection`.
+ *
+ * A workflow binds a command name the same way a `.sh` file does, but spells it
+ * `NAME: value` rather than `NAME=value`, so the shell tripwire — which reads
+ * an assignment — saw none of it. GitHub documents `env:` at the WORKFLOW, JOB,
+ * and STEP level, and a `matrix` value is substituted into `run:` before the
+ * shell ever sees it; `env: {PSQL: psql}` + `run: $PSQL -qAt mydb` and
+ * `matrix: {bin: [psql]}` + `run: ${{ matrix.bin }} …` therefore each executed
+ * an unprotected psql while producing neither a site nor a hit.
+ *
+ * Like every other tripwire here it RESOLVES NOTHING — the expansion only
+ * exists at runtime. It reports, and a human decides.
+ *
+ * Scoped to `env`/`matrix` deliberately. Every workflow in this tree carries
+ * `name: Install psql (…)` and a `run: command -v psql …` probe; a rule that
+ * fired on any psql-shaped scalar anywhere would report all of them, and a
+ * tripwire that is always on is a tripwire nobody reads.
+ */
+export function scanWorkflowIndirection(source: string, file: string): IndirectionHit[] {
+  const hits: IndirectionHit[] = [];
+  let document;
+  try {
+    document = parseDocument(source, { keepSourceTokens: true });
+  } catch {
+    return hits;
+  }
+  const lineStartOf = (offset: number): number => source.slice(0, offset).split("\n").length - 1;
+
+  /** A scalar that BINDS the command name: one word that is psql or a path to
+   * it (`psql`, `/usr/bin/psql`), or a multiword value that lexes to a psql
+   * invocation WITH a flag. The flag requirement is what keeps prose out —
+   * `NOTE: "psql failed to connect; retry"` is five ordinary words and binds
+   * nothing, which is the same bound `scanShellIndirection` uses. */
+  const bindsPsql = (text: string): boolean => {
+    if (!/\bpsql\b/.test(text)) return false;
+    if (!/\s/.test(text.trim())) return true;
+    return scanShellText(text, file, 0).some((site) =>
+      site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+    );
+  };
+
+  visit(document, {
+    Scalar(key: unknown, node: unknown, path: readonly unknown[]) {
+      // A KEY is a name, never a value: `psql: …` names a step, it binds
+      // nothing. Only the value side of a pair, or a sequence item, can.
+      if (key === "key") return;
+      const value = (node as { value?: unknown }).value;
+      if (typeof value !== "string" || !bindsPsql(value)) return;
+      const underBindingKey = path.some((ancestor) => {
+        if (!isPair(ancestor as YamlNode as never)) return false;
+        const ancestorKey = (ancestor as { key?: { value?: unknown } }).key;
+        return BINDING_WORKFLOW_KEYS.has(ancestorKey?.value as string);
+      });
+      if (!underBindingKey) return;
+      const range = (node as { range?: [number, number, number] }).range;
+      hits.push({
+        file,
+        line: range ? lineStartOf(range[0]) + 1 : 1,
+        text: value.trim(),
+      });
+    },
+  });
+  return hits;
 }
 
 // ── dispatch + walk ──────────────────────────────────────────────────────
@@ -2156,6 +2303,11 @@ export function collectPsqlUsage(repoRoot: string): PsqlUsage {
     // `-F`'s value. Neither is statically resolvable; both are now LOUD.
     if (!JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
       indirections.push(...scanShellIndirection(source, rel));
+    // YAML needs BOTH: the shell rules still apply to the shell text inside a
+    // `run:` scalar, and the workflow rules cover the bindings only YAML can
+    // spell (`env:`, `matrix`), which no `NAME=value` reader can see.
+    if (YAML_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
+      indirections.push(...scanWorkflowIndirection(source, rel));
   }
   return { sites, indirections, unreadable, filesScanned: files.length };
 }

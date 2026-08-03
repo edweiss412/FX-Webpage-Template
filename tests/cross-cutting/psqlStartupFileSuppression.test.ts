@@ -45,6 +45,7 @@ import {
   collectPsqlUsage,
   scanBinaryIndirection,
   scanSource,
+  scanWorkflowIndirection,
   tokenSuppressesStartupFiles,
 } from "./psqlStartupFiles/scan";
 
@@ -2380,4 +2381,206 @@ describe("R27 escaping mutants", () => {
     expect(sites[0]!.exemptReason).toBeNull();
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
+});
+
+describe("R28 escaping mutants — the workflow surface beyond `run:`", () => {
+  // A workflow `env:` mapping binds a command name exactly the way `PG=psql`
+  // does in a `.sh` file, but the shell tripwire reads `NAME=value` and YAML
+  // spells it `NAME: value`, so every level of it was invisible. GitHub
+  // documents env at the workflow, job, and step level, and each one reaches
+  // `run:` as `$PSQL`. Not resolvable statically — reported, like every other
+  // binding.
+  test.each([
+    [
+      "workflow level",
+      "env:\n  PSQL: psql\njobs:\n  x:\n    steps:\n      - run: $PSQL -qAt mydb\n",
+    ],
+    [
+      "job level",
+      "jobs:\n  x:\n    env:\n      PSQL: psql\n    steps:\n      - run: $PSQL -qAt mydb\n",
+    ],
+    [
+      "step level",
+      "jobs:\n  x:\n    steps:\n      - env:\n          PSQL: psql\n        run: $PSQL -qAt mydb\n",
+    ],
+    [
+      "a path-spelled binding",
+      "env:\n  PSQL: /usr/bin/psql\njobs:\n  x:\n    steps:\n      - run: $PSQL -qAt mydb\n",
+    ],
+    [
+      "a multiword bound command",
+      'env:\n  DB: "psql -qAt mydb"\njobs:\n  x:\n    steps:\n      - run: $DB\n',
+    ],
+  ])("an `env:` binding at %s is reported", (_label, source) => {
+    const hits = scanWorkflowIndirection(source, ".github/workflows/x.yml");
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  // `matrix` is the other documented way a workflow supplies a command word,
+  // and `${{ matrix.bin }}` is substituted before the shell ever sees it.
+  test("a `matrix` value that is psql is reported", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    strategy:",
+      "      matrix:",
+      "        bin: [psql]",
+      "    steps:",
+      "      - run: ${{ matrix.bin }} -qAt mydb",
+      "",
+    ].join("\n");
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml").length).toBeGreaterThan(0);
+  });
+
+  // PRECISION: the ordinary env a workflow actually carries must stay quiet, or
+  // the tripwire is noise and gets ignored. Each of these is a real shape from
+  // this repo's own workflows.
+  test.each([
+    ["a connection URL", "env:\n  DATABASE_URL: postgres://postgres@127.0.0.1:54322/postgres\n"],
+    ["a password", "env:\n  PGPASSWORD: postgres\n"],
+    ["prose mentioning psql", 'env:\n  NOTE: "psql failed to connect; retry"\n'],
+    ["a non-psql binary", "env:\n  BIN: pg_dump\n"],
+  ])("%s is not reported", (_label, source) => {
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml")).toEqual([]);
+  });
+
+  // A CUSTOM `shell:` is a documented template: GitHub substitutes the path of
+  // the temporary script at `{0}` and runs the result, so `shell: psql -f {0}`
+  // executes psql and reads startup files. Only `run:` was ever scanned.
+  test.each([
+    ["step level", "jobs:\n  x:\n    steps:\n      - shell: psql -f {0}\n        run: select 1;\n"],
+    [
+      "job defaults",
+      "jobs:\n  x:\n    defaults:\n      run:\n        shell: psql -f {0}\n    steps:\n      - run: select 1;\n",
+    ],
+    [
+      "workflow defaults",
+      "defaults:\n  run:\n    shell: psql -f {0}\njobs:\n  x:\n    steps:\n      - run: select 1;\n",
+    ],
+  ])("a custom `shell:` template at %s is an unprotected site", (_label, source) => {
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a custom `shell:` template that DOES suppress certifies", () => {
+    const source =
+      "jobs:\n  x:\n    steps:\n      - shell: psql -X -f {0}\n        run: select 1;\n";
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // PRECISION: the standard shells are keywords, not templates. A value with no
+  // `{0}` is not a custom template at all, and `bash` is not psql either way.
+  test.each([["bash"], ["pwsh"], ["python"], ["bash -e {0}"], ["sh"]])(
+    "the standard shell `%s` produces no site",
+    (shell) => {
+      const source = `jobs:\n  x:\n    steps:\n      - shell: ${shell}\n        run: select 1;\n`;
+      expect(sitesIn(source, ".github/workflows/x.yml")).toEqual([]);
+    },
+  );
+
+  // Ordinary command-string consumers the allowlist omitted. Each executes its
+  // quoted argument, so the psql inside runs and reads startup files.
+  test.each([
+    ["flock -c", 'flock /tmp/db.lock -c "psql -qAt mydb"'],
+    ["flock on an fd", 'flock -w 5 9 -c "psql -qAt mydb"'],
+    ["script -c", 'script -q -c "psql -qAt mydb" /dev/null'],
+    ["tmux new-session", 'tmux new-session "psql -qAt mydb"'],
+    ["tmux run-shell", 'tmux run-shell "psql -qAt mydb"'],
+  ])("%s carries an unprotected site", (_label, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["flock -c", 'flock /tmp/db.lock -c "psql -X -qAt mydb"'],
+    ["script -c", 'script -q -c "psql -X -qAt mydb" /dev/null'],
+    ["tmux new-session", 'tmux new-session "psql -X -qAt mydb"'],
+  ])("%s certifies when the inner command suppresses", (_label, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // CLASS SWEEP, not the three named instances. The shape of the first two
+  // findings is "a workflow key OTHER than `run:` whose value is executable
+  // text"; a container action's `entrypoint`/`args` is the same shape, and
+  // GitHub runs it as the container's command.
+  test.each([
+    [
+      "args",
+      "jobs:\n  x:\n    steps:\n      - uses: docker://postgres:16\n        with:\n          args: psql -qAt mydb\n",
+    ],
+    [
+      "entrypoint",
+      "jobs:\n  x:\n    steps:\n      - uses: docker://postgres:16\n        with:\n          entrypoint: psql\n          args: -qAt mydb\n",
+    ],
+  ])("a container action's `%s` is an unprotected site", (_label, source) => {
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a container action's `args` certifies when it suppresses", () => {
+    const source =
+      "jobs:\n  x:\n    steps:\n      - uses: docker://postgres:16\n        with:\n          args: psql -X -qAt mydb\n";
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // PRECISION: `with:` carries ordinary action INPUTS, which are data. Only the
+  // two container-command keys are command text.
+  test.each([
+    ["a version input", "jobs:\n  x:\n    steps:\n      - with:\n          node-version: 20\n"],
+    [
+      "prose naming psql",
+      'jobs:\n  x:\n    steps:\n      - with:\n          summary: "psql failed to connect; retry"\n',
+    ],
+  ])("%s under `with:` produces no site", (_label, source) => {
+    expect(sitesIn(source, ".github/workflows/x.yml")).toEqual([]);
+  });
+
+  // Same sweep on the BINDING shape: a reusable workflow's or composite
+  // action's `inputs.<name>.default` supplies a command word exactly the way a
+  // `matrix` value does.
+  test("an `inputs` default that is psql is reported", () => {
+    const source = [
+      "on:",
+      "  workflow_call:",
+      "    inputs:",
+      "      bin:",
+      "        default: psql",
+      "        type: string",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: ${{ inputs.bin }} -qAt mydb",
+      "",
+    ].join("\n");
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml").length).toBeGreaterThan(0);
+  });
+
+  test("an ordinary `inputs` default is not reported", () => {
+    const source =
+      "on:\n  workflow_call:\n    inputs:\n      ref:\n        default: main\n        type: string\n";
+    expect(scanWorkflowIndirection(source, ".github/workflows/x.yml")).toEqual([]);
+  });
+
+  // The live tree must stay clean under the widened reader: a fix that finds
+  // the mutants by also finding the repo's own prose is not a fix.
+  test(
+    "the widened workflow + consumer reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
 });
