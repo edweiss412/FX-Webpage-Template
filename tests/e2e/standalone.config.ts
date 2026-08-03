@@ -100,5 +100,21 @@ export default defineConfig({
       name: "standalone-chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      // BL-AGENDA-A11Y-WEBKIT-COVERAGE: the fold's a11y proof (h3-inside-summary exposure)
+      // is an empirical per-engine claim and Safari is an explicit crew target. Desktop
+      // Safari matches the hand-run probe measured during #610 (green in 5.0s).
+      //
+      // grep is UNANCHORED on purpose: Playwright matches it against
+      // "<project name> <file name> <test title>", so /^a11y:/ selects ZERO tests. The
+      // colon-suffixed token cannot false-positive on this project's own name in the joined
+      // string ("…-a11y " has a space after it, never a colon), and
+      // tests/ci/standalone-webkit-a11y-wiring.test.ts pins exactly-one-test resolution.
+      // Dimensional tests stay chromium-only by design (engine layout noise).
+      name: "standalone-webkit-a11y",
+      testMatch: /agendaScheduleLayout\.spec\.ts/,
+      grep: /a11y:/,
+      use: { ...devices["Desktop Safari"] },
+    },
   ],
 });
