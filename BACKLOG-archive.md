@@ -163,6 +163,57 @@ It does not run: no workflow references `admin-lifecycle-transitions`, so it is 
 
 **What IS covered, cumulatively:** 108 standalone layout cases (88 section-header, incl. the sm+ inline-row suite, + 20 pusher) and 10 real-route width-chain cases (all five widths × 2 loops), green in CI; 18 mutations mapped to distinct catchers; the transition sweep both themes × five widths × three states with per-channel duration AND delay; pusher absence at three widths with a pixel-level paint test; chain coverage anchored on the canonical `SectionId` list; and the 50-baseline visual gate above.
 
+## BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+
+**Status:** GRADUATED — test/agenda-fold-seeded-e2e, 2026-08-02 · **Severity:** low · **Class:** TEST COVERAGE
+
+**Resolution:** `test/agenda-fold-seeded-e2e` (2026-08-02) seeds the fold end to end. `seedShowWithCrew` gained an `agendaLinks` option writing `agenda_links` with a parseable `extracted` payload, and `tests/e2e/stage-restricted-crew-schedule.spec.ts` now drives the REAL crew page as two complementary date-restricted viewers (each sees their own agenda day open and marked, the other folded) plus an unrestricted admin control that sees both days open with no markers — so `effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered fold is verified as one composition rather than in pieces. The spec is wired into `crew-e2e.yml` under desktop-chromium (moved off mobile-safari when the first CI run measured every non-admin viewer dark there — Linux WebKit will not store the Secure `__Host-` picker cookie over plain http) behind a run-command wiring guard in `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` (token-exact, executing-position, segment-scoped), and its coverage-registry row moved from `UNSEEN` to `PATH_GATED_BY_EXCLUSION`. Spec: docs/superpowers/specs/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit-design.md; plan: docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md. `BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` covers the admin half and SHIPPED separately on 2026-08-02 (mainline, see its own archive entry); this branch is strictly the crew-page half and touches no admin surface. Original entry below.
+
+Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
+self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
+fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
+`agendaBreakdown.layout.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
+`node:http` server rather than the app.
+
+**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
+`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
+member, loading a real share link, sees their day expanded — the composition of
+`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
+fold is only ever verified in pieces.
+
+**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
+extraction with parseable day labels, plus a date-restricted crew member and a share link.
+`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
+fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
+one PR.
+
+**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
+viewer's row is `open` and marked while another day is folded. Related:
+`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wants the same thing on the admin side, and
+`BL-AGENDA-A11Y-WEBKIT-COVERAGE` would ride along.
+
+## BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
+
+**Status:** GRADUATED — test/agenda-fold-seeded-e2e, 2026-08-02 · **Severity:** very low · **Class:** TEST COVERAGE
+
+**Resolution:** `test/agenda-fold-seeded-e2e` (2026-08-02) adds a `standalone-webkit-a11y` project to `tests/e2e/standalone.config.ts` (Desktop Safari) scoped by `testMatch` to `agendaScheduleLayout.spec.ts` and an UNANCHORED `grep: /a11y:/` — Playwright matches grep against the joined "<project> <file> <title>" string, so an anchored `/^a11y:/` would select zero tests. It resolves exactly ONE test, structurally pinned by `tests/ci/standalone-webkit-a11y-wiring.test.ts` against `--list --reporter=json` (zero = the joined-title trap; more = the dimensional suite leaking onto WebKit), which also asserts `standalone-e2e.yml` installs webkit in executing position. The standalone baseline is regenerated with the one added identity; the dimensional tests stay chromium-only by design, so the feared second full 439-spec run does not happen. Original entry below.
+
+`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
+accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
+matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
+is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
+claim per engine.
+
+**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
+ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
+hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
+
+**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
+second time and would surface unrelated engine differences mid-review.
+
+**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
+`--project` matrix leg in `standalone-e2e.yml`.
+
 ## BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
 
 **Graduated:** 2026-07-27 (reconciliation) — shipped by `feat/agenda-perday-viewer-fold` (PR #610, 2026-07-26); the entry had been annotated SHIPPED in place and retained "for the decision record", which this archive is the home for. Originally a `###` sub-entry of the BL-NULLCODE-STAMP-BATCH-2 residuals section.
@@ -2031,7 +2082,7 @@ This is **pre-existing and project-wide**: `--color-accent-on-bg` is the link/em
 Moved out of the open queue 2026-08-02. Its own heading said `✅ FULLY CLOSED`, but the
 graduation guard reads a terminal word only in leading position, so `FULLY CLOSED` /
 `FULLY RESOLVED` / `ALREADY SHIPPED` all classify as OPEN while reading as closed to a
-human. Filed as BL-LEDGER-GUARD-INTENSIFIER-BLIND. Entry preserved verbatim below.
+human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below.
 
 #### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)
 
@@ -2049,3 +2100,86 @@ human. Filed as BL-LEDGER-GUARD-INTENSIFIER-BLIND. Entry preserved verbatim belo
 **Residual:** a dedicated real-DB restage test for #77 (the existing restage tests mock the scan) is a recommended follow-up — the wizard-scoped-via-holdPort mechanism is proven by the retry's real-DB partition assertion + identical wiring. Pairs naturally with BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY in any future sync-robustness milestone — but the lock-hygiene class itself is closed. The applyStaged-wide supersession-return concern is filed separately as `BL-APPLYSTAGED-SUPERSESSION-ROLLBACK` below.
 
 ---
+
+## Verified-complete sweep of the merged plans backlog (2026-08-03)
+
+Five entries from the 2026-08-02 merge, each verified clause-by-clause against the live tree
+before archiving — not on a headline check. Two more that the same sweep examined were NOT
+archived: `BL-OPS-LOG` and `BL-PUSH-NOTIFICATIONS` each still carry unshipped scope, and stay
+in the open queue with a dated verification note recording exactly which clauses remain.
+
+### BL-COPY-SHARE-LINK — Admin "Copy share link" affordance on per-show panel crew section
+
+**ARCHIVED 2026-08-03 — OBSOLETE PREMISE, intent satisfied.** Every mechanism this entry names was dropped at the M11.5 crew-auth pivot and is now a banned term (`signLinkJwt`, `crew_member_auth`, `current_token_version`/`revoked_below_version` — `tests/cross-cutting/no-m9-5-surfaces.test.ts:26-36`). The affordance itself ships: `app/admin/show/[slug]/ShareLinkCopyButton.tsx`, mounted at `components/admin/showpage/ShareHub.tsx:875`, copying `${origin}/show/${slug}/${token}` (`ShareHub.tsx:452`). The `#t=` vs `?t=` clause is inapplicable rather than violated — the token is a path segment now. The no-live-link hide condition has a structural analogue: `linkActive = published && !archived && url != null` (`ShareHub.tsx:458`, gate at `:852`). Filed as obsolete-premise, NOT as "every clause shipped".
+
+**Origin:** Split from M11-E-D1 (HIGH) on 2026-05-20 during the M9 close-out spec-vs-shipped audit. M9.5 (`handoffs/M9.5-signed-link-controls.md`) carries the v1-blocking "Issue new link" + "Revoke all links" subset; this entry carries the post-v1 convenience affordance.
+
+**Scope:** Add a "Copy share link" button to the per-show panel crew section that copies the canonical signed-link URL (with `#t=` fragment, never `?t=` per spec §7.2 lines 1953 + 1991) to the clipboard. The button MUST be hidden when the crew row is in the no-live-link state (`current_token_version === revoked_below_version`) per spec line 1100. Mint the URL by signing a JWT with the row's `current_token_version` via the existing `signLinkJwt()` in `lib/auth/jwt.ts`.
+
+Open design questions:
+
+- **Mint at click vs mint at render.** Mint-at-render exposes the JWT in the rendered HTML (a leak vector if the page is screenshotted or the DOM is logged). Mint-at-click avoids that but requires a Server Action round-trip and a brief "Copying…" state. Recommend mint-at-click for parity with the Revoke confirm two-tap UX.
+- **Visual feedback.** Standard pattern: button label flips to "Copied!" for 2s after success. Catalog-routed via `messageFor()` (no raw string) per AGENTS.md §1.5.
+- **Mobile clipboard API.** `navigator.clipboard.writeText` requires HTTPS + transient user activation. Both already satisfied on the admin surface; no fallback needed.
+
+**Why backlog, not deferred:** No v1 ops gap. Doug can manually construct the URL today (or copy from the address bar after testing the link himself). The affordance is a convenience-shortcut, not a recovery path. No concrete trigger date; promotion depends on FXAV operator feedback (Doug surfaces friction with the manual workflow) OR a broader "admin UX polish" milestone.
+
+**Promotion prerequisite:** Either (a) FXAV feedback flags the workflow as a real friction point, OR (b) a v1.x admin-UX polish milestone bundles this with the other BL-ADMIN-\* entries.
+
+### BL-X5-INTROSPECTION-GAP — Eight widened X.5 canonical-email CHECKs have no `tests/db` introspection rows
+
+**ARCHIVED 2026-08-03 — COMPLETE.** Resolved by option (c), the cross-cutting parity assertion. All 8 named tables covered in `tests/cross-cutting/_canonicalEmailCheckContract.test.ts`: `sync_audit:31`, `app_settings:32-33`, `deferred_ingestions:34`, `admin_alerts:35`, `reports:37-41`, `report_rate_limits:43-47`, `pending_syncs:48`, `shows_pending_changes:49`. It walks `supabase/migrations` for `*email_canonical*` CHECKs and asserts the widened body per column.
+
+**Origin:** Surfaced 2026-05-21 during the M9.5 Phase 1-2 pin-stop triage. Codex's Task 3 class-sweep (commit `6d61229`) updated the three `tests/db` assertions that existed (`crew_members`, `transportation`, `contacts`) to pin the widened CHECK contract (`email IS NULL OR (email = lower(trim(email)) AND email <> '')`). Eight other tables had their canonical-email CHECKs widened in X.5 but have **no** corresponding `tests/db` introspection-test row: `sync_audit`, `app_settings`, `deferred_ingestions`, `admin_alerts`, `reports`, `report_rate_limits`, `pending_syncs`, `shows_pending_changes`.
+
+**Scope:** For each of the 8 tables, decide whether to (a) add an introspection-test row pinning the widened CHECK, (b) confirm the CHECK is covered at a different layer (RPC-behavior test, migration-apply test) such that introspection rows aren't warranted, or (c) absorb the coverage into a single cross-cutting `tests/cross-cutting/email-canonicalization.test.ts` parity assertion that walks every table whose canonical CHECK was widened.
+
+**Why backlog, not deferred:** The widening contract is correct and live in the schema; this is a coverage-completeness gap, not a behavioral bug. Picking it up requires a small design call (per-table rows vs cross-cutting parity), and the right home may be the existing `tests/cross-cutting/validation-tooling-tz-pin.test.ts` lineage (post-M12-R5 structural defenses) rather than scattered `tests/db` rows.
+
+**Promotion prerequisite:** Either (a) a future X.\* cross-cutting touch surfaces the gap (e.g., a follow-on widening that introspects all canonical CHECKs at once), OR (b) explicit decision to add a parity meta-test under `tests/cross-cutting/`. Either path is small (under half a day) once scoped — but neither is in-scope for any currently planned milestone.
+
+### BL-WIZARD-SESSION-CAS-TURNOVER-RACE — Wizard defer/ignore can still commit after the active wizard is superseded
+
+**ARCHIVED 2026-08-03 — COMPLETE, all three scope clauses.** (a) Lock-then-act shipped as a third variant, not literally either lettered option: all three mutations run in one `withRowTx` with a `FOR UPDATE` lock on `pending_ingestions` (`app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:150-165`) plus per-statement currency predicates against `app_settings.pending_wizard_session_id` (deferral upsert `:217-232`, delete `:323-333`), a 0-row outcome raising `WizardSessionSupersededRollbackError` and rolling back the whole tx — option (b)'s stated semantics without the RPC packaging. (b) Regression test `tests/onboarding/wizardSessionCasRaceDb.test.ts` flips the session mid-window (`:425-447`), asserts 409 + typed `WIZARD_SESSION_SUPERSEDED` and all three mutations rolled back (`:359-361`). (c) The audit trail shipped too: `route.ts:553-567` emits an `admin_alerts` row `WIZARD_SESSION_SUPERSEDED_RACE` carrying both `superseded_session_id` and `current_session_id`, post-rollback on a separate connection; same in the ignore, apply and discard routes.
+
+**Origin:** Surfaced 11+ times across R41 spec + plan adversarial review rounds (2026-05-23 through 2026-05-24) by Codex on `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:297-302`. Most recently P-R8 [high]. Dispositioned each time as OUT-OF-SCOPE for the R41 crew-auth pivot because the affected file is M-series onboarding code, not crew-auth code. Filing here so future R41-pivot adversarial-review rounds can cite this BACKLOG entry instead of re-surfacing the same finding.
+
+**Symptom:** `transitionManifestRow` checks `app_settings.pending_wizard_session_id` only at the manifest UPDATE step. After that succeeds, the handler performs the deferral upsert (line ~301) and pending-ingestion delete (line ~302) without holding or re-checking the `app_settings` row. Under READ COMMITTED, a concurrent finalize/new-scan transaction can supersede or clear the active wizard between the manifest UPDATE and the subsequent two mutations; the stale request can still commit a deferral and delete the pending row while returning 200. This is exactly the class the CAS is meant to prevent.
+
+**Scope of a real fix (if/when promoted):**
+
+- **Lock-then-act protocol.** Either (a) `SELECT pending_wizard_session_id FROM app_settings ... FOR UPDATE` inside the same transaction as the manifest UPDATE + deferral upsert + pending-ingestion delete, or (b) collapse all three mutations into a single SECURITY DEFINER RPC that takes the session-id as an arg and CHECKs it against `app_settings.pending_wizard_session_id` in one statement per mutation. Option (b) matches the M5 advisory-lock topology pattern used elsewhere in this codebase.
+- **Regression test.** Flip `pending_wizard_session_id` between the manifest UPDATE and the deferral upsert (e.g., via a `pg_advisory_xact_lock` + concurrent transaction harness), assert no deferral or delete commits, and assert the route returns a typed `WIZARD_SESSION_SUPERSEDED` failure.
+- **Audit trail.** If the race is detected, emit an `admin_alerts` row with the superseded vs current session-ids so operators can correlate.
+
+**Why backlog, not deferred:** This is an M-series onboarding wizard bug, not an FXAV crew-auth pivot bug. The R41 pivot does not touch this file. No M-series milestone is currently scheduled. Promoting requires a host milestone — most naturally an "M-onboarding-fixups" milestone scoped to known onboarding-flow races, OR a return to the M-series plan tree once R41 ships.
+
+**Promotion prerequisite:** EITHER (a) Doug or Eric observes a real wizard-session-turnover race in production (an orphaned deferral row, a phantom delete), OR (b) an unrelated onboarding milestone re-opens this file and a class-sweep audit lands the fix as part of the broader change, OR (c) the M-onboarding-fixups milestone is scheduled.
+
+**Promotion mechanics:** Add the lock-then-act RPC or `FOR UPDATE` patch as the lead task in the host milestone; pin via a structural meta-test that all three mutations occur in one transaction holding `app_settings` for update.
+
+### BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files
+
+**ARCHIVED 2026-08-03 — COMPLETE; the 2026-06-21 self-declaration verified, not taken on trust.** `npx eslint .` now reports `0 errors, 49 warnings` against the ~90 errors this entry was filed for; `pnpm lint` exits 0. CI gate live at `.github/workflows/quality.yml:34-44` (`pnpm lint` + `pnpm typecheck` + `pnpm format:check`); pre-commit gate at `package.json:138-141` (`simple-git-hooks` -> `lint-staged`). Residual noted at archive time, out of this entry's scope: the gate passes no `--max-warnings`, so those 49 warnings can grow silently. This entry was one of the two that exposed `BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND` — it declared its own closure in its opening line and the guard read it as open.
+
+**✅ RESOLVED (2026-06-21, `chore/lint-format-ci-gates` branch):** promotion prerequisite (a) was taken — a CI lint gate (`.github/workflows/quality.yml` running `pnpm lint` + `pnpm typecheck` + `pnpm format:check`) was added AND the full lint debt was cleared in the same branch (`pnpm lint` now exits 0). Root cause was mostly `.validation-local` design-mock noise (now eslint-ignored) plus ~48 real findings fixed. The same branch also normalized the repo-wide prettier drift (~56% of files) and added a `simple-git-hooks` + `lint-staged` pre-commit gate to stop regression. Retained for history; no further work. (A residual eslint blind spot — array-join classNames — is tracked separately as `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT` below.)
+
+**Filed:** 2026-05-31 from M12.2 Phase A close-out.
+
+**Description:** During M12.2 Phase A close-out, `pnpm lint` surfaced ~90 eslint errors across files unrelated to
+the M12.2 diff (changed-files lint was clean; the milestone shipped green). These pre-date Phase A and are not a
+Phase-A regression. Flagged by the implementer, not fixed (out of scope for a UI reskin).
+
+**Why backlog, not deferred:** no single plan/milestone owns "repo-wide lint debt"; the errors span unrelated
+subsystems and fixing them is speculative cleanup with no concrete trigger. A fix would touch code outside any
+active milestone's scope.
+
+**Promotion prerequisite:** EITHER (a) a CI lint gate is tightened to fail on these (forcing a cleanup pass), OR
+(b) a dedicated repo-hygiene/tech-debt milestone is scoped. Until then, changed-files-lint-clean is the standing
+bar (matches the existing per-task discipline). Capture the exact error list at promotion via `pnpm lint`.
+
+### BL-DIAGRAMS-EMBEDDED-SOURCE — embedded-image diagrams need a feasible source
+
+**ARCHIVED 2026-08-03 — COMPLETE; the candidate fix shipped, and the body below is now WRONG.** Read the correction before the entry: the prose asserts embedded-in-tab diagrams are "unreachable" and that "the linked-folder path remains the only working diagrams source". Both were true when filed and are false now. The XLSX-media route the entry proposes as its candidate shipped per `docs/superpowers/specs/parser/2026-07-02-diagrams-embedded-images.md`: `lib/drive/embeddedObjects.ts` `extractEmbeddedObjects` walks drawing rels to `xl/media/*`, and the live cron path feeds it bytes from the existing Drive export (`runScheduledCronSync.ts:2937` -> `:3040`). `lib/sync/enrichWithDrivePins.ts:180-243` takes that branch FIRST and returns real stubs (`mediaPartName`, `embeddedFingerprint`, `recovery_disposition`), consumed by `defaultSnapshotAssetsForApply.ts:49-55` and `assetRecovery.ts:226-232`. The Sheets adapter still returns `embeddedObjects: []` (`runScheduledCronSync.ts:2118`) but no longer determines the outcome, and `DIAGRAMS_EMBEDDED_NONE_FOUND` now fires only when the tab has neither raster media nor a linked folder (`enrichWithDrivePins.ts:203-212`). Embedded-in-tab diagrams are genuinely reachable.
+
+Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cron adapter's `listSpreadsheetSheets` originally projected `sheets(...,drawings(objectId,imageProperties(...),embeddedObject(...)))` — but the Sheets v4 `Sheet` schema defines **no `drawings` field**, so the live API rejected every `spreadsheets.get` with 400 INVALID_ARGUMENT and every cron full re-parse of a real show failed as `SYNC_FILE_FAILED`. The fix narrowed the mask to `sheets(properties(title))` and the adapter now always returns `embeddedObjects: []`; `extractEmbeddedImages` degrades honestly (`DIAGRAMS_EMBEDDED_NONE_FOUND` warning / linked-folder fallback), and the linked-folder path remains the only working diagrams source. Net: floating images embedded directly in the DIAGRAMS tab are **unreachable** — Sheets v4 cannot enumerate drawings/floating images via any read API. Candidate when picked up: extract images from the XLSX export the sync already fetches (see `synthesizeMarkdownFromXlsx` / `lib/drive/fetch.ts` — xlsx media parts carry embedded images), mapping them into the existing `SpreadsheetEmbeddedObject` contract; alternatives (Drawings API, Apps Script shim) are heavier. Technical home: `lib/sync/runScheduledCronSync.ts` `defaultDriveClient.listSpreadsheetSheets` + `lib/sync/enrichWithDrivePins.ts` `extractEmbeddedImages`; contract pinned by `tests/sync/defaultDriveClientSheetsFieldsMask.test.ts` + the live smoke `tests/sync/realSheetsListSpreadsheetSheetsSmoke.test.ts`. No trigger — the linked-folder fallback covers Doug's workflow today; promote only if embedded-in-tab diagrams become a real operator need.

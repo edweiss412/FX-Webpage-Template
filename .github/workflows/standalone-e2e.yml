@@ -65,8 +65,8 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
-      - run: pnpm exec playwright install-deps chromium
-      - run: pnpm exec playwright install chromium
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
       - name: Run the whole standalone config
         run: pnpm exec playwright test --config tests/e2e/standalone.config.ts
       - name: Compare the run's own report against the committed baseline
