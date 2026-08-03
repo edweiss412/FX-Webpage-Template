@@ -27,6 +27,30 @@ const CLIP_BOTTOM_AFTER = 460;
 type Geometry = { fittedTop: number; clipBottom: number };
 let geometry: Geometry;
 
+type FrameCb = (t: number) => void;
+/**
+ * Frames are held, never auto-run: the coalescing cases have to observe the
+ * gap between "N events fired" and "one frame ran", which an auto-flushing
+ * stub would close before the assertion could see it.
+ */
+let frames: Map<number, FrameCb>;
+let nextFrameId: number;
+let cancelledFrames: number[];
+
+function flushFrames(): void {
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const cb of pending) cb(0);
+}
+
+/**
+ * One `apply()` run calls `getBoundingClientRect` on the fitted node exactly
+ * once, so counting those calls counts APPLIES — the quantity under test.
+ * Counting style writes instead would undercount: a re-measure that lands on
+ * the same number still costs the forced reflow this test exists to bound.
+ */
+let applyCount: number;
+
 /**
  * Both stubs resolve from the element's own data attributes on EVERY call, so
  * they are live from the first effect (the hook measures during the initial
@@ -87,6 +111,18 @@ function expectedPx(g: Geometry = geometry): string {
   })}px`;
 }
 
+/**
+ * `new Event("transitionend", {propertyName})` silently drops the field — the
+ * Event constructor ignores members outside EventInit — so a test written that
+ * way would assert against `undefined` and pass no matter what the listener
+ * filters on. The property is defined explicitly.
+ */
+function transitionEnd(propertyName: string, bubbles = false): Event {
+  const ev = new Event("transitionend", { bubbles });
+  Object.defineProperty(ev, "propertyName", { value: propertyName });
+  return ev;
+}
+
 /** Installs the offsetParent stub for the cases that need a positioned parent. */
 function withOffsetParent<T>(fn: () => T): T {
   const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent");
@@ -106,6 +142,19 @@ function withOffsetParent<T>(fn: () => T): T {
 
 beforeEach(() => {
   geometry = { fittedTop: FITTED_TOP, clipBottom: CLIP_BOTTOM };
+  frames = new Map();
+  nextFrameId = 1;
+  cancelledFrames = [];
+  applyCount = 0;
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameCb): number => {
+    const id = nextFrameId++;
+    frames.set(id, cb);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number): void => {
+    cancelledFrames.push(id);
+    frames.delete(id);
+  });
   vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
     const data = (el as HTMLElement).dataset;
     const clips = data?.["clips"] === "true";
@@ -116,6 +165,7 @@ beforeEach(() => {
     } as unknown as CSSStyleDeclaration;
   });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    if ((this as HTMLElement).dataset?.["testid"] === "fitted") applyCount += 1;
     return rectFor(this);
   });
 });
@@ -176,7 +226,8 @@ describe("useFitWithinClip", () => {
     expect(fitted.style.maxHeight).toBe(expectedPx());
 
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
-    fireEvent(inner, new Event("transitionend"));
+    fireEvent(inner, transitionEnd("transform"));
+    flushFrames();
 
     expect(fitted.style.maxHeight).toBe(expectedPx());
   });
@@ -193,12 +244,14 @@ describe("useFitWithinClip", () => {
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     const child = document.createElement("div");
     inner.appendChild(child);
-    fireEvent(child, new Event("transitionend", { bubbles: true }));
+    fireEvent(child, transitionEnd("transform", true));
+    flushFrames();
 
     expect(fitted.style.maxHeight, "a descendant transition forced a re-measure").toBe(before);
 
     // ...and the offsetParent's OWN transitionend still does re-measure.
-    fireEvent(inner, new Event("transitionend"));
+    fireEvent(inner, transitionEnd("transform"));
+    flushFrames();
     expect(fitted.style.maxHeight).toBe(expectedPx());
   });
 
@@ -212,7 +265,69 @@ describe("useFitWithinClip", () => {
 
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     fireEvent(window, new Event("resize"));
+    flushFrames();
 
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+  });
+
+  test("(g) a burst of window resizes coalesces to ONE apply per frame", () => {
+    const { fitted } = mount();
+    // Mount costs TWO applies today: the layout effect runs, then the ref
+    // callback's `attachCount` bump re-runs it. Known debt, tracked as
+    // BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — pinned here so a change to the
+    // mount path is visible rather than silently absorbed into the delta below.
+    const afterMount = applyCount;
+    expect(afterMount, "mount measure count changed").toBe(2);
+
+    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+    for (let i = 0; i < 12; i += 1) fireEvent(window, new Event("resize"));
+
+    // The whole point: a resize BURST buys exactly one frame, not one reflow
+    // per event. Uncoalesced, this reads 12.
+    expect(applyCount - afterMount, "resize events ran apply() synchronously").toBe(0);
+    expect(frames.size, "a burst must schedule exactly one frame").toBe(1);
+
+    flushFrames();
+    expect(applyCount - afterMount, "the frame must apply exactly once").toBe(1);
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+  });
+
+  test("(g2) the MOUNT path stays synchronous — no frame needed for the first cap", () => {
+    const { fitted } = mount();
+
+    // Deferring the mount measure to a frame reintroduces the bug the hook
+    // exists to prevent: one painted frame with the overlay uncapped.
+    expect(fitted.style.maxHeight, "first cap was deferred to a frame").toBe(expectedPx());
+    expect(frames.size, "mount must not schedule a frame").toBe(0);
+  });
+
+  test("(g3) unmount cancels a pending frame instead of applying to a dead node", () => {
+    const { view } = mount();
+    fireEvent(window, new Event("resize"));
+    expect(frames.size).toBe(1);
+
+    view.unmount();
+
+    expect(cancelledFrames, "the pending frame outlived the component").toHaveLength(1);
+    expect(frames.size).toBe(0);
+  });
+
+  test("(g4) a non-transform transitionend does not re-measure", () => {
+    const { inner, fitted } = withOffsetParent(() => mount());
+    const before = applyCount;
+
+    // The panel animates `transition-[opacity,transform]`, so every entrance
+    // fires TWO transitionend events on the same node. Only the last one to
+    // settle carries final geometry; applying on both doubles the reflow.
+    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
+    fireEvent(inner, transitionEnd("opacity"));
+    flushFrames();
+
+    expect(applyCount - before, "an opacity transition forced a re-measure").toBe(0);
+    expect(fitted.style.maxHeight).toBe(expectedPx({ ...geometry, clipBottom: CLIP_BOTTOM }));
+
+    fireEvent(inner, transitionEnd("transform"));
+    flushFrames();
     expect(fitted.style.maxHeight).toBe(expectedPx());
   });
 });

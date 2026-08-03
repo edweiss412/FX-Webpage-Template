@@ -198,11 +198,27 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   /** ResizeObserver callbacks captured so a test can fire one deliberately. */
   let observerCallbacks: ResizeObserverCallback[];
   let observedTargets: Element[];
+  /** Frames held rather than run: the hook coalesces event-driven applies. */
+  let pendingFrames: FrameRequestCallback[];
+
+  function flushFrames(): void {
+    const queued = pendingFrames;
+    pendingFrames = [];
+    for (const cb of queued) cb(0);
+  }
 
   function installLayoutStubs() {
     geometry = { scrollerTop: SCROLLER_TOP, clipBottom: CLIP_BOTTOM };
     observerCallbacks = [];
     observedTargets = [];
+    pendingFrames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (): void => {
+      pendingFrames = [];
+    });
 
     // The clip ancestor is a real DOM node OUTSIDE the rendered menu, so the
     // hook's upward walk has somewhere distinct to land.
@@ -332,6 +348,9 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     act(() => {
       for (const cb of observerCallbacks) cb([], {} as ResizeObserver);
+      // The observer path is coalesced onto one frame, so the re-measure lands
+      // when the frame runs, not when the callback fires.
+      flushFrames();
     });
 
     expect(scroller.style.maxHeight).toBe(expectedFitted());

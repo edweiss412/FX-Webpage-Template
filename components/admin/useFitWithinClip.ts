@@ -26,9 +26,10 @@
  * DOM cannot announce (an entrance flag flipping pre-frame to entered).
  */
 
-import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefCallback } from "react";
 
 import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 
 /**
  * Nearest ancestor that clips this node, or `null` when nothing does.
@@ -81,10 +82,24 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     })}px`;
   }, []);
 
-  useEffect(() => {
+  // A LAYOUT effect, not a passive one: the first cap has to be written before
+  // the browser paints, or the overlay gets one painted frame at its uncapped
+  // height and visibly snaps. `ShareHub` already does this for the same reason.
+  useLayoutEffect(() => {
     const node = nodeRef.current;
     if (node === null) return;
+    // The MOUNT measure runs synchronously and deliberately bypasses the
+    // coalescer: deferring it to a frame reintroduces the uncapped paint this
+    // layout effect exists to prevent. Only the EVENT-driven re-measures below
+    // are coalesced, because only those arrive in bursts.
     apply();
+
+    // `apply()` forces a synchronous reflow (write, read, read, read, write),
+    // and every signal below can arrive many times per frame — a drag-resize
+    // fires continuously, and a ResizeObserver can fire for both observed
+    // nodes at once. Leading-edge throttle to one apply per frame.
+    const coalescer = createRafCoalescer(apply);
+    const schedule = coalescer.schedule;
 
     // The band can grow (a wrapping header or strip pushes the anchor down)
     // and the panel's height is viewport-derived, so both need watching: a
@@ -99,7 +114,7 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // The positioned ancestor is a SEPARATE node from the clip ancestor, and it
     // is the one whose content changes move this overlay's top edge.
     const positioned = node.offsetParent;
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(apply) : null;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
     if (observer !== null) {
       if (clip !== null) observer.observe(clip);
       if (positioned instanceof Element) observer.observe(positioned);
@@ -111,18 +126,28 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // and this ancestor's descendants are ordinary UI (the AttentionMenu panel
     // holds ~20 rows carrying `transition-colors`), so an unscoped listener
     // re-measures — forcing a synchronous reflow — on every hover fade.
+    //
+    // Scoped to `transform` as well: the panel animates
+    // `transition-[opacity,transform]`, so EVERY entrance fires two
+    // transitionend events on this same node. Only the transform carries the
+    // geometry this hook measures, so listening to both doubles the work for
+    // an identical answer.
     const onTransitionEnd = (event: Event) => {
       if (event.target !== positioned) return;
-      apply();
+      if ((event as TransitionEvent).propertyName !== "transform") return;
+      schedule();
     };
     if (positioned instanceof Element)
       positioned.addEventListener("transitionend", onTransitionEnd);
-    window.addEventListener("resize", apply);
+    window.addEventListener("resize", schedule);
     return () => {
       observer?.disconnect();
       if (positioned instanceof Element)
         positioned.removeEventListener("transitionend", onTransitionEnd);
-      window.removeEventListener("resize", apply);
+      window.removeEventListener("resize", schedule);
+      // A frame scheduled just before unmount would otherwise run `apply()`
+      // against a detached node.
+      coalescer.cancel();
     };
   }, [attachCount, apply, reapplyKey]);
 
