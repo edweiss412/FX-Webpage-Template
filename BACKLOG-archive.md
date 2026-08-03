@@ -2756,3 +2756,23 @@ four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links 
 an ordinary first-contact path. The two-step workaround in
 `tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
 fix reds them, which is the end-to-end proof.
+
+## BL-LEAD-CAPABILITY-PROSE-STALE — two prose claims that LEAD grants an admin/ops surface
+
+**RESOLVED 2026-08-03** (`chore/orphan-components-lead-prose`). Both claims settled by reading the contract each belonged to; both turned out to be stale rather than intentional.
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, spec review R1 finding 1) · **Class:** docs/copy + contract · **Severity:** low · **Effort:** S each, but each needs a contract read
+
+Probed while fixing `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: **no role flag grants admin access.** `is_admin()` (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`) reads the JWT `app_metadata.role` claim and the `admin_emails` table, and never consults `role_flags`; the admin tree gates on admin identity. Sweeping every production use of the LEAD flag finds financials entitlement (`lib/visibility/scopeTiles.ts`, `lib/data/getShowForViewer.ts`), the audio/video/lighting scope-tile predicates, and a "Lead" chip. No admin path exists.
+
+The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContext, its `longExplanation`, and the explainer mirror). Two prose claims were deliberately NOT edited, because each is a statement about what a capability confers rather than a copy string, and changing one is a ratification act:
+
+1. **`lib/visibility/capabilityTransitions.ts`** — its module-header predicate list carries `financialsVisible = isAdmin || LEAD (LEAD-or-admin)`, while the live predicate is `isAdmin || LEAD || FINANCIALS`. Whether the line is wrong or is an accurate description of a flip matrix that deliberately models `hasLead` only cannot be settled without reading the matrix contract.
+2. **Master spec MI-9** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — "LEAD additionally grants the admin/ops surface". Contradicted by the probe above. May encode intent rather than a stale description.
+
+**How it was settled.**
+
+1. **`lib/visibility/capabilityTransitions.ts` — WRONG, of the stale-verbatim-quote kind.** The block the line sits in is labelled "Tile-visibility rules from `lib/visibility/scopeTiles.ts` (verbatim branch logic)", and `financialsVisible` gained its third branch at `e348c81ca` (2026-07-16) without the quote following. It was NOT "an accurate description of a matrix that deliberately models `hasLead` only" — though the matrix genuinely does not model `FINANCIALS`, which is now stated as an explicit modeling boundary and filed as `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE`. `tests/visibility/capabilityHeaderParity.test.ts` extracts the expected flag set from `scopeTiles.ts` SOURCE and compares sets, so the block cannot drift that way again.
+2. **Master spec MI-9 — a STALE DESCRIPTION, not encoded intent.** "admin/ops" was always copy: its oldest instances are the §12.4 strings ratified at `9700c447b` (2026-05-09), MI-9's earlier wording carried the same claim, and `aaab97102` rewrote the clause around it. Every other instance had since been retired or corrected, leaving this one. The clause now states what LEAD actually confers beyond FINANCIALS — the audio/video/lighting scope tiles and the crew-page "Lead" chip — and that neither flag grants admin access, naming `is_admin()`'s two arms.
+
+**A third instance the literal sweep could not see:** `lib/sync/phase2.ts` said a capability flag "would grant ops/financial access silently" — the same claim in production source, in a semantic variant. Corrected in the same commit. `tests/docs/capabilityClaimProse.test.ts` now scans the MI-9 rows AND every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` with a positive-claim recognizer (a raw admin/grant ban could never go green, since the corrected prose itself says neither flag grants admin access), pinned by six fixtures including `lib/parser/typoVocabRegistry.ts`'s unrelated "ops/financials field-alias" as the hardest negative.

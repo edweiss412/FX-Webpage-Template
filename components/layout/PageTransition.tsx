@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
 
 // Reduced-motion detection lives in lib/a11y/usePrefersReducedMotion (shared
-// with RightNowCard since the 2026-06-11 bug-audit). It returns `null` until
+// with the Today hero since the 2026-06-11 bug-audit). It returns `null` until
 // mount; both usages below are truthiness checks, so null behaves exactly
 // like the previous SSR-`false` initial state — the wrapper's DOM shape never
 // depends on this value.

@@ -510,7 +510,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
   });
 
   test("ONBOARDING_LEGACY_ROW_AMBIGUOUS is cataloged with Doug-facing recovery copy (invariant 5)", async () => {
-    // RunFinalCASButton renders per-row codes via messageFor().dougFacing — an
+    // FinalizeButton renders per-row codes via messageFor().dougFacing — an
     // uncataloged code would fall back to the generic error and strand the
     // operator without the re-run-setup recovery instruction.
     const { MESSAGE_CATALOG } = await import("@/lib/messages/catalog");
