@@ -40,6 +40,7 @@ import { stripCommentsForFile } from "../_shared/stripComments";
 
 import {
   EXEMPTION_MARKER,
+  scanShellIndirection,
   argvSuppressesStartupFiles,
   collectPsqlUsage,
   scanBinaryIndirection,
@@ -1637,5 +1638,67 @@ describe("mutant probes", () => {
     const sites = scanSource(real, COMBINED_CLUSTER_SITE);
     expect(sites.length).toBeGreaterThan(0);
     expect(sites.every((s) => s.suppressesStartupFiles)).toBe(true);
+  });
+});
+
+describe("R16 escaping mutants", () => {
+  // `env -S` is NOT shell quoting: `\_` is env's ARGUMENT SEPARATOR, so
+  // `psql -F\_ -X mydb` really passes `-F -X mydb` and `-X` is `-F`'s value.
+  test.each([
+    ["-S separate", "env -S 'psql -F\\_ -X mydb'"],
+    ["-S attached", "env -S'psql -F\\_ -X mydb'"],
+    ["--split-string separate", "env --split-string 'psql -F\\_ -X mydb'"],
+    ["--split-string=", "env --split-string='psql -F\\_ -X mydb'"],
+  ])("env %s splits on the escape and is not certified", (_name, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.tokens).toEqual(["-F", "-X", "mydb"]);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("an env -S command with a real -X still counts", () => {
+    expect(sitesIn("env -S 'psql -X -qAt mydb'\n", "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // A BARE glob or brace changes argv CARDINALITY without carrying a `$`.
+  test.each([
+    ["an unmatched glob under nullglob", "psql -f optional/*.sql -X mydb"],
+    ["a multi-match glob", "psql -f supabase/migrations/*.sql -X mydb"],
+    ["a brace expansion", "psql -f {first,second}.sql -X mydb"],
+    ["a `?` pattern", "psql -f m?.sql -X mydb"],
+    ["a bracket pattern", "psql -f m[0-9].sql -X mydb"],
+  ])("%s refuses certification", (_name, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.hasDynamicTokens).toBe(true);
+  });
+
+  test.each([
+    ["a quoted star", 'psql -X -c "select * from t" mydb'],
+    ["a quoted brace", "psql -X -c 'select {1,2}' mydb"],
+    ["an escaped star", "psql -X -c select\\ \\* mydb"],
+  ])("%s is inert and still certifies", (_name, command) => {
+    expect(sitesIn(`${command}\n`, "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // The shell surface needs its OWN indirection tripwire; the JS one never ran
+  // on .sh or .yml, so the header's backstop claim did not hold there.
+  test.each([
+    ["a variable assigned psql", 'PG=psql\n"$PG" -qAt mydb\n'],
+    ["an exported path", "export PG=/usr/bin/psql\n"],
+    ["an alias", 'shopt -s expand_aliases\nalias psql="psql -F"\npsql -X mydb\n'],
+    ["a function, paren form", 'psql() { command psql -F "$@"; }\n'],
+    ["a function, keyword form", 'function psql { command psql -F "$@"; }\n'],
+  ])("%s is reported as an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ["an ordinary call", "psql -X -qAt mydb\n"],
+    ["a mention inside a comment", "# PG=psql would be indirection\npsql -X -qAt mydb\n"],
+    ["an unrelated variable", 'DSN=postgres://x\npsql -X -qAt "$DSN"\n'],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
   });
 });

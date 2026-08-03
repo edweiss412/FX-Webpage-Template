@@ -82,11 +82,19 @@
  * • A command word produced by EXPANSION (`$PG psql`, an alias). Lexical
  *   spellings ARE read — `p"s"ql`, `p\s\q\l`, a backslash-newline splice, a
  *   `/path/psql` — and so are `bash -c "…"`, `eval "…"`, `{ shell: true }`, and
- *   command substitutions. BACKSTOP: `scanBinaryIndirection`, which LEXES every
- *   string literal rather than requiring it to start with psql. An earlier cut
- *   did require that, and this file claimed it sufficed; review disproved the
- *   claim with five ordinary shapes at once (`sudo -u postgres psql …`,
- *   `PGHOST=… psql …`, `echo …\npsql …`, `true && psql …`, `cat … | psql …`).
+ *   command substitutions. BACKSTOPS, one per surface: `scanBinaryIndirection`
+ *   on JS, which LEXES every string literal rather than requiring it to start
+ *   with psql; and `scanShellIndirection` on shell/YAML, which reports a
+ *   variable assigned `psql`, an `alias psql=`, and a shell function named
+ *   psql. Both are TRIPWIRES — they fail loudly rather than resolving anything.
+ *   This file previously named the JS one as the backstop for both surfaces
+ *   while it ran only on JS files, so `PG=psql; "$PG" …` was invisible and
+ *   `alias psql="psql -F"` could turn a certified `-X` into `-F`'s value.
+ * • Anything whose argv CARDINALITY is decided at runtime. A bare glob or brace
+ *   (`-f optional/*.sql` under `nullglob`, `{a,b}.sql`) carries no `$` yet can
+ *   expand to zero or many words, so `-f` may swallow the following `-X`.
+ *   Suppression is refused for such a command; quoted metacharacters are inert
+ *   and still certify, which is why quoting is tracked per character.
  * • A command assembled with no surviving literal at all (`execSync(build())`,
  *   a name from config or env). Nothing static can see it. BACKSTOP: none —
  *   this is the acknowledged hole, and it is why `-X` is ALSO enforced by
@@ -553,6 +561,8 @@ type ShellWord = {
   text: string;
   line: number;
   offset: number;
+  /** Per character of `text`: quoted or escaped, so it cannot expand. */
+  quoted: boolean[];
   /** Raw index in the scanned text for EACH character of `text`. Quoting and
    * escaping mean the word's characters are not contiguous with its start —
    * adding an offset measured in the quote-stripped script to the opening
@@ -606,6 +616,10 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
   let bufferOffsets: number[] = [];
+  /** Per character: was it quoted or escaped? A glob metacharacter only expands
+   * when it is BARE, so `-c "select * from t"` must stay an ordinary token
+   * while `-f optional/*.sql` must not be certified. */
+  let bufferQuoted: boolean[] = [];
   let started = false;
   let startLine = 0;
   let startOffset = 0;
@@ -621,12 +635,14 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           line: startLine,
           offset: startOffset,
           offsets: bufferOffsets,
+          quoted: bufferQuoted,
           operator: false,
         });
       dropWord = false;
     }
     buffer = "";
     bufferOffsets = [];
+    bufferQuoted = [];
     started = false;
   };
   const begin = (index: number): void => {
@@ -636,12 +652,17 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       startOffset = index;
       buffer = "";
       bufferOffsets = [];
+      bufferQuoted = [];
     }
   };
-  /** Append to the current word, recording where each character came from. */
-  const append = (piece: string, at: number): void => {
+  /** Append to the current word, recording where each character came from and
+   * whether the shell had already removed its special meaning. */
+  const append = (piece: string, at: number, quoted = false): void => {
     buffer += piece;
-    for (let k = 0; k < piece.length; k++) bufferOffsets.push(at);
+    for (let k = 0; k < piece.length; k++) {
+      bufferOffsets.push(at);
+      bufferQuoted.push(quoted);
+    }
   };
 
   for (let i = 0; i < text.length; i++) {
@@ -658,7 +679,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       }
       if (next !== undefined) {
         begin(i);
-        append(next, i + 1);
+        append(next, i + 1, true); // a backslash removes the next char's meaning
         i++;
         continue;
       }
@@ -730,7 +751,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       begin(i);
       const close = text.indexOf("'", i + 1);
       const body = close === -1 ? text.slice(i + 1) : text.slice(i + 1, close);
-      for (let k = 0; k < body.length; k++) append(body[k]!, i + 1 + k);
+      for (let k = 0; k < body.length; k++) append(body[k]!, i + 1 + k, true);
       line += (body.match(/\n/g) ?? []).length;
       i = close === -1 ? text.length : close;
       continue;
@@ -743,7 +764,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
           i++;
           if (text[i] === "\n") line++; // a continuation still eats a line
-          append(text[i]!, i);
+          append(text[i]!, i, true);
           continue;
         }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
@@ -768,7 +789,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           continue;
         }
         if (text[i] === "\n") line++;
-        append(text[i]!, i);
+        append(text[i]!, i, true); // inside double quotes, globs do not expand
       }
       continue;
     }
@@ -781,7 +802,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     if (character === "\n") {
       flush();
-      words.push({ text: "\n", line, offset: i, offsets: [i], operator: true });
+      words.push({ text: "\n", line, offset: i, offsets: [i], quoted: [true], operator: true });
       line++;
       continue;
     }
@@ -840,6 +861,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         line,
         offset: i,
         offsets: [...operator].map((_, k) => i + k),
+        quoted: [...operator].map(() => true),
         operator: true,
       });
       i += operator.length - 1;
@@ -976,16 +998,21 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // `env --split-string=…`. Both `=value` and separate-word forms.
         const longScript = /^--(?:command|session-command|split-string)(=|$)/.exec(candidate.text);
         if (longScript) {
+          const translate = name === "env" ? envSplitStringToShell : (t: string) => t;
           if (longScript[1] === "=") {
             const attached = candidate.text.slice(candidate.text.indexOf("=") + 1);
-            for (const site of scanShellText(attached, file, lineOffset + candidate.line))
+            for (const site of scanShellText(
+              translate(attached),
+              file,
+              lineOffset + candidate.line,
+            ))
               sites.push({ ...site, offset: candidate.offset });
             break;
           }
           const next = argv[i + 1];
           if (next !== undefined)
-            for (const site of scanShellText(next.text, file, lineOffset + next.line))
-              sites.push({ ...site, offset: next.offsets[site.offset] ?? next.offset });
+            for (const site of scanShellText(translate(next.text), file, lineOffset + next.line))
+              sites.push({ ...site, offset: next.offset });
           break;
         }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
@@ -996,14 +1023,19 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // `env -S'psql …'` attaches the script to the flag itself.
         if (isDashS && candidate.text.length > 2 && /^-[a-zA-Z]*S./.test(candidate.text)) {
           const attached = candidate.text.slice(candidate.text.indexOf("S") + 1);
-          for (const site of scanShellText(attached, file, lineOffset + candidate.line))
+          for (const site of scanShellText(
+            envSplitStringToShell(attached),
+            file,
+            lineOffset + candidate.line,
+          ))
             sites.push({ ...site, offset: candidate.offset });
           break;
         }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
         const script = argv[scriptIndex];
         if (script === undefined) break;
-        for (const site of scanShellText(script.text, file, lineOffset + script.line))
+        const scriptText = isDashS ? envSplitStringToShell(script.text) : script.text;
+        for (const site of scanShellText(scriptText, file, lineOffset + script.line))
           sites.push({
             // The script word was QUOTE-STRIPPED, so its characters are not
             // contiguous with its start. Map through the per-character index
@@ -1011,7 +1043,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
             // quote's index undercounts every delimiter and landed psql on the
             // preceding physical line.
             ...site,
-            offset: script.offsets[site.offset] ?? script.offset,
+            offset: (isDashS ? script.offset : script.offsets[site.offset]) ?? script.offset,
           });
         break;
       }
@@ -1034,6 +1066,15 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
 
     const rest = argv.slice(index + 1);
     const tokens = rest.map((word) => word.text);
+    // A BARE glob or brace changes argv CARDINALITY without carrying a `$`:
+    // under `nullglob` an unmatched `-f optional/*.sql` vanishes entirely and
+    // `-f` swallows the following `-X`; a matching one supplies many words; and
+    // `{a,b}.sql` always supplies two. The lexical spelling therefore cannot
+    // certify. Quoted metacharacters are inert, which is why the lexer records
+    // quoting per character — `-c "select * from t"` stays an ordinary token.
+    const expandable = rest.some((word) =>
+      [...word.text].some((character, k) => !word.quoted[k] && "*?[{".includes(character)),
+    );
     const hit = argv[index]!;
     sites.push({
       file,
@@ -1044,8 +1085,8 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       precedingWords: argv.slice(0, index).map((word) => word.text),
       nested: false,
       nestedInBacktick: false,
-      hasDynamicTokens: tokens.some((token) => token.includes("$")),
-      suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
+      hasDynamicTokens: tokens.some((token) => token.includes("$")) || expandable,
+      suppressesStartupFiles: !expandable && argvSuppressesStartupFiles(tokens),
       exemptReason: exemptionOnLines(rawLines, hit.line + 1, commentAt),
     });
   }
@@ -1390,6 +1431,36 @@ const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas"]);
  * `watch "psql …"`), with no flag naming it. */
 const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch"]);
 
+/**
+ * `env -S` does NOT use shell quoting: it has its own split-string grammar in
+ * which `\_` is an ARGUMENT SEPARATOR. `env -S 'psql -F\_ -X mydb'` therefore
+ * passes `-F -X mydb`, where `-X` is `-F`'s value — reading the string as shell
+ * text saw the single token `-F_` and certified the `-X` behind it. Translate
+ * env's escapes into the shell text the rest of the reader expects.
+ */
+function envSplitStringToShell(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "\\") {
+      out += text[i];
+      continue;
+    }
+    const next = text[++i];
+    if (next === undefined) break;
+    if (next === "_")
+      out += " "; // the argument separator
+    else if (next === "c")
+      break; // end of the string
+    else if (next === "t") out += "\t";
+    else if (next === "n") out += "\n";
+    else if (next === "v") out += "\v";
+    else if (next === "f") out += "\f";
+    else if (next === "r") out += "\r";
+    else out += next; // `\\`, `\#`, `\$` … the character itself
+  }
+  return out;
+}
+
 /** ssh options that take a SEPARATE value, so the following word is that value
  * rather than the host or the remote command. */
 const SSH_ARG_FLAGS = /^-[bcDEeFIiJLlmOopQRSWw]$/;
@@ -1543,6 +1614,32 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * bound to an identifier, or a shell command assembled at runtime. Reports any
  * `"psql"`-valued string literal that is NOT argv[0] of a recognized call.
  */
+/**
+ * Shell-side indirection: a command word that will only BE `psql` at runtime, or
+ * an alias/function that rewrites psql's argv. A word-level reader cannot follow
+ * either, so both are reported rather than silently mis-read.
+ */
+export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
+  const hits: IndirectionHit[] = [];
+  const lines = source.split("\n");
+  const commentAt = commentIndexPerLine(source, "hash");
+  for (const [index, line] of lines.entries()) {
+    const comment = commentAt[index]?.[0]?.[0];
+    const code = comment === undefined ? line : line.slice(0, comment);
+    // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
+    const assigned =
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:\s|$)/.exec(
+        code,
+      );
+    // `alias psql=…`, and a shell FUNCTION named psql
+    const aliased = /(?:^|\s)alias\s+psql=/.exec(code);
+    const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
+    const hit = assigned ?? aliased ?? functionDef;
+    if (hit) hits.push({ file, line: index + 1, text: code.trim() });
+  }
+  return hits;
+}
+
 export function scanBinaryIndirection(source: string, file: string): IndirectionHit[] {
   const sourceFile = parseJs(source, file);
   const recognized = new Set<number>();
@@ -1764,6 +1861,13 @@ export function collectPsqlUsage(repoRoot: string): PsqlUsage {
     sites.push(...scanSource(source, rel));
     if (JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
       indirections.push(...scanBinaryIndirection(source, rel));
+    // The SHELL side needs its own tripwire. The header used to name
+    // `scanBinaryIndirection` as the backstop for an expanded command word, but
+    // that function only ever ran on JS files, so `PG=psql; "$PG" -qAt mydb`
+    // was invisible and `alias psql="psql -F"` could turn a certified `-X` into
+    // `-F`'s value. Neither is statically resolvable; both are now LOUD.
+    if (!JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
+      indirections.push(...scanShellIndirection(source, rel));
   }
   return { sites, indirections, unreadable, filesScanned: files.length };
 }
