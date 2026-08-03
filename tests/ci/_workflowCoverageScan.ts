@@ -1028,6 +1028,46 @@ export function usesValuePoisons(
   );
 }
 
+/**
+ * Every (key, value-text) env pair carried by the steps of the composite a
+ * `uses:` value resolves to, at any depth (static-env spec §2.3, final
+ * review (a) R5 F2). Governance-only: an allowlisted pair at an
+ * action-scoped site never trips the refusal path (a dirty one already
+ * poisons via usesValuePoisons), but it IS part of the job's execution
+ * context, so relocating it away must red the declaring row like any other
+ * relocation. Remote refs are trusted and contribute nothing; unresolvable
+ * or cyclic refs contribute nothing here because they already poison.
+ */
+export function compositeEnvPairs(
+  value: unknown,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): Array<[string, string]> {
+  if (usesKind(value) !== "local") return [];
+  const ref = (value as string).trim();
+  if (seen.has(ref)) return [];
+  const raw = localActions[ref];
+  if (raw === undefined) return [];
+  let doc: unknown;
+  try {
+    doc = parse(raw);
+  } catch {
+    return [];
+  }
+  const steps = validatedCompositeSteps(doc);
+  if (steps === null) return [];
+  const next = new Set(seen).add(ref);
+  const out: Array<[string, string]> = [];
+  for (const s of steps) {
+    const env = (s as { env?: unknown }).env;
+    if (env !== null && typeof env === "object" && !Array.isArray(env))
+      for (const [k, v] of Object.entries(env))
+        out.push([k, typeof v === "string" ? v : String(v)]);
+    if ("uses" in s) out.push(...compositeEnvPairs(s.uses, localActions, next));
+  }
+  return out;
+}
+
 function localActionPoisons(
   chunk: string,
   localActions: Record<string, string>,
@@ -1496,6 +1536,9 @@ export function scanWorkflowCoverage({
       // read as a second step and covered specs it never executed. The
       // typed steps are exactly what the runner executes; each chunk is
       // still used for the text-level gates that need raw source.
+      // Action-scoped env pairs seen so far in THIS job (R5 F2). Reset per
+      // job: an action invoked in job A configures nothing in job B.
+      const jobActionEnvPairs = new Map<string, string>();
       const parsedSteps: Array<Record<string, unknown>> =
         parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
           ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
@@ -1616,11 +1659,28 @@ export function scanWorkflowCoverage({
               rejected.push({ file, spec, reason: "unmodelled shell construct" });
             else {
               covered.add(spec);
-              for (const [k, text] of [
+              // EFFECTIVE value only (final review (a) R5 F1). GitHub env
+              // precedence is step > job > workflow, so crediting every
+              // syntactically in-scope pair let a SHADOWED value keep the
+              // governance of the value that actually reaches the runner:
+              // root `K: inert` + job `K: required` credited BOTH, so
+              // swapping them (effective value now `inert`, spec self-skips)
+              // left governance byte-identical. Later writes win, so a Map
+              // filled root -> job -> step holds exactly what the step sees.
+              const effective = new Map<string, string>([
                 ...envPairsOf((parsedDoc as { env?: unknown } | null)?.env),
                 ...envPairsOf((parsedJob as { env?: unknown } | undefined)?.env),
                 ...envPairsOf(parsedStep.env),
-              ]) {
+              ]);
+              // Action-scoped pairs from EARLIER same-job steps (R5 F2): a
+              // pair handed to a `uses:` invocation, or carried by a step of
+              // the composite it resolves, is part of this job's execution
+              // context from that step onward — an action gated on it can
+              // decide whether the later spec does anything. Never shadows a
+              // directly-scoped value; forward-only, like poison.
+              for (const [k, text] of jobActionEnvPairs)
+                if (!effective.has(k)) effective.set(k, text);
+              for (const [k, text] of effective) {
                 const pair = govKey(k, text);
                 const set = governance.get(pair) ?? new Set<string>();
                 set.add(spec);
@@ -1646,6 +1706,14 @@ export function scanWorkflowCoverage({
           usesValuePoisons(parsedStep.uses, localActions, new Set(), envKeyAllowlist)
         )
           envPoisoned = true;
+        // Accumulate action-scoped pairs for LATER claims in this job (R5 F2):
+        // the invocation's own env plus every env pair inside the composite it
+        // resolves, at any depth.
+        if ("uses" in parsedStep) {
+          for (const [k, text] of envPairsOf(parsedStep.env)) jobActionEnvPairs.set(k, text);
+          for (const [k, text] of compositeEnvPairs(parsedStep.uses, localActions, new Set()))
+            jobActionEnvPairs.set(k, text);
+        }
       }
     }
   }

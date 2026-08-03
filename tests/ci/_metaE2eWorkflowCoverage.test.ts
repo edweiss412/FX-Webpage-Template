@@ -2124,6 +2124,112 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     ).toHaveLength(1);
   });
 
+  it("governance credits the EFFECTIVE value after scope precedence (S8 shadowing)", () => {
+    // GitHub precedence is step > job > workflow. Crediting every
+    // syntactically in-scope pair let a SHADOWED value keep the governance of
+    // the value that actually reaches the runner, so swapping the two left
+    // governance byte-identical while the effective value flipped from the
+    // one that runs the spec to the one that self-skips it (final review (a)
+    // R5 F1). All three precedence pairs are pinned.
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const declared: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: X },
+          { text: "inert", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    const gv = (wf: string) => envPairGovernance({ "w.yml": wf }, {}, {}, declared);
+    const rootJob = (root: string, job: string) =>
+      `env:\n  K: ${root}\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${job}\n    steps:\n      - ${CLAIM}\n`;
+    const rootStep = (root: string, step: string) =>
+      `env:\n  K: ${root}\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n        env:\n          K: ${step}\n`;
+    const jobStep = (job: string, step: string) =>
+      `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${job}\n    steps:\n      - ${CLAIM}\n        env:\n          K: ${step}\n`;
+    for (const [label, wf] of [
+      ["root<job", rootJob],
+      ["root<step", rootStep],
+      ["job<step", jobStep],
+    ] as const) {
+      // Effective value is `required`; the shadowed `inert` governs nothing.
+      expect(governanceViolations(declared, gv(wf("inert", "required"))), label).toEqual([]);
+      // Swapped: effective value is now `inert`, so the SAME row must red —
+      // the assertion a scope-blind derivation cannot make.
+      expect(
+        governanceViolations(declared, gv(wf("required", "inert"))),
+        `${label} swapped`,
+      ).not.toEqual([]);
+    }
+  });
+
+  it("action-scoped env pairs govern later claims in the job (S8, R5 F2)", () => {
+    // A pair handed to a `uses:` invocation, or carried by a step of the
+    // composite it resolves, is part of the job's execution context: an
+    // action gated on it can decide whether the later spec does anything.
+    // Crediting nothing there left relocation of such a pair invisible.
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const declared: EnvKeyAllowlist = { K: { values: [{ text: "v", governs: X }], reason: "r" } };
+    const gv = (wf: string, actions: Record<string, string> = {}) =>
+      envPairGovernance({ "w.yml": wf }, {}, {}, declared, actions);
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    // (a) env on the local `uses:` INVOCATION itself.
+    const invocation = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    expect(
+      governanceViolations(declared, gv(invocation, { "./.github/actions/a": cleanBody })),
+      "uses-invocation env",
+    ).toEqual([]);
+    // (b) composite RUN-step env and (c) NESTED composite step env.
+    const use = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n`;
+    const compositeRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    const nested = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    for (const [label, actions] of [
+      ["composite-run env", compositeRun],
+      ["nested-composite env", nested],
+    ] as const) {
+      expect(governanceViolations(declared, gv(use, actions)), label).toEqual([]);
+    }
+    // Relocation twin: park the pair on a NON-claiming job and the declaring
+    // row reds — the whole point of crediting these sites.
+    const parked = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n  park:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
+    expect(
+      governanceViolations(declared, gv(parked, { "./.github/actions/a": cleanBody })),
+      "relocated away from the action site",
+    ).toHaveLength(1);
+    // Precision: an action-scoped pair must NOT shadow a directly-scoped one.
+    const bothScopes = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: direct\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    const twoValues: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "direct", governs: X },
+          { text: "v", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        twoValues,
+        envPairGovernance({ "w.yml": bothScopes }, {}, {}, twoValues, {
+          "./.github/actions/a": cleanBody,
+        }),
+      ),
+      "direct scope wins over action scope",
+    ).toEqual([]);
+  });
+
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
     // Each doctored allowlist must red through the SAME checker the live
     // gate invokes — deleting a live assertion cannot leave this twin green.
