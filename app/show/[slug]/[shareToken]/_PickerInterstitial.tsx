@@ -41,6 +41,7 @@ import { redirect } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
 import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInput";
+import { ClaimedRowButton } from "./_ClaimedRowButton";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
 
@@ -200,36 +201,21 @@ export function PickerInterstitial({
                         name="next"
                         value={buildShowReturnUrl(slug, shareToken, { s })}
                       />
-                      <button
-                        type="submit"
-                        data-testid="picker-roster-row"
-                        data-claimed="true"
-                        data-crew-member-id={c.id}
-                        className={rowClasses}
-                      >
-                        <span className="flex min-w-0 items-center gap-2 text-base font-semibold">
-                          <span
-                            data-testid="picker-row-lock"
-                            aria-label={
-                              messageFor("IDENTITY_DEACTIVATED_LOCK_HINT").crewFacing ??
-                              "Sign in to use this identity"
-                            }
-                            className="text-text-subtle"
-                          >
-                            {/* Plain unicode lock — DESIGN.md §8 ratifies
-                                lucide-react but the picker row's restraint
-                                rules out icon-as-image; a 16px glyph matches
-                                the type rhythm here. */}
-                            🔒
-                          </span>
-                          <span className="truncate">{c.name}</span>
-                        </span>
-                        {c.role && (
-                          <span data-testid="picker-role-chip" className={chipClasses}>
-                            {c.role}
-                          </span>
-                        )}
-                      </button>
+                      {/* The button is a client island so it can show a pending
+                          state for the three-hop OAuth journey; the form and the
+                          hidden `next` stay server-side. See _ClaimedRowButton
+                          for why this is local state and not useFormStatus. */}
+                      <ClaimedRowButton
+                        name={c.name}
+                        role={c.role}
+                        crewMemberId={c.id}
+                        lockHint={
+                          messageFor("IDENTITY_DEACTIVATED_LOCK_HINT").crewFacing ??
+                          "Sign in to use this identity"
+                        }
+                        rowClassName={rowClasses}
+                        chipClassName={chipClasses}
+                      />
                     </form>
                   </li>
                 );

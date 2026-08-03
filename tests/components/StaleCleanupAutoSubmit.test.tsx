@@ -63,7 +63,14 @@ describe("only-use-client-in-picker-tree static grep (R25)", () => {
     const dir = join(process.cwd(), "app", "show", "[slug]", "[shareToken]");
     // Sanctioned client files: the picker auto-submit island, and error.tsx — a React error
     // boundary, which MUST be a Client Component (Phase 3 crew boundary).
-    const SANCTIONED = new Set(["_StaleCleanupAutoSubmit.tsx", "error.tsx"]);
+    // _ClaimedRowButton.tsx is the third sanctioned island: the claimed roster row
+    // needs local pending state for the OAuth hop, and useFormStatus cannot supply
+    // it for a native GET form (see that file's header).
+    const SANCTIONED = new Set([
+      "_StaleCleanupAutoSubmit.tsx",
+      "error.tsx",
+      "_ClaimedRowButton.tsx",
+    ]);
     const offenders: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
