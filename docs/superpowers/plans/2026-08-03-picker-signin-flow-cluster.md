@@ -29,11 +29,11 @@ written.
 | `--duration-fast: 120ms` | `app/globals.css:223` |
 | 3 `TWO-STEP navigation` workaround sites | `tests/e2e/stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`, `stage-restricted-crew-schedule.spec.ts:461` |
 | component-test harness for the picker | `tests/show/pickerAffordance.test.tsx:1-26` (jsdom + testing-library, renders `PickerInterstitial` with a roster fixture) |
-| layout-measurement pattern | `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101`. NOT hosted in `crew-layout-dimensions.spec.ts` — that file is `PATH_GATED` debt (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and CI runs only its `T-NOPHANTOM-CREW` grep (`.github/workflows/phantom-gap-e2e.yml:175`). Task 5 hosts them in `picker-flow.spec.ts`. |
+| layout-measurement pattern | `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101`. NOT hosted in `crew-layout-dimensions.spec.ts` — that file is `PATH_GATED` debt (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and CI runs only its `T-NOPHANTOM-CREW` grep (`.github/workflows/phantom-gap-e2e.yml:175`). Task 4 hosts them in `picker-flow.spec.ts`. |
 | e2e workflow already runs picker-flow on desktop-chromium | `.github/workflows/crew-e2e.yml:151` |
 
 **`useFormStatus` probe (spec §3.4).** Run before drafting; result `NATIVE_GET=false`,
-`FUNCTION_ACTION=true`. The probe was scratch and is not committed — Task 6 lands the permanent
+`FUNCTION_ACTION=true`. The probe was scratch and is not committed — Task 3 lands the permanent
 regression test that encodes the same fact against our own component.
 
 ## 0.1 Meta-test inventory
@@ -42,7 +42,7 @@ regression test that encodes the same fact against our own component.
 
 **EXTENDS:** `tests/components/StaleCleanupAutoSubmit.test.tsx:61-79` — its `SANCTIONED` set is a
 hard two-entry allowlist of `"use client"` files under `app/show/[slug]/[shareToken]/`. The new
-`_ClaimedRowButton` is a third client island and MUST be added there, in Task 4, or the required
+`_ClaimedRowButton` is a third client island and MUST be added there, in Task 3, or the required
 unit workflow goes red. Missing this was plan R1 finding 5.
 
 **Checked and deliberately NOT disturbed:** `scripts/check-crew-e2e-executed.mjs:22-34` pins
@@ -287,6 +287,21 @@ Spec §5 invariant list, verbatim, is this task's checklist:
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
 
+**Fixture is deterministic, not 'a long name'.** Use a 120-character single-token name (no spaces,
+so there is no wrapping opportunity and `truncate` is the only thing that can contain it) at a
+360px viewport. An unspecified 'LONG-name' leaves whether `truncate`'s deletion fails the
+assertion dependent on content — R5 finding 3.
+
+**Two invariants in the §5 checklist are NOT killed by height/name-edge/containment alone, and
+need their own assertions:**
+
+- `items-center`: assert the spinner's vertical centre equals the row's vertical centre within
+  0.5px. Deleting `items-center` leaves row height, name edge, chip containment and chip
+  `white-space` all unchanged.
+- `size-4` on the spinner: assert its measured box is 16×16 within 0.5px. Deleting `size-4` lets
+  Lucide fall back to 24×24 (lucide-react ships a 24x24 default in its `defaultAttributes` module),
+  which is still under the 44px row floor, so a row-height comparison cannot see it.
+
 **A short-name fixture cannot prove the layout classes.** Height plus name-edge both survive
 deleting `truncate`, `min-w-0`, `shrink-0`, or `whitespace-nowrap` when the content is short, so
 4a additionally runs a LONG-name fixture at a narrow viewport and asserts: (i) the pending chip's
@@ -312,13 +327,23 @@ position regardless.
 
 **4e — keyboard double-activation.** Focus the row, press Enter, then press Enter again while
 pending; assert exactly ONE navigation request to `/auth/sign-in` (count via the route
-interception already registered for detach safety). Repeat for Space. This is the keyboard half of
+interception already registered for detach safety). **Then reload and repeat on a FRESH, idle row
+for Space** — Space must not be tested on the row Enter already left pending. R5 finding 4: a
+sequential implementation would observe one request from Enter, then two Space presses on an
+already-pending row, and still total one even if Space produces ZERO first activations. Each key
+needs its own idle baseline: assert the first press of each key produces exactly one request and
+the second produces none. This is the keyboard half of
 Task 3's double-activation guard and it MUST live here, not in jsdom: jsdom does not synthesize
 activation from Enter/Space (spec §3.6 P8, `keyboardClicks=0`) and this repo does not install
 `@testing-library/user-event`, so a jsdom keyboard assertion is vacuously green. Without 4e the
 pointer path is guarded and keyboard users still double-submit (R4 finding 2).
 
-**4d — reduced motion.** Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
+**4d — reduced motion.** Assert the spinner's computed `animationName` is `none` under
+`emulateMedia({ reducedMotion: "reduce" })`. Failure mode caught: deleting
+`motion-reduce:animate-none` — the spinner/text/ARIA assertions all still pass without it, so a
+computed-animation oracle is the only thing that kills that mutant (R5 finding 7).
+
+Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
 `motion-reduce:animate-none` suppresses its animation, while the chip text swap and
 `aria-disabled` still convey pending. Spec §4.3 requires motion never be the sole signal.
 
@@ -401,7 +426,7 @@ the two-step workaround was never load-bearing and this task proves nothing.
 - [ ] Task 1 — bootstrap accepts a query-bearing `next` (test + impl)
 - [ ] Task 2 — `parseNextPath` unit grammar pin, with the recorded mutant
 - [ ] Task 3 — `_ClaimedRowButton` + pending state + `SANCTIONED` allowlist entry
-- [ ] Task 4 — real-browser proof in `picker-flow.spec.ts` (4a–4d)
+- [ ] Task 4 — real-browser proof in `picker-flow.spec.ts` (4a–4e, including the 4e keyboard case)
 - [ ] Task 5 — transition audit
 - [ ] Task 6 — retire the e2e workaround
 - [ ] Self-review
