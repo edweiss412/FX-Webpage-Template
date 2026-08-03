@@ -33,6 +33,7 @@ import {
   isFloorClamped,
   MIN_FITTED_HEIGHT,
 } from "@/lib/layout/fitWithinClip";
+import { clientLog } from "@/lib/observe/clientLog";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 
 /**
@@ -99,7 +100,12 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // frame during a drag buries the one that mattered.
     if (process.env.NODE_ENV !== "production" && isFloorClamped(geometry) && !warned.has(el)) {
       warned.add(el);
-      console.warn(
+      // `debug`, not `warn`: clientLog mirrors warn/error to app_events, and a
+      // developer diagnostic that only ever fires outside production has no
+      // business writing telemetry rows. Console-only is the whole point.
+      clientLog(
+        "debug",
+        "useFitWithinClip",
         "[useFitWithinClip] overlay overhangs its clip edge: the room below the anchor is under " +
           `the ${MIN_FITTED_HEIGHT}px floor, so the fitted height does not fit. Move the anchor ` +
           "rather than lowering the floor.",

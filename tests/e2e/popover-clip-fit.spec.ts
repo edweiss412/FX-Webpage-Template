@@ -738,7 +738,10 @@ test.describe("anchor-room census — what the MIN_FITTED_HEIGHT docblock may cl
     }
 
     for (const { height, available } of measured) {
-      expect(available, `room ${available}px at 375x${height} is at or under the ${FLOOR}px floor`).toBeGreaterThan(FLOOR);
+      expect(
+        available,
+        `room ${available}px at 375x${height} is at or under the ${FLOOR}px floor`,
+      ).toBeGreaterThan(FLOOR);
     }
     // Not merely clear — clear by a margin ordinary variation cannot cross.
     const tightest = Math.min(...measured.map((m) => m.available));
