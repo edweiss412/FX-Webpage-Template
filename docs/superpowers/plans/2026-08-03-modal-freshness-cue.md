@@ -95,12 +95,22 @@ export const SECTION_FRESHNESS_MAX_CUES = 3;
 
 export type SectionSignatures = ReadonlyMap<SectionId, string>;
 
-export function buildSectionSignatures(data: PublishedSectionData): SectionSignatures;
+export function buildSectionSignatures(input: {
+  data: PublishedSectionData;
+  bySection: SectionWarningRecord;
+}): SectionSignatures;
+
 export function changedSectionIds(prev: SectionSignatures, next: SectionSignatures): SectionId[];
-export function freshnessAnnouncement(ids: readonly SectionId[]): string;
+
+export function freshnessAnnouncement(
+  changed: readonly SectionId[],
+  stillRendered: ReadonlySet<SectionId>,
+): string;
 ```
 
-`buildSectionSignatures` walks the spec §4.1 projection table, restricted to `renderedSectionIds(data)`. `changedSectionIds` returns ids whose signature differs, plus ids present on exactly one side, sorted by the registry order so the announcement reads in document order rather than hash order. `freshnessAnnouncement` implements the §4.6 copy table and returns the empty string for an empty list.
+`buildSectionSignatures` walks the spec §4.1 projection table, restricted to `renderedSectionIds(data)`. It takes `bySection` as well as `data` because a section's content includes the warnings routed to it, the use-raw decision attached to each of those, and the section's own source anchor: all three render inside the panel card and all three change independently of the section's own fields. The use-raw match goes through the canonical `findUseRawDecision` (`components/admin/wizard/step3ReviewSections.tsx:572`) rather than a reimplementation, and the anchor through `SECTION_REGION_MAP` (`lib/admin/step3SectionStatus.ts:53-68`).
+
+`changedSectionIds` diffs over the UNION of both maps' keys, so a section that DISAPPEARED is reported. Results are sorted by registry order so the announcement reads in document order rather than hash order. `freshnessAnnouncement` implements the §4.6 copy table over `changed` intersected with `stillRendered`, and returns the surface sentence when that intersection is empty but `changed` is not.
 
 The hash is djb2 over `JSON.stringify(value ?? null)` joined with the string length. A comment records why it is not `node:crypto`: this module is imported by a client component, and a collision costs one missed cue on content that is already correct on screen.
 
@@ -118,8 +128,15 @@ Concrete failure each catches:
 | D6 | a projection that silently drops a section, which would make D3 pass vacuously |
 | D7 | cueing a section that is not rendered, so the announcement names something the reader cannot find |
 | D8 | spurious cues from guard-condition values (`null`, `undefined`, `[]`, `{}`, nested `NaN`) |
+| D2b | a spec asserting one ordering mechanism for row sets that have two: hotels are not adapter-sorted and rely on the RPC |
+| D9 | a warn routed to Crew leaving the Crew card silent while only Sheet warnings flashes |
+| D10 | a use-raw decision change flashing the wrong card |
+| D11 | pack list gaining or losing archived-tab offer cards with no cue |
+| D12 | a persisted crew row id swap that changes what the row actions target while reading identically |
+| D13 | an anchor move going uncued, and its over-correction of hashing the whole anchor map into every section |
+| D14 | a diff that iterates the new map alone and silently drops removals |
 
-D6 is the anti-tautology partner of D3: D3 alone passes if the projection returns one entry.
+D6 and D14 are the anti-tautology partners of D3 and D9: D3 alone passes if the projection returns one entry, and D9 alone passes if the diff never reports removals. D9 through D14 all came from the round-1 review, which probed the routing and found the original own-fields-only projection silently missing five classes of visible change.
 
 **Fixture discipline.** The base snapshot is built once by a helper and deep-cloned per case, so a case that mutates cannot leak into the next. Expected section id lists are derived from `renderedSectionIds` on the fixture, never hardcoded.
 
@@ -179,7 +196,13 @@ The alternating value (spec §4.7) is computed in `PublishedReviewModal` and pas
 
 **Touches:** `components/admin/showpage/PublishedReviewModal.tsx`; **creates** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx (new)`.
 
-Implements spec §4.2 verbatim: the memoised signature, the three-branch render-phase adjustment, the epoch-keyed expiry timer, the derived attribute value from `epoch % 2`, and the §4.6 announcement region as the first child of the shell body slot with `key="freshness-announce"`.
+Implements spec §4.2 verbatim: the memoised signature, the FOUR-branch render-phase adjustment (including the mount-baseline branch that keeps a stale prefetched open from flashing everything that changed while the modal was shut), the per-section arming map with its per-batch timers registered in a ref and cleared only on unmount, the per-section attribute value flip, and the §4.6 announcement region as the first child of the shell body slot with `key="freshness-announce"` and its inner text node keyed by batch.
+
+Three details are easy to get subtly wrong and each has a test aimed at it:
+
+- The per-batch expiry effect must NOT return a cleanup, or arming batch N+1 cancels batch N and batch N's cards stay lit forever. The unmount-only effect is what clears them (S10).
+- The attribute value flips PER SECTION, read out of that section's own arming entry, not from a global parity counter that would flip a section nobody re-armed (S5, S14).
+- The announcement's inner node is keyed by batch, not by text. Reconciling an identical string onto the same node is not a DOM mutation and is silent to a screen reader (S16).
 
 The memo is keyed on the `data` prop identity, not on a serialisation of it, so the stringify cost is paid once per RSC pass. A client-only re-render (the close transition, a nav click, the scroll spy) reuses the same props object and therefore the same memo, which is what makes branch 1 of the state machine reachable at all.
 
@@ -193,11 +216,14 @@ The memo is keyed on the `data` prop identity, not on a serialisation of it, so 
 | the announcement region's text swap | instant by design, and S11 asserts the region itself never unmounts, because a region that mounts with its text is unreliably announced |
 | the expiry timer | S4 at the boundary and S4 at boundary-minus-one |
 | a re-arm inside the window | S5, the compound case the alternating value exists for |
-| a content-equal refresh mid-flash | S6, the branch-2 compound case |
-| crossing the cap mid-flash | S7 |
+| a content-equal refresh mid-flash | S6, the branch-3 compound case |
+| a DIFFERENT section changing mid-flash | S14, and it asserts the first card is NOT truncated |
+| the announcement region's child remount on a repeat | S16, asserted by node identity because text equality holds in both the working and the broken implementation |
+| crossing the cap from rest | S7 |
+| crossing the cap from a LIVE cue | S15 |
 | unmount mid-flash | S10 |
 
-S13 covers the sub-block case from T3 at the component level.
+S13 covers the sub-block case from T3 at the component level. S14 through S17 came from the round-1 review and each closes a state the earlier table left unfalsifiable: a different section changing mid-flash, an under-cap cue crossing to over-cap, a repeat cue with identical copy, and a section that disappears.
 
 **Anti-tautology.** S3 clones the rendered tree and removes the announcement region before counting attribute-bearing nodes, so it cannot pass on the region's own text. S9 captures a DOM node reference before the change and asserts identity after, which is the only assertion that distinguishes reconcile from remount. Expected section ids come from the fixture through the real detector, never hardcoded.
 
