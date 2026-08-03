@@ -50,6 +50,7 @@ import {
   HOLDS_ROW_CAP,
   type IdentityHoldRow,
 } from "@/lib/admin/identityHolds";
+import { shapeHoldEntry } from "@/lib/sync/feed/shapeHoldEntry";
 
 // Rows arrive newest-first (reader orders created_at desc, id asc). Fixture
 // timestamps drive every expectation; nothing hardcoded independently.
@@ -79,8 +80,14 @@ describe("groupHoldRows", () => {
     if (!b) throw new Error("missing group");
     expect(b.newestCreatedAt).toBe("2026-08-03T12:00:00+00:00"); // first row of group
     expect(b.summaries).toHaveLength(2);
-    // Summary text is GENERATED (spec R8): catalog copy carries the entity name.
-    expect(b.summaries[0]).toContain("Jane Doe");
+    // R8 pin (plan-R2 P7): summaries EQUAL the shared generator's output for the
+    // same row (hand-authored copy cannot match shapeHoldEntry byte-for-byte),
+    // and the email_change copy carries the old AND new addresses.
+    const firstRow = rows[0];
+    if (!firstRow) throw new Error("fixture");
+    expect(b.summaries[0]).toBe(shapeHoldEntry(firstRow).summary);
+    expect(b.summaries[0]).toContain("jane@old.com");
+    expect(b.summaries[0]).toContain("jane@new.com");
     expect(b.summaries[1]).toContain("Ann Poe");
   });
 
@@ -421,7 +428,7 @@ it("threads hold groups and total; holds-leg infra_error fails the whole call", 
 _Failure mode: a holds fault silently degrading to an empty stream (violates the loader's all-or-nothing posture, spec §8)._
 
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement:** `loadHolds?: typeof loadOpenIdentityHolds` opt; call after the sync-problem block; `infra_error` → `{ kind: "infra_error", message: \`identity holds read failed: ${...}\` }`; thread groups + `totalCounts.identityHolds`.
-- [ ] **Step 4: Run + tsc — PASS** (incl. the file's invariant-9 source-regex test).
+- [ ] **Step 4: Fix the default-path companions (plan-R2 P3).** The holds reader now runs by default inside `loadNeedsAttention`; every existing success-path suite stubbing `createSupabaseServiceRoleClient` as a bare `vi.fn()` (returns undefined) collapses to `infra_error`. Update those server mocks to return an empty-holds chainable client (`data: [], error: null`) in: `tests/admin/loadNeedsAttention.test.ts:127`, `tests/components/admin/Dashboard.test.tsx:25-31` + `Dashboard.test.tsx:102`, `tests/admin/fetchDashboardData.test.ts:238` (reached via the real loader call at `components/admin/Dashboard.tsx:439-446`). Run those suites + this file's invariant-9 source-regex test + tsc — PASS.
 - [ ] **Step 5: Commit** `feat(admin): thread identity holds through loadNeedsAttention`
 
 ---
@@ -445,7 +452,7 @@ it("adds shows-with-holds via loadOpenIdentityHolds; a holds fault is not maskab
 ```
 
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement:** optional `opts: { loadHolds?: typeof loadOpenIdentityHolds } = {}` (zero-arg call sites stay valid); after `syncProblemCount`: `infra_error` → `{ kind: "infra_error" }`, else `count: pendingTotal + syncProblemCount + holds.groups.length`.
-- [ ] **Step 4:** Expand the registry row contract text. Run tests + `tsc` — PASS.
+- [ ] **Step 4:** Expand the registry row contract text. Fix the default-path companions (plan-R2 P3): `tests/admin/needsAttentionCount.test.ts:26` and `tests/admin/needsAttentionCount.parallel.test.ts:18` — their service-role stubs must return an empty-holds client so healthy-count and concurrency assertions survive the new default leg. Run all three files + `tsc` — PASS.
 - [ ] **Step 5: Commit** `feat(admin): badge count includes shows with open identity holds`
 
 ---
@@ -612,7 +619,7 @@ Inbox branch (server side, before the `existing_staged` fallthrough): fork on `i
 - Modify: `components/admin/NeedsAttentionSummaryCard.tsx` (required `identityHoldTotal: number` prop + chip after the sync-problems chip, `NeedsAttentionSummaryCard.tsx:54-69` pattern — chips render only when > 0), `components/admin/Dashboard.tsx:738-744` (thread `identityHoldTotal={result.needsAttention.identityHoldTotal}`), Dashboard tooltip (`Dashboard.tsx:769-772`), page tooltip (`app/admin/needs-attention/page.tsx:64-67`).
 - Test: `tests/components/admin/NeedsAttentionSummaryCard.test.tsx` PLUS companion `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx:12-41` (three renders gain the new required prop — plan-R1 F6).
 
-- [ ] **Step 1: Failing test:** chip `summary-chip-identity-holds` renders `2 held` (fixture total 2) with `aria-label` `2 held identity changes`; absent at 0; holds-only state (`identityHoldTotal: 3`, other totals 0) yields a non-empty breakdown. _Failure mode: G2 — holds-only mobile state with a bare total and empty breakdown._
+- [ ] **Step 1: Failing tests (BOTH surfaces get task-local red, plan-R2 P5):** (a) summary card: chip `summary-chip-identity-holds` renders `2 held` (fixture total 2) with `aria-label` `2 held identity changes`; absent at 0; holds-only state (`identityHoldTotal: 3`, other totals 0) yields a non-empty breakdown. (b) Dashboard threading: in `tests/components/admin/Dashboard.test.tsx`, a fixture with nonzero `needsAttention.identityHoldTotal` renders the chip through the REAL threading at `components/admin/Dashboard.tsx:738-745` (red until Step 3). _Failure modes: G2 holds-only empty breakdown; threading omitted while the direct-prop card test passes._
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement** chip:
 
 ```tsx
@@ -623,7 +630,7 @@ Inbox branch (server side, before the `existing_staged` fallthrough): fork on `i
 )}
 ```
 
-Tooltips — dashboard (`Dashboard.tsx:769-772`): `Sheets and changes waiting on you: new shows to review, staged edits to approve, held crew identity changes, or sheets that couldn't be processed.` Page (`page.tsx:64-67`): `Everything waiting on a decision from you: sheets we could not auto-apply, staged changes to review, and held crew identity changes. Items leave this list as soon as you resolve them.`
+TOOLTIP COPY MOVED TO TASK 9 (plan-R2 P5): the two tooltip edits get their task-local red test there (the copy-contract source-walk); landing them here would put production copy ahead of any failing test.
 
 - [ ] **Step 4:** Update the three companion renders; run both summary-card test files + `tsc` — PASS. **Step 5: Commit** `feat(admin): summary-card held-changes chip + tooltip copy`
 
@@ -633,7 +640,7 @@ Tooltips — dashboard (`Dashboard.tsx:769-772`): `Sheets and changes waiting on
 
 **Files:**
 
-- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + helper arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), `tests/notify/digest.test.ts` + any fixture pinning `sourceTotals`.
+- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + helper arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), `tests/notify/digest.test.ts`, and the SIX strict-typed `sourceTotals` companions (plan-R2 P4): `tests/notify/deliver.test.ts:149`, `tests/notify/run-notify.test.ts:47` + `run-notify.test.ts:69`, `tests/notify/runDigestNotify.monitor.test.ts:21` + `runDigestNotify.monitor.test.ts:34`, `tests/notify/email-delivery-failed-reconcile.test.ts:570` — each gains `holdShows: 0` (or the fixture-appropriate value).
 
 **Interfaces:** consumes `groupHoldRows`/`IdentityHoldRow` (Task 1), builder inputs (Task 3), `asIso` (`lib/notify/digest.ts:76-79` — returns `string | null`, plan-R1 F5). Produces `DigestModel.sourceTotals.holdShows: number`.
 
@@ -680,16 +687,28 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 - Create: tests/help/heldChangesCopy.test.ts
 - Modify: `app/help/admin/dashboard/page.mdx`, `app/help/admin/review-queues/page.mdx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx` (tooltips already landed in Task 7; the test covers those two component files too)
 
-- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk), implementing spec §9.14a's TWO-TIER contract (spec R9-N1): PHRASE tier (normalized: `replaceAll("**", "")` then `replace(/\s+/g, " ")` — the tour sentence wraps a newline, `app/help/tour/page.mdx:32-34`, spec R8-M1) carries the NINE positives (`/held.{0,30}(identity|crew).{0,30}change/i` — one per single-passage source: `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx`; two each for the dual-passage files, sliced first — dashboard at the "Changes and review" heading, review-queues at the "Live-show changes" heading), the TWO negatives (tour: "Each queue is scoped to one show" ABSENT; dashboard inventory: "Nothing here clears itself." ABSENT), and the replacement-behavior positive (`/sync problem cards clear on their own/i` in the dashboard inventory slice). STRUCTURE tier (RAW source, spec R9-N1): dashboard inventory slice has exactly five `/^- \*\*/m` bullet lines and one bullet beginning `- **Sync problem.**`. Run: FAIL across all files.
+- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk), implementing spec §9.14a's TWO-TIER contract (spec R9-N1, phrase tier amended by plan-R2 P1). PHRASE tier (normalized: `replaceAll("**", "")` then `replace(/\s+/g, " ")` — the tour sentence wraps a newline, `app/help/tour/page.mdx:32-34`, spec R8-M1) carries NINE per-passage LITERAL anchors (exact Step 1 insertions; one regex provably cannot match all nine word orders):
+  1. `components/admin/Dashboard.tsx` tooltip: `held crew identity changes`
+  2. `app/admin/needs-attention/page.tsx` tooltip: `held crew identity changes`
+  3. dashboard mdx inventory slice (above "Changes and review"): `Held identity change.`
+  4. dashboard mdx live-change slice (below it): `That held change also appears as a card in the Needs attention inbox`
+  5. review-queues mdx table slice (above "Live-show changes"): `held for your Approve or Reject`
+  6. review-queues mdx bullet slice (below it): `It also appears in the Needs attention inbox until you decide.`
+  7. `app/help/daily-rhythm/page.mdx`: `Held crew identity changes appear here too`
+  8. `app/help/admin/settings/page.mdx`: `crew identity changes that are held for your review`
+  9. `app/help/tour/page.mdx`: `crew identity changes held for your approval`
+  plus the TWO negatives (tour: "Each queue is scoped to one show" ABSENT; dashboard inventory: "Nothing here clears itself." ABSENT), and the replacement-behavior positive (`/sync problem cards clear on their own/i` in the dashboard inventory slice). STRUCTURE tier (RAW source, spec R9-N1): dashboard inventory slice has exactly five `/^- \*\*/m` bullet lines and one bullet beginning `- **Sync problem.**`. Run: FAIL across all files.
 - [ ] **Step 1: Exact edits** (existing voice; no em-dashes):
   1. `app/help/admin/dashboard/page.mdx:37-43` — FULL inventory repair (spec R5-J1): "Three kinds" becomes "Five kinds of cards show up here:"; add `- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.`; add `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`; replace the closing "A card stays in the inbox until you act on it. Nothing here clears itself." with "Sheets and held changes stay in the inbox until you act on them; sync problem cards clear on their own when the problem is fixed."
   2. `app/help/admin/dashboard/page.mdx:51-53` — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
-  3. `app/help/admin/review-queues/page.mdx:7-10` — third table row: `| **Held identity changes** | A crew member's identity change (usually an email) held for your Approve or Reject. It waits in the show's **Sheet changes** feed and also appears as a card in the **Needs attention** inbox. |`
+  3. `app/help/admin/review-queues/page.mdx:7-10` — third table row, label EXACTLY the shipped card-header label `Held changes` so the bold string passes the UI-label crosswalk's exact `includes` match (`tests/help/_metaUiLabelCrosswalk.test.ts:306-345`; plan-R2 P2): `| **Held changes** | A crew member's identity change (usually an email) held for your Approve or Reject. It waits in the show's **Sheet changes** feed and also appears as a card in the **Needs attention** inbox. |`
   4. `app/help/admin/review-queues/page.mdx:57-59` (identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
   5. `app/help/daily-rhythm/page.mdx:13` — append: `Held crew identity changes appear here too, until you approve or reject them.`
   6. `app/help/admin/settings/page.mdx:35` — append: `It also lists crew identity changes that are held for your review.`
-  7. `app/help/tour/page.mdx:31-34` — replace the enumeration + one-show sentence: "first-seen sheets the app held for your sign-off, and staged edits to a sheet that's already live. Each queue is scoped to one show, so working through one feels like triaging a short list rather than scanning the full sheet." becomes "first-seen sheets the app held for your sign-off, staged edits to a sheet that's already live, and crew identity changes held for your approval. The Needs attention list collects all of them across shows, so working through it feels like triaging a short list rather than scanning every sheet."
-- [ ] **Step 2: Run** the new test — PASS; run the rest of `tests/help` (walkers stay green).
+  7. `components/admin/Dashboard.tsx:769-772` (tooltip; moved from Task 7 per plan-R2 P5): `Sheets and changes waiting on you: new shows to review, staged edits to approve, held crew identity changes, or sheets that couldn't be processed.`
+  8. `app/admin/needs-attention/page.tsx:64-67` (tooltip; moved likewise): `Everything waiting on a decision from you: sheets we could not auto-apply, staged changes to review, and held crew identity changes. Items leave this list as soon as you resolve them.`
+  9. `app/help/tour/page.mdx:31-34` — replace the enumeration + one-show sentence: "first-seen sheets the app held for your sign-off, and staged edits to a sheet that's already live. Each queue is scoped to one show, so working through one feels like triaging a short list rather than scanning the full sheet." becomes "first-seen sheets the app held for your sign-off, staged edits to a sheet that's already live, and crew identity changes held for your approval. The Needs attention list collects all of them across shows, so working through it feels like triaging a short list rather than scanning every sheet."
+- [ ] **Step 2: Run** the new test — PASS; run the rest of `tests/help` INCLUDING `tests/help/_metaUiLabelCrosswalk.test.ts` (every new bold help string must exactly match a shipped production label or be registered; plan-R2 P2).
 - [ ] **Step 3: Commit** `docs(admin): held-changes copy across tooltips + help, with source-walk contract test`
 
 ---
@@ -709,7 +728,7 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
   3. `/admin` at 390px viewport: `summary-chip-identity-holds` shows `2 held` (the summary card exists ONLY on the dashboard, `components/admin/Dashboard.tsx:738-745`).
   4. Hydration-gate, expand show 2's card: all three seeded summaries inside the panel. `page.reload()` → re-query → panel COLLAPSED (full document remount mounts the island at its default; this PINS the reload case. Soft-refresh persistence stays UNRATIFIED per spec G3 and is exercised by the Task 6 jsdom rerenders — no vacuous both-values assertion, plan-R1 F15).
   5. Show 1's card link lands on `/admin?show={slug}` with `mi11-approve`/`mi11-reject` visible (`components/admin/Mi11GateActions.tsx:70`).
-  6. Clear-through: hydration-gate, click `mi11-reject` (NOT approve — approve needs a live Drive `modifiedTime` match + a `crew_members` row, `lib/sync/holds/mi11GateActions.ts:89-102`, unseedable here; reject needs only the hold row and the round-tripped `base_modified_time`), confirm per that surface's flow, return, reload → show 1's card GONE, badge reads 1.
+  6. Clear-through: hydration-gate, click `mi11-reject` (NOT approve — approve needs a live Drive `modifiedTime` match + a `crew_members` row, `lib/sync/holds/mi11GateActions.ts:89-102`, unseedable here; reject needs only the hold row and the round-tripped `base_modified_time`), the reject is a single direct server-action submit with NO confirmation phase (`components/admin/Mi11GateActions.tsx:153-163`; plan-R2 P6) — await the feed row update, return, reload → show 1's card GONE, badge reads 1.
 - [ ] **Step 2: Run** `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts --project=desktop-chromium` — iterate to green (config registration first, or the run collects nothing).
 - [ ] **Step 3: Commit** `test(admin): e2e seeded identity-holds rollup (cards, badge, chip, reject clear-through)`
 
