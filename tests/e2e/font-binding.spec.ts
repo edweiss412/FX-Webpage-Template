@@ -2,7 +2,7 @@
  * Font binding — does the app actually RENDER the family it commits to?
  *
  * `DESIGN.md:133` commits the product to Inter, "single contemporary sans for
- * all UI", loaded via `next/font/google` in `app/layout.tsx`. `app/globals.css`
+ * all UI", loaded via `next/font/google` from `app/fonts.ts`. `app/globals.css`
  * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` names the
  * LITERAL family `"Inter"` first. Nothing in that chain proves a face called
  * Inter is actually available — a missing loader degrades silently to the next
@@ -127,7 +127,7 @@ function assertRendersInter(report: FontReport, surface: string): void {
       `${report.faces.map((f) => `${f.family}:${f.status}`).join(", ") || "none"})`,
   ).toBeGreaterThanOrEqual(1);
 
-  // (4) EXACTLY ONE FAMILY — the runtime closure over "is there a second
+  // (4) EXACTLY ONE FAMILY — runtime CORROBORATION of "is there a second
   //     loader?", and the reason the static guard in
   //     tests/assets/singleFontLoader.test.ts is a tripwire rather than the
   //     oracle. Two adversarial rounds each produced new SYNTACTIC forms that
@@ -181,12 +181,13 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //     with `variable` and no `weight` emits the variable face at `100 900`
   //     for every unicode-range slice, so a second descriptor value in this set
   //     means a second, differently-configured call.
-  const weights = [...new Set(appFaces.map((f) => f.weight))];
+  const descriptors = [...new Set(appFaces.map((f) => `${f.weight} / ${f.style}`))];
   expect(
-    weights,
-    `${surface}: every app face shares one weight descriptor — a second value ` +
-      `means a second loader configured differently for the same family`,
-  ).toEqual(["100 900"]);
+    descriptors,
+    `${surface}: every app face shares ONE weight+style descriptor pair — a ` +
+      `second pair means a second loader configured differently for the same ` +
+      `family, which the family-name and duplicate-tuple checks both miss`,
+  ).toEqual(["100 900 / normal"]);
 }
 
 /**

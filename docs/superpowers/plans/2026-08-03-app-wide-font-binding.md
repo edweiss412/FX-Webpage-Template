@@ -94,7 +94,7 @@ Walk `app/` from the filesystem (not a lexical file list, so a NEW loader fails 
 
 **Concrete failure mode caught:** a future route layout adding its own `Inter()` call, which re-registers a second `@font-face` set under the same family name. The probe already observed **seven** `Inter` faces on the crew page from the single existing loader; a second loader compounds that silently, and nothing else in the repo would notice. Class-sweep discipline: filesystem walk, not a named-file scan.
 
-**This guard is a TRIPWIRE, not the closure.** Rounds 2, 3 and 4 each demonstrated new escaping call forms (R4's latest: `Reflect.apply`). An open syntactic space is not closed by enumeration, so the closure lives in T1 step 1's RUNTIME assertions — exactly one font family, and no `@font-face` registered twice on its full `(family, style, weight, unicodeRange)` tuple. Those observe what the browser registered and cannot be evaded by call syntax. This one runs in milliseconds without a browser.
+**This guard is a TRIPWIRE, not the closure.** Rounds 2, 3 and 4 each demonstrated new escaping call forms (R4's latest: `Reflect.apply`). An open syntactic space is not closed by enumeration, so the corroboration lives in T1 step 1's RUNTIME assertions — exactly one font family, and no `@font-face` registered twice on its full `(family, style, weight, unicodeRange)` tuple. Those observe what the browser registered, so call syntax cannot evade them — but a byte-identical second call registers identical faces and escapes them too. Neither layer is a closure; the pair is defence in depth, not a proof. This one runs in milliseconds without a browser.
 
 **Anti-tautology:** the assertion pins the exact path set, not a count. This matters concretely — spec review R1 caught an earlier spec wording of "exactly one `next/font` import under `app/`", which is GREEN today (the crew layout is that one) and could therefore never go RED, violating invariant 1. A count also cannot see a loader that MOVED to the wrong layout.
 
@@ -211,7 +211,7 @@ Corrected: **T1 is one task** — every test for this change, plus the implement
 ## Checklist
 
 1. [x] Self-review
-2. [ ] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE. **Not yet approved: R1, R2, R3 and R4 all returned BLOCKING and were repaired.** Marked complete prematurely in an earlier revision; review R4 caught that, and the box stays open until a round returns APPROVE.
+2. [ ] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE. **Not yet approved: R1 through R6 have all returned BLOCKING, each repaired in turn.** Marked complete prematurely in an earlier revision; review R4 caught that, and the box stays open until a round returns APPROVE.
 3. [x] T1 — tests + implementation + CI wiring (`2ab7e966a`, amended by `e58725c5b` and the impeccable/R4 repairs)
 4. [x] T2 — the measured row, branch (a): reachable via `/admin?show=<slug>` (`461c164dc`)
 5. [x] T3 — screenshot baselines regenerated from the pinned image (`dd0bbbf8d`, all 14 changed including the six crew-preview, which confirms they render under the admin tree)

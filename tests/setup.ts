@@ -112,4 +112,24 @@ if (typeof window !== "undefined") {
   });
 }
 
+// `next/font/google` is a BUILD-TIME transform, not a runtime module: Next
+// rewrites the `Inter({...})` call into a static object during compilation and
+// the real loader throws outside that pipeline. So any test that imports a
+// module which loads a font — `app/fonts.ts`, and through it both Next roots —
+// dies at import with "Font loader values must be explicitly written literals",
+// before a single assertion runs.
+//
+// Registered here rather than per-file because the trigger is "this test
+// imports a root", which any future test may do without knowing it needs a
+// mock. `variable` and `className` mirror the real return shape; the values are
+// recognisable stand-ins, and `tests/observe/globalError.test.tsx` matches the
+// shape rather than a literal so it still proves the class is APPLIED.
+vi.mock("next/font/google", () => ({
+  Inter: () => ({
+    variable: "__inter_variable_test",
+    className: "__inter_className_test",
+    style: { fontFamily: "Inter" },
+  }),
+}));
+
 export {};

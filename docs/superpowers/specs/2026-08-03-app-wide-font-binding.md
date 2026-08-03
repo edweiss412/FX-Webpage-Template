@@ -6,7 +6,7 @@
 
 ## 0. One-line statement
 
-`DESIGN.md:133` commits the product to Inter loaded via `next/font/google` in `app/layout.tsx`; that wiring was never done, so **only the crew tree renders Inter and the admin and help trees render the system fallback**. This spec wires the ratified mechanism at the ratified location and pins the result with a real-browser font-identity assertion.
+`DESIGN.md:133` commits the product to Inter loaded via `next/font/google`; that wiring was never done, so **only the crew tree rendered Inter while admin, auth, help and the crash screen rendered the system fallback**. This spec wires the ratified mechanism — at `app/fonts.ts`, shared by both of Next 16's roots — and pins the result with real-browser font-identity assertions.
 
 ---
 
@@ -33,7 +33,7 @@ Three findings, all load-bearing:
 
 | # | Decision | Ratification |
 | --- | --- | --- |
-| R1 | **The mechanism is `next/font/google` in `app/layout.tsx`.** Not a self-hosted `@font-face`, not `@fontsource`. | `DESIGN.md:133` — *"Loaded via `next/font/google` in `app/layout.tsx` (a future task wires this up; this file only defines tokens)."* This spec IS that future task. No DESIGN.md amendment is needed or wanted. |
+| R1 | **The mechanism is `next/font/google`; the call site is `app/fonts.ts`, imported by both Next roots.** Not a self-hosted `@font-face`, not `@fontsource`. | `DESIGN.md:133` named `app/layout.tsx` and this spec IS the task it was waiting for — but Next 16 has TWO roots (`app/global-error.tsx` replaces the root layout), so the call is hoisted one module and both roots share the single instance. **Amended after review R4 and again after R6**, which found this row still prescribing the superseded site and still claiming no DESIGN.md amendment was wanted. Two amendments shipped, in lockstep with the code: the load-site sentence, and the pinned fallback stack (§2.5). |
 | R2 | **`--font-sans` is not edited.** The literal-`"Inter"` stack stays byte-identical. | `DESIGN.md:139` pins the fallback stack verbatim; §1.0 finding 1 proves the literal name binds. Editing the token to `var(--font-inter), …` would make the declaration **invalid at computed-value time** on any surface lacking the `.variable` class (every standalone harness), which drops `font-family` to `unset` rather than falling through the stack — strictly worse. |
 | R3 | **Widening the tolerance in `tests/e2e/section-header-layout.layout.spec.ts` is REFUSED.** That file pins Arial / Liberation Sans for exactly one measurement, deliberately, with the reason inline. | `tests/e2e/section-header-layout.layout.spec.ts:165-183`; brief instruction; `BACKLOG.md:261`. Relaxing it hides the finding. A reviewer proposing it should be refused with this row. |
 | R4 | **The standalone-harness residual is OUT OF SCOPE and is a documented limit, not a defect.** The 31 standalone harness specs (`tests/e2e/*.spec.ts` using `compileEntryCss`) serve static HTML + compiled `app/globals.css` with **no Next.js runtime**, so no `next/font` mechanism can reach them. They keep measuring the ambient host font. | §5.2 below. Cost today is zero: CI is green, and the one measurement that needed determinism already carries the Arial pin (R3). Filed forward as `BL-HARNESS-FONT-FIDELITY`. |
@@ -125,7 +125,7 @@ For each case, after `await page.evaluate(() => document.fonts.ready)`:
 4. Assert `<html>` exposes `--font-inter`. This is asserted **separately and for its own reason**: per §2.1 the token is not what binds the font, so every width check above would still pass if the loader silently stopped emitting `variable:` and the documented token vanished. Added after review R1 noted the spec promised an exposure it never tested.
 5. Assert the resolved cascade **contains `Inter Fallback`** — next/font's generated, metric-matched companion face. Added after the impeccable critique's P1: naming the literal `"Inter"` in `--font-sans` skipped that face, so the `display: "swap"` window painted a system font at native metrics and then snapped about 10 percent (187.28px to 168.91px on a real string) on every route. See §2.5.
 6. Assert the document registers **exactly one font family** (excluding the generated companion face and the dev overlay's `__nextjs-*` faces).
-7. Assert **no `@font-face` is registered twice**, keyed on the full `(family, style, weight, unicodeRange)` tuple. Assertions 6 and 7 are the RUNTIME CLOSURE described in §4.3, and 7 exists because review R4 showed 6 alone cannot see the case the guard is actually for: a second loader for the SAME family adds more Inter faces, and a set of family names still reduces to one entry. Both carry non-vacuity preconditions (more than one face present; the forced-family widths differ).
+7. Assert **no `@font-face` is registered twice**, keyed on the full `(family, style, weight, unicodeRange)` tuple. Assertions 6 and 7 are the RUNTIME CORROBORATION described in §4.3, and 7 exists because review R4 showed 6 alone cannot see the case the guard is actually for: a second loader for the SAME family adds more Inter faces, and a set of family names still reduces to one entry. Both carry non-vacuity preconditions (more than one face present; the forced-family widths differ).
 
 **Concrete failure mode caught (anti-tautology, `docs/agents/writing-plans.md:14`):** assertion 2 fails today on both non-crew routes, because no Inter face is registered there and the forced-`"Inter"` probe falls back to the default serif metric. (The pre-correction measurement of that gap — 185.53 vs 167.14, 18.39px — was taken on the 404 shell; the real per-route numbers are recorded in the closeout from T1's own first RED run, not carried over from the probe.) The crew case's assertion 4 is also RED today, since the `.variable` class currently sits on a nested `<div>` rather than `<html>`. It also fails if a future Next release reverts to hashed family names (`--font-sans`'s literal `"Inter"` would stop matching), which is the exact fragility R2 leans on; and the `!== sans-serif` leg prevents a green read on a host that happens to ship Inter as a system font. **It does NOT use `document.fonts.check()`** (§1.0 finding 3: returns `true` where Inter is provably absent).
 
@@ -142,7 +142,9 @@ The backlog entry's measured artifact is the event-detail group title `"Wardrobe
 
 Whichever branch is taken is recorded explicitly; it is never left silent. Under branch (a) this is the layout-dimensions proof the brief requires: a real-browser `getBoundingClientRect()`-class assertion, not jsdom.
 
-### 4.3 T3 — single loader (structural)
+### 4.3 The single-loader structural guard (plan T1, step 2)
+
+**Numbering note, corrected after R6:** the plan's task graph makes this T1's second step, not a task called "T3" — T3 there is the screenshot regeneration. The spec previously used its own numbering and the two disagreed.
 
 A structural test that walks `app/` from the filesystem (not a lexical file list, so a NEW loader fails by default — the class-sweep discipline, `AGENTS.md`) and asserts the set of files importing from `next/font/` **is exactly the root layout path**, and that the count of loader call sites matches.
 
@@ -154,7 +156,7 @@ A structural test that walks `app/` from the filesystem (not a lexical file list
 
 The guard parses with the TypeScript compiler API and resolves import bindings (named, aliased, default, namespace), const/assignment alias chains to a fixpoint, and AST call nodes. It covers eighteen demonstrated forms, each with an executable fixture: M1 a second loader in a NEW file; M2 a second NAMED import, both invoked (R2's probe); M3 the same loader twice; M4 an ALIASED import; M5 a const-alias chain; M6 the loader MOVED; M7 `next/font/local`; M8 a DEFAULT import; M9 a NAMESPACE import; M10 two invocations on ONE line; then R4's set — M11 `(Inter)(…)`, M12 `(0, Inter)(…)`, M13 `{ Inter }.Inter(…)`, M14 `Inter.call/apply`, M15 an assignment alias, M16 namespace ELEMENT access, M17 a namespace alias, M18 namespace destructuring. A negative case pins that an identically-named import from an unrelated module is NOT counted.
 
-**Rounds 2, 3 and 4 each produced new escaping forms** (R4's latest: `Reflect.apply(Inter, null, [...])`). That is the signature of an open space, not an incomplete list, so **the closure mechanism is not this guard** — it is §4.1's runtime assertions 6 and 7, which observe what the browser actually registered and therefore cannot be evaded by call syntax at all. This guard is the millisecond tripwire that runs without a browser; the runtime pair is the oracle. A new SYNTACTIC family is admissible here only with a live escaping mutant demonstrated against the shipped guard; it is a tripwire improvement, never a closure claim.
+**Rounds 2, 3 and 4 each produced new escaping forms** (R4's latest: `Reflect.apply(Inter, null, [...])`). That is the signature of an open space, not an incomplete list, so **no layer here is a closure, and the spec no longer claims one.** What each buys: the PATH-SET assertion is strong (calling a loader requires an import, and an import is a static unaliasable declaration, so a second loader in a NEW file cannot hide); the CALL-COUNT assertion is best-effort over the eighteen forms, with an admitted residual (a second call inside the one allowed file, via an unenumerated form — R5 demonstrated `Reflect.apply`); the RUNTIME assertions corroborate by observing what the browser registered, and have their own residual (a byte-identical second call registers identical faces and is invisible to them). Every cheap accident is caught statically; every differently-configured duplicate is caught at runtime; a deliberate byte-identical duplicate inside `app/fonts.ts` is caught by neither, and is recorded here rather than papered over. A new SYNTACTIC family is admissible here only with a live escaping mutant demonstrated against the shipped guard; it is a tripwire improvement, never a closure claim.
 
 ### 4.4 Existing suites that must stay green
 
@@ -175,9 +177,16 @@ The guard parses with the TypeScript compiler API and resolves import bindings (
 - `app/auth/callback/route.ts`
 - `app/auth/sign-out/route.ts` — this one explicitly sets `system-ui, sans-serif` in its own inline style
 
-**Disposition: documented limit, not fixed here.** These are transient authentication interstitials — a redirect bounce and a sign-out confirmation — that a user sees for well under a second and never reads for content. Giving them Inter means either inlining an `@font-face` into each hand-built document (a second font-delivery mechanism, the same objection that keeps `BL-HARNESS-FONT-FIDELITY` out of this change) or routing them through React, which is a much larger change to auth plumbing than a font justifies.
+**What they actually are, corrected after review R6.** An earlier revision of this section called them transient interstitials seen for well under a second and never read. That was wrong, and the disposition should not rest on it. All four are **persistent error documents with readable copy and no automatic redirect**: a 503 from the Google-auth start (`app/api/auth/google/start/route.ts:21-41`), 403/502 pages from the picker bootstrap (`:34-49`), a 503 from the auth callback (`app/auth/callback/route.ts:46-66`), and a 500 from sign-out that carries explanatory copy and a retry button (`app/auth/sign-out/route.ts:20-48`). A user who lands on one reads it.
 
-What this costs: the correct claim is **every Next-rendered surface with a React root**, which is every surface a crew member or admin reads. It is NOT literally every byte of HTML the app can emit. The archive entry and §3 say so in those terms. Filed forward as `BL-AUTH-INTERSTITIAL-FONT`.
+**Disposition: still a documented limit, but on the honest reasoning.** Two things separate them:
+
+- **The sign-out page's `system-ui, sans-serif` is defensible on its own merits.** An error page renders precisely when something has gone wrong, and a webfont is one more thing that can fail to arrive; a page whose job is to explain a failure should not have a network dependency in its type. That is a deliberate choice already in the code, not an oversight.
+- **The other three get browser defaults — a serif — which nobody chose.** That is the real gap, and it is a worse outcome than the system stack.
+
+Covering them properly means either inlining an `@font-face` per hand-built document (a second font-delivery mechanism, the same objection that keeps `BL-HARNESS-FONT-FIDELITY` out of this change) or routing them through React, which is a larger change to auth plumbing than a font justifies mid-change. Filed as `BL-AUTH-INTERSTITIAL-FONT` with the corrected characterization, so it is picked up on its real merits.
+
+What this costs the headline claim: the accurate form is **every Next-rendered surface with a React root**. It is NOT literally every byte of HTML the app can emit, and §3 and the archive entry say so in those terms.
 
 ### 5.1 Why option (b) is not taken
 

@@ -2,8 +2,8 @@
  * Structural guard — exactly ONE `next/font` loader invocation, in `app/fonts.ts`.
  *
  * `DESIGN.md:133` commits the product to a single family loaded via
- * `next/font/google` in `app/layout.tsx`. The call lives one module up from
- * there, in `app/fonts.ts`, because Next 16 has TWO roots: `app/global-error.tsx`
+ * `next/font/google`. The call lives in `app/fonts.ts` rather than the root
+ * layout because Next 16 has TWO roots: `app/global-error.tsx`
  * renders its own `<html>` and replaces the root layout, so it needs the font
  * too, and a second `Inter()` call there would emit a second `@font-face` set
  * under the same family name. Both roots import one shared instance.
@@ -77,7 +77,9 @@
  *
  * Neither layer is a proof, and the combination is not either. What the pair
  * buys is that every cheap accident is caught statically and every
- * differently-configured duplicate is caught at runtime. A new syntactic family
+ * differently-CONFIGURED duplicate is caught at runtime. A byte-identical
+ * second call inside this one allowed file registers identical faces and is
+ * invisible to both — recorded as the known residual rather than papered over. A new syntactic family
  * is admissible here only with a live escaping mutant demonstrated against the
  * shipped guard, not hypothesized.
  *

@@ -1,7 +1,8 @@
 /**
  * The app's single type family, per DESIGN.md §2.1: "single contemporary sans
  * for all UI. One family, no display/body pairing. Loaded via `next/font/google`
- * in `app/layout.tsx`."
+ * in `app/fonts.ts`." (That line named `app/layout.tsx` until 2026-08-03; it was
+ * amended in lockstep with this module, for the two-root reason below.)
  *
  * WHY THIS IS ITS OWN MODULE rather than living in `app/layout.tsx`. Next 16 has
  * two roots, not one: `app/global-error.tsx` renders its OWN `<html>` and
