@@ -580,7 +580,16 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
 
 test.describe("§3.4 — opening one overlay dismisses the other, by keyboard too", () => {
   test("hub open, then Enter on the pill: menu opens and the hub closes", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    // 390x1200, NOT the 844 the geometry cases use. This block asserts MUTUAL
+    // EXCLUSION, which is layout-independent — but in the standalone harness the
+    // hub strip lands near the panel's bottom edge (measured: trigger at
+    // y 765-809 inside an 844 viewport, ~35px of headroom), and CI's Linux text
+    // metrics render the modal a little taller than macOS does. That pushed the
+    // trigger out of the viewport on the runner, where Playwright reported
+    // "element is outside of the viewport" through a 120s click timeout while
+    // every geometry case passed. Headroom removes the marginality without
+    // weakening what this case proves.
+    await page.setViewportSize({ width: 390, height: 1200 });
     await openMenu(page, 10, 10, 10);
     // Neutralise the auto-open so this walk starts from a closed menu.
     await page.locator(PILL).click();
@@ -599,7 +608,8 @@ test.describe("§3.4 — opening one overlay dismisses the other, by keyboard to
   test("menu open, then Enter on a hub trigger: hub opens and the menu closes", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Same headroom rationale as the case above.
+    await page.setViewportSize({ width: 390, height: 1200 });
     await openMenu(page, 10, 10, 10);
 
     await page.locator(HUB_KEBAB).focus();
