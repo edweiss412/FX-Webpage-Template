@@ -505,7 +505,18 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       if (!idle) continue;
       await popover.getByTestId("archive-show-button").click();
       await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
-      await page.waitForTimeout(250);
+      // Settle on GROWTH, not on a fixed wait: this rung's decision depends on the
+      // armed NATURAL height, and a rung where growth never appears should fail
+      // here rather than silently select a wrong height. The probe and the value
+      // the rung uses are two separate measures on purpose -- a `let` assigned only
+      // inside the callback narrows to `never` on the outside read.
+      await expect(async () => {
+        const probe = await measure();
+        expect(probe, "armed measurement returned null").not.toBeNull();
+        expect(probe!.natural, "armed body has not grown past the idle body yet").toBeGreaterThan(
+          idle.natural,
+        );
+      }).toPass({ timeout: 15_000 });
       const armed = await measure();
       if (!armed) continue;
       if (idle.natural <= idle.spaceBelow && idle.spaceBelow < armed.natural) {
@@ -527,20 +538,29 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // goes stale; if it ever stops holding the case below proves nothing.
     expect(idle!.side, "idle should be placed below at the chosen height").toBe("bottom");
 
+    // Re-placement is an async effect DOWNSTREAM of the growth, so confirm-button
+    // visibility is not the settle signal these assertions need. A fixed wait read
+    // the pre-re-placement state on a loaded runner and failed the clip-rect
+    // assertion (PR #604, lifecycle-layout-e2e / mobile-safari, 24 passed 1 failed,
+    // green on a re-run of the identical tree). Retrying the whole measurement is
+    // what makes a transient state retry while a real regression still fails: if
+    // placement never re-runs, this block never passes and toPass times out with
+    // the same assertion text it reports today.
     await popover.getByTestId("archive-show-button").click();
     await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
-    await page.waitForTimeout(300);
-    const armed = await measure();
-    expect(armed).not.toBeNull();
+    await expect(async () => {
+      const armed = await measure();
+      expect(armed, "armed measurement returned null").not.toBeNull();
 
-    // The invariant: still inside the clip rect after the growth.
-    expect(armed!.bodyTop).toBeGreaterThanOrEqual(armed!.boundsTop - TOL);
-    expect(armed!.bodyBottom).toBeLessThanOrEqual(armed!.boundsBottom + TOL);
+      // The invariant: still inside the clip rect after the growth.
+      expect(armed!.bodyTop).toBeGreaterThanOrEqual(armed!.boundsTop - TOL);
+      expect(armed!.bodyBottom).toBeLessThanOrEqual(armed!.boundsBottom + TOL);
 
-    // And it got there by RE-PLACING, not by a CSS cap that happened to bite:
-    // either the side flipped or a fitted max-height was written.
-    const replaced = armed!.side !== idle!.side || armed!.inlineMaxHeight !== "";
-    expect(replaced, "placement did not re-run when the body grew").toBe(true);
+      // And it got there by RE-PLACING, not by a CSS cap that happened to bite:
+      // either the side flipped or a fitted max-height was written.
+      const replaced = armed!.side !== idle!.side || armed!.inlineMaxHeight !== "";
+      expect(replaced, "placement did not re-run when the body grew").toBe(true);
+    }).toPass({ timeout: 15_000 });
   });
 
   // ── T-CARET-1 / T-CARET-2 (spec §3) ──────────────────────────────────────
