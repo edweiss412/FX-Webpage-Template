@@ -38,10 +38,11 @@
  *    quoted single-line `run: "psql …"`. A step `name:` that merely mentions
  *    psql is not a call site.
  *
- * The file list is a FILESYSTEM WALK from the repo root (see IGNORED_DIRS), not
- * a hardcoded roster: a psql site added in a brand-new directory fails by
- * default. `docs/**` and `*.md` are excluded on purpose — plan and spec prose
- * quotes the idiom and is not a call site.
+ * The file list is a FILESYSTEM WALK from the repo root, not a hardcoded
+ * roster: a psql site added in a brand-new directory fails by default. The
+ * ratified `docs/**` exclusion is ROOT-relative (see IGNORED_AT_ROOT) — reading
+ * it as a basename at every depth is what hid `tests/docs/**`, a real directory
+ * of executable tests, from the scan entirely.
  *
  * ── Reading psql's option grammar ──────────────────────────────────────────
  *
@@ -78,12 +79,14 @@
  *
  * Genuinely out of reach, with what backstops each:
  *
- * • A command word produced by EXPANSION (`$PG psql`, `eval "$cmd"`, an alias).
- *   Lexical spellings ARE read — `p"s"ql`, `p\s\q\l`, a backslash-newline
- *   splice, a `/path/psql` — but a name that only exists at runtime is not
- *   there to read. BACKSTOP: `scanBinaryIndirection`, which fires on any
- *   `"psql"`-ish literal or psql command-line string that is not argv[0] of a
- *   recognized call. Assembling such a command still requires that literal.
+ * • A command word produced by EXPANSION (`$PG psql`, an alias). Lexical
+ *   spellings ARE read — `p"s"ql`, `p\s\q\l`, a backslash-newline splice, a
+ *   `/path/psql` — and so are `bash -c "…"`, `eval "…"`, `{ shell: true }`, and
+ *   command substitutions. BACKSTOP: `scanBinaryIndirection`, which LEXES every
+ *   string literal rather than requiring it to start with psql. An earlier cut
+ *   did require that, and this file claimed it sufficed; review disproved the
+ *   claim with five ordinary shapes at once (`sudo -u postgres psql …`,
+ *   `PGHOST=… psql …`, `echo …\npsql …`, `true && psql …`, `cat … | psql …`).
  * • A command assembled with no surviving literal at all (`execSync(build())`,
  *   a name from config or env). Nothing static can see it. BACKSTOP: none —
  *   this is the acknowledged hole, and it is why `-X` is ALSO enforced by
@@ -137,6 +140,14 @@ export type PsqlSite = {
   form: PsqlSiteForm;
   /** Literal argv tokens recovered; non-literal elements are dropped. */
   tokens: string[];
+  /** Words before the command word in the same command (`sudo -u postgres`).
+   * Lets a caller tell a real wrapper prefix from English prose. */
+  precedingWords: string[];
+  /** True when the site was found INSIDE a command substitution rather than at
+   * the top level of the text. Load-bearing for the indirection tripwire: in
+   * operator-guidance prose a backtick is a markdown code span, not a shell
+   * substitution, and `via \`psql "$DSN" -f <migration>\`` is documentation. */
+  nested: boolean;
   /** True when an element could not be read statically (spread, identifier, …). */
   hasDynamicTokens: boolean;
   suppressesStartupFiles: boolean;
@@ -176,12 +187,18 @@ const SELF = [
 
 /** Directories the walk never descends into. `docs` is deliberate: spec and
  * plan prose quotes `execFileSync("psql", …)` and is not a call site. */
-const IGNORED_DIRS = new Set([
-  ".git",
+const IGNORED_ANYWHERE = new Set([".git", "node_modules", "__generated__"]);
+
+/**
+ * Skipped only at the REPO ROOT. Matching these by basename at every depth is
+ * what hid `tests/docs/**` — five real test files — from the scan entirely, and
+ * would equally hide a nested `build`/`dist`/`out`. The ratified exclusion is
+ * `docs/**`, which is root-relative.
+ */
+const IGNORED_AT_ROOT = new Set([
   ".next",
   ".turbo",
   ".vercel",
-  "node_modules",
   "coverage",
   "dist",
   "build",
@@ -189,7 +206,6 @@ const IGNORED_DIRS = new Set([
   "docs",
   "playwright-report",
   "test-results",
-  "__generated__",
 ]);
 
 // ── flag clusters ────────────────────────────────────────────────────────
@@ -350,9 +366,62 @@ export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
  * grants an exemption from string data — an R3 probe did exactly that with a
  * multi-line shell string. Both grammars get the same treatment.
  */
-function commentIndexPerLine(text: string, style: CommentStyle): number[] {
+/**
+ * JS/TS comment starts, from the TypeScript SCANNER rather than a hand-rolled
+ * reader. Hand-rolling repeatedly got string state wrong — a nested template
+ * backtick was read as closing the outer template, and JSX text was read as
+ * code, each turning `//` string data into a "comment" that granted an
+ * exemption. The compiler already knows exactly where comments are; asking it
+ * removes the entire class rather than the two instances review happened to
+ * find.
+ */
+function jsCommentRangesPerLine(text: string, file: string): CommentRanges {
   const lines = text.split("\n");
-  const out: number[] = [];
+  const out: CommentRanges = lines.map(() => []);
+  const sourceFile = parseJs(text, file);
+
+  const record = (pos: number, end: number): void => {
+    const from = sourceFile.getLineAndCharacterOfPosition(pos);
+    const to = sourceFile.getLineAndCharacterOfPosition(end);
+    if (from.line === to.line) {
+      out[from.line]!.push([from.character, to.character]);
+      return;
+    }
+    out[from.line]!.push([from.character, Infinity]);
+    for (let l = from.line + 1; l < to.line && l < out.length; l++) out[l]!.push([0, Infinity]);
+    if (to.line < out.length) out[to.line]!.push([0, to.character]);
+  };
+
+  // Only at STATEMENT boundaries. getLeading/TrailingCommentRanges are text
+  // scanners, not AST-aware: called at an arbitrary node end they will read the
+  // `//` inside JSX text as a comment. Statement boundaries are genuine trivia
+  // positions, and an exemption marker is by definition either on its own line
+  // before a statement or trailing one.
+  const seen = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isStatement(node)) {
+      for (const ranges of [
+        ts.getLeadingCommentRanges(text, node.getFullStart()),
+        ts.getTrailingCommentRanges(text, node.getEnd()),
+      ]) {
+        for (const range of ranges ?? []) {
+          if (seen.has(range.pos)) continue;
+          seen.add(range.pos);
+          record(range.pos, range.end);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
+type CommentRanges = Array<Array<[number, number]>>;
+
+function commentIndexPerLine(text: string, style: CommentStyle): CommentRanges {
+  const lines = text.split("\n");
+  const out: CommentRanges = [];
   let carriedQuote: string | null = null;
   let inBlockComment = false;
 
@@ -360,7 +429,7 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
     if (inBlockComment) {
       const close = line.indexOf("*/");
       if (close === -1) {
-        out.push(0); // the whole line is inside a block comment
+        out.push([[0, Infinity]]); // the whole line is inside a block comment
         continue;
       }
       inBlockComment = false;
@@ -409,7 +478,7 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
     // exemption — the R3 regression test missed it by leaving a closing line in
     // between, which is why the adjacency case is now covered explicitly.
     carriedQuote = style === "hash" ? quote : quote === "`" ? "`" : null;
-    out.push(found);
+    out.push(found === -1 ? [] : [[found, Infinity]]);
   }
   return out;
 }
@@ -419,15 +488,17 @@ type CommentStyle = "js" | "hash";
 function exemptionOnLines(
   lines: readonly string[],
   lineNumber: number,
-  commentAt: readonly number[],
+  commentAt: CommentRanges,
 ): string | null {
   for (const index of [lineNumber - 1, lineNumber - 2]) {
     const candidate = lines[index];
     if (candidate === undefined) continue;
     const at = candidate.indexOf(EXEMPTION_MARKER);
     if (at === -1) continue;
-    const start = commentAt[index] ?? -1;
-    if (start === -1 || start > at) continue;
+    // CONTAINMENT, not "after a comment started": `/* x */ const s = "// …"`
+    // has a real comment on the line, and the marker is not inside it.
+    const inside = (commentAt[index] ?? []).some(([from, to]) => at >= from && at < to);
+    if (!inside) continue;
     const reason = candidate.slice(at + EXEMPTION_MARKER.length).trim();
     if (reason.length > 0) return reason;
   }
@@ -544,7 +615,9 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     if (character === "$" && text[i + 1] === "{") {
       begin();
       const close = matchBrace(text, i + 1, "{", "}");
-      buffer += text.slice(i, close + 1);
+      const slice = text.slice(i, close + 1);
+      buffer += slice;
+      line += (slice.match(/\n/g) ?? []).length;
       i = close;
       continue;
     }
@@ -591,6 +664,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       for (; i < text.length && text[i] !== '"'; i++) {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
           i++;
+          if (text[i] === "\n") line++; // a continuation still eats a line
           buffer += text[i];
           continue;
         }
@@ -730,10 +804,11 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   const commentAt = commentIndexPerLine(text, "hash");
   const sites: PsqlSite[] = [];
 
-  const nested: NestedShell[] = [];
-  const words = lexShellWords(text, nested);
-  for (const inner of nested) {
-    for (const site of scanShellText(inner.text, file, lineOffset + inner.line)) sites.push(site);
+  const nestedBodies: NestedShell[] = [];
+  const words = lexShellWords(text, nestedBodies);
+  for (const inner of nestedBodies) {
+    for (const site of scanShellText(inner.text, file, lineOffset + inner.line))
+      sites.push({ ...site, nested: true });
   }
   let command: ShellWord[] = [];
   const commands: ShellWord[][] = [];
@@ -748,6 +823,24 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   if (command.length > 0) commands.push(command);
 
   for (const argv of commands) {
+    // `bash -c "psql …"`, `sh -lc "…"`, `docker exec … sh -c "…"`, `eval "…"`.
+    // The quoted script EXECUTES; scanning it is not optional.
+    for (const [position, word] of argv.entries()) {
+      const name = basename(word.text);
+      const isInterpreter = SHELL_BINARIES.has(name);
+      const isEval = name === "eval";
+      if (!isInterpreter && !isEval) continue;
+      for (let i = position + 1; i < argv.length; i++) {
+        const candidate = argv[i]!;
+        if (isInterpreter && !/^-[a-z]*c$/.test(candidate.text)) continue;
+        const script = isEval ? candidate : argv[i + 1];
+        if (script === undefined) break;
+        for (const site of scanShellText(script.text, file, lineOffset + script.line))
+          sites.push(site);
+        break;
+      }
+    }
+
     const index = argv.findIndex((word) => basename(word.text) === "psql");
     if (index === -1) continue;
     // The denylist decides whether psql is the COMMAND or an argument to a
@@ -771,6 +864,8 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       line: hit.line + lineOffset + 1,
       form: "shell",
       tokens,
+      precedingWords: argv.slice(0, index).map((word) => word.text),
+      nested: false,
       hasDynamicTokens: tokens.some((token) => token.includes("$")),
       suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
       exemptReason: exemptionOnLines(rawLines, hit.line + 1, commentAt),
@@ -785,7 +880,7 @@ function shellStringSites(
   file: string,
   line: number,
   lines: string[],
-  commentAt: readonly number[],
+  commentAt: CommentRanges,
   sourceLineSpan = 0,
 ): PsqlSite[] {
   // `line` is where the literal OPENS; a multi-line template puts psql further
@@ -855,36 +950,80 @@ function isPsqlBinary(text: string): boolean {
  * zero sites AND zero indirections.
  */
 function looksLikePsqlCommandLine(text: string): boolean {
-  const match = /^(?:[^\s;&|()<>]*\/)?psql(\s[^]*)?$/.exec(text.trim());
-  if (match === null) return false;
-  const rest = (match[1] ?? "").trim();
-  if (rest === "") return false;
-  // Argument-shaped: a flag, an expansion, a quote, a redirection, a DSN.
-  if (/^[-$"'<>]/.test(rest) || /^postgres(?:ql)?:\/\//.test(rest)) return true;
-  // A BARE first word can be the dbname (`psql mydb -qAt`), but only when it is
-  // identifier-shaped AND the line carries a flag or a connection keyword.
-  // Without that, prose like "psql failed: …" becomes a hit — and noise is what
-  // gets a tripwire switched off.
-  const words = rest.split(/\s+/);
-  const first = words[0] ?? "";
-  if (!/^[A-Za-z_][\w-]*$/.test(first) && !first.startsWith("service=")) return false;
-  // A command line is SHORT and carries a plausible flag. Both bounds earn
-  // their keep: `"psql output must contain ---LOCKS--- marker"` has a dash run
-  // that is not a flag, and a long prose sentence mentioning `--no-psqlrc` is
-  // documentation, not a command.
-  if (words.length > 12) return false;
-  return /(?:^|\s)-{1,2}[A-Za-z]/.test(rest) || /(?:^|\s)service=/.test(rest);
+  // LEX it; do not pattern-match the head. An earlier cut required the string
+  // to START with psql, and the header claimed that sufficed to backstop
+  // runtime-assembled commands. Review disproved the claim with five ORDINARY
+  // shapes at once — `sudo -u postgres psql …`, `PGHOST=… psql …`,
+  // `echo ready\npsql …`, `true && psql …`, `cat dump.sql | psql …`. The shell
+  // reader already knows where a command word is, so ask it.
+  const sites = scanShellText(text, "<literal>", 0);
+  if (sites.length === 0) return false;
+  // Bounded so PROSE that quotes a command does not become a hit. Every clause
+  // has a named counterexample from this repo's own strings:
+  //   • short           — a 12-word cap; long sentences mention flags too.
+  //   • carries a flag  — "psql output must contain ---LOCKS--- marker".
+  //   • argument-shaped follower — `psql failed: …` (a word ending in `:`).
+  //   • wrapper-only prefix — "parses pipe-separated psql -qAt rows", where
+  //     the words before psql are English, not `sudo` / `PGHOST=` / a flag.
+  const WRAPPERS = /^(?:sudo|env|command|exec|time|nice|xargs|docker|cat|true|false|echo|sh|bash)$/;
+  const prefixIsCommandish = (before: readonly string[]): boolean =>
+    before.every(
+      (word, index) =>
+        /^[A-Za-z_]\w*=/.test(word) ||
+        /^-/.test(word) ||
+        WRAPPERS.test(basename(word)) ||
+        /^-/.test(before[index - 1] ?? ""),
+    );
+  return sites.some((site) => {
+    // A backtick inside operator-guidance prose is a markdown code span, not a
+    // shell substitution: `via \`psql "$DSN" -f <migration>\`` is documentation.
+    // For a variable HOLDING a command, the command is the string itself.
+    if (site.nested) return false;
+    if (site.tokens.length > 12) return false;
+    const hasFlag = site.tokens.some((t) => /^-{1,2}[A-Za-z]/.test(t) || t.startsWith("service="));
+    // `psql <dump.sql` carries no flags at all — the shell eats the redirection
+    // before argv ever exists — so a very short whole string counts on its own.
+    // Prose is never this short.
+    const isTerseCommand = site.tokens.length === 0 && text.trim().split(/\s+/).length <= 4;
+    if (!hasFlag && !isTerseCommand) return false;
+    const follower = site.tokens[0] ?? "";
+    if (/:$/.test(follower)) return false;
+    return prefixIsCommandish(site.precedingWords);
+  });
 }
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
+
+/** Does any argument object carry `shell: true`? */
+function hasShellOption(node: ts.CallExpression): boolean {
+  return node.arguments.some(
+    (argument) =>
+      ts.isObjectLiteralExpression(argument) &&
+      argument.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          property.name.getText() === "shell" &&
+          property.initializer.kind !== ts.SyntaxKind.FalseKeyword,
+      ),
+  );
+}
 
 /** argv[0] is a shell, so its argv carries a command LINE rather than psql. */
 function isShellBinary(text: string): boolean {
   return SHELL_BINARIES.has(text.slice(text.lastIndexOf("/") + 1));
 }
 
+/** JSX only parses as JSX when the ScriptKind says so — otherwise `<span>` is
+ * read as a type assertion and the `//` in its TEXT looks like a comment. */
+function scriptKindFor(file: string): ts.ScriptKind {
+  if (file.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (file.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (/\.(mjs|cjs|js)$/.test(file)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
 function parseJs(source: string, file: string): ts.SourceFile {
-  return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKindFor(file));
 }
 
 function lineOf(sourceFile: ts.SourceFile, pos: number): number {
@@ -894,7 +1033,7 @@ function lineOf(sourceFile: ts.SourceFile, pos: number): number {
 export function scanJsSource(source: string, file: string): PsqlSite[] {
   const sourceFile = parseJs(source, file);
   const lines = source.split("\n");
-  const commentAt = commentIndexPerLine(source, "js");
+  const commentAt = jsCommentRangesPerLine(source, file);
   const sites: PsqlSite[] = [];
 
   const visitNode = (node: ts.Node): void => {
@@ -929,6 +1068,8 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           line,
           form: callee as PsqlSiteForm,
           tokens,
+          precedingWords: [],
+          nested: false,
           hasDynamicTokens,
           suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
           exemptReason: exemptionOnLines(lines, line, commentAt),
@@ -942,6 +1083,18 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           if (text === null) continue;
           const line = lineOf(sourceFile, argument.getStart(sourceFile));
           const span = lineOf(sourceFile, argument.getEnd()) - line;
+          sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
+        }
+      }
+
+      // `{ shell: true }` hands argv[0] to a shell, so it is a command LINE
+      // even when it is not a shell binary: `spawnSync("psql -qAt $DSN",
+      // { shell: true })` is ordinary Node and was invisible to both scanners.
+      if (callee && SPAWN_CALLEES.has(callee as PsqlSiteForm) && first && hasShellOption(node)) {
+        const text = composedText(first);
+        if (text !== null) {
+          const line = lineOf(sourceFile, first.getStart(sourceFile));
+          const span = lineOf(sourceFile, first.getEnd()) - line;
           sites.push(...shellStringSites(text, file, line, lines, commentAt, span));
         }
       }
@@ -1033,7 +1186,14 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       if (!isPair(pair as YamlNode as never)) return;
       const key = node.key as { value?: unknown } | undefined;
       if (!key || key.value !== "run") return;
-      const value = node.value;
+      // A `run: *cmd` ALIAS is not a scalar node. Anchors/aliases are
+      // documented GitHub Actions reuse, so resolving is required, not
+      // generous.
+      const raw0 = node.value as { source?: unknown; resolve?: unknown };
+      const value =
+        raw0 && typeof (raw0 as { resolve?: unknown }).resolve === "function"
+          ? ((raw0 as { resolve: (d: unknown) => unknown }).resolve(document) ?? node.value)
+          : node.value;
       if (!isScalar(value as never)) return;
       const range = (value as { range?: [number, number, number] }).range;
       if (!range) return;
@@ -1083,7 +1243,7 @@ export function scanSource(source: string, file: string): PsqlSite[] {
  * silent under-count this whole file exists to prevent. Unreadable now fails the
  * meta-test.
  */
-function walk(directory: string, out: string[], unreadable: string[]): void {
+function walk(directory: string, out: string[], unreadable: string[], depth = 0): void {
   let entries: string[];
   try {
     entries = readdirSync(directory);
@@ -1092,7 +1252,8 @@ function walk(directory: string, out: string[], unreadable: string[]): void {
     return;
   }
   for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry)) continue;
+    if (IGNORED_ANYWHERE.has(entry)) continue;
+    if (depth === 0 && IGNORED_AT_ROOT.has(entry)) continue;
     const full = join(directory, entry);
     let stats;
     try {
@@ -1101,7 +1262,7 @@ function walk(directory: string, out: string[], unreadable: string[]): void {
       unreadable.push(full);
       continue;
     }
-    if (stats.isDirectory()) walk(full, out, unreadable);
+    if (stats.isDirectory()) walk(full, out, unreadable, depth + 1);
     else if (SCANNED_EXTENSIONS.includes(extensionOf(entry))) out.push(full);
   }
 }

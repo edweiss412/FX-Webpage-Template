@@ -23,7 +23,15 @@
  *
  * Pure — no DB, no network.
  */
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -489,6 +497,87 @@ describe("R5 escaping mutants", () => {
     ["type psql\n", 0],
   ])("%j -> %d site(s): the denylist only fires at command position", (source, expected) => {
     expect(sitesIn(source, "x.sh")).toHaveLength(expected);
+  });
+});
+
+// ── R6: shell:true, interpreters, the walk, and comment truth ──────────
+
+describe("R6 escaping mutants", () => {
+  test.each([
+    ['spawnSync("psql -qAt $DSN", { shell: true });', "spawnSync"],
+    ['spawn("psql -qAt $DSN", { shell: true });', "spawn"],
+    ['execFileSync("psql -qAt $DSN", { shell: true });', "execFileSync"],
+    ['execFile("psql -qAt $DSN", { shell: true });', "execFile"],
+  ])("%s — { shell: true } makes argv[0] a command LINE", (source) => {
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["bash -c in a script", 'bash -c "psql -qAt $DSN"\n', "x.sh"],
+    ["sh -lc under docker", 'docker exec c sh -lc "psql -qAt $DSN"\n', "x.sh"],
+    ["eval", 'eval "psql -qAt $DSN"\n', "x.sh"],
+    ["execSync of a bash -c", `execSync("bash -c 'psql -qAt $DSN'");`, "x.mjs"],
+  ])("an interpreter's script argument is scanned (%s)", (_name, source, file) => {
+    const sites = sitesIn(source, file);
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.some((site) => !site.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("a YAML alias used as run: resolves to its anchor", () => {
+    const source = [
+      "env:",
+      "  CMD: &cmd psql -qAt $DSN",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: *cmd",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("the walk reaches tests/docs — an ignored BASENAME must not apply at depth", () => {
+    // `docs` in the ignore list matched at EVERY depth, so tests/docs/** — a
+    // real directory of executable test files — was never scanned at all.
+    expect(existsSync(join(REPO_ROOT, "tests", "docs"))).toBe(true);
+    expect(collectPsqlUsage(join(REPO_ROOT, "tests", "docs")).filesScanned).toBeGreaterThan(0);
+  });
+
+  test.each([
+    [
+      "a nested template backtick",
+      ["const t = `a ${c ? `x // MARKER unrelated` : 1}`;", 'execFileSync("psql", ["-qAt", d]);'],
+      "x.mjs",
+    ],
+    [
+      "JSX text",
+      ["const el = <span>// MARKER unrelated</span>;", 'execFileSync("psql", ["-qAt", d]);'],
+      "x.tsx",
+    ],
+  ])("%s is not a comment", (_name, lines, file) => {
+    const source = lines.join("\n").replace("MARKER", EXEMPTION_MARKER);
+    const sites = sitesIn(source, file);
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.at(-1)!.exemptReason).toBeNull();
+  });
+
+  test.each([
+    ["a wrapper", `const c = "sudo -u postgres psql -qAt $DSN"; execSync(c);`, true],
+    ["an env assignment", `const c = "PGHOST=localhost psql -qAt db"; execSync(c);`, true],
+    ["a pipeline", `const c = "cat d.sql | psql db -qAt"; execSync(c);`, true],
+    ["a conjunction", `const c = "true && psql -qAt db"; execSync(c);`, true],
+    ["prose with a flag", `const m = "parses pipe-separated psql -qAt rows";`, false],
+    [
+      "prose quoting a command",
+      'const m = `apply via \\`psql "$D" -f <m>\\`, then reload`;',
+      false,
+    ],
+  ])("the tripwire sees %s -> %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
   });
 });
 
