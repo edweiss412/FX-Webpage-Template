@@ -186,10 +186,12 @@ generator's parse-warnings pass (`scripts/extract-internal-code-enums.ts:70-74`)
 **Verify.** AC-A1 (58 codes, zero lost vs the 47, exactly the 11 gained), AC-A2, AC-A3, AC-A4,
 AC-A5, AC-A6, AC-A7, AC-A8, AC-A9. Plus the three Sweep-4 bindings.
 
-**Perf note.** The generator becomes type-checked rather than regex-based, so it loads the project
-once. `gen:internal-code-enums` currently runs inside `test:audit:x2-no-raw-codes`
-(`package.json:35`); if the added latency is material the plan does not change behavior, only
-timing — recorded here so a reviewer does not read a slower script as a defect.
+**Cost, measured (spec §3.5).** Project load 38.7 s; full extraction 64.5 s. A narrowed project is
+worse (77.9 s) and is refuted, not merely unchosen. The recognizer memoizes the `Project` and the
+extraction at module scope so a process pays once. This task **measures the actual suite delta** and
+records it; if it is unacceptable, the named fallback is moving the fresh-extraction parity check
+(`tests/cross-cutting/no-raw-codes.test.ts:34`) into a dedicated CI job rather than the default
+suite. `gen:internal-code-enums` also runs inside `test:audit:x2-no-raw-codes` (`package.json:35`).
 
 **Commit.** `feat(messages): recognize parse-warning sites by type, not spelling`
 

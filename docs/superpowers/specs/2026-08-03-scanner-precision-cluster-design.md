@@ -269,7 +269,38 @@ asserts the *generated artifact* is in sync with what the checker sees. The esca
 obligation is therefore discharged by AC-A5/AC-A6 below, which are **shape** mutants the R1 findings
 proved a syntactic design could not catch.
 
-### 3.5 Documented limits
+### 3.5 Cost — measured, and the decision it forces
+
+Type-aware recognition is not free, and the cost is inherent rather than tunable. Measured in this
+worktree (ts-morph ^28, 2879-file project):
+
+| Step | Cost |
+| --- | --- |
+| `new Project({ tsConfigFilePath })` | **38.7 s** |
+| Full recognizer pass over `lib/` + `app/` | ~26 s |
+| **End-to-end extraction** | **64.5 s** |
+
+A narrowed project (`skipAddingFilesFromTsConfig` plus an explicit `lib/**` + `app/**` glob and
+`resolveSourceFileDependencies()`) was measured and is **worse** — 62 s to load 820 files, 77.9 s
+end-to-end — because dependency resolution re-reads the same graph. That option is refuted, not
+merely unchosen.
+
+**Decision.** The recognizer memoizes both the `Project` and the extraction result at module scope,
+so a process pays once. Three surfaces call `extractInternalCodeEnums()` today
+(`tests/cross-cutting/no-raw-codes.test.ts`,
+`tests/cross-cutting/cron-run-summary-scanner-safety.test.ts`, and the `gen:internal-code-enums`
+script), plus the new guard; vitest workers are separate processes, so the worst case is roughly one
+load per worker that touches them.
+
+**This is a real tradeoff, stated rather than hidden.** The parity assertion at
+`tests/cross-cutting/no-raw-codes.test.ts:34` — artifact must equal a fresh extraction — is what
+makes AC-A8 machine-enforced, and it is precisely the assertion that cannot read the cached
+artifact. Implementation measures the actual suite delta (plan Task 4). If it proves unacceptable,
+the fallback is to move the fresh-extraction parity check into a dedicated CI job rather than the
+default suite, keeping the artifact-reading consumers cheap. That fallback is named here so the
+choice is a decision rather than a discovery.
+
+### 3.6 Documented limits
 
 - A code assembled at runtime (a template literal, or a value read from config) has no literal
   type. Such a site is **reported and fails the guard** rather than passing silently. Zero exist
@@ -390,7 +421,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | 1 | BLOCKING — R1/R2/R3 miss four live codes via two indirect-return-type factories | **Accepted.** Verified at `lib/sync/applyStaged.ts:1017` and `lib/sync/phase2.ts:337`. Closed structurally: the whole syntactic mechanism is replaced by type-aware recognition (§3.1), not patched with a third spelling. |
 | 2 | HIGH — G2 has a silent escaping shape (`severity` via typed const); AC-A6's `mkWarn` plant is auto-discovered and proves nothing | **Accepted, both halves.** The escape is closed by §3.1 site recognition; AC-A6 is **replaced** by a non-literal-severity mutant, and AC-A5 added for the indirect-return-type shape. |
 | 3 | HIGH — the body rule mis-parents three archive bullets under a non-id heading | **Accepted.** Verified: `BACKLOG-archive.md:1076` is a non-id heading and `extractEntries` assigns `BACKLOG-archive.md:1082-1084` to `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Closed by the stop-at-first-heading condition (§4.1); measured 11 → 8. Plants P7 and P8 pin it. |
-| 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.5 rather than quietly dropped. |
+| 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
 The R1 reviewer's own probe predicted "the probed universe is at least 58"; the type-aware
 measurement is exactly 58, independently reached.
