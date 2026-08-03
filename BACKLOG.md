@@ -1430,6 +1430,7 @@ The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/help
 
 ## BL-INTER-NUMERAL-DISAMBIGUATION — Inter's default `0` and `Il1` are not disambiguated where crew read them under pressure
 
+**Status:** IN PROGRESS · **Branch:** feat/inter-numeral-disambiguation
 **Filed:** 2026-08-03 (impeccable critique P3 on `feat/font-binding-modal-freshness-cue`). **Class:** typography / legibility. **Effort:** S.
 Inter's default `0` is unslashed and `I`/`l`/`1` are near-identical stems. Crew read room numbers, call times and confirmation numbers on a phone in direct sunlight; Doug reads confirmation numbers mid-show on a venue floor (PRODUCT.md, "Users"). `DESIGN.md` §2.4 already reaches for this class of reasoning when it justifies `cv11` ("Inter's single-storey 'a' alternate at small sizes; subtle, but improves call-time legibility on mobile"), and now that Inter renders app-wide rather than crew-only, the features are finally reachable everywhere.
 **Work:** add `"zero" 1, "cv05" 1` to the existing `time, .tabular-nums` rule in `app/globals.css` alongside `"tnum" 1, "cv11" 1`, and add the row to `DESIGN.md` §2.4 with the same justification shape. **Not** done as part of the font binding: which OpenType features the tabular rule carries is a type decision about §2.4, not part of binding the family, and it changes the rendering of every number in the product — it deserves its own look rather than riding along.
