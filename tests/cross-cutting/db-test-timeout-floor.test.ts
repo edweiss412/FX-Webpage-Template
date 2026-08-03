@@ -19,8 +19,8 @@ import vitestConfig from "@/vitest.config";
 //      psql-per-assertion test plus an `afterEach` cleanup query fits in 5s on
 //      a quiet box and does not fit reliably on a loaded one. Pinned at the
 //      ROOT of vitest.config.ts, which both projects inherit via
-//      `extends: true`, so it covers every DB-touching file at once — the 200
-//      that ride the defaults today plus any added later. A file that needs
+//      `extends: true`, so it covers every DB-touching file at once — the 242
+//      this guard selects today plus any added later. A file that needs
 //      MORE (the 90s doc-scan in tests/scripts/validation-report-fixtures)
 //      still raises its own; `vi.setConfig` wins over the config file.
 //
@@ -52,14 +52,22 @@ const ROOT = process.cwd();
 const TIMEOUT_FLOOR_MS = 30_000;
 const EXEMPT_MARKER = "timeout-floor-exempt:";
 
-// Lexical evidence that a file reaches a real database.
+// Evidence that a file reaches a real database, matched against COMMENT-STRIPPED
+// source. Matching raw text instead selected an explicitly pure test on the word
+// "psql" in its prose and a meta-test on the string "@supabase/supabase-js" it
+// scans for, and an over-selected file cannot use vi.waitFor even where doing so
+// is correct — a guard that blocks legitimate code gets switched off.
 const DB_MARKERS = [
   /\brunPsql\b/,
   /TEST_DATABASE_URL/,
   /\bpostgres\(/,
-  /@supabase\/supabase-js/,
-  /\bpsql\b/,
+  /\bcreateClient\s*\(/,
+  /["']psql["']/,
 ];
+
+// A value import of one of these means the file talks to a database, even with
+// no other marker. Type-only imports do not count — they vanish at runtime.
+const DB_MODULES = [/@supabase\/supabase-js/, /^postgres$/];
 
 const rootTest = (vitestConfig as { test?: { testTimeout?: number; hookTimeout?: number } }).test;
 
@@ -94,19 +102,38 @@ function testFiles(): string[] {
 // closes that by construction rather than by naming today's helpers.
 const dbFileCache = new Map<string, boolean>();
 
-function importedTestModules(file: string, body: string): string[] {
+// Every module specifier the file pulls in AT RUNTIME. `from "…"` alone missed
+// four executable forms — a bare side-effect import, `await import()`,
+// `require()`, and `import x = require()` — each of which can run a helper's
+// psql at module load. `import type` is deliberately excluded: it is erased, so
+// a type-only reference to a DB helper is not database work, and counting it
+// selected files that touch no database.
+function runtimeSpecifiers(code: string): string[] {
   const out: string[] = [];
-  for (const m of body.matchAll(/from\s+["'](@\/tests\/[^"']+|\.\.?\/[^"']+)["']/g)) {
-    const spec = m[1]!;
-    const base = spec.startsWith("@/") ? join(ROOT, spec.slice(2)) : resolve(dirname(file), spec);
-    for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
-      if (existsSync(candidate)) {
-        out.push(candidate);
-        break;
-      }
-    }
+  const patterns = [
+    /(?<!\btype\s)\bfrom\s*["']([^"']+)["']/g,
+    /^\s*import\s+["']([^"']+)["']/gm,
+    /\bimport\s*\(\s*["']([^"']+)["']/g,
+    /\brequire\s*\(\s*["']([^"']+)["']/g,
+  ];
+  for (const pattern of patterns) {
+    for (const m of code.matchAll(pattern)) out.push(m[1]!);
   }
-  return out;
+  // `import type { X } from "y"` is erased; drop those specifiers.
+  const typeOnly = new Set<string>();
+  for (const m of code.matchAll(/\bimport\s+type\b[^;]*?from\s*["']([^"']+)["']/g)) {
+    typeOnly.add(m[1]!);
+  }
+  return out.filter((spec) => !typeOnly.has(spec));
+}
+
+function resolveTestModule(file: string, spec: string): string | null {
+  if (!spec.startsWith("@/tests/") && !spec.startsWith(".")) return null;
+  const base = spec.startsWith("@/") ? join(ROOT, spec.slice(2)) : resolve(dirname(file), spec);
+  for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 function isDbTouching(file: string, seen = new Set<string>()): boolean {
@@ -121,14 +148,19 @@ function isDbTouching(file: string, seen = new Set<string>()): boolean {
     return true;
   }
 
-  const body = readFileSync(file, "utf8");
-  if (DB_MARKERS.some((marker) => marker.test(body))) {
-    dbFileCache.set(file, true);
-    return true;
-  }
-  const viaImport = importedTestModules(file, body).some((dep) => isDbTouching(dep, seen));
-  dbFileCache.set(file, viaImport);
-  return viaImport;
+  const code = stripCommentsForFile(readFileSync(file, "utf8"), file);
+  const specifiers = runtimeSpecifiers(code);
+
+  const verdict =
+    DB_MARKERS.some((marker) => marker.test(code)) ||
+    specifiers.some((spec) => DB_MODULES.some((mod) => mod.test(spec))) ||
+    specifiers.some((spec) => {
+      const dep = resolveTestModule(file, spec);
+      return dep !== null && isDbTouching(dep, seen);
+    });
+
+  dbFileCache.set(file, verdict);
+  return verdict;
 }
 
 // Budgets are read from the TypeScript AST, not from source text. The first
@@ -147,7 +179,26 @@ function isDbTouching(file: string, seen = new Set<string>()): boolean {
 // were later edited below the floor.
 type Budget = { line: number; ms: number | null; text: string };
 
-const HOOKS = new Set(["beforeEach", "afterEach", "beforeAll", "afterAll"]);
+// Vitest's budget-bearing API surface. Enumerating three names covered the two
+// spellings in this repo and nothing else — `suite`, `bench`, the around/on
+// hooks, and an `it.extend`-derived test all took a budget the walker never
+// looked at. These are the vitest exports that accept one; alias and namespace
+// resolution below means each is matched however it is spelled at the call site.
+const BUDGET_APIS = new Set([
+  "test",
+  "it",
+  "describe",
+  "suite",
+  "bench",
+  "beforeEach",
+  "afterEach",
+  "beforeAll",
+  "afterAll",
+  "aroundEach",
+  "aroundAll",
+  "onTestFailed",
+  "onTestFinished",
+]);
 
 function testBudgets(file: string, body: string): Budget[] {
   const source = ts.createSourceFile(
@@ -203,36 +254,72 @@ function testBudgets(file: string, body: string): Budget[] {
     return null;
   };
 
-  // Vitest's entry points plus every local alias of one: a renamed import
-  // (`import { it as check }`) and a re-binding (`const check = test`).
-  const testNames = new Set(["test", "it", "describe"]);
-  const collectAliases = (node: ts.Node): void => {
-    if (
-      ts.isImportDeclaration(node) &&
-      node.moduleSpecifier.getText(source).includes("vitest") &&
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const spec of node.importClause.namedBindings.elements) {
-        const original = spec.propertyName?.text;
-        if (original && (testNames.has(original) || HOOKS.has(original))) {
-          if (HOOKS.has(original)) HOOKS.add(spec.name.text);
-          else testNames.add(spec.name.text);
+  // Local names for vitest's budget-bearing APIs: the plain import, a renamed
+  // one (`import { it as check }`), and a module-level re-binding — either
+  // direct (`const check = test`) or derived (`const myTest = it.extend({…})`).
+  //
+  // Alias collection is MODULE-LEVEL ONLY. Collecting from nested scopes but
+  // storing globally meant a `const check = test` inside one function made an
+  // unrelated `check(a, b, c)` in another function look like a test call, which
+  // is a false positive on code that is not a test at all.
+  const budgetNames = new Set(BUDGET_APIS);
+  const namespaces = new Set<string>();
+  const viNames = new Set(["vi", "vitest"]);
+  for (const stmt of source.statements) {
+    if (ts.isImportDeclaration(stmt) && stmt.moduleSpecifier.getText(source).includes("vitest")) {
+      const bindings = stmt.importClause?.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const spec of bindings.elements) {
+          const original = spec.propertyName?.text ?? spec.name.text;
+          if (BUDGET_APIS.has(original)) budgetNames.add(spec.name.text);
+          if (original === "vi") viNames.add(spec.name.text);
         }
+      } else if (bindings && ts.isNamespaceImport(bindings)) {
+        // import * as v from "vitest" → v.test(…)
+        namespaces.add(bindings.name.text);
+      }
+      continue;
+    }
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
+      const from = decl.initializer;
+      if (ts.isIdentifier(from) && budgetNames.has(from.text)) budgetNames.add(decl.name.text);
+      // `it.extend({...})` / `test.extend(...)` returns a test function.
+      if (ts.isCallExpression(from)) {
+        let base: ts.Node = from.expression;
+        while (ts.isPropertyAccessExpression(base) || ts.isCallExpression(base)) {
+          base = base.expression;
+        }
+        if (ts.isIdentifier(base) && budgetNames.has(base.text)) budgetNames.add(decl.name.text);
       }
     }
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      ts.isIdentifier(node.initializer)
-    ) {
-      if (testNames.has(node.initializer.text)) testNames.add(node.name.text);
-      if (HOOKS.has(node.initializer.text)) HOOKS.add(node.name.text);
+  }
+
+  // The vitest API a call reaches, through property access and call chains, so
+  // `test`, `test.skipIf(x)`, `it.each(rows)`, `describe.sequential`, and the
+  // namespace form `v.test` all resolve to their API name.
+  const apiName = (expr: ts.Expression): string | null => {
+    const chain: string[] = [];
+    let cur: ts.Node = expr;
+    for (;;) {
+      if (ts.isIdentifier(cur)) {
+        // Namespace call: the property directly after the namespace is the API.
+        if (namespaces.has(cur.text)) return chain.at(-1) ?? null;
+        return cur.text;
+      }
+      if (ts.isPropertyAccessExpression(cur)) {
+        chain.push(cur.name.text);
+        cur = cur.expression;
+        continue;
+      }
+      if (ts.isCallExpression(cur)) {
+        cur = cur.expression;
+        continue;
+      }
+      return null;
     }
-    ts.forEachChild(node, collectAliases);
   };
-  collectAliases(source);
 
   const rootName = (expr: ts.Expression): string | null => {
     let cur: ts.Node = expr;
@@ -266,8 +353,15 @@ function testBudgets(file: string, body: string): Budget[] {
   };
 
   const readOptionsBag = (arg: ts.Expression, keys: Set<string>): void => {
-    if (!ts.isObjectLiteralExpression(arg)) return;
-    for (const prop of arg.properties) {
+    // A named options object — `const opts = { timeout: 1000 }; test(n, opts, fn)`
+    // — is the same budget written one indirection away.
+    let bag: ts.Expression = arg;
+    if (ts.isIdentifier(bag)) {
+      const bound = consts.get(bag.text);
+      if (bound && ts.isObjectLiteralExpression(bound)) bag = bound;
+    }
+    if (!ts.isObjectLiteralExpression(bag)) return;
+    for (const prop of bag.properties) {
       // A spread could carry a budget from anywhere; unreadable here.
       if (ts.isSpreadAssignment(prop)) {
         record(prop, null);
@@ -305,7 +399,8 @@ function testBudgets(file: string, body: string): Budget[] {
       // vi.setConfig({ testTimeout, hookTimeout }) — beats the root config for
       // the whole file.
       if (
-        name === "vi" &&
+        name !== null &&
+        (viNames.has(name) || namespaces.has(name)) &&
         ts.isPropertyAccessExpression(node.expression) &&
         node.expression.name.text === "setConfig"
       ) {
@@ -314,20 +409,19 @@ function testBudgets(file: string, body: string): Budget[] {
         }
       }
 
-      if (name !== null && testNames.has(name)) {
-        for (const arg of node.arguments) readOptionsBag(arg, new Set(["timeout"]));
-        // The trailing-argument overload: test(name, fn, 15000). A budget only
-        // appears in third position or later, after the callback.
-        const last = node.arguments.at(-1);
-        if (last && node.arguments.length >= 3 && !isCallbackNotBudget(last))
-          record(last, fold(last));
-      }
+      const api = apiName(node.expression);
+      const isBudgetApi = api !== null && budgetNames.has(api);
 
-      // Hooks take their own trailing budget: beforeEach(fn, 15000).
-      if (name !== null && HOOKS.has(name)) {
+      if (isBudgetApi) {
+        for (const arg of node.arguments) readOptionsBag(arg, new Set(["timeout"]));
+        // The trailing-argument overload — `test(name, fn, 15000)` and the hook
+        // form `beforeEach(fn, 15000)`. A budget always follows the callback, so
+        // it needs at least two arguments; anything that resolves to a function
+        // is the callback, not a number.
         const last = node.arguments.at(-1);
-        if (last && node.arguments.length >= 2 && !isCallbackNotBudget(last))
+        if (last && node.arguments.length >= 2 && !isCallbackNotBudget(last)) {
           record(last, fold(last));
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -371,7 +465,23 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
       // `vi.waitFor` named in prose — including this file's own header — is not
       // read as a call site.
       const code = stripCommentsForFile(body, file);
-      if (/vi\.waitFor\s*\(/.test(code)) offenders.push(relative(ROOT, file));
+      const rawLines = body.split("\n");
+      const strippedLines = code.split("\n");
+
+      // Transitive selection is deliberately generous: importing a helper that
+      // touches a database counts, because the alternative — requiring the
+      // marker in the test file itself — silently exempted five real DB suites.
+      // The cost is that a file doing no database work of its own can be
+      // selected through a helper, and a ban it cannot opt out of is a guard
+      // people delete rather than satisfy. So the same comment-only marker
+      // exempts a call site, with a reason recorded next to it.
+      code.split("\n").forEach((line, index) => {
+        if (!/vi\.waitFor\s*\(/.test(line)) return;
+        const exempt =
+          (rawLines[index]?.includes(EXEMPT_MARKER) ?? false) &&
+          !(strippedLines[index]?.includes(EXEMPT_MARKER) ?? false);
+        if (!exempt) offenders.push(`${relative(ROOT, file)}:${index + 1}`);
+      });
     }
 
     expect(
@@ -388,10 +498,19 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
     for (const file of testFiles()) {
       if (!isDbTouching(file)) continue;
       const body = readFileSync(file, "utf8");
+      // The marker counts only inside a COMMENT. Testing the raw line let it be
+      // claimed from a test TITLE — `test("timeout-floor-exempt: …", …)` — which
+      // is a bypass anyone could hit by accident. A line whose raw text has the
+      // marker and whose comment-stripped text does not is a real comment.
       const rawLines = body.split("\n");
+      const strippedLines = stripCommentsForFile(body, file).split("\n");
+      const exempt = (line: number): boolean =>
+        (rawLines[line - 1]?.includes(EXEMPT_MARKER) ?? false) &&
+        !(strippedLines[line - 1]?.includes(EXEMPT_MARKER) ?? false);
+
       for (const budget of testBudgets(file, body)) {
         if (budget.ms !== null && budget.ms >= TIMEOUT_FLOOR_MS) continue;
-        if (rawLines[budget.line - 1]?.includes(EXEMPT_MARKER)) continue;
+        if (exempt(budget.line)) continue;
         const value = budget.ms === null ? `UNRESOLVABLE (${budget.text})` : `${budget.ms}ms`;
         offenders.push(`${relative(ROOT, file)}:${budget.line} — ${value}`);
       }
