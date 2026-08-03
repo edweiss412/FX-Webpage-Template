@@ -25,3 +25,35 @@ export function computeIdentityLinkRenames(
   }
   return out;
 }
+
+/**
+ * Staged-path variant (spec 2026-08-03-staged-identitylink-rename-identity §3.1): the per-item
+ * `rename` reviewer choice is the admin confirm, the per-pair form of the vouch the cron
+ * helper's `acceptedThisVersion` parameter proxies version-wide. MI-12/13/14 link ONLY when
+ * their validated choice action is "rename". `independent` never links (an explicit
+ * not-the-same-person ruling); `reject` never reaches Phase 2 (the core discards first).
+ * Choices are structurally typed ({ item_id, action }) because applyStagedCore imports this
+ * module; importing ReviewerChoice back would be a cycle.
+ */
+export function computeStagedIdentityLinkRenames(
+  items: TriggeredReviewItem[],
+  choices: ReadonlyArray<{ item_id: string; action: string }>,
+): IdentityLinkRename[] {
+  const actionById = new Map(choices.map((choice) => [choice.item_id, choice.action]));
+  const out: IdentityLinkRename[] = [];
+  // Consume-once belt: validateReviewerChoices rejects duplicate CHOICES but never duplicate item
+  // ids in `items`, so a malformed staged payload with two pair-items sharing an id must not turn
+  // one vouch into two links. One vouch links at most one pair.
+  const consumedItemIds = new Set<string>();
+  for (const item of items) {
+    if (
+      (item.invariant === "MI-12" || item.invariant === "MI-13" || item.invariant === "MI-14") &&
+      actionById.get(item.id) === "rename" &&
+      !consumedItemIds.has(item.id)
+    ) {
+      consumedItemIds.add(item.id);
+      out.push({ removedName: item.removed_name, addedName: item.added_name });
+    }
+  }
+  return out;
+}
