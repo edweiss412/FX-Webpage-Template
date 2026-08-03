@@ -802,6 +802,35 @@ The `roleToken` field added to `UNKNOWN_ROLE_TOKEN` warnings (feat/extend-role-s
 
 ---
 
+## BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT — ✅ RESOLVED (2026-07-22, `chore/mutation-ledger-autocorrect-rebless`, PR #548)
+
+**Filed:** 2026-07-22 · **Class:** benign ledger drift · **Effort:** XS (corpus re-run + surgical re-bless) · **Resolved:** 2026-07-22
+
+The `autocorrect` field populated at all 13 parser producers (`7295d794c`, merged via the
+warning-card-identity-placement chain, PR #543-era) changes parse output for corpus fixtures whose
+mutated cells produce autocorrect-bearing warnings, so the redacted parse-output fingerprints in
+`tests/parser/mutation/knownHoles.ts` drift. Nightly run 29907734946 (2026-07-22): DRIFTED
+fingerprint rows across 7 shards — SAME siteIds, fingerprint-only, zero NEW siteIds, zero fixed
+holes — the benign class per the 2026-07-09 triage discipline (BL-MUTATION-LEDGER-ROLETOKEN-DRIFT
+above and BL-MUTATION-LEDGER-REFRESH-AMBIGUITY below are the identical prior instances). The nightly
+`mutation-harness` workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it
+gated no PR.
+
+**Resolution (2026-07-22, `c5847a9f4`):** re-blessed the same day it was filed, on
+`chore/mutation-ledger-autocorrect-rebless` (PR #548), from the full HEAD corpus — 8 LPT shard dumps,
+101,705 mutants, reconciled bidirectionally: **2452 pure fingerprint drifts, 0 new holes, 0 fixed
+holes**; ledger totals unchanged (7912 rows, 7514 `wrong` + 398 `signal_loss`, section-reorder 82).
+
+**Why it sat in the open queue twelve days after it was fixed:** the entry named its own trigger as
+"the next mutation-file-touching PR or the next post-merge nightly triage", and that PR shipped
+within hours — the refresh happened, the entry was never closed. Graduated on
+`chore/close-mutation-autocorrect-drift` (2026-08-03) after re-verifying the claim rather than
+trusting the commit message: every scheduled `mutation-harness` nightly from 2026-07-29 through
+2026-08-03 is green, and the intervening 07-27 / 07-28 red runs were the SEPARATE hotel
+ambiguity-judgment drift, closed by `9af6610a8` + `704de0833`.
+
+---
+
 ## BL-ROLE-VOCAB-SETTINGS-DESKTOP-GRID — one-line desktop grid rows for the roles settings list
 
 **Filed:** 2026-07-16 (extend-role-scope-vocab impeccable dual-gate, `DEFERRED.md` ROLE-VOCAB-1) · **Class:** UX density (P2) · **Effort:** S (responsive layout branch + tests + dual-gate re-run)
