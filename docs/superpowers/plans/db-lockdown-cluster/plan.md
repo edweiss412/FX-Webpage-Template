@@ -87,7 +87,7 @@ Mutant (i) deliberately targets a non-admin table: deleting an `ADMIN_TABLES` me
 
 ## Task 2 — REVOKE the eight, with their registry rows, in one commit
 
-**Catches:** admin-session PostgREST DML bypassing the SECURITY DEFINER RPC gates (spec §2.3 probe).
+**Catches:** admin-session PostgREST DML reaching these tables at all — bypassing the SECURITY DEFINER RPC gate where one exists (class (a)), and bypassing the service-role-only writer convention where one does not (class (b), five of the eight). Spec §2.3 probe.
 
 Merged from the earlier draft's Tasks 2 and 3: `tests/db/postgrest-dml-lockdown.test.ts:811` requires the REVOKE migration and its registry rows in the **same commit**, so splitting them guarantees one red commit. Red and green still happen in order *within* the task.
 

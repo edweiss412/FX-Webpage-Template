@@ -7,12 +7,21 @@
 -- the row level by admin_only RLS; this closes the admin-session bypass on the
 -- eight tables listed below.
 --
--- Precisely what this buys: the RPC becomes the only PostgREST door for
--- anon/authenticated. Service-role and direct-postgres writes are UNAFFECTED
--- and remain the normal production path (lib/sync/*, lib/reports/*, lib/drive/*
--- all write that way) -- the grants below preserve service_role deliberately.
--- So this is not "nothing can bypass the RPC"; it is "a browser session
--- cannot".
+-- Precisely what this buys, and it differs by class:
+--   (a) reports, report_rate_limits, revision_race_cooldowns have a SECURITY
+--       DEFINER RPC gate, which now becomes the only PostgREST door for
+--       anon/authenticated.
+--   (b) sync_log, sync_audit, drive_watch_channels, pending_snapshot_uploads,
+--       recovery_drift_cooldowns have NO RPC at all. For them this is not
+--       "route through the RPC" -- it is that the table becomes unreachable
+--       for writes from any browser session, leaving service-role and cron as
+--       the only writers, which is what they already are.
+--
+-- For neither class does this constrain service-role or direct-postgres
+-- writes: those are UNAFFECTED by design and remain the normal production path
+-- (lib/sync/*, lib/reports/*, lib/drive/* all write that way), and the grants
+-- below preserve service_role deliberately. So this is not "nothing can bypass
+-- the RPC"; it is "a browser session cannot reach the table".
 --
 -- The §2.3 probe was demonstrated on admin_alerts (forging resolved_by), but
 -- admin_alerts is deliberately NOT revoked here -- see the class-(c) note

@@ -138,9 +138,12 @@ admin_only policy, not in ADMIN_TABLES: ignored_warnings
 | **admin `authenticated`** | **full direct DML, RPC gates bypassed** | statement denied; must go through the RPC |
 | `service_role` / raw SQL (`postgres`) | unaffected | unaffected |
 
-The value is not "stop an attacker" — Doug is the trusted business owner, and that framing was already rejected in the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` backlog entry. The value is that **the RPC becomes the only PostgREST door for `anon`/`authenticated`**, so its advisory locks (invariant 2), its atomicity, and its audit emissions (invariant 10) cannot be routed around by a future admin UI that reaches for the table builder because it is one line shorter.
+The value is not "stop an attacker" — Doug is the trusted business owner, and that framing was already rejected in the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` backlog entry. What it buys differs by class, and conflating the two overstates it:
 
-**What it explicitly does NOT buy.** Service-role and direct-`postgres` writes are unaffected by design, and they are the normal production writers for these tables — `lib/sync/syncLog.ts`, `lib/reports/rateLimit.ts`, `lib/drive/watch.ts`, `lib/sync/assetRecovery.ts` and peers all write that way, and §4.2 preserves `service_role` deliberately. A raw-SQL refactor can still bypass an RPC's locks and telemetry. Saying "the RPC is the only door" without that qualifier would mislead exactly the future security review this cluster exists to serve.
+- **Class (a), the three RPC-gated tables** (`reports`, `report_rate_limits`, `revision_race_cooldowns`): the RPC becomes the only PostgREST door for `anon`/`authenticated`, so its advisory locks (invariant 2), atomicity, and audit emissions (invariant 10) cannot be routed around by a future admin UI that reaches for the table builder because it is one line shorter.
+- **Class (b), the five with no RPC at all** (`sync_log`, `sync_audit`, `drive_watch_channels`, `pending_snapshot_uploads`, `recovery_drift_cooldowns`): there is no RPC to route through, so the claim above does not apply to them. What they get is that the table becomes **unreachable for writes from any browser session**, leaving service-role and cron as the only writers — which is what they already are. RLS stops being the sole gate.
+
+**What it explicitly does NOT buy.** For neither class does it constrain service-role or direct-`postgres` writes — those are unaffected by design, and they are the normal production writers for these tables — `lib/sync/syncLog.ts`, `lib/reports/rateLimit.ts`, `lib/drive/watch.ts`, `lib/sync/assetRecovery.ts` and peers all write that way, and §4.2 preserves `service_role` deliberately. A raw-SQL refactor can still bypass an RPC's locks and telemetry. Saying "the RPC is the only door" without that qualifier would mislead exactly the future security review this cluster exists to serve.
 
 ---
 
@@ -384,7 +387,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 | Inline CHECK | N/A | N/A | unchanged (assertion only) | N/A |
 | RLS policy | unchanged (`admin_only` already present, §2.3 probe) | unchanged | N/A | assertions only, no policy change |
 | RPC read path | unaffected (SELECT retained) | unaffected | N/A | N/A |
-| RPC write path | unaffected — SECURITY DEFINER runs as owner | unaffected | N/A | N/A |
+| RPC write path | unaffected — SECURITY DEFINER runs as owner (class (a) only; the five class-(b) tables have no RPC) | unaffected | N/A | N/A |
 | Trigger / cleanup fn | unaffected — raw SQL as `postgres` | unaffected | N/A | N/A |
 | Frontend | none — no non-service writer (§4.1) | untouched by design | none | none |
 | Tests | `RPC_GATED_TABLES` ×8 + Layer 5 | `ADMIN_DML_EXEMPTIONS` ×2 | live-catalog assertion + 3 rows | relocated + inverted |
