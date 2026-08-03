@@ -49,13 +49,13 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 
 ### 1.2 Why identical announcements are reachable
 
-The choice of an append-shaped region over a simpler one rests on two undoable rows being able to carry byte-identical announcement text. They can.
+The choice of an append-shaped region rests on two undoable rows being able to carry byte-identical announcement text.
 
-Summaries are built from the crew member's **name alone**, with no row id, timestamp, or run discriminator: `Crew member ${prior} renamed to ${added}` (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`), `Crew member ${member.name} removed` (`writeAutoApplyChanges.ts:112`), and the matching added form. Within a single sync run a name appears at most once per kind, so a naive reading suggests collisions cannot happen.
+**The obvious argument is wrong, and was corrected in review.** An earlier draft claimed a crew member removed in one sync and re-added in a later one leaves two identical undoable rows. It does not: every newer same-entity change runs `cleanup_superseded_before_images`, which flips the older row to `status='superseded'` (`supabase/migrations/20260608000003_undo_change_rpc.sql:298`, invoked from `lib/sync/phase2.ts:549`), and `action: "undo"` requires `status='applied'` (`lib/sync/feed/shapeChangeFeed.ts:65`). The database regression test proves exactly this sequence (`tests/db/undo-before-image-cleanup.test.ts:26-45`). Two identical-summary rows for the *same entity on one show* can never both be undoable.
 
-The feed is not a single run. It shows up to 50 rows accumulated across many runs (`ChangesFeed.tsx` truncation note). A crew member removed in one sync and re-added in a later one produces two `crew_added` rows with identical `summary`, both `applied`, both `individually_undoable` — simultaneously undoable, and indistinguishable by announcement text. Under `role="status"` the second undo would be silent. Under `role="log"` both are announced, because an identical *addition* always announces.
+**The reachable collision is across shows, and the layout channel is precisely what makes it reachable.** Summaries are built from the crew member's name alone, with no show, row id, or run discriminator (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`, `writeAutoApplyChanges.ts:112`, `writeAutoApplyChanges.ts:126`). The dashboard strip groups undoable rows from *many shows* into one list (`lib/admin/loadRecentAutoApplied.ts:51`), and under §3.5 they all announce into a single layout-wide region. Two shows that both dropped a crew member of the same name each produce `Crew member Alice Chen removed`, both `applied`, both undoable, both announcing into the same channel. Crew working across concurrent shows is the normal case for this product, not a contrivance.
 
-This is the evidence behind R3; it is not a defensive over-build.
+Under `role="status"` the second undo would be silent. Under `role="log"` both announce, because an identical *addition* always announces. The mechanism is additionally pinned by a passing test on the channel being extracted (`tests/components/admin/review/warningsPanelStatusMount.test.tsx:131`).
 
 ---
 
@@ -265,6 +265,23 @@ So a region placed *inside* the layout's root div is `aria-hidden` during exactl
 
 **jsdom cannot catch this**, which is why it is also an e2e obligation. `ReviewModalShell.tsx:176` says so outright, and Testing Library ignores `aria-hidden` when querying. A unit test therefore stays green on a completely dead feature. §11 carries a real-browser assertion for it, and §5's A3 pins the structural shape.
 
+#### 3.5.2 A second channel lives INSIDE the dialog
+
+Escaping `aria-hidden` by sitting outside the shell is necessary but not sufficient. `ReviewModalShell` renders its dialog with `role="dialog"` and `aria-modal="true"` (`components/admin/review/ReviewModalShell.tsx:584`). ARIA specifies content outside an `aria-modal` dialog as excluded from the accessibility tree while it is open, and support for announcing a live region outside such a dialog is inconsistent across screen readers. A region that is merely *not hidden* is therefore still not reliably *announceable* from inside the modal.
+
+So the modal gets its own channel:
+
+| Channel | Mounted by | Serves |
+|---|---|---|
+| Layout channel | `AdminAnnounceProvider` in `app/admin/layout.tsx`, wrapping the returned root (§3.5.1) | every non-modal admin surface, including the dashboard strip |
+| Dialog channel | a second `AdminAnnounceProvider` inside `ReviewModalShell`'s dialog element, as its always-first child | every surface rendered inside a review modal, including the per-show changes feed |
+
+Nesting is the mechanism, and it needs no coordination: React context resolves to the nearest provider, so a button inside the dialog announces into the dialog's region and the same button on the dashboard announces into the layout's, with no prop, flag, or branch deciding which. Both regions are branch-stable first children of components whose position cannot change, so §3.5's argument applies unchanged to each.
+
+**This is the point where the design stopped being patched and was restructured.** Three review rounds landed on region placement; per `docs/agents/spec-self-review.md:22`, a design-correctness vector surviving three rounds is not to be patched a fourth time. What changed here is structural: instead of finding one position that survives everything, every context in which an announcement can originate now owns a channel at a position that cannot move.
+
+**The unratified part, stated as such.** Whether a specific screen reader would have announced the layout region from inside the modal is not settled by this spec, and does not need to be — the dialog channel makes the question moot rather than answering it. What §11's real-browser assertion checks is mechanical and therefore trustworthy: the region that receives a feed undo is inside the dialog subtree, is not `aria-hidden`, and is not `inert`. No claim is made here about specific AT behavior, and none is relied upon.
+
 One residual interaction, documented rather than defended: `FinalizeButton` inerts every direct child of `<body>` except its own portal while the finalize overlay is open. The undo region is a body-level sibling under that rule, so an announcement raised *during* a finalize overlay would not be read. Undo is not reachable from that overlay, so this is unreachable today; it is recorded in §8 as a constraint any future body-level inerting must respect.
 
 **Consequences, all simplifications.** `ChangesFeed`, `ChangeFeedEntry`, `RecentAutoAppliedStrip`, and `GroupSection` gain **no** provider, **no** region, and **no** state. `RecentAutoAppliedStrip` keeps `return null` at `RecentAutoAppliedStrip.tsx:685` and its `infra_error` return exactly as they are — the "no empty card" intent is untouched, and the earlier proposal to return a bare `sr-only` span is withdrawn. The only edits to those four files are threading `announceLabel` to the two `UndoChangeButton` call sites.
@@ -322,18 +339,19 @@ No new copy. `ErrorExplainer` already resolves `code` through the catalog and re
 
 ## 5. Structural guard
 
-Moving the channel to the layout (§3.5) changes what a guard can usefully assert. The old proposal — walk for files rendering `<UndoChangeButton` and demand a nearby provider — was aimed at a per-surface ownership model that no longer exists, and the last round was right that its widened form was under-specified and had no escaping mutant for the second detection branch. It is withdrawn and replaced with three assertions that are each provable.
+Moving the channel to the layout (§3.5) changes what a guard can usefully assert. The old proposal — walk for files rendering `<UndoChangeButton` and demand a nearby provider — was aimed at a per-surface ownership model that no longer exists, and the last round was right that its widened form was under-specified and had no escaping mutant for the second detection branch. It is withdrawn and replaced with four assertions that are each provable.
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 `tests/styles/_metaUndoAnnounceProvider.test.ts`:
 
 | Assertion | Why it is checkable | Planted violation that must fail it |
 |---|---|---|
-| **A1 — every layout return is wrapped.** Each `return` in `app/admin/layout.tsx` yields a tree wrapped in `AdminAnnounceProvider`. One shared wrapper around the selected branch (the shape §3.5 shows, and the one to implement) and a wrapper per return both satisfy it. | The layout has three returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | The layout source with the wrapper removed from one branch's path. |
+| **A1 — every value `AdminLayout` returns is wrapped.** Every `return` **belonging to the `AdminLayout` function itself** yields a tree wrapped in `AdminAnnounceProvider`. Returns inside nested helpers or callbacks in the same file are out of scope, so the check is stated over the component's own returns rather than the file's — an earlier draft said "every `return` in the file", which a future local helper would have broken for no reason. | The layout has three such returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | The layout source with the wrapper removed from one branch's path; and separately a nested helper with its own unwrapped `return`, which must NOT fail. |
 | **A3 — the region is never inside an inert root.** `AdminAnnounceProvider` is not rendered as a descendant of any element carrying `data-inert-root` (§3.5.1). | Structural, and the difference between a working feature and a silently dead one. | The layout source with the provider nested inside the `data-inert-root` div instead of wrapping it. |
-| **A2 — nothing else provides the context.** No file outside the provider module references `UndoAnnounceContext.Provider`. | A second provider anywhere below the layout would shadow the layout's channel with a shorter-lived one, silently reintroducing the whole defect. | A file rendering `<UndoAnnounceContext.Provider>`. |
+| **A2 — the channel is mounted at exactly the two sanctioned positions.** `AdminAnnounceProvider` is rendered in exactly two files: `app/admin/layout.tsx` and `components/admin/review/ReviewModalShell.tsx`. No file other than the provider module references `UndoAnnounceContext.Provider` directly. | A third provider on some intermediate surface would shadow both channels with a shorter-lived one, which is the original defect wearing a new hat. An earlier draft of A2 said "nothing else provides", which the dialog channel now legitimately violates. | A third file rendering `<AdminAnnounceProvider>`; and separately a file rendering `<UndoAnnounceContext.Provider>` directly. |
+| **A4 — no `UndoChangeButton` outside the admin tree.** Every file rendering `<UndoChangeButton` lives under `app/admin/` or `components/admin/`. | This is the escaping mutant an earlier draft's guard admitted: a future non-admin call site passes every other assertion, silently consumes `NOOP_UNDO_ANNOUNCE`, and announces nothing. Neither provider is an ancestor there, and no behavioral test would exist to notice. | A file outside those trees rendering `<UndoChangeButton`. |
 
-A1 and A3 are checked against `app/admin/layout.tsx` from comment-stripped source; A2 by a walk over `components/` and `app/` (excluding `app/api/**`). All three use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each assertion carries its own planted violation** — an earlier round's finding was that a widened guard shipped a mutant for only one branch, so a guard silently ignoring another would still pass.
+A1 and A3 are checked against `app/admin/layout.tsx` from comment-stripped source; A2 and A4 by a walk over `components/` and `app/` (excluding `app/api/**`). All four use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each assertion carries its own planted violation** — an earlier round's finding was that a widened guard shipped a mutant for only one branch, so a guard silently ignoring another would still pass.
 
 A1 and A3 are deliberately shallow string-and-nesting checks over one known file rather than general JSX analysis. A guard needing a real parser to state its invariant is one nobody can trust; the runtime proof is the e2e assertion in §11.
 
@@ -429,16 +447,20 @@ The edit that does land is additive: a parenthetical on the `BL-SYNCFEED-UI-*` b
 
 **`BL-BULK-UNDO-ANNOUNCE-UNMOUNT`** — the pre-existing bulk "Undo all" channel dies with its group (§8). Filed rather than fixed because the fix breaches R2.
 
-**`BL-ANNOUNCE-REGION-UNMOUNT-CLASS`** — the class sweep this defect demanded, run across every live region in `components/` and `app/`. The defect this spec exists to fix is **not unique to the changes feed**; three other surfaces own a success announcement that their own success can unmount, and roughly eleven more mount their success region conditionally, which is the sibling not-announced pitfall.
+**`BL-ANNOUNCE-REGION-UNMOUNT-CLASS`** — the class sweep this defect demanded, run across every live region in `components/` and `app/`. The defect is **not unique to the changes feed**, and the surfaces below violate a rule `DESIGN.md:479` already ratified.
+
+Four surfaces own a success announcement their own success can unmount:
 
 | Severity | Surface | Region | Removal mechanism |
 |---|---|---|---|
-| P0 | `components/admin/RescanSheetButton.tsx` | `RescanSheetButton.tsx:211` / `RescanSheetButton.tsx:221`, both under the `{result ? …}` conditional at `RescanSheetButton.tsx:182` | `router.refresh()` on success (`RescanSheetButton.tsx:135`) flips the row's status; Step-3 re-partitions rows between `publishRows` and `blockingRows`, so the card, the button, and the just-set region all unmount. Eight call sites. |
-| P1 | `components/admin/review/PublishedArchivedTabOffer.tsx` | `PublishedArchivedTabOffer.tsx:135` and `PublishedArchivedTabOffer.tsx:227` | Both mutations set a transient live-region message then refresh (`PublishedArchivedTabOffer.tsx:95`, `PublishedArchivedTabOffer.tsx:188`); the revalidated `gear.wire` switches the parent between two different owning components (`step3ReviewSections.tsx:2515`), removing the transient region. |
-| P1 | `components/admin/FinalizeButton.tsx` | success region conditionally inserted at `FinalizeButton.tsx:579` | Sets `complete` and refreshes at `FinalizeButton.tsx:437`, immediately before the wizard is replaced by the dashboard. |
-| P2 | `components/admin/RoleRecognizeControl.tsx:195` | the saved card *is* the region, returned only while `phase === "saved"` | The action syncs, calls `revalidateShow`, and only then returns the saved result (`app/admin/show/[slug]/_actions/roleToken.ts:179`); a successful convergence removes the warning the control is gated on. Partly mitigated by the focus move at `RoleRecognizeControl.tsx:118`. |
+| P0 | `components/admin/RescanSheetButton.tsx` | `RescanSheetButton.tsx:211` / `RescanSheetButton.tsx:221`, both under the conditional at `RescanSheetButton.tsx:182` | `router.refresh()` on success (`RescanSheetButton.tsx:135`) flips the row's status; Step-3 re-partitions rows, so the card, the button, and the just-set region all unmount. Eight call sites. |
+| P1 | `components/admin/FinalizeButton.tsx` | conditionally inserted at `FinalizeButton.tsx:579` | Sets `complete` and refreshes at `FinalizeButton.tsx:437`, immediately before the wizard is replaced by the dashboard. |
+| P1 | `components/admin/review/PublishedArchivedTabOffer.tsx` | `PublishedArchivedTabOffer.tsx:135` and `PublishedArchivedTabOffer.tsx:227` | Both mutations set a transient message then refresh (`PublishedArchivedTabOffer.tsx:95`, `PublishedArchivedTabOffer.tsx:188`); the revalidated `gear.wire` switches the parent between two different owning components (`step3ReviewSections.tsx:2515`). |
+| P2 | `components/admin/RoleRecognizeControl.tsx:195` | the saved card *is* the region, returned only while `phase === "saved"` | The action syncs, calls `revalidateShow`, then returns the saved result (`app/admin/show/[slug]/_actions/roleToken.ts:179`); a successful convergence removes the warning the control is gated on. Partly mitigated by the focus move at `RoleRecognizeControl.tsx:118`. |
 
-Conditionally-mounted success regions, same class, lower stakes: `RoleMappingRow.tsx:212`, `AddAdminForm.tsx:157`, `RotateShareTokenButton.tsx:278`, `ReportModal.tsx:553`, `ReSyncButton.tsx:354`, `Step2Verify.tsx:496`, `BlockedRowResolver.tsx:251`, `archivedTabOffer.tsx:189` (which additionally uses `role="status"` for error copy).
+Thirteen conditionally-mounted regions, the sibling pitfall. **Success** regions: `RoleMappingRow.tsx:212`, `AddAdminForm.tsx:157`, `RotateShareTokenButton.tsx:278`, `ReportModal.tsx:553`, `ReSyncButton.tsx:354`, `Step2Verify.tsx:496`, `MaterializeCard.tsx:222`, `MaintenanceResetButtons.tsx:193`, `MaintenanceResetButtons.tsx:240`, `ReapStaleSessionsButton.tsx:154`. **Error** regions, which an earlier draft misfiled as success regions: `BlockedRowResolver.tsx:251`, `archivedTabOffer.tsx:189`, `archivedTabOffer.tsx:248`.
+
+An earlier draft of this row said "three surfaces" above a four-row table and "roughly eleven" conditional regions above eight, and classified three error regions as success regions. A debt row whose evidence cannot be counted is worth little, so the counts above are exact and the two categories are separated.
 
 **Why filed and not fixed here.** Every one of these is pre-existing, none is on the changes-feed surface this ledger entry covers, and the P0 alone spans eight call sites and the Step-3 row-partitioning logic. Folding them in would turn a scoped accessibility fix into a cross-surface refactor of the admin app, and would put the invariant-8 gate over a diff nobody scoped. The sweep result belongs in the ledger with its evidence, which is what the class-sweep rule asks for — sweep the class, then decide per instance.
 
@@ -575,7 +597,7 @@ Without step 2 the feature can ship completely dead with a green unit suite. Thi
 
 **Class-sweep tests** — `AcceptChangeButton` and `Mi11GateActions` each get the same always-mounted / same-node assertion as Undo.
 
-**Meta-test** — `_metaUndoAnnounceProvider`, with a planted violation for **each** of its three assertions (§5).
+**Meta-test** — `_metaUndoAnnounceProvider`, with a planted violation for **each** of its four assertions (§5), including the negative case under A1 that must NOT fail.
 
 ---
 

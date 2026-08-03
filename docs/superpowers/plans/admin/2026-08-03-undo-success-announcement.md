@@ -23,7 +23,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — three assertions (Task 10): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`; A3, the provider is never a descendant of a `data-inert-root` element. Each carries its own planted violation.
+- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — four assertions (Task 10): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`; A3, the provider is never a descendant of a `data-inert-root` element; A4, no `UndoChangeButton` outside the admin tree. Each carries its own planted violation.
 - **EXTENDS** none.
 - No advisory-lock topology section: the plan does not touch `pg_advisory*`.
 
@@ -115,6 +115,7 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 - [ ] Red tests first, then create the provider and mount it.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 - [ ] Create `components/admin/AdminAnnounceProvider.tsx` (`"use client"`): holds `useAnnounceLog`, provides `UndoAnnounceContext`, renders `<AnnounceLogRegion … testId="admin-undo-status" label="Undo updates" />` as its **always-first** child, then `{children}`.
+- [ ] Mount a **second** `AdminAnnounceProvider` inside `ReviewModalShell`'s dialog element as its always-first child (spec §3.5.2). Nested context resolves to the nearest provider, so no flag or prop decides which channel a button uses.
 - [ ] Edit `app/admin/layout.tsx` to wrap the branch it selected — one wrapper around the chosen return value, **not** an edit inside each of the three returns (`app/admin/layout.tsx:90`, `layout.tsx:155`, `layout.tsx:177`), and **outside** `PageTransition` (`layout.tsx:171`).
 - [ ] Commit `feat(admin): mount the announce channel on the admin layout`.
 
@@ -123,6 +124,7 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 | The provider renders `admin-undo-status` as its first child, with `{children}` after it | The region drifting to a position whose index can change |
 | Swapping `children` for an entirely different subtree leaves the region node `toBe` identical | The round-2 defect: node replacement while state survives |
 | A consumer deep inside `children` calling `announce` appends to the region | The context not actually reaching descendants |
+| A consumer inside a nested second provider announces into the INNER region only, leaving the outer empty | The dialog channel silently falling through to the layout channel, which is the case §3.5.2 exists to prevent |
 
 The layout edit is the whole point of the redesign; wrapping each return separately would recreate the branch-replaces-region defect it exists to remove.
 
@@ -152,7 +154,7 @@ If any probe fails, the layout-level owner is not immune and the design is wrong
 
 ## Task 9 — Real-browser accessibility-tree assertion
 
-- [ ] Add the assertion to the **existing** `tests/e2e/published-review-modal.crew-actions.spec.ts` (see the e2e-readiness section for why a new spec file would never run): open the published review modal on a seeded show with an undoable feed row; assert `admin-undo-status` is attached **and** that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
+- [ ] Add the assertion to the **existing** `tests/e2e/published-review-modal.crew-actions.spec.ts` (see the e2e-readiness section for why a new spec file would never run): open the published review modal on a seeded show with an undoable feed row; assert the receiving region is **inside the dialog subtree** (spec §3.5.2) and that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
 - [ ] Confirm the spec actually executed — a passing run that collected zero tests is the failure this task exists to avoid.
 - [ ] Commit `test(admin): prove the undo region stays in the a11y tree under the review modal`.
 
@@ -161,10 +163,12 @@ Failure caught: the region nested inside `[data-inert-root]` instead of wrapping
 ## Task 10 — Structural guard
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the three assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
+- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the four assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
 - [ ] **A1** — `app/admin/layout.tsx` references `AdminAnnounceProvider` and every `return` in the file is wrapped in it. Planted violation: a copy of the layout source with one `return` unwrapped.
 - [ ] **A2** — no file outside the provider module references `UndoAnnounceContext.Provider`. Planted violation: a file rendering `<UndoAnnounceContext.Provider>`.
 - [ ] **A3** — `AdminAnnounceProvider` is not a descendant of any `data-inert-root` element in the layout. Planted violation: the layout source with the provider nested inside that div.
+- [ ] **A4** — every file rendering `<UndoChangeButton` lives under `app/admin/` or `components/admin/`. Planted violation: such a file outside those trees. This is the escaping mutant the earlier guard admitted, where a non-admin call site silently consumes the no-op context.
+- [ ] A1's negative case: a nested helper in the layout file with its own unwrapped `return` must NOT fail the guard.
 - [ ] Commit `test(admin): guard the announce channel's single layout-level owner`.
 
 Each assertion carries its **own** planted violation. Round 2's finding was a widened guard shipping a mutant for only one branch, so a guard silently ignoring the second would still have passed.
