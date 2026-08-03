@@ -194,7 +194,7 @@ The alternating value (spec §4.7) is computed in `PublishedReviewModal` and pas
 
 ## T4 — the state machine and the announcement region
 
-**Touches:** `components/admin/showpage/PublishedReviewModal.tsx`; **creates** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx (new)`.
+**Touches:** `components/admin/showpage/PublishedReviewModal.tsx`, `tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx`; **creates** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx (new)`.
 
 Implements spec §4.2 verbatim: the memoised signature, the FOUR-branch render-phase adjustment (including the mount-baseline branch that keeps a stale prefetched open from flashing everything that changed while the modal was shut), the per-section arming map with its per-batch timers registered in a ref and cleared only on unmount, the per-section attribute value flip, and the §4.6 announcement region as a key-stable sibling of `StatusStrip` in the shell's `subHeader` slot with `key="freshness-announce"`, its inner text node keyed by batch.
 
@@ -206,7 +206,11 @@ Three details are easy to get subtly wrong and each has a test aimed at it:
 
 The memo is keyed on the `data` prop identity, not on a serialisation of it, so the stringify cost is paid once per RSC pass. A client-only re-render (the close transition, a nav click, the scroll spy) reuses the same props object and therefore the same memo, which is what makes branch 1 of the state machine reachable at all.
 
-**Tests S1 through S13** exactly as spec §11.2, on the existing harness, mirroring `tests/components/admin/showpage/shareHubFlashState.test.tsx`.
+**Tests S1 through S17** exactly as spec §11.2, on the existing harness, mirroring `tests/components/admin/showpage/shareHubFlashState.test.tsx`.
+
+The harness fits without redesign and that was verified rather than assumed: `publishedModalElement` exists precisely so a test can drive live transitions through RTL `rerender` (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:139-141`), and `baseProps` builds `data` and `bySection` from raw rows through the REAL adapter and the REAL warning model (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:99-106`). Re-rendering with different raw rows is therefore a genuine content delta through the production pipeline, not a poked prop, which is what keeps S3 and S14 from being tautologies.
+
+**One harness extension is required and this task owns it.** `HarnessOpts` (`tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:93-97`) exposes only `ignoredFingerprints`, `attentionItems` and `alertsDegraded`; `lastSyncedAt`, `lastCheckedAt` and `lastSyncStatus` are hardcoded in `baseProps`. The component-level twin of D4, a refresh that moves only the sync stamps, cannot be expressed without overrides, so `HarnessOpts` gains them as optional fields with the current values as defaults. Additive and default-preserving, so no existing test changes.
 
 **Transition audit** (mandatory per `docs/agents/writing-plans.md:9`). The spec's §6 inventory is the checklist. Every conditional render and every ternary in the changed region is enumerated and each is either covered by an S-row or is explicitly instant:
 
