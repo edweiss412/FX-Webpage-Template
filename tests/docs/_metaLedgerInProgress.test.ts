@@ -72,12 +72,16 @@ function fieldsOfLine(line: string): Record<string, string> {
   const marks: { key: string; end: number; at: number }[] = [];
   const re = /\*\*([^*\n]{1,60}?):?\*\*/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(line))) marks.push({ key: m[1].replace(/:\s*$/, "").trim(), at: m.index, end: m.index + m[0].length });
-  for (let i = 0; i < marks.length; i++) {
-    const stop = i + 1 < marks.length ? marks[i + 1].at : line.length;
-    const raw = line.slice(marks[i].end, stop).replace(/^[:\s]*/, "").replace(/\s*·\s*$/, "").trim();
-    if (out[marks[i].key] === undefined) out[marks[i].key] = raw;
+  while ((m = re.exec(line))) {
+    const key = (m[1] ?? "").replace(/:\s*$/, "").trim();
+    if (key) marks.push({ key, at: m.index, end: m.index + m[0].length });
   }
+  marks.forEach((mark, i) => {
+    const next = marks[i + 1];
+    const stop = next ? next.at : line.length;
+    const raw = line.slice(mark.end, stop).replace(/^[:\s]*/, "").replace(/\s*·\s*$/, "").trim();
+    if (out[mark.key] === undefined) out[mark.key] = raw;
+  });
   return out;
 }
 
@@ -92,10 +96,12 @@ export function ledgerItems(file: string, text: string): LedgerItem[] {
   const heads: { i: number; id: string }[] = [];
   lines.forEach((l, i) => {
     const m = HEADING.exec(l);
-    if (m) heads.push({ i, id: m[2] });
+    const id = m?.[2];
+    if (id) heads.push({ i, id });
   });
   return heads.map((h, n) => {
-    const end = n + 1 < heads.length ? heads[n + 1].i : lines.length;
+    const next = heads[n + 1];
+    const end = next ? next.i : lines.length;
     const fields: Record<string, string> = {};
     for (const l of lines.slice(h.i + 1, Math.min(end, h.i + 13))) {
       for (const [k, v] of Object.entries(fieldsOfLine(l))) if (fields[k] === undefined) fields[k] = v;
@@ -216,23 +222,32 @@ describe("ledger IN PROGRESS staleness", () => {
 // would all pass against a parser that did nothing. These prove each rule
 // actually catches its violation, on planted input rather than on the corpus.
 describe("the guard catches what it claims to", () => {
-  const plant = (body: string) => ledgerItems("BACKLOG.md", `## BL-PLANT — a planted entry\n\n${body}\n`);
+  /**
+   * One planted entry, and the length assertion is load-bearing rather than
+   * ceremony: a fixture that failed to parse would return an empty array and
+   * make every expectation below vacuous.
+   */
+  const plant = (body: string): LedgerItem => {
+    const items = ledgerItems("BACKLOG.md", `## BL-PLANT — a planted entry\n\n${body}\n`);
+    expect(items).toHaveLength(1);
+    return items[0] as LedgerItem;
+  };
 
   it("parses a meta line into separate fields rather than one greedy blob", () => {
-    const [it0] = plant("**Status:** IN PROGRESS · **Branch:** feat/x · **Severity:** low");
+    const it0 = plant("**Status:** IN PROGRESS · **Branch:** feat/x · **Severity:** low");
     expect(it0.fields.Status).toBe("IN PROGRESS");
     expect(it0.fields.Branch).toBe("feat/x");
     expect(it0.fields.Severity).toBe("low");
   });
 
   it("catches IN PROGRESS with no branch and no PR", () => {
-    const [it0] = plant("**Status:** IN PROGRESS · **Severity:** low");
+    const it0 = plant("**Status:** IN PROGRESS · **Severity:** low");
     expect(isInProgress(it0)).toBe(true);
     expect(it0.fields.Branch || it0.fields.PR).toBeFalsy();
   });
 
   it("catches a bare Branch field on an entry whose status denies it", () => {
-    const [it0] = plant("**Status:** OPEN · **Branch:** feat/x");
+    const it0 = plant("**Status:** OPEN · **Branch:** feat/x");
     expect(isInProgress(it0)).toBe(false);
     expect(flightFieldsOn(it0)).toEqual(["Branch"]);
   });
@@ -246,23 +261,22 @@ describe("the guard catches what it claims to", () => {
   });
 
   it("does not fire on an entry that never opted in", () => {
-    const [it0] = plant("**Status:** OPEN · **Severity:** low · **Class:** CI");
+    const it0 = plant("**Status:** OPEN · **Severity:** low · **Class:** CI");
     expect(isInProgress(it0)).toBe(false);
     expect(flightFieldsOn(it0)).toEqual([]);
   });
 
   it("reads in-flight and WIP as the same declaration, and does not sniff prose", () => {
-    expect(isInProgress(plant("**Status:** IN-FLIGHT · **PR:** #1")[0])).toBe(true);
-    expect(isInProgress(plant("**Status:** WIP · **PR:** #1")[0])).toBe(true);
+    expect(isInProgress(plant("**Status:** IN-FLIGHT · **PR:** #1"))).toBe(true);
+    expect(isInProgress(plant("**Status:** WIP · **PR:** #1"))).toBe(true);
     // An audit stamp is not somebody working on it. This is the exact shape that
     // made an inference-based reading of "in progress" indefensible.
-    expect(isInProgress(plant("**Status:** OPEN\n\n**VERIFIED INCOMPLETE 2026-08-03 — do not archive.**")[0])).toBe(false);
+    expect(isInProgress(plant("**Status:** OPEN\n\n**VERIFIED INCOMPLETE 2026-08-03 — do not archive.**"))).toBe(false);
   });
 
   it("ignores a **Branch:** quoted deep inside a long body", () => {
-    const far = ["**Status:** OPEN", ...Array(14).fill("filler paragraph"), "**Branch:** feat/quoted-in-discussion"].join("\n\n");
-    const [it0] = ledgerItems("BACKLOG.md", `## BL-PLANT — planted\n\n${far}\n`);
-    expect(flightFieldsOn(it0)).toEqual([]);
+    const far = ["**Status:** OPEN", ...Array<string>(14).fill("filler paragraph"), "**Branch:** feat/quoted-in-discussion"].join("\n\n");
+    expect(flightFieldsOn(plant(far))).toEqual([]);
   });
 
   it("discovers ledger files from disk, including a new one", () => {
