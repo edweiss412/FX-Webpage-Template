@@ -429,11 +429,18 @@ describe("section freshness detector", () => {
     expect(changedSectionIds(sigs([]), sigs([item("a1", "Two crew share an email")]))).toEqual([
       "crew",
     ]);
-    // Edited in place, count held equal, so only the item's own content can carry it.
+    // NO edit-in-place case on `menuTitle`. It was here and it pinned a FALSE
+    // cue: `AttentionBanner` renders the ALERT payload, not the menu copy
+    // (`components/admin/review/AttentionBanner.tsx:103`), so changing
+    // `menuTitle` alone moved the signature while the rendered banner stayed
+    // byte-identical. A regression suite that asserts a false positive is worse
+    // than no suite, because it makes the defect a requirement.
+    //
+    // What a rendered edit looks like: the alert payload itself.
     expect(
       changedSectionIds(
         sigs([item("a1", "Two crew share an email")]),
-        sigs([item("a1", "Three crew share an email")]),
+        sigs([{ ...item("a1", "Two crew share an email"), tone: "critical" }]),
       ),
     ).toEqual(["crew"]);
     // Resolved.
