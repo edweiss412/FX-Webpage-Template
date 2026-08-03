@@ -9,6 +9,8 @@
 
 The admin published review modal (`/admin?show=<slug>`) refreshes itself in place when a realtime broadcast lands. Today that refresh is completely silent: content swaps under the reader with no animation, no indicator, and no screen-reader announcement.
 
+**The trigger is an in-place content swap, not specifically a broadcast.** Round 2 established by enumeration that the same surface calls `router.refresh()` after a use-raw toggle, an ignore or unignore, a bulk ignore, an archived-tab action, a manual re-sync, and a lifecycle toggle. Those reconcile exactly like a broadcast does, and the detector cannot tell them apart, so they cue too. That is deliberate rather than tolerated: the cue answers "what just changed here", and the answer is equally useful whether the change arrived from another operator or from this one. What it must never do is fire when NOTHING changed, and §3's probes are what establish it does not.
+
 This spec adds two legs, both one-shot and both scoped to the modal:
 
 1. **Visual.** A flash-then-fade cue on the panel card of every registry section whose *content* changed across the refresh, capped so a full re-parse cannot strobe.
@@ -123,12 +125,17 @@ It is a perfectly good "something changed" fence, and the bridge already uses it
 In `PublishedReviewModal` (already a client component holding the RSC props), compute one signature per rail section, memoised on the identity of the props it reads so the stringify cost is paid once per RSC pass and not on every client-state render:
 
 ```tsx
-const signature = useMemo(() => buildSectionSignatures({ data, bySection }), [data, bySection]);
+const signature = useMemo(
+  () => buildSectionSignatures({ data, bySection, attentionBySection }),
+  [data, bySection, attentionBySection],
+);
 ```
 
 `buildSectionSignatures` lives in the new pure module `components/admin/review/sectionFreshness.ts (new)` and returns `ReadonlyMap<SectionId, string>`. Its per-section projection is the single source of truth for what counts as a section’s content.
 
-**A section’s content is not only its own data fields.** Round 1 established that three other things render inside a section’s card and change independently of those fields, and a projection that omitted them produced a silently missed cue: the warnings ROUTED to that section, the use-raw decision attached to each routed warning, and the section’s “In sheet” anchor. Each is now part of the section’s signature.
+**A section’s content is not only its own data fields.** Two review rounds established that four other things render inside a section’s card and change independently of those fields, and a projection that omitted them produced a silently missed cue: the warnings ROUTED to that section, the rendered state of the use-raw decision attached to each routed warning, the section’s “In sheet” anchor, and the attention items bucketed under it. Each is part of the section’s signature.
+
+**The converse matters as much, and the second review round found it too.** Hashing MORE than a card renders is not a safe default; it is a false cue, which is worse than a missed one because it teaches the reader the cue means nothing. Two over-hashings were removed: the Sheet-warnings section no longer hashes the whole warning list (it renders only what routed to IT, so an edit to a crew-routed warning left its panel byte-identical while cueing it), and a use-raw decision contributes only the fields that reach the control.
 
 | Rail id | Own fields | Feeds |
 |---|---|---|
@@ -143,15 +150,16 @@ const signature = useMemo(() => buildSectionSignatures({ data, bySection }), [da
 | `rooms` | `rooms`, `diagrams` | `step3ReviewSections.tsx:4258-4271` |
 | `packlist` | `pullSheet`, `archivedPullSheetTabs`, `pullSheetOverride`, `pullSheetOverrideWire`, `archivedTabOffer` | `step3ReviewSections.tsx:4287-4302`, offer cards at `step3ReviewSections.tsx:2449-2498` |
 | `billing` | `billing` | `step3ReviewSections.tsx:4314` |
-| `warnings` | `warnings`, `useRawDecisions` | `step3ReviewSections.tsx:4337-4346` |
+| `warnings` | nothing of its own; see the routed row below | `step3ReviewSections.tsx:4337-4346` |
 
 Plus, for EVERY rail id in the table:
 
 | Component | Value | Why it belongs to the section |
 |---|---|---|
 | Routed warnings | `bySection[id]`, the server-derived per-section warning model already passed to this component as a prop | The routed cards render as the panel card’s LAST child, inside the border they describe: the `Step3SectionChromeContext` value threads them (`components/admin/review/ShowReviewSurface.tsx:1060-1146`) and the record type is `SectionWarningRecord` (`lib/admin/sectionWarningModel.ts:69`). A warn arriving for Crew changes the Crew card while `crewMembers` is untouched. |
-| Routed use-raw decisions | for each warning in `bySection[id]`, the decision `findUseRawDecision` matches it to (`components/admin/wizard/step3ReviewSections.tsx:572-583`) | The control’s rendered state is the decision, matched by `(code, contentHash)` and never by target. Matching through the canonical matcher rather than a reimplementation is deliberate: a second matcher would be a second source of truth. |
+| Routed use-raw decisions | for each warning in `bySection[id]`, ONLY the rendered state of the decision `findUseRawDecision` matches it to: `code`, `contentHash`, `preference`, `applied` (`components/admin/wizard/step3ReviewSections.tsx:572-583`) | The control renders the warning plus `preference` and `applied`. `target` is documented display-only (`lib/sync/useRawOverlay.ts:35`) and `decidedAt` / `decidedBy` reach no element, so hashing the whole persisted row cued a card whose HTML was unchanged. Matching goes through the canonical matcher rather than a reimplementation: a second matcher would be a second source of truth. |
 | Section anchor | `sourceAnchors[SECTION_REGION_MAP[id]]` when the region is non-null (`lib/admin/step3SectionStatus.ts:53-68`) | The heading’s “In sheet” link resolves its target through that anchor (`components/admin/wizard/step3ReviewSections.tsx:896-906`), so an anchor move changes where the section’s link goes. `diagrams`, `warnings` and `report` map to `null` and contribute nothing. |
+| Routed attention items | the actionable items the modal buckets under this section, supplied by the caller as `attentionBySection` | The second review round found this by probe: attention items render inline card content in the crew, event, rooms and warnings bodies of `components/admin/wizard/step3ReviewSections.tsx`, so adding, editing or resolving one changes a card no own-field signature can see. The caller supplies the grouping because it already resolves the placement predicate through `resolveEffectiveSection` (`components/admin/showpage/PublishedReviewModal.tsx:415-416`); resolving it again inside the detector would be a second source of truth for where an item belongs. |
 
 Only ids present in `renderedSectionIds(data)` (`components/admin/review/sectionInclusion.ts:54-59`) get an entry, so a section that is not rendered can never be cued. `report` is staged-only (`sectionInclusion.ts:44-46`) and never appears in this modal.
 
@@ -168,19 +176,31 @@ State is a MAP from section id to its arming, not a single cue object:
 ```tsx
 type Arming = { batch: number; value: "1" | "2" };
 
-const [prevSignature, setPrevSignature] = useState(signature);
+// ONE state cell holds the last-seen signature AND whether the mount baseline
+// has been taken. Both are per-committed-render facts, so neither may live in a
+// ref written during render.
+const [seen, setSeen] = useState({ signature, baseline: false });
 const [armed, setArmed] = useState<ReadonlyMap<SectionId, Arming>>(EMPTY);
 const [batch, setBatch] = useState(0);
 const [announced, setAnnounced] = useState<{ batch: number; text: string } | null>(null);
-const baselineTakenRef = useRef(false);
 ```
+
+**Why `seen.baseline` is state and not a ref, which round 2 settled by probe.** A ref mutated during render is written by renders that are then ABANDONED. React 19 discards the render but keeps the mutation, so a suspended payload that the reader never saw consumed the mount baseline, and the NEXT payload, the first one actually committed, got armed instead of taken as the baseline. That is precisely the stale-prefetch flash this branch exists to prevent. The probe:
+
+```text
+BASELINE B / SUSPEND B / AFTER-B DOM <span>A</span>
+render sig=C prev=A baseline=true armed=false
+ARM C / AFTER-C DOM <span>C</span>
+```
+
+Render-phase `setState` on the same component does not have this problem: an abandoned render's queued state is thrown away with it.
 
 The map is what makes each cue expire on its own clock. A single shared cue object meant a change to Venue at T plus 400ms yanked Crew’s attribute mid-hold, and since the wash holds to 45% of 1600ms, Crew was still at full tint and snapped. Round 1 measured that. Per-section arming removes it.
 
 Branches, exhaustively, on `prevSignature !== signature`:
 
 1. **Same memo identity** (a client-state render: nav click, scroll spy, close transition). Nothing runs. Live cues are untouched.
-2. **The FIRST transition after mount.** `baselineTakenRef` flips and NOTHING is armed, whatever changed. This is the open-time refresh, the one the `refreshFiredRef` guard fires exactly once per mounted instance (`components/admin/showpage/PublishedReviewModal.tsx:174-193`), and it exists because a prefetched open can serve a payload minutes old: without this branch, opening a stale-cached modal flashes every section that changed while it was CLOSED, which is exactly the “flashing on open would be wrong” case. The baseline is the refreshed payload, not the prefetched one.
+2. **The FIRST transition after mount.** `seen.baseline` flips and NOTHING is armed, whatever changed. This is the open-time refresh, the one the `refreshFiredRef` guard fires exactly once per mounted instance (`components/admin/showpage/PublishedReviewModal.tsx:174-193`), and it exists because a prefetched open can serve a payload minutes old: without this branch, opening a stale-cached modal flashes every section that changed while it was CLOSED, which is exactly the “flashing on open would be wrong” case. The baseline is the refreshed payload, not the prefetched one.
 3. **A later transition with zero changed ids** (a poll that found nothing; a lifecycle flip). `prevSignature` advances and live cues are **left running** rather than cleared. Clearing would truncate an in-flight animation for a refresh that changed nothing.
 4. **A later transition with one or more changed ids.** `batch` increments. Within the cap, each changed id is written into `armed` with the new batch and with its value FLIPPED from whatever it held (`"1"` to `"2"`, or `"1"` when it was absent), which is what restarts the animation for a section cued twice in a row (§4.7). Ids that did not change keep their existing arming and their existing expiry. Over the cap, `armed` is emptied instead.
 
@@ -223,7 +243,28 @@ useEffect(() => {
 }, []);
 ```
 
-The unmount-only effect is what satisfies the no-orphan-timer requirement; a modal closing mid-flash clears every outstanding batch at once. There is no `open` predicate to mirror from `ShareHub` because this modal has no closed-but-mounted state: closing unmounts the instance (`components/admin/showpage/PublishedReviewModal.tsx:196-200`).
+The unmount-only effect is what satisfies the no-orphan-timer requirement.
+
+**There IS a closed-but-mounted state, and round 2 refuted the first draft's claim that there is not.** A COMMITTED close unmounts the instance, but an ABORTED close does not: `closing` is local state that hides the shell by passing `open={!closing}`, and the shell's closed arm renders `null` while this component, which owns the freshness state, stays mounted above it (`components/admin/showpage/PublishedReviewModal.tsx:205-210`, `PublishedReviewModal.tsx:686-689`, `components/admin/review/ReviewModalShell.tsx:122-127`). The probe:
+
+```text
+{"freshnessOwnerStaysAboveShell":true,"closeOnlySetsShellOpenFalse":true,
+ "closedShellReturnsNull":true,"abortedCloseReusesInstance":true}
+```
+
+Left alone, an aborted close reopened inside the flash window would remount a card still wearing its attribute and restart the animation on whatever remained of the old timer, and a refresh arriving while hidden would arm a cue for content the reader was not present for, contradicting §8. So the design mirrors the `linkActive` visibility predicate `ShareHub` already uses (`components/admin/showpage/ShareHub.tsx:491`):
+
+```tsx
+// Written over VISIBILITY, not over any one cause. Clearing on hide also makes
+// the reopen a fresh baseline, since the next transition is branch 2 again.
+if (closing && (armed.size > 0 || announced !== null || seen.baseline)) {
+  setArmed(EMPTY);
+  setAnnounced(null);
+  setSeen({ signature, baseline: false });
+}
+```
+
+While `closing` is true, branch 4 does not arm: a hidden surface has no reader to cue.
 
 ### 4.3 What can be cued, and what deliberately cannot
 
@@ -258,7 +299,7 @@ The cue is a wash plus an outline on the panel card, held to 45% then settling, 
 
 **Why both a wash and an outline, rather than a wash alone.** `DESIGN.md:297` already records that the ring in the share-link cue "is NOT decorative in dark, where it is the change signal itself" — the `accent-tint` wash is a small delta against dark surfaces. The same holds here, so the outline is not garnish; it is the dark-theme signal.
 
-**Why an outline rather than a border or a box-shadow.** The card already owns its `border` (which switches to `border-border-strong` when the section is flagged, `step3ReviewSections.tsx:1036-1037`) and its `shadow-(--shadow-tile)`. Animating either would fight an existing state. `outline` is layout-neutral, composes with both, and follows `border-radius`.
+**Why an outline rather than a border or a box-shadow.** The card already owns its `border` (which switches to `border-border-strong` when `flagged`, `step3ReviewSections.tsx:1046`) and its `shadow-(--shadow-tile)`. Animating either would fight an existing state. `outline` is layout-neutral, composes with both, and follows `border-radius`.
 
 Three consequences of that choice, each verified rather than assumed:
 
@@ -353,12 +394,16 @@ Copy, owned by `components/admin/review/sectionFreshness.ts (new)` alongside the
 |---|---|
 | No live cue | region present, no child |
 | One changed section | `Updated: Crew.` |
-| Two or three, up to the cap | `Updated: Crew, Rooms and scope.` |
+| Two, up to the cap | `Updated: Crew and Rooms & scope.` |
+| Three, up to the cap | `Updated: Crew, Hotels and Rooms & scope.` |
 | Over the cap | `Show details updated.` |
+| Any changed section is no longer rendered | `Show details updated.` |
 
-**Only sections that are still rendered are named.** A section can change by DISAPPEARING: `agenda` drops out of the rail entirely when `agendaBaseline` empties (`components/admin/review/sectionInclusion.ts:27-29`). Naming it would send the reader looking for a section that is not there, contradicting the whole point of naming things they can find. So the named list is `changed` intersected with the ids present in the NEW signature map. If that intersection is empty while `changed` is not, the announcement is the surface sentence rather than nothing: something did change, and the reader is told so without being sent on a hunt. The disappearance is otherwise silent visually, since there is no card left to flash.
+**Labels come from the registry, never from a copy of it.** `freshnessAnnouncement` takes a `labelOf` callback and the modal supplies it from `step3Sections(data)`, the same list that renders the rail chip and the section heading. An earlier draft wrote sample copy from memory and produced `Updated: Crew, Rooms and scope.`, which no real combination can generate: the registry `label` is the single item `Rooms & scope` (`components/admin/wizard/step3ReviewSections.tsx:4262`), so a two-item join reads `Updated: Crew and Rooms & scope.` A duplicated label map would have made that drift permanent and a "verbatim" test would have pinned the wrong strings; taking the callback makes parity structural.
 
-Section names are the registry labels already rendered in the rail chip and the section heading, so the announcement names things the reader can find. The list joins with commas and a final "and" and carries no em dashes and no apostrophes (`DESIGN.md:381`).
+**Only sections that are still rendered can be named, and a mixed case is not partially named.** A section can change by DISAPPEARING: `agenda` drops out of the rail when `agendaBaseline` empties (`components/admin/review/sectionInclusion.ts:27-29`). Naming it would send the reader after something that is not there. But naming only the survivors is worse than it looks: with `changed = ["agenda", "crew"]` and agenda gone, `Updated: Crew.` states something true and implies something false, that Crew is all that moved. So the rule is not an intersection, it is a gate: **if any changed id is absent from the new signature map, the announcement is the surface sentence.** The reader is told the surface changed, which is true, and is not sent hunting for a section that no longer exists.
+
+The list joins with commas and a final "and" and carries no em dashes and no apostrophes (`DESIGN.md:381`). The `&` in `Rooms & scope` is the registry's, not this spec's.
 
 The announcement fires in the over-cap case even though no card flashes. That is the point: over the cap the surface-level statement is the true one, and dropping the visual leg must not drop the information.
 
@@ -395,7 +440,9 @@ Every input, and what renders.
 | `chrome.sectionId` | `undefined` (sub-block) | no attribute, matching the existing panel-card testid guard |
 | `prefers-reduced-motion` | `reduce` | no visual cue at all; announcement unchanged |
 | modal | unmounts mid-flash | effect cleanup clears the timer; no orphan |
-| show | archived or unpublished | unchanged behaviour: these are not section content (P6), so no cue |
+| show | archived or unpublished | no cue from the lifecycle flag itself (P6). ONE indirect exception, found by probe in round 2: the loader clears `archivedTabOffer` when a show stops being published-and-unarchived (`app/admin/_showReviewModal.tsx:364-368`), so a show that was showing archived-tab offer cards loses them and Pack list cues. That is a real content change, the cards genuinely disappear, so the cue is correct and the earlier blanket claim was the thing that was wrong |
+| modal | `closing` is true (an aborted close, still mounted) | armed cues and the announcement clear, nothing new arms, and the next transition is a fresh baseline (§4.2) |
+| refresh source | an operator action rather than a broadcast | cues identically; the detector cannot and need not distinguish them (§1) |
 
 ---
 
@@ -422,6 +469,10 @@ Compound transitions, enumerated:
 | A refresh takes the change count over the cap mid-flash | `armed` empties, so a mid-hold card DOES snap to resting. Deliberate and the one truncation left in the design: over the cap the announcement no longer supports a per-card claim, so leaving a card lit would assert something the announcement has stopped saying. Recorded as a documented limit (§8) rather than hidden. |
 | The open-time refresh, whatever it changed | branch 2: baseline only, nothing animates |
 | A section disappears while flashing | its card unmounts with the section; the arming entry is harmless and expires on its own timer |
+| A section APPEARS (agenda gains links) under the cap | absent to flashing: the card mounts already wearing the attribute, so its animation runs from first paint |
+| A section APPEARS over the cap | absent to resting: the card mounts with no attribute, and the announcement is the surface sentence |
+| A section disappears while at rest | resting to absent: nothing animates, and the announcement is the surface sentence because a changed id is no longer rendered (§4.6) |
+| The modal is hidden by an aborted close mid-flash | every attribute and the announcement clear at once; a reopen is a fresh baseline, so nothing is left mid-animation to resume |
 | The modal closes mid-flash | the instance unmounts and the unmount-only effect clears every outstanding batch timer |
 | A flash starts while the attention pill or banner is reconciling | independent subtrees, no shared state; the pill has no transition that the card's `animation` composes with |
 | A flash starts while the share-link flash is running in the open share popover | independent elements and independent constants; both are 1600ms one-shots and neither reads the other's state |
@@ -441,7 +492,7 @@ Announcement transitions, which are separate from the card's and were the round-
 
 The cue paints `background-color`, `outline-color` and a constant `outline-width`. None of the three participates in layout, and `outline` (unlike `border`) does not occupy space. The panel card's box is byte-identical with and without the attribute.
 
-That claim is worth an assertion rather than a sentence, because the surface has a real fixed-height parent with flex children (the `scrollerRef` scroll container, `ShowReviewSurface.tsx:1027-1029`) and Tailwind v4 does not default `.flex` to `align-items: stretch`. The plan carries a real-browser `getBoundingClientRect()` check that the card's rect is unchanged across arming and expiry, to 0.5px, and that the scroll container's `scrollHeight` does not move.
+That claim is worth an assertion rather than a sentence, because the surface has a real fixed-height parent with flex children (the scroll container carrying `scrollerRef`, `ShowReviewSurface.tsx:1036`) and Tailwind v4 does not default `.flex` to `align-items: stretch`. The plan carries a real-browser `getBoundingClientRect()` check that the card's rect is unchanged across arming and expiry, to 0.5px, and that the scroll container's `scrollHeight` does not move.
 
 ---
 
@@ -454,6 +505,7 @@ That claim is worth an assertion rather than a sentence, because the surface has
 - **Over the cap, a mid-hold card snaps to resting** (§6). The only truncation in the design, and it is preferred to leaving a card lit under an announcement that has stopped making a per-card claim.
 - **Off-screen cards flash unseen.** The modal is a scrolling column and a changed section may be below the fold. The announcement names it regardless, and no scroll is forced: yanking the reader's viewport on a background sync would be a far worse outcome than a missed flash. Auto-scroll is out of scope (§9).
 - **A hash collision costs a missed cue** (§4.1). The content is still correct on screen.
+- **Hotel ordering rests on the RPC's `order by h.ordinal, h.id`, and nothing in this diff pins the tie-break.** Two reservations sharing an ordinal could reorder between reads and cue Hotels spuriously. No corpus instance is known; filing a tie-break assertion on the RPC is a separate, cheap follow-up rather than a rider here.
 - **Over the cap the reader is told the surface changed, not which parts** (§4.4). Deliberate.
 
 ---
@@ -476,12 +528,18 @@ Single source of truth for every literal in this document.
 |---|---|---|---|
 | `1600` | `SECTION_FRESHNESS_FLASH_MS` | `components/admin/review/sectionFreshness.ts (new)` | §4.2 timer, the four `1600ms` durations in §4.5, tests N1 and N2 |
 | `3` | `SECTION_FRESHNESS_MAX_CUES` | same module | §4.4, §5, §6 |
-| `720` | the hold point in ms, `45%` of the duration | derived, never written as a literal | §4.2 and §6, where it is why truncation is visible |
+| `720` | the hold point in ms, `45%` of the duration | derived, never written as a literal | the state-machine and transition sections, where it is why truncation is visible |
 | `45%` | keyframe hold point | `app/globals.css` (§4.5 normative block) | §4.5, mirrors `app/globals.css:915` |
 | `2px` | outline width | same | §4.5 |
 | `11` | sections changed on a full re-parse | measured, §3.2 P5 | §4.4 rationale |
 | `12` | rail ids this modal can render | `sectionInclusion.ts:54-59` minus staged-only `report` | §5 guard table |
 | `100ms` | bridge debounce, quoted not set here | `ShowRealtimeBridge.tsx:108` | §4.7 |
+| the keyframe endpoints, zero and full | written only in the normative block | the §4.5 normative block | §4.5 only |
+| `outline-offset: 0` | outline placement | same | §4.5 only |
+| `0.5px` | the real-browser rect tolerance | the dimension task | the dimensional-invariants and real-browser sections |
+| the text and non-text contrast floors | `TEXT_FLOOR` and `DOT_FLOOR` | `tests/styles/status-token-contrast.test.ts:81-82` | §11.4 |
+| the measured ratios | recorded once in §11.4's table and quoted in DESIGN.md | measured at spec time | §11.4 and DESIGN.md |
+| `400ms` | the burst example's spacing, illustrative only | not a constant anywhere | §4.7 and §6 |
 
 ---
 
@@ -519,7 +577,7 @@ The probe in §3.2 becomes the shipped suite. Fixtures are built from an RPC-sha
 |---|---|---|
 | D1 | two identical snapshots produce zero changed ids | the cue firing on every modal open (P2) |
 | D2 | reordered crew, room and contact input rows produce zero changed ids | the cue firing on a reorder the adapter's own sorts absorb (P2b) |
-| D2b | hotel rows are NOT adapter-sorted, so a reordered hotel input DOES change the `hotels` signature, and the ordering guarantee for that section is the RPC's `order by h.ordinal, h.id` | the round-1 HIGH: a spec claiming one ordering mechanism for row sets that have two, and a D2 that would have to be wrong to pass |
+| D2b | hotel rows are NOT adapter-sorted, so a reordered hotel input DOES change the `hotels` signature | the round-1 HIGH: a spec claiming one ordering mechanism for row sets that have two, and a D2 that would have to be wrong to pass. **What D2b does NOT prove**, per round 2: it pins the adapter's order-sensitivity, not the RPC's tie-break. The existing DB test seeds distinct ordinals, so dropping `h.id` from the RPC's `order by` would still pass everything here, and two hotels sharing an ordinal could then reorder between reads and produce a spurious Hotels cue. Recorded as a documented limit (§8) rather than claimed as covered |
 | D3 | one edited crew role produces exactly `["crew"]`, and every other rendered id is byte-identical | over-broad projection: a field appearing in two sections' hashes |
 | D4 | moving `last_checked_at` and `last_synced_at` alone produces zero changed ids | the cue firing on a poll that found nothing, contradicting the strip (P4) |
 | D5 | toggling `published` produces zero changed ids | lifecycle leaking into content (P6) |
@@ -554,14 +612,17 @@ jsdom, on the existing harness at `tests/components/admin/showpage/__fixtures__/
 | S7 | four or more changed sections arm no attribute anywhere, and the announcement reads the surface sentence |
 | S8 | exactly three changed sections DO arm, all three (the boundary in the other direction) |
 | S9 | no card remounts across arming or expiry: a ref captured on the panel card before the change is the same node after |
-| S10 | unmounting mid-flash leaves no pending timer (`vi.getTimerCount()`), including with two batches outstanding, and a double-invoked expiry effect for ONE batch leaves exactly one timer rather than two |
-| S11 | the announcement REGION is present in the tree at all times, with a stable key, including when there is no cue |
-| S12 | announcement copy for one, two, three and over-cap cases matches the §4.6 table verbatim, and contains no em dash and no apostrophe |
+| S10 | unmounting mid-flash leaves no pending timer (`vi.getTimerCount()`), including with TWO batches outstanding, which is the case a cleanup-per-batch would have broken. The double-invoked-effect half is deliberately NOT claimed here: a probe showed the update effect runs once under this harness (`{"mountEffectRuns":[0,0],"updateEffectRuns":[1]}`), so a row asserting it would pass without exercising anything. The per-batch replacement is defended by construction and by the comment that explains it, not by a test that cannot reach it |
+| S11 | the announcement REGION is present in the tree at all times, including when there is no cue, carries `role="status"`, `aria-live="polite"` and `sr-only`, and sits inside the dialog subtree in the `subHeader` band. Node IDENTITY is asserted across an arm and an expiry, because React keys are not observable in jsdom and a "stable key" claim is otherwise untestable |
+| S11b | a refresh that changes NOTHING leaves the region empty and announces nothing, and a content-equal refresh arriving mid-flash neither clears nor re-announces the live message |
+| S11c | under `prefers-reduced-motion: reduce` the announcement is byte-identical to the motion-allowed case, since it is the leg that carries the information there |
+| S12 | announcement copy for one, two, three and over-cap cases matches the §4.6 table verbatim, and contains no em dash and no apostrophe. Labels are asserted to equal the RENDERED registry labels for those ids, read from `step3Sections(data)` rather than a list in the test, so the suite cannot pin a stale copy of the label map |
 | S13 | a Diagrams sub-block never carries the attribute while its parent Rooms card does |
 | **S14** | with Crew mid-flash, changing Venue arms Venue AND LEAVES CREW ARMED, then expires each at its own 1600ms, Crew first. An implementation that replaces the id set leaves Crew snapping at full tint; an implementation that shares one timer expires them together |
 | **S15** | crossing from a live under-cap cue straight to an over-cap update clears every previously armed attribute. S7 starts from rest and cannot catch a merge that leaves them on |
 | **S16** | a repeat cue on the same section with IDENTICAL announcement copy remounts the region's child, asserted by node identity, not by text. Text equality holds in both the working and the broken implementation, so asserting text would pass against the silent bug |
-| **S17** | a section that disappears is not named in the announcement, and when it is the ONLY change the announcement is the surface sentence |
+| **S17** | a section that disappears is not named, and the announcement is the surface sentence in BOTH the disappearance-only case and the MIXED case (agenda vanishes while crew is edited). The mixed case is the one that matters: naming only the survivor states something true and implies something false |
+| **S18** | a section that APPEARS under the cap mounts already wearing the attribute, and over the cap mounts without it |
 
 S3's scan clones the tree and removes the announcement region before counting attribute-bearing nodes, so the assertion cannot pass on the region's own text.
 
@@ -597,6 +658,11 @@ Measured at spec time from the live hex in `app/globals.css`, both themes, with 
 
 C3 and C4 duplicate ratios the share-link rows already assert (`tests/styles/status-token-contrast.test.ts:248-261`). They are restated on this surface's own row because DESIGN.md's note that the outline carries the dark-theme signal makes it non-decorative here too, and a future edit to the share-link rows must not silently remove this surface's floor.
 
+**Two honest limits on what these rows prove**, both raised in round 2 and neither papered over:
+
+- **C4's ground is an approximation.** The outline draws outside the card, so its outward neighbour is the transparent scroll container over the shell's own ground, not the card's `surface`. Measured against the real ground the edge clears 8.06:1 light and 9.39:1 dark, comfortably above the 3:1 floor, so the approximation is conservative rather than flattering. C4 keeps `surface` because that is the ground the outline shares its EDGE with at the moment the wash is still painted; the outward figure is recorded here.
+- **The floors pin the endpoints, not the fade.** Compositing the edge part-way through its fade puts it below 3:1 by construction, on the way to fully transparent. That is what a fade IS, and pinning a floor across it would forbid fading at all. The claim these rows support is that nothing the cue leaves ON SCREEN sits below its floor, at the hold and at rest. The claim they do not support, and the spec does not make, is that every intermediate frame clears AA.
+
 DESIGN.md §5.5 gains the `SECTION_FRESHNESS_FLASH_MS` entry in the animation-durations list with its owning module, its keyframe names, its reduced-motion posture, and the four measured ratios.
 
 ### 11.5 Real-browser dimension check
@@ -620,6 +686,8 @@ Readiness for both: the spec's existing gate, never `networkidle` alone.
 - Invariant 8: `/impeccable critique` AND `/impeccable audit` on the diff, critique as two isolated parallel sub-agents, with the `impeccable-gate:` marker line written into the plan only after both have actually run.
 - Invariant 11: all work in the `feat/modal-freshness-cue` worktree.
 - Invariant 12: `BL-MODAL-REALTIME-UPDATED-CUE` marked in progress in `BACKLOG.md` for the life of the branch, graduating to `BACKLOG-archive.md` at merge carrying R1's correction and the user's decision.
+- Invariant 6: engaged. Conventional-commit form, one commit per task, scoped `feat(admin)` / `test(admin)` / `docs(spec)` as the touched area dictates.
+- Invariant 7: engaged, and worth stating rather than assuming given this document and its plan were briefly in contradiction over CI wiring. The spec is canonical; where the plan was RIGHT and this document was wrong, as it was about the grep-filtered workflow steps, the fix is to correct the spec, which §11.5 now does. The plan does not supersede the spec anywhere.
 - Invariants 2, 3, 4, 9, 10: not engaged. No DB write, no email boundary, no sync cursor, no Supabase call site, no mutation surface.
 - Invariant 5: not engaged (§4.6).
 - Pre-code mechanical UI checklist run BEFORE implementation: no em dashes in user-visible copy, no apostrophe literals, 44px tap targets (this cue adds no interactive element), canonical type and token classes, and a contrast pin in DESIGN.md for the repurposed token (§11.4).

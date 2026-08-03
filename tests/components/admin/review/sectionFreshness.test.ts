@@ -24,6 +24,7 @@ import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
 import type { ParseWarning } from "@/lib/parser/types";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
 
 import {
   reviewSnapshot,
@@ -42,8 +43,11 @@ function signaturesOf(snapshot: ShowReviewSnapshot) {
     ignoredFingerprints: new Set<string>(),
     renderedSectionIds: new Set(renderedSectionIds(data)),
   });
-  return buildSectionSignatures({ data, bySection });
+  return buildSectionSignatures({ data, bySection, attentionBySection: NO_ATTENTION });
 }
+
+/** Most cases carry no attention items; the ones that do build their own map. */
+const NO_ATTENTION: ReadonlyMap<string, readonly AttentionItem[]> = new Map();
 
 /** Base snapshot to a mutated one, as the detector would see it across a refresh. */
 function changedBetween(mutate: (s: ShowReviewSnapshot) => void): SectionId[] {
@@ -153,7 +157,11 @@ describe("section freshness detector", () => {
       rowOf(s.hotel_reservations, 0).hotel_name = "Westin";
       rowOf(s.transportation, 0).vehicle = "16ft box truck";
       rowOf(s.contacts, 0).name = "Val Venue";
-      internalOf(s).parse_warnings = [routedWarn("venue")];
+      // Two warns: one routed to venue, one to NO section (an unmapped kind), which
+              // is what lands in the Sheet-warnings panel. Since `warnings` stopped
+              // hashing the whole list, a venue-routed warn alone would no longer move
+              // it, and D6 would be asserting a section it never actually changed.
+              internalOf(s).parse_warnings = [routedWarn("venue"), routedWarn("unmapped_block")];
       internalOf(s).run_of_show = { "2026-08-03": [{ time: "09:00", label: "Doors" }] };
     });
     // Derived from the fixture, never hardcoded: a section list that drifted would
@@ -188,14 +196,22 @@ describe("section freshness detector", () => {
     expect(changedSectionIds(build(), build())).toEqual([]);
   });
 
-  it("D9: a warn routed to crew changes crew, not only warnings", () => {
-    // Round-1 BLOCKING. The routed card renders INSIDE the crew panel, so the
-    // crew card's content changed while `crewMembers` did not.
-    const changed = changedBetween((s) => {
-      internalOf(s).parse_warnings = [routedWarn("crew")];
-    });
-    expect(changed).toContain("crew");
-    expect(changed).toContain("warnings");
+  it("D9: a warn routed to crew changes crew, and ONLY crew", () => {
+    // Round-1 BLOCKING for the omission: the routed card renders INSIDE the crew
+    // panel, so the crew card's content changed while `crewMembers` did not.
+    // Round-2 HIGH for the over-correction: the published Sheet-warnings panel
+    // renders only what routed to IT, so an externally routed warn must not cue it.
+    expect(changedBetween((s) => void (internalOf(s).parse_warnings = [routedWarn("crew")]))).toEqual(
+      ["crew"],
+    );
+  });
+
+  it("D9c: a warn routed to NO section changes only the Sheet-warnings panel", () => {
+    // The other side of D9: an unmapped block kind has no owning section, so the
+    // warnings panel is the only card that gains content.
+    expect(
+      changedBetween((s) => void (internalOf(s).parse_warnings = [routedWarn("unmapped_block")])),
+    ).toEqual(["warnings"]);
   });
 
   it("D9b: EDITING a crew-routed warning changes crew, with the warning COUNT held equal", () => {
@@ -214,7 +230,10 @@ describe("section freshness detector", () => {
     (internalOf(after).parse_warnings as ParseWarning[]) = [routedWarn("crew", "edited text")];
 
     const changed = changedSectionIds(before, signaturesOf(after));
-    expect(changed).toContain("crew");
+    // Exclusive, not merely inclusive. Round-2 probe: the rendered warnings panel
+    // is byte-identical for an edit to an EXTERNALLY routed warning, so cueing it
+    // would be a false cue, and a `toContain` assertion would have permitted one.
+    expect(changed).toEqual(["crew"]);
   });
 
   it("D10: a use-raw decision change on a rooms-routed warning changes rooms", () => {
@@ -228,8 +247,23 @@ describe("section freshness detector", () => {
     const after = withWarn();
     internalOf(after).use_raw_decisions = [roomSplitDecision("hash-1", "raw")];
     const changed = changedSectionIds(before, signaturesOf(after));
+    expect(changed).toEqual(["rooms"]);
+  });
 
-    expect(changed).toContain("rooms");
+  it("D10b: decision fields that never render do NOT cue", () => {
+    // `target` is documented display-only and `decidedAt` / `decidedBy` reach no
+    // rendered element. Round-2 probe confirmed the control's HTML is unchanged,
+    // so hashing the whole persisted row cued a card that did not move.
+    const withDecision = (decidedBy: string) => {
+      const s = reviewSnapshot();
+      internalOf(s).parse_warnings = [roomSplitWarn("hash-1")];
+      const d = roomSplitDecision("hash-1", "raw");
+      internalOf(s).use_raw_decisions = [{ ...d, decidedBy, decidedAt: `2026-08-0${decidedBy.length}T00:00:00Z` }];
+      return signaturesOf(s);
+    };
+    expect(changedSectionIds(withDecision("a@example.com"), withDecision("bb@example.com"))).toEqual(
+      [],
+    );
   });
 
   it("D11: attaching an archived-tab offer changes packlist and nothing else", () => {
@@ -243,10 +277,11 @@ describe("section freshness detector", () => {
       ignoredFingerprints: new Set<string>(),
       renderedSectionIds: new Set(renderedSectionIds(data)),
     });
-    const before = buildSectionSignatures({ data, bySection });
+    const before = buildSectionSignatures({ data, bySection, attentionBySection: NO_ATTENTION });
     const after = buildSectionSignatures({
       data: { ...data, archivedTabOffer: { tabNames: ["Old Crew"], slug: SLUG } },
       bySection,
+      attentionBySection: NO_ATTENTION,
     });
     expect(changedSectionIds(before, after)).toEqual(["packlist"]);
   });
@@ -281,6 +316,54 @@ describe("section freshness detector", () => {
         (showOf(s).source_anchors as Record<string, unknown>).nonexistent_region = "X!A1";
       }),
     ).toEqual([]);
+  });
+
+  it("D15: an attention item routed to a section changes that section, and only it", () => {
+    // Round-2 BLOCKING. Attention items render inline card content in crew, event,
+    // rooms and warnings, so adding, editing or resolving one changes a card that
+    // no own-field signature can see. The caller supplies the routing because it
+    // already resolves the placement predicate; a second resolution here would be
+    // a second source of truth.
+    const item = (id: string, menuTitle: string): AttentionItem => ({
+      kind: "hold",
+      id,
+      tone: "notice",
+      sectionId: "crew",
+      crewKey: null,
+      actionable: true,
+      menuTitle,
+      menuSubtitle: null,
+    });
+    const sigs = (items: readonly AttentionItem[]) => {
+      const data = buildPublishedSectionData(reviewSnapshot(), { slug: SLUG });
+      const bySection = buildSectionWarningModel({
+        slug: SLUG,
+        warnings: data.warnings,
+        ignoredFingerprints: new Set<string>(),
+        renderedSectionIds: new Set(renderedSectionIds(data)),
+      });
+      return buildSectionSignatures({
+        data,
+        bySection,
+        attentionBySection: new Map<string, readonly AttentionItem[]>([["crew", items]]),
+      });
+    };
+
+    // Appearing.
+    expect(changedSectionIds(sigs([]), sigs([item("a1", "Two crew share an email")]))).toEqual([
+      "crew",
+    ]);
+    // Edited in place, count held equal, so only the item's own content can carry it.
+    expect(
+      changedSectionIds(
+        sigs([item("a1", "Two crew share an email")]),
+        sigs([item("a1", "Three crew share an email")]),
+      ),
+    ).toEqual(["crew"]);
+    // Resolved.
+    expect(changedSectionIds(sigs([item("a1", "Two crew share an email")]), sigs([]))).toEqual([
+      "crew",
+    ]);
   });
 
   it("D14: the diff reports a section that vanished and one that appeared", () => {

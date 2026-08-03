@@ -36,6 +36,7 @@ import type { PublishedSectionData } from "@/components/admin/review/sectionData
 import type { ParseWarning } from "@/lib/parser/types";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
+import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
 
@@ -63,6 +64,18 @@ export type SectionSignatures = ReadonlyMap<SectionId, string>;
 export type SectionSignatureInput = {
   data: PublishedSectionData;
   bySection: SectionWarningRecord;
+  /**
+   * The actionable attention items routed to each section, keyed by the SAME
+   * effective section id the modal buckets them under.
+   *
+   * Round-2 review found this omission by probe: attention items render inline
+   * card content in crew, event, rooms and warnings, so a refresh that adds,
+   * updates or resolves one changes visible card content while every own-field
+   * signature stays equal. The caller supplies the grouping because it already
+   * computes the placement predicate; duplicating that resolution here would be
+   * a second source of truth for which section an item belongs to.
+   */
+  attentionBySection: ReadonlyMap<string, readonly AttentionItem[]>;
 };
 
 /**
@@ -101,9 +114,12 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
     d.archivedTabOffer ?? null,
   ],
   billing: (d) => d.billing,
-  // The Sheet-warnings section renders the FULL list plus every decision, which is
-  // why it hashes them wholesale while owning sections hash only what routed to them.
-  warnings: (d) => [d.warnings, d.useRawDecisions],
+  // NOT the full warning list. The published Sheet-warnings panel renders the
+  // warnings routed to IT, and those arrive through `bySection` like every other
+  // section's do. Hashing `d.warnings` wholesale here over-cued: round-2 probes
+  // showed an edit to a CREW-routed warning reported `["crew","warnings"]` while
+  // the rendered warnings panel was byte-identical.
+  warnings: () => null,
   // A sub-block, never a rail id in its own right; present so the record is total.
   diagrams: (d) => d.diagrams,
 };
@@ -113,7 +129,7 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
  * entry, so it can never be cued.
  */
 export function buildSectionSignatures(input: SectionSignatureInput): SectionSignatures {
-  const { data, bySection } = input;
+  const { data, bySection, attentionBySection } = input;
   const out = new Map<SectionId, string>();
   for (const id of renderedSectionIds(data)) {
     const own = OWN_FIELDS[id as Exclude<SectionId, "report">];
@@ -121,14 +137,30 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
     // The decisions attached to THIS section's routed warnings, matched through
     // the canonical matcher rather than a reimplementation: a second matcher
     // would be a second source of truth for `(code, contentHash)`.
-    const routedDecisions = warningsOf(routed).map(
-      (w) => findUseRawDecision(w, data.useRawDecisions) ?? null,
+    const routedDecisions = warningsOf(routed).map((w) =>
+      renderedDecisionState(findUseRawDecision(w, data.useRawDecisions)),
     );
     const region = SECTION_REGION_MAP[id];
     const anchor = region === null ? null : (data.sourceAnchors?.[region] ?? null);
-    out.set(id, hash([own === undefined ? null : own(data), routed, routedDecisions, anchor]));
+    const attention = attentionBySection.get(id) ?? null;
+    out.set(
+      id,
+      hash([own === undefined ? null : own(data), routed, routedDecisions, anchor, attention]),
+    );
   }
   return out;
+}
+
+/**
+ * ONLY the parts of a use-raw decision that reach the rendered control:
+ * `preference` and `applied`, keyed by the identity that matched it. `target` is
+ * documented as display-only, and `decidedAt` / `decidedBy` are not rendered at
+ * all, so hashing the whole row cued a card whose HTML was unchanged (round-2
+ * probe: `routedControlHtmlEqual:true` while the signature moved).
+ */
+function renderedDecisionState(d: ReturnType<typeof findUseRawDecision>) {
+  if (d === undefined) return null;
+  return { code: d.code, contentHash: d.contentHash, preference: d.preference, applied: d.applied };
 }
 
 /**
