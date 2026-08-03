@@ -17,7 +17,7 @@ Three backlog items, filed independently across three milestones, are the same d
 | Guard | Derives its set from | Blind to |
 | --- | --- | --- |
 | `tests/db/postgrest-dml-lockdown.test.ts:817-901` (Layer 4) | `REVOKE` statements found in `supabase/migrations/` | a table with **no** `REVOKE` — the exact thing lockdown means to find |
-| `tests/db/admin-rls-runtime.test.ts:85-98` | live `pg_policies` rows named `admin_only` | a §4.3 table with **no** `admin_only` policy |
+| **tests/db/admin-rls-runtime.test.ts:85** (retired by this cluster) | live `pg_policies` rows named `admin_only` | a §4.3 table with **no** `admin_only` policy |
 | `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:126` | constraint **names** containing `email_canonical` | a canonical CHECK named anything else |
 
 Each guard is rigorous about what it can see and silent about what it cannot. The fix in all three cases is the same: **re-derive from the authoritative source, so absence fails.** For the first two that source is spec §4.3 via the generated `ADMIN_TABLES` registry (`lib/audit/admin-tables.generated.ts`); for the third it is the CHECK **body shape** rather than its name.
@@ -98,7 +98,7 @@ Statement-level baseline for all 10 (`delete ... where false` as `authenticated`
 
 ### 2.4 Probe: what the RLS guard cannot see
 
-Three findings from probing `tests/db/admin-rls-runtime.test.ts` directly. Each is the cluster's root defect in the row-level half, and each drives an assertion in §6.2.
+Three findings from probing **tests/db/admin-rls-runtime.test.ts** directly. Each is the cluster's root defect in the row-level half, and each drives an assertion in §6.2.
 
 **(i) `DISABLE ROW LEVEL SECURITY` ships green.** The probe's derivation reads `pg_policies`, never `pg_class.relrowsecurity`:
 
@@ -121,7 +121,7 @@ in ADMIN_TABLES, no admin_only policy : email_deliveries
 admin_only policy, not in ADMIN_TABLES: ignored_warnings
 ```
 
-`tests/db/admin-rls-runtime.test.ts:111`'s `toHaveLength(19)` and `tests/db/admin-rls-runtime.test.ts:115`'s frozen-baseline comparison both stay green through a swap — a count cannot see one, and the baseline was frozen from the very query it is compared against.
+**tests/db/admin-rls-runtime.test.ts:111** (retired by this cluster)'s `toHaveLength(19)` and **tests/db/admin-rls-runtime.test.ts:115** (retired by this cluster)'s frozen-baseline comparison both stay green through a swap — a count cannot see one, and the baseline was frozen from the very query it is compared against.
 
 `email_deliveries` is not a defect: it has RLS enabled with **zero** policies, which is deny-all and stronger than `admin_only`, and `supabase/migrations/20260602000004_b3_email_deliveries.sql:21` revokes ALL from anon+authenticated as well. It is the motivating case for §6.2's two declared postures.
 
@@ -294,7 +294,7 @@ Probe confirms **zero** non-email canonical-shaped CHECKs exist (19 live, all em
 
 ### 6.1 What the current probe cannot see
 
-`tests/db/admin-rls-runtime.test.ts:85-94` derives its 19 tables from live `pg_policies` where `policyname='admin_only' AND cmd='ALL' AND qual ILIKE '%is_admin%'`. It is fail-by-default for a new table that **has** such a policy (`tests/db/admin-rls-runtime.test.ts:111` length, `tests/db/admin-rls-runtime.test.ts:115` baseline diff), and blind to a §4.3 table that has **no** `admin_only` policy, one named differently, or one with `cmd != 'ALL'` — i.e. blind to precisely the missing-coverage case.
+**tests/db/admin-rls-runtime.test.ts:85** (retired by this cluster) derives its 19 tables from live `pg_policies` where `policyname='admin_only' AND cmd='ALL' AND qual ILIKE '%is_admin%'`. It is fail-by-default for a new table that **has** such a policy (**tests/db/admin-rls-runtime.test.ts:111** (retired by this cluster) length, **tests/db/admin-rls-runtime.test.ts:115** (retired by this cluster) baseline diff), and blind to a §4.3 table that has **no** `admin_only` policy, one named differently, or one with `cmd != 'ALL'` — i.e. blind to precisely the missing-coverage case.
 
 ### 6.2 Fix — re-derive from §4.3
 
@@ -321,7 +321,7 @@ The posture is declared per table in the registry, never inferred. `email_delive
 
 **Second direction.** Every `admin_only` table found live must be in `ADMIN_TABLES` or an explicit non-§4.3 allowlist (today exactly `ignored_warnings`; `admin_emails` carries an `admin_only` policy but is excluded by the current derivation's own `tablename <> 'admin_emails'` clause and gets an explicit row). Both directions are required because the two sets genuinely disagree (§2.4).
 
-`tests/db/admin-rls-runtime.baseline.json` and its frozen 19-name list are retired — the spec-derived registry is the baseline, and the baseline could only ever detect drift from itself, never disagreement with the spec. Its sole consumer is the test being relocated (verified: `grep -rl admin-rls-runtime.baseline` matches only `tests/db/admin-rls-runtime.test.ts`). `tests/db/admin-rls-runtime.test.ts:111`'s stale title ("18" asserting 19) dies with it.
+**tests/db/admin-rls-runtime.baseline.json** and its frozen 19-name list are retired — the spec-derived registry is the baseline, and the baseline could only ever detect drift from itself, never disagreement with the spec. Its sole consumer is the test being relocated (verified: `grep -rl admin-rls-runtime.baseline` matches only **tests/db/admin-rls-runtime.test.ts**). **tests/db/admin-rls-runtime.test.ts:111** (retired by this cluster)'s stale title ("18" asserting 19) dies with it.
 
 ### 6.3 AC-2.5's four-verb contract — how this cluster satisfies it
 
@@ -339,7 +339,7 @@ delete from public.onboarding_scan_manifest where false;
 
 Adding the three write verbs to the relocated RLS test would assert `42501` while claiming to test RLS — duplicating (a)'s coverage under a misleading name.
 
-**(c) The helper has never existed, and the omission was deliberate.** `__test_singleton_rls_probe` appears in no migration, test, lib, or script — only in spec and plan prose, where the two even disagree on whether it is SECURITY INVOKER (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792`) or SECURITY DEFINER (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:417`). Neither is usable: INVOKER inherits the caller's revoked grants and hits `42501` identically; DEFINER runs as owner and bypasses grants *and* RLS, which makes it useless as a denial probe. And the shipped test documents at `tests/db/admin-rls-runtime.test.ts:31-39` that the v1 behavioral write probe was **removed because it false-passed** when NOT NULL / CHECK constraints fired before RLS — an anti-tautology fix, not an oversight.
+**(c) The helper has never existed, and the omission was deliberate.** `__test_singleton_rls_probe` appears in no migration, test, lib, or script — only in spec and plan prose, where the two even disagree on whether it is SECURITY INVOKER (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792`) or SECURITY DEFINER (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:417`). Neither is usable: INVOKER inherits the caller's revoked grants and hits `42501` identically; DEFINER runs as owner and bypasses grants *and* RLS, which makes it useless as a denial probe. And the shipped test documents at **tests/db/admin-rls-runtime.test.ts:31** (retired by this cluster) that the v1 behavioral write probe was **removed because it false-passed** when NOT NULL / CHECK constraints fired before RLS — an anti-tautology fix, not an oversight.
 
 **What this cluster therefore does.** The four-verb contract is met by the **union** of the two tests, and the spec says so explicitly rather than leaving it implied:
 
@@ -367,7 +367,7 @@ This closes AC-2.5 where it is testable and documents the grant-layer equivalenc
 
 The test stays in the serial vitest project, PR-blocking via `unit-suite`, which already boots a Postgres for `tests/db`. It is deliberately **not** added to the `x3-trust-domain` file list (`package.json:36`) — that job runs `vitest run <file>` without a database, so a live-DB test there would fail or vacuously skip.
 
-No 9th required status check (§1.1). The honest accounting: relocation buys spec-derivation and discoverability, **not** additional gating — `tests/db/admin-rls-runtime.test.ts` was already PR-blocking in the same suite. The coverage win is §6.2's inverted derivation, and claiming otherwise would overstate it.
+No 9th required status check (§1.1). The honest accounting: relocation buys spec-derivation and discoverability, **not** additional gating — **tests/db/admin-rls-runtime.test.ts** was already PR-blocking in the same suite. The coverage win is §6.2's inverted derivation, and claiming otherwise would overstate it.
 
 ---
 
@@ -394,7 +394,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 - `tests/db/postgrest-dml-lockdown.test.ts` — 8 registry rows + new spec-derived Layer 5 + `ADMIN_DML_EXEMPTIONS`.
 - `tests/cross-cutting/_canonicalEmailCheckContract.test.ts` — live-catalog completeness assertion + 3 registry rows.
 
-**Relocates:** `tests/db/admin-rls-runtime.test.ts` → a new RLS-coverage test under `tests/cross-cutting/`, derivation inverted; `tests/db/admin-rls-runtime.baseline.json` retired.
+**Relocates:** **tests/db/admin-rls-runtime.test.ts** → a new RLS-coverage test under `tests/cross-cutting/`, derivation inverted; **tests/db/admin-rls-runtime.baseline.json** retired.
 
 **Creates:** the `PUBLIC_TABLE_CLASSIFICATION` registry and its three catalog reconciliations (§4.5), pinned by the §4.5 mutation-family closure set. Note this is a **catalog** test, not a parser-extraction test — no generator mutants are exercised, because §4.5 makes the parser non-load-bearing rather than trustworthy.
 

@@ -18,7 +18,7 @@
 | `RPC_GATED_TABLES` row shape; 26 existing rows | `tests/db/postgrest-dml-lockdown.test.ts:138`, `tests/db/postgrest-dml-lockdown.test.ts:147` |
 | Layer 1 privilege-matrix idiom | `tests/db/postgrest-dml-lockdown.test.ts:521` |
 | **Layer 4 requires migration + registry row in the SAME commit** | `tests/db/postgrest-dml-lockdown.test.ts:811` |
-| RLS probe derivation and arms | `tests/db/admin-rls-runtime.test.ts:85`, `tests/db/admin-rls-runtime.test.ts:131`, `tests/db/admin-rls-runtime.test.ts:177` |
+| RLS probe derivation and arms | **tests/db/admin-rls-runtime.test.ts:85** (retired by this cluster), **tests/db/admin-rls-runtime.test.ts:131** (retired by this cluster), **tests/db/admin-rls-runtime.test.ts:177** (retired by this cluster) |
 | Canonical-CHECK parser and its name filter | `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:59`, `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:126` |
 | `expectedBoundaryChecks` also demands an AC-X.5 manifest entry | `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:202` |
 | `ADMIN_TABLES`, 19 entries, generated | `lib/audit/admin-tables.generated.ts` |
@@ -36,7 +36,7 @@
 - **Creates** **tests/cross-cutting/rlsCoverage.test.ts** (Task 4).
 - **Extends** `tests/db/postgrest-dml-lockdown.test.ts` (Tasks 2-3).
 - **Extends** `tests/cross-cutting/_canonicalEmailCheckContract.test.ts` (Task 5).
-- **Deletes** `tests/db/admin-rls-runtime.test.ts` and its `admin-rls-runtime.baseline.json` (Task 4).
+- **Deletes** **tests/db/admin-rls-runtime.test.ts** and its **admin-rls-runtime.baseline.json** (Task 4).
 - **Untouched by contract:** `scripts/generate-admin-tables.ts` (the count tripwire lives in the test, spec §4.5) and `scripts/generate-traceability.ts` (its drop-list omission is the contract, spec §4.5).
 
 Both new files end in **.test.ts** deliberately: discovery (`vitest.projects.ts:34`) and the partition guard (`tests/cross-cutting/vitest-projects-partition.test.ts:36`) match only that suffix, and an exact `tests/cross-cutting/*.test.ts` path defaults to the DB-backed serial project. No `ENV_BOUND_EXCLUDES` entry is required.
@@ -119,7 +119,7 @@ Scope the assertion against `ADMIN_TABLES`, never against `RPC_GATED_TABLES` its
 
 **Catches:** `DISABLE ROW LEVEL SECURITY` shipping green (spec §2.4 probe: the `admin_only` row survives in `pg_policies`); an added permissive policy ORing access open; a §4.3 table with no policy at all.
 
-**Files:** create **tests/cross-cutting/rlsCoverage.test.ts**; delete `tests/db/admin-rls-runtime.test.ts` and its `admin-rls-runtime.baseline.json` (sole consumer verified).
+**Files:** create **tests/cross-cutting/rlsCoverage.test.ts**; delete **tests/db/admin-rls-runtime.test.ts** and its **admin-rls-runtime.baseline.json** (sole consumer verified).
 
 **Red:** write the assertions with `RLS_POSTURE = {}` — per `ADMIN_TABLES` member, `relrowsecurity = true` plus its declared posture: `admin_only` (exactly one policy, `cmd=ALL`, `is_admin()` in `qual` and `with_check`, `qual = with_check`) or `deny_all` (zero policies). Reverse direction: every live `admin_only` table is in `ADMIN_TABLES` or the allowlist. Run: fails, naming all 19 unpostured tables.
 
@@ -148,7 +148,7 @@ This keeps the assertion honest in both environments: it can never pass vacuousl
 
 **Green:** populate `RLS_POSTURE` (18 `admin_only`, `email_deliveries` `deny_all`) and the allowlist (`ignored_warnings`, `admin_emails`). Delete the old test and baseline.
 
-**Citation reconciliation — same commit as the deletion (R3 finding 1).** `spec:lint` hard-fails on a backticked path that is no longer tracked, so deleting the old test without rewriting its citations makes Task 8's mandatory lint impossible. Rewrite every backticked reference to `tests/db/admin-rls-runtime.test.ts` and its baseline into bold-or-prose form, in this commit, at exactly these sites:
+**Citation reconciliation — same commit as the deletion (R3 finding 1).** `spec:lint` hard-fails on a backticked path that is no longer tracked, so deleting the old test without rewriting its citations makes Task 8's mandatory lint impossible. Rewrite every backticked reference to **tests/db/admin-rls-runtime.test.ts** and its baseline into bold-or-prose form, in this commit, at exactly these sites:
 
 - plan: lines 21, 39, 122 **and 151** of this document — 151 is this very instruction, which backtick-cites the path it is telling you to de-cite. Self-referential, and `spec:lint` does not care that the citation appears inside the fix.
 - spec: lines 20, 101, 124, 297, 324, 342, 370, 397 of `docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md`
