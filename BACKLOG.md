@@ -616,11 +616,29 @@ The Flow-8 audit item 8.4 (`docs/audits/e2e-real-world-variation-preparedness-20
 
 ## Share hub follow-ups (2026-07-25, share-link-chrome-backlog)
 
-## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — dashboard staged apply treats identity-link renames as remove+add
+## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
 
-**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
 
-The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
+`applyStagedCore` returns `roleFlagsNotice` on every path, and the dashboard staged-apply tail emits it post-commit. `finalize-cas` (`app/api/admin/onboarding/finalize-cas/route.ts`) does not: its per-row return carries only `drive_file_id`, `code`, and `showId`, and no `ROLE_FLAGS_NOTICE` alert or durable `LEAD_ROLE_APPLIED` event is emitted anywhere on that route. A capability gain or loss landed by a Phase D existing-show apply is therefore audited by the change-log row but never reaches the bell or the durable event.
+
+Pre-existing and independent of the staged identity-link threading — verified live 2026-08-03 against both the core result shape and the route body. **Fix (when prioritized):** emit from `coreResult.roleFlagsNotice` post-commit, outside the advisory-lock transaction (invariant 10), mirroring the dashboard tail in `lib/sync/applyStaged.ts`.
+
+## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
+
+Hold-aware reconciliation can suppress a rename TARGET (P2-F4 added-row reservation collision, `lib/sync/holds/holdAwareApply.ts`). The pair then no-ops inside `applyParseResult` — no successor row lands — yet `capabilityRoleChangesForNotice` and the feed writer both consume the **requested** `identityLinkRenames`, so the notice and the feed describe a rename that did not happen. `renameCrewMember`'s no-op on target collision / missing source is the same class (it returns void, unobservable to callers).
+
+Shared verbatim with the cron path — same producer/consumer wiring — and neither introduced nor widened by the staged threading, which only adds a second producer. **Fix (when prioritized):** have the apply return the pairs it actually landed and feed the notice/feed writers from that, not from the request.
+
+## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
+
+`crewImage` omits `selections_reset_at` from `before_image`, and the `undo_change` Direction A re-insert omits the column, so ANY crew undo — removed or renamed, either apply shape, either path — restores the row with a null marker. A picker cookie that was deliberately invalidated before the undone change can validate again afterward.
+
+Pre-existing and shape-agnostic: the cron in-place rename already round-trips through the same RPC, so the staged threading does not widen it. **Fix (when prioritized):** carry the column in `before_image` and restore it on re-insert, with a db test asserting an invalidated cookie stays invalidated across an undo.
 
 ## BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS — one component retained by contract; the other four retired
 
