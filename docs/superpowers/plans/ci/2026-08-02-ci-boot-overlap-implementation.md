@@ -50,7 +50,7 @@ Every file, symbol, and literal this plan names, verified live before drafting.
 
 ## T1 — meta-test first: pin the combined step's shape (FAILING)
 
-Extend `tests/cross-cutting/unit-suite-shard-topology.test.ts` with a `describe("unit-suite-db boot/install overlap")` block. Every assertion below fails against the current workflow, which is the point.
+Extend `tests/cross-cutting/unit-suite-shard-topology.test.ts` with a `describe("unit-suite-db boot/install overlap")` block. The block as a whole is RED against the current workflow, which is the TDD hook. Two of its items are not red-first and are not meant to be: **(f)** already passes (today's job invokes the shared bootstrap exactly once, `.github/workflows/unit-suite.yml:125`) and **(h)** already passes (it pins lifecycle, `allowBuilds` and lockfile state that T2 does not change). Both are REGRESSION pins carried in the same block because they belong to the same contract — (f) so the shared-script invocation survives the rewrite, (h) so the disjointness premise the rewrite depends on cannot rot silently. Items (a) through (e) and (g) are the red-first ones.
 
 Assertions, one `it` each, lettered to the spec's §5:
 
@@ -73,7 +73,7 @@ Assertions, one `it` each, lettered to the spec's §5:
 - **(h) install write-surface guard** — read `package.json`, `pnpm-workspace.yaml` and `pnpm-lock.yaml`. Three pins, each with a failure message naming spec §3.2 as the audit to re-run:
   1. `scripts` contains none of `preinstall`, `install`, `postinstall`, `preprepare`, `postprepare`, `prepublish`, `prepublishOnly` — the set `pnpm install` executes, which is NOT `pnpm rebuild`'s set (`preprepare`/`postprepare` run on install only, spec §3.2); plus `scripts.prepare === "simple-git-hooks"` and `pkg["simple-git-hooks"]` equal to `{ "pre-commit": "pnpm exec lint-staged" }`.
   2. the parsed `allowBuilds` map `toEqual`s `{ "@sentry/cli": true, esbuild: true, sharp: true, "simple-git-hooks": false, "unrs-resolver": true }` — booleans included, so `simple-git-hooks` flipping to `true` (a new executing build script) fails.
-  3. the audited VERSIONS of the four enabled build packages, parsed from `pnpm-lock.yaml`'s `packages:` keys: 2.58.5, 0.28.0, 0.34.5, 1.11.1. A routine lockfile bump replaces an allow-listed package's install script wholesale while the five-key map is untouched; without this pin the guard stays green over unaudited code. Implementation note: read the key set of the parsed lockfile's `packages` map and extract the version suffix of the entry whose name matches each of the four, rather than regexing raw text.
+  3. the audited VERSIONS of the four enabled build packages, parsed from `pnpm-lock.yaml`'s `packages:` keys (the version is the key's SUFFIX, not the entry's value): 2.58.5, 0.28.0, 0.34.5, 1.11.1. A routine lockfile bump replaces an allow-listed package's install script wholesale while the five-key map is untouched; without this pin the guard stays green over unaudited code. Implementation note: parse the lockfile with the `yaml` package, take the key set of `packages`, and for each of the four names build the COMPLETE set of versions whose key parses to that name, then `toEqual` it against a one-element expected set. Not a first match: `allowBuilds` is keyed by name, so a lockfile carrying two versions of an allow-listed package permits BOTH install scripts, and a first-match check stays green over the unaudited one.
 
 **Verify:** `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts` — the new block is red, every pre-existing `it` in the file is still green.
 
@@ -97,7 +97,7 @@ Edit `.github/workflows/unit-suite.yml`, job `unit-suite-db` only. Replace `- us
 **T3a (FAILING).** Create `tests/cross-cutting/e2e-regrow-settle-contract.test.ts`. It reads `tests/e2e/admin-lifecycle-layout.spec.ts`, slices the T-REGROW test body (from the line containing `test("T-REGROW:` to the line before the next top-level `test(` or `for (const [height`), and asserts:
 
 - the slice contains no `page.waitForTimeout(` — the settle must be condition-based;
-- the slice contains at least two `.toPass(` calls — one per armed measurement, so deleting a wait without replacing it does not pass;
+- for EACH of the two occurrences of `archive-show-confirm-button` in the slice, the following 600 characters contain both `measure()` and `.toPass(` and contain no `waitForTimeout`. A bare count of `.toPass(` in the slice does not work: `openHub`'s kebab-click retry is itself inside the slice, so "at least two" is already satisfied by `openHub` plus ONE converted measurement, and a half-done conversion would pass. Anchoring per arming site is what makes the guard mean "one retry per armed measurement";
 - anti-vacuity: the slice is non-empty, exceeds 500 characters, and contains `archive-show-confirm-button`, so a bad regex fails loudly instead of vacuously passing.
 
 Red against the current spec body (two `waitForTimeout` calls inside T-REGROW).
@@ -107,16 +107,19 @@ Red against the current spec body (two `waitForTimeout` calls inside T-REGROW).
 - **Ladder sweep** (currently `tests/e2e/admin-lifecycle-layout.spec.ts:508`): replace `await page.waitForTimeout(250)` with a `toPass` that re-measures until growth is observed, capturing the result:
 
   ```ts
-  let armed: Awaited<ReturnType<typeof measure>> = null;
   await expect(async () => {
-    armed = await measure();
-    expect(armed, "armed measurement returned null").not.toBeNull();
+    const probe = await measure();
+    expect(probe, "armed measurement returned null").not.toBeNull();
     expect(
-      armed!.natural,
+      probe!.natural,
       "armed body has not grown past the idle body yet",
     ).toBeGreaterThan(idle.natural);
   }).toPass({ timeout: 15_000 });
+  const armed = await measure();
+  if (!armed) continue;
   ```
+
+  The settle probe and the value the rung actually uses are two separate `measure()` calls, deliberately. Capturing into an outer `let` assigned only inside the callback does NOT typecheck: TypeScript does not assume a callback ran, so the existing `if (!armed) continue` narrows the rest of the rung to `never` and `armed.natural` fails with TS2339. (Verified by strict compiler probe during plan review r2 — an earlier draft of this snippet claimed an explicit `Awaited<ReturnType<typeof measure>>` annotation avoided that, and it does not.) One extra `evaluate` per rung is the cost; the rung already does a full navigation.
 
   Growth is the right settle condition here because the rung's decision depends on the armed NATURAL height, not on where placement put it. A rung where growth never appears now fails its own `toPass` instead of silently selecting a wrong height.
 
@@ -145,9 +148,11 @@ Red against the current spec body (two `waitForTimeout` calls inside T-REGROW).
 
 **Commit:** `test(e2e): settle T-REGROW's armed measurements on a condition, not a fixed wait`
 
-## T4 — close the backlog rows
+## T4 — the ledger updates that do NOT depend on real CI (pre-push)
 
-`BACKLOG.md`: mark `BL-CI-OVERLAP-BOOT-WITH-SETUP` resolved, pointing at this PR and recording the measured leg-median fixed overhead (both figures, per spec §7.4) — or, if the §7.3 gate misses, record the revert and the measurement that forced it. In `BL-E2E-LIFECYCLE-SPECS-CI-DARK`, mark the "New instance observed 2026-07-26" paragraph fixed, leaving the ~60-app-dependent-spec umbrella OPEN and untouched.
+Splitting T4 and T5 is deliberate: the item-1 disposition cannot be written before the evidence that decides it exists, and the evidence is a real-CI run. T4 carries only what is already known at push time.
+
+`BACKLOG.md`: in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`, mark the "New instance observed 2026-07-26" paragraph fixed by this branch, leaving the ~60-app-dependent-spec umbrella OPEN and untouched. In `BL-CI-OVERLAP-BOOT-WITH-SETUP`, record that the spec's two blocking preconditions are discharged (the write-surface audit redone empirically on the target platform; the topology reconciled) and that the accept/revert decision is pending the PR's real-CI measurement — the row stays OPEN.
 
 `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` was filed in `BACKLOG.md` with the plan commit (so the ledger-integrity test never sees a dangling id mid-branch); T4 leaves it OPEN. It records the three remaining fixed waits in `tests/e2e/admin-lifecycle-layout.spec.ts` (at `tests/e2e/admin-lifecycle-layout.spec.ts:378` in T-CONFIRM-SCROLL, and at `tests/e2e/admin-lifecycle-layout.spec.ts:916` and `tests/e2e/admin-lifecycle-layout.spec.ts:998`), each needing its own settle predicate — T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`", which is not T-REGROW's growth-then-replace and carries its own tautology risk. Enumerating them is what discharges the class-sweep rule; leaving them unfixed is the scope decision (spec §8). Because the row is cited from this plan and from the spec, it MUST exist as a `##` heading in `BACKLOG.md` or `tests/docs/_metaLedgerReferentialIntegrity.test.ts` reds on the dangling id.
 
@@ -155,13 +160,25 @@ Deferral discipline: `BL-CI-OVERLAP-BOOT-WITH-SETUP` graduates to `BACKLOG-archi
 
 **Verify:** `pnpm exec vitest run tests/docs/` — green.
 
-**Commit:** `docs(backlog): record the boot/install overlap result and the T-REGROW fix`
+**Commit:** `docs(backlog): record the T-REGROW fix and the discharged overlap preconditions`
+
+## T5 — post-CI: measure, decide, and record (after the first green real-CI run, before merge)
+
+This task runs AFTER the push, on the PR's own run. It is the only place the item-1 accept/revert decision is made.
+
+1. Run `legfix <PR run id>` and `legfix <baseline run id>`, the baseline chosen by spec §7.1's rule. Put both leg counts, both medians, and both run IDs in the PR body — per spec §7.4, whichever way the decision goes.
+2. **If the median drops by ≥8s and all 8 db legs are green:** item 1 is ACCEPTED. Update `BL-CI-OVERLAP-BOOT-WITH-SETUP` with the two figures and graduate it to `BACKLOG-archive.md` (`tests/docs/_metaDeferralLedgerGraduation.test.ts` refuses an id that is both active and archived, so it is a move, not a copy).
+3. **If it does not:** item 1 is REVERTED. The revert is ONE operation over the PAIR of item-1 files — `.github/workflows/unit-suite.yml` AND the new `describe` block in `tests/cross-cutting/unit-suite-shard-topology.test.ts` — because that block pins the combined step's existence; reverting only the workflow leaves the suite red (spec §7). Item 2 and its guard are untouched by this path and still ship. `BL-CI-OVERLAP-BOOT-WITH-SETUP` stays OPEN, updated with the measurement that forced the revert so the next attempt starts from data rather than from this spec's projection. Then re-run the pre-push ladder and push again; a reverted item 1 needs its own green CI before merge.
+
+**Verify:** `pnpm exec vitest run tests/cross-cutting/ tests/docs/` — green on whichever tree results.
+
+**Commit:** `docs(backlog): record the measured boot/install overlap result` (accept path) or `revert(infra): back out the boot/install overlap — measured <n>s, below the 8s floor` (revert path).
 
 ---
 
 ## Snippet-typecheck note (writing-plans rule)
 
-Both T3b snippets are typechecked in T3's verify step 2 by `tsc --noEmit` over the real file, not in isolation. Two strict-mode hazards were designed around rather than discovered at paste time: `measure()` returns a nullable object, so every field read goes through a `!` after an explicit non-null assertion (matching the existing style at `tests/e2e/admin-lifecycle-layout.spec.ts:534-546`); and the sweep's captured `armed` is declared with an explicit `Awaited<ReturnType<typeof measure>>` annotation initialised to `null`, because TypeScript narrows a `let` assigned only inside a callback to `never` on the outside read.
+Both T3b snippets are typechecked in T3's verify step 2 by `tsc --noEmit` over the real file, not in isolation. Two strict-mode hazards were designed around rather than discovered at paste time: `measure()` returns a nullable object, so every field read goes through a `!` after an explicit non-null assertion (matching the existing style at `tests/e2e/admin-lifecycle-layout.spec.ts:534-546`); and the sweep does NOT capture out of its `toPass` callback at all — it settles inside the block and re-measures after it. TypeScript narrows a `let` assigned only inside a callback to `never` on the outside read, and an explicit `Awaited<ReturnType<typeof measure>>` annotation does not rescue it: a strict compiler probe during plan review r2 reproduced `Property 'natural' does not exist on type 'never'` against exactly that form. That is why the snippet has the shape it has.
 
 ## Failure modes each new test catches (anti-tautology declaration)
 
@@ -172,7 +189,7 @@ Both T3b snippets are typechecked in T3's verify step 2 by `tsc --noEmit` over t
 | T1(d) prerequisites | someone bumps `node-version` or drops `cache: pnpm` in the composite; the db job silently keeps the old toolchain or loses the warm store | expectations are READ from the composite, so the test cannot drift with it |
 | T1(e) install once | the composite is re-added alongside the inlined install: two concurrent installs, saving erased, possible store race | counts steps in the parsed job, and separately forbids the composite `uses` |
 | T1(h) allowBuilds | a new dependency gets a build script allow-listed, or `simple-git-hooks` flips to `true` — either introduces an unaudited writer running concurrently with the bootstrap | pins the whole map including booleans; a key-presence check would pass with any value |
-| T3a settle contract | the fixed wait is re-introduced, or one `toPass` is deleted while the other remains | requires BOTH the absence of `waitForTimeout` and at least two `toPass` calls, plus three anti-vacuity anchors on the slice |
+| T3a settle contract | the fixed wait is re-introduced, or only ONE of the two armed measurements is converted | anchors per ARMING SITE, not on a slice-wide `toPass` count: `openHub`'s own retry lives inside the slice, so a count-based check is already satisfied by `openHub` plus one converted measurement and a half-done conversion would pass. Three anti-vacuity anchors bound the slice itself |
 
 Not claimed: T3 does not prove the flake is gone. It removes a timing-dependent read and pins that the removal stays. The evidence is the mechanism, not a green run.
 
@@ -182,9 +199,15 @@ Not claimed: T3 does not prove the flake is gone. It removes a timing-dependent 
 2. **Adversarial review (cross-model), spec** — Codex, iterate to APPROVE. Findings + dispositions recorded here.
 3. Plan self-review — this section's checklist.
 4. **Adversarial review (cross-model), plan** — Codex, iterate to APPROVE. Findings + dispositions recorded here.
-5. TDD execution, T1 through T4, one commit per task.
+5. TDD execution, T1 through T4, one commit per task. T5 is post-CI by construction and is NOT part of this step.
 6. **Whole-diff adversarial review (cross-model)** — fresh-eyes posture, iterate to APPROVE.
-7. Push; real CI green (not just local); measure per spec §7.1 and record both figures in the PR body; `gh pr merge --merge`; fast-forward `main` until `git rev-list --left-right --count main...origin/main` reports `0	0`.
+7. Push; real CI green (not just local); then **T5** — measure per spec §7.1, decide accept or revert, record both figures and both run IDs in the PR body, and land the resulting commit. On the revert path that commit needs its own green CI run. Then `gh pr merge --merge`; fast-forward `main` until `git rev-list --left-right --count main...origin/main` reports `0	0`.
+
+### Round record
+
+**Spec r1 (Codex) — NEEDS-ATTENTION, 10 findings, all accepted.** 3 HIGH: `pnpm rebuild` is not a proxy for `pnpm install`'s lifecycle set (install also runs `preprepare`/`postprepare`); the probe ran on Darwin arm64 while the build scripts branch on platform; the write-surface guard pinned names and booleans but not versions. 4 MEDIUM: body equality does not pin step-level failure masking; the composite-derived check could pass vacuously; the accept metric left median arithmetic and baseline choice to the operator; the bootstrap command "enumeration" was wrong. 3 LOW: the T-CONFIRM-SCROLL exclusion rationale was false; §4.1 omitted two live guards; the composite blast-radius count was stale. Repairs: a second probe (fresh `pnpm install --frozen-lockfile` inside a `linux/amd64 node:20-bookworm` container, all four build scripts executed, zero writes under `supabase/`), version pins in §5h, step-key qualification, a `legfix` function that fails unless 8 legs report, a deterministic baseline rule, corrected counts, and `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` filed.
+
+**Spec + plan r2 (Codex) — NEEDS-ATTENTION, 7 findings, all accepted.** 3 HIGH: the T3b sweep snippet does not typecheck (a `let` assigned only inside the `toPass` callback narrows to `never`; the annotation does not rescue it — reproduced by compiler probe); T4 was scheduled before the real-CI evidence it needs, and the revert path did not say that item 1's revert must take BOTH its files; the version guard admitted a second lockfile version of an allow-listed package. 2 MEDIUM: T3a's "two `toPass` calls" is already satisfied by `openHub`'s own retry plus one converted measurement; the repaired command vocabulary was STILL incomplete (`set`, `trap`, `[`, `true`). 2 LOW: "every new assertion is red before T2" is false for (f) and (h); the spec's revert file inventory omitted the new guard file. Repairs: the sweep settles inside the block and re-measures after it; T4 split into T4 (pre-push ledger) and T5 (post-CI measure/decide/record) with the paired revert spelled out; the version pin compares the COMPLETE matching-version set; T3a anchors per arming site; the vocabulary enumeration is dropped in favour of the grep that the claim actually rests on; the red-first claim is scoped to (a)-(e) and (g); the revert inventory is a table.
 
 ## Pre-push ladder record (contract, not a transcript)
 
