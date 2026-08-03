@@ -77,6 +77,8 @@ export type SeedShowWithCrewOptions = {
    * it to render a real Schedule timeline (e.g. the stage-filtered-schedule e2e).
    */
   dates?: ShowRow["dates"];
+  /** shows.agenda_links jsonb. Omit → column left NULL (getShowForViewer decodes to []). */
+  agendaLinks?: ShowRow["agenda_links"];
   crew?: SeedCrewMemberInput[];
 };
 
@@ -126,6 +128,9 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     // JSONB dates column — postgres-js/supabase-js encodes the object directly.
     // Omitted → NULL (getShowForViewer.ts:398-405 falls back to all-null dates).
     dates: options.dates ?? null,
+    // JSONB agenda_links — same encoding note as `dates` above. Omitted → NULL →
+    // getShowForViewer decodes to [] and the crew page renders no agenda area.
+    agenda_links: options.agendaLinks ?? null,
   });
   if (showErr) throw new Error(`seedShowWithCrew shows insert failed: ${showErr.message}`);
 

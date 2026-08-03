@@ -28,7 +28,12 @@
 
 import { useCallback, useLayoutEffect, useRef, useState, type RefCallback } from "react";
 
-import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
+import {
+  computeFittedMaxHeight,
+  isFloorClamped,
+  MIN_FITTED_HEIGHT,
+} from "@/lib/layout/fitWithinClip";
+import { clientLog } from "@/lib/observe/clientLog";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 
 /**
@@ -46,6 +51,12 @@ function findClippingAncestor(node: HTMLElement): HTMLElement | null {
   }
   return null;
 }
+
+/**
+ * Elements already warned about, so a per-frame `apply()` cannot repeat itself.
+ * WEAK, so an unmounted overlay is not retained by its own dev warning.
+ */
+const warned = new WeakSet<HTMLElement>();
 
 /**
  * Returns a callback ref: measurement has to happen once the node is in the
@@ -74,12 +85,33 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     if (clip === null) return; // nothing clips: the CSS cap already governs
 
     const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
-    el.style.maxHeight = `${computeFittedMaxHeight({
+    const geometry = {
       elementTop: el.getBoundingClientRect().top,
       clipBottom: clip.getBoundingClientRect().bottom,
       // `max-height: none` parses as NaN; Infinity means "only the clip binds".
       cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
-    })}px`;
+    };
+    el.style.maxHeight = `${computeFittedMaxHeight(geometry)}px`;
+
+    // The floor beating the room means this overlay now OVERHANGS its clip
+    // edge — the failure the hook exists to prevent, and the one outcome its
+    // written max-height cannot be distinguished from a legitimate fit. Warn
+    // once per element: `apply()` runs on every resize frame, and a warning per
+    // frame during a drag buries the one that mattered.
+    if (process.env.NODE_ENV !== "production" && isFloorClamped(geometry) && !warned.has(el)) {
+      warned.add(el);
+      // `debug`, not `warn`: clientLog mirrors warn/error to app_events, and a
+      // developer diagnostic that only ever fires outside production has no
+      // business writing telemetry rows. Console-only is the whole point.
+      clientLog(
+        "debug",
+        "useFitWithinClip",
+        "[useFitWithinClip] overlay overhangs its clip edge: the room below the anchor is under " +
+          `the ${MIN_FITTED_HEIGHT}px floor, so the fitted height does not fit. Move the anchor ` +
+          "rather than lowering the floor.",
+        el,
+      );
+    }
   }, []);
 
   // A LAYOUT effect, not a passive one: the first cap has to be written before

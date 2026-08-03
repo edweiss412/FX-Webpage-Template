@@ -127,7 +127,7 @@ Change the `ACCENT-PASS-1` heading (`:621`) to `✅ RESOLVED` and add a resoluti
 
 - [ ] **Step 12: Add the `HERO-VIBRANCY-DIM-1` DEFERRED-AS-N/A row** (mirrors `KINDDOT-DIM-1`): the segment's dims are CSS literals with border-box; no fixed-parent stretch dependency, so no real-browser `getBoundingClientRect` parity test — the hairline visual is covered by the impeccable real-browser gate.
 
-- [ ] **Step 13: BACKLOG.md — no change (verify).** Run `grep -rn "BL-HERO-SEGMENT-VIBRANCY" BACKLOG.md` — expected: no output (never filed). Nothing to flip; the aspirational reference lived only in DEFERRED.md:625 and is rewritten in Step 11.
+- [ ] **Step 13: BACKLOG.md — no change (verify).** Run `grep -rn "BL-HERO-SEGMENT-VIBRANCY" BACKLOG.md` — expected: no output (never filed). Nothing to flip; the aspirational reference lived only in DEFERRED.md:625 and is rewritten in Step 11. **Stale as of 2026-08-02:** the dangling-citation filing pass wrote this never-filed id into `BACKLOG-archive.md` at its already-resolved state, so a grep now finds a row. Accurate when written; this document's outcome is unchanged. Do not re-run this step.
 
 - [ ] **Step 14: Commit the reconciliation.**
 

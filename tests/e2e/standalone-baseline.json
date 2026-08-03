@@ -20,7 +20,8 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-e02420c1848a9022e848\",[\"agendaScheduleLayout.spec.ts\",\"fold: the native disclosure triangle is suppressed @ 390px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-e849e8bf247fa7352435\",[\"agendaScheduleLayout.spec.ts\",\"chevron: reduced motion collapses a duration that is otherwise NON-zero (§5.2)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f751e397c85064036877\",[\"agendaScheduleLayout.spec.ts\",\"fold: the marker is VISIBLE, not merely present @ 390px\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f9384252b8dbaf7b44c2\",[\"agendaScheduleLayout.spec.ts\",\"fold: the session count is hidden on an OPEN row and survives toggling (§5.2)\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c504403095b8df15cc5b-f9384252b8dbaf7b44c2\",[\"agendaScheduleLayout.spec.ts\",\"fold: the session count is hidden on an OPEN row and survives toggling (§5.2)\"]]",
+      "[\"standalone-webkit-a11y\",\"standalone-webkit-a11y\",\"c504403095b8df15cc5b-dfe97eb1fd267edd9cfe\",[\"agendaScheduleLayout.spec.ts\",\"a11y: the disclosure keeps BOTH its expandable state and its heading\"]]"
     ],
     "tests/e2e/appHealthIndicator.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b5069c66b80a758456e-270bd82dc93a732cb1bf\",[\"appHealthIndicator.layout.spec.ts\",\"Admin topbar mobile overflow with the health indicator (Codex R1)\",\"(480px) wordmark and pill both present, still fits\"]]",
@@ -226,8 +227,10 @@
     ],
     "tests/e2e/popover-clip-fit.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-07672e28dc1e1358549e\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"keyboard: the banner is tabbable and ArrowDown scrolls it\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-10e0cd584d8e80f125c0\",[\"popover-clip-fit.spec.ts\",\"anchor-room census — what the MIN_FITTED_HEIGHT docblock may claim\",\"the AttentionMenu scroller clears the floor at every supported height\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-161ac7d9014a4879a292\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"settled fit at 390x844 (reduced motion)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-17790c4879cbe6fc012e\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"keyboard: the scroller is in focus order ahead of its rows, and ArrowDown scrolls it\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-17d40335db0c0079ff4e\",[\"popover-clip-fit.spec.ts\",\"anchor-room census — what the MIN_FITTED_HEIGHT docblock may claim\",\"the banner's clip ancestor really is the review-modal panel\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-190ece0e3f920d4f4618\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"the capped banner scrolls rather than stranding its tail\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-1e630389ffaf8175f68e\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 3 — PublishedToggle refusal banner fits its clip panel\",\"containment: banner.bottom never crosses the clip edge\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"0b65cfd9c57ce65bf474-2a8910cf472fd6a18b0b\",[\"popover-clip-fit.spec.ts\",\"§9 obligation 1+2 — AttentionMenu scroller fits inside the clipping panel\",\"settled fit at 390x667 (reduced motion)\"]]",
@@ -535,5 +538,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 468
+  "totalTests": 471
 }

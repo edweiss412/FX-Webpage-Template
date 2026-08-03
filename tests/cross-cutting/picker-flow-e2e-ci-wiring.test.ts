@@ -19,14 +19,20 @@
  * "genuinely PR-covered" because the scanner stopped classifying them as
  * path-gated; that was an artifact, not a fact: `_workflowCoverageScan.ts` matched
  * only `paths:`. The scanner now recognises `paths-ignore` as a filter (with its
- * own self-test), and both specs carry `PATH_GATED_BY_EXCLUSION` allowlist rows
- * that say what they actually are. The REST of the mobile-safari project stays
- * dark under BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * own self-test), and every crew spec this job runs — including
+ * stage-restricted-crew-schedule.spec, wired here for the seeded agenda fold —
+ * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
+ * The rest of the mobile-safari project stays dark under
+ * BL-RESURRECT-MOBILE-SAFARI-E2E.
  */
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { parse as parseYaml } from "yaml";
 import ts from "typescript";
 
 import { stripCommentsSafely } from "../_shared/stripComments";
+import { activatedRunScalars } from "../_shared/workflowActivation";
+import { readFileSync } from "node:fs";
+
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -71,6 +77,293 @@ function stripYamlComments(yaml: string): string {
 
 const read = (wf: string): string => stripYamlComments(readRaw(wf));
 
+/**
+ * Shell segments of every `run:` scalar that actually INVOKE `playwright test` — split on
+ * shell operators so an `echo …` payload after `&&` cannot satisfy wiring assertions, and
+ * required to start with a runner prefix (pnpm/npx/yarn/exec chain) so a non-executing
+ * position (`echo playwright test …`) cannot either. Comments are stripped first
+ * (agenda-fold plan-review R1 mutation families MF1/MF2/MF4; idempotent over `read`'s
+ * stripping).
+ *
+ * Only the HEAD segment of each `run:` scalar counts (MF7, whole-diff review R1 escaping
+ * mutant): `true || pnpm exec playwright test …` is wiring-shaped in a segment that the shell
+ * skips whenever the left side succeeds, and the static text cannot say whether ANY
+ * operator-guarded segment runs — `false && …` is the same hole with the other operator. Command
+ * position is the one position that always executes, so requiring it closes the whole
+ * conditional-execution family at once. Deliberately FAIL-CLOSED: a legitimate
+ * `setup && playwright test …` reads as unwired and fails the guard, which surfaces as "move the
+ * invocation to its own step", never as green-while-dark.
+ */
+function playwrightTestSegments(yaml: string): string[][] {
+  const RUNNER_PREFIX = new Set(["pnpm", "npx", "yarn", "exec"]);
+  // Non-executing Playwright modes (MF6, agenda-fold plan-review R2 live mutant; extended by
+  // whole-diff review R2's `--help` mutant): each of these exits 0 having executed nothing.
+  // `--list` collects only, `--ui` is the interactive mode, and `--help`/`-h` print usage — a
+  // segment carrying any of them is wiring-shaped and proves zero execution.
+  const NON_EXECUTING = new Set(["--list", "--ui", "--help", "-h"]);
+  return (
+    activatedRunScalars(yaml)
+      .map((c) => stripYamlComments(c))
+      // The scalar must be ONE un-chained command. Taking the head segment closed MF7's
+      // `true || playwright test …`, but R9 came back through the other end: `playwright test … ||
+      // true` keeps the head intact and swallows every failure, so CI reports success on a red
+      // suite. A shell operator anywhere in a scalar whose head is our invocation is therefore
+      // disqualifying, not something to parse around — fail-closed, and neither workflow chains.
+      .filter((c) => !/&&|\|\||;|\|/.test(c))
+      .map((c) => c.trim())
+      .map((seg) => seg.trim().split(/\s+/))
+      .filter((t) => {
+        const i = t.indexOf("playwright");
+        return (
+          i !== -1 &&
+          t[i + 1] === "test" &&
+          t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
+          !t.some((w) => NON_EXECUTING.has(w))
+        );
+      })
+  );
+}
+
+/** Token-exact containment — `--project=mobile-safari-shadow` must NOT satisfy a
+ *  `--project=mobile-safari` requirement, nor a longer path a file requirement (MF3). */
+const hasToken = (tokens: string[], token: string): boolean => tokens.includes(token);
+
+/**
+ * Resolve the workflow's OWN command through Playwright and return, per (file, project), the
+ * tests it would actually collect.
+ *
+ * Two escaping mutants forced this shape, both filed against weaker versions of the same idea:
+ *
+ *   - R2 (HIGH): the guards parsed `testMatch` out of playwright.config.ts, so a `testIgnore` on
+ *     the very project the command selects collected ZERO tests with the guards green. `grep`,
+ *     `grepInvert` and `testDir` are the same hole spelled differently.
+ *   - R3 (HIGH): resolving a SYNTHESISED `--project=X <spec>` command ignored the real command's
+ *     own selection flags, so appending `--grep-invert=. --pass-with-no-tests` to the workflow
+ *     collected nothing, exited 0, and both guards stayed green.
+ *
+ * So neither the config nor a reconstruction is consulted: the segment's exact argv is replayed
+ * with `--list --reporter=json` appended, and every filter it carries applies exactly as it will
+ * in CI. `--list` starts no webServer, so this stays a unit-speed check. Fail-closed — a command
+ * that cannot be loaded or collects nothing yields an empty map, which fails the callers.
+ */
+function resolvedByCommand(segment: string[], spec: string): number {
+  const i = segment.indexOf("playwright");
+  const argv = segment.slice(i + 1);
+  let out: string;
+  try {
+    out = execFileSync(
+      "pnpm",
+      ["exec", "playwright", ...argv, "--list", "--forbid-only", "--reporter=json"],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    return 0;
+  }
+  return countTests(out, spec);
+}
+
+/**
+ * Cases these specs deliberately keep skipped, by exact title.
+ *
+ * Whole-diff review R5 (HIGH) escaping mutant: excluding skipped tests from BOTH sides of the
+ * count comparison made `test.describe.skip(...)` on the agenda-fold block invisible — three
+ * defined, three collected, three executed, and the three cases the branch exists for silently
+ * gone. Counting cannot tell a deliberate skip from a regressed one; only an explicit list can.
+ * A new skip therefore fails here until someone writes down why, and deleting a row that still
+ * has a `.skip` fails too.
+ */
+const EXPECTED_SKIPS: Record<string, string[]> = {
+  // picker-flow.spec.ts:354 — "non-deterministic on a shared single-host local run. The DB
+  // rotation …": pre-existing, documented at the skip site, unrelated to this branch.
+  "tests/e2e/picker-flow.spec.ts": [
+    "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
+  ],
+  "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+};
+
+/**
+ * Every test the spec file defines, resolved WITHOUT the workflow's own filters — the baseline the
+ * workflow command is measured against.
+ *
+ * Whole-diff review R4 (HIGH) escaping mutant: requiring "at least one test from the file" let
+ * `--grep-invert=BL-AGENDA-FOLD-NO-SEEDED-E2E` collect the file's other 3 cases and ZERO
+ * agenda-fold cases with both guards green — the primary backlog item dark behind its own wiring
+ * guard. `--grep=admin` was the same hole from the other side (1/7 and 2/6 collected). Counting is
+ * the fix and it maintains itself: adding a case to the spec raises both sides together, while any
+ * filter that drops one fails the comparison.
+ */
+function definedResolution(spec: string, projects: string[]): { count: number; skips: string[] } {
+  const projectFlags = projects.map((p) => `--project=${p}`);
+  let out: string;
+  try {
+    out = execFileSync(
+      "pnpm",
+      [
+        "exec",
+        "playwright",
+        "test",
+        ...projectFlags,
+        spec,
+        "--list",
+        "--forbid-only",
+        "--reporter=json",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    return { count: 0, skips: [] };
+  }
+  return { count: countTests(out, spec), skips: skippedTitles(out, spec) };
+}
+
+function skippedTitles(json: string, spec: string): string[] {
+  const parsed = JSON.parse(json.slice(json.indexOf("{"))) as { suites?: unknown[] };
+  const base = spec.split("/").pop()!;
+  const titles: string[] = [];
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as {
+        suites?: unknown[];
+        specs?: { file?: string; title?: string; tests?: { expectedStatus?: string }[] }[];
+      };
+      for (const sp of s.specs ?? []) {
+        if (!(sp.file ?? "").endsWith(base)) continue;
+        if ((sp.tests ?? []).some((t) => t.expectedStatus === "skipped")) {
+          titles.push(sp.title ?? "");
+        }
+      }
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  return [...new Set(titles)].sort();
+}
+
+/**
+ * UNIQUE, non-skipped test identities for `spec` — not result rows.
+ *
+ * R13 (HIGH): `repeatEach: 2` with a `grep` selecting half the cases preserved every count while
+ * half the unique coverage went dark. `spec.id` carries repeat identity, so counting ids makes a
+ * repeat a repeat.
+ */
+function countTests(json: string, spec: string): number {
+  const parsed = JSON.parse(json.slice(json.indexOf("{"))) as { suites?: unknown[] };
+  const base = spec.split("/").pop()!;
+  const ids = new Set<string>();
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as {
+        suites?: unknown[];
+        specs?: {
+          file?: string;
+          id?: string;
+          line?: number;
+          title?: string;
+          tests?: { expectedStatus?: string }[];
+        }[];
+      };
+      for (const sp of s.specs ?? []) {
+        if (!(sp.file ?? "").endsWith(base)) continue;
+        // A `skip`ped case is collected but never executed, so it is not coverage. R5 (HIGH)
+        // escaping mutant: `test.describe.skip(...)` moved BOTH sides of the count comparison
+        // together — six defined, six "collected", zero executed — and both guards stayed green.
+        // Counting only non-skipped tests makes that mutant drive the count to 0, which the
+        // `> 0` assertion rejects. `--forbid-only` on both resolutions closes the `test.only`
+        // twin: Playwright errors instead of silently narrowing the run.
+        // IDENTITIES, not rows (R13 HIGH): `repeatEach: 2` with a `grep` selecting half the
+        // cases preserved every count while half the unique coverage went dark. `spec.id` carries
+        // repeat identity, so a repeat counts once.
+        if ((sp.tests ?? []).some((t) => t.expectedStatus !== "skipped")) {
+          ids.add(sp.id ?? `${sp.file}:${sp.line}:${sp.title}`);
+        }
+      }
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  return ids.size;
+}
+
+/**
+ * No spec guarded here may carry a project-name guard clause.
+ *
+ * Whole-diff review R4 (HIGH): the file used to open every hook and case with
+ * `if (testInfo.project.name !== "desktop-chromium") return;`. An earlier version of this guard
+ * read that literal and required collection under it, which the reviewer defeated by respelling
+ * ONE of the nine sites (`if (!["mobile-safari"].includes(testInfo.project.name)) return;`) —
+ * eight literals still answered "desktop-chromium", all six tests still collected, and two cases
+ * silently asserted nothing. Parsing gate SPELLINGS is unwinnable; banning the property access is
+ * not, because every project-based gate must read `project.name` to exist. These files are matched
+ * by exactly one project, so the clause has no purpose here beyond creating that silent-pass class.
+ */
+function expectNoProjectGate(spec: string): void {
+  // Shared stripper, not a local idiom (tests/cross-cutting/_metaStripCommentsSingleSource):
+  // the header comment below the ban DISCUSSES `project.name`, so comments must come out before
+  // the scan or the guard fails on its own documentation.
+  const code = stripCommentsSafely(
+    readFileSync(join(process.cwd(), spec), "utf8"),
+    ts.ScriptKind.TS,
+  );
+  // The IDENTIFIERS, not a spelling. R5 (HIGH) defeated a `/project\.name/` scan with
+  // `test.info().project["name"]`, and destructuring (`const { project } = testInfo`) or aliasing
+  // would defeat any bracket-aware successor. Every project-based gate must name `project` or
+  // reach it through `testInfo`/`test.info()`, and neither spec uses either identifier for
+  // anything else (verified 2026-08-02: zero occurrences in code, comments excluded).
+  // `.fail(` joins the list for the quarantine class (R11 HIGH). Resolution cannot catch it:
+  // MEASURED 2026-08-02, `--list --reporter=json` reports expectedStatus "passed" even for a
+  // `test.fail(...)` declaration — the expectation is applied at RUN time. The executed-count
+  // oracle catches it in CI (it counts only PASSED results); this ban is the cheap local twin.
+  const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/, /\.fail\s*\(/].filter((re) =>
+    re.test(code),
+  );
+  expect(
+    banned.map(String),
+    `${spec} names project/testInfo/.fail() in code. A project guard clause makes every case a ` +
+      "silent assertion-free PASS under any other project; a test.fail() quarantine makes it run, " +
+      "fail before its real assertions, and still report expected. Neither may appear here.",
+  ).toEqual([]);
+}
+
+/**
+ * Every executing segment must collect the spec, and must collect ALL of it. Shared by both
+ * guarded specs so a fix to one is a fix to both (class-sweep).
+ */
+function expectWired(segments: string[][], spec: string, what: string): void {
+  const naming = segments.filter((t) => hasToken(t, spec));
+  expect(
+    naming.length,
+    `no executing \`playwright test\` segment in crew-e2e.yml names ${spec} as a whole token. ` +
+      `${what} that no workflow runs are dark: CI would report green without executing them.`,
+  ).toBeGreaterThan(0);
+
+  expectNoProjectGate(spec);
+
+  for (const segment of naming) {
+    const projects = segment
+      .filter((w) => w.startsWith("--project="))
+      .map((w) => w.slice("--project=".length));
+    const defined = definedResolution(spec, projects);
+    const expected = defined.count;
+    expect(
+      defined.skips,
+      `${spec} has skipped cases that are not in EXPECTED_SKIPS. A skip is invisible to the count ` +
+        "comparison below — both sides drop together — so every one is written down with a reason " +
+        "or it is a coverage regression.",
+    ).toEqual([...(EXPECTED_SKIPS[spec] ?? [])].sort());
+    expect(
+      expected,
+      `no project the segment selects (${projects.join(", ")}) resolves any test in ${spec}`,
+    ).toBeGreaterThan(0);
+    expect(
+      resolvedByCommand(segment, spec),
+      `replaying crew-e2e.yml's own \`playwright test\` command with --list collects a DIFFERENT ` +
+        `number of tests from ${spec} than the file defines. Its filters (--grep/--grep-invert/` +
+        "--shard/a project testIgnore) select part or all of the file away, so the job would exit " +
+        "0 having executed less of it than the guard claims.",
+    ).toBe(expected);
+  }
+}
+
 /** The `pull_request.paths-ignore` block only, so an entry elsewhere cannot count. */
 function pathsIgnoreBlock(wf: string): string {
   const yaml = read(wf);
@@ -110,48 +403,117 @@ const DOCS_ONLY = /^(\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
 
 describe("picker-flow e2e CI wiring", () => {
-  it("crew-e2e.yml runs the spec under a project whose testMatch claims it", () => {
-    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy
-    // this, which an earlier version accepted.
-    const commands = [...read("crew-e2e.yml").matchAll(/\n\s*(?:-\s*)?run:\s*([^\n]*)/g)]
-      .map((m) => m[1]!)
-      .filter((c) => c.includes("playwright test"));
-    const naming = commands.filter((c) => c.includes(SPEC));
-    expect(
-      naming.length,
-      `no \`playwright test\` run: line in crew-e2e.yml names ${SPEC}. Un-skipped cases that no ` +
-        "workflow runs are dark: CI would report green without executing them.",
-    ).toBeGreaterThan(0);
+  it("crew-e2e.yml's own command collects the picker-flow spec", () => {
+    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy this, which an
+    // earlier version accepted. Naming is then not enough either — the command's own filters
+    // decide what it collects, so expectWired replays it (see resolvedByCommand).
+    expectWired(playwrightTestSegments(read("crew-e2e.yml")), SPEC, "Un-skipped cases");
+  });
 
-    // Naming the file is not enough: a command selecting only mobile-safari while
-    // naming picker-flow collects ZERO tests and still passes. Split the config on
-    // project boundaries first — one lazy regex could pair a project's name with a
-    // LATER project's testMatch.
-    // Comments stripped first: a commented-out `// testMatch: /(picker-flow|…)/`
-    // above a live one marked the project as claiming the spec, while the real
-    // run collected zero picker tests.
-    const config = stripCommentsSafely(
-      readFileSync(join(process.cwd(), "playwright.config.ts"), "utf8"),
-      ts.ScriptKind.TS,
+  it("crew-e2e.yml's own command collects the stage-restricted crew spec", () => {
+    // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot provide
+    // this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any workflow
+    // actually names it, so only a run-command assertion makes an unwired file fail. This file
+    // also gates every case on its own project, which expectWired pins (R3 HIGH).
+    expectWired(
+      playwrightTestSegments(read("crew-e2e.yml")),
+      "tests/e2e/stage-restricted-crew-schedule.spec.ts",
+      "The seeded agenda-fold cases",
     );
-    const claiming = config
-      .split(/\n\s*name:\s*"/)
-      .slice(1)
-      .map((block) => {
-        const project = block.slice(0, block.indexOf('"'));
-        const match = /testMatch:\s*\n?\s*\/\(([^/]+)\)/.exec(block);
-        return match !== null && match[1]!.split("|").includes("picker-flow") ? project : null;
-      })
-      .filter((p): p is string => p !== null);
+  });
+
+  it("crew-e2e.yml asserts the guarded specs actually EXECUTED", () => {
+    // Static wiring proves collection, never execution. R10 (HIGH) escaping mutant: a `beforeEach`
+    // calling test.skip() skips every case at runtime while --list still counts them, so the count
+    // comparison, EXPECTED_SKIPS and the job's exit code all stay green on a suite that ran
+    // nothing. Only a post-run oracle closes that, so the workflow must carry one — and it must be
+    // an ACTIVATED, un-chained step like any other wiring (same helpers).
+    const runs = activatedRunScalars(read("crew-e2e.yml"))
+      .map((c) => stripYamlComments(c).trim())
+      .filter((c) => !/&&|\|\||;|\|/.test(c));
+    // COMMAND POSITION, like every other guarded invocation (R13 HIGH): `echo
+    // scripts/check-crew-e2e-executed.mjs` exits 0 without reading the report, and a
+    // token-anywhere test accepted it.
     expect(
-      claiming.length,
-      "no playwright.config.ts project's testMatch includes picker-flow",
-    ).toBeGreaterThan(0);
-    expect(
-      naming.some((c) => claiming.some((project) => c.includes(`--project=${project}`))),
-      `the command naming ${SPEC} selects no project whose testMatch claims it (claiming: ` +
-        `${claiming.join(", ")}). It would collect zero tests and still report green.`,
+      runs.some((c) => {
+        const t = c.split(/\s+/);
+        return t[0] === "node" && t[1] === "scripts/check-crew-e2e-executed.mjs";
+      }),
+      "crew-e2e.yml runs no post-run executed-count check. Without it a runtime skip empties the " +
+        "whole job while every static assertion here stays green.",
     ).toBe(true);
+    // The oracle needs the run's own json report: a `list`-only reporter writes none, and the
+    // checker then fails closed rather than passing vacuously — but pin the producer anyway so
+    // the pair cannot drift apart silently.
+    const testRun = playwrightTestSegments(read("crew-e2e.yml"));
+    expect(
+      testRun.some((t) => t.some((w) => w.startsWith("--reporter=") && w.includes("json"))),
+      "the crew-e2e playwright command emits no json report, so the executed-count check has " +
+        "nothing to read.",
+    ).toBe(true);
+  });
+
+  it("the executed-count oracle's thresholds match live Playwright resolution", async () => {
+    // R14 (HIGH), a genuinely new class: the guard pinned that the checker RUNS, never what it
+    // demands. Lowering `stage-restricted-crew-schedule.spec.ts` from 6 to 3 let the three SFS-1
+    // cases pass while all three agenda-fold cases runtime-skipped, and CI stayed green — the
+    // oracle calibrated to the degradation it exists to catch. So the thresholds are not trusted
+    // as literals: each one must equal what Playwright ACTUALLY resolves for that spec under the
+    // workflow's own projects, which also keeps them correct as specs gain cases.
+    const { REQUIRED } = (await import("../../scripts/check-crew-e2e-executed.mjs")) as {
+      REQUIRED: Record<string, number>;
+    };
+    const segments = playwrightTestSegments(read("crew-e2e.yml"));
+    const projects = [
+      ...new Set(
+        segments.flatMap((t) =>
+          t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
+        ),
+      ),
+    ];
+    // The KEY SET is pinned to the workflow's own file list, not just the values: deleting a row
+    // outright escaped a values-only parity loop (measured while closing R14). Every spec the job
+    // runs must have a threshold, and no threshold may name a spec the job does not run.
+    const named = [
+      ...new Set(
+        segments.flatMap((t) =>
+          t.filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!),
+        ),
+      ),
+    ].sort();
+    expect(
+      Object.keys(REQUIRED).sort(),
+      "the oracle's REQUIRED table does not cover exactly the specs crew-e2e.yml runs. A missing " +
+        "row means that spec may go dark unnoticed; an extra row means the oracle guards a spec " +
+        "this job never runs.",
+    ).toEqual(named);
+    for (const [base, threshold] of Object.entries(REQUIRED)) {
+      const spec = `tests/e2e/${base}`;
+      expect(
+        threshold,
+        `${base}: the oracle demands ${threshold} executed, but Playwright resolves a different ` +
+          "number of unique non-skipped tests for it. A threshold below the real count is an " +
+          "oracle calibrated to a partially dark run.",
+      ).toBe(definedResolution(spec, projects).count);
+    }
+  });
+
+  it("crew-e2e.yml's pull_request trigger narrows on NOTHING but paths-ignore", () => {
+    // R8 (HIGH) escaping mutant: `types: [closed]` left every other trigger predicate green while
+    // the job stopped running on open/synchronize/reopen — i.e. on every PR event that matters.
+    // `branches:`/`branches-ignore:` are the same hole by a different key. The contract this file
+    // pins is "this job runs on essentially every PR", so the trigger may carry the docs-only
+    // exclusion and nothing else; any other narrowing key fails, fail-closed.
+    const trigger = parseYaml(read("crew-e2e.yml")) as {
+      on?: { pull_request?: Record<string, unknown> };
+    };
+    const keys = Object.keys(trigger.on?.pull_request ?? {}).sort();
+    expect(
+      keys,
+      "crew-e2e.yml's pull_request trigger carries a narrowing key beyond paths-ignore. `types`, " +
+        "`branches` and `branches-ignore` each silence the job for real PR events while every " +
+        "other assertion here stays green.",
+    ).toEqual(["paths-ignore"]);
   });
 
   it("crew-e2e.yml uses paths-ignore, so a new code path cannot silently skip it", () => {

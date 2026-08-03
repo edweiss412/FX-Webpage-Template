@@ -16,7 +16,11 @@
  * boundary cases are cheap to state.
  */
 import { describe, it, expect } from "vitest";
-import { computeFittedMaxHeight, MIN_FITTED_HEIGHT } from "@/lib/layout/fitWithinClip";
+import {
+  computeFittedMaxHeight,
+  isFloorClamped,
+  MIN_FITTED_HEIGHT,
+} from "@/lib/layout/fitWithinClip";
 
 describe("computeFittedMaxHeight", () => {
   const CAP = 320; // the CSS cap: min(50vh, 20rem) at a tall viewport
@@ -47,6 +51,28 @@ describe("computeFittedMaxHeight", () => {
     // anchor, not to lower the floor.
     expect(computeFittedMaxHeight({ elementTop: 647, clipBottom: 667, cap: CAP })).toBe(
       MIN_FITTED_HEIGHT,
+    );
+  });
+
+  it("reports the floor-clamped regime, which the returned number cannot distinguish", () => {
+    // The height alone is ambiguous: MIN_FITTED_HEIGHT is a legitimate fit when
+    // the room happens to be exactly 48, and an OVERHANG when the room is less.
+    // Callers had no way to tell those apart, so the overhang -- the exact
+    // defect this module exists to prevent -- was silent.
+    expect(isFloorClamped({ elementTop: 647, clipBottom: 667, cap: CAP })).toBe(true);
+    expect(isFloorClamped({ elementTop: 700, clipBottom: 667, cap: CAP })).toBe(true);
+
+    // Exactly at the floor is NOT clamped: it fits, with nothing spare.
+    expect(isFloorClamped({ elementTop: 611, clipBottom: 667, cap: CAP })).toBe(false);
+    expect(isFloorClamped({ elementTop: 100, clipBottom: 667, cap: CAP })).toBe(false);
+
+    // A cap tighter than the floor is the caller's own choice, not an overhang.
+    expect(isFloorClamped({ elementTop: 100, clipBottom: 667, cap: 20 })).toBe(false);
+
+    // Non-finite inputs fall back to `cap`, which is never an overhang.
+    expect(isFloorClamped({ elementTop: Number.NaN, clipBottom: 667, cap: CAP })).toBe(false);
+    expect(isFloorClamped({ elementTop: 0, clipBottom: Number.POSITIVE_INFINITY, cap: CAP })).toBe(
+      false,
     );
   });
 

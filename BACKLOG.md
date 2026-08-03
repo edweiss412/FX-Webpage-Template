@@ -4,74 +4,124 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-DANGLING-CITATIONS-RETIRED-WORKFLOW (15 dangling citations to the seven retired e2e workflows rendered as prose across 10 docs, class-swept per the AGENTS.md bug-shape rule; spec:lint target-class findings now zero tree-wide) and BL-MASTERSPEC-FINANCIALS-VOCAB (14 master-spec financials-entitlement claims reconciled to LEAD ∪ FINANCIALS ∪ admin, line-count-neutral; 4 seed exclusions + 8 window-probe non-claims ratified in docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md; specs README line-count note corrected), and filed BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (§12.4 copy over-grant, deferred to the next §12.4 copy pass). Prior: 2026-08-01 — feat/card-copy-parity-sync-job-names graduated BL-CARD-COPY-HELPFULCONTEXT-PARITY (§4.2 helpfulContext frozen for all 44 rows after reconciling rows 12/29 to the shipped catalog) and BL-SYNC-JOB-FOUR-NAMES (one name: "Auto sync" — catalog x6 codes with §12.4 lockstep, runSummary label, explainer mirror; StagedReviewCard badge unchanged). Prior: 2026-08-01 — `fix/announce-a11y-pass` graduated the two Cluster A announcement rows (`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE`): arm-expiry announcements on all 11 `ARM_REVERT_MS` surfaces (shared `ARM_EXPIRED_ANNOUNCEMENT`, dispatch-entry clears, per-group keying on bulk ignore, StagedReviewCard Apply-disarm fix, T4/T4a/T5 guards) and the ShareHub remote-rotation live region (seed-diff `remoteTokenChanges` counter, mirror-the-cue predicate). Prior: 2026-08-01 — `test/ledger-guard-mdast-rewrite` graduated `BL-LEDGER-GUARD-MDAST-REWRITE` (the graduation tripwire ported onto the remark/mdast walker at `tests/docs/_ledgerMdast.ts`; the owner-split r22–r41 hardening restored from snapshot `a1cfce98d` with a two-row reconcile; the three r41 findings closed by probe — the split's follow-up branch is retired). Prior same day: `fix/focus-ring-a11y-pass` graduated the five Cluster A mechanical rows (`BL-FOCUS-RING-CONTRAST`, `BL-PICKER-ROW-RING-OFFSET-BACKDROP`, `BL-IGNORED-SUMMARY-TAP-TARGET`, `BL-DEV-SWITCHER-BAR-MOBILE-WIDTH`, `BL-BARE-TRANSITION-NO-DURATION-CLASS`) — light focus-ring `#E06000`, info-bg nudge, tree-wide offset sweep + structural guard, default-duration alias, tap floor, switcher width. The two announcement rows (`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE`) stay OPEN for the follow-up spec. Prior: 2026-08-01 — `fix/judgment-chip-newtab-suffix` (PR #640) graduated `BL-HEADER-JUDGMENT-CHIP-CONTRAST` (border-strong outline, owner-ratified Option A) and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` (`stripNewTabSuffix` value-position dedup at the three interpolated labels). Prior: 2026-07-31 — `BL-HARNESS-RESOLVER-POLICY` + `BL-HARNESS-PACKLIST-SERVER-GRAPH` graduated on `feat/ci-dark-directive-resolver` (PR-C of the ci-dark descoped close-out: shared `"use server"` directive plugin — a parse-based, throw-on-call resolver — consolidated across both harness bundlers, and `packlist-rescan-recovery` returned to the standalone config under it). Prior: 2026-07-31 — `BL-CI-VITEST-EXCLUSION-COVERAGE` graduated on `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out: ENV_BOUND_COVERAGE_REGISTRY + run-excluded execution oracle; test-auth-gate returned to unit-suite). Prior: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries. Prior mainline reconciliation (merged into this branch 2026-07-31): 2026-07-31 (`feat/sheet-icon-link-affordance-class` close-out, over the 2026-07-27 three-parallel-pass merge base) — mainline #628 graduated three in-place-terminal entries (`BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` PR #615, `BL-HEADER-PROBE-RESIDUAL-VACUITY` PR #617 — its one live follow-up rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` — and `BL-AGENDA-PERDAY-VIEWER-FILTER` PR #610), corrected `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim, kept `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` deliberately, and hardened the graduation meta-test against terminal HEADINGS and SHIPPED status lines. `fix/duration-tokens-emit-no-css` graduated `BL-DURATION-TOKENS-EMIT-NO-CSS` (alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). `feat/ci-dark-descoped-guards` graduated `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`. `feat/sheet-icon-link-affordance-class` independently graduated the same three plus its own closure `BL-HEADER-LINK-AFFORDANCE-CLASS`, widening the meta-test to heading-suffix and opening-line spellings (SUPERSEDED/DONE in the terminal set); the merge deduplicated the double-graduated archive copies and reverted this branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` per #628's deliberate keep. Same branch, at close-out: `BL-HEADER-PILL-LINK-TOUCH-BUFFER` and `BL-HEADER-SUBBLOCK-HIERARCHY-WIDE` graduated — both resolved by the feature itself (asymmetric-overlay 2px pill buffer; linkless sub-block floor drop at every width). NOTE (2026-07-31 split, owner-directed): nineteen adversarial-review rounds of additional guard hardening (ledger container/normalization/field lanes; containment extension/symlink/URL/anchor censuses) were split OUT of the shipping PR to `test/guard-hardening-followup` (snapshot at `a1cfce98d`), chartered under `BL-LEDGER-GUARD-MDAST-REWRITE`. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries. Prior: 2026-08-01 — `fix/focus-ring-a11y-pass` graduated the five Cluster A mechanical rows (`BL-FOCUS-RING-CONTRAST`, `BL-PICKER-ROW-RING-OFFSET-BACKDROP`, `BL-IGNORED-SUMMARY-TAP-TARGET`, `BL-DEV-SWITCHER-BAR-MOBILE-WIDTH`, `BL-BARE-TRANSITION-NO-DURATION-CLASS`) — light focus-ring `#E06000`, info-bg nudge, tree-wide offset sweep + structural guard, default-duration alias, tap floor, switcher width. The two announcement rows (`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE`) stay OPEN for the follow-up spec. Prior: 2026-08-01 — `fix/judgment-chip-newtab-suffix` (PR #640) graduated `BL-HEADER-JUDGMENT-CHIP-CONTRAST` (border-strong outline, owner-ratified Option A) and `BL-NEWTAB-DOUBLE-ANNOUNCE-USER-DATA` (`stripNewTabSuffix` value-position dedup at the three interpolated labels). Prior: 2026-07-31 — `BL-HARNESS-RESOLVER-POLICY` + `BL-HARNESS-PACKLIST-SERVER-GRAPH` graduated on `feat/ci-dark-directive-resolver` (PR-C of the ci-dark descoped close-out: shared `"use server"` directive plugin — a parse-based, throw-on-call resolver — consolidated across both harness bundlers, and `packlist-rescan-recovery` returned to the standalone config under it). Prior: 2026-07-31 — `BL-CI-VITEST-EXCLUSION-COVERAGE` graduated on `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out: ENV_BOUND_COVERAGE_REGISTRY + run-excluded execution oracle; test-auth-gate returned to unit-suite). Prior: 2026-07-27 (merged passes) — `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` + `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING` graduated on `feat/ci-dark-descoped-guards` (spec-registration detector + post-run baseline comparator), and `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated on `fix/duration-tokens-emit-no-css` (shipped, alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). Same day: three entries that had shipped but were annotated terminal in place graduated: `BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` (PR #615, `feat/ci-lifecycle-gallery`), `BL-HEADER-PROBE-RESIDUAL-VACUITY` (PR #617, `test/header-probe-residual-closure`; its one live follow-up now rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`), and `BL-AGENDA-PERDAY-VIEWER-FILTER` (PR #610, `feat/agenda-perday-viewer-fold`). Also corrected in place: `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim was wrong at filing — the crew show layout has imported Inter since 2026-05-03; the admin tree is what loads nothing. `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` stays deliberately (sub-entry of a still-open parent; rationale in the entry). The graduation meta-test now also rejects terminal HEADINGS and SHIPPED status lines — the shapes this pass caught slipping past it. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD` graduated on `feat/childless-growable-static-guard`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries. Prior mainline reconciliation (merged into this branch 2026-07-31): 2026-07-31 (`feat/sheet-icon-link-affordance-class` close-out, over the 2026-07-27 three-parallel-pass merge base) — mainline #628 graduated three in-place-terminal entries (`BL-E2E-LIFECYCLE-INACTIVE-NOTICE-RETIRED` PR #615, `BL-HEADER-PROBE-RESIDUAL-VACUITY` PR #617 — its one live follow-up rides `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` — and `BL-AGENDA-PERDAY-VIEWER-FILTER` PR #610), corrected `BL-HEADER-FONT-FALLBACK-WRAP`'s "no `next/font` import anywhere" claim, kept `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` deliberately, and hardened the graduation meta-test against terminal HEADINGS and SHIPPED status lines. `fix/duration-tokens-emit-no-css` graduated `BL-DURATION-TOKENS-EMIT-NO-CSS` (alias approach; residual gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`). `feat/ci-dark-descoped-guards` graduated `BL-CI-UNREGISTERED-SELF-CONTAINED-SPEC` and `BL-CI-ENV-DEPENDENT-CONFIG-NARROWING`. `feat/sheet-icon-link-affordance-class` independently graduated the same three plus its own closure `BL-HEADER-LINK-AFFORDANCE-CLASS`, widening the meta-test to heading-suffix and opening-line spellings (SUPERSEDED/DONE in the terminal set); the merge deduplicated the double-graduated archive copies and reverted this branch's graduation of `BL-CI-STALE-BRANCH-PROTECTION-COMMENT` per #628's deliberate keep. Same branch, at close-out: `BL-HEADER-PILL-LINK-TOUCH-BUFFER` and `BL-HEADER-SUBBLOCK-HIERARCHY-WIDE` graduated — both resolved by the feature itself (asymmetric-overlay 2px pill buffer; linkless sub-block floor drop at every width). NOTE (2026-07-31 split, owner-directed): nineteen adversarial-review rounds of additional guard hardening (ledger container/normalization/field lanes; containment extension/symlink/URL/anchor censuses) were split OUT of the shipping PR to `test/guard-hardening-followup` (snapshot at `a1cfce98d`), chartered under `BL-LEDGER-GUARD-MDAST-REWRITE`. Prior: 2026-07-26 — `BL-CHILDLESS-GROWABLE-STATIC-GUARD`; 2026-07-25 — the three phantom-gap items plus 7 terminal-status entries; 2026-07-24 — 30 entries.
+Last reconciled: 2026-08-02 — `docs/dangling-citation-ledger-filing` took the referential-integrity guard's `KNOWN_DANGLING` debt map from 50 rows to 9, filing 39 real entries and correcting one citation (`BL-FLOW4` came off as a side effect: with its family now defined, the stem suppresses as a family reference). Eight open rows here (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, `BL-HEADER-REACT-RECONCILE-HARNESS`, `BL-PG-CRON-HOST-ASSERTION`, `BL-NEEDS-ATTENTION-HOLDS-ROLLUP`, `BL-RESYNC-STAGED-REVIEW-UI`, `BL-STEP3-FULL-CREW-PREVIEW`, `BL-UNPUBLISH-TO-HELD`, `BL-VERSION-AMBIGUOUS-V1-OVERRIDE`) plus `BL-LEDGER-GUARD-BODY-DEFINED-IDS` as the handoff for the eight ids defined in a parent entry's BODY, which stay body-defined by decision. Thirty-one went straight to `BACKLOG-archive.md` at their terminal state: eleven already shipped (the row was deleted at close instead of graduated, twice on a spec's explicit instruction), fifteen were impeccable-gate deferrals whose promised row was never opened and whose deferral has since closed, and five name a branch that was never taken. One citation was corrected instead of filed: `BL-SYNC-FEED-UI-POLISH` pointed at a backlog-id family that exists nowhere in the repo. The 9 rows left are the eight body-defined ids above plus `BL-RESOLVED`, a prose placeholder in an audit doc, both handed to follow-ups. Prior: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGENDA-FOLD-NO-SEEDED-E2E` (the per-viewer agenda day fold exercised through the REAL crew page: seeded `agenda_links` + two complementary date-restricted viewers, each an email-matched Google session against its own seeded show, plus an unrestricted admin control in `stage-restricted-crew-schedule.spec.ts`, wired into `crew-e2e.yml` under desktop-chromium behind a run-command wiring guard) and `BL-AGENDA-A11Y-WEBKIT-COVERAGE` (grep-scoped `standalone-webkit-a11y` project resolving exactly one test, structurally pinned, plus webkit installs and a regenerated baseline). Prior: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-DANGLING-CITATIONS-RETIRED-WORKFLOW (15 dangling citations to the seven retired e2e workflows rendered as prose across 10 docs, class-swept per the AGENTS.md bug-shape rule; spec:lint target-class findings now zero tree-wide) and BL-MASTERSPEC-FINANCIALS-VOCAB (14 master-spec financials-entitlement claims reconciled to LEAD ∪ FINANCIALS ∪ admin, line-count-neutral; 4 seed exclusions + 8 window-probe non-claims ratified in docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md; specs README line-count note corrected), and filed BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (§12.4 copy over-grant, deferred to the next §12.4 copy pass). Earlier reconciliations (deduplicated 2026-08-02 — this line had accumulated 40 segments, 26 of them verbatim repeats of merge-concatenated chains): **[BACKLOG-archive.md § Reconciliation log](./BACKLOG-archive.md#reconciliation-log)**.
 
 ---
 
-## BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard
+## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
 
-**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
 
-`tests/docs/_ledgerMdast.ts` misses two independent spellings of a closure. Both were found by
-reading entries a human would call closed and asking why the guard did not. Probed against the
-shipped walker.
+The host embedded in `cron.job.command` is environment-supplied and varies by target: `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. The suite therefore keys every assertion on the route PATH, which is host-agnostic, and never checks the host at all.
 
-**(1) An intensifier before the terminal word**, in a heading — the word is recognized only in
-leading position, so anything in front of it makes the entry read as OPEN:
+**Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
 
-| heading suffix                           | guard verdict |
-| ---------------------------------------- | ------------- |
-| `✅ CLOSED`                              | TERMINAL      |
-| `✅ RESOLVED (2026-07-03)`               | TERMINAL      |
-| `**RESOLVED 2026-06-11 (PR #22)**`       | TERMINAL      |
-| `✅ FULLY CLOSED (both instances fixed)` | **open**      |
-| `✅ FULLY RESOLVED`                      | **open**      |
-| `✅ COMPLETELY DONE`                     | **open**      |
-| `✅ ALREADY SHIPPED`                     | **open**      |
+**Status:** OPEN.
 
-**(2) A checkmark AND a parenthetical together**, in a bold opening-line claim. Either alone is
-recognized; the combination is not, for every terminal word:
+---
 
-| opening line                             | guard verdict |
-| ---------------------------------------- | ------------- |
-| `**✅ RESOLVED:** …`                     | TERMINAL      |
-| `**RESOLVED (2026-06-21):** …`           | TERMINAL      |
-| `**RESOLVED (2026-06-21, \`br\`):\*\* …` | TERMINAL      |
-| `**✅ RESOLVED (2026-06-21):** …`        | **open**      |
-| `**✅ SHIPPED (2026-06-21):** …`         | **open**      |
-| `**✅ CLOSED (PR #22):** …`              | **open**      |
-| `**✅ DONE (2026-06-21):** …`            | **open**      |
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
 
-Spelling (2) is the more dangerous of the pair, because checkmark-plus-date is the most natural
-way a person writes a closure.
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
 
-The `PARTIALLY CLOSED` and `NOT CLOSED` cases correctly stay open — those are the ratified
-`VETO` negations/qualifiers, and a fix must not weaken them. The gap is that VETO enumerates
-words that _negate_, while nothing enumerates words that merely _intensify_, and an
-unrecognized leading word currently defaults to "not terminal".
+`/admin/needs-attention` rolls up the durable attention stream but shows no pending MI-11 holds, so a hold is visible only from the show it belongs to. Verified 2026-08-02: no cross-show holds read path exists in `lib/` or `app/`, which is the actual blocker — the page cannot roll up what nothing can query.
 
-**Live corruption this caused:** one entry per spelling, each sitting in the open queue while
-declaring its own closure. `BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK` (`✅ FULLY CLOSED`, spelling 1)
-and `BL-LINT-DEBT-PREEXISTING` (`✅ RESOLVED (2026-06-21, …)`, spelling 2) — both now archived.
+**Work:** build the cross-show holds read, then add the rollup. Prerequisite first; the page change is small once the read exists. UI surface, so Opus-owned with the invariant-8 dual gate.
 
-Class-swept at filing across the active `BACKLOG.md` and `DEFERRED.md`, twice. The narrow sweep
-(both bad shapes) found exactly those two. A deliberately wider sweep — ANY terminal word in a
-heading or opening line of an entry the guard calls open — returned 11, of which 9 are correct
-refusals the fix must preserve: `PARTIALLY CLOSED` / `Partial closure` (the ratified VETO),
-`Status: OPEN`, and terminal words used as ordinary prose (`the closed-port protocol`, the UI
-string `"Mark resolved"`). So this is a latent hole, not a backlog of mis-filings — and the
-9 correct refusals are the regression set for any fix.
+**Status:** OPEN.
 
-**Why backlog, not a one-line fix:** lane semantics are spec-canonical
-(`docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md`, eleven adversarial
-rounds). Adding an intensifier class touches the same recognizer the VETO negations run
-through, so it needs the plants-corpus treatment (`M1`–`M9` in
-`tests/docs/_metaDeferralLedgerGraduation.test.ts`): a discriminating plant per new spelling,
-plus proof the existing negation plants still red. Doing it inline here would be an unreviewed
-edit to a ratified guard.
+---
 
-**Trigger:** the next change that touches `_ledgerMdast.ts` lane semantics, or a third
-instance of either shape appearing in the ledgers.
+## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
+
+The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+
+**Explicitly not a safety gap** (owner decision, spec §10): retain-last-good plus the alert already prevent the data loss, and the modifiedTime binding already makes acceptance explicit and version-bound. Do not promote this on safety grounds; promote it if the diff-review workflow is actually wanted.
+
+**Status:** OPEN.
+
+---
+
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** OPEN.
+
+---
+
+## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
+
+The existing M12.13 token-unpublish ARCHIVES the show; there is no published→Held transition. Verified 2026-08-02: no such RPC exists in `supabase/migrations/` or `lib/`. So an operator who published early has one exit, and it is the destructive one.
+
+**Work:** a `published → held` RPC plus its admin affordance. Treat the state machine as the hard part, not the SQL: Held is the pre-publish review state, so returning to it has to say what happens to the share token, to any in-flight finalize, and to a crew member holding a live link, and it must not become a second path to the archived state. Advisory-lock discipline (invariant 2) and the `AUDITABLE_MUTATIONS` registry (invariant 10) both apply.
+
+**Status:** OPEN.
+
+---
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
+
+`VERSION_AMBIGUOUS` has deliberately no in-app "approve the ambiguous parse as-is" affordance, because approving a parse the system is not confident about defeats the gate. The two live resolutions are: the operator restores the sheet's version markers, or a developer registers the new template's markers. A genuine legacy-v1 sheet has neither, and none exists in the corpus today — it would flag ambiguous with no way forward but those same two actions. Verified 2026-08-02: no force-classify path exists.
+
+**Read the deferral before picking this up.** The reason it is open is not that nobody thought about it: an admin override IS an approve-ambiguous path, which is the exact thing the gate exists to prevent. Any design here has to explain why it is not that, and a real legacy-v1 sheet appearing is the trigger that would make the question live.
+
+**Status:** OPEN.
+
+---
+
+## BL-LEDGER-GUARD-BODY-DEFINED-IDS — the citation guard resolves headings only, so a deliberate sub-item reads as dangling
+
+**Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
+
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
+
+**Decision (2026-08-02): they stay body-defined.** Promoting them would give each a heading whose content is one bullet, and would break the thing that makes them meaningful — the parent's ratchet or gate semantics. The eight below are the full current set:
+
+- `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, `BL-MUTATION-COLUMN-SHIFT`, `BL-MUTATION-MERGED-CELL`, `BL-MUTATION-SECTION-ORDER` — the five operator classes enumerated by `BL-MUTATION-HARNESS-OPEN-HOLES` above, which states outright that "each is tracked as a backlog sub-item below". They are also the `finding` tags on thousands of rows in `tests/parser/mutation/knownHoles.ts`, where they identify a hole CLASS, not an item. The parent owns the shrink-only ratchet that gives them their meaning: hardening a class turns its holes into `staleRows` and fails the nightly harness until they are removed. Split across five headings, that ratchet has no single home.
+- `BL-SYNCFEED-UI-1`, `BL-SYNCFEED-UI-2`, `BL-SYNCFEED-UI-3` — the three LOW / no-user-harm findings enumerated by `BL-SYNC-FEED-UI-POLISH` above, each a one-sentence "only act if" note from one impeccable dual-gate that PASSED. Their shared provenance and shared "no concrete trigger" disposition is the entry; individually they are not items.
+
+**Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
+
+**Status:** OPEN.
+
+---
+
+## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — the parse-warning enum generator scans one directory, so four live emitters are hand-listed
+
+**Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
+
+`extractInternalCodeEnums` (`scripts/extract-internal-code-enums.ts:70-71`) collects `parse_warnings.code` literals from `readFiles(["lib/parser"])`, then filters those files by `/\bParseWarning\b|\bwarnings\b|hardErrors/`. Because no runtime module enumerates the parse-warning universe, the attention-scenario gallery has to union the generated enum with a hand-maintained residue, `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`): `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, `PULL_SHEET_ON_ARCHIVED_TAB`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`.
+
+The `tier1.ts` comment attributes the miss to the content regex alone. Verified 2026-08-02, that is only the second filter: all four emitters live in `lib/agenda/extractAgendaSchedule.ts`, `lib/sync/enrichAgenda.ts`, and `lib/sync/pullSheetOverride.ts` — outside the `["lib/parser"]` root the scan ever opens, so the regex never runs on them. Widening the content heuristic without widening the directory list would change nothing.
+
+**Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
+
+**Status:** OPEN.
+
+---
+
+## BL-HEADER-REACT-RECONCILE-HARNESS — the section-header layout proof serves static markup, so a JS-driven animation is uncovered
+
+**Filed:** 2026-08-02 (retroactively; cited by `tests/e2e/section-header-layout.layout.spec.ts:1185` as the filing that closes this gap, with no row anywhere). **Class:** test-coverage gap (harness capability). **Effort:** M.
+
+`section-header-layout.layout.spec.ts` Part 2 proves both header heights belong to ONE mounted node, which the height matrix alone cannot do: `key={showId}` remounts only when the SHOW changes, so a `router.refresh()` reconciles a new pill or count under the same key, and the 44px / 72.8px figures are measured on separately-loaded pages that cannot distinguish "two states of one header" from "two headers". The test states its own limit at `:1176-1185` — the harness serves static server-rendered markup, so its toggle is a direct `style.display` mutation, not a prop change reconciled under the same key.
+
+What bounds the gap today: Part 1 reads the computed style of every node in the subtree and would see a transition attached by a `motion.div layout` wrapper or an effect-driven animation. What stays genuinely uncovered is an animation driven entirely in JS, which attaches no CSS transition for Part 1 to find and survives a `style.display` toggle because no React reconciliation ever happens.
+
+**Work:** stand up a hydrated React harness (mount the real header component, drive a prop change under a stable key, measure across the reconciliation) and move or extend the Part 2 assertions onto it. Note the two-mechanism split before touching either: Part 1 catches an attached transition, Part 2 catches a fixed `min-height` where the pill's presence stops driving the height and 72.8px becomes a coincidence — a replacement harness has to keep both, not collapse them.
+
+**Status:** OPEN.
 
 ---
 
@@ -366,20 +416,6 @@ Not a regression: the control had no pending state before the hidden-input fix e
 
 ---
 
-## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — a venue field-alias generator case fails on some seeds
-
-**Status:** OPEN · **Severity:** low · **Surfaced:** full-suite run during `fix/picker-flow-app-bugs` close-out (2026-07-25)
-
-`tests/parser/blocks/venue.test.ts` → `parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)` → `generator: single-edit typos of venue field aliases (≥5 chars) recover` failed inside a whole-suite run, then passed 3/3 whole-file runs (56/56 each) and passed when isolated with `-t`. The generator constructs single-edit typos, so the input set varies per run: some edit lands on a string the recovery does not accept, and the case only fails when that edit is generated.
-
-**Not caused by the branch that found it:** `fix/picker-flow-app-bugs` touches no file under `tests/parser/` or `lib/parser/`, and the test is a pure unit test with no DB coupling.
-
-**What remains:** make the case deterministic or make the recovery cover the edit. Either seed the generator and pin the seed, so a failure is reproducible and a fix is provable, or enumerate the edit classes explicitly instead of sampling. Then decide whether the failing edit is a genuine gap in `FIELD_LABEL_AUTOCORRECTED` recovery — a seed that fails is evidence about the parser, not only about the test. **Reproduce with:** repeated whole-file runs (`pnpm exec vitest run tests/parser/blocks/venue.test.ts`) until it trips; a single run is likely to pass.
-
-**Caveat on the sighting:** the run that caught it was on a box at load 34+ with a sibling session's vitest running, where many unrelated files failed on 5s timeouts. This case is listed separately from that noise because it failed with a substantive assertion rather than a timeout, and because it also failed in a scoped 3-file run.
-
----
-
 ## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25)
@@ -410,18 +446,6 @@ Not a regression: the control had no pending state before the hidden-input fix e
 This is the dark-spec class already recorded for this repo (`feedback_dark_spec_in_unrun_project_rots`, #486): a spec nothing runs stops describing the product, and the cost lands on whoever next dispatches the gate.
 
 **What remains:** two decisions, in order. (1) Repair both assertions against the current UI — the count needs an exact/scoped match rather than a substring, and the menu-close assertion needs to match the post-merge panel behavior. (2) Decide whether the gallery spec belongs in a gate no PR runs at all. If its value is the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, that is a reason for a dedicated project, not a reason to be unreachable; if it can run on the `:3000` baseline, move it somewhere PR CI executes. **Trigger:** the next `dev-gate-e2e.yml` dispatch, which will fail on this until it is fixed.
-
----
-
-## BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry
-
-**Status:** OPEN · **Severity:** low (defense-in-depth; today's guard is a hand-maintained pin) · **Class:** TEST-ENFORCEMENT GAP
-
-`tests/parser/_metaKnownSectionsRegistry.test.ts` is documented as a drift guard that keeps `KNOWN_SECTION_HEADERS` (`lib/parser/knownSections.ts`) from falling behind the block parsers, but it only asserts a **hardcoded** `REQUIRED_HEADERS` list ⊆ `KNOWN_SECTION_HEADERS`. Both lists are hand-maintained, so a new block parser whose header is registered in NEITHER list passes CI green and its rows would false-positive `UNKNOWN_SECTION_HEADER`. The docstrings in both files were corrected (audit idx87) to describe the real, narrower guarantee (catches an accidental DELETION of a registered header; does NOT detect a genuinely-new unregistered header).
-
-**Why not fixed now:** a robust, low-false-positive walker over `lib/parser/blocks/*.ts` is not cheaply achievable without a parser refactor. Header detection is heterogeneous — plain uppercase literals (`col0Upper === "VENUE"`), lowercase literals (`label === "hotel stays"`), and **regexes** whose matched header is computed, not a literal (`event.ts` `EVENT_DETAILS_HEADER_RE`, `hotels.ts` `/^HOTEL\s+RESERVATIONS?$/`, `rooms.ts` `gsFieldRe`) — and only `dress.ts`/`client.ts` import from `knownSections.ts`. The block-parser sources are also dense with intentional non-header uppercase literals ("NAME", "PHONE", "LED", "TRAVEL", "FRIDAY", "II", "N/A", warning codes), so a naive "every uppercase literal must be registered" walker would need a large hand-maintained exclusion list — the same drift-prone artifact this would replace.
-
-**Fix (when prioritized):** route ALL section-header detection through a single shared, introspectable constant/helper (e.g. a per-parser exported `SECTION_HEADERS` const the parsers match against), then have the meta-test import each parser's constant and assert it ⊆ `KNOWN_SECTION_HEADERS`. Add a proof test that an unregistered header fails. This closes the class structurally instead of by hand-maintained parallel lists.
 
 ---
 
@@ -465,34 +489,28 @@ trailing. What remains is prose that names a day without any of those tokens.
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
 
-### BL-AGENDA-FOLD-NO-SEEDED-E2E — the fold is never exercised through the real crew page
+### BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED — a `next` carrying a query string fails the bootstrap
 
-**Status:** OPEN — disclosed during PR #610 · **Severity:** low · **Class:** TEST COVERAGE
+**Status:** OPEN — measured on `test/agenda-fold-seeded-e2e` (2026-08-02) · **Severity:** low · **Class:** AUTH UX
 
-Coverage for the per-viewer day fold is: matcher unit tests, component tests in jsdom, two
-self-hosted browser specs, and a jsdom **mock** of the `ScheduleSection` seam. Nothing renders the
-fold through the real crew page. Confirmed by grep: only `agendaScheduleLayout.spec.ts` and
-`step3-review-modal.agenda.spec.ts` reference `agenda-day-*`/`agenda-schedule`, and both boot their own
-`node:http` server rather than the app.
+A Google session that matches a crew row with no picker-cookie entry yet resolves to
+`needs_picker_bootstrap` and redirects through `/api/auth/picker-bootstrap`. When the `next` it
+carries has a query string — e.g. the deep link `/show/<slug>/<token>?s=schedule`, which is exactly
+what a crew member gets from a section link — the handler does not land back on the show and renders
+"Sign-in unavailable / Sign-in landed somewhere we don't recognize." Measured on BOTH engines
+(Chromium and WebKit), so it is not a cookie-storage artifact: the bare URL bootstraps fine and the
+same URL with `?s=schedule` does not.
 
-**What that leaves unproven.** The seam test asserts `AgendaScheduleBlock` receives the right
-`viewerDays` per link by mocking the component. It cannot show that a real date-restricted crew
-member, loading a real share link, sees their day expanded — the composition of
-`effectiveViewerDateRestriction` → `aggregateDays` → `visibleShowDays` → the matcher → the rendered
-fold is only ever verified in pieces.
+**Blast radius today.** First contact only, and only on a deep link: once the cookie exists the
+query rides along normally. A crew member who hits it can recover by opening the bare show link, so
+the effect is a confusing dead end rather than lost access.
 
-**Why not closed in #610.** It needs a seeded show whose `agenda_links` carry an `extracted`
-extraction with parseable day labels, plus a date-restricted crew member and a share link.
-`supabase/seed.ts:228` writes `parsed.show.agenda_links` straight from the fixture, so this is
-fixture and seed work, not a harness gap — a meaningful blast radius to take on at review round 9 of
-one PR.
+**Worked around, not fixed, in e2e.** `stage-restricted-crew-schedule.spec.ts` bootstraps on the
+bare URL and re-navigates with `?s=schedule`. That documents the limit; it does not close it.
 
-**Fix (when prioritized):** extend an existing crew e2e fixture with agenda links, then assert the
-viewer's row is `open` and marked while another day is folded. Related:
-`BL-AGENDA-ADMIN-WRAPPER-HARNESS-FIDELITY` wanted the same thing on the admin side and SHIPPED
-2026-08-02 (see `BACKLOG-archive.md`) — the admin half is now covered through the real modal
-tree, so what remains here is strictly the crew-page half. `BL-AGENDA-A11Y-WEBKIT-COVERAGE`
-would ride along.
+**Fix (when prioritized):** decide whether the bootstrap should preserve the `next` query (probably)
+or strip it and redirect to the canonical show URL, then pin the chosen behavior with a route test
+covering a query-bearing `next`.
 
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
@@ -513,26 +531,6 @@ current behaviour is SAFE — it fails open — so the cost is a missing improve
 **Fix (when prioritized):** per-link completeness, with the invariant search in
 `tests/agenda/agendaViewerDaysInvariant.test.ts` extended to multi-link fixtures first, so the
 loosening is measured against the property before it ships.
-
-### BL-AGENDA-A11Y-WEBKIT-COVERAGE — the fold's accessibility proof runs Chromium only
-
-**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** very low · **Class:** TEST COVERAGE
-
-`tests/e2e/standalone.config.ts` defines a single `standalone-chromium` project, so the fold's
-accessibility assertions never run against WebKit even though Safari is an explicit crew target. That
-matters here more than usual: the `<summary>` carries an `<h3>` beside sibling spans and an SVG, which
-is outside HTML's strict content model, so "the browser still exposes both semantics" is an empirical
-claim per engine.
-
-**Measured once, by hand, during #610:** a temporary `probe-webkit` project (`devices["Desktop Safari"]`)
-ran the a11y test green in 5.0s, then the config was reverted. So WebKit does expose it today — but a
-hand-run measurement is not coverage, and by this repo's own dark-spec lesson it will rot.
-
-**Not shipped in #610** because adding a WebKit project to that config runs all 439 standalone specs a
-second time and would surface unrelated engine differences mid-review.
-
-**Fix (when prioritized):** either a WebKit project scoped to the a11y-bearing specs, or a
-`--project` matrix leg in `standalone-e2e.yml`.
 
 ### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
 
@@ -1031,7 +1029,7 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
 
-**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — mirrors the BL-B2UI-\* pattern).
+**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the `BACKLOG-B2UI-*` batch below (`:1303-1305`): one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line gave that family a `BL-` prefix, which resolves to nothing — the real ids carry the `BACKLOG-` prefix. A one-word prefix typo, not a vanished family; the analogy it draws was always sound. The wrong spelling is described rather than written out, since re-typing it would re-create the dangling reference.
 
 - **BL-SYNCFEED-UI-1** — `UndoChangeButton`: post-submit success relies on page revalidation flipping the row to `undone`; consider an `aria-live` region announcing undo success (the failure path already surfaces via `ErrorExplainer`).
 - **BL-SYNCFEED-UI-2** — `ChangeFeedBadge`: `title` tooltips are hover-only (desktop); acceptable since the visible text label already carries meaning (color-blind floor met) — only act if touch-discoverability is raised.
@@ -1258,3 +1256,38 @@ Speculative finish polish from the B2 UI external impeccable attestation (gate P
 - **BACKLOG-B2UI-1** — `DashboardBucketSegmentedControl`: disabled "Archived (0)" segment can read as clickable-but-dead on first encounter; consider `title="No archived shows"`.
 - **BACKLOG-B2UI-2** — `ArchiveShowButton`: two `min-w-[18rem]` arbitrary literals; tokenize (sibling of the shipped `--spacing-confirm-box`) or accept the one-off button-pair width.
 - **BACKLOG-B2UI-3** — `ArchiveShowButton`: armed confirm button's `hover:bg-warning-bg` equals its resting bg (no hover feedback); add a distinct `hover` token.
+
+---
+
+## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
+
+Filed 2026-08-02 alongside the anchor-room census that measured the other two.
+
+`lib/layout/fitWithinClip.ts` now carries a per-anchor reachability table instead of
+generalizing one measurement. Two of the three anchors have real numbers: the Re-sync band
+(209.75px at 375×667) and the AttentionMenu scroller (swept at 375×H — 844→563, 667→412,
+560→322, 400→186, 300→101, linear in viewport height). The third, the PublishedToggle refusal
+banner, does not.
+
+Two obstacles, both in the harness rather than the code:
+
+1. The banner mounts only on a REFUSAL, and the shared modal harness hardcodes
+   `setPublished: NOOP_OK` (`tests/e2e/_publishedReviewModalHarness.tsx`), so no refusal can be
+   driven through the real modal.
+2. Its anchor — the StatusStrip — renders BELOW the clip window in that fixture at 375×667.
+   Measured: strip `713.03..911.03` against a panel bottom of `667`. Room computed there is
+   `-257px`, which describes an anchor clipped entirely out of view rather than one an operator
+   interacts with.
+
+What IS pinned today is the structural premise the fit depends on: walking up from the anchor
+lands on the review-modal panel, asserted in the anchor-room census and proved live by mutation.
+The dedicated replica entry (`tests/e2e/_publishedToggleClipLiveEntry.tsx`) exercises the
+arithmetic and DOM wiring, but its ~80px of room is CHOSEN, so it cannot speak to reachability.
+
+Obstacle 2 is worth a second look on its own terms: a fixture that renders the strip fully
+outside the clip window may be an unrepresentative fixture, or may be a real responsive defect
+at that viewport. Nobody has established which.
+
+**Trigger:** a harness that can drive a refusal through the real modal (a `setPublished`
+override on the shared harness would do it), or a decision about obstacle 2. Until then the
+docblock states the gap rather than papering over it.
