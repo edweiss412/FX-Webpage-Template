@@ -4,7 +4,9 @@
  * app/admin/settings/admins/RevokeRowButton.tsx (M9 C9 / M2-D1)
  *
  * Two-tap inline confirmation for revoking an admin row, echoing the
- * C4 ResolveAlertButton pattern (shape brief §6.5):
+ * C4 two-tap arm/confirm pattern (shape brief §6.5), the idiom the admin
+ * destructive-confirm registry pins across ArchiveShowButton, ReSyncButton and
+ * the picker controls:
  *
  *   idle     → [ Revoke ] (accent)
  *              Click → confirm.

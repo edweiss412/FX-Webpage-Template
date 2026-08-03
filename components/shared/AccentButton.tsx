@@ -4,9 +4,10 @@
  * components/shared/AccentButton.tsx — shared accent-button atom (M5-D7).
  *
  * The primary-action "accent fill" button chrome had drifted across ~8
- * admin call sites (ResolveAlertButton, PendingPanelRetryButton,
- * ReSyncButton, PublishShowButton, RunFinalCASButton,
- * ResumeFinalizeButton, FinalizeButton, StagedReviewCard). Each had
+ * admin call sites at the time (PendingPanelRetryButton, ReSyncButton,
+ * PublishShowButton, FinalizeButton, StagedReviewCard, and three since
+ * retired: ResumeFinalizeButton at the Step-3 consolidation, plus
+ * ResolveAlertButton and RunFinalCASButton on 2026-08-03). Each had
  * hand-copied the same `bg-accent`/`text-accent-text`/`hover:bg-accent-hover`/
  * focus-ring stack with small, accreted differences (padding, font
  * weight, ring-offset color, inline-flex vs block, shadow). The 4th-
@@ -31,7 +32,7 @@
  *     aria-busy, data-testid, children, …). `type` defaults to "button"
  *     so the atom is safe outside a <form>; submit sites pass type="submit".
  *   - `className` is the escape hatch — appended LAST so per-site overrides
- *     (e.g. ResolveAlertButton's `disabled:hover:bg-accent`) win in cascade
+ *     (e.g. a call site's own `disabled:hover:bg-accent`) win in cascade
  *     order without forking the atom.
  *
  * Tokens only (DESIGN.md §"single source of executable tokens"): every

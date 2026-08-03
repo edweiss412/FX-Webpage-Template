@@ -113,15 +113,6 @@ export type ExemptionRow =
 export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   {
     kind: "pending",
-    file: "app/admin/settings/admins/RevokeRowButton.tsx",
-    text:
-      "* C4 ResolveAlertButton pattern (shape brief §6.5):",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
     file: "BACKLOG.md",
     text:
       "**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)",
@@ -162,60 +153,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text:
       "| `components/right-now/RightNowCard.tsx`   | Only comments, several of which read as though it were live.                         |",
     repairedBy: "Task 5",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/ArchiveShowButton.tsx",
-    text:
-      "* mirroring components/admin/ResolveAlertButton:",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/PendingPanelDiscardButtons.tsx",
-    text:
-      "* (ArchiveShowButton \"Confirm archive\", ResolveAlertButton \"Confirm dismiss\") and the",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/ResolveAlertButton.tsx",
-    text:
-      "* components/admin/ResolveAlertButton.tsx (M9 C4 / M5-D3, hardened M9-D-C4-1)",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/ResolveAlertButton.tsx",
-    text:
-      "* top-level ResolveAlertButton would couple it to the parent",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/ResolveAlertButton.tsx",
-    text:
-      "export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) {",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/RetryWatchButton.tsx",
-    text:
-      "* safe/idempotent (unlike ResolveAlertButton's destructive Dismiss). Pending",
-    repairedBy: "Task 7",
     reason:
       "Live reference to a retired identifier; repaired by the named task.",
   },
@@ -270,31 +207,12 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Provenance for the projection's consumer: the sentence exists to name what superseded what.",
   },
   {
-    kind: "pending",
+    kind: "line",
     file: "components/shared/AccentButton.tsx",
     text:
-      "*     (e.g. ResolveAlertButton's `disabled:hover:bg-accent`) win in cascade",
-    repairedBy: "Task 7",
+      "* ResolveAlertButton and RunFinalCASButton on 2026-08-03). Each had",
     reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/shared/AccentButton.tsx",
-    text:
-      "* admin call sites (ResolveAlertButton, PendingPanelRetryButton,",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/shared/AccentButton.tsx",
-    text:
-      "* ReSyncButton, PublishShowButton, RunFinalCASButton,",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
+      "Retirement provenance: the drift history is the point of the sentence, and naming what left keeps the count honest.",
   },
   {
     kind: "line",
@@ -410,15 +328,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "- **Why deferred (NOT Phase A's surface):** Phase A does not touch `components/show/`, `components/atoms/`, or `app/show/[slug]/`. The M3 LodgingTile + tile-grid render path is owned by the M3/M4 plan tree. WebServer logs surface an incidental hydration drift on `<RightNowCard data-prefers-reduced-motion>` (\"unknown\" → \"false\"), but RightNowCard is outside the screenshotted `tile-grid` element.",
     reason:
       "Scope note describing what Phase A did not touch; a record of the boundary.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/_orphanedComponents.ts",
-    text:
-      "file: \"components/admin/ResolveAlertButton.tsx\",",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
   },
   {
     kind: "pending",
@@ -565,22 +474,12 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Live reference to a retired identifier; repaired by the named task.",
   },
   {
-    kind: "pending",
+    kind: "line",
     file: "tests/components/atoms/AccentButton.test.tsx",
     text:
-      "* (ResolveAlertButton, PendingPanelRetryButton, ReSyncButton,",
-    repairedBy: "Task 7",
+      "* ResolveAlertButton and RunFinalCASButton, all since retired).",
     reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/atoms/AccentButton.test.tsx",
-    text:
-      "* PublishShowButton, RunFinalCASButton, ResumeFinalizeButton,",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
+      "Retirement provenance for the atom's drift history.",
   },
   {
     kind: "line",
@@ -597,87 +496,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "* RETARGET (2026-08-03): this suite pinned `RightNowCard`, which the",
     reason:
       "Provenance for the retarget: naming the component this suite used to pin IS the content.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "* tests/components/ResolveAlertButton.test.tsx — two-tap confirmation",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "<ResolveAlertButton />",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "const { getByTestId } = render(<ResolveAlertButton />);",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "const { getByTestId } = render(<ResolveAlertButton quiet />);",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "const { getByTestId, queryByTestId } = render(<ResolveAlertButton />);",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "describe(\"arm-expiry announcement — ResolveAlertButton\", () => {",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "describe(\"ResolveAlertButton state machine\", () => {",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/ResolveAlertButton.test.tsx",
-    text:
-      "import { ResolveAlertButton } from \"@/components/admin/ResolveAlertButton\";",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RetryWatchButton.test.tsx",
-    text:
-      "* The pending state is load-bearing: unlike ResolveAlertButton there is no",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
   },
   {
     kind: "line",
@@ -698,39 +516,20 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "pending",
-    file: "tests/styles/_metaDestructiveConfirm.test.ts",
-    text:
-      "R(\"components/admin/ResolveAlertButton.tsx\", 0, \"panel\", \"admin-alert-confirm-resolve-button\"),",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
     file: "tests/styles/accent-button-atom.test.ts",
     text:
-      "\"ResolveAlertButton.tsx\",",
-    repairedBy: "Task 7",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/styles/accent-button-atom.test.ts",
-    text:
-      "\"RunFinalCASButton.tsx\",",
+      "// RunFinalCASButton left the same way on 2026-08-03: both were retired as",
     repairedBy: "Task 8",
     reason:
       "Live reference to a retired identifier; repaired by the named task.",
   },
   {
-    kind: "pending",
+    kind: "line",
     file: "tests/styles/accent-button-atom.test.ts",
     text:
-      "// The call sites migrated by M5-D7. ResolveAlertButton carries TWO accent",
-    repairedBy: "Task 7",
+      "// the Step-3 consolidation retired it — spec §4.5. ResolveAlertButton and",
     reason:
-      "Live reference to a retired identifier; repaired by the named task.",
+      "Explains why two rows left the migrated-files list; naming them is the justification a reviewer checks.",
   },
 ];
 

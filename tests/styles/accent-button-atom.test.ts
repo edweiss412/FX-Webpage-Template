@@ -43,9 +43,13 @@ import { describe, expect, it } from "vitest";
 const ADMIN_DIR = "components/admin";
 const ATOM_FILE = "components/shared/AccentButton.tsx";
 
-// The call sites migrated by M5-D7. ResolveAlertButton carries TWO accent
-// buttons (idle Resolve + confirm) — one file, both swapped. (ResumeFinalizeButton
-// was in this list until the Step-3 consolidation retired it — spec §4.5.)
+// The call sites migrated by M5-D7. (ResumeFinalizeButton was in this list until
+// the Step-3 consolidation retired it — spec §4.5. ResolveAlertButton and
+// RunFinalCASButton left the same way on 2026-08-03: both were retired as
+// zero-production-importer components, and a migrated-files row for a deleted file
+// hard-fails sub-scan 2. The atom contract is unweakened — sub-scan 1 still forbids
+// hand-rolled accent compositions repo-wide, and the bg-accent inventory still
+// covers every file.)
 //
 // DE-MIGRATED: "ReSyncButton.tsx". modal-header-reconciliation §6.7 moved the
 // Re-sync trigger into the control strip and DEMOTED it from accent to ghost —
@@ -57,9 +61,7 @@ const ATOM_FILE = "components/shared/AccentButton.tsx";
 // trigger pairs no accent fill with any accent foreground, and the repo-wide
 // bg-accent inventory still covers the file.
 const MIGRATED_FILES = [
-  "ResolveAlertButton.tsx",
   "PendingPanelRetryButton.tsx",
-  "RunFinalCASButton.tsx",
   "FinalizeButton.tsx",
   "StagedReviewCard.tsx",
 ].map((f) => join(ADMIN_DIR, f));
