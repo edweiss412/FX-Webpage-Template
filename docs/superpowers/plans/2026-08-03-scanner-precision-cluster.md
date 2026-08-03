@@ -12,71 +12,74 @@ Neither item touches `app/` outside `app/api/**`, `components/`, an `app/globals
 
 ## Meta-test inventory
 
-**CREATES one guard, in two files** — the core/guard split the repo already uses for
-`tests/docs/_invariant8Closeout.ts` + `tests/docs/_metaInvariant8Closeout.test.ts`:
+**CREATES one recognizer plus one guard:**
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- `lib/messages/__internal__/parseWarningSites.ts` — the pure recognizer (R1/R2/R3 of spec §3.1),
-  shared by the generator and the guard's G1 arm. Lives beside
+- `lib/messages/__internal__/parseWarningSites.ts` — the type-aware recognizer (spec §3.1), shared
+  by the generator and the guard's G1 arm. Lives beside
   `lib/messages/__internal__/stripLogEmissionCalls.ts` and
-  `lib/messages/__internal__/walkSourceFiles.ts`, so `scripts/extract-internal-code-enums.ts` can
-  import it through the existing `@/` alias exactly as it already imports those two
+  `lib/messages/__internal__/walkSourceFiles.ts`, so `scripts/extract-internal-code-enums.ts`
+  imports it through the existing `@/` alias exactly as it already imports those two
   (`scripts/extract-internal-code-enums.ts:5-6`).
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- `tests/messages/_metaParseWarningSiteCoverage.test.ts` — the guard (spec §3.5), both arms, plus
+- `tests/messages/_metaParseWarningSiteCoverage.test.ts` — the guard (spec §3.4), both arms, plus
   the mutation families below.
 
-**Wiring, verified against the config, not assumed:** `vitest.projects.ts` picks up
-`tests/messages/**/*.test.ts`, so no config task is needed. Confirmed by Task 0's sweep.
+**ts-morph, not regex.** `ts-morph` is an existing devDependency (`package.json:131`) with three
+in-repo precedents: `lib/audit/noGlobalCursor.ts`, `tests/cross-cutting/no-raw-codes-audit.ts:247`,
+and the ratified `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md`.
+**Single compiler world** — ts-morph wrappers and its exported `ts` namespace only; the standalone
+`typescript` package is never imported (that spec's §5.1 F3).
 
-**EXTENDS two existing registries:**
+**Wiring, verified against the config:** `vitest.projects.ts:89` picks up
+`tests/messages/**/*.test.{ts,tsx}`, so no config task is needed.
 
-- `tests/dev/attentionScenariosWarnings.test.ts` — the residue test at
-  `tests/dev/attentionScenariosWarnings.test.ts:33-40` is deleted and the membership assertion of
-  AC-A4 replaces it; `generatedWarningCodes()`
-  (`tests/dev/attentionScenariosWarnings.test.ts:19-23`) changes filter.
+**EXTENDS three existing registries:**
+
+- `tests/dev/attentionScenariosWarnings.test.ts` — residue test at
+  `tests/dev/attentionScenariosWarnings.test.ts:33-40` deleted, AC-A4 replaces it;
+  `generatedWarningCodes()` (`tests/dev/attentionScenariosWarnings.test.ts:19-23`) changes filter.
 - `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — eight `KNOWN_DANGLING` rows deleted
   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:92`), `definedIds()`
-  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:124`) unions in body-defined ids, and the
-  P1–P6 plants land beside the existing synthetic-corpus cases.
+  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:124`) unions in body-defined ids.
+- `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P8.
 
 **Declared not applicable:** Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) — no
-Supabase call is added. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no
-`pg_advisory*` surface is touched, so the invariant-2 holder enumeration is vacuous.
-Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — no route
-handler and no `"use server"` action is added, changed, or deleted. Admin-alert catalog
-(`tests/messages/_metaAdminAlertCatalog.test.ts`) — no `admin_alerts` code is added or removed; the
-generator's admin-alerts pass is untouched.
+Supabase call added. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no
+`pg_advisory*` surface touched, so the invariant-2 holder enumeration is vacuous. Mutation-surface
+observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — no route handler and no
+`"use server"` action added, changed, or deleted. Admin-alert catalog
+(`tests/messages/_metaAdminAlertCatalog.test.ts`) — no `admin_alerts` code added or removed.
 
 ---
 
 ## Mutation-family closure (guard surfaces)
 
-Per the round-economy rule, this is the closure set the review converges against. A reviewer-proposed
-NEW family is admissible only with a **live escaping mutant demonstrated against the shipped guard**.
+This is the closure set the review converges against. A reviewer-proposed NEW family is admissible
+only with a **live escaping mutant demonstrated against the shipped guard**. Families A-b and A-c
+below exist because R1 demonstrated exactly such mutants against the previous syntactic design.
 
-**Item A guard — families the two arms must catch:**
+**Item A — every family must be exercised as a fixture, and each must FAIL a syntactic recognizer
+while PASSING the type-aware one:**
 
-| # | Family | Caught by | Plant |
+| # | Family | Closed by | AC |
 | --- | --- | --- | --- |
-| A-a | Emitter in a directory outside the generator's roots | G1 | fixture file under a synthetic root |
-| A-b | Factory named neither `warn` nor `warning` (e.g. `mkWarn`, `pw`) | G2 (return-type discovery) | AC-A6 |
-| A-c | `code: IDENT` where IDENT resolves to no const binding | G2 (unresolved-identifier failure) | synthetic source |
-| A-d | New severity-adjacent literal inside the roots, absent from the generated enum | G2 | stale-enum fixture |
-| A-e | Emitter using `severity: "info"` rather than `"warn"` | R1 accepts both members of the union (`lib/parser/types.ts:68`) | synthetic source |
+| A-a | Emitter in a directory outside the generator's roots | G1 root coverage | AC-A1 |
+| A-b | Factory whose return type is spelled indirectly (`Alias["warnings"][number]`) | type-based site recognition | **AC-A5** |
+| A-c | `severity` supplied by a typed const rather than a literal | type-based site recognition | **AC-A6** |
+| A-d | Shorthand `code` whose type is a union of string literals | code extraction reads the *type* | AC-A5 |
+| A-e | `code` widened to `string`, codes only at call sites | call-site argument resolution | AC-A1 |
+| A-f | `code` resolvable to no literal at all | **reported and fails** — never dropped | **AC-A7** |
+| A-g | `severity: "info"` rather than `"warn"` | both are members of the union (`lib/parser/types.ts:68`) | AC-A1 |
 
-**Item B guard — families:** the six plants P1–P6 of spec §4.2 ARE the family enumeration
-(strong-wrapping-code lead, strong-plain lead, code-span lead, non-lead strong, non-ledger file,
-non-resolving parent).
+**Item B — the eight plants P1–P8 of spec §4.2 ARE the family enumeration.** P7 and P8 exist
+because R1 demonstrated the intervening-non-id-heading mutant.
 
 ---
 
-## Task 0 — reconciliation sweeps, authored AND RUN
+## Task 0 — reconciliation sweeps, RUN not described
 
-Per the writing-plans rule these are run at plan-authoring time with their output recorded, not
-described as future work.
-
-**Sweep 1 — every `EXTRA_WARNING_CODES` reference (Task 1 must reconcile all of them).**
+**Sweep 1 — every `EXTRA_WARNING_CODES` reference.**
 
 ```
 $ rg -n 'EXTRA_WARNING_CODES' --glob '!docs/**' .
@@ -88,12 +91,11 @@ tests/dev/attentionScenariosWarnings.test.ts:37     for (const code of EXTRA_WAR
 BACKLOG.md:104, BACKLOG.md:108                      the backlog entry's own prose
 ```
 
-Disposition: the five code hits removed in Task 1; the `tier1.ts:114-130` comment block above the
-export goes with them (its rationale is refuted by spec §2.2). The two `BACKLOG.md` hits are the
-entry being graduated in Task 3 — they leave `BACKLOG.md` with it, which is why this sweep is run
-before Task 3 rather than after.
+Disposition: the five code hits removed in Task 1, with the
+`lib/dev/attentionScenarios/tier1.ts:114-130` comment block. The two `BACKLOG.md` hits leave with
+the entry in Task 3.
 
-**Sweep 2 — every exact-equality filter on `parse_warnings.code` (Task 1 must change both).**
+**Sweep 2 — every exact-equality filter on `parse_warnings.code`.**
 
 ```
 $ rg -n 'source === "parse_warnings.code"' --glob '!docs/**' .
@@ -101,165 +103,136 @@ lib/dev/attentionScenarios/tier1.ts:140          .filter(([, v]) => v.source ===
 tests/dev/attentionScenariosWarnings.test.ts:21    .filter(([, v]) => (v as { source: string }).source === "parse_warnings.code")
 ```
 
-Disposition: both become `.split(",").includes("parse_warnings.code")`. Note
-`tests/messages/inlineLaterGroupCopy.test.ts:128-131` also names that string, but it pins a
-specific code's provenance with `.toBe(...)` rather than selecting the gallery set; it is left
-alone, and Task 1's green step confirms it still passes.
+Disposition: both become `.split(",").includes("parse_warnings.code")`.
+`tests/messages/inlineLaterGroupCopy.test.ts:128-131` names the same string but pins a code's
+provenance with `.toBe(...)`; left alone, confirmed still passing in Task 1's green step.
 
 **Sweep 3 — the eight `KNOWN_DANGLING` rows Task 2 deletes.**
 
 ```
-$ rg -n 'BL-MUTATION-(REF-SUB|UNICODE|COLUMN-SHIFT|MERGED-CELL|SECTION-ORDER)|BL-SYNCFEED-UI-[123]' \
-    tests/docs/_metaLedgerReferentialIntegrity.test.ts
-93,95,97,99,101   the five BL-MUTATION-* rows
-105,107,109       the three BL-SYNCFEED-UI-* rows
+$ rg -n 'BL-MUTATION-…|BL-SYNCFEED-UI-[123]' tests/docs/_metaLedgerReferentialIntegrity.test.ts
+93, 95, 97, 99, 101   the five BL-MUTATION-* rows
+105, 107, 109         the three BL-SYNCFEED-UI-* rows
 ```
 
-Disposition: all eight deleted in Task 2. `BL-RESOLVED` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:103`) stays — spec §1.
+`BL-RESOLVED` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:103`) stays — spec §1.
 
-**Sweep 4 — every consumer of the generator or its artifact.** Run wide on purpose; the first
-draft of this plan guessed "two hits" and was wrong by eleven.
+**Sweep 4 — every consumer of the generator or its artifact.** Authored guessing "two hits"; the
+run returned thirteen, which is why it is recorded rather than described.
 
 ```
 $ rg -ln 'extract-internal-code-enums|extractInternalCodeEnums|INTERNAL_CODE_ENUMS' --glob '!docs/**' .
-package.json                                            gen:internal-code-enums script
-scripts/extract-internal-code-enums.ts                  the file itself
-lib/messages/__generated__/internal-code-enums.ts       the artifact
-lib/dev/attentionScenarios/tier1.ts                     gallery consumer — Task 1 edits
-tests/cross-cutting/no-raw-codes.test.ts                ** binding, see below **
-tests/cross-cutting/no-raw-codes-audit.ts               ** binding, see below **
-tests/cross-cutting/cron-run-summary-scanner-safety.ts  ** binding, see below **
-tests/messages/inlineLaterGroupCopy.test.ts             provenance pin — Sweep 2
-tests/dev/attentionScenariosWarnings.test.ts            gallery test — Task 1 edits
-tests/parser/d1-empty-section-warning.test.ts           comment reference only
+package.json                                             gen:internal-code-enums script
+scripts/extract-internal-code-enums.ts                   the file itself
+lib/messages/__generated__/internal-code-enums.ts        the artifact
+lib/dev/attentionScenarios/tier1.ts                      gallery consumer — Task 1 edits
+tests/cross-cutting/no-raw-codes.test.ts                 ** binding, below **
+tests/cross-cutting/no-raw-codes-audit.ts                ** binding, below **
+tests/cross-cutting/cron-run-summary-scanner-safety.test.ts  ** binding, below **
+tests/messages/inlineLaterGroupCopy.test.ts              provenance pin — Sweep 2
+tests/dev/attentionScenariosWarnings.test.ts             gallery test — Task 1 edits
+tests/parser/d1-empty-section-warning.test.ts            comment reference only
 lib/cron/runSummary.ts, lib/parser/warnings.ts,
 lib/onboarding/rescanReviewCode.ts, lib/sync/runPushSyncForShow.ts,
-lib/sync/applyStagedCore.ts                             comment references only
+lib/sync/applyStagedCore.ts                              comment references only
 ```
 
-**Two bindings this change must satisfy, both pre-existing guards:**
+**Three bindings this change must satisfy:**
 
 1. **`tests/cross-cutting/cron-run-summary-scanner-safety.test.ts`** asserts `CRON_RUN_SUMMARY`
-   never reaches the extracted manifest. Today that holds because `lib/cron/runSummary.ts:1-3`
-   deliberately keeps the file free of message-catalog keywords, i.e. it relies on the **content
-   predicate** this plan removes from the parse-warnings pass. Verified it still holds under
-   construction-site scoping for a different and stronger reason: `CRON_RUN_SUMMARY`
-   (`lib/cron/runSummary.ts:4`) is a bare `export const`, not a `code:` key and not
-   severity-adjacent, so R1 does not match it and R3 only resolves identifiers that already sit at
-   an R1 site. Task 1's green step runs this test explicitly.
-2. **`tests/cross-cutting/no-raw-codes.test.ts:34`** asserts
-   `expect(INTERNAL_CODE_ENUMS).toEqual(extracted)` — the committed artifact must equal a fresh
-   extraction. This is what makes AC-A7 (regenerate and commit in the same commit) machine-enforced
-   rather than a convention. The same file's `buildForbiddenCodeIndex`
-   (`tests/cross-cutting/no-raw-codes-audit.ts:14`) sources forbidden codes partly from
-   `INTERNAL_CODE_ENUMS`, so the seven newly-captured codes become newly-forbidden in user-visible
-   strings. Swept: the only `app/` or `components/` occurrences of any of the seven are
-   `components/admin/PerShowActionableWarnings.tsx:153` and `components/diagrams/Gallery.tsx:27`,
-   **both inside comments**, which the ts-morph audit does not scan. No new violation.
+   never reaches the manifest. Today that holds because `lib/cron/runSummary.ts:1-3` deliberately
+   keeps the file free of message-catalog keywords — i.e. it relies on the **content predicate**
+   this plan removes. Verified it still holds, for a stronger reason: `CRON_RUN_SUMMARY`
+   (`lib/cron/runSummary.ts:4`) is a bare `export const`, not an expression assignable to
+   `ParseWarning`. AC-A9 pins this.
+2. **`tests/cross-cutting/no-raw-codes.test.ts:34`** asserts `INTERNAL_CODE_ENUMS` equals a fresh
+   extraction — this makes AC-A8 machine-enforced rather than a convention.
+3. **`buildForbiddenCodeIndex`** (`tests/cross-cutting/no-raw-codes-audit.ts:14`) sources forbidden
+   codes partly from `INTERNAL_CODE_ENUMS`, so the eleven newly-captured codes become newly
+   forbidden in user-visible strings. Swept: the only `app/` or `components/` occurrences of any of
+   the eleven are `components/admin/PerShowActionableWarnings.tsx:153` and
+   `components/diagrams/Gallery.tsx:27`, **both inside comments**, which the ts-morph audit does not
+   scan. Task 1's green step re-runs the audit to confirm.
 
 ---
 
-## Task 1 — Item A: construction-site scoping, residue deletion, guard
+## Task 1 — Item A: type-aware construction-site recognition
 
-**RED.** Write, in this order, and confirm each fails for the stated reason before writing any
-implementation:
-
-<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-1. `tests/messages/parseWarningSites.test.ts` — unit tests for the recognizer against **synthetic
-   sources**, not the live tree, so the proof does not depend on the repo happening to contain an
-   instance. One case per rule and per mutation family A-a…A-e. Concrete failure modes caught:
-   - R1 accepts `{ severity: "warn", code: "X" }` and `{ severity: "info", code: "X" }`; **rejects**
-     `{ code: "X" }` with no severity sibling, and rejects a `severity:` in a *different* object at
-     the same textual distance (the brace-scoping proof — a proximity-window implementation passes
-     the first and fails this one).
-   - R2 discovers `mkWarn` from `function mkWarn(...): ParseWarning` and matches
-     `mkWarn("X", …)`; does **not** match `notMkWarn("X", …)` (the word-boundary proof) and does
-     not match `log.warn("X", …)` (strip proof).
-   - R3 resolves `code: SOME_CONST` against `const SOME_CONST = "X"`; an unresolved identifier is
-     **reported**, not dropped.
-<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-2. `tests/messages/_metaParseWarningSiteCoverage.test.ts` — G1 and G2 (spec §3.5). Anti-tautology:
-   G2's recognizer is written independently in that file and must NOT import the shared recognizer
-   module; the test asserts the two disagree on nothing over the real tree, which is
-   only meaningful because they are separate implementations.
-3. Extend `tests/dev/attentionScenariosWarnings.test.ts` with AC-A4: all four former residue codes
-   present, sourced from the generator alone.
-
-Expected RED reasons: (1) and (2) fail on a missing module; (3) fails because
-`AGENDA_SCHEDULE_LOW_CONFIDENCE` is absent from the generated enum once `EXTRA_WARNING_CODES` is
-gone.
-
-**GREEN.** Implement:
+**RED**, in this order, each confirmed failing for the stated reason before any implementation:
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- `lib/messages/__internal__/parseWarningSites.ts` — R1/R2/R3 per spec §3.1. The brace walk is
-  string-, template-literal- and comment-aware, mirroring the posture of
-  `lib/messages/__internal__/stripLogEmissionCalls.ts` (conservative: on an unbalanced brace, stop
-  and return what is known rather than corrupt the scan).
-- `scripts/extract-internal-code-enums.ts:70-74` — the parse-warnings pass calls the recognizer over
-  roots `["lib", "app"]` minus `lib/dev/**`. The other three passes are untouched.
-- `lib/dev/attentionScenarios/tier1.ts` — delete `EXTRA_WARNING_CODES`
-  (`lib/dev/attentionScenarios/tier1.ts:131`) and its comment
-  (`lib/dev/attentionScenarios/tier1.ts:114-130`); the `warningCodes()` filter
-  (`lib/dev/attentionScenarios/tier1.ts:140`) becomes membership.
-- `tests/dev/attentionScenariosWarnings.test.ts` — delete the residue import
-  (`tests/dev/attentionScenariosWarnings.test.ts:7`) and the residue test
-  (`tests/dev/attentionScenariosWarnings.test.ts:33-40`); the `generatedWarningCodes()` filter
-  (`tests/dev/attentionScenariosWarnings.test.ts:21`) becomes membership.
-- Run `pnpm gen:internal-code-enums` and commit the regenerated
-  `lib/messages/__generated__/internal-code-enums.ts` in the same commit (AC-A7).
+1. `tests/messages/parseWarningSites.test.ts` — recognizer unit tests against **in-memory ts-morph
+   fixtures**, not the live tree, so each proof stands on its own rather than on the repo happening
+   to contain an instance. One case per family A-a…A-g. The two load-bearing ones:
+   - **A-b (AC-A5)** a factory returning `Alias["warnings"][number]` with a union-typed `code`
+     parameter. Failure mode caught: a recognizer keyed on the written return type. R1 proved this
+     mutant escapes the syntactic design, so this case must be red before the fix and green after.
+   - **A-c (AC-A6)** `{ severity: WARN_SEVERITY, code: "X", message: "y" }` with
+     `const WARN_SEVERITY: ParseWarning["severity"] = "warn"`. Failure mode caught: a recognizer
+     requiring a literal `severity`.
+   - **A-f (AC-A7)** a site whose `code` resolves to no literal — asserts it is **reported by name**,
+     not silently dropped.
+<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
+2. `tests/messages/_metaParseWarningSiteCoverage.test.ts` — G1 and G2 (spec §3.4).
+3. Extend `tests/dev/attentionScenariosWarnings.test.ts` with AC-A4.
 
-**Verify.** AC-A1 (54 codes), AC-A2 (none of the eleven false positives carries the provenance),
-AC-A3 (`rg EXTRA_WARNING_CODES` is empty outside `docs/`), AC-A4, AC-A5, AC-A6.
+<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
+**GREEN.** Implement `lib/messages/__internal__/parseWarningSites.ts` per spec §3.1; point the
+generator's parse-warnings pass (`scripts/extract-internal-code-enums.ts:70-74`) at it over roots
+`["lib", "app"]` minus `lib/dev/**` — the other three passes untouched; delete
+`EXTRA_WARNING_CODES` and its comment; change both filters to membership (Sweep 2); run
+`pnpm gen:internal-code-enums` and commit the regenerated artifact in the same commit.
 
-**Commit.** `feat(messages): scope the parse-warning scan to construction sites, drop the residue`
+**Verify.** AC-A1 (58 codes, zero lost vs the 47, exactly the 11 gained), AC-A2, AC-A3, AC-A4,
+AC-A5, AC-A6, AC-A7, AC-A8, AC-A9. Plus the three Sweep-4 bindings.
+
+**Perf note.** The generator becomes type-checked rather than regex-based, so it loads the project
+once. `gen:internal-code-enums` currently runs inside `test:audit:x2-no-raw-codes`
+(`package.json:35`); if the added latency is material the plan does not change behavior, only
+timing — recorded here so a reviewer does not read a slower script as a defect.
+
+**Commit.** `feat(messages): recognize parse-warning sites by type, not spelling`
 
 ---
 
 ## Task 2 — Item B: body-defined ledger ids
 
-**RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` (the existing synthetic-corpus walker
-suite) with plants P1–P6 of spec §4.2, each against a synthetic ledger string. Concrete failure
-modes caught, stated per the anti-tautology rule:
+**RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` with plants P1–P8 (spec §4.2) against
+synthetic ledgers. Failure modes caught, per the anti-tautology rule:
 
-- P3 catches a recognizer keyed on "bullet lead with a code span" — which would let
-  `BACKLOG.md:91` define the five ids it merely enumerates, from the wrong parent.
-- P4 catches a recognizer that scans the whole bullet rather than its first child — which would let
-  an entry define any sibling id it discusses.
-- P5 catches a recognizer applied outside `LEDGERS` — which would let a typo in a plan define
-  itself and make the guard decorative.
-- P6 catches a recognizer that walks list items without keying them to a resolving entry.
+- **P3** — a code-span-lead rule would let `BACKLOG.md:91` define the five ids it merely
+  enumerates, from the wrong parent.
+- **P4** — a whole-bullet scan would let an entry define any sibling id it discusses.
+- **P5** — applying the rule outside `LEDGERS` would let a typo in a plan define itself.
+- **P6** — walking list items without keying them to a resolving entry.
+- **P7/P8** — the R1 mutant: bullets after an intervening **non-id** heading belong to that
+  section, not to the entry whose body span swallows them. P8 uses the real
+  `BACKLOG-archive.md:1082-1084` shape with its headings removed in-memory.
 
-Expected RED: `bodyDefinedIds` does not exist.
+**GREEN.** Implement `bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts` per spec §4.1
+(ledger-only, first-child-of-first-paragraph, stop at first heading), built on `extractEntries`
+(`tests/docs/_ledgerMdast.ts:302`). Union into `definedIds()`. Delete the eight `KNOWN_DANGLING`
+rows.
 
-**GREEN.** Implement `bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts` per spec §4.1,
-built on `extractEntries` (`tests/docs/_ledgerMdast.ts:302`). Union it into `definedIds()`
-(`tests/docs/_metaLedgerReferentialIntegrity.test.ts:124`). Delete the eight `KNOWN_DANGLING` rows
-(Sweep 3).
+**Verify.** AC-B1, AC-B2, AC-B3 (exactly 8 over the live ledgers, not 11), AC-B4. The guard's
+existing stale-row ratchet is what proves the eight deletions were required rather than optional.
 
-**Verify.** AC-B1, AC-B2, AC-B3. The guard's existing stale-row ratchet is the check that the eight
-deletions were required rather than optional — leaving any of them fails.
-
-**Commit.** `fix(docs): let a ledger entry define sub-item ids in its body`
+**Commit.** `fix(docs): let a ledger entry define sub-item ids in its own body`
 
 ---
 
 ## Task 3 — backlog graduation
 
-Move `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` and `BL-LEDGER-GUARD-BODY-DEFINED-IDS` from `BACKLOG.md` to
-`BACKLOG-archive.md` at their terminal state, and add a new leading segment to the
-`Last reconciled:` line (`BACKLOG.md:7`). Add both ids to `BACKLOG_GRADUATED` in
-`tests/docs/_metaDeferralLedgerGraduation.test.ts`.
+Move both entries to `BACKLOG-archive.md`; add a new leading segment to `BACKLOG.md:7`; add both
+ids to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
 
-**Ordering note that matters:** `BL-LEDGER-GUARD-BODY-DEFINED-IDS`'s body contains the
-`BACKLOG.md:91-92` bullets that enumerate the eight ids as **code spans, not strong** — so under
-Task 2's rule that entry defines nothing, and moving it to the archive changes no definition.
-Task 2's plants must land before this move so the property is pinned independently of the entry's
-location.
+**Ordering that matters:** `BL-LEDGER-GUARD-BODY-DEFINED-IDS`'s body contains the
+`BACKLOG.md:91-92` bullets enumerating the eight ids as code spans, not strong — so under Task 2's
+rule that entry defines nothing and the move changes no definition. Task 2 lands first so the
+property is pinned independently of the entry's location.
 
-**Rebase conflict is expected** — two sibling panes are graduating other rows from the same file.
-Resolve by keeping BOTH sides; the entries are disjoint and the `Last reconciled:` line
-concatenates.
+**Rebase conflict expected** — sibling panes are graduating other rows from the same file. Resolve
+by keeping BOTH sides; the entries are disjoint and the `Last reconciled:` line concatenates.
 
 **Commit.** `docs(backlog): graduate the two scanner-precision entries`
 
@@ -267,11 +240,9 @@ concatenates.
 
 ## Task 4 — full local gate
 
-`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check` (AC-C1). The full suite, not scoped
-runs — scoped gates miss regressions, and this change edits a generated artifact consumed across
-`tests/messages/**` and `tests/dev/**`.
-
-Also re-run `pnpm spec:lint` on the spec and this plan.
+`pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check` (AC-C1) — the full suite, not
+scoped runs, since this edits a generated artifact consumed across `tests/messages/**`,
+`tests/dev/**`, and `tests/cross-cutting/**`. Re-run `pnpm spec:lint` on spec and plan.
 
 ---
 
