@@ -43,3 +43,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-09-flow8.3-venue-timezone.md`](./2026-07-09-flow8.3-venue-timezone.md) | 2026-07-09 |
 | [`2026-07-09-parser-property-fuzz.md`](./2026-07-09-parser-property-fuzz.md) | 2026-07-09 |
 | [`2026-07-15-geocode-cache-legacy-coords.md`](./2026-07-15-geocode-cache-legacy-coords.md) | 2026-07-15 |
+| [`2026-08-02-parser-determinism-pair.md`](./2026-08-02-parser-determinism-pair.md) | 2026-08-02 |

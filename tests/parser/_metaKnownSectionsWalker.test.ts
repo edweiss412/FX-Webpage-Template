@@ -321,3 +321,44 @@ describe("known-sections walker non-vacuity proof", () => {
     expect(hits(`// the GENERAL SESSION block is owned by rooms.ts`)).toBe(false);
   });
 });
+
+// Docstring-truth guard (spec docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md
+// §5.4). This walker shipped 2026-07-06, but for ~4 weeks afterwards both companion files still
+// carried docstrings asserting it did not exist and was "not cheaply achievable" — a false claim
+// that scoped BL-KNOWN-SECTIONS-WALKER (now archived) as open work at the start of
+// test/parser-determinism-pair. The corruption is measured, not hypothetical, so the claim is
+// pinned. DECLARED LIMIT: this is a regression pin on the specific wording that was wrong, not a
+// prose classifier — a NEW false paraphrase that also names this file would pass. Building a
+// classifier is the _ledgerMdast problem (thirty review rounds); deliberately not attempted.
+const STALE_ABSENCE_PHRASES = [
+  "no shared introspectable constant",
+  "does NOT walk",
+  "not cheaply achievable",
+] as const;
+
+// Two disjoint lists: the phrases above are FORBIDDEN in these files; the pointer below is
+// REQUIRED in them. The phrases are distributed, not duplicated — knownSections.ts carries the
+// first two, the registry pin the third — so the assertion is "no file contains any listed
+// phrase", never "each file contains each phrase".
+const WALKER_POINTER = "_metaKnownSectionsWalker";
+
+const DOCSTRING_TRUTH_FILES = [
+  "lib/parser/knownSections.ts",
+  "tests/parser/_metaKnownSectionsRegistry.test.ts",
+] as const;
+
+describe("known-sections docstring truth", () => {
+  it.each(DOCSTRING_TRUTH_FILES)("%s neither denies the walker nor omits it", (rel) => {
+    const source = readFileSync(join(process.cwd(), rel), "utf8");
+    for (const phrase of STALE_ABSENCE_PHRASES) {
+      expect(
+        source.includes(phrase),
+        `${rel} still carries the stale-absence phrase "${phrase}" — the walker at tests/parser/_metaKnownSectionsWalker.test.ts has existed since 2026-07-06`,
+      ).toBe(false);
+    }
+    expect(
+      source.includes(WALKER_POINTER),
+      `${rel} does not name ${WALKER_POINTER} — it must point at the primary drift guard, not merely omit the false claim`,
+    ).toBe(true);
+  });
+});

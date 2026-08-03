@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { parseVenue } from "@/lib/parser/blocks/venue";
 import { detectVersion } from "@/lib/parser/schema";
 import { newAggregator } from "@/lib/parser/warnings";
-import { inScopeAliases } from "@/lib/parser/aliases";
+import { inScopeAliases, resolveAlias, TYPO_ALIASES } from "@/lib/parser/aliases";
 import { unambiguousTypos } from "@/tests/parser/_typoGenerator";
 
 // ── Fixture paths ────────────────────────────────────────────────────────────
@@ -308,26 +308,114 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
     expect(agg.warnings.find((w) => w.code === "UNKNOWN_FIELD")).toBeTruthy();
   });
 
-  it("generator: single-edit typos of venue field aliases (≥5 chars) recover", () => {
-    // pass the FULL alias set so a generated typo that equals a real other-block exact alias is dropped
-    const ALL = inScopeAliases(""); // every REVERSE_MAP key
-    const venueAliases = inScopeAliases("venue.").filter((a) => a.length >= 5);
-    for (const alias of venueAliases.slice(0, 4)) {
-      // bound the loop for speed; a representative sample across venue.* aliases
-      for (const typo of unambiguousTypos(
-        alias.toUpperCase(),
-        ALL.map((a) => a.toUpperCase()),
-        { minLen: 5 },
-      ).slice(0, 6)) {
-        const md = ["| VENUE NAME | Four Seasons |", `| ${typo} | some value |`].join("\n");
-        const agg = newAggregator();
-        parseVenue(md, "v4", agg);
-        // the recovered label must NOT be an UNKNOWN_FIELD (it corrected to a venue field)
+  /**
+   * EXHAUSTIVE, not sampled. Every venue alias of length >= 5, and every unambiguous single-edit
+   * neighbour of each — 8453 cases across 11 aliases. The previous version sampled
+   * `.slice(0, 4)` aliases x `.slice(0, 6)` typos, which coupled coverage to `FIELD_ALIASES`
+   * insertion order and, in practice, exercised only the five aliases whose canonicals
+   * `parseVenue` never assigns — so not one sampled case could prove a value reached a field.
+   * Spec: docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md §4.
+   *
+   * The oracle is ONE strict deep-equality comparison against an object derived from each case's
+   * own inputs. Four review rounds each found a mutant that escaped a weaker, property-listing
+   * assertion (anchor corruption; trim cases with no routing assertion; a third field corrupted
+   * with a non-sentinel marker; a stray field set to null / "" / a non-string). Deep equality is
+   * exhaustive in both directions, so there is no field the assertion can forget.
+   */
+  const VENUE_OUTPUT_FIELD: Record<string, string> = {
+    "venue.name": "name",
+    "venue.address": "address",
+    "venue.loading_dock": "loadingDock",
+    "venue.google_link": "googleLink",
+    "venue.notes": "notes",
+  };
+  const TYPO_SENTINEL = "__TYPO_SENTINEL__";
+  const ANCHOR_NAME = "Four Seasons";
+  const ANCHOR_DOCK = "dock ref";
+
+  // Measured 3.58s exhaustive. Vitest's default is 5000ms and no testTimeout override exists in
+  // vitest.config.ts / vitest.projects.ts / vitest.sequencer.ts / package.json, so this case
+  // carries its own generous timeout rather than raising the global one for every other test.
+  const TYPO_SPACE_TIMEOUT_MS = 30_000;
+
+  it(
+    "generator: every single-edit typo of every venue field alias (>=5 chars) routes correctly",
+    () => {
+      // pass the FULL alias set so a generated typo that equals a real other-block exact alias is dropped
+      const ALL = inScopeAliases("").map((a) => a.toUpperCase());
+      const venueAliases = inScopeAliases("venue.").filter((a) => a.length >= 5);
+
+      // Coverage floor, DERIVED: every canonical parseVenue can assign must be reachable from
+      // some enumerated alias. Catches the deletion of the last alias of an assignable canonical.
+      const coveredCanonicals = new Set(venueAliases.map((a) => resolveAlias(a)));
+      for (const canonical of Object.keys(VENUE_OUTPUT_FIELD)) {
         expect(
-          agg.warnings.find((w) => w.code === "UNKNOWN_FIELD"),
-          `typo '${typo}' of '${alias}' should recover, not UNKNOWN_FIELD`,
-        ).toBeUndefined();
+          coveredCanonicals.has(canonical),
+          `no enumerated venue alias resolves to ${canonical} — generator coverage has shrunk`,
+        ).toBe(true);
       }
-    }
-  });
+
+      let totalCases = 0;
+      for (const alias of venueAliases) {
+        const canonical = resolveAlias(alias)!;
+        const targetField = VENUE_OUTPUT_FIELD[canonical];
+        const isNameAlias = canonical === "venue.name";
+
+        // The anchor opens the venue block (a lone typo row does not). It must NOT share the
+        // canonical under test: assignment is first-wins, so a colliding anchor would shadow the
+        // typo's value and make the routing assertion vacuous.
+        const anchorRow = isNameAlias
+          ? `| LOADING DOCK | ${ANCHOR_DOCK} |`
+          : `| VENUE NAME | ${ANCHOR_NAME} |`;
+        const expected: Record<string, string> = isNameAlias
+          ? { name: "", address: "", loadingDock: ANCHOR_DOCK }
+          : { name: ANCHOR_NAME, address: "" };
+        if (targetField) expected[targetField] = TYPO_SENTINEL;
+
+        const typos = unambiguousTypos(alias.toUpperCase(), ALL, { minLen: 5 });
+        // Volume floor, DERIVED from the alias: measured ratios are 53.8-56.6, so this has ~5x
+        // headroom while redding any re-introduction of sampling (`.slice(0, 1)` lands at 0.09).
+        expect(
+          typos.length,
+          `alias '${alias}' generated only ${typos.length} typos — sampling has returned`,
+        ).toBeGreaterThanOrEqual(alias.length * 10);
+
+        for (const typo of typos) {
+          totalCases += 1;
+          const md = [anchorRow, `| ${typo} | ${TYPO_SENTINEL} |`].join("\n");
+          const agg = newAggregator();
+          const result = parseVenue(md, "v4", agg);
+          const where = `typo '${typo}' of '${alias}'`;
+
+          // THE oracle: the whole returned object, exactly.
+          expect(result, `${where}: wrong parse result`).toStrictEqual(expected);
+
+          expect(
+            agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD"),
+            `${where} should recover, not UNKNOWN_FIELD`,
+          ).toHaveLength(0);
+
+          const autocorrected = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+          if (typo.trim() === alias.toUpperCase()) {
+            // Leading/trailing-space neighbours are not typos: resolveAliasScoped trims, so they
+            // resolve EXACTLY and must not be reported as a correction. TYPO_NORMALIZED fires iff
+            // the alias is itself a registered typo spelling (e.g. 'hotal contact info').
+            expect(autocorrected, `${where} resolves exactly after trim`).toHaveLength(0);
+            expect(
+              agg.warnings.some((w) => w.code === "TYPO_NORMALIZED"),
+              `${where}: TYPO_NORMALIZED must fire iff '${alias}' is a registered typo alias`,
+            ).toBe(TYPO_ALIASES.has(alias));
+          } else {
+            expect(autocorrected, `${where} should emit exactly one autocorrect`).toHaveLength(1);
+            expect(autocorrected[0]!.severity, `${where}`).toBe("warn");
+            expect(autocorrected[0]!.blockRef, `${where}`).toMatchObject({ kind: "venue" });
+          }
+        }
+      }
+
+      // Non-vacuity: an empty generator would make every loop above a silent no-op.
+      expect(totalCases, "the typo generator produced no cases at all").toBeGreaterThan(0);
+    },
+    TYPO_SPACE_TIMEOUT_MS,
+  );
 });

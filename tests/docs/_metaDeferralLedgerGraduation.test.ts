@@ -88,6 +88,15 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/parser-determinism-pair (2026-08-02): the venue typo-generator case. The entry's
+  // recorded diagnosis was wrong — the generator has no RNG. The defect was order-coupled
+  // sampling, and exhaustive enumeration of all 8453 neighbours found ZERO recovery gaps, so
+  // the entry's open question is answered no.
+  { id: "BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE", provenance: "test/parser-determinism-pair" },
+  // test/parser-determinism-pair (2026-08-02): the known-sections walker was already delivered
+  // on 2026-07-06 by tests/parser/_metaKnownSectionsWalker.test.ts. This branch retired the
+  // stale entry and the two source docstrings that still claimed the walker was unbuilt.
+  { id: "BL-KNOWN-SECTIONS-WALKER", provenance: "test/parser-determinism-pair" },
   // test/agenda-fold-seeded-e2e (2026-08-02): the per-viewer agenda day fold exercised
   // through the REAL crew page — seeded agenda_links + two complementary date-restricted
   // viewers (email-matched Google sessions, one seeded show each) in
