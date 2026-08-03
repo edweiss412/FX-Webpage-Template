@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -13,7 +13,7 @@ import vitestConfig from "@/vitest.config";
 // 2-core CI runner under shard load those round-trips are occasionally slow
 // enough to blow a wall-clock budget, and the failure is a TIMEOUT rather than
 // an assertion — the `unit-suite` gate goes red on a test that is not broken.
-// Two independent budgets govern that, and fixing only one leaves the flake:
+// Several independent budgets govern that, and fixing only one leaves the flake:
 //
 //   1. `testTimeout` / `hookTimeout`. Vitest's defaults are 5s and 10s. A
 //      psql-per-assertion test plus an `afterEach` cleanup query fits in 5s on
@@ -30,6 +30,10 @@ import vitestConfig from "@/vitest.config";
 //      actually flaked: `tests/reports/concurrentRetry.test.ts` waited on a
 //      concurrent `submitReport` reaching its mocked `createIssue`.
 //
+//   3. Every per-test, per-suite, per-hook, and `vi.setConfig` budget, each of
+//      which OVERRIDES the root config. A config default is not a floor while
+//      any of them can quietly sit below it.
+//
 // The fix for (2) is not a bigger number. Wall-clock polling for an event the
 // test can observe directly is the defect; the mock resolves a deferred when
 // it is ENTERED, and the test awaits that. So this guard bans `vi.waitFor` in
@@ -43,21 +47,19 @@ import vitestConfig from "@/vitest.config";
 // Cost of the floor, stated plainly: a genuinely hung DB test now burns 30s
 // before failing instead of 5s. That is the right trade for a gate whose other
 // failure mode is going red on healthy code.
-//
-// A config default is not a floor on its own. A per-test or per-suite
-// `{ timeout: N }` option wins over `runner.config.testTimeout`, so a file
-// carrying one BELOW the floor keeps its old exposure while this guard's other
-// assertions stay green. Every such override in the repo was written to RAISE a
-// budget over the old 5s default, which the floor now does better; left alone
-// they would silently become CAPS. So they are banned below the floor too, with
-// an inline `timeout-floor-exempt: <reason>` escape for a test that genuinely
-// wants a short budget (asserting something completes quickly, say).
 
 const ROOT = process.cwd();
 const TIMEOUT_FLOOR_MS = 30_000;
+const EXEMPT_MARKER = "timeout-floor-exempt:";
 
-// Any of these in a test file means it reaches a real database.
-const DB_MARKERS = [/\brunPsql\b/, /TEST_DATABASE_URL/, /\bpostgres\(/, /_dbHelpers/];
+// Lexical evidence that a file reaches a real database.
+const DB_MARKERS = [
+  /\brunPsql\b/,
+  /TEST_DATABASE_URL/,
+  /\bpostgres\(/,
+  /@supabase\/supabase-js/,
+  /\bpsql\b/,
+];
 
 const rootTest = (vitestConfig as { test?: { testTimeout?: number; hookTimeout?: number } }).test;
 
@@ -70,27 +72,82 @@ const runtimeConfig = (
   }
 ).__vitest_worker__?.config;
 
-const EXEMPT_MARKER = "timeout-floor-exempt:";
+function testFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.isFile() && /\.test\.tsx?$/.test(ent.name)) out.push(full);
+    }
+  };
+  walk(join(ROOT, "tests"));
+  return out;
+}
 
-// Test budgets are found through the TypeScript AST, not a regex over source.
-// The first version of this guard did use a regex, matched only the options-bag
-// spelling, and missed all ten live cases of vitest's OTHER supported form — the
-// trailing numeric argument, `test(name, fn, 15000)`, which vitest converts to
-// `options.timeout` just the same. A regex able to see that one has to skip a
-// function body to reach the argument after it, which is precisely what regex
-// cannot do. The AST reads both spellings for free and, because it looks at
-// argument POSITIONS of a test call rather than at the text `timeout:`, it also
-// cannot mistake `sql.end({ timeout: 5 })`, postgres.js
-// `idle_timeout`/`connect_timeout`, or an `execFileSync` options bag for a test
-// budget — the over-selection risk the regex had to enumerate its way around.
+// Selection is TRANSITIVE through test-local imports, not a list of marker
+// strings that must appear in the test file itself. A suite that does all its
+// database work through `@/tests/db/_b2Helpers` or `@/tests/sync/_holdAwareTestkit`
+// carries no marker of its own, and a lexical-only selector silently exempted
+// five such files — the "new DB file fails by default" property did not hold for
+// any suite that factored its psql calls into a helper. Following the imports
+// closes that by construction rather than by naming today's helpers.
+const dbFileCache = new Map<string, boolean>();
+
+function importedTestModules(file: string, body: string): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(/from\s+["'](@\/tests\/[^"']+|\.\.?\/[^"']+)["']/g)) {
+    const spec = m[1]!;
+    const base = spec.startsWith("@/") ? join(ROOT, spec.slice(2)) : resolve(dirname(file), spec);
+    for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+      if (existsSync(candidate)) {
+        out.push(candidate);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function isDbTouching(file: string, seen = new Set<string>()): boolean {
+  const cached = dbFileCache.get(file);
+  if (cached !== undefined) return cached;
+  if (seen.has(file)) return false;
+  seen.add(file);
+
+  // `foo.db.test.ts` says so in its own name.
+  if (/\.db\.test\.tsx?$/.test(file)) {
+    dbFileCache.set(file, true);
+    return true;
+  }
+
+  const body = readFileSync(file, "utf8");
+  if (DB_MARKERS.some((marker) => marker.test(body))) {
+    dbFileCache.set(file, true);
+    return true;
+  }
+  const viaImport = importedTestModules(file, body).some((dep) => isDbTouching(dep, seen));
+  dbFileCache.set(file, viaImport);
+  return viaImport;
+}
+
+// Budgets are read from the TypeScript AST, not from source text. The first
+// version of this guard used a regex, matched only the options-bag spelling,
+// and missed all ten live cases of vitest's OTHER supported form — the trailing
+// numeric argument, `test(name, fn, 15000)`. A regex able to see that one has to
+// skip a function body to reach the argument after it, which is precisely what
+// regex cannot do. Reading argument POSITIONS also means `sql.end({ timeout: 5 })`,
+// postgres.js `idle_timeout`/`connect_timeout`, and `execFileSync` option bags
+// are structurally not budgets, rather than exceptions a pattern must dodge.
 //
-// A budget whose value the walker cannot resolve is reported as UNRESOLVABLE
-// rather than skipped. `postgrest-dml-lockdown.test.ts` passes a named constant
-// (`HTTP_TEST_TIMEOUT_MS`, 35_000 — above the floor), and a guard that silently
-// ignores what it cannot read would keep passing if someone later edited that
-// constant below the floor. Same-file numeric consts are therefore folded; what
-// survives folding fails loudly and can be exempted with a reason.
+// A budget the walker cannot resolve to a number is reported as UNRESOLVABLE
+// rather than skipped: `postgrest-dml-lockdown.test.ts` passes one as a named
+// constant (`HTTP_TEST_TIMEOUT_MS`, folding to 35_000 — above the floor), and a
+// guard that ignores what it cannot read would go on passing if that constant
+// were later edited below the floor.
 type Budget = { line: number; ms: number | null; text: string };
+
+const HOOKS = new Set(["beforeEach", "afterEach", "beforeAll", "afterAll"]);
 
 function testBudgets(file: string, body: string): Budget[] {
   const source = ts.createSourceFile(
@@ -102,20 +159,20 @@ function testBudgets(file: string, body: string): Budget[] {
   );
   const found: Budget[] = [];
 
-  // Module-level `const NAME = <numeric expr>` bindings, for folding a budget
-  // written as a named constant.
+  // MODULE-LEVEL consts only. A scope-blind collector lets a nested `const MS`
+  // overwrite a top-level one and report the wrong number — a reviewer's mutant
+  // shadowed a 1_000 budget with an unrelated nested 40_000 and passed. A
+  // budget that depends on a nested binding folds to null and fails loudly
+  // instead, which is the safe direction.
   const consts = new Map<string, ts.Expression>();
-  const collectConsts = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      consts.set(node.name.text, node.initializer);
+  for (const stmt of source.statements) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.initializer)
+        consts.set(decl.name.text, decl.initializer);
     }
-    ts.forEachChild(node, collectConsts);
-  };
-  collectConsts(source);
+  }
 
-  // Fold to a number, or null when the value is not statically knowable here.
-  // Cycle-guarded: a self-referential const resolves to null rather than
-  // recursing forever.
   const fold = (expr: ts.Expression, seen = new Set<string>()): number | null => {
     if (ts.isNumericLiteral(expr)) return Number(expr.getText(source).replaceAll("_", ""));
     if (ts.isParenthesizedExpression(expr)) return fold(expr.expression, seen);
@@ -146,8 +203,8 @@ function testBudgets(file: string, body: string): Budget[] {
     return null;
   };
 
-  // Vitest's test entry points, plus any local alias of one (`import { it as
-  // check }`), so renaming the import does not hide a budget.
+  // Vitest's entry points plus every local alias of one: a renamed import
+  // (`import { it as check }`) and a re-binding (`const check = test`).
   const testNames = new Set(["test", "it", "describe"]);
   const collectAliases = (node: ts.Node): void => {
     if (
@@ -157,18 +214,26 @@ function testBudgets(file: string, body: string): Budget[] {
       ts.isNamedImports(node.importClause.namedBindings)
     ) {
       for (const spec of node.importClause.namedBindings.elements) {
-        if (spec.propertyName && testNames.has(spec.propertyName.text)) {
-          testNames.add(spec.name.text);
+        const original = spec.propertyName?.text;
+        if (original && (testNames.has(original) || HOOKS.has(original))) {
+          if (HOOKS.has(original)) HOOKS.add(spec.name.text);
+          else testNames.add(spec.name.text);
         }
       }
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isIdentifier(node.initializer)
+    ) {
+      if (testNames.has(node.initializer.text)) testNames.add(node.name.text);
+      if (HOOKS.has(node.initializer.text)) HOOKS.add(node.name.text);
     }
     ts.forEachChild(node, collectAliases);
   };
   collectAliases(source);
 
-  // The callee's root identifier, through property access and call chains, so
-  // `test`, `test.skipIf(x)`, `it.each(rows)`, and `describe.sequential` all
-  // resolve to their base name.
   const rootName = (expr: ts.Expression): string | null => {
     let cur: ts.Node = expr;
     for (;;) {
@@ -181,6 +246,17 @@ function testBudgets(file: string, body: string): Budget[] {
     }
   };
 
+  // `timeout`, `"timeout"`, and `["timeout"]` are the same key. Reading
+  // `name.getText()` keeps the quotes and misses the last two.
+  const keyOf = (name: ts.PropertyName): string | null => {
+    if (ts.isIdentifier(name)) return name.text;
+    if (ts.isStringLiteral(name)) return name.text;
+    if (ts.isComputedPropertyName(name) && ts.isStringLiteral(name.expression)) {
+      return name.expression.text;
+    }
+    return null;
+  };
+
   const record = (node: ts.Node, ms: number | null): void => {
     found.push({
       line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
@@ -189,32 +265,69 @@ function testBudgets(file: string, body: string): Budget[] {
     });
   };
 
+  const readOptionsBag = (arg: ts.Expression, keys: Set<string>): void => {
+    if (!ts.isObjectLiteralExpression(arg)) return;
+    for (const prop of arg.properties) {
+      // A spread could carry a budget from anywhere; unreadable here.
+      if (ts.isSpreadAssignment(prop)) {
+        record(prop, null);
+        continue;
+      }
+      // Shorthand `{ timeout }` takes its value from the surrounding scope.
+      if (ts.isShorthandPropertyAssignment(prop) && keys.has(prop.name.text)) {
+        record(prop, fold(prop.name));
+        continue;
+      }
+      if (!ts.isPropertyAssignment(prop)) continue;
+      const key = keyOf(prop.name);
+      if (key === null || !keys.has(key)) continue;
+      record(prop.initializer, fold(prop.initializer));
+    }
+  };
+
+  // Is this trailing argument a budget, or the test callback? A callback is
+  // either written inline or resolves to a non-numeric binding; anything else
+  // is treated as a budget, so an unreadable one is reported rather than
+  // mistaken for a callback.
+  const isCallbackNotBudget = (arg: ts.Expression): boolean => {
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) return true;
+    if (ts.isIdentifier(arg)) {
+      const bound = consts.get(arg.text);
+      if (bound && (ts.isArrowFunction(bound) || ts.isFunctionExpression(bound))) return true;
+    }
+    return false;
+  };
+
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const name = rootName(node.expression);
-      if (name !== null && testNames.has(name)) {
+
+      // vi.setConfig({ testTimeout, hookTimeout }) — beats the root config for
+      // the whole file.
+      if (
+        name === "vi" &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "setConfig"
+      ) {
         for (const arg of node.arguments) {
-          if (!ts.isObjectLiteralExpression(arg)) continue;
-          for (const prop of arg.properties) {
-            // A spread could carry a timeout from anywhere; unreadable here.
-            if (ts.isSpreadAssignment(prop)) record(prop, null);
-            if (!ts.isPropertyAssignment(prop)) continue;
-            if (prop.name.getText(source) !== "timeout") continue;
-            record(prop.initializer, fold(prop.initializer));
-          }
+          readOptionsBag(arg, new Set(["testTimeout", "hookTimeout"]));
         }
-        // The numeric-final-argument overload: test(name, fn, 15000). A budget
-        // only ever appears in third position or later, after the callback, so
-        // a two-argument call's last argument is the callback, not a budget.
+      }
+
+      if (name !== null && testNames.has(name)) {
+        for (const arg of node.arguments) readOptionsBag(arg, new Set(["timeout"]));
+        // The trailing-argument overload: test(name, fn, 15000). A budget only
+        // appears in third position or later, after the callback.
         const last = node.arguments.at(-1);
-        if (
-          last &&
-          node.arguments.length >= 3 &&
-          !ts.isArrowFunction(last) &&
-          !ts.isFunctionExpression(last)
-        ) {
+        if (last && node.arguments.length >= 3 && !isCallbackNotBudget(last))
           record(last, fold(last));
-        }
+      }
+
+      // Hooks take their own trailing budget: beforeEach(fn, 15000).
+      if (name !== null && HOOKS.has(name)) {
+        const last = node.arguments.at(-1);
+        if (last && node.arguments.length >= 2 && !isCallbackNotBudget(last))
+          record(last, fold(last));
       }
     }
     ts.forEachChild(node, visit);
@@ -222,19 +335,6 @@ function testBudgets(file: string, body: string): Budget[] {
 
   visit(source);
   return found;
-}
-
-function testFiles(): string[] {
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, ent.name);
-      if (ent.isDirectory()) walk(full);
-      else if (ent.isFile() && /\.test\.tsx?$/.test(ent.name)) out.push(full);
-    }
-  };
-  walk(join(ROOT, "tests"));
-  return out;
 }
 
 describe("DB-touching tests are not exposed to wall-clock timeout flake", () => {
@@ -265,8 +365,8 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
   it("no DB-touching test polls on wall-clock time via vi.waitFor", () => {
     const offenders: string[] = [];
     for (const file of testFiles()) {
+      if (!isDbTouching(file)) continue;
       const body = readFileSync(file, "utf8");
-      if (!DB_MARKERS.some((marker) => marker.test(body))) continue;
       // Comments stripped through the single shared module (spec §4), so a
       // `vi.waitFor` named in prose — including this file's own header — is not
       // read as a call site.
@@ -283,12 +383,11 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
     ).toEqual([]);
   });
 
-  it("no DB-touching test caps itself below the floor with a per-test timeout option", () => {
+  it("no DB-touching test overrides the floor downward", () => {
     const offenders: string[] = [];
     for (const file of testFiles()) {
+      if (!isDbTouching(file)) continue;
       const body = readFileSync(file, "utf8");
-      if (!DB_MARKERS.some((marker) => marker.test(body))) continue;
-
       const rawLines = body.split("\n");
       for (const budget of testBudgets(file, body)) {
         if (budget.ms !== null && budget.ms >= TIMEOUT_FLOOR_MS) continue;
@@ -300,13 +399,13 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
 
     expect(
       offenders,
-      "a per-test or per-suite budget — `{ timeout: N }` or the trailing-numeric overload " +
-        "`test(name, fn, N)` — wins over the config's testTimeout, so an " +
-        "override below the floor keeps the exposure the floor exists to remove. Every one of " +
-        "these was written to RAISE a budget over vitest's old 5s default, which the root " +
-        `config now does — drop the option, or raise it to at least ${TIMEOUT_FLOOR_MS}ms. If ` +
-        `a short budget is the POINT of the test, add an inline \`${EXEMPT_MARKER} <reason>\` ` +
-        "comment on that line",
+      "a per-test, per-suite, per-hook, or vi.setConfig budget wins over the config's " +
+        "testTimeout, so an override below the floor keeps the exposure the floor exists to " +
+        "remove. Every one in this repo was written to RAISE a budget over vitest's old 5s " +
+        `default, which the root config now does — drop it, or raise it to at least ` +
+        `${TIMEOUT_FLOOR_MS}ms. UNRESOLVABLE means the value could not be read statically; ` +
+        `inline it. If a short budget is the POINT of the test, add an inline ` +
+        `\`${EXEMPT_MARKER} <reason>\` comment on that line`,
     ).toEqual([]);
   });
 });
