@@ -13,9 +13,12 @@
  *
  *   1. **A second loader.** Two loader calls emit two independent `@font-face`
  *      sets. When both are the same family they land under the SAME family name,
- *      so nothing visibly changes while the document carries a duplicate set. A
- *      real crew page was measured registering seven `Inter` faces from a single
- *      loader (2026-08-03 probe); a second loader compounds that invisibly.
+ *      so nothing visibly changes. A real crew page was measured registering
+ *      seven `Inter` faces from a single loader (2026-08-03 probe); a second
+ *      loader compounds that. The browser suite DOES see most of this
+ *      (`tests/e2e/font-binding.spec.ts` checks family count, duplicate face
+ *      tuples, and one weight+style descriptor pair) — what it cannot see is a
+ *      byte-identical second call, which registers indistinguishable faces.
  *   2. **A loader in the wrong layout.** Loading from a route layout instead of
  *      the root binds the font for that subtree only — exactly the state
  *      `BL-HEADER-FONT-FALLBACK-WRAP` was filed against, where crew pages
@@ -28,7 +31,7 @@
  * WHY A TYPESCRIPT PARSE AND NOT A REGEX. A line-oriented regex over
  * `const x = Loader(` has escaping mutants, and they are not hypothetical — a
  * cross-model review demonstrated one with a live probe. The mutation families
- * below are the enumerated closure set this guard converges against
+ * below are the enumerated set this guard is tested against
  * (`docs/agents/writing-plans.md:24`); each has an executable fixture case.
  *
  *   M1  a second loader in a NEW file                    → path-set check
@@ -45,7 +48,8 @@
  *   M10 two invocations on ONE source line               → AST nodes, not lines
  *
  * Review R3 then ran the shipped function in memory and demonstrated eight MORE
- * escaping forms, all of which are now closed and fixtured:
+ * escaping forms, each now handled and fixtured (handled, not closed — see the
+ * residuals section below):
  *
  *   M11 `(Inter)(...)`                  parenthesized callee
  *   M12 `(0, Inter)(...)`               sequence-expression callee
@@ -59,11 +63,15 @@
  * **WHAT EACH ASSERTION ACTUALLY PROVES — stated precisely after review R5,
  * which was right that an earlier revision overclaimed "closure".**
  *
- *   - **The PATH SET assertion is the strong one.** Calling a `next/font` loader
- *     requires importing the module, and an import is a static, unaliasable
- *     declaration — `Reflect.apply` and every other exotic call form still need
- *     one. So a second loader in a NEW file cannot hide from the path set. This
- *     is the case the entry that motivated this guard actually was.
+ *   - **The PATH SET assertion is the strong one, and it is keyed on the IMPORT**
+ *     (`hasFontImport`), independently of the invocation counter. Calling a
+ *     `next/font` loader requires importing the module, and an import
+ *     declaration is static and unaliasable — `Reflect.apply` and every other
+ *     exotic call form still need one. So a second loader in a NEW file cannot
+ *     hide from the path set, which is the case that motivated this guard.
+ *     (Until review R7 the path set was DERIVED from the counter, so it
+ *     inherited every one of the counter's blind spots and this property was
+ *     claimed but not tested.)
  *   - **The CALL-COUNT assertion is best-effort**, covering the eighteen forms
  *     above. Its residual gap is narrow but real: a second loader call inside
  *     the ONE file already on the allowed path list, invoked through a form not
@@ -132,7 +140,8 @@ export function countLoaderInvocations(source: string, fileName = "probe.tsx"): 
     if (clause.name) loaderBindings.add(clause.name.text); // default import (M8)
     const bindings = clause.namedBindings;
     if (!bindings) continue;
-    if (ts.isNamespaceImport(bindings)) namespaceBindings.add(bindings.name.text); // M9
+    if (ts.isNamespaceImport(bindings))
+      namespaceBindings.add(bindings.name.text); // M9
     // `element.name` is the LOCAL name in every named form, aliased or not (M2, M4).
     else for (const element of bindings.elements) loaderBindings.add(element.name.text);
   }
@@ -247,6 +256,31 @@ export function countLoaderInvocations(source: string, fileName = "probe.tsx"): 
   return 0;
 }
 
+/**
+ * Does this file IMPORT from a `next/font/*` module at all?
+ *
+ * Deliberately independent of `countLoaderInvocations`. Review R7 caught the
+ * path set being derived from the invocation count, which silently inherited
+ * every one of the counter's blind spots: an exotic call form in a NEW file
+ * (`Reflect.apply(Inter, …)`) counted 0 and therefore vanished from the path
+ * set too — so the documented "an import cannot hide" property was not the
+ * property being tested.
+ *
+ * This one IS that property. Calling a loader requires importing the module,
+ * and an import declaration is static and unaliasable: there is no call syntax
+ * that removes it. So the path set below holds regardless of how the call is
+ * written.
+ */
+export function hasFontImport(source: string, fileName = "probe.tsx"): boolean {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  return sf.statements.some(
+    (stmt) =>
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      isFontModule(stmt.moduleSpecifier.text),
+  );
+}
+
 function toRepoRelative(absolute: string): string {
   return relative(REPO_ROOT, absolute).split(sep).join("/");
 }
@@ -262,8 +296,11 @@ describe("single next/font loader — live tree", () => {
   });
 
   it("exactly one file under app/ calls a font loader, and it is the shared module", () => {
+    // Keyed on the IMPORT, not on a successful invocation count — see
+    // hasFontImport. This is the assertion that actually cannot be evaded by
+    // call syntax.
     const loaders = appFiles
-      .filter((file) => countLoaderInvocations(readFileSync(file, "utf8"), file) > 0)
+      .filter((file) => hasFontImport(readFileSync(file, "utf8"), file))
       .map(toRepoRelative);
 
     // toEqual on the SET, not a length check: a length check passes on a tree
@@ -481,5 +518,24 @@ export default function ShowLayout({ children }: { children: ReactNode }) {
         `import { Inter } from "@/lib/not-a-font";\nconst a = Inter({ subsets: ["latin"] });\n`,
       ),
     ).toBe(0);
+  });
+});
+
+describe("the path set is keyed on the import, not the call", () => {
+  it("an exotic call form in a new file is still visible to the path set", () => {
+    // Review R7's escape: the counter reports 0 for this, so a path set derived
+    // FROM the counter would not see the file at all. The import-keyed one does,
+    // which is the whole point of separating them.
+    const escaping =
+      `import { Inter } from "next/font/google";\n` +
+      `export const second = Reflect.apply(Inter, null, [{ subsets: ["latin"] }]);\n`;
+    expect(countLoaderInvocations(escaping), "the counter's admitted blind spot").toBe(0);
+    expect(hasFontImport(escaping), "the import is still plainly visible").toBe(true);
+  });
+
+  it("a file with no next/font import is not in the path set", () => {
+    expect(hasFontImport(`import { Inter } from "@/lib/not-a-font";\nconst a = Inter({});\n`)).toBe(
+      false,
+    );
   });
 });

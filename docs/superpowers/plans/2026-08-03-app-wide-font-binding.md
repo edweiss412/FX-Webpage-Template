@@ -70,7 +70,7 @@ Assertions, in order:
 6. The resolved cascade NAMES `Inter Fallback`, **and** a face by that name is actually registered. The cascade string alone is not enough: computed style preserves a family name whether or not any face answers to it.
 7. The document registers exactly one font family (excluding the generated companion and the dev overlay's `__nextjs-*`).
 8. No `@font-face` is registered twice on its `(family, style, weight, unicodeRange)` tuple.
-9. Every app face shares ONE weight descriptor — a second value means a second, differently-configured loader for the same family, which 7 and 8 both miss.
+9. Every app face shares ONE weight+style descriptor PAIR — a second pair means a second, differently-configured loader for the same family, which 7 and 8 both miss. Keyed on the pair, not weight alone: review R6 demonstrated a `style: "italic"` second loader keeping family `Inter` and weight `100 900`.
 
 Assertions 7-9 corroborate the structural guard rather than closing it; see step 2 for what each layer actually proves.
 

@@ -124,10 +124,18 @@ if (typeof window !== "undefined") {
 // mock. `variable` and `className` mirror the real return shape; the values are
 // recognisable stand-ins, and `tests/observe/globalError.test.tsx` matches the
 // shape rather than a literal so it still proves the class is APPLIED.
+export const NEXT_FONT_TEST_VARIABLE_CLASS = "__next_font_variable_under_test";
+export const NEXT_FONT_TEST_CLASSNAME = "__next_font_className_under_test";
+
 vi.mock("next/font/google", () => ({
   Inter: () => ({
-    variable: "__inter_variable_test",
-    className: "__inter_className_test",
+    // Deliberately DISTINCT and deliberately not containing "inter": a test
+    // asserting a loose /inter/i match would be satisfied by an unrelated class
+    // like `winter-theme`, and by `className` when `variable` is what the
+    // consumer must apply. Review R7 demonstrated both mutants against exactly
+    // that. Consumers assert the exact constant.
+    variable: NEXT_FONT_TEST_VARIABLE_CLASS,
+    className: NEXT_FONT_TEST_CLASSNAME,
     style: { fontFamily: "Inter" },
   }),
 }));

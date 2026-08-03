@@ -7,6 +7,7 @@ vi.mock("@/lib/observe/captureBoundaryError", () => ({
   captureBoundaryError: h.captureBoundaryError,
 }));
 import GlobalError from "@/app/global-error";
+import { NEXT_FONT_TEST_CLASSNAME, NEXT_FONT_TEST_VARIABLE_CLASS } from "../setup";
 const { captureBoundaryError } = h;
 afterEach(() => {
   cleanup();
@@ -47,15 +48,21 @@ describe("global-error", () => {
     // are read from there.
     const html = document.documentElement;
 
-    // The generated next/font class. Its real name is hashed per build, so match
-    // the shape rather than a literal: what matters is that the shared loader's
-    // `variable` class is APPLIED here, i.e. carried across from app/fonts.ts.
-    // (tests/setup.ts mocks next/font/google, since it is a build-time
-    // transform that throws outside Next's compilation pipeline.)
+    // The EXACT class the mocked loader exposes as `variable`, not a loose
+    // pattern. Review R7 showed a `/inter/i` match was satisfied by an
+    // unrelated `winter-theme` class, and by `inter.className` — which would
+    // leave `--font-inter` unexposed while the test stayed green. The mock's
+    // constants deliberately do not contain the substring "inter" so a loose
+    // matcher cannot creep back in unnoticed.
+    const classes = (html.getAttribute("class") ?? "").split(/\s+/);
     expect(
-      html.getAttribute("class") ?? "",
-      "the shared loader's variable class is applied, so --font-inter resolves here too",
-    ).toMatch(/inter/i);
+      classes,
+      "the shared loader's VARIABLE class is applied, so --font-inter resolves here too",
+    ).toContain(NEXT_FONT_TEST_VARIABLE_CLASS);
+    expect(
+      classes,
+      "and it is `variable`, not `className` — only the former defines the token",
+    ).not.toContain(NEXT_FONT_TEST_CLASSNAME);
 
     // WCAG 3.1.1 Level A. The sibling root carries lang="en"; this one replaces
     // it, so without this the crash screen declares no language at all.
