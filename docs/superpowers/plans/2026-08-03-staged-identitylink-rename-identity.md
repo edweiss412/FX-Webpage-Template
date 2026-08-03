@@ -4,7 +4,7 @@
 
 **Goal:** Thread `identityLinkRenames` through `applyStagedCore` (choice-aware) so a staged rename preserves `crew_members.id` + `claimed_via_oauth_at`, per `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`.
 
-**Architecture:** One new pure helper in `lib/sync/identityLinkRenames.ts` (link a pair iff MI-12/13/14 AND its validated choice action is `rename`, consume-once), one length-gated spread in `applyStagedCore`'s `runPhase2` call, zero phase2/applyParseResult code changes (the arg already exists and is forwarded), the seven-site comment reconciliation of spec §3.3, and the role-flags-spec supersession banner + tags of spec §3.5. TDD per code task; the docs task is declared test-exempt below.
+**Architecture:** One new pure helper in `lib/sync/identityLinkRenames.ts` (link a pair iff MI-12/13/14 AND its validated choice action is `rename`, consume-once), one length-gated spread in `applyStagedCore`'s `runPhase2` call, zero phase2/applyParseResult code changes (the arg already exists and is forwarded), the eight-site comment reconciliation of spec §3.3, and the role-flags-spec supersession banner + tags of spec §3.5. TDD per code task; the docs task is declared test-exempt below.
 
 **Tech Stack:** TypeScript, Vitest, postgres.js against local Supabase (db tests live under `tests/db/` with the `_holdsHelpers` kit), existing test kits (`tests/sync/_holdAwareTestkit.ts`, `tests/db/_holdsHelpers.ts`).
 
@@ -98,16 +98,28 @@ describe("computeStagedIdentityLinkRenames", () => {
     ).toEqual([]);
   });
 
-  test("a rename action on a non-pair invariant never links (defensive belt)", () => {
-    expect(
-      computeStagedIdentityLinkRenames(
-        [orphan, mi6],
-        [
-          { item_id: "4", action: "rename" },
-          { item_id: "5", action: "rename" },
-        ],
-      ),
-    ).toEqual([]);
+  test("non-pair invariants never link: all orphan arms, all asset invariants, MI-6 (defensive belt)", () => {
+    const nonPairs: TriggeredReviewItem[] = [
+      orphan, // MI-13-orphan-remove (existing fixture)
+      { id: "7", invariant: "MI-14-orphan-remove", removed_name: "Gone2" },
+      { id: "8", invariant: "MI-13-orphan-add", added_name: "New1" },
+      { id: "9", invariant: "MI-14-orphan-add", added_name: "New2" },
+      { id: "10", invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE", spreadsheet_id: "s1" },
+      { id: "11", invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND", spreadsheet_id: "s1" },
+      { id: "12", invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING", drift_count: 1 },
+      { id: "13", invariant: "REEL_DRIFT_PENDING", reel_drive_file_id: "r1" },
+      mi6,
+    ];
+    // "rename" is not a valid action for any of these (validation would refuse it); the helper
+    // must not link even if handed one; belt for both action shapes.
+    for (const action of ["rename", "apply"] as const) {
+      expect(
+        computeStagedIdentityLinkRenames(
+          nonPairs,
+          nonPairs.map((item) => ({ item_id: item.id, action })),
+        ),
+      ).toEqual([]);
+    }
   });
 
   test("consume-once: two pair-items sharing one item_id with a single rename choice link exactly one pair", () => {
@@ -189,6 +201,7 @@ All pins are authored BEFORE the implementation so the red set is genuinely red:
 - Modify: `lib/sync/applyParseResult.ts` (comment-only: arg doc + loop comment)
 - Modify: `lib/sync/identityLinkRenames.ts` (comment-only: header vouch doc)
 - Modify: `tests/sync/phase2.test.ts` (comment-only: arm-(c) test comment)
+- Modify: `tests/sync/selectionsResetAtPreserved.test.ts` (comment-only: header name-change claim)
 - Modify: `tests/sync/applyStaged.test.ts` (two spy tests)
 - Modify: `tests/db/_holdsHelpers.ts` (add `runStagedApply`; `CrewSeed.role_flags` passthrough)
 - Modify: `tests/db/undo-change-direction-a.test.ts` (one staged round-trip case)
@@ -523,7 +536,7 @@ and in the `runPhase2` args, next to the `notableItems` spread:
     ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
 ```
 
-- [ ] **Step 7: Seven-site comment reconciliation** (spec §3.3 inventory, exact new texts):
+- [ ] **Step 7: Eight-site comment reconciliation** (spec §3.3 inventory, exact new texts):
     1. `lib/sync/applyStagedCore.ts` step-3: rewrite the sentence beginning "rename/independent/apply take NO dispatch branch" and ending "floors + the audit record" to: "rename/independent/apply take NO dispatch branch: the staged parse applies WHOLESALE for all three. Per-action differences: deriveAuthSideEffects floors, the audit record, and (spec 2026-08-03) rename-resolved MI-12/13/14 pairs threading identityLinkRenames so the apply is identity-preserving; independent pairs stay remove+add."
     2. `lib/sync/phase2.ts` arm-(c) comment: replace "(esp. the staged remove+add of an identity-link rename, where args.identityLinkRenames is empty so the removed old name is a genuine removal here)" with "(esp. a staged `independent` resolution, which stays remove+add with empty `identityLinkRenames`; a staged rename-resolved pair threads its link since spec 2026-08-03 and is excluded here, same as cron)".
     3. `lib/sync/phase2.ts` `Phase2Args.identityLinkRenames` field doc: after "via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept)", append "; the staged core computes via computeStagedIdentityLinkRenames (per-item rename choice, spec 2026-08-03)".
@@ -531,8 +544,9 @@ and in the `runPhase2` args, next to the `notableItems` spread:
     5. `lib/sync/applyParseResult.ts` rename-loop inline comment: change "a skipped pair degrades to today's delete+insert, which is fail-safe" to "a skipped pair falls through to the ordinary delete+upsert flow (a hold-protected old name is retained), which is fail-safe".
     6. `lib/sync/identityLinkRenames.ts` header doc: change "MI-13/MI-14 heuristic pairs link ONLY on the version-bound accepted apply (the admin confirm is the vouch" to "MI-13/MI-14 heuristic pairs link ONLY on a confirmed apply: cron's version-bound accept, or the staged per-item rename choice (the admin confirm is the vouch".
     7. `tests/sync/phase2.test.ts` arm-(c) test comment: change "Path-independent (covers the staged remove+add of an identity-link rename)" to "Path-independent (covers a staged `independent` resolution's remove+add)". Test body unchanged.
-- [ ] **Step 8: Run to verify all green** — the Step 5 command plus `pnpm vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts`, and `pnpm exec tsc --noEmit`. Everything green (plan-time materialization measured 126/126 across the four unit files, 0 tsc errors).
-- [ ] **Step 9: Commit** — `git add lib/sync/applyStagedCore.ts lib/sync/phase2.ts lib/sync/applyParseResult.ts lib/sync/identityLinkRenames.ts tests/sync/applyStaged.test.ts tests/sync/phase2.test.ts tests/db/_holdsHelpers.ts tests/db/stagedApplyIdentityLink.db.test.ts tests/db/undo-change-direction-a.test.ts && git commit -m "feat(sync): thread identity-link renames through the staged apply core" --no-verify`
+    8. `tests/sync/selectionsResetAtPreserved.test.ts` header comment: change the parenthetical beginning "(A NAME change is delete+insert and loses the marker" to "(An UNLINKED name change is delete+insert and loses the marker, identical to claimed_via_oauth_at; an identity-link rename, cron or a staged rename choice per spec 2026-08-03, updates in place and preserves it.)". Test body unchanged.
+- [ ] **Step 8: Run to verify all green** — the Step 5 command plus `pnpm vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts`, and `pnpm exec tsc --noEmit`. Everything green (plan-time materialization measured 126 tests passing across tests/sync/identityLinkRenames.test.ts, tests/sync/applyStaged.test.ts, tests/sync/phase2.test.ts, and tests/auth/advisoryLockRpcDeadlock.test.ts, 0 tsc errors).
+- [ ] **Step 9: Commit** — `git add lib/sync/applyStagedCore.ts lib/sync/phase2.ts lib/sync/applyParseResult.ts lib/sync/identityLinkRenames.ts tests/sync/applyStaged.test.ts tests/sync/phase2.test.ts tests/sync/selectionsResetAtPreserved.test.ts tests/db/_holdsHelpers.ts tests/db/stagedApplyIdentityLink.db.test.ts tests/db/undo-change-direction-a.test.ts && git commit -m "feat(sync): thread identity-link renames through the staged apply core" --no-verify`
 
 ---
 
@@ -550,7 +564,7 @@ Then tag EVERY site in the spec §3.5 list with "(superseded 2026-08-03, see ban
 
 - [ ] **Step 2: File the three pre-existing classes surfaced by spec review R1** — append three entries to `BACKLOG.md`, each citing the spec's §1.1 #7-#9 verification anchors: `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` (finalize-cas discards `coreResult.roleFlagsNotice`; per-row return carries only drive_file_id/code/showId; no post-commit ROLE_FLAGS_NOTICE / LEAD_ROLE_APPLIED sink — class: audit emission gap, Phase D), `BL-IDENTITYLINK-LANDED-VS-REQUESTED` (capability arms + feed writer consume requested identityLinkRenames; hold-aware reconciliation can suppress a rename target so the landed state diverges — class: sync audit fidelity, cron+staged shared), `BL-UNDO-SELECTIONS-RESET-AT-DROP` (`crewImage` + Direction A re-insert omit `selections_reset_at` — any crew undo resets it to null; a previously invalidated picker cookie can validate again — class: undo lifecycle fidelity).
 - [ ] **Step 3: Graduate the backlog entry** — move the whole `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY` section from `BACKLOG.md` to `BACKLOG-archive.md` (follow the archive file's existing entry format; add a one-line closing note naming this spec + branch).
-- [ ] **Step 4: Verify + commit** — `pnpm spec:lint docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md` (0 hard) and the Step 1 closure grep; then `git add docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md BACKLOG.md BACKLOG-archive.md && git commit -m "docs(sync): supersession banner and tags plus backlog filings and graduation" --no-verify`
+- [ ] **Step 4: Verify + commit** — `pnpm spec:lint docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md` (0 hard); `pnpm spec:lint docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`: this LEGACY doc's pre-edit baseline is 50 hard / 21 advisory (measured 2026-08-03); the gate is NO INCREASE in hard findings over that baseline (the banner/tags must not add new hard findings; fixing pre-existing ones is out of scope); and the Step 1 closure grep; then `git add docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md BACKLOG.md BACKLOG-archive.md && git commit -m "docs(sync): supersession banner and tags plus backlog filings and graduation" --no-verify`
 
 ---
 
@@ -558,7 +572,7 @@ Then tag EVERY site in the spec §3.5 list with "(superseded 2026-08-03, see ban
 
 - [ ] **Step 1:** `pnpm vitest run tests/sync/ tests/db/ tests/onboarding/ tests/auth/advisoryLockRpcDeadlock.test.ts` — green (covers the g2 R33-2 assertions in `tests/onboarding/finalizeCasFullApply.db.test.ts`, the phase2 arm tests, the `applyParseResult.identityLink*` pins, and the lock-topology guard).
 - [ ] **Step 2:** `pnpm typecheck` — 0 errors.
-- [ ] **Step 3:** `pnpm spec:lint` on both this plan and the spec — 0 hard.
+- [ ] **Step 3:** `pnpm spec:lint` on this plan and the spec — 0 hard; on the role-flags spec — hard count not above its 50-hard pre-edit baseline (Task 3 Step 4).
 - [ ] **Step 4:** Any failure here is a defect: fix within the task that owns the surface, re-run, and only then proceed to the branch's ship stages (whole-diff review, CI, merge).
 
 ---
