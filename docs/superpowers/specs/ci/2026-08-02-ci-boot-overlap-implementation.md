@@ -166,16 +166,16 @@ The §3.2 probe is a point-in-time observation; it cannot bind the future. The d
 
 ```yaml
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
       - uses: supabase/setup-cli@v1
         with:
           version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
       - name: Boot local Supabase and install dependencies concurrently
         run: |
           set -euo pipefail
@@ -189,7 +189,7 @@ The §3.2 probe is a point-in-time observation; it cannot bind the future. The d
         ...
 ```
 
-The step body is the canonical five lines of 2026-07-20 §3, unmodified. `setup-cli` and the psql guard move ABOVE the combined step because the bootstrap needs both on PATH; `assert-pnpm-sources` and vitest keep their positions after it.
+The step body is the canonical five lines of 2026-07-20 §3, unmodified. `setup-cli` and the psql guard move ABOVE the combined step because the bootstrap needs both on PATH, and they sit ahead of the pnpm/node pair because that is the order 2026-07-20 §4a ratified; `assert-pnpm-sources` and vitest keep their positions after it.
 
 ### 4.1 Constraints the rewrite must not break (swept, not assumed)
 
@@ -214,7 +214,7 @@ Existing guards over this file, each verified against the planned diff:
 
 EXTENDS `tests/cross-cutting/unit-suite-shard-topology.test.ts`. CREATES no new file. Lettering follows 2026-07-20 §4 so the two documents can be read side by side; every item is scoped to `unit-suite-db`.
 
-(a) **Step ordering**, by index comparison within `unit-suite-db`: `checkout` < `pnpm/action-setup` < `setup-node` < `supabase/setup-cli` < psql guard < combined step < `assert-pnpm-sources` < vitest.
+(a) **Step ordering**, by index comparison within `unit-suite-db`, and it is the RATIFIED order from 2026-07-20 §4a verbatim — `checkout` < `supabase/setup-cli` < psql guard < `pnpm/action-setup` < `setup-node` < combined step < `assert-pnpm-sources` < vitest. An earlier draft of this spec put the pnpm/node pair first; that is functionally equivalent (every one of them is serial and complete before the combined step, and `supabase/setup-cli` is a JS action running on the runner's built-in node, not on `setup-node`'s) but it CONTRADICTED a ratified ordering while this document claims not to reopen the design. The authority's order is adopted rather than argued with.
 
 (b) **The combined step's shape** — the whole contract: its `run:` body contains the bootstrap invocation suffixed with `&`, captures the PID, runs `pnpm install --frozen-lockfile` in the foreground, and ends with `wait` on that captured PID, under `set -euo pipefail`.
 
@@ -301,10 +301,24 @@ legfix () {  # usage: legfix <RUN_ID>  -> prints "<n legs> <median seconds>"
           | ( ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))
               - ( .steps[] | select(.name | startswith("Run serial project"))
                   | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601)) ) )' \
-  | sort -n | awk '{ a[NR] = $1 }
+  | sort -n | awk '{ a[NR] = $1; printf "leg %d fixed-overhead: %s\n", NR, $1 > "/dev/stderr" }
                    END{ n = NR
-                        if (n != 8) { print "FAIL: " n " legs, expected 8" > "/dev/stderr"; exit 1 }
-                        print n, (n % 2 ? a[(n+1)/2] : (a[n/2] + a[n/2+1]) / 2) }'
+                        if (n == 0) { print "FAIL: no unit-suite-db legs reported" > "/dev/stderr"; exit 1 }
+                        printf "legs=%d median=%s max-fixed-overhead=%s\n",
+                               n, (n % 2 ? a[(n+1)/2] : (a[n/2] + a[n/2+1]) / 2), a[n]
+                        if (n != 8) {
+                          print "FAIL: " n " legs, expected 8 — the figures above are NOT the accept figure" > "/dev/stderr"
+                          exit 1 } }'
+}
+
+# MAX LEG is a different quantity from max fixed overhead — 2026-07-20 §2 records
+# 91s fixed overhead against a 245s max leg on the same run, and §5.4 requires the
+# LATTER in the PR body. It is total job wall clock, so it does not subtract vitest:
+legwall () {  # usage: legwall <RUN_ID>  -> prints the max unit-suite-db leg wall clock
+  gh api --paginate "/repos/edweiss412/FX-Webpage-Template/actions/runs/$1/jobs" \
+    --jq '.jobs[] | select(.name | startswith("unit-suite-db"))
+          | ((.completed_at|fromdateiso8601) - (.started_at|fromdateiso8601))' \
+  | sort -n | tail -1
 }
 ```
 
@@ -312,12 +326,22 @@ legfix () {  # usage: legfix <RUN_ID>  -> prints "<n legs> <median seconds>"
 
 ```
 $ legfix 30783618781
-8 96
+leg 1 fixed-overhead: 89
+leg 2 fixed-overhead: 91
+leg 3 fixed-overhead: 92
+leg 4 fixed-overhead: 94
+leg 5 fixed-overhead: 98
+leg 6 fixed-overhead: 101
+leg 7 fixed-overhead: 109
+leg 8 fixed-overhead: 112
+legs=8 median=96 max-fixed-overhead=112
+$ legwall 30783618781
+255
 ```
 
-Eight legs, leg-median fixed overhead **96s** — close to the 101s the 2026-07-20 spec measured on the pre-split topology, which is the sanity check that the metric survived the job split. The accept threshold applied to this figure is ≤88s.
+Eight legs, leg-median fixed overhead **96s**, max leg **255s** — the median is close to the 101s the 2026-07-20 spec measured on the pre-split topology, and the max leg to its 245s, which together are the sanity check that both metrics survived the job split. The accept threshold applied to the median is ≤88s. Note the two max figures are different quantities and both appear above deliberately: 112s is the worst leg's fixed overhead, 255s is the worst leg's total wall clock, and the PR body wants the latter.
 
-**Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is at or before this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, and both medians go in the PR body.
+**Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is at or before this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, both medians and both MAX LEGS (`legwall`) go in the PR body. And whichever way the decision goes, the commit that records it is a NEW head commit that the measured run did not cover — so it is pushed and gets its own green CI run before merge. The measurement validates the overlap; it does not validate the tree that records the measurement.
 
 **Item 1 (real CI, per 2026-07-20 §5, restated against the current topology):**
 
@@ -347,4 +371,4 @@ The two items are independently revertible, and the file sets do not intersect:
 
 ## 9. Numeric self-consistency register
 
-Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; measured main baseline 96s over 8 legs on run 30783618781 (§7.1), so the accept figure against that baseline is ≤88s; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by each of the two §3.2 probes, zero writes under `supabase/` in both; audited build-package versions `@sentry/cli` 2.58.5, `esbuild` 0.28.0, `sharp` 0.34.5, `unrs-resolver` 1.11.1 (§3.1, pinned by §5h); one Linux-only ignored build candidate, `@parcel/watcher` 2.6.0 (§3.2); the setup composite consumed by 31 job steps across 17 workflows (§4); `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
+Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; measured main baseline over 8 legs on run 30783618781 (§7.1): leg-median fixed overhead 96s, worst-leg fixed overhead 112s, max leg wall clock 255s — so the accept figure against that baseline is a median ≤88s; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by each of the two §3.2 probes, zero writes under `supabase/` in both; audited build-package versions `@sentry/cli` 2.58.5, `esbuild` 0.28.0, `sharp` 0.34.5, `unrs-resolver` 1.11.1 (§3.1, pinned by §5h); one Linux-only ignored build candidate, `@parcel/watcher` 2.6.0 (§3.2); the setup composite consumed by 31 job steps across 17 workflows (§4); `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
