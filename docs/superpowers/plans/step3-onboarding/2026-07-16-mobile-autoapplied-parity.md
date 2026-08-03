@@ -693,6 +693,8 @@ and FLOW4-7 (`:503`) to:
 Run: `grep -rn "BL-FLOW4" BACKLOG.md BACKLOG.md || echo "no backlog row (expected)"`
 Expected: `no backlog row (expected)` — the DEFERRED ref was a forward-looking id never filed (spec §9 verified NO `BL-FLOW4-*` row exists in either file). If a row IS found, mark it shipped in the same commit instead of skipping.
 
+**Stale as of 2026-08-02, kept for the record — do not re-run.** The dangling-citation filing pass wrote those never-filed ids into `BACKLOG-archive.md` at their already-resolved state, so this check now finds rows. It was accurate when written, and nothing about this task's outcome changes.
+
 - [ ] **Step 3: format:check the docs**
 
 Run: `pnpm format:check DEFERRED.md || pnpm prettier --write DEFERRED.md`

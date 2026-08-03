@@ -212,7 +212,7 @@ status, so a leftover heading fails.
 Add both to `BACKLOG-archive.md` in the established form (`BACKLOG-archive.md:11`):
 
 ```
-## BL-X — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
+## BL-<id> — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 ```
 
 The branch string must appear in the archived section — it is the `provenance` the guard checks.

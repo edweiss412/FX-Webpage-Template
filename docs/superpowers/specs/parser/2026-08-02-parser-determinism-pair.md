@@ -179,7 +179,7 @@ the backlog entry asked for:
 
 Of 113 distinct `BL-` ids cited from `lib/`, `tests/`, `scripts/`, `app/` (excluding the ledger
 guards under `tests/docs/`), **70 already resolve archive-only**, essentially all as legitimate
-historical provenance ("fixed under BL-X"), not stale open-work claims. Such a guard ships as a
+historical provenance ("fixed under some archived id"), not stale open-work claims. Such a guard ships as a
 70-row allowlist — the same hand-maintained drift-prone artifact `BL-KNOWN-SECTIONS-WALKER` itself
 declined to build. The admissibility contract requires a probe demonstrating the corruption a
 guard prevents; this probe demonstrates the opposite.
@@ -487,7 +487,7 @@ Both entries graduate from `BACKLOG.md` to `BACKLOG-archive.md` using the archiv
 heading form (`BACKLOG-archive.md:11`):
 
 ```
-## BL-X — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
+## BL-<id> — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 ```
 
 followed by the resolution text and then the original body, so history survives.

@@ -312,6 +312,32 @@ describe("useFitWithinClip", () => {
     expect(frames.size).toBe(0);
   });
 
+  test("(g5) warns ONCE when the floor overrides the room and the overlay overhangs", () => {
+    const warn = vi.spyOn(console, "debug").mockImplementation(() => {});
+    // Anchor past the clip edge: the floor wins, so the overlay is written
+    // taller than the room it has and overhangs. Silent before this warning.
+    geometry = { fittedTop: 700, clipBottom: CLIP_BOTTOM };
+
+    const { fitted } = mount();
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+    expect(warn, "the overhang stayed silent").toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/overhang|clip/i);
+
+    // Re-measures must not re-warn: apply() runs on every resize, and a warning
+    // per frame during a drag would bury the one that mattered.
+    for (let i = 0; i < 5; i += 1) fireEvent(window, new Event("resize"));
+    flushFrames();
+    expect(warn, "warned again on re-measure").toHaveBeenCalledTimes(1);
+  });
+
+  test("(g6) does NOT warn when the overlay genuinely fits", () => {
+    const warn = vi.spyOn(console, "debug").mockImplementation(() => {});
+    mount();
+    fireEvent(window, new Event("resize"));
+    flushFrames();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   test("(g4) a non-transform transitionend does not re-measure", () => {
     const { inner, fitted } = withOffsetParent(() => mount());
     const before = applyCount;

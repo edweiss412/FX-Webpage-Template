@@ -106,6 +106,14 @@ const BACKLOG_GRADUATED = [
   // test/agenda-fold-seeded-e2e (2026-08-02): the fold's a11y proof on WebKit — grep-scoped
   // standalone-webkit-a11y project (exactly one test, structurally pinned) + webkit installs.
   { id: "BL-AGENDA-A11Y-WEBKIT-COVERAGE", provenance: "test/agenda-fold-seeded-e2e" },
+  // fix/ledger-guard-terminal-claim (2026-08-03): the guard's own two blind spots,
+  // found while verifying entries for archival. An intensifier after the heading
+  // anchor, and a status marker before an opening claim, each hid a live closure.
+  // Fixed in _ledgerMdast.ts, pinned by the M10 plants, spec §3.1.
+  {
+    id: "BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND",
+    provenance: "fix/ledger-guard-terminal-claim",
+  },
   // fix/admin-popover-overlay-cluster (2026-08-02): the six-item popover /
   // overlay-clip cluster, closed against the ratified spec
   // 2026-08-01-admin-popover-overlay-cluster.
@@ -898,5 +906,71 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(headingHit("## BL-M9P — ✅ RESOLVED (PR #612)")).toBe(true);
     expect(headingHit("## BL-M9Q ✅ **DONE**")).toBe(true);
     expect(headingHit("## BL-M9R — align the ✅ icon")).toBe(false);
+  });
+
+  // M10 — the two spellings BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND was filed for.
+  // Both were live mis-filings, not hypotheticals: BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK
+  // sat in the open queue under (1) and BL-LINT-DEBT-PREEXISTING under (2), each
+  // declaring its own closure in text a human reads as closed.
+  //
+  // The hazard in fixing them is over-reach: every negation plant in M3 that uses an
+  // intensifier ("Not fully CLOSED", "Never completely SHIPPED") must STAY red, and so
+  // must the nine live open entries the wider sweep found carrying a terminal word for
+  // innocent reasons. Those are re-pinned at the bottom of this block.
+  it("M10 — an intensifier before the terminal word, and a checkmark before an opening claim", () => {
+    const entryOf = (heading: string, body: string): LedgerEntry => {
+      const [entry] = extractEntries(`${heading}\n\n${body}\n`, BACKLOG_OPTS);
+      if (entry === undefined) throw new Error(`plant minted no entry: ${heading}`);
+      return entry;
+    };
+    const headingHit = (heading: string): boolean =>
+      entryTerminal(entryOf(heading, "neutral body prose.")).length > 0;
+    const entryHit = (body: string): boolean =>
+      entryTerminal(entryOf("## BL-PLANT — probe", body)).length > 0;
+
+    // (1) heading intensifier — the anchor consumed `— ✅ ` and then read FULLY,
+    // which is not a terminal word, so the claim was invisible.
+    expect(headingHit("## BL-M10A — ✅ FULLY CLOSED (both instances fixed)")).toBe(true);
+    expect(headingHit("## BL-M10B — ✅ FULLY RESOLVED")).toBe(true);
+    expect(headingHit("## BL-M10C — ✅ COMPLETELY DONE")).toBe(true);
+    expect(headingHit("## BL-M10D — ✅ ALREADY SHIPPED")).toBe(true);
+    expect(headingHit("## BL-M10E — NOW SUPERSEDED")).toBe(true);
+    // an intensifier is skipped, not "any word": a non-intensifier still blocks.
+    expect(headingHit("## BL-M10F — probably CLOSED")).toBe(false);
+
+    // (1) must NOT swallow the negations — the intensifier sits behind one.
+    expect(headingHit("## BL-M10G — NOT FULLY CLOSED")).toBe(false);
+    expect(headingHit("## BL-M10H — PARTIALLY CLOSED")).toBe(false);
+    expect(headingHit("## BL-M10I — NEVER COMPLETELY SHIPPED")).toBe(false);
+    expect(headingHit("## BL-M10J — FULLY NOT CLOSED")).toBe(false);
+
+    // (2) opening claim behind a checkmark. `**✅ RESOLVED:**` already closed via
+    // the LABEL lane (trailing colon inside the strong span); adding a parenthetical
+    // pushes the terminal word off the label's last token, and the opening lane then
+    // refused it because a `✅` is not "nothing before the first token".
+    expect(entryHit("**✅ RESOLVED (2026-06-21, `br`):** promotion prerequisite taken.")).toBe(true);
+    expect(entryHit("**✅ RESOLVED (2026-06-21):** done.")).toBe(true);
+    expect(entryHit("**✅ SHIPPED (2026-06-21):** done.")).toBe(true);
+    expect(entryHit("**✅ CLOSED (PR #22):** done.")).toBe(true);
+    expect(entryHit("**✅ DONE (2026-06-21):** done.")).toBe(true);
+    expect(entryHit("✅ RESOLVED — done.")).toBe(true);
+    // the pre-existing forms must not regress:
+    expect(entryHit("**✅ RESOLVED:** done.")).toBe(true);
+    expect(entryHit("**RESOLVED (2026-06-21):** done.")).toBe(true);
+
+    // (2) must NOT swallow the negations either.
+    expect(entryHit("**✅ NOT RESOLVED (2026-06-21):** still open.")).toBe(false);
+    expect(entryHit("✅ Partially RESOLVED — one item remains.")).toBe(false);
+    // a checkmark is the only allowed prefix; arbitrary prose is still not an opening claim.
+    expect(entryHit("Mostly RESOLVED (2026-06-21): one item remains.")).toBe(false);
+
+    // Regression set: the nine live open entries the 2026-08-02 sweep found carrying a
+    // terminal word for innocent reasons. A tightening that closes any of these has
+    // traded one blind spot for nine false closures.
+    expect(entryHit("**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark cluster)")).toBe(false);
+    expect(entryHit("Partial closure (2026-06-18, Phase 2 spec R16-HIGH): the shows_internal portion is done.")).toBe(false);
+    expect(entryHit("**Status:** OPEN, raised by adversarial review of PR #517 (finding 2).")).toBe(false);
+    expect(headingHit("## BL-M10K — re-run the closed-port protocol across the parallel project")).toBe(false);
+    expect(headingHit('## BL-M10L — two alerts render "Mark resolved" where "Confirm" is correct')).toBe(false);
   });
 });

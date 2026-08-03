@@ -191,7 +191,9 @@ regression budget).
   diverges from the ratified `map` label — the standard tile keeps it). No BACKLOG change
   (`BL-VENUE-DEGRADED-TILE-LABEL` is an aspirational ref in `DEFERRED.md:404`, never filed —
   grep-verify at implementation; if genuinely absent, close directly in DEFERRED with a note, do
-  not invent a BACKLOG row).
+  not invent a BACKLOG row). **Stale as of 2026-08-02:** the dangling-citation filing pass wrote
+  this never-filed id into `BACKLOG-archive.md` at its already-resolved state, so a grep now finds
+  a row. Accurate when written; this document's outcome is unchanged.
 
 ## 9. Tests (anti-tautology)
 
