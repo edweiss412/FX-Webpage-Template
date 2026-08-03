@@ -553,6 +553,30 @@ test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip
     ).toBeLessThanOrEqual(m.clipBottom + 0.5);
   });
 
+  test("the banner height matches the room actually available", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 560 });
+    await openToggleBanner(page);
+
+    // Containment and overflow alone do NOT pin the fit: cross-model review
+    // showed a private ref writing `max-height: 1px` satisfies both while being
+    // useless. Compare the measured height against the room the clip leaves.
+    const m = await page.evaluate(
+      ([clipSel, bannerSel, gutter]) => {
+        const clip = document.querySelector(clipSel as string)!.getBoundingClientRect();
+        const banner = document.querySelector(bannerSel as string)!.getBoundingClientRect();
+        return {
+          height: banner.height,
+          available: Math.floor(clip.bottom - banner.top - (gutter as number)),
+        };
+      },
+      [TOGGLE_CLIP, TOGGLE_BANNER, GUTTER] as const,
+    );
+    expect(
+      Math.abs(m.height - m.available),
+      `banner height ${m.height} does not match the available room ${m.available}`,
+    ).toBeLessThanOrEqual(0.5);
+  });
+
   test("the capped banner scrolls rather than stranding its tail", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openToggleBanner(page);

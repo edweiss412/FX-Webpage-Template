@@ -41,9 +41,26 @@ import { describe, expect, it } from "vitest";
  *   - HoverHelp coalescer     -> hoverHelpVisualViewport.test.tsx (open/closed
  *                                scheduling) and hoverHelpLifecycle.test.tsx
  *                                (close/unmount cancels the pending frame).
- *   - useFitWithinClip        -> useFitWithinClip.test.tsx cases (a)-(f), plus
- *                                the real fitted geometry asserted per consumer
- *                                in tests/e2e/popover-clip-fit.spec.ts.
+ *   - ReSyncButton fit        -> tests/components/ReSyncButton.test.tsx,
+ *                                "overlay is capped to the room left inside a
+ *                                clipping ancestor".
+ *   - PublishedToggle fit     -> tests/components/admin/PublishedToggle.test.tsx,
+ *                                "the banner is capped against the clip ancestor".
+ *   - AttentionMenu fit       -> attentionMenu.test.tsx, "the scroller is capped
+ *                                against the clip ancestor, not just by the CSS
+ *                                cap", plus the settled-fit browser cases in
+ *                                tests/e2e/popover-clip-fit.spec.ts, which
+ *                                compare the scroller's measured height against
+ *                                the room actually available.
+ *
+ * Cited precisely on purpose. An earlier draft of this note named the browser
+ * spec and the hook's own unit file as the backstop for EVERY consumer, and
+ * cross-model review showed that was false: the browser spec never mounts a
+ * ReSyncButton result panel, and its PublishedToggle cases assert containment
+ * and overflow but not fitted HEIGHT — so a private ref writing
+ * `max-height: 1px` stayed visible, contained, overflowing, tabbable and
+ * scrollable, and passed. The per-consumer unit cases above are what actually
+ * catch a fork. A documented limit is a claim, and a claim has to be checkable.
  *
  * Read the two layers together: this file pins the WIRING, those pin the
  * BEHAVIOUR. Neither is sufficient alone, and that is deliberate.
