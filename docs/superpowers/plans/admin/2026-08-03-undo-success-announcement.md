@@ -35,8 +35,9 @@ No fixed-dimension parent gains a flex or grid child. Every element added is `sr
 
 An earlier draft declared this N/A. That was wrong, and the reason is the whole point of spec §3.5.1: every feed undo happens inside `PublishedReviewModal`, which sets `inert` and `aria-hidden="true"` on the admin layout's shells while open (`components/admin/review/ReviewModalShell.tsx:180-189`, `app/admin/layout.tsx:160`, `layout.tsx:182`). jsdom enforces neither attribute (`ReviewModalShell.tsx:176`) and Testing Library ignores `aria-hidden`, so the entire unit suite stays green on a feature that announces nothing. Only a real browser can prove the region is in the accessibility tree at the moment it matters.
 
-- **Server boot:** the existing published-review-modal e2e project; no new server mechanism.
-- **Readiness gate:** the suite's existing row-hydration gate before the first assertion, never `networkidle` alone.
+- **Where it lands: an EXISTING spec file, not a new one.** The assertion is added to `tests/e2e/published-review-modal.crew-actions.spec.ts`, which already opens the published review modal against the real app. This is not a stylistic preference — `playwright.config.ts:79` matches specs by an explicit regex enumerating every filename, so a **new** spec file would silently never run, and `tests/ci/_metaE2eWorkflowCoverage.test.ts:156-158` requires a registry row per spec. Reusing a listed file avoids both wiring changes; creating one would require editing the regex AND adding a coverage row, and forgetting either yields a test that appears to exist and never executes.
+- **Server boot:** the `desktop-chromium` project (`playwright.config.ts:77`); no new server mechanism.
+- **Readiness gate:** the suite's existing modal-open and row-hydration gates before the first assertion, never `networkidle` alone.
 - **Detach safety:** the undo click removes its own row, so the post-click assertion targets the region (a stable body-level node), never the removed button; no `locator.evaluate` on an element that can unmount.
 
 Covered by Task 9.
@@ -151,7 +152,8 @@ If any probe fails, the layout-level owner is not immune and the design is wrong
 
 ## Task 9 — Real-browser accessibility-tree assertion
 
-- [ ] Add a Playwright spec: open the published review modal on a seeded show with an undoable feed row; assert `admin-undo-status` is attached **and** that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
+- [ ] Add the assertion to the **existing** `tests/e2e/published-review-modal.crew-actions.spec.ts` (see the e2e-readiness section for why a new spec file would never run): open the published review modal on a seeded show with an undoable feed row; assert `admin-undo-status` is attached **and** that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
+- [ ] Confirm the spec actually executed — a passing run that collected zero tests is the failure this task exists to avoid.
 - [ ] Commit `test(admin): prove the undo region stays in the a11y tree under the review modal`.
 
 Failure caught: the region nested inside `[data-inert-root]` instead of wrapping it — a placement that passes every jsdom test in this plan while the feature is completely dead for screen-reader users. This is the only assertion that can catch it.
