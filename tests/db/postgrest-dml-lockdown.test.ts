@@ -187,7 +187,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "sync_log",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:25",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -199,7 +199,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "reports",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:26",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -211,7 +211,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "sync_audit",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:27",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -223,7 +223,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "drive_watch_channels",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:28",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -235,7 +235,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "report_rate_limits",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:29",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -247,7 +247,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "pending_snapshot_uploads",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:30",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -259,7 +259,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "revision_race_cooldowns",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:31",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
@@ -271,7 +271,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "recovery_drift_cooldowns",
-    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:32",
     // SELECT is retained (spec §4.2): this migration revokes only the three DML
     // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
     // covered BOTH anon and authenticated. admin_only RLS returns zero rows to

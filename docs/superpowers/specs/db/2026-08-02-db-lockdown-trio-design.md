@@ -424,7 +424,7 @@ Lands in the same PR as the migration:
 
 Honest accounting per step:
 
-| Step | What proves it | 
+| Step | What proves it |
 | --- | --- |
 | 1 apply locally | the new Layer 1 `has_table_privilege` rows go red→green |
 | 2 `gen:schema-manifest` | nothing — the diff is empty by construction. Run it anyway and record the no-op, so a future column-bearing migration is not skipped out of habit. |
