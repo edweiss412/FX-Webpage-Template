@@ -3,7 +3,7 @@
 **Date:** 2026-08-02
 **Branch:** `test/parser-determinism-pair`
 **Backlog entries:** `BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE`, `BL-KNOWN-SECTIONS-WALKER`
-**Status:** spec, revised after cross-model review round 1 (7 findings, all landed)
+**Status:** spec, revised after cross-model review rounds 1-3 (7 + 2 + 5 findings, all landed)
 
 ---
 
@@ -169,7 +169,7 @@ the backlog entry asked for:
 
 | The entry asked for | Shipped as |
 | --- | --- |
-| "route ALL section-header detection through a single shared, introspectable constant/helper" | per-file `SECTION_HEADER_TOKENS` exports plus the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` (9 importers under `lib/`) |
+| "route ALL section-header detection through a single shared, introspectable constant/helper" | per-file `SECTION_HEADER_TOKENS` exports plus the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` (8 importers under `lib/parser/blocks/`, plus `lib/parser/index.ts`) |
 | "have the meta-test import each parser's constant and assert it ⊆ `KNOWN_SECTION_HEADERS`" | walker step 3, exact-subset, `tests/parser/_metaKnownSectionsWalker.test.ts:167` |
 | "Add a proof test that an unregistered header fails" | non-vacuity proof block, `tests/parser/_metaKnownSectionsWalker.test.ts:271`, 6 cases including negative controls |
 | (implied) a new parser must not pass silently | filesystem walk at `tests/parser/_metaKnownSectionsWalker.test.ts:133` — a new `blocks/*.ts` fails unless it exports tokens or is allowlisted |
@@ -258,14 +258,21 @@ choice from `resolveAlias(alias)`; never hardcode a per-alias table.
 | Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; the typo's value reaches the alias's `parseVenue` field; **and no other output field carries it** |
 | Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape; **and no `parseVenue` output field carries the typo's value at all** |
 
+**Anchor integrity, every partition.** In addition, every case asserts the anchor row's own field
+still holds the anchor's exact value. Without this clause a mutant that assigns the typo correctly
+**and also** overwrites the already-populated anchor field passes: the sentinel is still in the
+target field and nowhere else, so a sentinel-only scan sees nothing. Review round 3 demonstrated
+exactly that escaping mutant — 1444 corrupted outputs, 0 assertion failures, and all 56 current
+venue tests green. The anchor-integrity clause is what reds it.
+
 Both value clauses use a distinctive sentinel value in the typo row, and are stated over the whole
-result object rather than a single field. This is what makes the case a **routing** assertion rather
-than a warning-shape one, and it closes review round-2 finding 1: a mutant that reroutes the three
-non-assignable canonicals into `venue.address` corrupted 4517 cases while passing every
-warning-shape assertion. Measured today: **0** non-assignable cases place the sentinel anywhere, and
-**0** assignable cases place it in a field other than the target. The assertion therefore cannot
-pass with the parser doing nothing, with the anchor shadowing, or with a correction routed to the
-wrong field.
+result object rather than a single field. Together with anchor integrity this makes the case a
+**routing** assertion rather than a warning-shape one, and it closes review round-2 finding 1: a
+mutant that reroutes the three non-assignable canonicals into `venue.address` corrupted 4517 cases
+while passing every warning-shape assertion. Measured today: **0** non-assignable cases place the
+sentinel anywhere, and **0** assignable cases place it in a field other than the target. The
+assertion therefore cannot pass with the parser doing nothing, with the anchor shadowing, with a
+correction routed to the wrong field, or with collateral damage to a neighbouring field.
 
 The assignable/non-assignable split is **derived**, not hardcoded: map `resolveAlias(alias)` through
 a canonical→output-field table that mirrors `parseVenue`'s assignment sites, and treat a canonical
@@ -286,8 +293,9 @@ recording the measured runtime and the absent global override. Do **not** raise 
   whose canonical has a `parseVenue` output field — i.e. that the assignable partition is non-empty
   and covers all five assignable canonicals (`venue.name`, `venue.address`, `venue.loading_dock`,
   `venue.google_link`, `venue.notes`). Deriving from the canonical→field table rather than naming
-  four aliases means dropping `hotel address` or `venue notes` from `FIELD_ALIASES` is caught too —
-  the review round-1 gap in an earlier draft of this spec.
+  four aliases means dropping the **last** alias of any assignable canonical is caught — the review
+  round-1 gap in an earlier draft of this spec. It does **not** catch dropping one alias of a
+  multi-alias canonical; see the accepted limit below.
 - **Per-alias volume floor.** Assert each alias contributes at least `alias.length * 10` generated
   cases. Derived from the alias, not hardcoded. Measured ratios of unambiguous-neighbours to alias
   length run **53.8 to 56.6** across all eleven aliases, so the floor has ~5x headroom against a
@@ -340,7 +348,7 @@ vocabulary const**; venue's derived list is the better source (it cannot drift f
 ### 4.6 Red state (invariant 1) for a test-only deliverable
 
 The rewritten assertions pass against unmodified `main`, so the red state is established by
-mutation rather than by production code that does not yet exist. All five mutations are run, their
+mutation rather than by production code that does not yet exist. All six mutations are run, their
 output recorded in the task commit message, and none is committed:
 
 - **Mutation A — parser does nothing.** Make `parseVenue` return `null` immediately. The **new**
@@ -366,6 +374,11 @@ output recorded in the task commit message, and none is committed:
 - **Mutation E — resampling.** Reintroduce `.slice(0, 1)` on the generator output. The per-alias
   volume floor (§4.3) must go red for every alias. Without the floor this mutant keeps all eleven
   aliases and all five canonicals and passes, while dropping 8442 of 8453 cases.
+- **Mutation F — collateral anchor corruption.** After a correct fuzzy assignment, also overwrite
+  the already-populated anchor field with a marker value. The anchor-integrity clause (§4.2) must
+  go red. Review round 3 measured this mutant against the A–E design: **1444 corrupted outputs, 0
+  assertion failures, and all 56 current venue tests green.** It is the live escaping mutant that
+  justifies anchor integrity as a new assertion family.
 
 ---
 
@@ -475,5 +488,8 @@ both active and archived, and that no active entry carries a terminal status.
 - **No BL-citation freshness guard** — §2.7, refused on measurement.
 - **No `lib/parser/**` behavior change.** The one `lib/` edit is a comment block (§5.1). Unless a
   probe shows an actual parser defect, this is settled.
-- **No new mutation family**, so no escaping-mutant demonstration is owed. No UI surface, so
-  `impeccable-gate: N/A — no UI surface` is carried in the plan.
+- **No UI surface**, so `impeccable-gate: N/A — no UI surface` is carried in the plan.
+
+One assertion family WAS added after this fence was first written: anchor integrity (§4.2), added
+in review round 3 against a live escaping mutant (Mutation F). The admissibility contract was met
+by that demonstration, not waived. The fence covers settled decisions, not future evidence.

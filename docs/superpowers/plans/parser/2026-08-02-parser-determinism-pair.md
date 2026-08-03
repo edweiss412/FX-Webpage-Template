@@ -36,10 +36,10 @@ N/A — no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and n
 
 **Implements:** spec §4.
 
-### 1.1 Red first — five mutations, per spec §4.6
+### 1.1 Red first — six mutations, per spec §4.6
 
 The deliverable is a test, so the red state comes from mutating the tree rather than from
-production code that does not yet exist. Run all five, paste the output into the commit message,
+production code that does not yet exist. Run all six, paste the output into the commit message,
 revert each before the next. **None is committed.**
 
 | Mutation | Edit | Required result |
@@ -49,6 +49,7 @@ revert each before the next. **None is committed.**
 | **C** — coverage shrink | delete the `venue.notes` alias list from `FIELD_ALIASES` (`lib/parser/aliases.ts:34`) | derived coverage floor RED, and **only** that — `venue.notes` is its canonical's sole alias and no fixture case asserts `notes` |
 | **D** — mis-routed correction | reroute `venue.contact_info` / `venue.in_house_av` / `venue.hotel_reservations` to `venue.address` inside `parseVenue` | non-assignable no-stray-value assertion RED on all 4517 cases |
 | **E** — resampling | reintroduce `.slice(0, 1)` on the generator output | per-alias volume floor RED for every alias |
+| **F** — collateral anchor corruption | after a correct assignment, also overwrite the populated anchor field | anchor-integrity clause RED — measured 1444 corrupted outputs with 0 failures against the A-E design |
 
 Mutations A, D, E are the load-bearing ones: today's case passes under A, and D and E are the two
 mutants cross-model review used to refute weaker drafts of this design. Capture each result
@@ -65,7 +66,9 @@ Enumerate **every** alias from `inScopeAliases("venue.")` with `length >= 5`, an
 **No `.slice` anywhere in the case.**
 
 **Canonical→field table.** Mirror `parseVenue`'s five assignment sites
-(`lib/parser/blocks/venue.ts:254`, `:265`, `:276`, `:287`, `:298`):
+(`lib/parser/blocks/venue.ts:254`, `lib/parser/blocks/venue.ts:265`,
+`lib/parser/blocks/venue.ts:276`, `lib/parser/blocks/venue.ts:287`,
+`lib/parser/blocks/venue.ts:298`):
 
 ```ts
 const VENUE_OUTPUT_FIELD: Record<string, string> = {
@@ -97,6 +100,10 @@ a lone typo row does not open the block (spec §2.3).
 Use a distinctive sentinel as the typo row's value and scan the whole result object, not one field —
 that is what makes this a routing assertion and what kills mutation D.
 
+**Anchor integrity, every partition:** also assert the anchor row's own field still holds the
+anchor's exact value. Kills mutation F, which otherwise passes with 1444 corrupted outputs and 0
+assertion failures.
+
 Failure messages name both alias and typo, as `tests/parser/blocks/venue.test.ts:328` does today.
 
 **Timeout:** `30_000` as `it()`'s third argument, with an inline comment recording the measured
@@ -107,8 +114,9 @@ Failure messages name both alias and typo, as `tests/parser/blocks/venue.test.ts
 
 - **Derived coverage floor.** Assert the enumerated alias set covers **every** key of
   `VENUE_OUTPUT_FIELD` — all five assignable canonicals. Derived, not a four-name list, so dropping
-  `hotel address` or `venue notes` from `FIELD_ALIASES` is caught (spec §4.3; this was review
-  round-1 finding F5).
+  the **last** alias of any assignable canonical is caught (spec §4.3; review round-1 finding F5).
+  It does **not** catch dropping one alias of a multi-alias canonical — see the accepted limit
+  below.
 - **Per-alias volume floor.** Assert each alias contributes ≥ `alias.length * 10` cases. Derived,
   not hardcoded; measured ratios run 53.8–56.6, so ~5x headroom. Reds mutation E (`.slice(0, 1)`,
   ratio 0.09) and the original `.slice(0, 6)`.
@@ -189,15 +197,39 @@ pnpm exec vitest run tests/docs/      # green
 **Implements:** spec §5.1, §5.2. Sequenced after Task 2 so the text can reference the archived
 entry rather than an active one. **Comment-only: no executable line changes.**
 
-### 3.1 What is false today
+### 3.1 Red first — the docstring-truth guard
+
+A comment-only edit has no red state on its own (review round 3, BLOCKING), and invariant 1 is
+non-negotiable. So Task 3 begins by adding the assertion that makes the stale wording fail, as a
+new case appended to `tests/parser/_metaKnownSectionsWalker.test.ts`:
+
+- Read the source of `lib/parser/knownSections.ts` and
+  `tests/parser/_metaKnownSectionsRegistry.test.ts`.
+- Assert neither contains any stale-absence claim. Pin the exact phrases present today —
+  `no shared introspectable constant`, `does NOT walk`, `not cheaply achievable` — as a small
+  named list, so the assertion names what it forbids rather than pattern-guessing.
+- Assert both name `_metaKnownSectionsWalker` (the correct pointer), so the guard cannot be
+  satisfied by deleting the paragraph and saying nothing.
+
+This case MUST go RED on the unmodified tree — the three phrases are present in both files right
+now — and green after §3.2. Capture the red output for the commit message.
+
+**Admissibility.** This is a new guard, so it needs a probe of the corruption it prevents rather
+than a hypothetical: both docstrings asserted the walker did not exist for the ~4 weeks after it
+shipped on 2026-07-06, and that false claim is what scoped `BL-KNOWN-SECTIONS-WALKER` as open work
+at the start of this branch. The corruption is measured, not imagined. The guard is deliberately
+narrow — two named files, one phrase list, one required pointer — and carries no allowlist, so it
+cannot become the drift-prone parallel artifact this project distrusts.
+
+### 3.2 What is false today
 
 Both assert the parsers have "no shared introspectable constant," that the walker does not exist,
 and that real enforcement "is filed as BL-KNOWN-SECTIONS-WALKER in BACKLOG.md." All three clauses
-are false: `lib/parser/blocks/_sectionHeaderMatch.ts:31` is the shared factory with 9 importers
-under `lib/`, the parsers export `SECTION_HEADER_TOKENS`, and
+are false: `lib/parser/blocks/_sectionHeaderMatch.ts:31` is the shared factory with 8 importers
+under `lib/parser/blocks/` plus `lib/parser/index.ts`, the parsers export `SECTION_HEADER_TOKENS`, and
 `tests/parser/_metaKnownSectionsWalker.test.ts:133` reads the directory.
 
-### 3.2 Replacement text must state
+### 3.3 Replacement text must state
 
 - The walker is `tests/parser/_metaKnownSectionsWalker.test.ts`, the **primary** drift guard:
   filesystem-walked, fails-by-default for a new `blocks/*.ts`, exact-subset ⊆ registry.
@@ -210,14 +242,14 @@ under `lib/`, the parsers export `SECTION_HEADER_TOKENS`, and
   archived id stays valid under `tests/docs/_metaLedgerReferentialIntegrity.test.ts:48`, which
   resolves citations against the archive ledgers too.
 
-### 3.3 Verify
+### 3.4 Verify
 
 ```
 pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 35 passed
 pnpm exec vitest run tests/docs/
 ```
 
-**Commit:** `docs(parser): correct two docstrings that still claim the known-sections walker is unbuilt`
+**Commit:** `test(parser): guard the known-sections docstrings against stale-absence claims, and correct them`
 
 ---
 
@@ -229,6 +261,7 @@ No code changes.
 pnpm exec vitest run tests/parser/
 pnpm exec vitest run tests/docs/
 pnpm spec:lint docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md   # 0 hard
+pnpm spec:lint docs/superpowers/plans/parser/2026-08-02-parser-determinism-pair.md   # 0 hard
 pnpm lint && pnpm typecheck
 ```
 
