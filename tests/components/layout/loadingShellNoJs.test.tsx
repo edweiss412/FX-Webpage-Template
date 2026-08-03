@@ -23,7 +23,8 @@ import { LoadingShell } from "@/components/layout/Skeleton";
 const HIDE_RULE = "[data-loading-shell-content]{display:none}";
 const NOTICE = '[data-testid="loading-nojs-notice"]';
 const TITLE = "JavaScript is required";
-const BODY = "This page needs JavaScript to load. Turn it on in your browser settings, then reload.";
+const BODY =
+  "This page needs JavaScript to load. Turn it on in your browser settings, then reload.";
 
 function renderShell(): { html: string; noscriptInner: Document; outer: Document } {
   const html = renderToStaticMarkup(
@@ -76,7 +77,10 @@ describe("LoadingShell no-JavaScript notice", () => {
 
   it("wrapper CONTAINS the announcement and the children (not merely precedes them)", () => {
     const { outer } = renderShell();
-    const wrapper = must(outer.querySelector("[data-loading-shell-content]"), "the content wrapper");
+    const wrapper = must(
+      outer.querySelector("[data-loading-shell-content]"),
+      "the content wrapper",
+    );
     const status = must(outer.querySelector('[role="status"]'), "the role=status announcement");
     const child = must(outer.querySelector('[data-testid="child"]'), "the passed-in child");
     expect(wrapper.contains(status)).toBe(true);
