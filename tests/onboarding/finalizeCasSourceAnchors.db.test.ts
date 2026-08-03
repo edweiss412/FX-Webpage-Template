@@ -10,19 +10,31 @@ import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 /**
- * BL-ONBOARDING-CAS-SOURCE-ANCHORS (spec 2026-08-03-finalize-cas-source-anchors), Phase-B half.
+ * BL-ONBOARDING-CAS-SOURCE-ANCHORS (spec 2026-08-03-finalize-cas-source-anchors): the
+ * existing-show re-onboard path must refresh `shows.source_anchors` from the anchors the
+ * scan persisted, exactly as the first-seen flow already does — and must never wipe them.
  *
- * Concrete failure mode: Phase B drops the scan's anchors on the floor. They live only in
- * `pending_syncs.source_anchors`, and `deleteApprovedPending` consumes that row in the same
- * transaction, so a value not baked into the shadow payload does not exist by Phase D — the
- * re-onboarded show then keeps whatever a prior sync left.
+ * Two concrete failure modes, one per case:
  *
- * Stages through the REAL pipeline writers (runPhase1 → PostgresOnboardingScanTx → Phase B's
- * jsonb_build_object) and asserts on the payload read back out of `shows_pending_changes`,
- * never on the argument handed to the writer — an implementation that accepts the parameter
- * and forgets the jsonb member must fail here.
+ *  (a) REFRESH — Phase B drops the scan's anchors on the floor (they live only in
+ *      `pending_syncs.source_anchors`, which `deleteApprovedPending` consumes in the same
+ *      transaction), so by Phase D there is nothing left to apply and the re-onboarded show
+ *      keeps whatever a prior sync left. That was the bug.
  *
- * The Phase-D half (refresh + wipe guard) lands with the Phase-D edit.
+ *  (b) WIPE GUARD — the opposite defect: forwarding a DEFINED `{}` when the scan computed
+ *      no anchors. `applyShowSnapshot`'s UPDATE arm is
+ *      `source_anchors = coalesce($18::jsonb, source_anchors)`, so an empty map durably
+ *      erases good anchors. That is strictly worse than the bug being fixed, and it is what
+ *      the `Object.keys(...)` guard at the Phase-D call site exists to prevent.
+ *
+ * Both cases stage through the REAL pipeline writers (runPhase1 → PostgresOnboardingScanTx →
+ * Phase B's jsonb_build_object → Phase D's applyStagedCore), and both assert on the `shows`
+ * row read back from Postgres AFTER the apply — never on the args handed to the core, which
+ * would pass against broken plumbing.
+ *
+ * PRIOR and FRESH are distinct fixtures, so neither case can pass by coincidence, and the
+ * wipe guard asserts the apply actually SUCCEEDED first — a refused apply would "preserve"
+ * PRIOR trivially and make the assertion vacuous.
  *
  * Also pins the Drive-free posture: the export functions are mocked to throw, so any
  * regression that re-introduces an XLSX export on either phase fails loudly here.
@@ -380,6 +392,27 @@ describe("existing-show re-onboard threads source anchors to shows (real DB)", (
         [DRIVE, SESSION],
       );
       expect(pending.length).toBe(0);
+    },
+  );
+
+  test.skipIf(!dbUp)("Phase D refreshes shows.source_anchors with the staged map", async () => {
+    await seed(FRESH);
+    expect(await readShowAnchors()).toEqual(PRIOR); // precondition, from the fixture
+    await runPhaseB();
+    await runPhaseD();
+
+    expect(await readShowAnchors()).toEqual(FRESH);
+  });
+
+  test.skipIf(!dbUp)(
+    "an empty staged map PRESERVES the live anchors — a defined {} would wipe them through the coalesce",
+    async () => {
+      await seed({});
+      expect(await readShowAnchors()).toEqual(PRIOR);
+      await runPhaseB();
+      await runPhaseD(); // asserts the apply COMMITTED, so the preservation below is not vacuous
+
+      expect(await readShowAnchors()).toEqual(PRIOR);
     },
   );
 });
