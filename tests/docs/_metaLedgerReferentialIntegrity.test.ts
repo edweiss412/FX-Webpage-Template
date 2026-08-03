@@ -121,9 +121,11 @@ function trackedFiles(): string[] {
  * cannot tell a ledger from a plan. The defaults ARE the production values, and
  * the plants below pin both the defaults and the live call.
  */
+export const readLedgerFile = (rel: string): string => readFileSync(join(ROOT, rel), "utf8");
+
 export function definedIds(
   ledgers: readonly string[] = LEDGERS,
-  read: (rel: string) => string = (rel) => readFileSync(join(ROOT, rel), "utf8"),
+  read: (rel: string) => string = readLedgerFile,
 ): Set<string> {
   const ids = new Set<string>();
   for (const rel of ledgers) {
@@ -557,6 +559,28 @@ describe("bodyDefinedIds is scoped to ledger files", () => {
       return text.includes("bodyDefinedIds");
     });
     expect(callers, "bodyDefinedIds gained a caller that scopes its own files").toEqual([]);
+  });
+
+  it("P5-noio-caller: definedIds performs no read outside its injected reader", () => {
+    // P5-trace watches the SPY, so it cannot see a read that bypasses the spy —
+    // either a direct shadow read inside definedIds, or a default adapter that
+    // reads an extra path per call. Both were compiled and shown silent. The
+    // defence is structural: definedIds' body may not touch the filesystem at
+    // all, and the default reader is a single named one-liner.
+    const source = readFileSync(join(ROOT, "tests/docs/_metaLedgerReferentialIntegrity.test.ts"), "utf8");
+    const start = source.indexOf("export function definedIds(");
+    expect(start, "definedIds not found — this plant must be re-anchored").toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n}", start));
+    for (const banned of ["readFileSync", "readdirSync", "execFileSync", "require("]) {
+      expect(body, `definedIds must read only through its injected reader (${banned})`).not.toContain(banned);
+    }
+    // And the default adapter reads exactly the path it was given, once.
+    const adapter = source.slice(
+      source.indexOf("export const readLedgerFile"),
+      source.indexOf("export function definedIds("),
+    );
+    expect(adapter.match(/readFileSync/g) ?? []).toHaveLength(1);
+    expect(adapter).toContain("join(ROOT, rel)");
   });
 
   it("P5-noio: the walker helper cannot read the filesystem", () => {

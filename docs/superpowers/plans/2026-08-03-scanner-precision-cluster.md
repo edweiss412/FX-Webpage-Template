@@ -217,8 +217,8 @@ suite instead of three. Measure and record the real delta.
 ## Task 2 — Item B: body-defined ledger ids
 
 **RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` with plants P1–P4 and P6–P8 (spec §4.2)
-against synthetic ledgers, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` with **P5 and
-P5-live**, which need the file-scoping seam. Failure modes caught, per the anti-tautology rule:
+against synthetic ledgers, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` with **P5, P5-live, P5-trace, P5-sole,
+P5-noio and P5-noio-caller**. Failure modes caught, per the anti-tautology rule:
 
 - **P3** — a code-span-lead rule would let `BACKLOG.md:79` define the five ids it merely
   enumerates, from the wrong parent.
