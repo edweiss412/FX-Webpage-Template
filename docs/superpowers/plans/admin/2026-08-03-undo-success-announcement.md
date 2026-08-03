@@ -108,6 +108,8 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 - [ ] Sweep all ten existing assertion sites per the spec §7 table: six `toBeNull()` → `toHaveTextContent("")`, four `toBeInTheDocument()` → catalog-copy assertions.
 - [ ] Commit `fix(admin): make the feed action failure cards announce`.
 
+**Scope every strengthened assertion to the result node.** The existing copy checks are global `screen.getByText` scans (`tests/components/admin/UndoChangeButton.test.tsx:40`, `UndoChangeButton.test.tsx:52`). Those keep working, but a strengthened assertion must query *within* the result node — `within(getByTestId("<x>-result")).getByTestId("error-explainer-message")` — so it cannot be satisfied by copy some other element on the page happens to render. All four codes under test have catalog rows (`lib/messages/catalog.ts:902`, `catalog.ts:939`, `catalog.ts:952`, `catalog.ts:3275`), so `error-explainer-message` is guaranteed present on a failure.
+
 **`Mi11GateActions.test.tsx:95` is the one that must not be converted mechanically.** Undo and Accept keep independent catalog-copy assertions elsewhere in their files, so their node checks were redundant; MI-11's is the file's only positive evidence that a failure renders at all. It gains a copy assertion or the file is left with zero coverage of its failure path (spec §7).
 
 ## Task 6 — `AdminAnnounceProvider`, mounted by the admin layout
