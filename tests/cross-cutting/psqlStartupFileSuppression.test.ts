@@ -3817,3 +3817,81 @@ describe("R39 escaping mutants — a wrapper is not its own interpreter", () => 
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R40 — hypothetical gaps closed cheaply; the rest are documented limits", () => {
+  const WF = ".github/workflows/x.yml";
+
+  // A Windows path separator is a backslash. `basename` split on `/` only, so
+  // an ordinary Windows spawn was invisible to both the site path and the
+  // tripwire. Additive recall, no design change.
+  test.each([
+    ['execFileSync("C:\\\\pg\\\\bin\\\\psql.exe", ["-qAt", "mydb"]);\n', false],
+    ['execFileSync("C:\\\\pg\\\\bin\\\\psql.exe", ["-X", "-qAt", "mydb"]);\n', true],
+  ])("a backslash-path psql spawn is seen (suppresses=%s)", (source, suppresses) => {
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(suppresses);
+  });
+
+  // In POSIX shell an UNQUOTED backslash is an escape, so
+  // `C:\pg\bin\psql.exe` lexes to `C:pgbinpsql.exe` — genuinely not psql, and
+  // correctly not a site.
+  test("an UNQUOTED backslash path is not psql, because the shell eats the escapes", () => {
+    expect(sitesIn("C:\\pg\\bin\\psql.exe -qAt mydb\n", "x.sh")).toEqual([]);
+  });
+
+  // The QUOTED form is a documented limit, pinned here so the limit is a fact
+  // rather than a claim: inside double quotes bash keeps a backslash that
+  // precedes an ordinary character, so the word really is the Windows path —
+  // but this lexer strips it. Recorded in the scan.ts residual-limits list and
+  // in DEFERRED.md; no such path exists in this tree, which is Linux-only.
+  test("a QUOTED backslash path in shell text is a KNOWN miss", () => {
+    expect(sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh")).toEqual([]);
+  });
+
+  // The workflow BINDING tripwire stayed case-sensitive after the R39 pass made
+  // the command recognizers case-insensitive.
+  test.each([
+    ["env", "env:\n  PG: PSQL.EXE\n"],
+    ["a path-valued binding", "env:\n  PG: C:/pg/bin/PSQL.EXE\n"],
+    ["matrix", "jobs:\n  x:\n    strategy:\n      matrix:\n        bin: [Psql]\n"],
+    ["inputs", "on:\n  workflow_call:\n    inputs:\n      bin:\n        default: PSQL.EXE\n        type: string\n"],
+  ])("a %s binding spelled for Windows is reported", (_label, source) => {
+    expect(scanWorkflowIndirection(source, WF).length).toBeGreaterThan(0);
+  });
+
+  // `runs-on` has legal MAP forms, and a self-hosted label proves nothing about
+  // the platform even when it contains the word "linux". Present-but-unreadable
+  // must fail closed, which is different from absent.
+  test.each([
+    ["a labels map", "jobs:\n  x:\n    runs-on:\n      labels: windows-latest\n    steps:\n      - run: psql -F @opts -X mydb\n"],
+    ["a group map", "jobs:\n  x:\n    runs-on:\n      group: my-group\n    steps:\n      - run: psql -F @opts -X mydb\n"],
+    ["a self-hosted label", "jobs:\n  x:\n    runs-on: custom-linux-runner\n    steps:\n      - run: psql -F @opts -X mydb\n"],
+  ])("an unset shell on %s is not certified", (_label, source) => {
+    const sites = sitesIn(source, WF);
+    expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
+  });
+
+  test.each([
+    ["ubuntu-latest"],
+    ["ubuntu-22.04"],
+    ["macos-14"],
+  ])("a known-good runner `%s` still certifies", (runner) => {
+    const source = `jobs:\n  x:\n    runs-on: ${runner}\n    steps:\n      - run: psql -X -qAt mydb\n`;
+    const sites = sitesIn(source, WF);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test(
+    "the R40 recall additions leave the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});

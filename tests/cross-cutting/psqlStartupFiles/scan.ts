@@ -132,6 +132,25 @@
  *   review demonstrated `flock -c`, `script -c`, and `tmux new-session` walking
  *   straight through it; those three are closed, and the next three are not.
  *   The claim is now the accurate one: what is on the list is read.
+ * • Hypothetical gaps on surfaces this repository does NOT use, found by
+ *   adversarial review rounds R28-R40 and recorded rather than closed. Each was
+ *   demonstrated with a live mutant against this file; none is a miss on any
+ *   call site in this tree, whose census has stayed 75 sites / 0 unprotected
+ *   through every one of those rounds. They are filed as
+ *   PSQL-GUARD-RECALL-RESIDUAL in DEFERRED.md with the probes attached:
+ *     - a cardinality-changing GLOB in the COMMAND WORD
+ *       (a `postgresql@<glob>` path with a second glob segment expands to several psql
+ *       paths, so the first receives another as a positional and `-X` lands too
+ *       late). Globs are refused in ARGUMENTS; the command word is not checked.
+ *     - a JS spawn whose `shell` option names a NON-POSIX shell
+ *       (`{shell: "/opt/homebrew/bin/pwsh"}`): the both-readings check parses
+ *       the joined argv as POSIX shell, and PowerShell splatting removes an
+ *       empty array, so `-F @args -X` really passes `-F -X`.
+ *     - a QUOTED Windows path in SHELL text (`"C:\pg\bin\psql.exe"`): inside
+ *       double quotes bash keeps a backslash before an ordinary character, and
+ *       this lexer strips it. The JS spawn form of the same path IS read.
+ *   Each has a test pinning the CURRENT behaviour, so the limit is a fact and a
+ *   future fix has a failing case waiting for it.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
  *   claim to close it.
@@ -959,7 +978,14 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
 /** The command word, with any directory prefix removed. */
 function basename(word: string): string {
-  return word.slice(word.lastIndexOf("/") + 1);
+  // A BACKSLASH separates a Windows path, and splitting on `/` alone made
+  // `C:\pg\bin\psql.exe` invisible to every recognizer built on this helper.
+  // In shell text a backslash is also an escape, but a word that has already
+  // been quote-stripped carries the literal separator, and `p\s\q\l` — the
+  // escaped spelling this file has read since R3 — has no separator character
+  // between its parts, so taking the last of either is safe for both.
+  const at = Math.max(word.lastIndexOf("/"), word.lastIndexOf("\\"));
+  return word.slice(at + 1);
 }
 
 /**
@@ -1583,7 +1609,7 @@ function composedText(node: ts.Node, sourceFile: ts.SourceFile): Composed | null
 }
 
 function isPsqlBinary(text: string): boolean {
-  if (isPsqlName(text) || isPsqlName(text.slice(text.lastIndexOf("/") + 1))) return true;
+  if (isPsqlName(text) || isPsqlName(basename(text))) return true;
   // `execFileSync(`${binDir}psql`, …)` — the same trailing-slash pattern.
   return text.includes("$") && /(?:\}|\))psql(?:\.exe)?$/i.test(text);
 }
@@ -2249,6 +2275,11 @@ const POSIX_SHELLS = new Set(["bash", "sh"]);
  * a value `shellIsPosix` rejects, so an unresolved runner fails closed. */
 const UNPROVED_SHELL = "<unproved>";
 
+/** Stands in for a `runs-on` that is PRESENT but not readable as a label — the
+ * legal `{group: …}` / `{labels: …}` map forms. Distinct from absent, which is
+ * a fragment rather than a platform claim. */
+const UNREADABLE_RUNNER = "<unreadable-runner>";
+
 /** GitHub's default shell is bash everywhere EXCEPT Windows, where it is
  * PowerShell Core. A label this reader cannot resolve — an expression, a
  * matrix value, a self-hosted tag — proves nothing either way, so only an
@@ -2259,12 +2290,13 @@ function platformIsProvablyNonWindows(runsOn: string | null): boolean {
   // and the ordinary default applies. What proves nothing is a label the
   // reader cannot read: an expression, a matrix value, a self-hosted tag.
   if (runsOn === null || runsOn.trim() === "") return true;
-  if (runsOn.includes("$")) return false;
+  if (runsOn.includes("$") || runsOn === UNREADABLE_RUNNER) return false;
   const labels = runsOn.toLowerCase().split(/\s+/).filter(Boolean);
-  if (labels.some((label) => label.includes("windows") || label.includes("win-"))) return false;
-  return labels.some(
-    (label) => label.includes("ubuntu") || label.includes("macos") || label.includes("linux"),
-  );
+  // A KNOWN GitHub-hosted image, matched at the START of the label rather than
+  // anywhere in it. A substring test accepted `custom-linux-runner`, a
+  // self-hosted tag that names no platform at all — the header already said a
+  // self-hosted tag proves nothing, and the test did not enforce it.
+  return labels.some((label) => /^(?:ubuntu|macos)(?:-|$)/.test(label));
 }
 
 /**
@@ -2367,13 +2399,20 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
     // A runner this reader cannot resolve (an expression, a matrix value) is
     // not proof of anything, so it is treated as unproved too.
     const runsOnNode = pairIn(resolved, "runs-on")?.value;
+    const runsOnScalar = scalarOf(runsOnNode);
+    const runsOnSeq = ((resolveNode(runsOnNode) as { items?: unknown[] } | undefined)?.items ?? [])
+      .map((item) => scalarOf(item))
+      .filter((label): label is string => label !== null)
+      .join(" ");
+    // `runs-on` also has legal MAP forms (`{group: …}`, `{labels: …}`), which
+    // read as neither a scalar nor a sequence of scalars. PRESENT-but-unreadable
+    // is not the same as ABSENT: collapsing it to "" made it absent, and an
+    // unset shell was then assumed bash on a Windows runner. Unreadable fails
+    // closed.
+    const runsOnPresent = runsOnNode !== undefined && runsOnNode !== null;
     const runsOn =
-      scalarOf(runsOnNode) ??
-      ((resolveNode(runsOnNode) as { items?: unknown[] } | undefined)?.items ?? [])
-        .map((item) => scalarOf(item))
-        .filter((label): label is string => label !== null)
-        .join(" ");
-    const platform = runsOn === "" || runsOn === null ? inheritedPlatform : runsOn;
+      runsOnScalar ?? (runsOnSeq !== "" ? runsOnSeq : runsOnPresent ? UNREADABLE_RUNNER : null);
+    const platform = runsOn === null ? inheritedPlatform : runsOn;
     const scoped = scalarOf(pairIn(defaultsRun?.value, "shell")?.value) ?? inherited;
     const ownShell = scalarOf(pairIn(resolved, "shell")?.value);
     const runPair = pairIn(resolved, "run");
@@ -2641,7 +2680,10 @@ export function scanWorkflowIndirection(source: string, file: string): Indirecti
    * under a binding key is reported, which is the fail-loud direction this file
    * takes everywhere else: a human reads one message. */
   const bindsPsql = (text: string): boolean => {
-    if (!/\bpsql\b/.test(text)) return false;
+    // Case-INSENSITIVE, with an optional `.exe`, matching `isPsqlName`: the
+    // command recognizers were made Windows-aware in R39 while this one was
+    // left behind, so `env: {PG: PSQL.EXE}` bound the command name silently.
+    if (!/\bpsql(?:\.exe)?\b/i.test(text)) return false;
     if (!/\s/.test(text.trim())) return true;
     return scanShellText(text, file, 0).length > 0;
   };
