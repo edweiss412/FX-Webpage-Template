@@ -15,7 +15,7 @@ Anchors are computed once per sheet at scan time and persisted on the staged row
 
 The Step-3 finalize reads that column under the generation-scoped show lock and coerces it best-effort (`app/api/admin/onboarding/finalize/route.ts:985` selects it, `app/api/admin/onboarding/finalize/route.ts:1041` coerces it into the `sourceAnchors` local). The coercion happens **before** the first-seen / existing-show branch split, so both branches have the value in hand.
 
-Only one branch uses it:
+Only one branch uses it. Everything in this section describes the code AT THIS SPEC'S MERGE-BASE (`67074d4dc`) — §3's edits are what change it, and §5's matrix marks which rows this spec flips:
 
 - **First-seen (Flow A)** spreads it into the apply core — `app/api/admin/onboarding/finalize/route.ts:1280`.
 - **Existing-show (Flow B)** drops it. `stageExistingShowShadow` (`app/api/admin/onboarding/finalize/route.ts:602`) writes a shadow payload that carries `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, and `use_raw_decisions` — but not the anchors. `deleteApprovedPending` (`app/api/admin/onboarding/finalize/route.ts:689`) then consumes the `pending_syncs` row in the same Phase-B transaction, so by Phase D the value no longer exists anywhere. `applyShadow` (`app/api/admin/onboarding/finalize-cas/route.ts:410`) builds its `applyStagedCore` args (`app/api/admin/onboarding/finalize-cas/route.ts:546`) with no `sourceAnchors` key.
@@ -182,7 +182,7 @@ anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and 
 
 ## 5. Write-path × read-path matrix
 
-| Path | Writes `shows.source_anchors`? | Status after this change |
+| Path | Writes `shows.source_anchors`? (at merge-base) | Status after this change |
 | --- | --- | --- |
 | The shared per-file sync pipeline — `processOneFile` (`lib/sync/runScheduledCronSync.ts:2691`), computing at `lib/sync/runScheduledCronSync.ts:3073`, forwarding at `lib/sync/runScheduledCronSync.ts:3598`, persisting at `lib/sync/runScheduledCronSync.ts:1499` and `lib/sync/runScheduledCronSync.ts:1527`. ONE path, five invocation modes: cron (`lib/sync/runScheduledCronSync.ts:3778`), push (`lib/sync/runPushSyncForShow.ts:294`), manual (`lib/sync/runManualSyncForShow.ts:304`), plus the recovery and drift-rescue branches | Yes (INSERT + UPDATE arms) | Unchanged |
 | Wizard first-seen finalize, Flow A (`app/api/admin/onboarding/finalize/route.ts:1280`) | Yes | Unchanged |

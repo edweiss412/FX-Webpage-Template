@@ -279,6 +279,24 @@ branch that no longer exists. It has to be in the PR's own diff.
    firing for up to seven days. Then clear the pane and agent labels and set the marker's `stage` to
    `done`.
 
+## Citation posture (fenced — do not relitigate)
+
+Every `file:line` in this plan and its spec is anchored to the merge-base `67074d4dc`, and the
+implementation moves many of those lines by construction: Task 2 inserts a parameter and a bind
+value into `stageExistingShowShadow`, Task 1 inserts an import and a field into
+`lib/onboarding/shadowPayload.ts`, Task 2 rewrites the `65` assertion and rationale in
+`tests/db/_metaLocalDbUrlGuard.test.ts`, and Task 4 inserts a row into `BACKLOG_GRADUATED`.
+
+That drift is expected and is NOT a defect to repair. `docs/agents/spec-self-review.md:13` is the
+ratified rule: anchor durably by file plus symbol, treat the line number as a drafting-time locator,
+and re-verify an anchor only when the CLAIM it supports is in question — "a drifted line number on
+an otherwise-correct claim is not a review finding, and post-merge refresh commits are not
+required." No task in this plan refreshes line anchors, and none should.
+
+What IS a defect, and was repaired when review found it: a citation whose CLAIM stops being true
+after implementation. Those are tense errors, not drift. Both documents now scope their
+current-state descriptions to the merge-base explicitly rather than asserting them timelessly.
+
 ## Regression budget
 
 If a review round patches any of the three edits, the next round's preparation re-greps the class across all three sites (`grep -n "sourceAnchors" app/api/admin/onboarding/finalize/route.ts app/api/admin/onboarding/finalize-cas/route.ts lib/onboarding/shadowPayload.ts`), confirms the wipe guard is still present at both Flow-A and Flow-B call sites, and records both in the round closure. The Flow-A guard at `app/api/admin/onboarding/finalize/route.ts:1280` is pre-existing and must not be disturbed by any repair to Flow B.
