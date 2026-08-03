@@ -12,9 +12,11 @@
  * The filename is historical. This file also held a <ParsePanel> composition
  * test until 2026-08-02, when that component was deleted as dead code
  * (BL-ADMIN-PARSEPANEL-ORPHANED — nothing under app/, components/, or lib/ had
- * imported it since the show-page-to-modal pivot). The StagedReviewCard chrome
- * that test snapshotted is independently pinned by
- * tests/components/admin/stagedCardBaseline.test.tsx, so no coverage was lost.
+ * imported it since the show-page-to-modal pivot). That test snapshotted the
+ * OUTER StagedReviewCard chrome (article, header, empty state, action row);
+ * stagedCardBaseline.test.tsx pins the INNER per-show-actionable-item cards, not
+ * that chrome, so the outer pin was rehomed to the component's own test at
+ * tests/components/StagedReviewCard.test.tsx rather than dropped.
  * The name is kept because DEFERRED-archive.md cites it.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";

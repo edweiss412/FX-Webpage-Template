@@ -69,6 +69,20 @@ function errorResponse(code: string) {
 }
 
 describe("StagedReviewCard", () => {
+  test("card chrome baseline: article, header, empty state, and action row", () => {
+    // Restores the outer-chrome pin that died with the ParsePanel composition
+    // test on 2026-08-02. Whole-diff review R4 established that
+    // stagedCardBaseline.test.tsx snapshots the INNER per-show-actionable-item
+    // cards and their popovers, not this surrounding article/header/empty-state/
+    // action chrome — so removing the old snapshot did lose coverage, and the
+    // claim that it was covered elsewhere was wrong. This is that coverage,
+    // owned by the component's own test rather than by a deleted wrapper's.
+    const { getByTestId } = render(<StagedReviewCard row={{ ...baseRow }} />);
+    expect(getByTestId("staged-review-card").outerHTML).toMatchSnapshot(
+      "staged-review-card chrome",
+    );
+  });
+
   test("apply button POSTs to /api/admin/staged/<fileId>/apply with source_scope='live'", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const onMutated = vi.fn();

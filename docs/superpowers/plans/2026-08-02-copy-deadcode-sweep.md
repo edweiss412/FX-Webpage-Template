@@ -101,7 +101,7 @@ Typecheck the file against the repo's strict tsconfig before proceeding (`noUnch
 1. Delete the component file at components/admin/ParsePanel.tsx (prose path, per spec §1.1 item 10).
 2. Delete tests/components/ParsePanel.test.tsx (all four of its tests target the deleted component).
 3. In `tests/components/admin/parsePanelComposition.test.tsx`, delete only the ParsePanel test. Its sibling `WarningsBreakdown` test, and the file itself, stay.
-4. Delete tests/components/admin/__snapshots__/parsePanelComposition.test.tsx.snap outright: measured, it holds exactly one entry, and that entry belongs to the test being removed. **No coverage is lost** — the entry pins `StagedReviewCard`'s surrounding chrome, and `tests/components/admin/stagedCardBaseline.test.tsx` snapshots that same chrome independently, which is that file's stated purpose.
+4. Delete tests/components/admin/__snapshots__/parsePanelComposition.test.tsx.snap outright: measured, it holds exactly one entry, and that entry belongs to the test being removed. The entry pins `StagedReviewCard`'s surrounding chrome (article, header, empty state, action row). `tests/components/admin/stagedCardBaseline.test.tsx` does NOT cover that — it snapshots the inner `per-show-actionable-item` cards and their popovers — so this deletion would lose real coverage. Whole-diff review R4 established that; the earlier claim here that the chrome was covered elsewhere was wrong. The outer pin is therefore REHOMED to the component's own test, `tests/components/StagedReviewCard.test.tsx`, rather than dropped.
 5. Remove the components/admin/ParsePanel.tsx row from `SAFE_PLAINTEXT_REGISTRY` in `tests/messages/_metaEmphasisRenderContract.test.ts`.
 6. Correct the two stale header comments, both measured:
    - `components/admin/StagedReviewCard.tsx` header currently reads "Mounts inside `<ParsePanel>` on the per-show admin page (`app/admin/show/[slug]/page.tsx`)" — wrong on both counts. Its live mount is `app/admin/show/staged/[stagedId]/page.tsx`.
@@ -253,7 +253,7 @@ The commits on this branch are a **rebuild**, and the record should say so rathe
 
 The work happened in a different order. The invariant-8 gate ran mid-branch and surfaced four help-copy corrections; those were committed, and their assertions followed in a later commit. The same held for the resolver's per-site resolution mode, whose end-to-end pin arrived after the code. Whole-diff review R3 called that what it is: an invariant-1 violation, which AGENTS.md classifies P0 regardless of test status. Post-hoc red verification does not satisfy "never write implementation before the test."
 
-The owner's disposition was to rewrite. The branch was rebuilt linearly off `origin/main` as five commits, each carrying its tests with the implementation they pin, and each verified red-then-green **before** it was committed:
+The owner's disposition was to rewrite. The branch was rebuilt linearly off `origin/main` as **six commits — four that carry implementation, plus two docs-only** (the spec/plan pair and this history note). Each of the four carries its tests with the implementation they pin, and each was verified red-then-green **before** it was committed:
 
 | Commit | RED | GREEN |
 | ------ | --- | ----- |
