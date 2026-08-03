@@ -12,13 +12,13 @@
  * would emit a second `@font-face` set under the same family name. One loader
  * call, exported, consumed by both roots, is the only shape that satisfies both.
  *
- * WHAT ACTUALLY BINDS THE FONT: not `inter.variable`, which only defines the
- * `--font-inter` custom property. Binding happens because next/font registers
- * the face under the LITERAL family name `Inter` (verified against the generated
- * CSS — Next 16 does not hash it), and `app/globals.css` names that literal in
- * `--font-sans`, applied at `html`. `tests/e2e/font-binding.spec.ts` measures
- * rendered text width to pin that, so a future Next release that starts hashing
- * the family name fails loudly instead of silently degrading to a system font.
+ * WHAT BINDS THE FONT: `--font-sans` consumes `var(--font-inter)`, the token
+ * `inter.variable` defines, so the binding follows whatever family next/font
+ * generates rather than any name spelled in CSS. (Next 16 happens to use the
+ * literal `Inter`, verified against the generated CSS, but nothing depends on
+ * that.) `tests/e2e/font-binding.spec.ts` measures rendered text width against
+ * the family READ FROM THAT TOKEN, so a future release that hashes the name
+ * still passes while a genuinely unbound tree still fails.
  *
  * `--font-inter` carries BOTH `Inter` and next/font's generated, metric-matched
  * `Inter Fallback` — which is why `--font-sans` consumes this token rather than

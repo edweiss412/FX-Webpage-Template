@@ -39,6 +39,8 @@ type FontReport = {
   fontInterToken: string;
   /** The family `--font-inter` names first — what the loader actually generated. */
   loaderFamily: string;
+  /** Its second entry — next/font's generated metric-matched companion. */
+  companionFamily: string;
 };
 
 /**
@@ -51,12 +53,20 @@ type FontReport = {
 async function measureFonts(page: Page): Promise<FontReport> {
   await page.evaluate(() => document.fonts.ready);
   return page.evaluate((text: string) => {
-    // First entry of `--font-inter`, unquoted — the family next/font generated.
-    const loaderFamily =
-      (getComputedStyle(document.documentElement).getPropertyValue("--font-inter") || "")
-        .split(",")[0]
-        ?.trim()
-        .replace(/^["']|["']$/g, "") ?? "";
+    // BOTH families `--font-inter` names, unquoted: [0] the real face, [1]
+    // next/font's generated metric-matched companion. Both are READ rather than
+    // spelled literally — review R16 showed that deriving only the first left
+    // every companion assertion hardcoded, so a future Next emitting
+    // `__Inter_ab12` / `__Inter_Fallback_ab12` would keep the app correctly
+    // bound through this same token while CI reported a regression.
+    const tokenFamilies = (
+      getComputedStyle(document.documentElement).getPropertyValue("--font-inter") || ""
+    )
+      .split(",")
+      .map((f) => f.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+    const loaderFamily = tokenFamilies[0] ?? "";
+    const companionFamily = tokenFamilies[1] ?? "";
 
     const measure = (fontFamily: string | null): number => {
       const el = document.createElement("span");
@@ -97,6 +107,7 @@ async function measureFonts(page: Page): Promise<FontReport> {
         .getPropertyValue("--font-inter")
         .trim(),
       loaderFamily,
+      companionFamily,
     };
   }, PROBE_TEXT);
 }
@@ -133,9 +144,10 @@ function assertRendersInter(report: FontReport, surface: string): void {
   ).toBeGreaterThan(1);
 
   // (3) The face is actually LOADED by the document, not merely resolvable from
-  //     the host. This is what catches a future Next release reverting to
-  //     hashed `@font-face` family names: the width checks would still pass on a
-  //     developer machine with Inter installed, this one would not.
+  //     the host — keyed on the token-derived family, so a hashed generated name
+  //     passes. What it catches is a machine that happens to have the family
+  //     installed as a SYSTEM font while the app loads nothing: the width checks
+  //     would pass there, this one would not.
   const loadedInter = report.faces.filter(
     (f) => f.family === report.loaderFamily && f.status === "loaded",
   );
@@ -159,7 +171,7 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //     `Inter Fallback` is next/font's generated size-adjusted companion, and
   //     `__nextjs-*` faces belong to the dev-mode error overlay, not the app.
   const appFaces = report.faces.filter(
-    (f) => !f.family.startsWith("__nextjs-") && !f.family.endsWith(" Fallback"),
+    (f) => !f.family.startsWith("__nextjs-") && f.family !== report.companionFamily,
   );
   expect(report.loaderFamily, `${surface}: --font-inter names a family`).toBeTruthy();
   const appFamilies = new Set(appFaces.map((f) => f.family));
@@ -221,7 +233,7 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   expect(
     report.fontInterToken,
     `${surface}: <html> exposes --font-inter (the loader's \`variable\` option)`,
-  ).toContain("Inter");
+  ).not.toBe("");
 
   // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. next/font generates an
   // `Inter Fallback` face with size-adjust/ascent-override so the
@@ -232,20 +244,25 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   // string) — worst on a 390px phone, where a label can unwrap from two lines to
   // one and shift everything below it mid-glance. Impeccable critique P1.
   expect(
+    report.companionFamily,
+    `${surface}: --font-inter names a metric-matched companion as its second entry ` +
+      `(token: ${report.fontInterToken})`,
+  ).toBeTruthy();
+  expect(
     report.htmlFontFamily,
-    `${surface}: the resolved cascade names next/font's metric-matched fallback ` +
+    `${surface}: the resolved cascade names next/font's metric-matched companion ` +
       `(got: ${report.htmlFontFamily})`,
-  ).toContain("Inter Fallback");
+  ).toContain(report.companionFamily);
 
   // The cascade STRING is not enough on its own — computed style preserves a
   // family name whether or not any face answers to it, so the check above
   // passes against a cascade naming a face that was never registered. Review R5
   // was right that this was the whole of the assertion. The face must actually
   // exist in the document.
-  const fallbackFaces = report.faces.filter((f) => f.family === "Inter Fallback");
+  const fallbackFaces = report.faces.filter((f) => f.family === report.companionFamily);
   expect(
     fallbackFaces.length,
-    `${surface}: an "Inter Fallback" @font-face is actually registered, not just ` +
+    `${surface}: a "${report.companionFamily}" @font-face is actually registered, not just ` +
       `named in the cascade (registered: ` +
       `${report.faces.map((f) => f.family).join(", ") || "none"})`,
   ).toBeGreaterThanOrEqual(1);

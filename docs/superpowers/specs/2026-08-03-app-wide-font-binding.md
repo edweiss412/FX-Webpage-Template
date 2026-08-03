@@ -119,11 +119,11 @@ Each identity assertion names a testid **owned by the layout or page under test*
 
 For each case, after `await page.evaluate(() => document.fonts.ready)`:
 
-1. Build three probe spans off-screen with identical text/size/weight: (a) inheriting the page's real cascade, (b) forced to `"Inter"`, (c) forced to `sans-serif`.
+1. Build three probe spans off-screen with identical text/size/weight: (a) inheriting the page's real cascade, (b) forced to the family `--font-inter` names, (c) forced to `sans-serif`.
 2. Assert **`inherited === forced-Inter`** within 0.5px, and **`inherited !== forced-sans-serif`** by a margin > 1px.
-3. Assert `Array.from(document.fonts)` contains at least one face with `family === "Inter"` and `status === "loaded"`.
+3. Assert `Array.from(document.fonts)` contains at least one `loaded` face whose family is the one `--font-inter` names.
 4. Assert `<html>` exposes `--font-inter`. This is asserted **separately and for its own reason**: per §2.1 the token is not what binds the font, so every width check above would still pass if the loader silently stopped emitting `variable:` and the documented token vanished. Added after review R1 noted the spec promised an exposure it never tested.
-5. Assert the resolved cascade **contains `Inter Fallback`** — next/font's generated, metric-matched companion face. Added after the impeccable critique's P1: naming the literal `"Inter"` in `--font-sans` skipped that face, so the `display: "swap"` window painted a system font at native metrics and then snapped about 10 percent (187.28px to 168.91px on a real string) on every React-root route. See §2.5.
+5. Assert the resolved cascade **contains the companion family `--font-inter` names second** — next/font's generated, metric-matched companion face. Added after the impeccable critique's P1: naming the literal `"Inter"` in `--font-sans` skipped that face, so the `display: "swap"` window painted a system font at native metrics and then snapped about 10 percent (187.28px to 168.91px on a real string) on every React-root route. See §2.5.
 6. Assert the document registers **exactly one font family** (excluding the generated companion face and the dev overlay's `__nextjs-*` faces).
 7. Assert **no `@font-face` is registered twice**, keyed on the full `(family, style, weight, unicodeRange)` tuple. Exists because review R4 showed 6 alone cannot see the case the guard is actually for: a second loader for the SAME family adds more Inter faces, and a set of family names still reduces to one entry.
 8. Assert **every app face shares ONE weight+style descriptor pair**. Added after review R6, which demonstrated with a live Next-16 probe that a second loader configured `style: "italic"` keeps family `Inter` and weight `100 900`, so its tuples do not duplicate and 6 and 7 both pass. Keyed on the PAIR, not weight alone, for exactly that reason.

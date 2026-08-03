@@ -58,14 +58,14 @@ _(T1 is one task and one commit; these steps run inside it. See the task graph b
 
 The repo's own `tests/ci/_metaE2eWorkflowCoverage.test.ts` fails on an unwired spec, so running it is the check that this step happened.
 
-**Shape.** One helper, three cases. **Routes corrected after spec review R1:** an earlier draft named `/sign-in`, which does not exist (a run returned 404, and a 404 still renders the ROOT layout — so a probe there reads as a plausible pass for a surface never visited). Every case asserts status 200 AND page identity. The cases are `/admin` behind `signInAs(page, ADMIN_FIXTURE)`, the public `/auth/sign-in`, and the seeded crew route (torn down with `deleteSeededShow`). For each: `goto`, await `document.fonts.ready`, then a single `page.evaluate` that builds three absolutely-positioned off-screen spans with identical text (`"Wardrobe & key moments"`), `font-size: 16px`, `font-weight: 400`, `white-space: nowrap` — (a) inheriting the page cascade, (b) `font-family: "Inter"`, (c) `font-family: sans-serif` — measures each with `getBoundingClientRect().width`, removes them, and also returns `Array.from(document.fonts).map(f => ({ family: f.family, status: f.status }))`.
+**Shape.** One helper, three cases. **Routes corrected after spec review R1:** an earlier draft named `/sign-in`, which does not exist (a run returned 404, and a 404 still renders the ROOT layout — so a probe there reads as a plausible pass for a surface never visited). Every case asserts status 200 AND page identity. The cases are `/admin` behind `signInAs(page, ADMIN_FIXTURE)`, the public `/auth/sign-in`, and the seeded crew route (torn down with `deleteSeededShow`). For each: `goto`, await `document.fonts.ready`, then a single `page.evaluate` that builds three absolutely-positioned off-screen spans with identical text (`"Wardrobe & key moments"`), `font-size: 16px`, `font-weight: 400`, `white-space: nowrap` — (a) inheriting the page cascade, (b) `font-family` forced to the family `--font-inter` names, (c) `font-family: sans-serif` — measures each with `getBoundingClientRect().width`, removes them, and also returns `Array.from(document.fonts).map(f => ({ family: f.family, status: f.status }))`.
 
 Assertions, in order:
 
 1. **Non-vacuity precondition first:** `Math.abs(forcedInter - forcedSansSerif) > 1` — if the host resolves both to one face, fail loudly rather than pass empty.
 2. `Math.abs(inherited - forcedInter) < 0.5`.
 3. `Math.abs(inherited - forcedSansSerif) > 1`.
-4. `fonts` contains at least one entry with `family === "Inter"` and `status === "loaded"`.
+4. `fonts` contains at least one `loaded` entry whose family is the one `--font-inter` names.
 5. `<html>` exposes `--font-inter`. Asserted separately because the token is NOT what binds the font (see T1 step 3) — every width check would still pass if the loader silently stopped emitting `variable:`.
 6. The resolved cascade NAMES `Inter Fallback`, **and** a face by that name is actually registered. The cascade string alone is not enough: computed style preserves a family name whether or not any face answers to it.
 7. The document registers exactly one font family (excluding the generated companion and the dev overlay's `__nextjs-*`).
