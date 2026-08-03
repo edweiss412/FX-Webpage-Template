@@ -1260,6 +1260,8 @@ Filed 2026-06-10 (mobile needs-attention milestone impeccable dispositions). Pro
 
 ### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
 
+**Status:** IN PROGRESS · **Branch:** fix/nojs-loading-shell-notice
+
 Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
 
 ### BL-PROJECTION-ALERT-VIEWER-INDEPENDENT-PROBE — true viewer-independent financials/lead-only alerting — **filed 2026-06-17 (crew-page redesign Phase 1 spec R44)**
