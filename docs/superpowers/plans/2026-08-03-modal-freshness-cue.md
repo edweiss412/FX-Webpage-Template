@@ -326,3 +326,16 @@ Assessment A's remaining P2/P3 observations (no replay of a missed cue, no jump-
 Worth stating plainly: this is the local-passes-CI-fails class, and it is the exact reason T5 shipped its own workflow step instead of trusting a spec-granularity coverage guard. Without that step the case would have run nowhere, the harness defect would have stayed invisible, and the geometry claim would have been decorative.
 
 impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded
+
+**Why the gate was not re-run after the round-3 projection sweep.** Invariant 8
+scopes the dual gate to UI surfaces, and "any file under `components/`" is one of
+its triggers, so the question is fair and worth answering here rather than
+leaving a later reviewer to re-derive it. The sweep's only `components/` file is
+`components/admin/review/sectionFreshness.ts`, and it renders nothing: a `.ts`
+module, no React import, no JSX, no `"use client"`. Everything else in those
+commits is a test, a test fixture, or this plan and the spec. `app/globals.css`
+— the file that actually carries the cue's paint — is byte-identical to what the
+gate reviewed, and `N2` pins it against the spec's normative block, so a silent
+drift there is not possible. No rendered output, no token, and no class changed,
+so there is nothing for a visual critique or an accessibility audit to see that
+they did not already see.
