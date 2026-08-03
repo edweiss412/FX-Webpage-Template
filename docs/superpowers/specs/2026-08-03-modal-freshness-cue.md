@@ -489,12 +489,14 @@ Mirrors `tests/components/admin/showpage/shareHubFlashTransitions.test.ts`.
 
 The cue repurposes `--color-accent-tint` as a background for body text that has never been measured against it. Both themes, read from the live hex:
 
-| Id | Assertion | Floor |
-|---|---|---|
-| C1 | `--color-text` on `--color-accent-tint` | 4.5:1 |
-| C2 | `--color-text-subtle` on `--color-accent-tint` | 4.5:1 |
-| C3 | `--color-accent-edge` against `--color-accent-tint` (outline at the hold) | 3:1 |
-| C4 | `--color-accent-edge` against `--color-surface` (outline as it settles) | 3:1 |
+| Id | Assertion | Floor | Measured light / dark |
+|---|---|---|---|
+| C1 | `--color-text` on `--color-accent-tint` | 4.5:1 | 15.16 / 13.03 |
+| C2 | `--color-text-subtle` on `--color-accent-tint` | 4.5:1 | 5.95 / 5.77 |
+| C3 | `--color-accent-edge` against `--color-accent-tint` (outline at the hold) | 3:1 | 7.41 / 8.03 |
+| C4 | `--color-accent-edge` against `--color-surface` (outline as it settles) | 3:1 | 8.42 / 8.84 |
+
+Measured at spec time from the live hex in `app/globals.css`, both themes, with the same relative-luminance formula the harness uses. The C3 and C4 numbers reproduce the values `DESIGN.md:297` already pins for the share-link ring exactly, which is what validates the measurement rather than merely reporting it. C2 is the tightest at 5.77 in dark and still clears the text floor with margin; nothing in the cue sits below AA.
 
 C3 and C4 duplicate ratios the share-link rows already assert (`tests/styles/status-token-contrast.test.ts:248-261`). They are restated on this surface's own row because DESIGN.md's note that the outline carries the dark-theme signal makes it non-decorative here too, and a future edit to the share-link rows must not silently remove this surface's floor.
 
