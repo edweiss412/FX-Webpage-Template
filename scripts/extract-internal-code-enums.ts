@@ -2,8 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Project } from "ts-morph";
+
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
+import {
+  scanParseWarningSites,
+  type SiteScan,
+} from "@/lib/messages/__internal__/parseWarningSites";
 
 export type InternalCodeEnumPayload = {
   source: string;
@@ -26,6 +32,52 @@ const LAST_SYNC_STATUS_VALUES = new Set([
   "parse_error",
   "pending_review",
 ]);
+
+/**
+ * Scan roots for the parse-warning pass. `lib/dev/**` is excluded because the
+ * attention-scenario gallery builds SYNTHETIC warnings and would otherwise define
+ * its own universe — the self-justification tautology the ledger guard warns about.
+ */
+const WARNING_SCAN_EXCLUDED = /^(tests|docs|e2e|scripts|supabase|public|\.github)\//;
+function inWarningScanRoots(rel: string): boolean {
+  if (!/^(lib|app)\//.test(rel) || WARNING_SCAN_EXCLUDED.test(rel)) return false;
+  return (
+    !rel.startsWith("lib/dev/") &&
+    !rel.startsWith("lib/messages/__generated__/") &&
+    rel !== "lib/messages/catalog.ts"
+  );
+}
+
+/**
+ * Memoized: loading the ts-morph project costs ~39s and the scan ~65s end-to-end,
+ * so a process pays once. Vitest rejects `isolate: false`, so cross-FILE reuse is
+ * not available — which is why exactly ONE test file performs a fresh extraction
+ * (spec §3.5).
+ */
+let warningScan: SiteScan | null = null;
+let injectedProject: Project | null = null;
+
+/**
+ * Share an already-loaded ts-morph project. The guard test builds one for its own
+ * wider production-tree scan; without this it would load a SECOND project and pay
+ * the ~39s twice in the one file that is meant to be the suite's single extractor.
+ */
+export function shareProjectForWarningScan(project: Project): void {
+  injectedProject = project;
+  warningScan = null;
+}
+
+function scanWarningSites(): SiteScan {
+  if (warningScan) return warningScan;
+  const project = injectedProject ?? new Project({ tsConfigFilePath: "tsconfig.json" });
+  warningScan = scanParseWarningSites(project, { include: inWarningScanRoots });
+  return warningScan;
+}
+
+/** Sites whose code the checker could not resolve — surfaced, never dropped. */
+export function unresolvedParseWarningSites(): string[] {
+  return scanWarningSites().signalled;
+}
 
 function add(out: Map<string, Set<string>>, code: string, source: string): void {
   if (!code) return;
@@ -67,11 +119,12 @@ function stableObjectLiteral(entries: InternalCodeEnums): string {
 export function extractInternalCodeEnums(): InternalCodeEnums {
   const out = new Map<string, Set<string>>();
 
-  for (const { source } of readFiles(["lib/parser"])) {
-    if (/\bParseWarning\b|\bwarnings\b|hardErrors/.test(source)) {
-      addCodeLiteralsFromSource(out, source, "parse_warnings.code", CODE_PROPERTY_RE);
-    }
-  }
+  // parse_warnings.code is recognized by TYPE, not by spelling: every syntactic
+  // mechanism was refuted by probe, and matching factories by their written return
+  // type missed `warning(): Phase2Args["parseResult"]["warnings"][number]` entirely,
+  // leaving 11 real §12.4 codes dark. See lib/messages/__internal__/parseWarningSites.ts
+  // and spec 2026-08-03-scanner-precision-cluster-design.md §3.1.
+  for (const [code] of scanWarningSites().codes) add(out, code, "parse_warnings.code");
 
   for (const { source } of readFiles(["supabase/migrations", "lib/sync", "app/api"])) {
     for (const status of LAST_SYNC_STATUS_VALUES) {

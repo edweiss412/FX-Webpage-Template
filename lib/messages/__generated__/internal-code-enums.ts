@@ -32,6 +32,12 @@ export const INTERNAL_CODE_ENUMS = {
   AGENDA_PDF_UNREADABLE: {
     source: "parse_warnings.code"
   },
+  AGENDA_SCHEDULE_LOW_CONFIDENCE: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_SCHEDULE_TIME_ADJUSTED: {
+    source: "parse_warnings.code"
+  },
   AMBIGUOUS_EMAIL_BINDING: {
     source: "admin_alerts.code"
   },
@@ -65,6 +71,21 @@ export const INTERNAL_CODE_ENUMS = {
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     source: "parse_warnings.code"
   },
+  DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
+    source: "parse_warnings.code"
+  },
+  DIAGRAMS_EMBEDDED_NONE_FOUND: {
+    source: "parse_warnings.code"
+  },
+  DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
+    source: "parse_warnings.code"
+  },
+  DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
+    source: "parse_warnings.code"
+  },
+  DIAGRAMS_TAB_MISSING: {
+    source: "parse_warnings.code"
+  },
   drive_error: {
     source: "shows.last_sync_status"
   },
@@ -83,8 +104,11 @@ export const INTERNAL_CODE_ENUMS = {
   EMAIL_NOT_CONFIGURED: {
     source: "admin_alerts.code"
   },
+  EMBEDDED_ASSET_DRIFTED: {
+    source: "parse_warnings.code"
+  },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "admin_alerts.code,parse_warnings.code,pending_ingestions.last_error_code"
   },
   EXTRA_REVIEWER_CHOICE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -128,11 +152,14 @@ export const INTERNAL_CODE_ENUMS = {
   INVALID_REVIEWER_ACTION: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  LINKED_FOLDER_OVERFLOW_TRUNCATED: {
+    source: "parse_warnings.code"
+  },
   LIVE_ROW_CONFLICT: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   "MI-1_VERSION_DETECTION_FAILED": {
-    source: "parse_warnings.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   "MI-2_EMPTY_TITLE": {
     source: "pending_ingestions.last_error_code"
@@ -172,6 +199,12 @@ export const INTERNAL_CODE_ENUMS = {
   },
   ONBOARDING_SHEET_UNREADABLE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  OPENING_REEL_NOT_VIDEO: {
+    source: "parse_warnings.code"
+  },
+  OPENING_REEL_PERMISSION_DENIED: {
+    source: "parse_warnings.code"
   },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -225,12 +258,15 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code,pending_ingestions.last_error_code"
   },
   PULL_SHEET_OVERRIDE_CONTENT_CHANGED: {
-    source: "pending_ingestions.last_error_code"
+    source: "parse_warnings.code,pending_ingestions.last_error_code"
   },
   PULL_SHEET_PARSE_PARTIAL: {
     source: "parse_warnings.code"
   },
   PULL_SHEET_UNKNOWN_VARIANT: {
+    source: "parse_warnings.code"
+  },
+  REEL_DRIFTED: {
     source: "parse_warnings.code"
   },
   REPORT_HORIZON_EXPIRED: {
@@ -381,7 +417,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code"
   },
   VERSION_AMBIGUOUS: {
-    source: "parse_warnings.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   WATCH_CHANNEL_ORPHANED: {
     source: "admin_alerts.code"
