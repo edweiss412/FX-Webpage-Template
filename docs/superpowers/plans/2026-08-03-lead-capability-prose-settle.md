@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` (canonical) · **Branch:** `docs/settle-lead-capability-prose` · **Implementer:** Opus / Claude Code
 
-Ten instances of one class — a hand-maintained restatement of the code that nothing forces to stay true — plus two structural guards that make the two load-bearing restatements self-enforcing, plus the ledger graduation. No UI, no DB, no migration, no advisory lock, no runtime behavior change.
+Fifteen instances of one class — a hand-maintained restatement of the code that nothing forces to stay true — plus two structural guards that make the two load-bearing restatements self-enforcing, plus the ledger graduation. No UI, no DB, no migration, no advisory lock, no runtime behavior change.
 
 ---
 
@@ -55,7 +55,7 @@ $ rg -n 'admin/ops' lib app components tests
 $ rg -n 'admin/ops' docs BACKLOG.md BACKLOG-archive.md
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627        → FIXED by Task 6 (instance B)
 BACKLOG.md:7                                                        → reconciliation-log history; left as written
-BACKLOG.md:645,653,654,656 (the entry itself)                       → moves to BACKLOG-archive.md by Task 8
+BACKLOG.md:645,653,654,656 (the entry itself)                       → moves to BACKLOG-archive.md by Task 7
 docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:34,80,107,119,167,264   → the filing + its census; history, left
 docs/superpowers/plans/2026-08-02-copy-deadcode-sweep.md:52,63      → history, left
 docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md:142     → the endorsement; left, per spec §2.5
@@ -74,7 +74,7 @@ Every hit is dispositioned. After Task 6 the master spec's hit is gone and the o
 - **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b).
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
-- **Comment-only, no guard:** `tests/e2e/helpers/rightNow.ts` and `tests/visibility/transportTransitions.test.ts` (instances I and J). Spec §2.7 states why these four claims are not machine-checked.
+- **Comment-only, no guard:** `tests/e2e/helpers/rightNow.ts`, `tests/visibility/transportTransitions.test.ts`, and `lib/time/rightNowTransitions.ts` (instances I1, I2, J, K). Spec §2.7 states why these nine claims are not machine-checked.
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
 ## 2. Mutation-family closure (mandatory for guard work)
@@ -100,8 +100,10 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M15 | A duplicate pair or a diagonal entry | matrix guard (pre-existing assertions, retained) | unchanged behavior |
 | M16 | A **conjunctive** branch added to a live function (`V1 && L1`), which no singleton sweep can see — **added at spec review R1 with a live escaping mutant** | parity guard, exhaustive powerset | the two-flag subset disagrees; the mismatch names it |
 | M17 | An `isAdmin × flags` interaction in `financialsVisible` (e.g. admin suppressed when flags are non-empty) | parity guard, full `subset × isAdmin` cross product | same |
+| M18 | A new exported `*Visible` function that is neither documented nor exempted — **added at R2 with a live escaping export** (`transportTileVisible`) | parity guard, unclassified-export assertion | the export appears in neither the documented set nor `NOT_FLAG_GATED` |
+| M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
 
-M16 and M17 are why the sweep is exhaustive rather than singleton-based. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
+M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
 
 **Explicitly outside the closure set** (stated so it is not re-proposed as a gap): free-text prose in either module remains unguarded — spec §2.3's named accepted limit. The guards cover predicate *expressions* and matrix *completeness*, not sentences about them.
 
@@ -121,11 +123,55 @@ M16 and M17 are why the sweep is exhaustive rather than singleton-based. With th
 
 Each task is TDD: failing test → minimal implementation → passing test → commit. One commit per task, conventional-commits style.
 
-### Task 1 — RED: the parity guard, failing against the unfixed comment
+### Task 1 — the parity guard, and the comment fix that turns it green (instances A + D-neighbour)
 
-**Create** `tests/visibility/_metaDocumentedPredicateParity.test.ts`. Commit it **before** any change to `capabilityTransitions.ts`, and record the observed failure in the commit message.
+**This is ONE task and ONE commit.** The draft split it into a RED commit and a GREEN commit; spec review R2 correctly called that a violation of AGENTS.md invariant 1, whose sequence is "failing test -> minimal implementation -> passing test -> commit". A commit is never landed red. Both observed RED states are recorded in the commit message as evidence, not as a committed state.
 
-Structure:
+**Two RED observations, in order.** R2's probe established that the first one is not the one the draft claimed:
+
+1. Write the guard, run it against the unmodified tree. The block header currently wraps across `lib/visibility/capabilityTransitions.ts:118-119` (`... (verbatim` / `branch logic):`), so no line carries a complete sentinel, the parser throws during collection, and the whole file aborts:
+
+   ```
+   Error: documented-predicate block not found: no line contains "(verbatim branch logic from"
+   ```
+
+   That IS a genuine failing test (mutation family M7 firing on the real tree), but it is not yet evidence for AC-1.
+
+2. Apply ONLY the sentinel repair (put the header on one line, change nothing else). Re-run. Now the block parses and the real defect surfaces:
+
+   ```
+   financialsVisible: documented tokens equal the live function over the ENTIRE flag powerset
+     expected [] , received [ "financialsVisible([FINANCIALS], isAdmin=false): documented false, live true" ]
+   ```
+
+   This is AC-1.
+
+3. Apply the expression repair (Task 1's second half, below). Re-run: green. Commit.
+
+**Algorithm pre-validated out of tree** before this plan was finalized, so the numbers below are measurements rather than estimates:
+
+```
+$ node <standalone probe: the four live predicate bodies + the sweep algorithm below, run outside the repo>
+CLEAN TREE (all four must be []):
+  audioScopeVisible []
+  videoScopeVisible []
+  lightingScopeVisible []
+  financialsVisible []
+  total wall clock: 804 ms
+SHIPPED BUG (comment omits FINANCIALS):
+  ([FINANCIALS], isAdmin=false): documented false, live true
+R1 ESCAPING MUTANT (conjunctive V1 && L1 spliced into audioScopeVisible):
+  singleton-only sweep would report: 0 mismatches
+  exhaustive sweep reports: ([V1,L1], isAdmin=false): documented false, live true
+M17 (admin suppressed when flags non-empty):
+  exhaustive sweep reports: ([A1], isAdmin=true): documented true, live false
+```
+
+The middle result is the whole argument for exhaustion: the mutant R1 found escapes a singleton sweep with **zero** mismatches and is caught by the powerset sweep at `[V1,L1]`.
+
+#### 1a. `tests/visibility/_metaDocumentedPredicateParity.test.ts` (new)
+
+Header, flag universe, and the compile-time exhaustiveness check:
 
 ```ts
 /**
@@ -153,20 +199,32 @@ const ALL_ROLE_FLAGS = [
 ] as const satisfies readonly RoleFlag[];
 
 // A RoleFlag added to lib/parser/types.ts and not added above is a COMPILE
-// error here, so the sweep below can never silently under-test.
+// error here, so the sweep below can never silently under-test. (M12)
 type NoFlagOmitted = Exclude<RoleFlag, (typeof ALL_ROLE_FLAGS)[number]> extends never ? true : never;
 const _exhaustive: NoFlagOmitted = true;
 void _exhaustive;
 
+/**
+ * Exported `*Visible` functions that are NOT capability-flag gates and so
+ * have no place in a block of flag disjunctions. Registry-or-exemption
+ * idiom, same shape as invariants 9 and 10: reflection finds every export,
+ * and each must be documented OR exempted here with a reason, so a NEW
+ * export is uncovered-by-default rather than silently skipped.
+ */
+const NOT_FLAG_GATED: Record<string, string> = {
+  transportTileVisible:
+    "takes an options object (transportation row, viewerId, transportationOwnerIds, viewerName), not a RoleFlag[]; gates on transport ownership, not on a capability flag. lib/visibility/scopeTiles.ts:180",
+};
+```
+
+Parser (pure — takes source text so the negative cases can drive it):
+
+```ts
 interface DocumentedPredicate {
   readonly name: string;
   readonly tokens: readonly string[];
 }
-```
 
-The parser is pure — it takes source text as a parameter so the negative cases can drive it over synthetic strings:
-
-```ts
 function stripCommentPrefix(line: string): string {
   return line.replace(/^\s*\*[ \t]?/, "");
 }
@@ -187,8 +245,8 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
     if (raw === undefined) break;
     const body = stripCommentPrefix(raw).trim();
     if (body === "") {
-      if (started) break; // blank line AFTER the entries terminates the block
-      continue; // blank line BEFORE the entries is the docblock's spacer
+      if (started) break;
+      continue;
     }
     started = true;
     const m = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*([^(]*)/.exec(body);
@@ -209,21 +267,24 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
 }
 ```
 
-Live-side reflection and the invoker table:
+Live side — reflected, arity-derived, nothing hand-maintained except the exemption reasons:
 
 ```ts
-const INVOKERS: Record<string, (flags: RoleFlag[], isAdmin: boolean) => boolean> = {
-  audioScopeVisible: (flags) => scopeTiles.audioScopeVisible(flags),
-  videoScopeVisible: (flags) => scopeTiles.videoScopeVisible(flags),
-  lightingScopeVisible: (flags) => scopeTiles.lightingScopeVisible(flags),
-  financialsVisible: (flags, isAdmin) => scopeTiles.financialsVisible(flags, isAdmin),
-};
-const TAKES_IS_ADMIN = new Set(["financialsVisible"]);
+type FlagPredicate = (flags: RoleFlag[], isAdmin?: boolean) => boolean;
 
-const REFLECTED_PREDICATE_NAMES = Object.entries(scopeTiles as Record<string, unknown>)
+const REFLECTED: ReadonlyArray<readonly [string, FlagPredicate]> = Object.entries(
+  scopeTiles as Record<string, unknown>,
+)
   .filter(([key, value]) => key.endsWith("Visible") && typeof value === "function")
-  .map(([key]) => key)
-  .sort();
+  .map(([key, value]) => [key, value as FlagPredicate] as const)
+  .sort((a, b) => a[0].localeCompare(b[0]));
+
+const GATED = REFLECTED.filter(([name]) => !(name in NOT_FLAG_GATED));
+
+/** Arity decides the call shape, NOT a hand-written set. (R2 finding 3) */
+function callPredicate(fn: FlagPredicate, flags: RoleFlag[], isAdmin: boolean): boolean {
+  return fn.length >= 2 ? fn(flags, isAdmin) : fn(flags);
+}
 ```
 
 Assertions:
@@ -234,14 +295,16 @@ const SOURCE = readFileSync(join(process.cwd(), MODULE_REL), "utf8");
 describe("documented predicate lines match live scopeTiles behavior", () => {
   const documented = parseDocumentedPredicates(SOURCE);
 
-  test("the block yields exactly one line per live predicate", () => {
-    expect(documented).toHaveLength(REFLECTED_PREDICATE_NAMES.length);
+  test("every reflected *Visible export is either documented or exempted", () => {
+    const documentedNames = new Set(documented.map((d) => d.name));
+    const unclassified = REFLECTED.map(([name]) => name).filter(
+      (name) => !documentedNames.has(name) && !(name in NOT_FLAG_GATED),
+    );
+    expect(unclassified).toEqual([]);
   });
 
-  test("documented names, reflected exports, and the invoker table agree", () => {
-    const documentedNames = documented.map((d) => d.name).sort();
-    expect(documentedNames).toEqual(REFLECTED_PREDICATE_NAMES);
-    expect(Object.keys(INVOKERS).sort()).toEqual(REFLECTED_PREDICATE_NAMES);
+  test("every documented name is a real, non-exempted export", () => {
+    expect(documented.map((d) => d.name).sort()).toEqual(GATED.map(([name]) => name));
   });
 
   test.each(documented.map((d) => [d.name, d] as const))(
@@ -255,58 +318,45 @@ describe("documented predicate lines match live scopeTiles behavior", () => {
   test.each(documented.map((d) => [d.name, d] as const))(
     "%s: documented tokens equal the live function over the ENTIRE flag powerset",
     (name, doc) => {
-      const invoke = INVOKERS[name];
-      expect(invoke).toBeDefined();
+      const entry = GATED.find(([n]) => n === name);
+      expect(entry).toBeDefined();
+      const fn = entry![1];
 
-      // Precomputed token mask: the expected side is then O(1) per subset.
+      const takesIsAdmin = fn.length >= 2;
+      const adminGrants = doc.tokens.includes("isAdmin");
+      // An arity-1 predicate cannot be granted by isAdmin, so a documented
+      // line claiming it is false regardless of any flag input. (R2 finding 3)
+      if (!takesIsAdmin) expect(adminGrants).toBe(false);
+
       let tokenMask = 0;
       ALL_ROLE_FLAGS.forEach((flag, i) => {
         if (doc.tokens.includes(flag)) tokenMask |= 1 << i;
       });
-      const adminGrants = doc.tokens.includes("isAdmin");
-      const adminValues = TAKES_IS_ADMIN.has(name) ? [false, true] : [false];
 
       const mismatches: string[] = [];
       const total = 1 << ALL_ROLE_FLAGS.length; // 2**20 = 1_048_576
-      for (const isAdmin of adminValues) {
+      for (const isAdmin of takesIsAdmin ? [false, true] : [false]) {
         for (let mask = 0; mask < total; mask++) {
           const subset: RoleFlag[] = [];
           for (let i = 0; i < ALL_ROLE_FLAGS.length; i++) {
             if (mask & (1 << i)) subset.push(ALL_ROLE_FLAGS[i]!);
           }
           const expected = (isAdmin && adminGrants) || (mask & tokenMask) !== 0;
-          if (invoke!(subset, isAdmin) !== expected) {
+          if (callPredicate(fn, subset, isAdmin) !== expected) {
             mismatches.push(
-              `${name}([${subset.join(",")}], isAdmin=${isAdmin}): documented says ${expected}, live says ${!expected}`,
+              `${name}([${subset.join(",")}], isAdmin=${isAdmin}) documented=${expected} live=${!expected}`,
             );
-            if (mismatches.length >= 5) break; // enough to diagnose; keep the message readable
+            if (mismatches.length >= 5) break;
           }
         }
         if (mismatches.length >= 5) break;
       }
 
-      // ONE assertion, not 2**20 of them.
-      expect(mismatches).toEqual([]);
+      expect(mismatches).toEqual([]); // ONE assertion, not 2**20 of them
     },
   );
 });
-```
 
-**Exhaustive, not a singleton sweep.** Spec review R1 established with a probe that a singleton-only sweep is defeated by any conjunctive branch (`V1 && L1` spliced into `audioScopeVisible` changes no singleton result and no documented token, yet a two-flag viewer sees the tile). The full powerset costs a measured **164 ms per predicate**, so the arity limit buys nothing and is removed. Two implementation constraints carry that cost, and getting either wrong is the whole risk:
-
-- **The expected side is a bitmask AND, not an array scan** — otherwise each of a million subsets does a nested `includes` and the sweep becomes minutes rather than milliseconds.
-- **One `expect` at the end, never one per subset.** A million `expect()` calls is the difference between a fast test and an unusable one; the mismatch list is capped at five entries so a genuine failure prints a readable message naming the exact subset and both verdicts.
-
-Measured baseline for the plan's own claim:
-
-```
-$ node -e '<20-flag powerset loop over the live audioScopeVisible body>'
-full powerset 2^20 one predicate: 164 ms; true count 917504
-```
-
-Negative cases, driving the pure parser over synthetic strings (AC-3, families M7/M8/M9):
-
-```ts
 describe("the parser fails loudly rather than silently passing", () => {
   test("M7: missing sentinel throws", () => {
     expect(() => parseDocumentedPredicates("/**\n * nothing here\n */")).toThrow(
@@ -314,10 +364,10 @@ describe("the parser fails loudly rather than silently passing", () => {
     );
   });
 
-  test("M8: a short block yields fewer entries than there are live predicates", () => {
+  test("M8: a short block yields fewer entries than there are gated predicates", () => {
     const short = ` * (verbatim branch logic from x):\n *\n *   audioScopeVisible = A1\n *\n`;
     expect(parseDocumentedPredicates(short)).toHaveLength(1);
-    expect(parseDocumentedPredicates(short).length).toBeLessThan(REFLECTED_PREDICATE_NAMES.length);
+    expect(parseDocumentedPredicates(short).length).toBeLessThan(GATED.length);
   });
 
   test("M9: an unsupported operator throws", () => {
@@ -327,15 +377,11 @@ describe("the parser fails loudly rather than silently passing", () => {
 });
 ```
 
-**Expected RED failure** (record verbatim in the commit message): the `financialsVisible: documented tokens equal the live function over the ENTIRE flag powerset` case fails, its first mismatch naming a subset containing `FINANCIALS` — documented says `false`, live says `true`. The M7/M8/M9 negatives pass immediately; the block-arity and name-set cases fail on the wrapped sentinel until Task 2.
+Two implementation constraints carry the powerset cost, and getting either wrong is the whole risk: the expected side is a **bitmask AND**, not a nested `includes` scan; and there is **one terminal `expect`**, never one per subset. The mismatch list caps at five so a genuine failure prints a readable message naming the exact subset and both verdicts.
 
-**Commit:** `test(visibility): documented-predicate parity guard — RED against the stale financialsVisible line`
+#### 1b. The comment repair that turns it green
 
-### Task 2 — GREEN: correct the comment, add the single-line sentinel, state the FINANCIALS exclusion
-
-In `lib/visibility/capabilityTransitions.ts`, replace the wrapped header and the stale line (instances A and D/E's neighbour) with:
-
-The sentinel must sit on ONE line — a wrapped header is exactly what family M7 catches, and Task 1 fails today because the current header wraps across `lib/visibility/capabilityTransitions.ts:118-119`. Final text:
+In `lib/visibility/capabilityTransitions.ts`, the block becomes:
 
 ```
  * Tile-visibility rules (verbatim branch logic from scopeTiles.ts):
@@ -351,17 +397,21 @@ The sentinel must sit on ONE line — a wrapped header is exactly what family M7
  * Add it to CAPABILITY_PREDICATES to model it — the derived pair-set
  * expectations then name every entry the matrix is missing.
  *
+ * `transportTileVisible` is NOT in this block: it gates on transport
+ * ownership via an options object, not on capability flags. The guard
+ * carries that classification as its one NOT_FLAG_GATED row.
+ *
  * The per-flip commentary each line used to carry moved into the entry
  * `reason` fields below, which is where it is read.
 ```
 
-The four expressions lose their trailing parentheticals because the parser cuts at the first `(` and, more importantly, because `(LEAD-or-admin)` restating the expression it annotated is how instance A survived a change to that expression. The three conditional-flip notes those parentheticals carried are already stated in the matrix entries' `reason` fields (`lib/visibility/capabilityTransitions.ts:151`, `lib/visibility/capabilityTransitions.ts:201`, `lib/visibility/capabilityTransitions.ts:213`) — verify each before deleting, and if a note has no equivalent there, move it into the relevant `reason` in this same commit rather than dropping it.
+The sentinel `(verbatim branch logic from` must remain on ONE line — a re-wrap is exactly what family M7 catches, and the current wrapped header is why RED observation 1 above is a parse abort rather than a mismatch.
 
-Task 1's parity, arity, and name-set cases go green. Nothing else in the module changes yet.
+The four expressions lose their trailing parentheticals: the parser cuts at the first `(`, and `(LEAD-or-admin)` restating the expression it annotated is how instance A survived a change to that expression. Before deleting, verify each conditional-flip note already exists in the matrix entries' `reason` fields (`lib/visibility/capabilityTransitions.ts:151`, `lib/visibility/capabilityTransitions.ts:201`, `lib/visibility/capabilityTransitions.ts:213`); move any that does not into the relevant `reason` in this same commit rather than dropping it.
 
-**Commit:** `fix(visibility): quote financialsVisible verbatim and fence the FINANCIALS exclusion`
+**Commit:** `test(visibility): pin documented predicates to live scopeTiles behavior over the whole flag powerset`
 
-### Task 3 — RED then GREEN: derive the matrix expectations from the predicate list
+### Task 2 — RED then GREEN: derive the matrix expectations from the predicate list
 
 **RED first.** In `tests/visibility/capabilityTransitions.test.ts`:
 
@@ -398,7 +448,7 @@ test("allUnorderedPairs tracks n: a synthetic 6-predicate list demands 15 pairs"
 
 The synthetic-list case (AC-6, family M13) is what proves the expectation tracks `n` rather than coincidentally equalling 10. Without it, `allUnorderedPairs` could return a hardcoded 10-element list and every other assertion would still pass.
 
-This is RED because `CAPABILITY_PREDICATES` does not exist yet — the import fails.
+This is RED because `CAPABILITY_PREDICATES` does not exist yet — the import fails. The GREEN half below lands in the SAME commit (invariant 1: a commit is never landed red).
 
 **GREEN.** In `lib/visibility/capabilityTransitions.ts`, invert the derivation:
 
@@ -418,7 +468,7 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
 
 **Commit:** `test(visibility): derive matrix size from CAPABILITY_PREDICATES instead of literals`
 
-### Task 4 — correct the mechanism claim (instance C)
+### Task 3 — correct the mechanism claim (instance C)
 
 `lib/visibility/capabilityTransitions.ts:47-52` currently promises a TypeScript error that does not exist. Replace with what Task 3 actually built:
 
@@ -437,7 +487,7 @@ No test changes. Task 3's guard is the thing this comment now describes; the cla
 
 **Commit:** `docs(visibility): describe the completeness guard that exists, not one that does not`
 
-### Task 5 — remove the drifted counts (instances D and E)
+### Task 4 — remove the drifted counts (instances D and E)
 
 Two edits in `lib/visibility/capabilityTransitions.ts`:
 
@@ -448,7 +498,7 @@ Counts are deleted rather than corrected to four: a number that no longer exists
 
 **Commit:** `docs(visibility): drop the drifted gated-tile counts`
 
-### Task 6 — master spec MI-9 (instance B)
+### Task 5 — master spec MI-9 (instance B)
 
 One edit inside the MI-9 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`. Replace exactly:
 
@@ -474,24 +524,42 @@ pnpm test:audit:x1-catalog-parity                                            # n
 
 **Commit:** `docs(spec): MI-9 states what LEAD actually grants, and that admin is not it`
 
-### Task 7 — instances G through J: claimed e2e coverage that does not execute
+### Task 6 — instances G1 through K: claimed e2e coverage that does not execute
 
-Four artifacts assert coverage that neither executes nor exists. Correct each to state the truth and point at one tracking row. Do NOT un-skip either suite (spec §1.1 item 10).
+Nine artifacts assert coverage that neither executes nor exists. Correct each to state the truth and point at one tracking row. Do NOT un-skip either suite (spec §1.1 item 10).
 
 | Site | Current claim | Becomes |
 | --- | --- | --- |
-| `lib/visibility/capabilityTransitions.ts:36-39` | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`" | compound transitions are **not** modeled by the matrix and are **not currently exercised**: the suite that would cover them (`tests/e2e/right-now-transitions.spec.ts:291`) is `test.describe.skip` pending the `?crew=` mock migration, and carries no capability assertion. Tracked by `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` |
-| `tests/visibility/capabilityTransitions.test.ts:5-9` | the same claim in the test header | the same correction, one sentence |
-| `tests/e2e/helpers/rightNow.ts:168-174` | skipped pairs "are covered by the dedicated compound-transition tests" | those tests are themselves skipped; the pairs are uncovered, tracked by the same row |
-| `tests/visibility/transportTransitions.test.ts:5-10` | "animation behavior is exercised in e2e tests" | `tests/e2e/transport-tile.spec.ts:225` is a single `test.describe.skip` containing zero animation assertions; animation behavior is uncovered, tracked by the same row |
+| `lib/visibility/capabilityTransitions.ts:36-39` | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`" | compound transitions are **not** modeled by the matrix and are **not currently exercised**: `tests/e2e/right-now-transitions.spec.ts:291` is `test.describe.skip` pending the `?crew=` mock migration and carries no capability assertion. Tracked by `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` |
+| `lib/visibility/capabilityTransitions.ts:130` | "the delta is empty (the e2e compound tests cover those cases)" | the delta is empty and those cases are **currently uncovered** — same suite, same row |
+| `lib/visibility/capabilityTransitions.ts:213` | entry `reason` ends "LEAD/admin compound interactions are tested by e2e" | "…are NOT currently tested; see the module header" |
+| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header | same correction, one sentence |
+| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant" | the no-flicker invariant is **unverified** at e2e today; the suite is skipped |
+| `tests/e2e/helpers/rightNow.ts:183` | skipped pairs "the compound tests handle them with explicit setup" | those compound tests are themselves skipped; the pairs are uncovered |
+| `tests/e2e/helpers/rightNow.ts:239` | "the compound tests … cover the recovery paths" | same correction |
+| `tests/visibility/transportTransitions.test.ts:10` | "animation behavior is exercised in e2e tests" | `tests/e2e/transport-tile.spec.ts:225` is one `test.describe.skip` with zero animation assertions; animation behavior is uncovered |
+| `lib/time/rightNowTransitions.ts:12-14` | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant | **two corrections**: the audit does not currently drive anything, and the stale `test.fixme`/`framer-motion` attribution is replaced by the real blocker (`test.describe.skip`, `?crew=` mock retirement) |
 
-File `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` in `BACKLOG.md` in this same commit — `tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on a `BL-` id cited by a file but defined in no ledger, so the four citations above oblige the row. The row records: both `*Transitions` contract matrices have an un-executing e2e half; the blocker is the retired `?crew=`/`?as=admin` dev mock (`tests/e2e/right-now-transitions.spec.ts:285-290`); the fix shape is per-test crew rows whose email matches `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding; severity LOW-MEDIUM (dark coverage on a documented contract, no product impact).
+**Deliberately NOT changed** — verify each still reads as recorded, then leave it. Spec §1.2 explains why; they are listed here so this task does not later look under-applied:
 
-Verify: `rg -n 'exercised by|covered by the dedicated' lib tests --include='*.ts'` — no remaining hit names a skipped suite without saying so; `pnpm vitest run tests/docs/`.
+- `tests/visibility/capabilityTransitions.test.ts:224` and `tests/visibility/capabilityTransitions.test.ts:272` are already honest: one says the gap is deferred pending Realtime push (M6), the other is future-tense about the same thing.
+- `tests/e2e/helpers/rightNow.ts:2` and `tests/e2e/helpers/rightNow.ts:6` and `tests/e2e/right-now-transitions.spec.ts:10` — descriptive, not coverage claims.
 
-**Commit:** `docs(visibility): four artifacts claimed e2e coverage that is skipped — say so, and file the gap`
+File `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` in `BACKLOG.md` in this same commit — `tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on a `BL-` id cited by a file but defined in no ledger, so the nine citations above oblige the row. The row records: **all three** `*Transitions` contract matrices (`lib/time/rightNowTransitions.ts`, `lib/visibility/capabilityTransitions.ts`, `lib/visibility/transportTransitions.ts`) have an un-executing e2e half; the blocker is the retired `?crew=`/`?as=admin` dev mock (`tests/e2e/right-now-transitions.spec.ts:285-290`); the fix shape is per-test crew rows whose email matches `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding; severity LOW-MEDIUM (dark coverage on a documented contract, no product impact).
 
-### Task 8 — ledger graduation
+Verify: re-run the vector sweep and confirm every remaining hit is one of the four deliberately-left sites —
+
+```
+rg -n 'e2e|E2E' lib/visibility/capabilityTransitions.ts lib/visibility/transportTransitions.ts \
+  lib/time/rightNowTransitions.ts tests/visibility/capabilityTransitions.test.ts \
+  tests/visibility/transportTransitions.test.ts tests/e2e/helpers/rightNow.ts
+```
+
+and `pnpm vitest run tests/docs/`.
+
+**Commit:** `docs(visibility): nine artifacts claimed e2e coverage that is skipped — say so, and file the gap`
+
+### Task 7 — ledger graduation
 
 - Move the `BL-LEAD-CAPABILITY-PROSE-STALE` section from `BACKLOG.md` into `BACKLOG-archive.md` under `## BL-LEAD-CAPABILITY-PROSE-STALE — RESOLVED (2026-08-03, docs/settle-lead-capability-prose)`, preserving the entry body and **dropping the `**Status:** IN PROGRESS · **Branch:** …` marker** — `tests/docs/_metaLedgerInProgress.test.ts` forbids an archive holding in-flight work.
 - Append `{ id: "BL-LEAD-CAPABILITY-PROSE-STALE", provenance: "docs/settle-lead-capability-prose" }` to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts:90`, with the leading comment block the neighbouring rows use.
@@ -501,11 +569,11 @@ Verify: `pnpm vitest run tests/docs/`.
 
 **Commit:** `docs(backlog): graduate BL-LEAD-CAPABILITY-PROSE-STALE as RESOLVED`
 
-### Task 9 — full-suite gates
+### Task 8 — full-suite gates
 
-`pnpm typecheck` (also proves family M12), `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both new documents. Fix anything red; no commit if all green and nothing changed.
+`pnpm typecheck` (also proves families M12 and M19's compile-time half), `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both new documents. Fix anything red; no commit if all green and nothing changed.
 
-### Task 10 — Adversarial review (cross-model)
+### Task 9 — Adversarial review (cross-model)
 
 Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes posture, `REVIEWER ONLY`, the do-not-relitigate list from spec §1.1, the §2 mutation-family closure set as the convergence criterion, and the finding-admissibility contract. No nested reviews.
 
@@ -513,7 +581,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited verbatim from spec §4 (AC-1 … AC-12). Task→AC map: Task 1 → AC-1, AC-3; Task 2 → AC-2; Task 3 → AC-4, AC-5, AC-6; Task 4 → AC-5; Task 6 → AC-8; Task 7 → AC-11, AC-12; Task 8 → AC-9; Task 9 → AC-7, AC-10.
+Inherited verbatim from spec §4 (AC-1 … AC-12). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 5 → AC-8; Task 6 → AC-11, AC-12; Task 7 → AC-9; Task 8 → AC-7, AC-10.
 
 ## 12. Close-out
 
