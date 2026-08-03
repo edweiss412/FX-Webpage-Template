@@ -2,8 +2,10 @@
 /**
  * tests/components/admin/FinalizeReentry.test.tsx (M10 §B Cluster I-2 / Phase 2)
  *
- * Pins the public contract of the three finalize re-entry surfaces and
- * their three action buttons.
+ * Pins the public contract of the finalize re-entry surface that survives:
+ * CleanupAbandonedFinalizeButton. It covered three surfaces and three buttons
+ * when M10 wrote it; ResumeFinalizeButton left at the Step-3 consolidation and
+ * RunFinalCASButton was retired 2026-08-03 (see the note below).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";

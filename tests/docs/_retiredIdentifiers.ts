@@ -322,6 +322,14 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "tests/components/admin/FinalizeReentry.test.tsx",
     text:
+      "* RunFinalCASButton was retired 2026-08-03 (see the note below).",
+    reason:
+      "Records which surfaces this suite lost and when; the names are the history the count depends on.",
+  },
+  {
+    kind: "line",
+    file: "tests/components/admin/FinalizeReentry.test.tsx",
+    text:
       "// CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton",
     reason:
       "Explains what left this file and where the live coverage moved; naming it is the pointer a reader needs.",

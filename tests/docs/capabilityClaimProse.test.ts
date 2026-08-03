@@ -49,7 +49,7 @@ const CURRENT_STATE_DOCS = [
 
 const SUBJECT = /\b(LEAD|FINANCIALS|role_flags|capability (?:role|flag))\b/i;
 const VERB =
-  /\b(grants?|granting|unlocks?|unlocking|confers?|conferring|provides?|providing|gives? access to|enables? access to|opens? up)\b/i;
+  /\b(grants?|granting|unlocks?|unlocking|confers?|conferring|provides?|providing|gives? access to|enables? access to|allows? (?:access|entry) to|permits? (?:access|entry) to|opens? up)\b/i;
 // "admin" or "administrator" followed by any surface/permission noun, plus the
 // ops variants. Whole-diff R3: an enumerated noun list missed `admin privileges`
 // and `admin dashboard`, which are the same claim — so the noun is a class, not a
@@ -65,6 +65,11 @@ const OBJECT =
 // a real claim ("LEAD grants admin access, not just financials access"), which is
 // the worst direction for this guard to fail in.
 const NEGATOR = String.raw`(?:no|not|never|neither|nor|cannot|can't|doesn't|don't|does not|do not|no longer|without)`;
+// "not only X but Y" and friends are CONTRASTIVE: the negation qualifies the scope
+// of the claim, it does not deny it. Whole-diff R4 showed clause-wide negation
+// suppressing "LEAD not only unlocks financials but grants admin access" — a real
+// claim. These are stripped before the negation test.
+const CONTRASTIVE = /\bnot (?:only|just|merely|simply|limited to|restricted to|confined to)\b/gi;
 
 /**
  * True when a sentence positively claims a capability flag confers an admin or
@@ -93,7 +98,7 @@ export function claimsAdminGrant(sentence: string): boolean {
       sentence.lastIndexOf(",", at - 1) + 1,
       0,
     );
-    const before = sentence.slice(clauseStart, at);
+    const before = sentence.slice(clauseStart, at).replace(CONTRASTIVE, " ");
     // A hyphenated compound ("capability-granting elements") is a CATEGORY label,
     // not an assertion that something grants an admin surface. The corrected MI-9
     // row opens with exactly that phrase.
@@ -120,6 +125,26 @@ export function withCarriedSubject(parts: readonly string[]): string[] {
     }
     return carried === null ? s : `${carried} ${s}`;
   });
+}
+
+/** Contiguous non-blank lines, joined, with the 1-based line the run starts on. */
+export function paragraphs(text: string): { start: number; body: string }[] {
+  const out: { start: number; body: string }[] = [];
+  let start = 0;
+  let run: string[] = [];
+  const flush = (): void => {
+    if (run.length > 0) out.push({ start, body: run.join(" ").replace(/\s+/g, " ").trim() });
+    run = [];
+  };
+  for (const [i, line] of text.split("\n").entries()) {
+    if (line.trim() === "") flush();
+    else {
+      if (run.length === 0) start = i + 1;
+      run.push(line);
+    }
+  }
+  flush();
+  return out;
 }
 
 function sentences(text: string): string[] {
@@ -173,6 +198,11 @@ describe("capability-claim recognizer", () => {
     ["FINANCIALS grants access to admin tools", true],
     ["LEAD grants access to the internal ops surface", true],
     ["No role_flags element grants admin access", false],
+    // Whole-diff R4's probe strings:
+    ["LEAD allows access to the admin dashboard", true],
+    ["A FINANCIALS flag permits entry to administrator pages", true],
+    ["LEAD not only unlocks financials but grants admin access", true],
+    ["LEAD is not limited to financials and grants admin access", true],
   ])("%s → %s", (sentence, expected) => {
     expect(claimsAdminGrant(sentence as string)).toBe(expected);
   });
@@ -209,14 +239,13 @@ describe("no in-force prose claims a role flag grants admin access", () => {
     for (const file of CURRENT_STATE_DOCS) {
       const text = readFileSync(join(ROOT, file), "utf8");
       if (!SUBJECT.test(text) || !OBJECT.test(text)) continue;
-      const docLines = text.split("\n");
-      for (const [i, line] of docLines.entries()) {
-        // Prose wraps; pair each line with the next so a claim split across a
-        // wrap is still one sentence to the recognizer. Split ONCE — re-splitting
-        // per line is quadratic and times out on the master spec.
-        const window = `${line} ${docLines[i + 1] ?? ""}`.replace(/\s+/g, " ");
-        for (const s of withCarriedSubject(sentences(window))) {
-          if (claimsAdminGrant(s)) offending.push(`${file}:${i + 1} ${s.slice(0, 140)}`);
+      // Join each PARAGRAPH (contiguous non-blank lines), not a two-line window.
+      // Whole-diff R4: a claim split across three lines escaped a pairwise window,
+      // and prose wraps wherever the formatter decides — so the unit has to be the
+      // paragraph, which is what a reader sees.
+      for (const { start, body } of paragraphs(text)) {
+        for (const s of withCarriedSubject(sentences(body))) {
+          if (claimsAdminGrant(s)) offending.push(`${file}:${start} ${s.slice(0, 140)}`);
         }
       }
     }
@@ -272,9 +301,9 @@ describe("no in-force prose claims a role flag grants admin access", () => {
         code =
           code.slice(0, start) + code.slice(start, end).replace(/[^\n]/g, " ") + code.slice(end);
       }
-      for (const [i, line] of code.split("\n").entries()) {
-        for (const s of withCarriedSubject(sentences(line))) {
-          if (claimsAdminGrant(s)) offending.push(`${file}:${i + 1} ${s}`);
+      for (const { start, body } of paragraphs(code)) {
+        for (const s of withCarriedSubject(sentences(body))) {
+          if (claimsAdminGrant(s)) offending.push(`${file}:${start} ${s.slice(0, 140)}`);
         }
       }
     }
