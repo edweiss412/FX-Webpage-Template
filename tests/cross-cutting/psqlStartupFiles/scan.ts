@@ -835,7 +835,11 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // `sh -ce`, `-cu`, `-cv`, `-cx` all execute the next word; requiring `c`
         // to be LAST missed every cluster with an option after it.
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
-        const script = isEval ? candidate : argv[i + 1];
+        // `bash -c -- 'psql …'` is valid: `--` ends option parsing and the
+        // script is the NEXT word. Taking `--` as the script scanned nothing.
+        let scriptIndex = isEval ? i : i + 1;
+        if (argv[scriptIndex]?.text === "--") scriptIndex++;
+        const script = argv[scriptIndex];
         if (script === undefined) break;
         for (const site of scanShellText(script.text, file, lineOffset + script.line))
           sites.push(site);
@@ -967,29 +971,49 @@ function looksLikePsqlCommandLine(text: string): boolean {
   //   • argument-shaped follower — `psql failed: …` (a word ending in `:`).
   //   • wrapper-only prefix — "parses pipe-separated psql -qAt rows", where
   //     the words before psql are English, not `sudo` / `PGHOST=` / a flag.
-  const WRAPPERS = /^(?:sudo|env|command|exec|time|nice|xargs|docker|cat|true|false|echo|sh|bash)$/;
+  const WRAPPERS =
+    /^(?:sudo|doas|su|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|docker|cat|true|false|echo|sh|bash)$/;
   const prefixIsCommandish = (before: readonly string[]): boolean =>
     before.every(
       (word, index) =>
         /^[A-Za-z_]\w*=/.test(word) ||
         /^-/.test(word) ||
         WRAPPERS.test(basename(word)) ||
-        /^-/.test(before[index - 1] ?? ""),
+        // a wrapper's own argument: `timeout 30 psql …`, `sudo -u postgres psql …`
+        /^-/.test(before[index - 1] ?? "") ||
+        (index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ""))),
     );
   return sites.some((site) => {
     // A backtick inside operator-guidance prose is a markdown code span, not a
     // shell substitution: `via \`psql "$DSN" -f <migration>\`` is documentation.
     // For a variable HOLDING a command, the command is the string itself.
-    if (site.nested) return false;
-    if (site.tokens.length > 12) return false;
-    const hasFlag = site.tokens.some((t) => /^-{1,2}[A-Za-z]/.test(t) || t.startsWith("service="));
-    // `psql <dump.sql` carries no flags at all — the shell eats the redirection
-    // before argv ever exists — so a very short whole string counts on its own.
-    // Prose is never this short.
-    const isTerseCommand = site.tokens.length === 0 && text.trim().split(/\s+/).length <= 4;
+    const words = text.trim().split(/\s+/).length;
+    // A backtick in operator-guidance PROSE is a markdown code span, not a
+    // shell substitution — `via \`psql "$DSN" -f <migration>\`` is
+    // documentation. But `echo "$(psql -qAt db)"` is a real command, so a
+    // nested site still counts when the whole string is command-length.
+    if (site.nested) {
+      // `echo "$(psql -qAt db)"` is a command; `' to validation via `psql …`'`
+      // is a sentence. The difference is the OUTER text: a command starts with
+      // a command word, prose starts with English.
+      const outerHead = text.trim().split(/\s+/)[0] ?? "";
+      const outerIsCommand =
+        /^[A-Za-z_]\w*=/.test(outerHead) || WRAPPERS.test(basename(outerHead.replace(/^["']/, "")));
+      if (!outerIsCommand || words > 8) return false;
+    }
+    const hasFlag = site.tokens.some(
+      (t) => /^-{1,2}[A-Za-z0-9]/.test(t) || t.startsWith("service="),
+    );
+    // psql needs no flags at all — `psql mydb`, `psql "$DSN"`, `psql <dump.sql`
+    // (the shell eats the redirection before argv exists). Those are credible
+    // because they are SHORT; prose never is.
+    const isTerseCommand = site.tokens.length <= 2 && words <= 4;
     if (!hasFlag && !isTerseCommand) return false;
     const follower = site.tokens[0] ?? "";
     if (/:$/.test(follower)) return false;
+    // The real precision carrier: everything before the command word must look
+    // like a wrapper, an assignment, or a flag — not English. That is what keeps
+    // "parses pipe-separated psql -qAt rows" out, so no length cap is needed.
     return prefixIsCommandish(site.precedingWords);
   });
 }

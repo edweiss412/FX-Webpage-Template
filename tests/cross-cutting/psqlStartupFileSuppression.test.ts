@@ -655,6 +655,45 @@ describe("R7 escaping mutants", () => {
   });
 });
 
+// ── R8: `-c --`, and tripwire recall on ordinary command literals ──────
+
+describe("R8 escaping mutants", () => {
+  test.each([
+    ["bash", `bash -c -- 'psql -qAt "$DSN"'\n`],
+    ["sh", `sh -c -- 'psql -qAt "$DSN"'\n`],
+    ["docker exec bash", `docker exec c bash -c -- 'psql -qAt "$DSN"'\n`],
+  ])("%s -c -- SCRIPT still executes the script", (_name, source) => {
+    // `--` terminates option parsing; the script is the NEXT word. Taking `--`
+    // itself as the script scanned nothing at all.
+    const sites = sitesIn(source, "x.sh");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["a positional-only command", `const c = "psql mydb"; execSync(c);`, true],
+    ["a dynamic DSN only", `const c = 'psql "$DSN"'; execSync(c);`, true],
+    ["a numeric flag", `const c = "psql -1 mydb"; execSync(c);`, true],
+    [
+      "a long flag list",
+      `const c = "psql -v A=1 -v B=2 -v C=3 -v D=4 -v E=5 -v F=6 -qAt mydb"; execSync(c);`,
+      true,
+    ],
+    ["an ordinary wrapper", `const c = "timeout 30 psql -qAt mydb"; execSync(c);`, true],
+    ["a nested substitution", `const c = 'echo "$(psql -qAt mydb)"'; execSync(c);`, true],
+    // Precision, held by the wrapper-prefix rule rather than a length cap.
+    ["an error message", "const m = `psql failed: ${String(err)}`;", false],
+    ["an assertion string", `const m = "parses pipe-separated psql -qAt rows";`, false],
+    [
+      "operator guidance quoting a command",
+      "const m = ' to validation via `psql \"$T\" -f <migration>`';",
+      false,
+    ],
+  ])("the tripwire sees %s -> %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {
