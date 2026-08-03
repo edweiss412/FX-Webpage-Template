@@ -116,9 +116,10 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 
 - [ ] Red tests first, then create the provider and mount it.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- [ ] Create `components/admin/AdminAnnounceProvider.tsx` (`"use client"`): holds `useAnnounceLog`, provides `UndoAnnounceContext`, renders `<AnnounceLogRegion … testId="admin-undo-status" label="Undo updates" />` as its **always-first** child, then `{children}`.
+- [ ] Create `components/admin/AdminAnnounceProvider.tsx` (`"use client"`): holds `useAnnounceLog`, provides `UndoAnnounceContext`, renders `<AnnounceLogRegion … label="Undo updates" />` with `testId="admin-undo-status"` at the layout and `testId="dialog-undo-status"` in the dialog (distinct, so the e2e locator is unambiguous while both are attached) as its **always-first** child, then `{children}`.
 - [ ] Mount a **second** `AdminAnnounceProvider` inside `ReviewModalShell`, wrapping the entire panel interior exactly as `PopoverHostContext` already does (`components/admin/review/ReviewModalShell.tsx:690-695`) rather than inventing a placement, with its region as the first child of that wrapper (spec §3.5.2). Nested context resolves to the nearest provider, so no flag or prop decides which channel a button uses.
 - [ ] Edit `app/admin/layout.tsx` to wrap the branch it selected — one wrapper around the chosen return value, **not** an edit inside each of the three returns (`app/admin/layout.tsx:90`, `layout.tsx:155`, `layout.tsx:177`), and **outside** `PageTransition` (`layout.tsx:171`).
+- [ ] **Run the cold-load spike BEFORE any later task depends on this.** Deep-link the review modal open (`/admin?show=`), let `ReviewModalShell`'s `useHasMounted` portal flip occur (`components/admin/review/ReviewModalShell.tsx:723`, which recreates host nodes per `tests/lib/a11y/dialogFocusReattach.test.tsx:6-13`), undo a row, assert the announcement is present in the dialog region. Spec §3.5.2 marks this UNRATIFIED; this probe is what settles it. **If it fails, stop and redesign the dialog channel** rather than continuing to Task 7.
 - [ ] Commit `feat(admin): mount the announce channel on the admin layout`.
 
 | Assertion | Failure caught |
@@ -156,7 +157,7 @@ If any probe fails, the layout-level owner is not immune and the design is wrong
 
 ## Task 9 — Real-browser accessibility-tree assertion
 
-- [ ] Add the assertion to the **existing** `tests/e2e/published-review-modal.crew-actions.spec.ts` (see the e2e-readiness section for why a new spec file would never run): open the published review modal on a seeded show with an undoable feed row; assert the receiving region is **inside the dialog subtree** (spec §3.5.2) and that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
+- [ ] Add the assertion to the **existing** `tests/e2e/published-review-modal.crew-actions.spec.ts` (see the e2e-readiness section for why a new spec file would never run): open the published review modal on a seeded show with an undoable feed row; assert `dialog-undo-status` is the receiving region and is **inside the dialog subtree** (spec §3.5.2) and that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
 - [ ] Confirm the spec actually executed — a passing run that collected zero tests is the failure this task exists to avoid.
 - [ ] Commit `test(admin): prove the undo region stays in the a11y tree under the review modal`.
 
@@ -169,7 +170,7 @@ Failure caught: the region nested inside `[data-inert-root]` instead of wrapping
 - [ ] **A1** — `app/admin/layout.tsx` references `AdminAnnounceProvider` and every `return` in the file is wrapped in it. Planted violation: a copy of the layout source with one `return` unwrapped.
 - [ ] **A2** — no file outside the provider module references `UndoAnnounceContext.Provider`. Planted violation: a file rendering `<UndoAnnounceContext.Provider>`.
 - [ ] **A3** — `AdminAnnounceProvider` is not a descendant of any `data-inert-root` element in the layout. Planted violation: the layout source with the provider nested inside that div.
-- [ ] **A4** — every file rendering `<UndoChangeButton` lives under `app/admin/` or `components/admin/`. Planted violation: such a file outside those trees. This is the escaping mutant the earlier guard admitted, where a non-admin call site silently consumes the no-op context.
+- [ ] **A4** — every file rendering `<UndoChangeButton`, or a hand-listed wrapper that renders one (`<ChangeFeedEntry`, `<AutoAppliedRow`), lives under `app/admin/` or `components/admin/`. Planted violation: such a file outside those trees. This is the escaping mutant the earlier guard admitted, where a non-admin call site silently consumes the no-op context.
 - [ ] A1's negative case: a nested helper in the layout file with its own unwrapped `return` must NOT fail the guard.
 - [ ] Commit `test(admin): guard the announce channel's single layout-level owner`.
 
