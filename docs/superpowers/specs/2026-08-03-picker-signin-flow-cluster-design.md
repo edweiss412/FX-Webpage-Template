@@ -135,15 +135,52 @@ un-allow-listed. The change widens what the handler *accepts*; it does not widen
 
 ### 3.3 Stale cleanup: mirror the ratified sibling
 
-After the existing `revalidatePath` at `cleanupStaleEntry.ts:107`, add the same guard-then-redirect
-pair the select action uses. `revalidatePath` is kept, not replaced — it invalidates the cache
-entry; the redirect moves the browser to the canonical URL. They do different jobs.
+`revalidatePath` at `cleanupStaleEntry.ts:107` is kept, not replaced — it invalidates the cache
+entry; the redirect moves the browser. They do different jobs.
 
-Ordering constraint: the redirect goes **after** the `log.info` emit
-(`PICKER_STALE_ENTRY_CLEANED`, `cleanupStaleEntry.ts:124-130`) and after the best-effort
-`PICKER_SELECTION_RACE` alert. Next.js `redirect()` throws a control-flow exception; anything
-placed below it does not run. Invariant 10 requires the telemetry emit to survive, so it must
-precede the throw.
+**The redirect cannot live where the fix naively belongs.** `cleanupStaleEntryCore`
+(`cleanupStaleEntry.ts:56-61`) wraps the impl in a bare `catch` that converts every thrown value
+into `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`. Next's `redirect()` signals by
+throwing a `NEXT_REDIRECT` sentinel, so a redirect placed inside `cleanupStaleEntryCoreImpl` is
+swallowed by that catch and never reaches the browser — the action would report an infra failure
+instead of navigating. Measured:
+
+```json
+{ "caught": true, "message": "NEXT_REDIRECT", "digest": "NEXT_REDIRECT;replace;/show/example;307;" }
+```
+
+So the redirect goes in the **public** action `cleanupStaleEntry` (`cleanupStaleEntry.ts:30-51`),
+*after* `cleanupStaleEntryCore` returns and *outside* the swallowing try/catch:
+
+```ts
+const result = await cleanupStaleEntryCore({ slug, shareToken, showId, expectedEpoch, expectedCrewMemberId });
+if (!result.ok) return result;
+if (!isValidShowPathPair({ slug, shareToken })) return result;
+redirect(buildShowReturnUrl(slug, shareToken, { s, gate }));
+```
+
+This also preserves invariant 10 for free: the `PICKER_STALE_ENTRY_CLEANED` emit
+(`cleanupStaleEntry.ts:124-130`) and the best-effort `PICKER_SELECTION_RACE` alert both run to
+completion inside the impl before the public action throws.
+
+**The destination must carry `gate`, and may carry `s`.** A bare canonical redirect lands on the
+wrong screen. `page.tsx:190` sets `gateSkip = gate === "skip"`; `page.tsx:324` computes
+`allowGateSkip = gateSkip && result.reason === "first_contact"`; `page.tsx:325` falls through to
+`<SignInOrSkipGate>` when that is false. So a post-cleanup redirect to `/show/<slug>/<token>` with
+no `gate` re-resolves as `no_auth: first_contact`, fails the `allowGateSkip` test, and renders the
+Welcome gate — not the picker that §2.2 promises. Dropping `s` would additionally discard a section
+deep link.
+
+Consequence for the input type: `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) currently
+carries `slug`, `shareToken`, `showId`, `expectedEpoch`, `expectedCrewMemberId` and no navigation
+context. It gains two optional fields, `gate` and `s`, sourced from two new hidden inputs on the
+existing `_StaleCleanupAutoSubmit` form. Both are re-validated against the same allow-lists
+`validateNextParam` uses before reaching `buildShowReturnUrl`; an absent or non-allow-listed value
+is dropped, and the redirect degrades to the bare canonical URL rather than failing.
+
+This is a deliberate, minimal widening of §1.2's "`_StaleCleanupAutoSubmit` is out of scope": two
+hidden inputs are added to its form. Its `useEffect`, its empty dependency array, and its
+auto-submit mechanics are untouched — those are what §1.2 protects.
 
 ### 3.4 Claimed row: one new client boundary
 
@@ -174,7 +211,7 @@ pending state comes from **local client state** set on submit:
   "returns without revalidating" case. The exception is documented in the component header so the
   next reader does not "fix" it back to `useFormStatus`.
 - Reset on `pageshow` so a bfcache back-navigation returns the row to idle rather than restoring
-  it disabled.
+  it stuck in pending.
 
 Consequences for the boundary: since pending no longer needs `useFormStatus`, the client component
 does **not** have to be a form descendant. It stays the `<button>` subtree anyway — that is the
@@ -203,9 +240,9 @@ Props (all required unless noted):
 
 Follows the ratified idle/pending idiom
 (`docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`) and the rendered shape
-of the recipe at `components/admin/RetryWatchButton.tsx:38-48` — `disabled={pending}` +
-`aria-busy={pending}` + label swap. Only the **source** of `pending` differs (§3.4): local state
-here, `useFormStatus` there.
+of the recipe at `components/admin/RetryWatchButton.tsx:38-48` — busy signalling + label swap. Two
+things differ from that recipe, both deliberate: the **source** of `pending` (§3.4, local state),
+and the **disable mechanism** (below).
 
 | Element | Idle | Pending |
 |---|---|---|
@@ -213,7 +250,21 @@ here, `useFormStatus` there.
 | Spinner | not rendered | `<Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />`, `data-testid="picker-row-spinner"` |
 | Name | truncated | unchanged |
 | Role chip (`data-testid="picker-role-chip"`) | `role` if present, else absent | text `Signing in…` (R4: renders even when `role` is null) |
-| `<button>` | enabled | `disabled`, `aria-busy="true"` |
+| `<button>` | interactive | `aria-disabled="true"`, `aria-busy="true"`, `onClick` guard returns early; **NOT** the `disabled` attribute |
+
+**Why `aria-disabled` and not `disabled`.** A natively `disabled` button is removed from the
+focusable set, so a keyboard user who activates the row loses their place the instant it goes
+busy — the browser drops focus to `<body>`. `aria-disabled` keeps the element focusable and
+announced as unavailable, and the `onClick` early-return is what actually blocks the second
+activation. This is the only mechanism that satisfies both halves of the requirement (stop the
+re-tap, keep the focus ring) — see §6, where the focus claim is now testable rather than assumed.
+
+The row must therefore style its own pending appearance: `disabled:` variants do not apply, and
+**`hover:bg-surface` is NOT suppressed by `aria-disabled`** (nor would it have been by `disabled` —
+Tailwind v4 compiles the `hover:` variant to a bare `&` + hover pseudo-class inside
+`@media (hover: hover)` with no not-disabled guard, and the CSS hover pseudo-class matches by
+pointer position regardless of disabled state). Pending styling is applied explicitly via `aria-disabled:` variants on the row class, not
+inherited from the disabled pseudo-class.
 
 The spinner is `lucide-react`'s `Loader2`, the icon every other spinner in the tree uses
 (`components/admin/FinalizeButton.tsx:549`, `components/admin/wizard/Step3ReviewModal.tsx:486`,
@@ -258,8 +309,11 @@ The unclaimed branch (`_PickerInterstitial.tsx:240-260`) is untouched by this di
 - `lockHint` missing → the existing literal fallback.
 - Pending with `prefers-reduced-motion: reduce` → spinner renders but does not animate; the chip
   text swap and the `disabled` state still convey pending. Motion is never the sole signal.
-- Rapid double-tap → the second tap hits a `disabled` button and is a no-op at the DOM level, which
-  is the actual defect being closed.
+- Rapid double-tap → the second tap reaches the `onClick` guard, which returns early because
+  `pending` is already true, so no second submit is issued. Note this is a JS-level guard, not the
+  DOM-level one a native `disabled` gives: `aria-disabled` alone does not stop activation, so the
+  early return is load-bearing and must be tested, not assumed (§3.5, §8.3). Closing this
+  double-submit is the actual defect being fixed.
 
 ### 4.4 Cap / truncation
 
@@ -297,15 +351,15 @@ The claimed row has two states, so one pair, plus compounds.
 | From → To | Treatment |
 |---|---|
 | idle → pending | Lock unmounts, spinner mounts in the same slot; chip text swaps. **Instant — no animation**, deliberately: the spinner's own rotation is the motion, and a fade would delay the one signal the user is waiting for. Row background keeps its existing `transition-colors duration-fast` (120ms, `app/globals.css:223`), which is a hover treatment and is unrelated. |
-| pending → idle | Does not occur in the normal flow — the pending state ends by navigating away. It **does** occur on a bfcache back-navigation, where the page is restored with its DOM (and React state) intact rather than remounted; the `pageshow` listener from §3.4 is what returns the row to idle. Instant, no exit animation. Without that listener the restored page would show a permanently disabled row. |
+| pending → idle | Does not occur in the normal flow — the pending state ends by navigating away. It **does** occur on a bfcache back-navigation, where the page is restored with its DOM (and React state) intact rather than remounted; the `pageshow` listener from §3.4 is what returns the row to idle. Instant, no exit animation. Without that listener the restored page would show a row stuck in pending. |
 
 Compound transitions:
 
 | Compound | Treatment |
 |---|---|
-| pending while the pointer is over the row | Hover background (`hover:bg-surface`) is suppressed — a `disabled` button takes no hover styling. No conflict with the 120ms color transition. |
-| pending while the row holds keyboard focus | Focus ring persists on the disabled button. The row keeps its `focus-visible:ring-2 ring-focus-ring ring-offset-2` (`_PickerInterstitial.tsx:176`). Keyboard users must not lose their place because the row went busy. |
-| pending arriving mid-hover-transition | The 120ms color transition completes against the disabled state's background; no interruption, no flash. Verified in the plan's transition-audit task. |
+| pending while the pointer is over the row | Hover background is **not** suppressed by `aria-disabled` — Tailwind v4 emits a bare hover pseudo-class with no disabled guard, and CSS hover matches by pointer position regardless. So pending must WIN explicitly: the pending row class sets its background via an `aria-disabled:` variant declared after the hover rule, and a real-browser test asserts the computed background under pointer-over-while-pending. Do not assume the disabled state suppresses anything. |
+| pending while the row holds keyboard focus | Focus ring persists, and this is now guaranteed rather than assumed — it is exactly why §3.5 uses `aria-disabled` instead of `disabled`. A natively `disabled` button is not focusable and the browser would drop focus to `<body>`. The row keeps `focus-visible:ring-2 ring-focus-ring ring-offset-2` (`_PickerInterstitial.tsx:176`), asserted in a real browser by checking `document.activeElement` is still the row after it goes pending. |
+| pending arriving mid-hover-transition | The 120ms `transition-colors` completes into the pending background rather than the hover background, because of the explicit precedence above. Asserted in the real-browser transition test, not inferred. |
 | two rows tapped in quick succession | Each row owns its own `pending` state, so a second tap on a *different* row can legitimately show two pending rows for the instant before the first navigation commits. Accepted: both taps are real, and the navigation that wins is the browser's call. No cross-row coordination is introduced — that would need lifted state and buys nothing. |
 
 ---
@@ -348,14 +402,25 @@ would pass for an unrelated reason.
 
 ### 8.2 Stale cleanup
 
-- Unit: `cleanupStaleEntryCoreImpl` still emits `PICKER_STALE_ENTRY_CLEANED` **and** the redirect is
-  attempted, in that order. Assert on the emit spy having recorded before the redirect throw — an
-  assertion that merely checks both happened would pass with the order inverted, which is the exact
-  regression §3.3 exists to prevent.
-- Prod-build e2e: one stale reason (`epoch_stale`), driven at `?gate=skip`, asserting the browser
-  lands on the canonical URL with the stale hint gone. Extends `tests/e2e/picker-flow.spec.ts`,
-  which already runs prod-build on `desktop-chromium` in `.github/workflows/crew-e2e.yml`.
-  Derive the expected URL from the fixture's slug/token, never a hardcoded string.
+- **Unit, sentinel escape (the assertion that matters).** Call the PUBLIC `cleanupStaleEntry`
+  action and assert it **throws** a `NEXT_REDIRECT` sentinel carrying the expected destination —
+  not that some inner function attempted a redirect. Concrete failure mode caught: placing the
+  redirect inside `cleanupStaleEntryCoreImpl`, where `cleanupStaleEntryCore:56-61`'s bare catch
+  converts it to `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and no navigation ever
+  happens. An assertion scoped to the impl passes in exactly that broken world, which is why the
+  test is written at the public boundary.
+- Unit, emit survival: `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws.
+  Assert on the sink spy after catching the sentinel. Failure mode: reordering that puts the throw
+  above the emit and silently drops invariant-10 telemetry.
+- Unit, destination: the thrown sentinel's path carries `gate=skip` when the form supplied it.
+  Failure mode caught: the bare-canonical redirect, which re-resolves as `no_auth: first_contact`,
+  fails `allowGateSkip` (`page.tsx:324`), and renders `<SignInOrSkipGate>` instead of the picker.
+- Prod-build e2e: one stale kind (`epoch_stale`), driven at `?gate=skip`, asserting the browser
+  lands on the picker. **Assert `picker-interstitial-root` is visible** — not merely that the URL
+  is canonical and the hint is gone. A URL-and-hint-only assertion passes on the Welcome gate,
+  which is the exact wrong-screen bug above. Extends `tests/e2e/picker-flow.spec.ts`, which already
+  runs prod-build on `desktop-chromium` in `.github/workflows/crew-e2e.yml`. Derive the expected
+  URL from the fixture's slug/token, never a hardcoded string.
 
 ### 8.3 Claimed row
 
@@ -379,8 +444,18 @@ does not apply to a native GET form (§3.4).
 - Component test, bfcache reset: dispatch a `pageshow` event with `persisted: true` after reaching
   pending, and assert the row returns to idle. Failure mode caught: a restored page showing a
   permanently disabled row.
-- Real-browser layout: idle vs pending `getBoundingClientRect().height` equal within 0.5px (§5).
-  jsdom cannot compute this; this one runs in Playwright.
+- Real-browser layout: idle vs pending row `getBoundingClientRect().height` equal within 0.5px
+  (§5), run over **two** fixtures — one row WITH a role and one with `role={null}`. The null-role
+  case is the higher-risk one and must not be omitted: with a role present, pending merely swaps
+  one chip's text for another, but with `role={null}` pending ADDS a chip that idle does not have,
+  which is the configuration most likely to change the row's height. A single role-bearing fixture
+  would prove the easy substitution case and never exercise the addition that R4 introduces.
+  jsdom cannot compute layout; this runs in Playwright.
+- Real-browser pending-vs-hover precedence: with the pointer over the row, assert the computed
+  background while pending is the pending background, not `hover:bg-surface` (§6 row 1).
+- Real-browser focus retention: focus the row, drive it to pending, assert `document.activeElement`
+  is still the row (§6 row 2). Failure mode caught: shipping `disabled` instead of `aria-disabled`,
+  which drops focus to `<body>`.
 - Transition audit: enumerate every conditional branch in `_ClaimedRowButton` against the §6 table
   and assert each is either animated as stated or deliberately instant.
 
@@ -409,10 +484,10 @@ against a route unit test. If it fails, R1 did not actually ship.
   `selection_reset` deliberately renders the SAME crew-facing copy as `epoch_stale`
   (`staleBanner.ts:17-19`), so the pair is genuinely indistinguishable downstream of
   classification; the remaining two differ only in banner code, not in cleanup behavior.
-- **Cancelled navigation leaves the row disabled.** Local pending state (§3.4) is cleared by
+- **Cancelled navigation leaves the row in pending.** Local pending state (§3.4) is cleared by
   navigating away or by `pageshow`. If the user taps and then stops the navigation before it
   commits (browser stop button, or a `/auth/sign-in` that hangs without ever completing), the row
-  stays disabled until the page is reloaded. Accepted rather than mitigated with a timeout: a
+  stays in pending until the page is reloaded. Accepted rather than mitigated with a timeout: a
   timeout that re-enables the row while the OAuth hop is genuinely still in flight would restore
   the exact double-tap defect this change closes, and the cancel path requires deliberate user
   action. The `pageshow` listener covers the common recovery (back-navigation).
