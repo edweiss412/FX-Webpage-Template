@@ -369,10 +369,14 @@ describe("identity_hold stream", () => {
     expect(out.identityHoldTotal).toBe(1);
   });
 
-  it("defaults are byte-identical when the new keys are omitted (digest regression fence)", () => {
+  it("omitted new keys: additive identityHoldTotal 0, everything else the pre-change shape (digest regression fence)", () => {
     const args = { ingestions: [], syncs: [], existence: {}, totalCounts: { ingestions: 0, syncs: 0 } };
-    expect(buildNeedsAttention(args)).toEqual({ ...buildNeedsAttention(args), identityHoldTotal: 0 });
-    expect(buildNeedsAttention(args).items).toEqual([]);
+    // Expected shape built by hand from the fixture, NEVER a second call to the
+    // same function (self-comparison is tautological).
+    expect(buildNeedsAttention(args)).toEqual({
+      items: [], renderedCount: 0, totalCount: 0, overflowCount: 0,
+      ingestionTotal: 0, syncTotal: 0, syncProblemTotal: 0, identityHoldTotal: 0,
+    });
   });
 
   it("skips a defensive empty-summaries group", () => {
@@ -609,6 +613,9 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
     ? `${verb} details for ${count} held changes for ${title} (${slug})`
     : `${verb} details for ${count} held changes for ${slug}`;
   return (
+    // No gap utility here: CollapsePanel's zero-height closed track would keep a
+    // parent gap visible (CollapsePanel.tsx:22-25); open-state spacing lives in the
+    // pt-3 wrapper below (IgnoredSheetsDisclosure.tsx:100-104 precedent).
     <div className="flex flex-col">
       <button
         type="button"
@@ -627,7 +634,7 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
           (CollapsePanel.tsx:40-47; RecentAutoAppliedStrip precedent). The toggle's
           aria-expanded + aria-controls remain the accessible wiring. */}
       <CollapsePanel open={open} id={panelId} region={false} label={title ? `Held changes for ${title} (${slug})` : `Held changes for ${slug}`}>
-        {children}
+        <div className="flex flex-col gap-1 pt-3">{children}</div>
       </CollapsePanel>
     </div>
   );
@@ -717,7 +724,7 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
 
 - Modify: `app/help/admin/dashboard/page.mdx:35-43` (inventory list gains a held-changes bullet) and `page.mdx:51-53` (live-change description mentions holds clearing on approve/reject), `app/help/admin/review-queues/page.mdx:5-12` + `page.mdx:50-60` (overview + live-change guidance), `app/help/daily-rhythm/page.mdx:12-14` (inbox description), `app/help/admin/settings/page.mdx:33-38` (digest description mentions held identity changes).
 
-- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). EIGHT passage-anchored assertions (spec §9.14a): one each for `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`; for `app/help/admin/dashboard/page.mdx` slice at the "Changes and review" heading and assert the phrase in BOTH slices (card-inventory list above, live-change paragraph below); for `app/help/admin/review-queues/page.mdx` slice at the "Live-show changes" heading and assert in BOTH slices (queues table above, identity bullet below). Phrase: /held.{0,30}(identity|crew).{0,30}change/i, markdown-bold normalized. PLUS two dashboard-inventory assertions: the inventory slice matches /Five kinds of cards/ and /[Ss]ync problem/, and does NOT contain "Nothing here clears itself." Run: FAIL (eight phrase assertions + the inventory assertions). _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
+- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). EIGHT passage-anchored assertions (spec §9.14a): one each for `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`; for `app/help/admin/dashboard/page.mdx` slice at the "Changes and review" heading and assert the phrase in BOTH slices (card-inventory list above, live-change paragraph below); for `app/help/admin/review-queues/page.mdx` slice at the "Live-show changes" heading and assert in BOTH slices (queues table above, identity bullet below). Phrase: /held.{0,30}(identity|crew).{0,30}change/i, markdown-bold normalized. NINTH assertion: `app/help/tour/page.mdx` matches the held phrase. PLUS dashboard-inventory assertions (spec R6-K2): slice matches /Five kinds of cards/; exactly five /^- \*\*/m bullet lines; one bullet begins with the literal - **Sync problem.**; "Nothing here clears itself." ABSENT; /sync problem cards clear on their own/i PRESENT. Run: FAIL (nine phrase assertions + the inventory assertions). _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
 - [ ] **Step 1:** Exact edits (each in the file's existing voice; no em-dashes):
   1. `app/help/admin/dashboard/page.mdx:37-43` — repair the inventory passage in FULL (spec R5-J1; it is pre-existing-stale): change "Three kinds of cards show up here:" to "Five kinds of cards show up here:"; append a sync-problem bullet: `- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.`; append a held-change bullet: `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`; and replace the closing sentence "A card stays in the inbox until you act on it. Nothing here clears itself." with "Sheets and held changes stay in the inbox until you act on them; sync problem cards clear on their own when the problem is fixed."
   2. `app/help/admin/dashboard/page.mdx:51-53` ("Changes and review" paragraph) — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
@@ -725,6 +732,7 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
   4. `app/help/admin/review-queues/page.mdx:57-59` (the identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
   5. `app/help/daily-rhythm/page.mdx:13` (the Needs attention inbox bullet) — append: `Held crew identity changes appear here too, until you approve or reject them.`
   6. `app/help/admin/settings/page.mdx:35` (Daily review digest bullet) — append: `It also lists crew identity changes that are held for your review.`
+  7. `app/help/tour/page.mdx:31-34` (review-queues card) — extend the enumeration and fix the one-show claim: replace "first-seen sheets the app held for your sign-off, and staged edits to a sheet that's already live. Each queue is scoped to one show, so working through one feels like triaging a short list rather than scanning the full sheet." with "first-seen sheets the app held for your sign-off, staged edits to a sheet that's already live, and crew identity changes held for your approval. The Needs attention list collects all of them across shows, so working through it feels like triaging a short list rather than scanning every sheet."
 - [ ] **Step 2:** Run `pnpm vitest run tests/help/heldChangesCopy.test.ts` — PASS; also run the existing `tests/help` suite (walker tests must stay green with the new copy).
 - [ ] **Step 3: Commit** `docs(admin): held-changes copy across tooltips + help, with source-walk contract test`
 
