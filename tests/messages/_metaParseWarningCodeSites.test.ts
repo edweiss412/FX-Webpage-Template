@@ -41,4 +41,19 @@ describe("parse-warning code sites", () => {
     },
     SCAN_TIMEOUT_MS,
   );
+
+  it(
+    "resolves a code referenced through an imported const",
+    () => {
+      const { sites } = scan();
+      const hit = sites.find((s) => s.code === "BLOCK_DISAPPEARED");
+      // lib/sync/blockDisappearance.ts:79 reads `code: BLOCK_DISAPPEARED`, where
+      // the identifier is IMPORTED from lib/parser/warnings.ts:67. An
+      // implementation that reads the local symbol without following the import
+      // alias resolves nothing here.
+      expect(hit?.file).toBe("lib/sync/blockDisappearance.ts");
+      expect(hit?.via).toBe("const");
+    },
+    SCAN_TIMEOUT_MS,
+  );
 });

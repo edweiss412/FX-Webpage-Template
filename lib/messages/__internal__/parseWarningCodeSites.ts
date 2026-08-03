@@ -122,6 +122,31 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
           sites.push({ code: initializer.getLiteralValue(), file, line, via: "literal" });
           return;
         }
+        if (initializer && Node.isIdentifier(initializer)) {
+          // Follow the import alias: the emit site reads a const imported from
+          // another module, so the local symbol is an alias, not the declaration.
+          let symbol = initializer.getSymbol();
+          try {
+            symbol = symbol?.getAliasedSymbol() ?? symbol;
+          } catch {
+            // not an alias; keep the local symbol
+          }
+          for (const declaration of symbol?.getDeclarations() ?? []) {
+            if (!Node.isVariableDeclaration(declaration)) continue;
+            const value = unwrapAsExpressions(declaration.getInitializer());
+            if (value && Node.isStringLiteral(value)) {
+              sites.push({ code: value.getLiteralValue(), file, line, via: "const" });
+              return;
+            }
+          }
+          unresolved.push({
+            file,
+            line,
+            why: `identifier ${initializer.getText()} is not a string const`,
+          });
+          return;
+        }
+
         unresolved.push({
           file,
           line,
