@@ -74,8 +74,11 @@
  *
  * A site may opt out with `psql-startup-files-ok: <reason>` in a comment on the
  * invocation line or the line above (`//` in JS/TS, `#` in shell/YAML). The
- * reason is mandatory — a bare marker does not exempt. No site in the tree uses
- * one: `scripts/ci/supabase-local-bootstrap.sh` was the candidate (it runs psql
+ * reason is mandatory — a bare marker does not exempt — and the marker must sit
+ * inside an actual COMMENT: a review probe drove
+ * `psql … ; x="psql-startup-files-ok: unrelated value"` past an earlier cut that
+ * matched the marker anywhere on the line, which turned a data value into a
+ * silent exemption. No site in the tree uses one: `scripts/ci/supabase-local-bootstrap.sh` was the candidate (it runs psql
  * via `docker exec` inside the supabase_db container, where HOME is the
  * container's, not the runner's) and took a plain inline `-X` instead, because
  * a mounted or image-baked psqlrc is exactly as invisible there and `-X` costs
@@ -168,11 +171,34 @@ function tokensSuppress(tokens: readonly string[]): boolean {
 
 // ── exemption markers ────────────────────────────────────────────────────
 
-function exemptionOnLines(lines: readonly string[], lineNumber: number): string | null {
+/**
+ * Where a comment starts on `line`, or -1. The marker only exempts from INSIDE a
+ * comment: a review probe drove `psql … ; x="psql-startup-files-ok: unrelated
+ * value"` past the guard, because a plain indexOf cannot tell a comment from a
+ * string that happens to contain the marker. An exemption is a deliberate,
+ * reviewable act — a data value must never grant one.
+ */
+function commentStartIndex(line: string, style: CommentStyle): number {
+  if (style === "hash") return hashCommentIndex(line);
+  const candidates = [line.indexOf("//"), line.indexOf("/*"), line.search(/^\s*\*/)].filter(
+    (at) => at !== -1,
+  );
+  return candidates.length === 0 ? -1 : Math.min(...candidates);
+}
+
+type CommentStyle = "js" | "hash";
+
+function exemptionOnLines(
+  lines: readonly string[],
+  lineNumber: number,
+  style: CommentStyle,
+): string | null {
   for (const candidate of [lines[lineNumber - 1], lines[lineNumber - 2]]) {
     if (candidate === undefined) continue;
     const at = candidate.indexOf(EXEMPTION_MARKER);
     if (at === -1) continue;
+    const commentAt = commentStartIndex(candidate, style);
+    if (commentAt === -1 || commentAt > at) continue;
     const reason = candidate.slice(at + EXEMPTION_MARKER.length).trim();
     if (reason.length > 0) return reason;
   }
@@ -189,7 +215,8 @@ function exemptionOnLines(lines: readonly string[], lineNumber: number): string 
  * unless the preceding word says otherwise, so the failure mode is a LOUD false
  * positive a human reads, not a silent hole in a security guard.
  */
-const SHELL_BARE_PSQL = /(?:^|[\s;&|()<>"'])["']?psql["']?(?=[\s;&|()<>"']|$)/g;
+const SHELL_BARE_PSQL =
+  /(?:^|[\s;&|()<>"'])["']?(?:[^\s;&|()<>"']*\/)?psql["']?(?=[\s;&|()<>"']|$)/g;
 
 /** Preceding words that make `psql` an argument rather than the command:
  * availability probes and package tooling. */
@@ -212,8 +239,8 @@ const NOT_AN_INVOCATION = new Set([
   "printf",
 ]);
 
-/** Drop a trailing `#` comment, ignoring `#` inside single or double quotes. */
-function stripShellComment(line: string): string {
+/** Index of the `#` that starts a comment, ignoring `#` inside quotes, or -1. */
+function hashCommentIndex(line: string): number {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i++) {
     const character = line[i]!;
@@ -225,9 +252,15 @@ function stripShellComment(line: string): string {
       quote = character;
       continue;
     }
-    if (character === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
+    if (character === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return i;
   }
-  return line;
+  return -1;
+}
+
+/** Drop a trailing `#` comment, ignoring `#` inside single or double quotes. */
+function stripShellComment(line: string): string {
+  const at = hashCommentIndex(line);
+  return at === -1 ? line : line.slice(0, at);
 }
 
 /** Whitespace tokenizer that keeps quoted runs together and unwraps them. */
@@ -298,7 +331,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         tokens,
         hasDynamicTokens: tokens.some((t) => t.includes("$")),
         suppressesStartupFiles: tokensSuppress(tokens),
-        exemptReason: exemptionOnLines(rawLines, hitLine + 1) ?? null,
+        exemptReason: exemptionOnLines(rawLines, hitLine + 1, "hash"),
       });
     }
   }
@@ -310,7 +343,7 @@ function shellStringSites(value: string, file: string, line: number, lines: stri
   return scanShellText(value, file, 0).map((site) => ({
     ...site,
     line,
-    exemptReason: exemptionOnLines(lines, line),
+    exemptReason: exemptionOnLines(lines, line, "js"),
   }));
 }
 
@@ -383,7 +416,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           tokens,
           hasDynamicTokens,
           suppressesStartupFiles: tokensSuppress(tokens),
-          exemptReason: exemptionOnLines(lines, line),
+          exemptReason: exemptionOnLines(lines, line, "js"),
         });
       }
 

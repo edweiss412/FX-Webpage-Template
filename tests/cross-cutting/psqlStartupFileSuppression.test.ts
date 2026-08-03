@@ -230,6 +230,20 @@ describe("scanSource — shell", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(true);
   });
 
+  test("a path-prefixed binary in shell text is a site", () => {
+    // R1 probe: only the JS path knew about `/usr/bin/psql`; the shell matcher
+    // required a bare word, so an absolute path slipped through.
+    const sites = sitesIn('/usr/local/bin/psql "$DSN" -qAt -c "select 1"\n', "scripts/x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sitesIn('/usr/bin/psql -X "$DSN"\n', "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("psqlrc and postgresql are not psql", () => {
+    expect(sitesIn("cat /usr/share/postgresql/psqlrc\n", "x.sh")).toHaveLength(0);
+    expect(sitesIn("apt-get install -y postgresql-client\n", "x.sh")).toHaveLength(0);
+  });
+
   test("`command -v psql` is a probe, not an invocation", () => {
     expect(
       sitesIn("command -v psql >/dev/null || sudo apt-get install -y postgresql-client\n", "x.sh"),
@@ -317,6 +331,26 @@ describe("exemptions", () => {
       "scripts/x.mjs",
     );
     expect(sites[0]!.exemptReason).toBe("deliberate .psqlrc workflow");
+  });
+
+  // Review R1 probe: the marker used to be matched anywhere on the line, so a
+  // DATA VALUE containing it granted a silent exemption. An exemption is a
+  // deliberate reviewable act; only a comment can grant one.
+  test("the marker in a shell STRING, not a comment, does not exempt", () => {
+    const sites = sitesIn(
+      `psql -qAt -c "select 1"; x="${EXEMPTION_MARKER} unrelated value"\n`,
+      "scripts/x.sh",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("the marker in a JS string literal, not a comment, does not exempt", () => {
+    const sites = sitesIn(
+      `execFileSync("psql", [dbUrl, "-qAt"]); const note = "${EXEMPTION_MARKER} nope";`,
+      "scripts/x.mjs",
+    );
+    expect(sites[0]!.exemptReason).toBeNull();
   });
 
   test("a marker with no reason does NOT exempt", () => {
