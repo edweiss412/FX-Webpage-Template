@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` (canonical) · **Branch:** `docs/settle-lead-capability-prose` · **Implementer:** Opus / Claude Code
 
-Fifteen instances of one class — a hand-maintained restatement of the code that nothing forces to stay true — plus two structural guards that make the two load-bearing restatements self-enforcing, plus the ledger graduation. No UI, no DB, no migration, no advisory lock, no runtime behavior change.
+Six instances of one class — a hand-maintained restatement of a predicate or structure that nothing forces to stay true — plus two structural guards that make the load-bearing ones self-enforcing, plus the ledger graduation and one descoped-class filing. No UI, no DB, no migration, no advisory lock, no runtime behavior change.
 
 ---
 
@@ -44,7 +44,7 @@ $ awk 'NR>=146 && NR<=175 && /^  \| "/ {c++} END{print c}' lib/parser/types.ts
 20
 ```
 
-Important shape note discovered in this pass, which the implementation must accommodate: **the block header at `lib/visibility/capabilityTransitions.ts:118-119` is wrapped across two comment lines** (`… (verbatim` / `branch logic):`). A single-line sentinel is therefore not present today and Task 2 creates one.
+Important shape note discovered in this pass, which the implementation must accommodate: **the block header at `lib/visibility/capabilityTransitions.ts:118-119` is wrapped across two comment lines** (`… (verbatim` / `branch logic):`). A single-line sentinel is therefore not present today and Task 1 creates one.
 
 ### Reconciliation sweep (RUN, with output and per-hit disposition)
 
@@ -53,7 +53,7 @@ $ rg -n 'admin/ops' lib app components tests
 (no output — zero hits)
 
 $ rg -n 'admin/ops' docs BACKLOG.md BACKLOG-archive.md
-docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627        → FIXED by Task 6 (instance B)
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627        → FIXED by Task 5 (instance B)
 BACKLOG.md:7                                                        → reconciliation-log history; left as written
 BACKLOG.md:645,653,654,656 (the entry itself)                       → moves to BACKLOG-archive.md by Task 7
 docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:34,80,107,119,167,264   → the filing + its census; history, left
@@ -65,16 +65,16 @@ docs/superpowers/specs/step3-onboarding/2026-07-17-mi9-lead-autoapply-fyi.md:45 
 docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md:6,159,178  → history, left
 ```
 
-Every hit is dispositioned. After Task 6 the master spec's hit is gone and the only remaining ones are history plus this branch's own documents.
+Every hit is dispositioned. After Task 5 the master spec's hit is gone and the only remaining ones are history plus this branch's own documents.
 
 ---
 
 ## 1. Meta-test inventory (mandatory declaration)
 
-- **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b).
+- **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b). **Wiring, verified: no new entry is required.** `vitest.projects.ts:92` already globs `tests/visibility/**/*.test.{ts,tsx}`, so the file is collected by `pnpm test` on creation, and `.github/workflows/unit-suite.yml` runs on `pull_request` and on `push` to `main` with no path filter, so it is merge-gating from its first commit. No `testMatch` addition, no workflow edit, no path-filter change.
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
-- **Comment-only, no guard:** `tests/e2e/helpers/rightNow.ts`, `tests/visibility/transportTransitions.test.ts`, and `lib/time/rightNowTransitions.ts` (instances I1, I2, J, K). Spec §2.7 states why these nine claims are not machine-checked.
+- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). No file outside the three census files is touched.
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
 ## 2. Mutation-family closure (mandatory for guard work)
@@ -101,6 +101,7 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M16 | A **conjunctive** branch added to a live function (`V1 && L1`), which no singleton sweep can see — **added at spec review R1 with a live escaping mutant** | parity guard, exhaustive powerset | the two-flag subset disagrees; the mismatch names it |
 | M17 | An `isAdmin × flags` interaction in `financialsVisible` (e.g. admin suppressed when flags are non-empty) | parity guard, full `subset × isAdmin` cross product | same |
 | M18 | A new exported `*Visible` function that is neither documented nor exempted — **added at R2 with a live escaping export** (`transportTileVisible`) | parity guard, unclassified-export assertion | the export appears in neither the documented set nor `NOT_FLAG_GATED` |
+| M20 | An exemption row hollowed out to a blank or citation-less reason — **added at R3 with a live escaping mutation** | parity guard, exemption-reason assertion | reason is under 20 chars or cites no `file:line` |
 | M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
 
 M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
@@ -115,7 +116,7 @@ M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and
 | Transition-audit task | **N/A** — no `AnimatePresence`, no ternary render, no component visual state. The "transition matrix" here is a data structure |
 | e2e harness-readiness checklist | **N/A** — no Playwright spec is added or modified; no server boot |
 | Advisory-lock holder topology | **N/A** — `rg 'pg_advisory' <diff>` is empty |
-| §12.4 three-way lockstep | **N/A** — the master-spec edit is in §6.8, not the error-code catalog. Task 6 nonetheless runs `pnpm test:audit:x1-catalog-parity` as a negative check |
+| §12.4 three-way lockstep | **N/A** — the master-spec edit is in §6.8, not the error-code catalog. Task 5 nonetheless runs `pnpm test:audit:x1-catalog-parity` as a negative check |
 
 ---
 
@@ -295,6 +296,14 @@ const SOURCE = readFileSync(join(process.cwd(), MODULE_REL), "utf8");
 describe("documented predicate lines match live scopeTiles behavior", () => {
   const documented = parseDocumentedPredicates(SOURCE);
 
+  test("every NOT_FLAG_GATED exemption carries a real reason", () => {
+    // Key presence alone would make "blank the reason" an escaping mutation. (R3 finding 2)
+    const hollow = Object.entries(NOT_FLAG_GATED).filter(
+      ([, reason]) => reason.trim().length < 20 || !/\.ts:\d+/.test(reason),
+    );
+    expect(hollow).toEqual([]);
+  });
+
   test("every reflected *Visible export is either documented or exempted", () => {
     const documentedNames = new Set(documented.map((d) => d.name));
     const unclassified = REFLECTED.map(([name]) => name).filter(
@@ -470,7 +479,7 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
 
 ### Task 3 — correct the mechanism claim (instance C)
 
-`lib/visibility/capabilityTransitions.ts:47-52` currently promises a TypeScript error that does not exist. Replace with what Task 3 actually built:
+`lib/visibility/capabilityTransitions.ts:47-52` currently promises a TypeScript error that does not exist. Replace with what Task 2 actually built:
 
 ```
 /**
@@ -483,7 +492,7 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
  */
 ```
 
-No test changes. Task 3's guard is the thing this comment now describes; the claim is verified by the synthetic-6 case already shipped.
+No test changes. Task 2's guard is the thing this comment now describes; the claim is verified by the synthetic-6 case already shipped.
 
 **Commit:** `docs(visibility): describe the completeness guard that exists, not one that does not`
 
@@ -524,40 +533,15 @@ pnpm test:audit:x1-catalog-parity                                            # n
 
 **Commit:** `docs(spec): MI-9 states what LEAD actually grants, and that admin is not it`
 
-### Task 6 — instances G1 through K: claimed e2e coverage that does not execute
+### Task 6 — file `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (the descoped class)
 
-Nine artifacts assert coverage that neither executes nor exists. Correct each to state the truth and point at one tracking row. Do NOT un-skip either suite (spec §1.1 item 10).
+No source file is edited. Add the row to `BACKLOG.md` carrying, verbatim from spec §2.7: the twelve known instances, the ground-truth probe block, the single blocker (`tests/e2e/right-now-transitions.spec.ts:285-290`), the two already-honest sites that must NOT be "fixed" (`tests/visibility/capabilityTransitions.test.ts:224` and `tests/visibility/capabilityTransitions.test.ts:272`), and the methodological finding that a hand-run grep cannot bound the class, with both failed patterns named so the next pass does not repeat them.
 
-| Site | Current claim | Becomes |
-| --- | --- | --- |
-| `lib/visibility/capabilityTransitions.ts:36-39` | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`" | compound transitions are **not** modeled by the matrix and are **not currently exercised**: `tests/e2e/right-now-transitions.spec.ts:291` is `test.describe.skip` pending the `?crew=` mock migration and carries no capability assertion. Tracked by `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` |
-| `lib/visibility/capabilityTransitions.ts:130` | "the delta is empty (the e2e compound tests cover those cases)" | the delta is empty and those cases are **currently uncovered** — same suite, same row |
-| `lib/visibility/capabilityTransitions.ts:213` | entry `reason` ends "LEAD/admin compound interactions are tested by e2e" | "…are NOT currently tested; see the module header" |
-| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header | same correction, one sentence |
-| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant" | the no-flicker invariant is **unverified** at e2e today; the suite is skipped |
-| `tests/e2e/helpers/rightNow.ts:183` | skipped pairs "the compound tests handle them with explicit setup" | those compound tests are themselves skipped; the pairs are uncovered |
-| `tests/e2e/helpers/rightNow.ts:239` | "the compound tests … cover the recovery paths" | same correction |
-| `tests/visibility/transportTransitions.test.ts:10` | "animation behavior is exercised in e2e tests" | `tests/e2e/transport-tile.spec.ts:225` is one `test.describe.skip` with zero animation assertions; animation behavior is uncovered |
-| `lib/time/rightNowTransitions.ts:12-14` | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant | **two corrections**: the audit does not currently drive anything, and the stale `test.fixme`/`framer-motion` attribution is replaced by the real blocker (`test.describe.skip`, `?crew=` mock retirement) |
+Status OPEN, severity LOW-MEDIUM (dark coverage on documented contracts; no product impact), effort L, class "docs/contract — test-coverage claims". Record that the set is **not known to be complete** and that its open question is a design call: guard the class mechanically, or delete the class of sentence rather than maintain it.
 
-**Deliberately NOT changed** — verify each still reads as recorded, then leave it. Spec §1.2 explains why; they are listed here so this task does not later look under-applied:
+Verify: `pnpm vitest run tests/docs/` — `_metaLedgerReferentialIntegrity` resolves every `BL-` id this branch's documents cite.
 
-- `tests/visibility/capabilityTransitions.test.ts:224` and `tests/visibility/capabilityTransitions.test.ts:272` are already honest: one says the gap is deferred pending Realtime push (M6), the other is future-tense about the same thing.
-- `tests/e2e/helpers/rightNow.ts:2` and `tests/e2e/helpers/rightNow.ts:6` and `tests/e2e/right-now-transitions.spec.ts:10` — descriptive, not coverage claims.
-
-File `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` in `BACKLOG.md` in this same commit — `tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on a `BL-` id cited by a file but defined in no ledger, so the nine citations above oblige the row. The row records: **all three** `*Transitions` contract matrices (`lib/time/rightNowTransitions.ts`, `lib/visibility/capabilityTransitions.ts`, `lib/visibility/transportTransitions.ts`) have an un-executing e2e half; the blocker is the retired `?crew=`/`?as=admin` dev mock (`tests/e2e/right-now-transitions.spec.ts:285-290`); the fix shape is per-test crew rows whose email matches `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding; severity LOW-MEDIUM (dark coverage on a documented contract, no product impact).
-
-Verify: re-run the vector sweep and confirm every remaining hit is one of the four deliberately-left sites —
-
-```
-rg -n 'e2e|E2E' lib/visibility/capabilityTransitions.ts lib/visibility/transportTransitions.ts \
-  lib/time/rightNowTransitions.ts tests/visibility/capabilityTransitions.test.ts \
-  tests/visibility/transportTransitions.test.ts tests/e2e/helpers/rightNow.ts
-```
-
-and `pnpm vitest run tests/docs/`.
-
-**Commit:** `docs(visibility): nine artifacts claimed e2e coverage that is skipped — say so, and file the gap`
+**Commit:** `docs(backlog): file BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES with three rounds of evidence`
 
 ### Task 7 — ledger graduation
 
@@ -581,7 +565,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited verbatim from spec §4 (AC-1 … AC-12). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 5 → AC-8; Task 6 → AC-11, AC-12; Task 7 → AC-9; Task 8 → AC-7, AC-10.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10.
 
 ## 12. Close-out
 

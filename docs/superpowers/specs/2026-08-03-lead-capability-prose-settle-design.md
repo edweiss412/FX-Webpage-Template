@@ -30,11 +30,13 @@ Each item below is a decision already taken, with its ratification. A reviewer s
 
 9. **No component, no visual state, no fixed-dimension parent.** Dimensional Invariants and Transition Inventory sections are N/A (§6).
 
-10. **Un-skipping the two e2e suites is OUT OF SCOPE and is not a finding.** `tests/e2e/right-now-transitions.spec.ts:154` and `tests/e2e/right-now-transitions.spec.ts:291`, plus `tests/e2e/transport-tile.spec.ts:225`, are `test.describe.skip` for a documented reason recorded in the file itself (`tests/e2e/right-now-transitions.spec.ts:285-290`): the `?crew=`/`?as=admin` dev mock they drive was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows and fixture seeding. This branch corrects the four artifacts that misdescribe that state (§2.7) and files the gap (§2.6); restoring the coverage is a separate, much larger piece of work.
+10. **The coverage-claim class is DESCOPED to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` and is not in this diff** (§1.2, §2.7). Naming a thirteenth instance is not a finding against this branch; it is content for that row. The descope decision is itself the R3 response to three consecutive under-counts, per the AGENTS.md same-vector rule.
+
+11. **Un-skipping the two e2e suites is OUT OF SCOPE and is not a finding.** `tests/e2e/right-now-transitions.spec.ts:154` and `tests/e2e/right-now-transitions.spec.ts:291`, plus `tests/e2e/transport-tile.spec.ts:225`, are `test.describe.skip` for a documented reason recorded in the file itself (`tests/e2e/right-now-transitions.spec.ts:285-290`): the `?crew=`/`?as=admin` dev mock they drive was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows and fixture seeding. This branch corrects the four artifacts that misdescribe that state (§2.7) and files the gap (§2.6); restoring the coverage is a separate, much larger piece of work.
 
 ### 1.2 In scope
 
-Fifteen instances of one class — **a hand-maintained restatement of the code that nothing forces to stay true** — across six files, plus the ledger graduation. Six were found by the author's sweep, and nine by spec review across two rounds and the comprehensive vector sweep R2 triggered.
+Six instances of one class — **a hand-maintained restatement of a predicate or structure that nothing forces to stay true** — across three files, plus the ledger graduation. Two were filed in the ledger entry; four were found by the class sweep it obliged.
 
 | # | Site | Claim | Status |
 | --- | --- | --- | --- |
@@ -44,49 +46,19 @@ Fifteen instances of one class — **a hand-maintained restatement of the code t
 | D | `lib/visibility/capabilityTransitions.ts:6-7` | "the five gated tiles" (four are then named) | **Found by class sweep** |
 | E | `lib/visibility/capabilityTransitions.ts:56` | "The five gated tiles whose visibility this matrix covers" | **Found by class sweep** |
 | F | `tests/visibility/capabilityTransitions.test.ts:26-32` | a hand-listed `ALL_PREDICATES` under `satisfies readonly CapabilityPredicate[]`, which permits a subset and so can silently under-cover a widened union | **Found by class sweep** |
-| G1 | `lib/visibility/capabilityTransitions.ts:36-39` | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`" | R1 |
-| G2 | `lib/visibility/capabilityTransitions.ts:130` | "the delta is empty (the e2e compound tests cover those cases)" | R2 sweep |
-| G3 | `lib/visibility/capabilityTransitions.ts:213` | an entry `reason` string ending "LEAD/admin compound interactions are tested by e2e" | R2 sweep |
-| H1 | `tests/visibility/capabilityTransitions.test.ts:8-9` | the G1 claim restated in the test header | R1 |
-| H2 | `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant" | R2 sweep |
-| I1 | `tests/e2e/helpers/rightNow.ts:183` | skipped pairs "the compound tests handle them with explicit setup" | R1 sweep |
-| I2 | `tests/e2e/helpers/rightNow.ts:239` | "the compound tests (which mutate dates with explicit setup) cover the recovery paths" | R2 sweep |
-| J | `tests/visibility/transportTransitions.test.ts:10` | "animation behavior is exercised in e2e tests" | R1 sweep |
-| K | `lib/time/rightNowTransitions.ts:12-14` | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant | R2 sweep |
 
-**G1 through K are one sub-shape: a contract artifact claiming e2e coverage that does not execute.** Probed:
+**A sub-class was found, then DESCOPED at review R3 — `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`.** Review R1 surfaced two artifacts claiming e2e coverage from suites that are `test.describe.skip`. Successive sweeps grew that set to 4, then 9, then 12, and R3 found three more in a file no sweep had touched (`tests/time/rightNowTransitions.test.ts`) plus two that every sweep's regex had missed because their text says "audit suite" and "the helper covers" without the token `e2e`.
 
-```
-$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
-154:test.describe.skip("RightNow §8.2 — 66-pair pairwise transition audit", () => {
-291:test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3)", () => {
+Three consecutive rounds under-counted the same vector, which is the exact condition AGENTS.md's same-vector rule addresses: stop patching per-instance, declare the vector unresolved, and converge structurally rather than retail. It is descoped here for two reasons beyond round count:
 
-$ grep -c 'CAPABILITY_TRANSITION_MATRIX\|affectedTilesOnFlip\|FinancialsTile\|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
-0
+1. **It is a different class, not a wider instance of this one.** A, C, D, E, and F are restatements of a *predicate or a structure* — what a function computes, how many predicates exist, which pairs the matrix holds. The coverage claims are restatements of *whether a test executes*. They share a family resemblance ("a sentence nothing forces to stay true") but not a fix: the first kind is closable by a behavioral guard, as §2.2 does; the second would need a guard that parses Playwright skip state and assertion content and binds it to prose.
+2. **Its extent is unbounded and unmeasured.** Every sweep so far was scoped to files this branch already had reason to open. Nothing suggests the class stops there — it reached `tests/time/` the moment anyone looked, and the repo has twelve e2e specs containing `describe.skip`.
 
-$ grep -n 'describe.skip\|test.describe(' tests/e2e/transport-tile.spec.ts
-225:test.describe.skip("crew page — TransportTile (Task 4.7, §8.1)", () => {
+Bundling an open-ended class into a branch chartered to settle two named claims is what drove three BLOCKING rounds. The row carries every instance found, both failed sweep patterns, and the finding that the sweep must be mechanical rather than hand-run. Nothing is lost; it is handed over rather than half-done.
 
-$ grep -c 'AnimatePresence\|animation\|transition\|opacity' tests/e2e/transport-tile.spec.ts
-0
-```
+C through F are not in the ledger entry. They are the same defect shape — a hand-maintained restatement of something the code already knows, with nothing forcing the two to agree — and AGENTS.md requires sweeping the shape before patching the named instance.
 
-The named capability suite is skipped **and** carries no capability assertion; the named transport suite is skipped **and** carries no animation assertion. Both skips are deliberate and documented at `tests/e2e/right-now-transitions.spec.ts:285-290` (the `?crew=`/`?as=admin` dev mock was retired) — the defect is not the skip, it is nine artifacts telling a maintainer the coverage exists. **K is stale in a second, independent way:** it attributes the non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies; the file now uses `test.describe.skip` for the unrelated mock-retirement reason.
-
-**Deliberately NOT changed — already honest, recorded so a later round does not re-raise them.** The same sweep found two sites in this vector that state their gap correctly, in future or deferred tense rather than present-tense coverage:
-
-| Site | Text | Why it stays |
-| --- | --- | --- |
-| `tests/visibility/capabilityTransitions.test.ts:224` | says the DOM-level continuity is exercised at the e2e level, that this requires Realtime push (M6), and that it is **deferred** | Names the gap and its blocker. Nothing false. |
-| `tests/visibility/capabilityTransitions.test.ts:272` | says it will be exercised at e2e level **once** Realtime push lands in M6 | Future tense; asserts no current coverage. |
-
-Two further hits are descriptive rather than coverage claims and are also left: `tests/e2e/helpers/rightNow.ts:2` and `tests/e2e/helpers/rightNow.ts:6` (a file header naming which specs share the helper) and `tests/e2e/right-now-transitions.spec.ts:10` (naming which constant holds the 66-pair matrix).
-
-**The sweep behind this table is the complete one for the vector**, not a sample: `grep -rn 'e2e\|E2E'` across all three `*Transitions` modules, their unit tests, and the e2e helper returned 13 hits; all 13 are dispositioned above (9 fixed, 2 left as honest, 2 left as descriptive).
-
-C through K are not in the ledger entry. They are the same defect shape — a hand-maintained restatement of something the code already knows, with nothing forcing the two to agree — and AGENTS.md requires sweeping the shape before patching the named instance.
-
-**The six files:** `lib/visibility/capabilityTransitions.ts` (A, C, D, E, G1, G2, G3), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (B), `tests/visibility/capabilityTransitions.test.ts` (F, H1, H2), `tests/e2e/helpers/rightNow.ts` (I1, I2), `tests/visibility/transportTransitions.test.ts` (J), `lib/time/rightNowTransitions.ts` (K).
+**The three files:** `lib/visibility/capabilityTransitions.ts` (A, C, D, E), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (B), `tests/visibility/capabilityTransitions.test.ts` (F).
 
 ### 1.3 Out of scope
 
@@ -141,7 +113,7 @@ Mechanism:
 2. For each line, take the text between `=` and the first `(`, normalize whitespace, and require it to match `^<token>( || <token>)*$` where `<token>` is `[A-Za-z0-9_]+`. Any other separator (`&&`, `!`, a nested paren) fails — the guard refuses to interpret an expression shape it was not built to check.
 3. Reflect over the `scopeTiles` module namespace (`import * as scopeTiles`, keys ending in `Visible` whose value is a function) and require every such export to be **either documented in the block or carried by a `NOT_FLAG_GATED` exemption row with a reason** — the registry-or-exemption idiom invariants 9 and 10 already use in this repo. A new `*Visible` export is therefore uncovered-by-default and fails until someone classifies it.
 
-   **The exemption exists because the reflection over-captures**, which spec review R2 caught with a probe: `scopeTiles.ts:180` exports `transportTileVisible`, whose parameter is an options object (`{ transportation, viewerId, transportationOwnerIds, viewerName, … }`), not a `RoleFlag[]`. It is not a capability-flag gate and has no place in a block of flag disjunctions. It gets the one exemption row. Naming it in an exemption rather than in a hard-coded "these four" list is what keeps the fail-by-default property: the list of *things to check* stays derived, and only the *classification* is written down.
+   **The exemption exists because the reflection over-captures**, which spec review R2 caught with a probe: `scopeTiles.ts:180` exports `transportTileVisible`, whose parameter is an options object (`{ transportation, viewerId, transportationOwnerIds, viewerName, … }`), not a `RoleFlag[]`. It is not a capability-flag gate and has no place in a block of flag disjunctions. It gets the one exemption row. Naming it in an exemption rather than in a hard-coded "these four" list is what keeps the fail-by-default property: the list of *things to check* stays derived, and only the *classification* is written down. **The reason string is asserted, not merely present** — R3 showed that checking key presence alone makes "blank the reason" an escaping mutation, so the guard requires every exemption value to be a non-empty string that cites a `file:line`. An exemption whose justification has been hollowed out is no longer an exemption.
 
 3b. Do **not** hand-maintain how each predicate is called. Derive it from the live function's arity — `fn.length >= 2` means it takes `isAdmin`. R2's probe showed the hand-written `TAKES_IS_ADMIN` set was itself an instance of the class under settlement: it silently exempted `audioScopeVisible`, `videoScopeVisible`, and `lightingScopeVisible` from ever being evaluated at `isAdmin = true`, so a documented line falsely claiming `isAdmin` for any of them passed the complete 2²⁰ sweep. For an arity-1 predicate the guard asserts the documented tokens contain **no** `isAdmin`; for an arity-2 predicate it sweeps both `isAdmin` values.
 4. For each predicate, assert behavioral equivalence against the live function **exhaustively over the entire `RoleFlag` powerset** — all 2²⁰ = 1,048,576 flag subsets — and, for the predicate that takes an `isAdmin` argument, over the full `subset × isAdmin` cross product. A documented line is a pure disjunction, so its semantics are total and checkable: for every subset `S` and every `isAdmin` value,
@@ -227,21 +199,57 @@ Three findings settle it:
 
 The `**Status:** IN PROGRESS · **Branch:** docs/settle-lead-capability-prose` marker written onto the entry at Stage 0 (invariant 12) leaves with the entry when it graduates, which is the convention's by-construction case — no separate removal step, and `tests/docs/_metaLedgerInProgress.test.ts`'s "archives may not hold in-flight work" rule requires the marker be dropped during the move.
 
-**One new backlog row is filed** — `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED`. This reverses the draft's "no new row" position, on the R1 finding: correcting instances G through J removes a false claim of coverage, which converts an invisible gap into a visible one, and a visible gap with no ledger row is how it becomes invisible again. The row records that all **three** `*Transitions` contract matrices — `lib/time/rightNowTransitions.ts`, `lib/visibility/capabilityTransitions.ts`, and `lib/visibility/transportTransitions.ts` — have an un-executing e2e half, names the blocker (`?crew=` mock retirement, `tests/e2e/right-now-transitions.spec.ts:285-290`), and cites this spec. Filing is also forced mechanically: `tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on a `BL-` id cited by a document but defined in no ledger, so naming it here obliges the row.
+**One new backlog row is filed** — `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. This reverses the draft's "no new row" position. The row does not record a defect this branch declined to fix out of convenience; it records a **class this branch is not chartered to close**, descoped at review R3 after three consecutive rounds under-counted it (§1.2). Its content is specified in §2.7: twelve known instances, the ground-truth probes, the single blocker, the two already-honest sites that must not be touched, and the methodological finding that a hand-run grep cannot bound this class. Filing is also forced mechanically — `tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on a `BL-` id cited by a document but defined in no ledger.
 
 No row is filed for the other residue: §2.3's unguarded free-text prose is a stated accepted limit, not deferred work.
 
-### 2.7 Instances G1 through K — claimed e2e coverage that does not execute
+### 2.7 The descoped sub-class — what the new row must carry
 
-Nine artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are covered by e2e suites. Probes in §1.2 show both named suites are `test.describe.skip` and neither contains an assertion about the thing claimed. §1.2 also records the two sites in this vector that are already honest and are deliberately left, and the two that are descriptive rather than claims.
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` is filed with the full product of three review rounds, so the next pass starts from evidence rather than re-deriving it.
 
-**Fix: state what is true, in each of the nine places, and name the blocker once.** Each claim becomes an explicit statement that the surface is NOT currently exercised, that the named suite is skipped, and that the gap is tracked by `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED`. K additionally drops its stale `test.fixme`/`framer-motion` attribution for the real blocker. The suites are not un-skipped and no new e2e is written (§1.1 item 10).
+**Instances found so far (12; the set is NOT known to be complete):**
 
-**Why not simply delete the sentences.** A comment saying nothing is not better than one saying something false — the next reader re-derives the same question, which is exactly the cost this whole branch exists to stop. The corrected form is strictly more informative than silence: it says the compound surface is uncovered, why, and where that is tracked.
+| Site | Claim |
+| --- | --- |
+| `lib/visibility/capabilityTransitions.ts:36-39` | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`" |
+| `lib/visibility/capabilityTransitions.ts:130` | "the delta is empty (the e2e compound tests cover those cases)" |
+| `lib/visibility/capabilityTransitions.ts:213` | an entry `reason` ending "LEAD/admin compound interactions are tested by e2e" |
+| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header |
+| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant" |
+| `tests/e2e/helpers/rightNow.ts:183` | skipped pairs "the compound tests handle them with explicit setup" |
+| `tests/e2e/helpers/rightNow.ts:239` | "the compound tests … cover the recovery paths" |
+| `tests/e2e/helpers/rightNow.ts:286-292` | "the helper covers TIME-DRIVEN transitions"; "the audit suite documents which transitions can be driven via tick-only" |
+| `tests/visibility/transportTransitions.test.ts:10` | "animation behavior is exercised in e2e tests" |
+| `lib/time/rightNowTransitions.ts:12-14` | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant |
+| `lib/time/rightNowTransitions.ts:82-86` | `unreachable` transitions are "Regression-guarded by the audit suite" |
+| `tests/time/rightNowTransitions.test.ts:6-8` | "Animation-behavior tests live in `tests/e2e/right-now-transitions.spec.ts` (scaffolded as `test.fixme()` …)" |
 
-**Why these are the same class and not scope creep.** The defect shape under settlement is a hand-maintained restatement that nothing forces to stay true. A comment asserting "this is covered by that suite" is exactly that: nothing links it to the suite's skip state or its assertion content. It is the same shape as instance A (nothing linked the quoted predicate to the function) and instance C (nothing linked the completeness claim to the test). Instance J lives in the sibling matrix module, one file over, and was found by the mandated shape-grep rather than by looking for more work.
+**Ground truth the row records once**, so no future pass re-probes it:
 
-**Accepted limit:** unlike the predicate and matrix claims, these nine are not machine-checked. A guard would have to parse a Playwright file's skip state and assertion content and bind it to a prose sentence, which is a substantially larger and more brittle artifact than the gap justifies. Named here so it is a stated residue rather than an implied guarantee.
+```
+$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
+154:  ... 66-pair pairwise transition audit
+291:  ... 6 compound transition audits
+$ grep -c 'CAPABILITY_TRANSITION_MATRIX|affectedTilesOnFlip|FinancialsTile|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
+0
+$ grep -n 'describe.skip|test.describe(' tests/e2e/transport-tile.spec.ts
+225:  ... crew page — TransportTile (Task 4.7, §8.1)      [the file's only describe]
+$ grep -c 'AnimatePresence|animation|transition|opacity' tests/e2e/transport-tile.spec.ts
+0
+$ grep -rl 'describe.skip' tests/e2e/ | wc -l
+12
+```
+
+The blocker for all of it is one thing: the `?crew=`/`?as=admin` dev mock was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding (`tests/e2e/right-now-transitions.spec.ts:285-290`). Several claims are stale in a *second* way: they attribute non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies.
+
+**Two sites that are already honest** and must NOT be "fixed": `tests/visibility/capabilityTransitions.test.ts:224` says the gap is deferred pending Realtime push (M6); `tests/visibility/capabilityTransitions.test.ts:272` is future-tense about the same thing.
+
+**The methodological finding, which is the row's most valuable content.** Three hand-run sweeps under-counted this class, and each failure was a *pattern* failure rather than an effort failure:
+
+- Sweeping `e2e|E2E` misses claims phrased "the audit suite", "the compound tests", "the helper covers" — no token in common.
+- Scoping the sweep to files the branch already had reason to open missed `tests/time/rightNowTransitions.test.ts` entirely.
+
+So the row's fix shape is **not** "grep harder." It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — or accept that prose coverage claims are unguardable and delete the class of sentence instead of maintaining it. That decision is the row's open question, and it is a design call this branch has no charter to make.
 
 ---
 
@@ -249,13 +257,11 @@ Nine artifacts tell a maintainer that compound capability transitions, RightNow 
 
 | File | Change |
 | --- | --- |
-| `lib/visibility/capabilityTransitions.ts` | Instances A, C, D, E, G: predicate corrected; FINANCIALS exclusion stated; `lib/visibility/capabilityTransitions.ts:47-52` mechanism claim corrected; `CAPABILITY_PREDICATES` const added and the union derived from it; count words removed at `lib/visibility/capabilityTransitions.ts:6-7` and `lib/visibility/capabilityTransitions.ts:56` |
+| `lib/visibility/capabilityTransitions.ts` | Instances A, C, D, E: predicate corrected; FINANCIALS exclusion stated; `lib/visibility/capabilityTransitions.ts:47-52` mechanism claim corrected; `CAPABILITY_PREDICATES` const added and the union derived from it; count words removed at `lib/visibility/capabilityTransitions.ts:6-7` and `lib/visibility/capabilityTransitions.ts:56` |
 | `tests/visibility/_metaDocumentedPredicateParity.test.ts` | **New.** Documented-predicate behavioral parity guard (§2.2b) |
 | `tests/visibility/capabilityTransitions.test.ts` | Three hardcoded counts derived from `CAPABILITY_PREDICATES.length`; pair-set equality assertion replaces count-plus-no-duplicates; the duplicate `ALL_PREDICATES` list (instance F) deleted in favour of the import |
 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` | MI-9 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`) clause replaced (§2.4). Line-count neutral |
-| `tests/visibility/transportTransitions.test.ts` | Instance J — the e2e animation-coverage claim corrected |
-| `tests/e2e/helpers/rightNow.ts` | Instance I — the compound-transition coverage claim corrected |
-| `BACKLOG.md` | Entry removed from the open queue; `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` filed; "Last reconciled" updated |
+| `BACKLOG.md` | Entry removed from the open queue; `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` filed (§2.7); "Last reconciled" updated |
 | `BACKLOG-archive.md` | Entry added under a RESOLVED heading |
 | `tests/docs/_metaDeferralLedgerGraduation.test.ts` | One `BACKLOG_GRADUATED` row |
 | `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` | This spec |
@@ -271,16 +277,15 @@ Flat (non-subdirectory) specs and plans are not indexed in `docs/superpowers/spe
 | --- | --- | --- |
 | AC-1 | The documented-predicate guard fails against the unfixed comment | Run the new test at the commit that adds it, before `lib/visibility/capabilityTransitions.ts:124` is corrected; the failure names `financialsVisible` and `FINANCIALS` |
 | AC-2 | All four documented predicate lines match live behavior over **every one of the 2²⁰ flag subsets**, and over the full `subset × isAdmin` cross product for `financialsVisible` | New guard green. Negative probe: a conjunctive `V1 && L1` branch spliced into `audioScopeVisible` must turn it red — the exact mutant a singleton-only sweep let through in spec review R1 |
-| AC-3 | The guard fails loudly if the block is missing, malformed, or yields ≠ 4 lines | The block parser is a **pure exported function taking source text as a parameter** (not a module-level read), so three negative cases drive it over synthetic strings: no header line, a line using `&&`, and a block of three lines |
+| AC-3 | The guard fails loudly if the block is missing, malformed, or yields ≠ 4 lines | The block parser is a **pure function taking source text as a parameter** (not a module-level read), so three negative cases drive it over synthetic strings: no header line, a line using `&&`, and a block of three lines |
 | AC-4 | The guard fails if a `*Visible` export is added to `scopeTiles.ts` without a documented line | Namespace-reflection assertion (§2.2b step 3) |
 | AC-5 | Matrix expectations derive from `CAPABILITY_PREDICATES.length`, not literals | No literal `10` or `4` remains as a matrix-size expectation in `tests/visibility/capabilityTransitions.test.ts` |
-| AC-6 | A sixth predicate forces matrix growth | The pair-set builder is likewise a **pure exported function taking the predicate list as a parameter**, so a negative case passes it a synthetic 6-element list and asserts it demands 15 pairs — proving the expectation tracks `n` rather than coincidentally equalling 10 |
+| AC-6 | A sixth predicate forces matrix growth | The pair-set builder is likewise a **pure function taking the predicate list as a parameter**, so a negative case passes it a synthetic 6-element list and asserts it demands 15 pairs — proving the expectation tracks `n` rather than coincidentally equalling 10 |
 | AC-7 | A `RoleFlag` added without updating the guard's universe is a compile error | `Exclude<…> extends never` check; verified by a scratch `tsc` probe, not asserted |
 | AC-8 | MI-9 carries no admin claim, and no live (non-historical) document asserts one | `rg -n "admin/ops" lib app components tests` → 0; `rg -n "admin/ops" docs` leaves only the historical records enumerated in §1.1 item 4 |
 | AC-9 | Ledger graduated cleanly | `pnpm vitest run tests/docs/` green, including `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerReferentialIntegrity` |
 | AC-10 | No regression elsewhere | Full `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm spec:lint` green |
-| AC-11 | No artifact claims e2e coverage that does not execute | Each of instances G1–K states the suite is skipped and cites the tracking row; `rg -n "exercised by|covered by the dedicated" lib tests --include='*.ts'` has no hit naming a `describe.skip` suite without saying so |
-| AC-12 | The newly-visible gap is tracked | `BL-TRANSITION-MATRICES-E2E-COVERAGE-SKIPPED` resolves in `BACKLOG.md`; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` green |
+| AC-11 | The descoped class is handed over, not dropped | `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` resolves in `BACKLOG.md` and carries all twelve instances plus the two already-honest exclusions from §2.7; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` green |
 
 ---
 
