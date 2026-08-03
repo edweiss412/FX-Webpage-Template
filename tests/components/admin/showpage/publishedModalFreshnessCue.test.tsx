@@ -53,6 +53,8 @@ const CREW: readonly RawRow[] = [row("crew", "c1")];
 const CREW_EDITED: readonly RawRow[] = [row("crew", "c2")];
 /** Crew row UNCHANGED, rooms added: the only changed section is rooms. */
 const CREW_AND_ROOMS: readonly RawRow[] = [row("crew", "c1"), row("rooms", "r1")];
+/** Exactly three changed sections: the cap itself, which S8 must actually hit. */
+const AT_CAP: readonly RawRow[] = [row("crew", "c1"), row("rooms", "r1"), row("hotels", "h1")];
 /** Four sections beyond the crew baseline, so `changed` clears the cap of three. */
 const OVER_CAP: readonly RawRow[] = [
   row("crew", "c9"),
@@ -193,11 +195,15 @@ describe("published review modal: freshness cue", () => {
     expect(announcementText()).toBe("Show details updated.");
   });
 
-  it("S8: exactly at the cap, every changed card arms", () => {
+  it("S8: exactly AT the cap, all three changed cards arm", () => {
+    // Three, not two. The whole-diff review caught this claiming the cap while
+    // changing two sections, so it never exercised the boundary it named and an
+    // off-by-one in the comparison would have passed.
     const { rerender } = render(publishedModalElement([]));
     rerender(publishedModalElement([]));
-    rerender(publishedModalElement(CREW_AND_ROOMS));
-    expect(armedCards().length).toBe(2);
+    rerender(publishedModalElement(AT_CAP));
+    expect(armedCards().length, "three is at the cap, not over it").toBe(3);
+    expect(bandCue(), "at the cap the cards carry it, not the band").toBeNull();
   });
 
   it("S9: arming and expiry reconcile the card, never remount it", () => {
@@ -290,7 +296,16 @@ describe("published review modal: freshness cue", () => {
     expect(two).not.toContain(" and ");
     expect(two, "the spoken name is the rendered name").toContain(roomsLabel);
 
-    for (const text of [one, two]) {
+    // Three labels, the cap boundary, which the earlier version never reached.
+    second.unmount();
+    const third = render(publishedModalElement([]));
+    third.rerender(publishedModalElement([]));
+    third.rerender(publishedModalElement(AT_CAP));
+    const threeText = announcementText();
+    expect(threeText.startsWith("Updated: ")).toBe(true);
+    expect(threeText.split(", ").length, "three labels, comma separated").toBe(3);
+
+    for (const text of [one, two, threeText]) {
       expect(text).not.toContain("\u2014");
       expect(text).not.toContain("'");
       expect(text).not.toContain("\u2019");
@@ -328,8 +343,17 @@ describe("published review modal: freshness cue", () => {
     // S7 starts from rest and cannot catch a merge that leaves the earlier
     // attribute on under an announcement that no longer makes a per-card claim.
     expect(armedCards()).toEqual([]);
-    expect(bandCue()).not.toBeNull();
+    const band = bandCue();
+    expect(band).not.toBeNull();
     expect(announcementText()).toBe("Show details updated.");
+
+    // Advance PAST the first batch's deadline but not the second's. The whole-diff
+    // review probed exactly this and found the older timer clearing the band
+    // unconditionally, so the newer cue vanished 350ms early.
+    act(() => void vi.advanceTimersByTime(SECTION_FRESHNESS_FLASH_MS - 200 + 1));
+    expect(bandCue(), "an older batch must not truncate a newer band cue").toBe(band);
+    act(() => void vi.advanceTimersByTime(200));
+    expect(bandCue(), "the band clears on its OWN deadline").toBeNull();
   });
 
   it("S16: a repeat cue with IDENTICAL copy still re-announces", () => {

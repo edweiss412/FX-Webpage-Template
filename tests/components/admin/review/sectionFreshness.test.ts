@@ -391,13 +391,22 @@ describe("section freshness detector", () => {
     // no own-field signature can see. The caller supplies the routing because it
     // already resolves the placement predicate; a second resolution here would be
     // a second source of truth.
+    // `kind: "alert"`, NOT `"hold"`. `AttentionBanner` returns null for any item
+    // that is not an alert (`components/admin/review/AttentionBanner.tsx:103`), so
+    // a hold fixture renders nothing and this row would have been asserting that
+    // the detector reacts to an item the card never shows. The whole-diff review
+    // caught it passing for that weaker reason.
+    //
+    // `actionable: false` deliberately: cards render every LIVE item, and grouping
+    // only the actionable ones was the round-3 BLOCKING.
     const item = (id: string, menuTitle: string): AttentionItem => ({
-      kind: "hold",
+      kind: "alert",
+      alert: { code: "AMBIGUOUS_EMAIL_BINDING", title: menuTitle, body: null } as never,
       id,
       tone: "notice",
       sectionId: "crew",
       crewKey: null,
-      actionable: true,
+      actionable: false,
       menuTitle,
       menuSubtitle: null,
     });
