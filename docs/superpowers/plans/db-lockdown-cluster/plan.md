@@ -68,7 +68,20 @@ Run: A and C fail, naming all 41 unclassified relations. A real red — the asse
 
 **Green:** populate all 41 rows (`posture`, plus a `reason` carrying a `file:line`). All four pass.
 
-**Mutant coverage** (each in its own rolled-back transaction, asserted to FAIL with its *specific* message so it cannot pass incidentally): (i) delete a registry row → C; (ii) reclassify an admin table `crew_readable` → A; (iii) inject a fake `ADMIN_TABLES` name → A; (iv) `create view public.v_probe as select * from public.admin_alerts` → C; (v) matview; (vi) partitioned parent; (vii) foreign table; (viii) perturb a declared count → tripwire.
+**Mutant coverage.** Each mutant runs in its own rolled-back transaction and asserts the **single** reconciliation it is meant to trip, by exact message — a mutant that trips two arms proves neither, which is R2 finding 3. Inputs are pinned so this cannot happen:
+
+| # | Mutant input | Must fail | Must NOT also fail |
+| --- | --- | --- | --- |
+| i | delete the registry row for `geocode_cache` (a **non**-`ADMIN_TABLES` table) | C `unclassified` | A |
+| ii | reclassify `sync_log` as `crew_readable` | A `bad-posture` | C |
+| iii | inject `fake_admin` into the `ADMIN_TABLES` fixture **and** classify it `admin_only` | A `missing-live` | A `bad-posture`, C |
+| iv | `create view public.v_probe as select * from public.admin_alerts` | C `unclassified` | A, B |
+| v | materialized view | C `unclassified` | A, B |
+| vi | partitioned parent | C `unclassified` | A, B |
+| vii | foreign table | C `unclassified` | A, B |
+| viii | perturb `declaredLive` | tripwire | A, B, C |
+
+Mutant (i) deliberately targets a non-admin table: deleting an `ADMIN_TABLES` member's row trips A *and* C, so it would not establish direction C on its own. Mutant (iii) classifies the fake name for the same reason — otherwise it trips both of A's arms.
 
 **Commit:** `test(db): classify every public relation and reconcile against the catalog`
 
@@ -108,7 +121,22 @@ Scope the assertion against `ADMIN_TABLES`, never against `RPC_GATED_TABLES` its
 
 **Files:** create **tests/cross-cutting/rlsCoverage.test.ts**; delete `tests/db/admin-rls-runtime.test.ts` and its `admin-rls-runtime.baseline.json` (sole consumer verified).
 
-**Red:** write the assertions with `RLS_POSTURE = {}` — per `ADMIN_TABLES` member, `relrowsecurity = true` plus its declared posture: `admin_only` (exactly one policy, `cmd=ALL`, `is_admin()` in `qual` and `with_check`, `qual = with_check`) or `deny_all` (zero policies). Reverse direction: every live `admin_only` table is in `ADMIN_TABLES` or the allowlist. Behavioral cells per spec §6.3, using the paired witness `admin_count > 0 AND nonadmin_count = 0`, degrading to a recorded `unavailable — no rows` on an empty table. Run: fails, naming all 19 unpostured tables.
+**Red:** write the assertions with `RLS_POSTURE = {}` — per `ADMIN_TABLES` member, `relrowsecurity = true` plus its declared posture: `admin_only` (exactly one policy, `cmd=ALL`, `is_admin()` in `qual` and `with_check`, `qual = with_check`) or `deny_all` (zero policies). Reverse direction: every live `admin_only` table is in `ADMIN_TABLES` or the allowlist. Run: fails, naming all 19 unpostured tables.
+
+**The behavioral matrix, enumerated — do NOT apply the paired witness uniformly.** Applying it to every `ADMIN_TABLES` member fails *for the wrong reason* on `email_deliveries`, whose `authenticated` SELECT is revoked outright (`supabase/migrations/20260602000004_b3_email_deliveries.sql:21`) so RLS is never reached. Each cell below is implemented explicitly:
+
+| Table(s) | Cell | Implementation |
+| --- | --- | --- |
+| the 16 SELECT-retaining REVOKEd tables | SELECT | paired witness `admin_count > 0 AND nonadmin_count = 0`; may degrade |
+| the 16 | INSERT / UPDATE / DELETE | none here — grant-layer `42501`, owned by the lockdown test |
+| `email_deliveries` | SELECT | **no RLS probe.** Assert `has_table_privilege('authenticated', …, 'SELECT') = false`; grant-layer proof |
+| `email_deliveries` | I/U/D | none here — grant-layer |
+| `admin_alerts` | INSERT | **unconditional** behavioral: non-admin INSERT of `{code, context}` must be denied. Needs no pre-existing row (every other column defaults, `supabase/migrations/20260501001000_internal_and_admin.sql:268`) |
+| `admin_alerts` | SELECT / UPDATE / DELETE | behavioral, **row-dependent**; may degrade |
+| `app_settings` | SELECT / UPDATE / DELETE | behavioral, **never degrades** — the singleton row always exists |
+| `app_settings` | INSERT | **structurally unavailable** (singleton `id = 'default'` CHECK). Assert the reason is recorded; do not probe |
+
+**Degradation must be loud (R2 finding 3).** A `EXPECTED_DEGRADATION: Set<string>` pins which cells are permitted to report `unavailable — no rows` (initially empty — populate from the first real run). The test asserts the observed degradation set **equals** it, so an *unexpected* degradation fails and a *disappearing* one fails too. Without this, a table silently emptying turns a real assertion into a no-op and the run still passes.
 
 **Green:** populate `RLS_POSTURE` (18 `admin_only`, `email_deliveries` `deny_all`) and the allowlist (`ignored_warnings`, `admin_emails`). Delete the old test and baseline.
 
@@ -143,11 +171,15 @@ Per spec §10's evidence table, which supersedes the generic checklist.
 
 ## Task 7 — backlog reconciliation
 
-**Files:** edit `BACKLOG.md`, `BACKLOG-archive.md`.
+**Files:** create **tests/docs/backlogClusterArchival.test.ts**; edit `BACKLOG.md`, `BACKLOG-archive.md`.
 
 Corpus reality (plan-R1 finding 8, verified): only **two** cluster entries are open — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING`. `BL-X5-INTROSPECTION-GAP` is already at `BACKLOG-archive.md:2078` and must not be duplicated. `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY`, filed by this cluster, **stays open**.
 
-Move exactly those two entries to `BACKLOG-archive.md` with resolution notes; append one line to the existing `BL-X5-INTROSPECTION-GAP` archive entry recording that its residual naming-aperture gap was closed here.
+**Red:** add **tests/docs/backlogClusterArchival.test.ts** asserting the post-cluster corpus state — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING` each appear in `BACKLOG-archive.md` and **not** in `BACKLOG.md`; `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY` appears in `BACKLOG.md` and **not** in the archive; `BL-X5-INTROSPECTION-GAP` appears exactly **once** across both files. Run: fails on the first two (still open) — a genuine red. `tests/docs/` already hosts this shape of guard (`tests/docs/_metaInvariant8Closeout.test.ts`).
+
+R2 finding 1: this task edits two tracked files and commits, so invariant 1 binds. Tasks 6 and 8 are exempt only because they are process-only and commit nothing; Task 7 has no such exemption, and the earlier draft's lack of a red step was a real violation.
+
+**Green:** move exactly those two entries to `BACKLOG-archive.md` with resolution notes; append one line to the existing `BL-X5-INTROSPECTION-GAP` archive entry recording that its residual naming-aperture gap was closed here. The duplicate-count arm is what stops the move from silently duplicating an already-archived entry.
 
 **Commit:** `docs(backlog): archive the two lockdown entries this cluster resolves`
 
