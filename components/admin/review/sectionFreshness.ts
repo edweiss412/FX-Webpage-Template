@@ -37,7 +37,9 @@ import type { ParseWarning } from "@/lib/parser/types";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
-import { toNoteItem } from "@/lib/admin/parseAttentionNote";
+import { orderNotes, toNoteItem } from "@/lib/admin/parseAttentionNote";
+import { FAILED_KEYS_CAP, usableFailedKeys } from "@/components/admin/review/AttentionBanner";
+import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
   CREW_CAP,
@@ -432,9 +434,7 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
     const region = SECTION_REGION_MAP[id];
     const anchor = region === null ? null : (data.sourceAnchors?.[region] ?? null);
     const href = buildSheetDeepLink(ANCHOR_PROBE_DFID, anchor);
-    const attention = (attentionBySection.get(id) ?? []).map((item) =>
-      renderedAttentionState(item, warningsRendered),
-    );
+    const attention = renderedAttentionState(attentionBySection.get(id) ?? [], warningsRendered);
     out.set(
       id,
       hash([
@@ -492,27 +492,107 @@ const BANNER_ALERT_KEYS = [
   "alertId",
   "code",
   "template",
-  "params",
   "action",
   "helpHref",
   "raisedAt",
   "autoClearNote",
-  "failedKeys",
-  "dataGaps",
 ] as const;
 
-function renderedAttentionState(item: AttentionItem, warningsRendered: boolean): unknown {
-  const note = toNoteItem(item);
-  if (note !== null && item.sectionId === "warnings" && warningsRendered) {
-    return ["note", item.id, note.alert.code, note.alert.errorCode ?? null];
+/**
+ * The alert payload as the banner PAINTS it, not as it is stored.
+ *
+ * Round-4 review probed the shipped `AttentionBanner` and found seven more
+ * false-cue inputs inside the payload, all the same shape as the whitespace
+ * class before it: the renderer caps, sorts, drops or formats a value and the
+ * detector hashed the raw one. So this runs the payload through the SAME pure
+ * functions the banner calls, which is the mechanism `N12` already pins for
+ * anchors. A cap raised or a formatter changed then moves both at once.
+ *
+ * - `failedKeys` through `usableFailedKeys`, which drops blank keys, then the
+ *   banner's own `FAILED_KEYS_CAP`. The LENGTH stays, because the banner paints
+ *   a `+N more` tail: a seventh key is invisible as a key and visible as a count.
+ * - `dataGaps` through `formatDataGapBreakdown`, which IS the painted string, so
+ *   classes past its four-class cap cannot cue. Paired with the render gate
+ *   (`total > 0`, `components/admin/review/AttentionBanner.tsx:134`), which is
+ *   the only way `total` reaches the screen — as a boolean, never as a number.
+ * - `params` narrowed to keys the `template` actually interpolates. A param the
+ *   template never names cannot change a glyph.
+ */
+/**
+ * `formatDataGapBreakdown` reads `summary.classes` without guarding it, so a
+ * payload whose `classes` is absent throws. That payload is JSONB off the wire,
+ * not a typed literal, so "cannot happen" is not available here — and a throw in
+ * the DETECTOR would take down the whole modal render for a cosmetic cue. On a
+ * shape the formatter cannot read, fall back to the raw value: the cue may then
+ * be conservative rather than exact, which is the correct direction to fail.
+ */
+function paintedGapBreakdown(gaps: unknown): unknown {
+  try {
+    return formatDataGapBreakdown(gaps as Parameters<typeof formatDataGapBreakdown>[0]);
+  } catch {
+    return gaps;
+  }
+}
+
+function renderedAlertState(alert: Record<string, unknown>): unknown {
+  const keys = usableFailedKeys(alert.failedKeys as string[] | null | undefined);
+  const gaps = alert.dataGaps as { total?: unknown } | null | undefined;
+  const gapTotal = gaps?.total;
+  const showGaps =
+    gaps !== null &&
+    gaps !== undefined &&
+    typeof gapTotal === "number" &&
+    Number.isFinite(gapTotal) &&
+    gapTotal > 0;
+  const template = typeof alert.template === "string" ? alert.template : "";
+  const params = (alert.params ?? {}) as Record<string, unknown>;
+  return [
+    pick(alert, BANNER_ALERT_KEYS),
+    keys === null ? null : [keys.slice(0, FAILED_KEYS_CAP), keys.length],
+    showGaps,
+    showGaps ? paintedGapBreakdown(gaps) : null,
+    Object.keys(params)
+      .filter((k) => template.includes(k))
+      .sort()
+      .map((k) => [k, params[k]]),
+  ];
+}
+
+function renderedAttentionState(
+  items: readonly AttentionItem[],
+  warningsRendered: boolean,
+): unknown {
+  const notes: ReturnType<typeof toNoteItem>[] = [];
+  const banners: AttentionItem[] = [];
+  for (const item of items) {
+    const note = toNoteItem(item);
+    if (note !== null && item.sectionId === "warnings" && warningsRendered) notes.push(note);
+    else banners.push(item);
   }
   return [
-    "banner",
-    item.id,
-    item.tone,
-    item.actionable,
-    item.clearingKind ?? null,
-    item.kind === "alert" ? pick(item.alert, BANNER_ALERT_KEYS) : null,
+    // Through `orderNotes`, because `WarningsBreakdown` renders them sorted by a
+    // fixed code precedence (`lib/admin/parseAttentionNote.ts:32`). Round-4
+    // review reordered the input and cued a byte-identical panel: the arrival
+    // order is not a rendered property. And NOT `item.id` — it is a React key
+    // here, while the rendered testid is built from the CODE
+    // (`components/admin/wizard/step3ReviewSections.tsx:2884`).
+    orderNotes(notes.filter((n): n is NonNullable<typeof n> => n !== null)).map((n) => [
+      "note",
+      n.alert.code,
+      n.alert.errorCode ?? null,
+    ]),
+    // Banner order is NOT normalized: unlike the notes there is no sort between
+    // the bucket and the paint, so a reorder there really does move the DOM.
+    banners.map((item) => [
+      "banner",
+      item.id,
+      item.tone,
+      item.actionable,
+      item.clearingKind ?? null,
+      item.kind === "alert"
+        ? renderedAlertState(item.alert as unknown as Record<string, unknown>)
+        : null,
+    ]),
   ];
 }
 

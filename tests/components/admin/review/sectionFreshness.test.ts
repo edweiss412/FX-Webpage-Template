@@ -488,6 +488,119 @@ describe("section freshness detector", () => {
     ]);
   });
 
+  it("D16: the alert payload cues ONLY through what the banner paints", () => {
+    // Round-4 review probed the shipped `AttentionBanner` and found seven inputs
+    // that moved the signature while the rendered HTML stayed byte-identical.
+    // Every one is here, because a class dripped one instance per round is what
+    // turned this surface into a four-round vector. The fix routes the payload
+    // through the banner's OWN pure functions, so these hold for whatever the
+    // banner does next rather than for the shapes it does today.
+    const alertOf = (over: Record<string, unknown>) =>
+      ({
+        alertId: "al-1",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        template: "Two crew share {email}.",
+        params: { email: "a@b.c" },
+        action: null,
+        helpHref: null,
+        raisedAt: "2026-08-03T09:00:00.000Z",
+        occurrenceCount: 1,
+        autoClearNote: null,
+        failedKeys: null,
+        dataGaps: null,
+        errorCode: null,
+        ...over,
+      }) as never;
+    const banner = (over: Record<string, unknown> = {}): AttentionItem => ({
+      kind: "alert",
+      alert: alertOf(over),
+      id: "a1",
+      tone: "notice",
+      sectionId: "crew",
+      crewKey: null,
+      actionable: false,
+      menuTitle: "m",
+      menuSubtitle: null,
+    });
+    const sigs = (items: readonly AttentionItem[], key = "crew") => {
+      const data = buildPublishedSectionData(reviewSnapshot(), { slug: SLUG });
+      const bySection = buildSectionWarningModel({
+        slug: SLUG,
+        warnings: data.warnings,
+        ignoredFingerprints: new Set<string>(),
+        renderedSectionIds: new Set(renderedSectionIds(data)),
+      });
+      return buildSectionSignatures({
+        data,
+        bySection,
+        attentionBySection: new Map<string, readonly AttentionItem[]>([[key, items]]),
+      });
+    };
+    const same = (a: readonly AttentionItem[], b: readonly AttentionItem[], why: string) =>
+      expect(changedSectionIds(sigs(a), sigs(b)), why).toEqual([]);
+
+    // (1) A param the template never interpolates cannot change a glyph.
+    same(
+      [banner({ params: { email: "a@b.c" } })],
+      [banner({ params: { email: "a@b.c", unused: "zzz" } })],
+      "an uninterpolated param must not cue",
+    );
+    // (2) Keys past the banner's cap are not painted as keys...
+    const six = ["k1", "k2", "k3", "k4", "k5", "k6"];
+    same(
+      [banner({ failedKeys: [...six, "k7"] })],
+      [banner({ failedKeys: [...six, "CHANGED"] })],
+      "a key beyond the cap must not cue",
+    );
+    // ...but their COUNT is, via the `+N more` tail, so adding one DOES cue.
+    expect(
+      changedSectionIds(
+        sigs([banner({ failedKeys: six })]),
+        sigs([banner({ failedKeys: [...six, "k7"] })]),
+      ),
+      "the overflow count IS painted",
+    ).toEqual(["crew"]);
+    // (3) Blank keys are dropped by the banner's own normalizer.
+    same(
+      [banner({ failedKeys: ["k1"] })],
+      [banner({ failedKeys: ["k1", "   "] })],
+      "a whitespace-only key must not cue",
+    );
+    // (4) Gap classes past the formatter's four-class cap are not painted.
+    // `classes`, the field `formatDataGapBreakdown` actually reads
+    // (`lib/parser/dataGaps.ts:364`). An earlier draft wrote `byClass` and the
+    // formatter threw — which is how the detector's own crash-guard was found.
+    const gaps = (extra: Record<string, number>, total: number) => ({
+      total,
+      classes: {
+        FIELD_UNREADABLE: 9,
+        ROW_DROPPED: 8,
+        BLOCK_SKIPPED: 7,
+        VALUE_TRUNCATED: 6,
+        ...extra,
+      },
+    });
+    same(
+      [banner({ dataGaps: gaps({ ROW_ORPHANED: 1 }, 31) })],
+      [banner({ dataGaps: gaps({ ROW_ORPHANED: 2 }, 32) })],
+      "a hidden fifth gap class must not cue",
+    );
+    // (5) `total` reaches the screen only as the show/hide boolean.
+    same(
+      [banner({ dataGaps: { total: 5, classes: { FIELD_UNREADABLE: 5 } } })],
+      [banner({ dataGaps: { total: 9, classes: { FIELD_UNREADABLE: 5 } } })],
+      "a total change with the same painted classes must not cue",
+    );
+    // ...and crossing zero DOES cue, because that flips the band on.
+    expect(
+      changedSectionIds(
+        sigs([banner({ dataGaps: { total: 0, classes: {} } })]),
+        sigs([banner({ dataGaps: { total: 2, classes: { FIELD_UNREADABLE: 2 } } })]),
+      ),
+      "crossing the render gate IS visible",
+    ).toEqual(["crew"]);
+  });
+
   it("D14: the diff reports a section that vanished and one that appeared", () => {
     // A `changedSectionIds` that iterated only the new map would silently drop the
     // removal. D7 cannot catch that: it checks map membership, not the diff.

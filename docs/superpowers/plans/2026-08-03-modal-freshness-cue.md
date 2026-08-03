@@ -53,7 +53,7 @@ Declared before tasks, per `docs/agents/writing-plans.md:16`.
 | Meta-test | Action |
 |---|---|
 | `tests/components/admin/review/sectionFreshnessCss.test.ts (new)` | **CREATES.** Pins the constant against its declaration, the normative CSS block byte for byte, the four keyframe names, the `-1` and `-2` bodies being identical apart from name, the reduced-motion override, and the staged surface emitting nothing. |
-| `tests/styles/status-token-contrast.test.ts` | **EXTENDS.** Four rows for the repurposed `--color-accent-tint` background and the outline against both grounds it touches. |
+| `tests/styles/status-token-contrast.test.ts` | **EXTENDS.** Rows for the outline against both grounds it touches. The `--color-accent-tint` background this row once named was cut on design review before implementation; the cue animates `outline-color` only. |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in specs that already have a `testMatch` row and a workflow. Running it is the proof of that claim, not an assumption. It is NOT sufficient on its own, for the reason in T5: it treats a `grep`-narrowed invocation as still covering the spec (`tests/ci/_metaE2eWorkflowCoverage.test.ts:207-208`), so coverage at spec granularity does not imply coverage at case granularity. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A.** No `pg_advisory` call is added or touched; no SQL of any kind is in the diff. |
 | `tests/auth/_metaInfraContract.test.ts` | **N/A.** No Supabase client call site is added or touched. |
@@ -112,7 +112,7 @@ export function freshnessAnnouncement(
 
 `changedSectionIds` diffs over the UNION of both maps' keys, so a section that DISAPPEARED is reported. Results are sorted by registry order so the announcement reads in document order rather than hash order. `freshnessAnnouncement` implements the §4.6 copy table over `changed` intersected with `stillRendered`, and returns the surface sentence when that intersection is empty but `changed` is not.
 
-The hash is djb2 over `JSON.stringify(value ?? null)` joined with the string length. A comment records why it is not `node:crypto`: this module is imported by a client component, and a collision costs one missed cue on content that is already correct on screen.
+The hash is TWO independent rolling lanes over the normalized JSON form, joined with the string length. One 32-bit djb2 plus a length had a constructible same-length collision (round-3 review built one: two crew payloads rendering different HTML, hashing identically, which is a MISSED cue). A comment records why it is not `node:crypto`: this module is imported by a client component, and a collision costs one missed cue on content that is already correct on screen.
 
 **Tests D1 through D8** exactly as spec §11.1, built from an RPC-shaped snapshot fed through the real `buildPublishedSectionData`. Never a hand-written `PublishedSectionData` literal: a literal would prove the hash function hashes, not that it isolates a real edit through the real adapter.
 

@@ -343,11 +343,41 @@ describe("published review modal: freshness cue", () => {
     // target; if the attribute leaked onto it the reader would see two nested
     // outlines for one change. The emit is gated on `chrome.sectionId !== undefined`
     // precisely so a sub-block cannot receive one.
-    const { rerender } = render(publishedModalElement(CREW));
-    rerender(publishedModalElement(CREW));
-    rerender(publishedModalElement(CREW_AND_ROOMS));
+    //
+    // The fixture MUST render a real sub-block. Round-4 review found the earlier
+    // version of this row vacuous: the harness hardcoded `diagrams: null`, so
+    // "no diagram node carries the attribute" was true over an empty set and
+    // would have stayed true against an implementation that leaked onto every
+    // sub-block there was.
+    // The PERSISTED shape, in the post-M7 `{ current }` envelope
+    // `resolveCurrentDiagrams` unwraps (`lib/data/diagrams.ts:54`), carrying the
+    // `snapshot_revision_id` its guard requires (`:45`). The resolved shape does
+    // NOT pass that gate, which is what an earlier draft of this row supplied.
+    const DIAGRAMS = {
+      current: {
+        snapshot_revision_id: "freshness-diagrams-rev",
+        snapshot_status: "complete" as const,
+        linkedFolder: {
+          driveFolderId: "freshness-folder",
+          driveFolderUrl: "https://drive.google.com/drive/folders/freshness",
+        },
+        embeddedImages: [],
+        linkedFolderItems: [],
+      },
+    };
+    const withDiagrams = (rows: readonly RawRow[]) =>
+      publishedModalElement(rows, { diagrams: DIAGRAMS });
 
-    expect(armedCards().length).toBeGreaterThan(0);
+    const { rerender } = render(withDiagrams(BASE4));
+    rerender(withDiagrams(BASE4));
+    // The premise, asserted rather than assumed.
+    const subBlock = document.querySelector('[data-testid*="diagram" i]');
+    expect(subBlock, "the fixture must actually render a Diagrams sub-block").not.toBeNull();
+
+    rerender(withDiagrams(B_CREW_ROOMS));
+    expect(armedCards().length, "Rooms must be cued for this row to mean anything").toBeGreaterThan(
+      0,
+    );
     const leaked = [...document.querySelectorAll(`[${ATTR}]`)].filter((el) =>
       (el.getAttribute("data-testid") ?? "").toLowerCase().includes("diagram"),
     );
@@ -413,9 +443,11 @@ describe("published review modal: freshness cue", () => {
 
     act(() => void vi.advanceTimersByTime(400));
     rerender(publishedModalElement(B_CREW_ROOMS)); // batch 2: rooms joins, crew held
-    // The wash holds through 45% of 1600ms, so at 400ms crew is still at full
-    // tint. An implementation that REPLACED the id set would snap it to resting
-    // here, which is what per-batch expiry exists to prevent.
+    // The outline holds through the first stretch of its 1600ms, so at 400ms crew
+    // is still at full strength. An implementation that REPLACED the id set would
+    // snap it to resting here, which is what per-batch expiry exists to prevent.
+    // (The cue animates outline-color only; the background wash this comment used
+    // to name was cut on design review before implementation.)
     expect(armedCards().length, "crew must still be armed alongside rooms").toBe(2);
 
     // Each expires on its OWN clock: crew first, 400ms before rooms.

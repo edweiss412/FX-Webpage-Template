@@ -61,7 +61,7 @@ function snapshot(rawRows: readonly RawRow[], opts: HarnessOpts = {}): ShowRevie
       event_details: null,
       agenda_links: [...(opts.agendaLinks ?? [])] as ShowReviewSnapshot["show"]["agenda_links"],
       coi_status: "received",
-      diagrams: null,
+      diagrams: (opts.diagrams ?? null) as ShowReviewSnapshot["show"]["diagrams"],
       pull_sheet: [],
       source_anchors: {},
       drive_file_id: DRIVE_FILE_ID,
@@ -111,6 +111,16 @@ export type HarnessOpts = {
    * warn and asserted an appearance that never happened.
    */
   agendaLinks?: readonly unknown[];
+  /**
+   * Diagrams. Default stays `null` so every existing row keeps the tree it was
+   * written against; a caller that needs the Rooms card's Diagrams SUB-BLOCK to
+   * actually render passes one.
+   *
+   * Round-4 review found S13 vacuous without this: it claimed to prove the
+   * sub-block never wears the freshness attribute, while the fixture rendered no
+   * sub-block at all, so the assertion held over an empty set.
+   */
+  diagrams?: unknown;
 };
 
 function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): PublishedReviewModalProps {

@@ -52,7 +52,10 @@ export type AttentionBannerProps = {
 };
 
 /** At most this many failed-source keys render before the overflow suffix (§4.1). */
-const FAILED_KEYS_CAP = 6;
+// Exported so the freshness DETECTOR can apply the same cap it renders under
+// rather than re-typing the number. Round-4 review found a change to the
+// seventh key cueing a byte-identical card.
+export const FAILED_KEYS_CAP = 6;
 
 /**
  * A template can be non-empty yet render nothing visible — stray emphasis
@@ -64,7 +67,10 @@ function hasVisibleText(template: string): boolean {
 }
 
 /** Trimmed, empties dropped; null when nothing survives (§5.2). */
-function usableFailedKeys(keys: string[] | null | undefined): string[] | null {
+// Exported for the same reason as FAILED_KEYS_CAP: the detector must drop
+// exactly the keys this drops, or a whitespace-only key cues a card that never
+// shows it.
+export function usableFailedKeys(keys: string[] | null | undefined): string[] | null {
   if (!Array.isArray(keys)) return null;
   const kept = keys.map((k) => k.trim()).filter((k) => k.length > 0);
   return kept.length > 0 ? kept : null;
