@@ -10,7 +10,7 @@
 
 ## 1. Problem
 
-PR #676 wired Inter at both Next roots and bound `--font-sans` to `var(--font-inter)`, so every React-root surface now renders the committed family. `BL-HARNESS-FONT-FIDELITY` is the residual it filed: the standalone e2e harnesses have no Next runtime, so no `@font-face` reaches them, and they resolve the inline `var()` fallback pair and land on the ambient host font — SF Pro locally, DejaVu Sans on the Ubuntu runner.
+PR #676 wired Inter at both Next roots and bound `--font-sans` to `var(--font-inter)`, so every React-root surface now renders the committed family (the four rootless auth HTML responses excepted — §1.1). `BL-HARNESS-FONT-FIDELITY` is the residual it filed: the standalone e2e harnesses have no Next runtime, so no `@font-face` reaches them, and they resolve the inline `var()` fallback pair and land on the ambient host font — SF Pro locally, DejaVu Sans on the Ubuntu runner.
 
 **The exposure is broader than the entry's "cost today is zero" suggests.** Measured on this branch:
 
@@ -34,6 +34,7 @@ Cost is zero because nothing has drifted, not because few tests are exposed. Twe
 | **PR #676's binding shape is kept, not revisited.** `--font-sans: var(--font-inter, "Inter", "Inter Fallback"), …` (`app/globals.css:113-115`) with the inline `var()` fallback is deliberate: it keeps the declaration valid at computed-value time on any surface without the token, which is exactly the harness case. This spec changes what *defines* `--font-inter`, not the consuming declaration. | `app/globals.css:102-116` (the comment states the reasoning inline). |
 | **The ~10% swap reflow #676 fixed stays fixed.** That work measured first paint snapping 187.28px → 168.91px on a real string before the metric-matched fallback was reachable. Any design here preserves a metric-matched `Inter Fallback` in the family list. | `app/globals.css:102-112`. |
 | **The Arial pin at `tests/e2e/section-header-layout.layout.spec.ts:182` is not widened.** Its comment records the reason inline, and `BL-HARNESS-FONT-FIDELITY` explicitly refuses widening it as a resolution. Whether that pin should be *retargeted* at Inter once harnesses render Inter is a §5 question, not a licence to loosen the assertion. | `tests/e2e/section-header-layout.layout.spec.ts:165-183`; BACKLOG.md `BL-HARNESS-FONT-FIDELITY`. |
+| **Four hand-built HTML auth responses are out of scope, and that limit is inherited rather than newly decided.** `app/api/auth/google/start/route.ts`, `app/api/auth/picker-bootstrap/route.ts`, `app/auth/callback/route.ts` and `app/auth/sign-out/route.ts` return complete HTML that mounts no React root, so no root layout and no stylesheet import reaches them. PR #676's review ratified this and filed it separately; an earlier draft of *this* spec silently widened G1 to "the app", restoring a claim that was already refuted once. It is fixed above, and it is not reopened here — expanding into auth plumbing belongs to the filed entry, not to harness fidelity. | `BACKLOG.md:1404` (`BL-AUTH-INTERSTITIAL-FONT`, filed 2026-08-03 from that review's R5). |
 | **No database object is touched.** The tier × domain and CHECK/enum matrices (`docs/agents/spec-self-review.md:15` and `docs/agents/spec-self-review.md:16`) are N/A, stated rather than omitted. | — |
 | **No new prop, input, or config flag.** Guard-conditions-per-prop (`docs/agents/spec-self-review.md:7`) and the flag lifecycle table (`docs/agents/spec-self-review.md:17`) are N/A. | — |
 
@@ -43,7 +44,7 @@ Cost is zero because nothing has drifted, not because few tests are exposed. Twe
 
 **Goals**
 
-- G1. The app and all 31 harnesses resolve the same Inter face from the same files.
+- G1. Every Next-rendered surface **with a React root**, and all 31 harnesses, resolve the same Inter face from the same files. The four rootless HTML responses are excluded by a ratified limit — see §1.1.
 - G2. The font bytes are pinned in the repo by hash, so an upstream change is a reviewable diff rather than silent baseline drift.
 - G3. No build-time network fetch for fonts.
 - G4. The metric-matched fallback #676 introduced stays reachable, and its absence is caught statically.
@@ -133,9 +134,13 @@ This is the step that self-hosting makes possible. Under `next/font` there is no
 Two changes close it, and the spec requires both:
 
 1. **The harness-emitted face uses `font-display: block`, not `swap`.** This is a deliberate divergence from the app, and the reason is that the two environments want opposite things: a reader must never stare at invisible text, so the app swaps; a measurement harness must never measure the wrong face, so it blocks. The files are served from the same directory the page is served from, so the block period is a local read.
-2. **The 21 unsynchronized callers await `document.fonts.ready` before their first measurement.** `font-display: block` makes the race vanishingly unlikely; awaiting makes it impossible, and it is the guarantee the specification actually offers. The list is enumerated in §5 so the work is countable rather than discovered.
+2. **The 21 unsynchronized callers await `document.fonts.ready` after EVERY navigation, not once per file.** `font-display: block` makes the race vanishingly unlikely; awaiting makes it impossible, and it is the guarantee the specification actually offers. The list is enumerated in §5 so the work is countable rather than discovered.
+
+   **Per navigation, because 13 of the 21 create multiple documents.** Round 4 established the exact set: `agendaScheduleLayout`, `appHealthIndicator.layout`, `bulk-ignore-eyebrow.layout`, `compact-alert-card-layout`, `developer-toggle-layout`, `hoverhelp-geometry`, `pendingDiscardReal.layout`, `pendingDiscardReflow.layout`, `popover-clip-fit`, `section-header-layout.layout`, `statusStripToggleLayout`, `step3-review-modal.interactions`, `step3-review-page.layout`. A promise settled against the first document says nothing about the second, so "await before the first measurement" would leave every later navigation in those 13 unsynchronized while reading as done.
 
 Naming only the first would leave a timing-dependent guarantee; naming only the second would leave 21 files each able to regress independently.
+
+Per invariant 1 the wait edits are not a bulk mechanical pass: the §4.1 row above is written first and must fail against the current tree — where all 21 have zero waits, confirmed by probe — before any wait is added.
 
 ### 3.3 The committed subsets
 
@@ -206,7 +211,8 @@ Sibling precedent: `tests/styles/design-figure-parity.test.ts` and `tests/styles
 | The fonts stylesheet declares **exactly seven** `@font-face` rules with `font-family: Inter`. | Dropping a subset. Text in its range silently falls to another family. |
 | For each face, the `unicode-range` and the `src` filename are checked **as a pair** against §3.3 — not as two independent sets. | Permuting the source URLs among subsets. Face count, range set, and every hash still check out while Greek or Cyrillic text selects a file with none of its glyphs. |
 | Every referenced file exists under `public/fonts/`, and each SHA-256 equals §3.3. | A rename, a `.gitignore` rule, or an unreviewed byte swap. Does **not** catch a version bump that skips the §3.4 Capsize re-derivation — that is a checklist item on §3.4, not a guard, and saying so beats crediting one that cannot see it. |
-| **Exactly one stylesheet in the repo declares `@font-face`** — the fonts stylesheet — and the census that establishes this includes `.css`. | **The sixth escaping mutant:** a rogue stylesheet under app/help/ declaring `@font-face { font-family: Rogue; src: local(Arial) }`, imported by `app/help/layout.tsx` and applied to its wrapper. Every other row passes — the canonical stylesheet keeps its seven correct faces, both roots keep their import, `app/globals.css` stays face-free, the harness block still matches, and there is no `next/font` import anywhere. The runtime gates miss it too: `font-binding.spec.ts` visits `/admin`, `/auth/sign-in` and a crew route, and the 14 WebPs capture admin routes only — none touch `/help`. A second self-hosted family renders part of the app in Arial while every gate reports one delivery mechanism. `singleFontLoader.test.ts`'s census walks eight source extensions plus `.mdx` and **not** `.css`, which is exactly the hole. |
+| **Exactly one place in the repo declares `@font-face`** — the fonts stylesheet. The census covers `.css` files **and stylesheet text authored inside source files** (string and template literals in `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mdx`). | **Mutants six and seven, which are the same shape at two depths.** Six puts `@font-face` in an app-level `.css` file, which the `next/font` census never scanned. Seven puts it in an inline `<style>` inside a `.tsx` component — and that is not hypothetical plumbing: `app/auth/sign-out/route.ts:32` already emits a `<style>` block with a `font:` declaration from a `.ts` file, so the surface is live in this repo today. Both pass every other row: canonical stylesheet intact, hashes intact, roots importing, `app/globals.css` face-free, harness block matching, token and preload correct, no `next/font` anywhere. Both also evade the runtime gates, which visit `/admin`, `/auth/sign-in` and crew routes and capture admin-only WebPs — never `/help`. A rogue family renders a visible surface in Arial while every gate stays green. |
+| Each of the 21 §5 callers awaits `document.fonts.ready` at **every** navigation site — one wait per `page.goto`/`setContent`, not one per file. | Removing a wait, or adding only one to a multi-navigation file, leaves geometry measured against the fallback frame and silently re-derives fallback metrics into pinned figures. Round 4 found this row missing entirely: §3.2 required the waits, §5 enumerated them, and nothing asserted them. The count is per navigation site precisely because 13 of the 21 create more than one document. |
 | The harness-emitted face declares `font-display: block`, and the app's seven declare `swap`. | Collapsing the two environments onto one value. `swap` in a harness lets the 21 unsynchronized callers measure a fallback frame (§3.2); `block` in the app would show invisible text to a reader. The divergence is deliberate and each half is wrong in the other place. |
 | Every one of the seven declares `font-display: swap`. | A font-block period, invisible to every test here (all await `document.fonts.ready`). |
 | The `Inter Fallback` face declares `src: local("Arial")` and the four §3.1 override values. | Repointing the fallback at another local family leaves the overrides correct for a face they no longer describe — worse than no fallback, since they would scale the wrong glyphs. |
@@ -239,7 +245,7 @@ What is missing is the harness half, and it is the point of this spec. A new cas
   font-family: "Inter";       /* the author-declared alias, not the bytes */
   src: local("Arial");
   font-weight: 100 900;
-  font-display: swap;
+  font-display: block;        /* matches what the harness is required to emit */
   unicode-range: U+0000-00FF;
 }
 ```
@@ -248,7 +254,9 @@ Emit that from `compileEntryCss` and every §4.1 row still passes (the app style
 
 So the case asserts both:
 
-- **Source equality.** The `@font-face` block `compileEntryCss` emits is equal to the block in the fonts stylesheet — same families, same `src` filenames, same ranges, same descriptors. This is what ties the harness face to the seven hash-pinned files rather than to a name.
+- **Source equality, in the load-bearing descriptors.** The `@font-face` block `compileEntryCss` emits matches the block in the fonts stylesheet on `font-family`, `src` filename, `unicode-range`, `font-weight` and `font-style` — the descriptors that determine *which bytes render*. This is what ties the harness face to the seven hash-pinned files rather than to a name.
+
+  **`font-display` is the one descriptor that must differ, and round 4 caught the earlier draft demanding both.** As written it required the blocks to be equal *and* to carry different `font-display` values, which no implementation can satisfy. The rule is: equal on everything that selects bytes, and `block` in the harness against `swap` in the app, asserted as a required difference rather than tolerated as an exception. Nothing else may differ.
 - **Rendered metric.** A fixed string measures to Inter's width, the posture `tests/e2e/font-binding.spec.ts` already uses on the app side (loaded-face presence combined with a width check), so a face that merely claims the name fails.
 
 `document.fonts` enumerates only `@font-face`-declared faces, never system-installed ones, which is why the presence half is still worth having on a machine with no Inter installed. `document.fonts.check()` is deliberately not used — it returns true for a system-installed family.
