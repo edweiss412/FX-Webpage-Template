@@ -735,6 +735,94 @@ describe("R9 escaping mutants", () => {
   });
 });
 
+describe("R10 escaping mutants", () => {
+  // `${VAR:-$(psql …)}` EXECUTES its operand. Consuming the whole expansion as
+  // one opaque word made every such invocation invisible, in all eight
+  // default/assign/alternate/error forms.
+  test.each([":-", "-", ":=", "=", ":+", "+", ":?", "?"])(
+    "a command substitution inside a `${VAR%s…}` expansion is a site",
+    (operator) => {
+      const sites = sitesIn(`result=\${RESULT${operator}$(psql -qAt mydb)}\n`, "x.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+      expect(sites[0]!.nested).toBe(true);
+    },
+  );
+
+  test("a suppressed call inside an expansion operand still reads as protected", () => {
+    const sites = sitesIn('out=${OUT:-$(psql -X -qAt "$DSN")}\n', "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("backticks and nested expansions inside an operand are reached too", () => {
+    expect(sitesIn("v=${V:-`psql -qAt mydb`}\n", "x.sh")).toHaveLength(1);
+    expect(sitesIn("v=${V:-${W:-$(psql -qAt mydb)}}\n", "x.sh")).toHaveLength(1);
+  });
+
+  test("an expansion with no substitution is still consumed whole", () => {
+    // The reason the expansion is opaque in the first place: brace-protected
+    // whitespace must not split a redirection target into a phantom argv word.
+    expect(sitesIn('psql -F"${x// /}" -X -c "select 1"\n', "x.sh")).toHaveLength(1);
+    expect(sitesIn('psql -F"${x// /}" -X -c "select 1"\n', "x.sh")[0]!.suppressesStartupFiles).toBe(
+      false,
+    );
+  });
+
+  test.each([
+    ["a plain ssh wrapper", `const c = "ssh database psql -qAt mydb"; execSync(c);`, true],
+    [
+      "a long `docker compose … exec` prefix on a FLAGLESS call",
+      `const c = "docker compose -f docker-compose.yml exec -T postgres psql mydb"; execSync(c);`,
+      true,
+    ],
+    ["flock", `const c = "flock /tmp/l psql -qAt mydb"; execSync(c);`, true],
+    // Precision is unchanged: a BARE psql at the head of a long sentence is
+    // still prose, because it has no wrapper prefix to vouch for it.
+    ["an assertion about output", `const m = "psql output must contain a LOCKS marker";`, false],
+    [
+      "a sentence about a database",
+      `const m = "psql mydb rows are compared against the fixture";`,
+      false,
+    ],
+  ])("the tripwire sees %s -> %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
+  });
+
+  test("a bare marker in a CLOSED block comment cannot borrow the code after it", () => {
+    const source = `/* ${EXEMPTION_MARKER} */ execFileSync("psql", ["-qAt", dsn]);\n`;
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    // The reason must come from INSIDE the comment. There is none, so the site
+    // is unprotected rather than exempt with the statement as its "reason".
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a real reason in a closed block comment still exempts, without the tail", () => {
+    const source = `/* ${EXEMPTION_MARKER} runs in a scratch container */ execFileSync("psql", ["-qAt", dsn]);\n`;
+    const sites = scanSource(source, "x.mjs");
+    expect(sites[0]!.exemptReason).toBe("runs in a scratch container");
+  });
+
+  test.each([">", "> # folded", ">-", ">+", ">2", "|", "|-"])(
+    "a `run: %s` block scalar reports the physical psql line",
+    (header) => {
+      const source = [
+        "jobs:",
+        "  a:",
+        "    steps:",
+        "      - run: " + header,
+        "          psql -qAt mydb",
+        "",
+      ].join("\n");
+      const sites = scanSource(source, ".github/workflows/x.yml");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.line).toBe(5);
+    },
+  );
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

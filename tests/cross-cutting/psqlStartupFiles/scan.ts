@@ -497,9 +497,16 @@ function exemptionOnLines(
     if (at === -1) continue;
     // CONTAINMENT, not "after a comment started": `/* x */ const s = "// …"`
     // has a real comment on the line, and the marker is not inside it.
-    const inside = (commentAt[index] ?? []).some(([from, to]) => at >= from && at < to);
+    const inside = (commentAt[index] ?? []).find(([from, to]) => at >= from && at < to);
     if (!inside) continue;
-    const reason = candidate.slice(at + EXEMPTION_MARKER.length).trim();
+    // The reason must be INSIDE the comment too. Slicing to end-of-line let
+    // `/* psql-startup-files-ok: */ execFileSync("psql", …)` adopt its own
+    // statement as the "reason" — a bare marker exempting a live call, which is
+    // exactly what requiring a reason is supposed to prevent.
+    const reason = candidate
+      .slice(at + EXEMPTION_MARKER.length, inside[1] === Infinity ? undefined : inside[1])
+      .replace(/\*\/\s*$/, "")
+      .trim();
     if (reason.length > 0) return reason;
   }
   return null;
@@ -616,6 +623,16 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       begin();
       const close = matchBrace(text, i + 1, "{", "}");
       const slice = text.slice(i, close + 1);
+      // …but the expansion's OPERAND executes: `${RESULT:-$(psql …)}` runs psql
+      // whenever RESULT is unset, and the same holds for every default /
+      // assign / alternate / error form (`:-` `-` `:=` `=` `:+` `+` `:?` `?`,
+      // and the pattern operands of `#` `%` `/`). Consuming the expansion whole
+      // made all of them invisible. Re-lex the body so nested substitutions are
+      // still collected — the expansion itself stays ONE opaque word, which is
+      // the property the whole-consumption exists to preserve.
+      const inner: NestedShell[] = [];
+      lexShellWords(text.slice(i + 2, close), inner);
+      for (const entry of inner) nested.push({ text: entry.text, line: line + entry.line });
       buffer += slice;
       line += (slice.match(/\n/g) ?? []).length;
       i = close;
@@ -973,7 +990,7 @@ function looksLikePsqlCommandLine(text: string): boolean {
   //   • wrapper-only prefix — "parses pipe-separated psql -qAt rows", where
   //     the words before psql are English, not `sudo` / `PGHOST=` / a flag.
   const WRAPPERS =
-    /^(?:sudo|doas|su|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|docker|kubectl|podman|nerdctl|cat|true|false|echo|printf|sh|bash|zsh)$/;
+    /^(?:sudo|doas|su|runuser|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|flock|setsid|chroot|ssh|docker|docker-compose|compose|kubectl|podman|nerdctl|cat|true|false|echo|printf|sh|bash|zsh)$/;
   const prefixIsCommandish = (before: readonly string[]): boolean =>
     before.every(
       (word, index) =>
@@ -1000,6 +1017,10 @@ function looksLikePsqlCommandLine(text: string): boolean {
     const hasFlag = site.tokens.some(
       (t) => /^-{1,2}[A-Za-z0-9]/.test(t) || t.startsWith("service="),
     );
+    // The main precision carrier: every word before the command must look like a
+    // wrapper, an assignment, or a flag — not English. That is what keeps
+    // "parses pipe-separated psql -qAt rows" out.
+    const commandishPrefix = prefixIsCommandish(site.precedingWords);
     // psql needs no flags at all — `psql mydb`, `psql "$DSN"`,
     // `sudo -u postgres psql mydb`, `psql <dump.sql` (the shell eats the
     // redirection before argv exists). Three bounds keep prose out, each with a
@@ -1008,14 +1029,17 @@ function looksLikePsqlCommandLine(text: string): boolean {
     //   string length — a STANDING_ALLOWLIST reason, whose command stops after
     //     two words only because a `(` splits it
     //   no `word:`   — `psql invocation failed: …`, `psql exit ${code}: …`
+    // The string-length bound applies ONLY to a BARE psql at the head. Charging
+    // a validated wrapper's own words against the command hid
+    // `docker compose -f … exec -T postgres psql mydb`, which is nine words of
+    // which seven are the prefix that already vouched for it.
     const isTerseCommand =
-      site.tokens.length <= 3 && words <= 8 && !site.tokens.some((t) => /:$/.test(t));
+      site.tokens.length <= 3 &&
+      !site.tokens.some((t) => /:$/.test(t)) &&
+      (site.precedingWords.length > 0 ? commandishPrefix : words <= 8);
     if (!hasFlag && !isTerseCommand) return false;
     if (/:$/.test(site.tokens[0] ?? "")) return false;
-    // The main precision carrier: every word before the command must look like a
-    // wrapper, an assignment, or a flag — not English. That is what keeps
-    // "parses pipe-separated psql -qAt rows" out.
-    return prefixIsCommandish(site.precedingWords);
+    return commandishPrefix;
   });
 }
 
@@ -1217,7 +1241,16 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       if (!isScalar(value as never)) return;
       const range = (value as { range?: [number, number, number] }).range;
       if (!range) return;
-      const raw = source.slice(range[0], range[1]);
+      const rawSlice = source.slice(range[0], range[1]);
+      // A BLOCK scalar's first line is its HEADER (`|` or `>`, with optional
+      // chomping/indent indicators and a trailing comment), not shell text. A
+      // bare `>` was lexed as a redirection whose target swallowed the `psql`
+      // command word, so the raw pass found nothing and the decoded fallback
+      // pinned the site to the `run:` key instead of the physical line. Blank
+      // the header rather than dropping it, so line numbers still line up.
+      const raw = /^[|>][0-9+-]{0,2}\s*(?:#.*)?$/.test(rawSlice.split("\n", 1)[0] ?? "")
+        ? rawSlice.replace(/^[^\n]*/, "")
+        : rawSlice;
       // Anchor the line to the `run:` KEY. An alias resolves to a node defined
       // elsewhere (whose line is not where the command runs), and a decoded
       // escape can land on a physical line that is blank.
@@ -1233,7 +1266,7 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // `run: "$(psql -X DSN)\npsql -qAt DSN"` has a raw-visible protected
       // substitution AND a decoded-only unprotected command, and "raw wins"
       // hid the second one entirely. Dedupe on the argv, not the line.
-      if (typeof decoded === "string" && decoded !== raw) {
+      if (typeof decoded === "string" && decoded !== rawSlice) {
         const seen = new Set(found.map((site) => site.tokens.join("\u0000")));
         for (const site of scanShellText(decoded, file, offset)) {
           // A DECODED line number is an offset into the decoded value, which
