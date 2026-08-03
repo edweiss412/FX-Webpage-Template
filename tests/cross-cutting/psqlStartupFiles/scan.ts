@@ -1030,13 +1030,25 @@ const NOT_AN_INVOCATION = new Set([
  * cannot be exact: the site keeps the word's own start and LOSES its exemption,
  * because an inexact line must never inherit a marker written for a neighbour.
  */
-function reanchor(site: PsqlSite, word: ShellWord, sliceStart: number, exact: boolean): PsqlSite {
-  if (!exact) return { ...site, offset: word.offset, line: word.line + 1, exemptReason: null };
+function reanchor(
+  site: PsqlSite,
+  word: ShellWord,
+  sliceStart: number,
+  exact: boolean,
+  lineOffset: number,
+): PsqlSite {
+  // `lineOffset` is where the scanned TEXT begins in its enclosing file. Every
+  // other site path adds it; these four did not, so a psql physically on line 9
+  // of a workflow `run:` block was reported on line 4. A wrong line is a false
+  // safe in its own right — `exemptionOnLines` is line-scoped, so a site placed
+  // on someone else's line can inherit a marker written for them.
+  if (!exact)
+    return { ...site, offset: word.offset, line: lineOffset + word.line + 1, exemptReason: null };
   const at = sliceStart + site.offset;
   return {
     ...site,
     offset: word.offsets[at] ?? word.offset,
-    line: (word.lines[at] ?? word.line) + 1,
+    line: lineOffset + (word.lines[at] ?? word.line) + 1,
   };
 }
 
@@ -1209,15 +1221,19 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
             const attached = candidate.text.slice(sliceStart);
             const translated = translate(attached);
             for (const site of scanShellText(translated, file, lineOffset))
-              sites.push(reanchor(site, candidate, sliceStart, translated === attached));
+              sites.push(
+                reanchor(site, candidate, sliceStart, translated === attached, lineOffset),
+              );
+            joinedHandled = true;
             break;
           }
           const next = argv[i + 1];
           if (next !== undefined) {
             const translatedNext = translate(next.text);
             for (const site of scanShellText(translatedNext, file, lineOffset))
-              sites.push(reanchor(site, next, 0, translatedNext === next.text));
+              sites.push(reanchor(site, next, 0, translatedNext === next.text, lineOffset));
           }
+          joinedHandled = true;
           break;
         }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
@@ -1231,17 +1247,25 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
           const attached = candidate.text.slice(sliceStart);
           const translated = envSplitStringToShell(attached);
           for (const site of scanShellText(translated, file, lineOffset))
-            sites.push(reanchor(site, candidate, sliceStart, translated === attached));
+            sites.push(reanchor(site, candidate, sliceStart, translated === attached, lineOffset));
+          joinedHandled = true;
           break;
         }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
         const script = argv[scriptIndex];
+        // An interpreter's remaining POSITIONALS are `$0`, `$1`, … of the
+        // script it was handed — they are NOT a command in their own right.
+        // `bash -c '$0 -qAt mydb' psql -X` assigns psql to `$0` and `-X` to
+        // `$1`, so psql runs UNSUPPRESSED; falling through to the generic argv
+        // search read that `$0` VALUE as the command word and credited the
+        // trailing `-X` to it. A false safe on all six recognized shells.
+        joinedHandled = true;
         if (script === undefined) break;
         // The script word was QUOTE-STRIPPED, so its characters are not
         // contiguous with its start; the per-character maps re-anchor it.
         const scriptText = isDashS ? envSplitStringToShell(script.text) : script.text;
         for (const site of scanShellText(scriptText, file, lineOffset))
-          sites.push(reanchor(site, script, 0, scriptText === script.text));
+          sites.push(reanchor(site, script, 0, scriptText === script.text, lineOffset));
         break;
       }
     }
@@ -1872,6 +1896,63 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * an alias/function that rewrites psql's argv. A word-level reader cannot follow
  * either, so both are reported rather than silently mis-read.
  */
+/**
+ * ONE declaration grammar, not one spelling of it. Review demonstrated NINE
+ * ordinary bash bindings walking past the previous single pattern, each of
+ * which makes the later expanded command word psql: whole-ARGUMENT quoting
+ * (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
+ * inside a function, `typeset`, an indexed element (`PG[0]=psql`), an append
+ * (`PG+=psql`), and `read -r PG <<< psql`, which is not an assignment at all.
+ *
+ * COMPILED ONCE, at module scope. Building these per line inside the scan
+ * turned the ~2950-file walk from ~10s into ~75s — past the guard's own 60s
+ * test timeout, which is a CI failure rather than a slow test.
+ */
+const DECLARE_KEYWORD = "(?:(?:export|readonly|declare|local|typeset)\\s+(?:-\\w+\\s+)*)?";
+const ASSIGNED_NAME = "[A-Za-z_]\\w*(?:\\[[^\\]]*\\])?\\+?=";
+const PSQL_VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
+/** The VALUE may be quoted: `PG="psql"`. */
+const ASSIGNED_VALUE_QUOTED = new RegExp(
+  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}${ASSIGNED_NAME}(["']?)(?!\\$\\(|\`)${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
+);
+/** …or the whole `NAME=value` ARGUMENT may be, which is the form that carried
+ * `export "PG=psql"` past a pattern anchored on whitespace before the name. */
+const ASSIGNED_WHOLE_QUOTED = new RegExp(
+  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}(["'])${ASSIGNED_NAME}${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
+);
+/** `read -r PG <<< psql` binds the name from a here-string. */
+const READ_HERE_STRING = new RegExp(
+  `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${PSQL_VALUE}`,
+);
+
+/**
+ * An interpreter's trailing POSITIONALS become `$0`, `$1`, … of the script it
+ * was handed, so `bash -c '$0 -qAt mydb' psql -X` runs psql UNSUPPRESSED — the
+ * `-X` is the shell's `$1`, never an argument of psql. The command word exists
+ * only after expansion, which is precisely what this tripwire is for. The
+ * script must be QUOTED (the ordinary spelling) and a psql-shaped word must
+ * follow it, so an ordinary `bash -c 'psql -X …'` with no positionals stays
+ * quiet — that one is a SITE, and is read as one.
+ */
+const INTERPRETER_POSITIONAL_BINDING = new RegExp(
+  `(?:^|[\\s;&|(])(?:\\S*/)?(?:${[
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ash",
+    "ksh",
+    "su",
+    "runuser",
+    "chroot",
+    "doas",
+    "flock",
+    "script",
+  ].join(
+    "|",
+  )})\\b[^\\n]*?\\s-{1,2}[A-Za-z-]*c[A-Za-z-]*(?:\\s+--)?\\s+(?:'[^']*'|"[^"]*")\\s+[^\\n]*?\\bpsql\\b`,
+);
+
 export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
   const lines = source.split("\n");
@@ -1934,24 +2015,17 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // inside a function, `typeset`, an indexed element (`PG[0]=psql`), and an
     // append (`PG+=psql`). The pattern now covers the declaration keywords with
     // optional flags, both quoting positions, a subscript, and `+=`.
-    const DECLARE = "(?:(?:export|readonly|declare|local|typeset)\\s+(?:-\\w+\\s+)*)?";
-    const NAME = "[A-Za-z_]\\w*(?:\\[[^\\]]*\\])?\\+?=";
-    const VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
-    // The value may be quoted…
-    const assignedValueQuoted = new RegExp(
-      `(?:^|[\\s;&|(])${DECLARE}${NAME}(["']?)(?!\\$\\(|\`)${VALUE}\\1(?:[\\s;|&)]|$)`,
-    ).exec(code);
-    // …or the whole NAME=value argument may be, which is the form that carried
-    // `export "PG=psql"` past a pattern anchored on whitespace before the name.
-    const assignedWholeQuoted = new RegExp(
-      `(?:^|[\\s;&|(])${DECLARE}(["'])${NAME}${VALUE}\\1(?:[\\s;|&)]|$)`,
-    ).exec(code);
-    // `read -r PG <<< psql` binds the name from a here-string, which is not an
-    // assignment at all and so matched nothing.
-    const readBinding = new RegExp(
-      `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${VALUE}`,
-    ).exec(code);
-    const assigned = assignedValueQuoted ?? assignedWholeQuoted ?? readBinding;
+    // No literal prefilter here, deliberately, even though all three patterns
+    // require a `psql` inside the text they match. A per-line substring guard
+    // would be equivalent TODAY and is worth ~6s on the walk, but it is the
+    // exact shape the R4 meta-test forbids module-wide — that prefilter shipped
+    // once and silently disabled every decoding fix — and a guard is not worth
+    // weakening for six seconds. The patterns are compiled once at module
+    // scope, which is where the real cost was.
+    const assigned =
+      ASSIGNED_VALUE_QUOTED.exec(code) ??
+      ASSIGNED_WHOLE_QUOTED.exec(code) ??
+      READ_HERE_STRING.exec(code);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
@@ -1986,7 +2060,9 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(code)
         ? ["", ""]
         : null;
-    const hit = assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite;
+    const positionalBinding = INTERPRETER_POSITIONAL_BINDING.test(code) ? ["", ""] : null;
+    const hit =
+      assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;

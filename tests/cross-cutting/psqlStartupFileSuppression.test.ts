@@ -77,8 +77,16 @@ function liveTreeUsage(): ReturnType<typeof collectPsqlUsage> {
   liveUsage ??= collectPsqlUsage(REPO_ROOT);
   return liveUsage;
 }
-/** Generous, because the walk is the point of these tests. */
-const WALK_TIMEOUT_MS = 60_000;
+/** Generous, because the walk is the point of these tests.
+ *
+ * Raised from 60s once the guard began reading the workflow binding surface,
+ * the composed container argv, and the full assignment grammar: the walk went
+ * from ~10s to ~22s locally, and a CI runner is slower than this machine. The
+ * cheap fix — a per-line `psql` substring guard, worth ~6s — is the exact shape
+ * the R4 meta-test forbids module-wide, so the budget moves instead of the
+ * guard. Still a bound, not an absence of one: a walk that regresses into
+ * minutes fails here rather than hanging a shard. */
+const WALK_TIMEOUT_MS = 120_000;
 
 // ── flag-cluster parsing (the -qAtX trap) ───────────────────────────────
 
@@ -2913,6 +2921,84 @@ describe("R31 escaping mutants — dedupe, aliases, and the assignment grammar",
 
   test(
     "the widened dedupe, alias, and assignment reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
+
+describe("R32 escaping mutants — an interpreter's positionals are not its command", () => {
+  // `bash -c 'script' psql -X` assigns `psql` to `$0` and `-X` to `$1`. The
+  // script runs `$0 -qAt mydb`, so psql runs UNSUPPRESSED — the `-X` is a
+  // positional parameter of the shell, never an argument of psql. After
+  // scanning the `-c` script the reader fell through to the generic argv
+  // search, read that `$0` VALUE as the command, and credited the following
+  // `-X`. A false safe on every recognized shell.
+  test.each([["sh"], ["bash"], ["zsh"], ["dash"], ["ash"], ["ksh"]])(
+    "`%s -c '$0 …' psql -X` is never certified",
+    (shell) => {
+      const sites = sitesIn(`${shell} -c '$0 -qAt mydb' psql -X\n`, "x.sh");
+      expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
+    },
+  );
+
+  // Silence is not good enough either: the command word exists only after
+  // expansion, which is exactly what the indirection tripwire is for.
+  test.each([
+    ["a $0 script", "bash -c '$0 -qAt mydb' psql -X\n"],
+    ["a $1 script", "bash -c 'psql \"$1\"' sh -qAt\n"],
+    ["a path-spelled positional", "bash -c '$0 -qAt mydb' /usr/bin/psql\n"],
+  ])("%s is CAUGHT — as an unprotected site or as a tripwire hit", (_label, source) => {
+    const unprotected = sitesIn(source, "x.sh").filter(
+      (site) => !site.suppressesStartupFiles && site.exemptReason === null,
+    ).length;
+    expect(unprotected + scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // PRECISION: an ordinary `-c` invocation with no trailing positional, and one
+  // whose positionals name something else, stay quiet.
+  test.each([
+    ["a plain -c script", "bash -c 'psql -X -qAt mydb'\n"],
+    ["positionals that are not psql", "bash -c '$0 --version' pg_dump\n"],
+  ])("%s is not reported by the tripwire", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toEqual([]);
+  });
+
+  test("a genuinely protected -c script still certifies", () => {
+    const sites = sitesIn("bash -c 'psql -X -qAt mydb'\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // `reanchor` mapped through the consumer word's own per-character maps but
+  // dropped the enclosing text's `lineOffset`, so a psql physically on line 9
+  // of a workflow was reported on line 4 — a wrong line is a false safe, since
+  // it can inherit an exemption written for a neighbour.
+  test.each([
+    ["bash -c", 'bash -c "\n\n\n\npsql -qAt mydb"'],
+    ["env -S", 'env -S "\n\n\n\npsql -qAt mydb"'],
+  ])("%s inside a workflow reports the PHYSICAL line", (_label, command) => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      ...command.split("\n").map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+    const physical = source.split("\n").findIndex((l) => l.includes("psql -qAt mydb")) + 1;
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(physical);
+  });
+
+  test(
+    "the positional-command and line-offset fixes leave the tree certified",
     () => {
       const usage = liveTreeUsage();
       expect(
