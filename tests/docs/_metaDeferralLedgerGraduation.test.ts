@@ -331,6 +331,16 @@ const BACKLOG_GRADUATED = [
     id: "BL-HELP-STRIP-COPYLINK-STALE",
     provenance: "chore/copy-deadcode-sweep",
   },
+  // docs/close-v1-override-wont-build (2026-08-03): closed WON'T BUILD, not
+  // shipped. A force-classify override IS the approve-ambiguous path the
+  // confidence gate exists to prevent, and the row's premise was false: a real
+  // legacy-v1 sheet, once seen, is registrable via the marker-registration path
+  // the gate spec already prescribes, like any other unregistered template.
+  // Leaving the open queue is what a graduation is.
+  {
+    id: "BL-VERSION-AMBIGUOUS-V1-OVERRIDE",
+    provenance: "docs/close-v1-override-wont-build",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
