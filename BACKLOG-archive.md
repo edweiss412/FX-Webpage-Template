@@ -18,7 +18,10 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 *What shipped.* The loader lives in `app/fonts.ts`, whose single exported instance both Next roots import — `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error, so the crash screen was otherwise the one tree left behind. `--font-sans` reads `var(--font-inter, "Inter", "Inter Fallback"), …`: naming the literal skipped next/font's generated metric-matched fallback face, so the `display: "swap"` window reflowed ~10% on every route until the impeccable critique measured it.
 
-*Scope, stated plainly.* This closes the DejaVu fallback for **every Next-rendered surface** — which is every surface a crew member or admin ever sees. It does NOT reach the 31 standalone test harnesses that compile `app/globals.css` with no Next runtime; those keep measuring the ambient host font by construction. That residual costs nothing today (CI is green, and the one font-sensitive measurement carries a deliberate Arial / Liberation Sans pin) and is filed forward as `BL-HARNESS-FONT-FIDELITY`.
+*Scope, stated plainly — and narrowed twice during review, so read the claim as written.* This closes the wide-fallback path for **every Next-rendered surface with a React root**, which is every surface a crew member or admin actually reads. Two things it does NOT reach, both documented rather than quietly implied:
+
+- The 31 standalone test harnesses compile `app/globals.css` with no Next runtime, so they keep measuring the ambient host font by construction. Costs nothing today (the one font-sensitive measurement carries a deliberate Arial / Liberation Sans pin). Filed as `BL-HARNESS-FONT-FIDELITY`.
+- Four route handlers build their own complete `<html>` as a string and mount no React root — the Google-auth start bounce, the picker bootstrap, the auth callback, and the sign-out confirmation. Transient interstitials, seen for well under a second. Filed as `BL-AUTH-INTERSTITIAL-FONT`.
 
 *The tolerance in `tests/e2e/section-header-layout.layout.spec.ts` was NOT widened*, per this entry's own instruction.
 

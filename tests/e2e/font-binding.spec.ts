@@ -173,6 +173,20 @@ function assertRendersInter(report: FontReport, surface: string): void {
     `${surface}: no @font-face is registered twice — a duplicate tuple means a ` +
       `second loader for the same family, which no family-name check can see`,
   ).toEqual([]);
+
+  // (6) ONE WEIGHT DESCRIPTOR ACROSS EVERY FACE. Review R5 showed (5) alone
+  //     still misses a second loader configured DIFFERENTLY for the same family
+  //     — `weight: "400"` alongside the variable `100 900` yields distinct
+  //     tuples, so nothing duplicates and nothing is caught. One `Inter()` call
+  //     with `variable` and no `weight` emits the variable face at `100 900`
+  //     for every unicode-range slice, so a second descriptor value in this set
+  //     means a second, differently-configured call.
+  const weights = [...new Set(appFaces.map((f) => f.weight))];
+  expect(
+    weights,
+    `${surface}: every app face shares one weight descriptor — a second value ` +
+      `means a second loader configured differently for the same family`,
+  ).toEqual(["100 900"]);
 }
 
 /**
@@ -199,9 +213,22 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   // one and shift everything below it mid-glance. Impeccable critique P1.
   expect(
     report.htmlFontFamily,
-    `${surface}: the resolved cascade includes next/font's metric-matched ` +
-      `fallback, so the swap window does not reflow (got: ${report.htmlFontFamily})`,
+    `${surface}: the resolved cascade names next/font's metric-matched fallback ` +
+      `(got: ${report.htmlFontFamily})`,
   ).toContain("Inter Fallback");
+
+  // The cascade STRING is not enough on its own — computed style preserves a
+  // family name whether or not any face answers to it, so the check above
+  // passes against a cascade naming a face that was never registered. Review R5
+  // was right that this was the whole of the assertion. The face must actually
+  // exist in the document.
+  const fallbackFaces = report.faces.filter((f) => f.family === "Inter Fallback");
+  expect(
+    fallbackFaces.length,
+    `${surface}: an "Inter Fallback" @font-face is actually registered, not just ` +
+      `named in the cascade (registered: ` +
+      `${report.faces.map((f) => f.family).join(", ") || "none"})`,
+  ).toBeGreaterThanOrEqual(1);
 }
 
 test.describe("font binding", () => {

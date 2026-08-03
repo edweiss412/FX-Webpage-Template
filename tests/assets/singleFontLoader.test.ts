@@ -56,17 +56,30 @@
  *   M17 `const f2 = fonts; f2.Inter()`  namespace alias
  *   M18 `const { Inter } = fonts`       namespace destructure
  *
- * **The syntactic space is open, and this guard does not pretend to close it.**
- * Two rounds of review each produced new forms, which is the signature of an
- * unbounded attack surface rather than an incomplete list. The CLOSURE
- * mechanism is therefore not this file: `tests/e2e/font-binding.spec.ts`
- * asserts at RUNTIME that the document registers exactly one font family, which
- * no syntactic trick can evade because it observes what the browser actually
- * loaded. This guard is the cheap fast-feedback tripwire that fails in
- * milliseconds without a browser; that one is the oracle.
+ * **WHAT EACH ASSERTION ACTUALLY PROVES — stated precisely after review R5,
+ * which was right that an earlier revision overclaimed "closure".**
  *
- * A new syntactic family is admissible here only with a live escaping mutant
- * demonstrated against this guard, not hypothesized.
+ *   - **The PATH SET assertion is the strong one.** Calling a `next/font` loader
+ *     requires importing the module, and an import is a static, unaliasable
+ *     declaration — `Reflect.apply` and every other exotic call form still need
+ *     one. So a second loader in a NEW file cannot hide from the path set. This
+ *     is the case the entry that motivated this guard actually was.
+ *   - **The CALL-COUNT assertion is best-effort**, covering the eighteen forms
+ *     above. Its residual gap is narrow but real: a second loader call inside
+ *     the ONE file already on the allowed path list, invoked through a form not
+ *     enumerated. R5 demonstrated `Reflect.apply` doing exactly that.
+ *   - **The runtime assertions in `tests/e2e/font-binding.spec.ts` corroborate
+ *     rather than close.** They observe what the browser registered — one
+ *     family, no duplicate face tuple, one weight descriptor — so they catch a
+ *     second loader whose config differs in any of those. They do NOT catch a
+ *     byte-identical second call (it would register the same faces), and they
+ *     only observe the routes the spec visits.
+ *
+ * Neither layer is a proof, and the combination is not either. What the pair
+ * buys is that every cheap accident is caught statically and every
+ * differently-configured duplicate is caught at runtime. A new syntactic family
+ * is admissible here only with a live escaping mutant demonstrated against the
+ * shipped guard, not hypothesized.
  *
  * Spec: docs/superpowers/specs/2026-08-03-app-wide-font-binding.md §4.3
  */

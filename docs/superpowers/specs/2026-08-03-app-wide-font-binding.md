@@ -44,13 +44,13 @@ Three findings, all load-bearing:
 
 ## 2. The change
 
-### 2.1 `app/layout.tsx` — load and expose Inter
+### 2.1 `app/fonts.ts` — load Inter once, for both roots
 
-Add the `next/font/google` import and apply the generated class to `<html>`, alongside the existing `h-full antialiased`:
+**Amended after review R4 and the impeccable critique.** The loader call lives in `app/fonts.ts`, exported, and BOTH Next roots import that one instance — `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error. Each root applies the generated class to its own `<html>` alongside the existing classes. `DESIGN.md` §2.1 names `app/layout.tsx` as the load site; `app/fonts.ts` is that site hoisted one module so the second root can share it, which is a mechanical consequence of Next 16's two-root model.
 
 - `Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" })` — **identical options** to the crew layout's existing call (`app/show/[slug]/layout.tsx:33-37`), so the two cannot diverge in weight range, subset, or swap behavior during the transition.
 - The class goes on `<html>` (`app/layout.tsx:57`), not `<body>`. **Precise reason, corrected after review R1:** the generated class does NOT set `font-family` — it only defines `--font-inter`. Binding happens because the loaded stylesheet registers the literal family `Inter` **document-wide**, which `--font-sans` already names (`app/globals.css:103-104`), applied at `html` (`app/globals.css:659-663`). Proof that the class placement is not what binds: today the crew tree applies it to a nested `<div>` and `<html>` still resolves to Inter (§1.0). `<html>` is nonetheless the right host for the class, because it is the widest scope at which `--font-inter` can be exposed, and the token should not be narrower than the font it names.
-- `--font-inter` remains exposed (unconsumed by `--font-sans` per R2) so the named token stays available for any future inline use, exactly as the crew layout's comment (`app/show/[slug]/layout.tsx:11-15`) describes.
+- `--font-inter` is **consumed** by `--font-sans` (§2.5), which is what puts next/font's metric-matched fallback face in the cascade. An earlier revision left it unconsumed; that is what made the swap window reflow.
 
 ### 2.2 `app/show/[slug]/layout.tsx` — drop the now-redundant duplicate
 
@@ -166,6 +166,19 @@ The guard parses with the TypeScript compiler API and resolves import bindings (
 
 ## 5. Documented limits
 
+### 5.0 Four standalone HTML responses escape both React roots
+
+**Found by review R5, and the "every Next-rendered surface" claim was wrong until this was written down.** Four route handlers build and return their own complete `<html>` document as a string. They never mount either React root, so neither the loader's generated class nor the app stylesheet reaches them:
+
+- `app/api/auth/google/start/route.ts` (its document is built at `app/api/auth/google/start/route.ts:24-41`)
+- `app/api/auth/picker-bootstrap/route.ts`
+- `app/auth/callback/route.ts`
+- `app/auth/sign-out/route.ts` — this one explicitly sets `system-ui, sans-serif` in its own inline style
+
+**Disposition: documented limit, not fixed here.** These are transient authentication interstitials — a redirect bounce and a sign-out confirmation — that a user sees for well under a second and never reads for content. Giving them Inter means either inlining an `@font-face` into each hand-built document (a second font-delivery mechanism, the same objection that keeps `BL-HARNESS-FONT-FIDELITY` out of this change) or routing them through React, which is a much larger change to auth plumbing than a font justifies.
+
+What this costs: the correct claim is **every Next-rendered surface with a React root**, which is every surface a crew member or admin reads. It is NOT literally every byte of HTML the app can emit. The archive entry and §3 say so in those terms. Filed forward as `BL-AUTH-INTERSTITIAL-FONT`.
+
 ### 5.1 Why option (b) is not taken
 
 `BACKLOG.md:259` offers option (b): leave the stack alone and make the affected rows font-independent, via `whitespace-nowrap` plus truncation on the closed-set group titles. Rejected for three reasons, recorded so it is not relitigated:
@@ -212,15 +225,15 @@ If any local verification step runs `pnpm screenshot:help`, restore the committe
 | 4 — no global sync cursor | N/A. |
 | 5 — no raw error codes in UI | N/A — no user-visible copy added or changed. |
 | 6 — commit per task | One commit per task, and each task completes its own RED→GREEN cycle before committing, so no commit freezes a failing tree. **Corrected after review R2**, which was right that the earlier graph (test-commit, then implementation-commit) violated invariant 1's "failing test → minimal implementation → passing test → commit" ordering. The plan's task graph is the authority; the code commits are `feat(assets):` for T1 (all tests + implementation + CI wiring), optionally `test(assets):` for T2 under branch (a), `docs(assets):` for T4's closeout, and `docs(backlog):` for T5. |
-| 7 — spec is canonical | This spec implements `DESIGN.md:133` as written; no amendment proposed. |
-| 8 — impeccable dual gate | **ENGAGED** — `app/layout.tsx` and `app/show/[slug]/layout.tsx` are UI surfaces. `/impeccable critique` + `/impeccable audit` run on the diff with the canonical v3 setup gates before adversarial review; findings + dispositions in §12 of the closeout, which carries the `impeccable-gate:` marker line. |
+| 7 — spec is canonical | This spec implements `DESIGN.md:133`, and **amends** it in two places, in lockstep with the code: the pinned fallback stack gains `Inter Fallback` (§2.5), and the load-site sentence now names `app/fonts.ts` and the two-root reason. **Corrected after review R5**, which caught this row still claiming no amendment was proposed. |
+| 8 — impeccable dual gate | **ENGAGED** — the UI surfaces are `app/fonts.ts`, `app/layout.tsx`, `app/global-error.tsx`, `app/show/[slug]/layout.tsx`, `app/globals.css` and `DESIGN.md`. `/impeccable critique` + `/impeccable audit` run on the diff with the canonical v3 setup gates before adversarial review; findings + dispositions in §12 of the closeout, which carries the `impeccable-gate:` marker line. |
 | 9 — Supabase call-boundary | N/A — **no new Supabase call site.** Review R4 correctly flagged that an earlier draft of §4.2 added one (a direct `admin.from("shows").update(...)` destructuring only `{ error }`, with no registry row and no `// not-subject-to-meta:` comment). That call is gone: the data it wrote is now a field on the insert `seedShowWithCrew` already performs, so the boundary count is unchanged from `origin/main` and there is nothing to register. |
 | 10 — mutation-surface observability | N/A — no mutating route, no `"use server"` action added. |
 | 11 — worktree only | Satisfied at Stage 0: `FX-worktrees/font-binding-modal-freshness-cue` off `origin/main`. |
 
 **Meta-test inventory** (`docs/agents/writing-plans.md:16`): this change CREATES one structural meta-test (T3, single-`next/font`-loader). It extends none of the listed registries — no auth boundary, no DB write, no admin alert, no tile sentinel — declared explicitly rather than left silent.
 
-**Pre-code mechanical UI checklist:** no user-visible copy is added (so the em-dash ban and apostrophe-literal rules have no target), no tap target is added or moved, no type/token class changes, and **no new or repurposed color token** — so no `DESIGN.md` contrast row or contrast meta-test is required.
+**Pre-code mechanical UI checklist:** no user-visible copy is added (so the em-dash ban and apostrophe-literal rules have no target), and no tap target is added or moved. **No new or repurposed COLOR token**, so no `DESIGN.md` contrast row or contrast meta-test is required — the one token that changes is `--font-sans`, whose value carries no colour and therefore no contrast ratio. (An earlier revision claimed no token changed at all; review R5 correctly flagged that as false.)
 
 ---
 
