@@ -4,47 +4,52 @@
 
 **Goal:** Surface open MI-11 identity holds (`sync_holds`, `kind='mi11_pending'`) as a fourth needs-attention stream across the page, dashboard inbox, AdminNav badge, mobile summary card, and digest email.
 
-**Architecture:** One pure grouping core + one service-role PostgREST reader (new lib/admin/identityHolds.ts) feed both admin helpers; the digest reuses the pure core over its own `sql` transport with `asIso` normalization. The builder gains an `identity_hold` variant; the inbox gains a card with a client-island disclosure. No DB changes, no new routes, no mutation surfaces.
+**Architecture:** One pure grouping core + one service-role PostgREST reader (new `lib/admin/identityHolds.ts`) feed both admin helpers; the digest reuses the pure core over its own `sql` transport with `asIso` normalization. The builder gains an `identity_hold` variant; the inbox gains a card with a client-island disclosure. No DB changes, no new routes, no mutation surfaces.
 
 **Tech Stack:** Next.js 16 server components, supabase-js (service-role), postgres.js (digest), vitest, Playwright.
 
-**Spec (canonical):** `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md` — §1.1 R1–R8 are owner-ratified; §1.2 records two adversarial rounds already repaired. The spec wins on any conflict (AGENTS.md invariant 7).
+**Spec (canonical):** `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md` — §1.1 R1–R8 are owner-ratified; §1.2 records NINE completed adversarial rounds ending in a round-10 APPROVE (2026-08-03). The spec wins on any conflict (AGENTS.md invariant 7).
 
 ## Global Constraints
 
 - Worktree: `/Users/ericweiss/FX-worktrees/needs-attention-holds-rollup`, branch `feat/needs-attention-holds-rollup`. All commands run there.
 - TDD per task (invariant 1): failing test → minimal implementation → passing test → commit (`--no-verify` per ship pipeline).
-- Runner is **vitest** (`pnpm vitest run <file>`); new test files under `tests/**` auto-match `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`) — no config edits.
+- Runner is **vitest** (`pnpm vitest run <file>`); new test files under `tests/**` auto-match `BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"]` (`vitest.projects.ts:34`) — no vitest config edits. Playwright DOES need a config edit (Task 10 registers the new spec filename in the `desktop-chromium` allowlist at `playwright.config.ts:77-80` — both projects use explicit filename allowlists, so an unregistered spec collects ZERO tests).
 - Invariant 9: every Supabase await destructures `{ data, error }`; faults → typed `{ kind: "infra_error" }`.
 - Invariants 2/10: N/A — reads only, no advisory-locked writes, no new mutation surfaces (spec D7).
-- Copy rules: no em-dashes in user-visible strings; no raw codes (invariant 5); per-hold copy ONLY via `shapeHoldEntry` (spec R8).
-- `HOLDS_ROW_CAP = 200`, `HOLD_SUMMARIES_RENDER_CAP = 10` — single definitions in lib/admin/identityHolds.ts / the island; never a second literal.
-- Strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) — all snippets below written against it; run `pnpm exec tsc --noEmit` before each commit.
-- UI files touched → invariant-8 impeccable dual gate at closeout (Task 12).
+- Copy rules: no em-dashes in user-visible strings; no raw codes (invariant 5); per-hold copy ONLY via `shapeHoldEntry` (spec R8); `tabular-nums` on the two new numeric lines (spec R5-J2).
+- `HOLDS_ROW_CAP = 200` and `HOLD_SUMMARIES_RENDER_CAP = 10` are BOTH defined once in lib/admin/identityHolds.ts — a plain server-safe module importable from BOTH the server inbox and the client island. Never define either in the island: the server `NeedsAttentionInbox` also needs the cap, and React's server runtime forbids reading values out of client modules (plan-R1 F1).
+- Strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`); run `pnpm exec tsc --noEmit` before each commit. Every task whose type changes touch existing typed literals lists those companion test files in its **Files** block — missing companions are one-round findings (plan-R1 F6).
+- UI files touched → invariant-8 impeccable dual gate at closeout (Task 11).
 
 ## File Structure
 
-- Create: lib/admin/identityHolds.ts (pure `groupHoldRows` + reader `loadOpenIdentityHolds`), components/admin/IdentityHoldDisclosure.tsx (client island), tests/admin/identityHolds.test.ts, tests/admin/loadOpenIdentityHolds.test.ts, tests/components/needsAttentionInboxIdentityHold.test.tsx, tests/components/identityHoldTransitionAudit.test.tsx, tests/e2e/needs-attention-holds.spec.ts.
-- Modify: `lib/admin/needsAttention.ts` (variant), `lib/admin/loadNeedsAttention.ts` (holds leg), `lib/admin/needsAttentionCount.ts` (holds leg), `components/admin/NeedsAttentionInbox.tsx` (card branch), `components/admin/NeedsAttentionSummaryCard.tsx` (chip), `components/admin/Dashboard.tsx` (threading + tooltip), `app/admin/needs-attention/page.tsx` (tooltip), `lib/notify/digest.ts` (holds transport + cap + totals), `lib/notify/runNotify.ts` (literal), 4 help mdx files, `tests/admin/_metaInfraContract.test.ts`, `tests/admin/_metaBoundedReads.test.ts`, existing digest tests' fixtures where `sourceTotals` shape is pinned, `BACKLOG.md` (graduation at closeout).
+- Create: lib/admin/identityHolds.ts, components/admin/IdentityHoldDisclosure.tsx, tests/admin/identityHolds.test.ts, tests/admin/loadOpenIdentityHolds.test.ts, tests/components/needsAttentionInboxIdentityHold.test.tsx, tests/components/identityHoldTransitionAudit.test.tsx, tests/help/heldChangesCopy.test.ts, tests/e2e/needs-attention-holds.spec.ts.
+- Modify: `lib/admin/needsAttention.ts`, `lib/admin/loadNeedsAttention.ts`, `lib/admin/needsAttentionCount.ts`, `components/admin/NeedsAttentionInbox.tsx`, `components/admin/NeedsAttentionSummaryCard.tsx`, `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `lib/notify/digest.ts`, `lib/notify/runNotify.ts`, `playwright.config.ts`, FIVE help mdx files (dashboard, review-queues, daily-rhythm, settings, tour), `tests/admin/_metaInfraContract.test.ts`, `tests/admin/_metaBoundedReads.test.ts`, and the companion typed-literal test files: `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx`, `tests/app/admin/needsAttentionPage.test.tsx`, `tests/components/admin/Dashboard.test.tsx`, plus digest fixtures pinning `sourceTotals`. Closeout: `BACKLOG.md` + `BACKLOG-archive.md` (graduation MOVES the entry per `BACKLOG.md:5`; `tests/docs/_metaDeferralLedgerGraduation.test.ts:425-448` rejects terminal entries left in the open queue).
 
 ---
 
-### Task 1: `groupHoldRows` pure core
+### Task 1: `groupHoldRows` pure core + shared caps
 
 **Files:**
 
-- Create: lib/admin/identityHolds.ts (pure part only), tests/admin/identityHolds.test.ts
+- Create: lib/admin/identityHolds.ts (pure part), tests/admin/identityHolds.test.ts
 
 **Interfaces:**
 
-- Consumes: `shapeHoldEntry`, `HoldRow` from `lib/sync/feed/shapeHoldEntry.ts:11-18` and `shapeHoldEntry.ts:90`; `Disposition` from `lib/sync/holds/types`.
-- Produces (later tasks rely on these EXACT names): `IdentityHoldRow`, `IdentityHoldGroup { showId: string; slug: string; title: string | null; summaries: string[]; newestCreatedAt: string }`, `groupHoldRows(rows: IdentityHoldRow[]): IdentityHoldGroup[]`, `HOLDS_ROW_CAP = 200`.
+- Consumes: `shapeHoldEntry`, `HoldRow` from `lib/sync/feed/shapeHoldEntry.ts:11-18` and `shapeHoldEntry.ts:90`.
+- Produces (later tasks rely on these EXACT names): `IdentityHoldRow`, `IdentityHoldGroup { showId: string; slug: string; title: string | null; summaries: string[]; newestCreatedAt: string }`, `groupHoldRows(rows: IdentityHoldRow[]): IdentityHoldGroup[]`, `HOLDS_ROW_CAP = 200`, `HOLD_SUMMARIES_RENDER_CAP = 10` (BOTH caps live here — server-safe module, plan-R1 F1).
 
 - [ ] **Step 1: Write the failing test** — tests/admin/identityHolds.test.ts:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { groupHoldRows, type IdentityHoldRow } from "@/lib/admin/identityHolds";
+import {
+  groupHoldRows,
+  HOLD_SUMMARIES_RENDER_CAP,
+  HOLDS_ROW_CAP,
+  type IdentityHoldRow,
+} from "@/lib/admin/identityHolds";
 
 // Rows arrive newest-first (reader orders created_at desc, id asc). Fixture
 // timestamps drive every expectation; nothing hardcoded independently.
@@ -79,25 +84,29 @@ describe("groupHoldRows", () => {
     expect(b.summaries[1]).toContain("Ann Poe");
   });
 
-  it("single-row group; empty input", () => {
+  it("single-row group; empty input; caps exported here (server-safe module)", () => {
     expect(groupHoldRows([])).toEqual([]);
     const g = groupHoldRows([row({ id: "h9", show_id: "sC" })]);
     expect(g).toHaveLength(1);
     expect(g[0]?.summaries).toHaveLength(1);
+    expect(HOLDS_ROW_CAP).toBe(200);
+    expect(HOLD_SUMMARIES_RENDER_CAP).toBe(10);
   });
 });
 ```
 
-_Failure mode caught: grouping that re-sorts (losing newest-first), summaries authored instead of generated (name would be absent), newestCreatedAt taken from the wrong row._
+_Failure modes: grouping that re-sorts (losing newest-first); summaries authored instead of generated (entity name absent); newestCreatedAt from the wrong row; a cap constant defined in a client module (unreadable from the server inbox when Task 6 wires it)._
 
-- [ ] **Step 2: Run** `pnpm vitest run tests/admin/identityHolds.test.ts` — expect FAIL (module not found).
+- [ ] **Step 2: Run** `pnpm vitest run tests/admin/identityHolds.test.ts` — FAIL (module not found).
 - [ ] **Step 3: Implement** the pure part of lib/admin/identityHolds.ts:
 
 ```ts
 // lib/admin/identityHolds.ts: cross-show open-holds read for the needs-attention
 // rollup (spec 2026-08-03 section 4). Pure grouping core shared by the PostgREST
 // reader below and the digest's raw-SQL transport (lib/notify/digest.ts), so page,
-// inbox, badge, and email share one grouping semantics.
+// inbox, badge, and email share one grouping semantics. Both render caps live here
+// (NOT in the client island): the server inbox needs them too, and server code
+// cannot read values from a "use client" module.
 import { shapeHoldEntry, type HoldRow } from "@/lib/sync/feed/shapeHoldEntry";
 
 // Flat, READER-normalized row: no nested embed, no Date, no null slug (spec §4).
@@ -117,6 +126,7 @@ export type IdentityHoldGroup = {
 };
 
 export const HOLDS_ROW_CAP = 200;
+export const HOLD_SUMMARIES_RENDER_CAP = 10;
 
 export function groupHoldRows(rows: IdentityHoldRow[]): IdentityHoldGroup[] {
   const groups = new Map<string, IdentityHoldGroup>();
@@ -139,8 +149,8 @@ export function groupHoldRows(rows: IdentityHoldRow[]): IdentityHoldGroup[] {
 }
 ```
 
-- [ ] **Step 4: Run** the test — expect PASS. Also `pnpm exec tsc --noEmit`.
-- [ ] **Step 5: Commit** `feat(admin): groupHoldRows pure core for identity-holds rollup`
+- [ ] **Step 4: Run** the test + `pnpm exec tsc --noEmit` — PASS.
+- [ ] **Step 5: Commit** `feat(admin): groupHoldRows pure core + shared caps for identity-holds rollup`
 
 ---
 
@@ -148,31 +158,50 @@ export function groupHoldRows(rows: IdentityHoldRow[]): IdentityHoldGroup[] {
 
 **Files:**
 
-- Modify: lib/admin/identityHolds.ts (append reader), `tests/admin/_metaInfraContract.test.ts` (new row), `tests/admin/_metaBoundedReads.test.ts` (two rows)
+- Modify: lib/admin/identityHolds.ts (append reader), `tests/admin/_metaInfraContract.test.ts`, `tests/admin/_metaBoundedReads.test.ts`
 - Create: tests/admin/loadOpenIdentityHolds.test.ts
 
 **Interfaces:**
 
 - Consumes: `createSupabaseServiceRoleClient` (`lib/supabase/server.ts:79`), `log` (`@/lib/log`), Task 1 exports.
-- Produces: `loadOpenIdentityHolds(deps?: { client?: SupabaseClient }): Promise<{ kind: "ok"; groups: IdentityHoldGroup[] } | { kind: "infra_error"; message: string }>` — dep-injectable client for tests, mirroring `loadNeedsAttention`'s `opts.supabase` pattern (`lib/admin/loadNeedsAttention.ts:30-46`).
+- Produces: `loadOpenIdentityHolds(deps?: { client?: HoldsClient }): Promise<{ kind: "ok"; groups: IdentityHoldGroup[] } | { kind: "infra_error"; message: string }>`.
 
-- [ ] **Step 1: Write the failing test** — tests/admin/loadOpenIdentityHolds.test.ts. Mock client builder pattern: an object whose `from()` returns a chain ending in a thenable resolving `{ data, error }` (copy the chain-stub idiom from `tests/admin/loadNeedsAttention.test.ts`). Cases:
+- [ ] **Step 1: Write the failing test** — tests/admin/loadOpenIdentityHolds.test.ts. Construction-fault injection follows the loadNeedsAttention idiom EXACTLY (`tests/admin/loadNeedsAttention.test.ts:125-138`): a `vi.hoisted` flag + `vi.mock("@/lib/supabase/server", ...)` whose `createSupabaseServiceRoleClient` throws when toggled (plan-R1 F8). Spy hygiene: `beforeEach` clears mocks and re-creates the `log.warn` spy, never per-test (plan-R1 F9).
 
 ```ts
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadOpenIdentityHolds, HOLDS_ROW_CAP } from "@/lib/admin/identityHolds";
 import { log } from "@/lib/log";
 
+const serverMock = vi.hoisted(() => ({ throwOnConstruct: false }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: () => {
+    if (serverMock.throwOnConstruct) throw new Error("SIMULATED service-role construction fault");
+    throw new Error("tests must inject deps.client unless exercising the construction path");
+  },
+}));
+
+let warnSpy: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  vi.clearAllMocks();
+  serverMock.throwOnConstruct = false;
+  warnSpy = vi.spyOn(log, "warn").mockResolvedValue(undefined as never);
+});
+
 type Row = Record<string, unknown>;
-function holdRow(n: number, showId: string, embed: unknown): Row {
+// Deterministic uuid-shaped ids: idOf(7) ends ...000007 (sortable, assertable).
+function idOf(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+function holdRow(n: number, showId: string, embed: unknown, createdAt?: string): Row {
   return {
-    id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+    id: idOf(n),
     show_id: showId,
     entity_key: `Crew ${n}`,
     held_value: { email: "old@x.com" },
     proposed_value: { disposition: "removal" },
     base_modified_time: "2026-08-01T00:00:00+00:00",
-    created_at: `2026-08-03T10:${String(n % 60).padStart(2, "0")}:00+00:00`,
+    created_at: createdAt ?? `2026-08-03T10:${String(n % 60).padStart(2, "0")}:00+00:00`,
     shows: embed,
   };
 }
@@ -185,8 +214,7 @@ function clientReturning(result: { data: Row[] | null; error: { message: string 
 }
 
 describe("loadOpenIdentityHolds", () => {
-  it("flattens object AND array embeds; skips slug-less rows with a warn", async () => {
-    const warn = vi.spyOn(log, "warn").mockResolvedValue(undefined as never);
+  it("flattens object AND array embeds; skips slug-less rows with one warn", async () => {
     const res = await loadOpenIdentityHolds({
       client: clientReturning({
         data: [
@@ -200,7 +228,7 @@ describe("loadOpenIdentityHolds", () => {
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
     expect(res.groups.map((g) => g.slug)).toEqual(["a", "b"]);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it("returned error, thrown error, and construction throw each map to infra_error", async () => {
@@ -211,97 +239,45 @@ describe("loadOpenIdentityHolds", () => {
     const chainThrow = { select: () => { throw new Error("net"); } };
     const thrown = await loadOpenIdentityHolds({ client: { from: () => chainThrow } as never });
     expect(thrown.kind).toBe("infra_error");
-    // No injected client + no env in the vitest node environment → construction
-    // path itself must map to infra_error, never throw out.
-    const constructed = await loadOpenIdentityHolds();
-    expect(["ok", "infra_error"]).toContain(constructed.kind); // must not reject
+    // REAL construction-fault injection (loadNeedsAttention.test.ts:125-138 idiom):
+    serverMock.throwOnConstruct = true;
+    const constructed = await loadOpenIdentityHolds(); // no injected client
+    expect(constructed).toEqual({ kind: "infra_error", message: expect.stringContaining("construction") });
   });
 
-  it("cap boundary: exactly CAP rows no warn; CAP+1 warns, drops sentinel, groups the capped set", async () => {
-    const warn = vi.spyOn(log, "warn").mockResolvedValue(undefined as never);
+  it("cap boundary: exact-cap silent; over-cap warns, drops sentinel, keeps the id-asc capped MEMBERSHIP", async () => {
     const exact = Array.from({ length: HOLDS_ROW_CAP }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` }));
     const okRes = await loadOpenIdentityHolds({ client: clientReturning({ data: exact, error: null }) });
     expect(okRes.kind).toBe("ok");
-    expect(warn).not.toHaveBeenCalled();
-    const over = Array.from({ length: HOLDS_ROW_CAP + 1 }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` }));
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    // Over-cap with a TIE at the boundary: the last two rows share one timestamp.
+    // The DB returns them id-asc within the tie, so the sentinel-drop must keep
+    // idOf(CAP-1)'s show and exclude idOf(CAP)'s (plan-R1 F11 — membership, not length).
+    const tieTs = "2026-08-01T00:00:00+00:00";
+    const over = [
+      ...Array.from({ length: HOLDS_ROW_CAP - 1 }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` })),
+      holdRow(HOLDS_ROW_CAP - 1, "sTieKept", { slug: "s-tie-kept" }, tieTs),
+      holdRow(HOLDS_ROW_CAP, "sTieDropped", { slug: "s-tie-dropped" }, tieTs),
+    ];
     const overRes = await loadOpenIdentityHolds({ client: clientReturning({ data: over, error: null }) });
     expect(overRes.kind).toBe("ok");
     if (overRes.kind !== "ok") return;
-    expect(overRes.groups).toHaveLength(HOLDS_ROW_CAP); // sentinel dropped
-    expect(warn).toHaveBeenCalledWith("sync_holds row cap exceeded", expect.objectContaining({ source: "admin.loadOpenIdentityHolds" }));
+    expect(overRes.groups).toHaveLength(HOLDS_ROW_CAP);
+    const slugs = overRes.groups.map((g) => g.slug);
+    expect(slugs).toContain("s-tie-kept");
+    expect(slugs).not.toContain("s-tie-dropped");
+    expect(warnSpy).toHaveBeenCalledWith("sync_holds row cap exceeded", expect.objectContaining({ source: "admin.loadOpenIdentityHolds" }));
   });
 });
 ```
 
-_Failure modes: embed shape drift (array vs object), silent slug-less rows, sentinel leaking into groups, throws escaping the typed contract._
+_Failure modes: embed shape drift; silent slug-less rows; construction throw escaping the typed contract (genuinely injected); the cap drop excluding the WRONG tied row; spy bleed between tests._
 
-- [ ] **Step 2: Run — FAIL** (`loadOpenIdentityHolds` not exported).
-- [ ] **Step 3: Implement** (append to lib/admin/identityHolds.ts):
-
-```ts
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { log } from "@/lib/log";
-
-type HoldsClient = Pick<ReturnType<typeof createSupabaseServiceRoleClient>, "from">;
-
-export type LoadOpenIdentityHoldsResult =
-  | { kind: "ok"; groups: IdentityHoldGroup[] }
-  | { kind: "infra_error"; message: string };
-
-export async function loadOpenIdentityHolds(
-  deps: { client?: HoldsClient } = {},
-): Promise<LoadOpenIdentityHoldsResult> {
-  let client: HoldsClient;
-  try {
-    client = deps.client ?? createSupabaseServiceRoleClient();
-  } catch (err) {
-    return { kind: "infra_error", message: `service-role client construction failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  let rows: ReadonlyArray<Record<string, unknown>>;
-  try {
-    const { data, error } = await client
-      .from("sync_holds")
-      .select("id, show_id, entity_key, held_value, proposed_value, base_modified_time, created_at, shows!inner(slug, title)")
-      .eq("kind", "mi11_pending")
-      .eq("shows.archived", false)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .limit(HOLDS_ROW_CAP + 1);
-    if (error) return { kind: "infra_error", message: `sync_holds query failed: ${error.message}` };
-    rows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
-  } catch (err) {
-    return { kind: "infra_error", message: `sync_holds query threw: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  if (rows.length > HOLDS_ROW_CAP) {
-    void log.warn("sync_holds row cap exceeded", { source: "admin.loadOpenIdentityHolds" });
-    rows = rows.slice(0, HOLDS_ROW_CAP);
-  }
-  const flat: IdentityHoldRow[] = [];
-  for (const r of rows) {
-    const embed = r.shows as { slug?: string; title?: string | null } | Array<{ slug?: string; title?: string | null }> | null;
-    const show = Array.isArray(embed) ? embed[0] : embed;
-    if (!show?.slug) {
-      void log.warn("identity hold missing show slug", { source: "admin.loadOpenIdentityHolds", holdId: String(r.id) });
-      continue;
-    }
-    flat.push({
-      id: r.id as string,
-      show_id: r.show_id as string,
-      slug: show.slug,
-      title: (show.title as string | null) ?? null,
-      entity_key: r.entity_key as string,
-      held_value: r.held_value,
-      proposed_value: r.proposed_value as IdentityHoldRow["proposed_value"],
-      base_modified_time: (r.base_modified_time as string | null) ?? null,
-      created_at: r.created_at as string,
-    });
-  }
-  return { kind: "ok", groups: groupHoldRows(flat) };
-}
-```
-
-- [ ] **Step 3b: Source pin (lockstep fence).** In tests/admin/loadOpenIdentityHolds.test.ts, add a source-regex test (same idiom as the invariant-9 regex test in `tests/admin/loadNeedsAttention.test.ts`): read lib/admin/identityHolds.ts with `fs.readFileSync` and assert it contains `.eq("kind", "mi11_pending")`, `.eq("shows.archived", false)`, `.order("created_at", { ascending: false })`, and `.order("id", { ascending: true })`. _Failure mode: R6 archived filter or the G7 deterministic secondary order silently dropped in a refactor — the mocked-client tests cannot see query filters._
-- [ ] **Step 4: Registries.** `tests/admin/_metaInfraContract.test.ts`: add this row next to the existing `loadNeedsAttentionCount` row (`_metaInfraContract.test.ts:263-267`):
+- [ ] **Step 2: Run — FAIL.**
+- [ ] **Step 3: Implement** (append to lib/admin/identityHolds.ts): injectable service-role client; query `from("sync_holds").select("id, show_id, entity_key, held_value, proposed_value, base_modified_time, created_at, shows!inner(slug, title)").eq("kind", "mi11_pending").eq("shows.archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }).limit(HOLDS_ROW_CAP + 1)`; construction throw / returned error / thrown error each → `{ kind: "infra_error", message }`; over-cap → warn + `rows.slice(0, HOLDS_ROW_CAP)`; embed flatten (object/array; slug-less skip + warn); `groupHoldRows(flat)`.
+- [ ] **Step 3b: Source pin (lockstep fence).** Source-regex test in the same file (idiom: the invariant-9 regex test in `tests/admin/loadNeedsAttention.test.ts`): module source contains `.eq("kind", "mi11_pending")`, `.eq("shows.archived", false)`, `.order("created_at", { ascending: false })`, `.order("id", { ascending: true })`. _Catches: R6 archived filter or G7 order dropped in a refactor — mocked clients cannot see query filters._
+- [ ] **Step 4: Registries.** `tests/admin/_metaInfraContract.test.ts` — add next to the `loadNeedsAttentionCount` row (`_metaInfraContract.test.ts:263-267`):
 
 ```ts
 {
@@ -311,8 +287,10 @@ export async function loadOpenIdentityHolds(
     "sync_holds service-role read (kind='mi11_pending', shows!inner archived=false); construction throw + query throw + returned {error} map to { kind: 'infra_error' }",
 },
 ```
- `tests/admin/_metaBoundedReads.test.ts`: add the new module path lib/admin/identityHolds.ts to `READ_MODULES` (`_metaBoundedReads.test.ts:30`) and the table name sync_holds to `UNBOUNDED_TABLES` (`_metaBoundedReads.test.ts:58`).
-- [ ] **Step 5: Run** the new test file + both meta tests + `tsc --noEmit` — PASS.
+
+`tests/admin/_metaBoundedReads.test.ts`: add the module path lib/admin/identityHolds.ts to `READ_MODULES` (`_metaBoundedReads.test.ts:30`) and the table name sync_holds to `UNBOUNDED_TABLES` (`_metaBoundedReads.test.ts:58`).
+
+- [ ] **Step 5: Run** new tests + both meta tests + `tsc --noEmit` — PASS.
 - [ ] **Step 6: Commit** `feat(admin): loadOpenIdentityHolds service-role reader + registry rows`
 
 ---
@@ -322,13 +300,14 @@ export async function loadOpenIdentityHolds(
 **Files:**
 
 - Modify: `lib/admin/needsAttention.ts`, `tests/admin/needsAttention.test.ts` (append cases)
+- Companion typed-literal updates (REQUIRED same commit, plan-R1 F6): `tests/app/admin/needsAttentionPage.test.tsx:71-98`, `tests/components/admin/Dashboard.test.tsx:21-23` + `Dashboard.test.tsx:258-285` — `NeedsAttention` literals gain `identityHoldTotal: 0`.
 
 **Interfaces:**
 
 - Consumes: `IdentityHoldGroup` (Task 1).
-- Produces: `NeedsAttentionIdentityHoldInput = IdentityHoldGroup` re-export; item variant `{ variant: "identity_hold"; key: \`hold-show:${showId}\`; showId; slug; title; summaries; copy; activityAt }`; `BuildNeedsAttentionInput.identityHolds?`; `totalCounts.identityHolds?`; output `identityHoldTotal: number`. Multi-hold copy literal: `` `${summaries.length} held changes waiting` ``.
+- Produces: `NeedsAttentionIdentityHoldInput = IdentityHoldGroup` re-export; item variant `{ variant: "identity_hold"; key: \`hold-show:${showId}\`; showId; slug; title; summaries; copy; activityAt }`; `BuildNeedsAttentionInput.identityHolds?`; `totalCounts.identityHolds?`; output `identityHoldTotal: number`. Multi-hold copy: `` `${summaries.length} held changes waiting` ``.
 
-- [ ] **Step 1: Failing tests** (append to `tests/admin/needsAttention.test.ts`; reuse its existing input-builder helpers):
+- [ ] **Step 1: Failing tests** (append to `tests/admin/needsAttention.test.ts`):
 
 ```ts
 import type { NeedsAttentionIdentityHoldInput } from "@/lib/admin/needsAttention";
@@ -352,8 +331,9 @@ describe("identity_hold stream", () => {
     expect(m.copy).toBe("3 held changes waiting");
   });
 
-  it("sorts by newestCreatedAt among other streams (order derived from fixture timestamps)", () => {
-    // one sync at T2, one hold at T3, one sync at T1 → expected order T3,T2,T1
+  it("sorts by newestCreatedAt among other streams, asserted BY KEY (fixture-timestamp-derived)", () => {
+    // hold T3 > sync st1 T2 > sync st2 T1. Keys distinguish the two first_seen
+    // items, so a T2/T1 swap FAILS (plan-R1 F10; variant-only assertions cannot).
     const out = buildNeedsAttention({
       ingestions: [],
       syncs: [
@@ -364,15 +344,32 @@ describe("identity_hold stream", () => {
       identityHolds: [holdGroup({ newestCreatedAt: "2026-08-03T03:00:00+00:00" })],
       totalCounts: { ingestions: 0, syncs: 2, identityHolds: 1 },
     });
-    expect(out.items.map((i) => i.variant)).toEqual(["identity_hold", "first_seen", "first_seen"]);
+    expect(out.items.map((i) => i.key)).toEqual(["hold-show:sX", "sync:st1", "sync:st2"]);
     expect(out.totalCount).toBe(3);
     expect(out.identityHoldTotal).toBe(1);
   });
 
+  it("over-cap arithmetic: stream total above rendered cards keeps totals honest (spec §9.2)", () => {
+    const out = buildNeedsAttention({
+      ingestions: [], syncs: [], existence: {},
+      identityHolds: [
+        holdGroup({ showId: "s1", slug: "s1", newestCreatedAt: "2026-08-03T05:00:00+00:00" }),
+        holdGroup({ showId: "s2", slug: "s2", newestCreatedAt: "2026-08-03T04:00:00+00:00" }),
+      ],
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 2 },
+      cap: 1,
+    });
+    expect(out.items).toHaveLength(1);
+    expect(out.renderedCount).toBe(1);
+    expect(out.identityHoldTotal).toBe(2);
+    expect(out.totalCount).toBe(2);
+    expect(out.overflowCount).toBe(1);
+  });
+
   it("omitted new keys: additive identityHoldTotal 0, everything else the pre-change shape (digest regression fence)", () => {
     const args = { ingestions: [], syncs: [], existence: {}, totalCounts: { ingestions: 0, syncs: 0 } };
-    // Expected shape built by hand from the fixture, NEVER a second call to the
-    // same function (self-comparison is tautological).
+    // Expected shape built by hand, NEVER a second call to the same function
+    // (self-comparison is tautological).
     expect(buildNeedsAttention(args)).toEqual({
       items: [], renderedCount: 0, totalCount: 0, overflowCount: 0,
       ingestionTotal: 0, syncTotal: 0, syncProblemTotal: 0, identityHoldTotal: 0,
@@ -394,36 +391,8 @@ describe("identity_hold stream", () => {
 ```
 
 - [ ] **Step 2: Run — FAIL.**
-- [ ] **Step 3: Implement** in `lib/admin/needsAttention.ts`: import type `IdentityHoldGroup` from `@/lib/admin/identityHolds`; `export type NeedsAttentionIdentityHoldInput = IdentityHoldGroup;` add to `BuildNeedsAttentionInput`: `identityHolds?: NeedsAttentionIdentityHoldInput[];` and `totalCounts: { ...; identityHolds?: number }`. New `MergedEntry` arm `{ kind: "identity_hold"; sortKey: string; id: string; group: NeedsAttentionIdentityHoldInput }` pushed as:
-
-```ts
-...(input.identityHolds ?? [])
-  .filter((g) => g.summaries.length > 0)
-  .map((g): MergedEntry => ({ kind: "identity_hold", sortKey: g.newestCreatedAt ?? "", id: g.showId, group: g })),
-```
-
-Item mapping (inside the sliced `.map`, before the existence branch):
-
-```ts
-if (entry.kind === "identity_hold") {
-  const g = entry.group;
-  const first = g.summaries[0];
-  return {
-    variant: "identity_hold",
-    key: `hold-show:${g.showId}`,
-    showId: g.showId,
-    slug: g.slug,
-    title: g.title,
-    summaries: g.summaries,
-    copy: g.summaries.length === 1 && first !== undefined ? first : `${g.summaries.length} held changes waiting`,
-    activityAt,
-  };
-}
-```
-
-Totals: `const identityHoldTotal = input.totalCounts.identityHolds ?? 0;` add into `totalCount` sum and return `identityHoldTotal`.
-
-- [ ] **Step 4: Run** full `tests/admin/needsAttention.test.ts` + `tests/notify` digest suite (default-fence) + `tsc --noEmit` — PASS.
+- [ ] **Step 3: Implement** per spec §5: type re-export; optional inputs defaulting `[]`/`0`; merged arm `{ kind: "identity_hold", sortKey: g.newestCreatedAt ?? "", id: g.showId, group: g }` filtered on `summaries.length > 0`; item mapping with the copy fork (`const first = g.summaries[0]; ... summaries.length === 1 && first !== undefined ? first : \`${g.summaries.length} held changes waiting\``); `identityHoldTotal` in output + `totalCount` sum.
+- [ ] **Step 4:** Update the companion typed literals; run `tests/admin/needsAttention.test.ts`, both companion files, the digest suite, `tsc --noEmit` — PASS.
 - [ ] **Step 5: Commit** `feat(admin): identity_hold stream in buildNeedsAttention`
 
 ---
@@ -434,40 +403,25 @@ Totals: `const identityHoldTotal = input.totalCounts.identityHolds ?? 0;` add in
 
 - Modify: `lib/admin/loadNeedsAttention.ts`, `tests/admin/loadNeedsAttention.test.ts` (append)
 
-**Interfaces:**
-
-- Consumes: `loadOpenIdentityHolds` (Task 2), builder inputs (Task 3).
-- Produces: `loadNeedsAttention` threads `identityHolds: groups` + `totalCounts.identityHolds: groups.length`; test seam `opts.loadHolds?: typeof loadOpenIdentityHolds`.
-
-- [ ] **Step 1: Failing tests** (append; reuse the file's existing supabase stub):
+- [ ] **Step 1: Failing tests** (append; use the file's REAL `makeClient` helper, `tests/admin/loadNeedsAttention.test.ts:29-123` — there is no `happyStub`; `makeClient({})` yields empty/zero streams, all these cases need):
 
 ```ts
 it("threads hold groups and total; holds-leg infra_error fails the whole call", async () => {
   const groups = [{ showId: "sH", slug: "sh", title: "H", summaries: ["x", "y"], newestCreatedAt: "2026-08-03T09:00:00+00:00" }];
-  const ok = await loadNeedsAttention({ cap: 20, supabase: happyStub(), loadHolds: async () => ({ kind: "ok", groups }) });
+  const ok = await loadNeedsAttention({ cap: 20, supabase: makeClient({}).client, loadHolds: async () => ({ kind: "ok" as const, groups }) });
   if ("kind" in ok) throw new Error("expected NeedsAttention");
   expect(ok.identityHoldTotal).toBe(1);
   expect(ok.items.some((i) => i.variant === "identity_hold")).toBe(true);
 
-  const bad = await loadNeedsAttention({ cap: 20, supabase: happyStub(), loadHolds: async () => ({ kind: "infra_error", message: "holds down" }) });
+  const bad = await loadNeedsAttention({ cap: 20, supabase: makeClient({}).client, loadHolds: async () => ({ kind: "infra_error" as const, message: "holds down" }) });
   expect(bad).toEqual({ kind: "infra_error", message: expect.stringContaining("holds") });
 });
 ```
 
-_Failure mode: holds fault silently degrading to an empty stream (would violate the loader's all-or-nothing posture, spec §8)._
+_Failure mode: a holds fault silently degrading to an empty stream (violates the loader's all-or-nothing posture, spec §8)._
 
-- [ ] **Step 2: Run — FAIL.** **Step 3: Implement**: add `loadHolds?: typeof loadOpenIdentityHolds` to opts; after the sync-problem block:
-
-```ts
-const holdsResult = await (opts.loadHolds ?? loadOpenIdentityHolds)();
-if (holdsResult.kind === "infra_error") {
-  return { kind: "infra_error", message: `identity holds read failed: ${holdsResult.message}` };
-}
-```
-
-Thread `identityHolds: holdsResult.groups` and `totalCounts.identityHolds: holdsResult.groups.length` into `buildNeedsAttention`.
-
-- [ ] **Step 4: Run + tsc — PASS.** Confirm the file's invariant-9 source-regex test still passes.
+- [ ] **Step 2: Run — FAIL.** **Step 3: Implement:** `loadHolds?: typeof loadOpenIdentityHolds` opt; call after the sync-problem block; `infra_error` → `{ kind: "infra_error", message: \`identity holds read failed: ${...}\` }`; thread groups + `totalCounts.identityHolds`.
+- [ ] **Step 4: Run + tsc — PASS** (incl. the file's invariant-9 source-regex test).
 - [ ] **Step 5: Commit** `feat(admin): thread identity holds through loadNeedsAttention`
 
 ---
@@ -476,53 +430,41 @@ Thread `identityHolds: holdsResult.groups` and `totalCounts.identityHolds: holds
 
 **Files:**
 
-- Modify: `lib/admin/needsAttentionCount.ts`, `tests/admin/needsAttentionCount.test.ts` (append), `tests/admin/_metaInfraContract.test.ts` (expand existing row's contract text)
+- Modify: `lib/admin/needsAttentionCount.ts`, `tests/admin/needsAttentionCount.test.ts` (append), `tests/admin/_metaInfraContract.test.ts` (EXPAND the existing `loadNeedsAttentionCount` row's contract text to name the holds leg)
 
-**Interfaces:**
-
-- Consumes: `loadOpenIdentityHolds` (Task 2). Produces: badge count includes `groups.length`; seam `deps.loadHolds`.
-
-- [ ] **Step 1: Failing tests:**
+- [ ] **Step 1: Failing tests** (append to `tests/admin/needsAttentionCount.test.ts`, which drives its mocked client through module-level `state` — `needsAttentionCount.test.ts:9-62` — NOT a stub factory; follow that idiom). Configure `state` for pending counts 2/1 and sync-problem 0, then:
 
 ```ts
-it("adds shows-with-holds via loadOpenIdentityHolds; holds fault → infra_error even when pending counts succeed", async () => {
-  const okCount = await loadNeedsAttentionCount({ supabase: countsStub(2, 1, 0), loadHolds: async () => ({ kind: "ok", groups: [g("sA"), g("sB")] }) });
-  expect(okCount).toEqual({ kind: "ok", count: 5 }); // 2+1+0 pending + 2 hold shows
-  const bad = await loadNeedsAttentionCount({ supabase: countsStub(2, 1, 0), loadHolds: async () => ({ kind: "infra_error", message: "x" }) });
+it("adds shows-with-holds via loadOpenIdentityHolds; a holds fault is not maskable by healthy counts", async () => {
+  const g = (id: string) => ({ showId: id, slug: id, title: null, summaries: ["s"], newestCreatedAt: "2026-08-03T00:00:00+00:00" });
+  const ok = await loadNeedsAttentionCount({ loadHolds: async () => ({ kind: "ok" as const, groups: [g("sA"), g("sB")] }) });
+  expect(ok).toEqual({ kind: "ok", count: 5 }); // 2+1+0 pending + 2 hold shows
+  const bad = await loadNeedsAttentionCount({ loadHolds: async () => ({ kind: "infra_error" as const, message: "x" }) });
   expect(bad).toEqual({ kind: "infra_error" });
 });
 ```
 
-(`countsStub`/`g` per the file's existing stub helpers; extend `loadNeedsAttentionCount` opts the same way Task 4 did. NOTE: the helper currently takes no opts object for deps beyond none — mirror `loadNeedsAttention`'s injection shape.) _Failure mode: healthy pending counts masking a holds fault (spec §8)._
-
-- [ ] **Step 2: Run — FAIL.** **Step 3: Implement**: add optional `opts: { supabase?; loadHolds? }` param (keeping the zero-arg call sites valid); after `syncProblemCount`:
-
-```ts
-const holds = await (opts.loadHolds ?? loadOpenIdentityHolds)();
-if (holds.kind === "infra_error") return { kind: "infra_error" };
-return { kind: "ok", count: pendingTotal + syncProblemCount + holds.groups.length };
-```
-
-- [ ] **Step 4:** Expand the `loadNeedsAttentionCount` registry row contract text (`tests/admin/_metaInfraContract.test.ts:263-267`) to `"pending_ingestions/pending_syncs head-count throws + construction throw + sync_holds leg (via loadOpenIdentityHolds) infra_error → infra_error"`. Run tests + `tsc` — PASS.
+- [ ] **Step 2: Run — FAIL.** **Step 3: Implement:** optional `opts: { loadHolds?: typeof loadOpenIdentityHolds } = {}` (zero-arg call sites stay valid); after `syncProblemCount`: `infra_error` → `{ kind: "infra_error" }`, else `count: pendingTotal + syncProblemCount + holds.groups.length`.
+- [ ] **Step 4:** Expand the registry row contract text. Run tests + `tsc` — PASS.
 - [ ] **Step 5: Commit** `feat(admin): badge count includes shows with open identity holds`
 
 ---
 
-### Task 6: inbox card + `IdentityHoldDisclosure` island
+### Task 6: inbox card + `IdentityHoldDisclosure` island + transition audit (test-first)
 
 **Files:**
 
-- Create: components/admin/IdentityHoldDisclosure.tsx, tests/components/needsAttentionInboxIdentityHold.test.tsx
-- Modify: `components/admin/NeedsAttentionInbox.tsx` (new branch before the final `existing_staged` return)
+- Create: components/admin/IdentityHoldDisclosure.tsx, tests/components/needsAttentionInboxIdentityHold.test.tsx, tests/components/identityHoldTransitionAudit.test.tsx
+- Modify: `components/admin/NeedsAttentionInbox.tsx` (new branch before the `existing_staged` return)
 
-NOTE (verified): `NeedsAttentionInbox` props are `{ items, overflowCount, now }` (`components/admin/NeedsAttentionInbox.tsx:168`) — `now` is the relative-time anchor; check its exact type at the signature and match it in tests.
+NOTE (verified): `NeedsAttentionInbox` props are `{ items, totalCount, renderedCount, overflowCount, now }` (`components/admin/NeedsAttentionInbox.tsx:18-25`) — every render below passes ALL of them (plan-R1 F6); `now` is a `Date`.
 
 **Interfaces:**
 
-- Consumes: item variant (Task 3); `CollapsePanel` (`components/admin/CollapsePanel.tsx:27-39` — REQUIRED `label`); precedent classes from `IgnoredSheetsDisclosure.tsx:60`.
-- Produces: island props `{ showId: string; title: string | null; slug: string; count: number; children: ReactNode }`; testids `needs-attention-item-identity-hold-{showId}`, `needs-attention-link-identity-hold-{showId}`, `identity-hold-toggle-{showId}`, panel id `identity-hold-panel-{showId}`; `HOLD_SUMMARIES_RENDER_CAP = 10` exported from the island file.
+- Consumes: item variant (Task 3); `HOLD_SUMMARIES_RENDER_CAP` from `@/lib/admin/identityHolds` (server-safe, Task 1); `CollapsePanel` (`components/admin/CollapsePanel.tsx:27-50` — required `label`; `region={false}` for repeated panels per `CollapsePanel.tsx:40-47`); precedent classes `IgnoredSheetsDisclosure.tsx:60`; spacing contract `CollapsePanel.tsx:22-25` + `IgnoredSheetsDisclosure.tsx:100-104`.
+- Produces: island props `{ showId: string; title: string | null; slug: string; count: number; children: ReactNode }`; testids `needs-attention-item-identity-hold-{showId}`, `needs-attention-link-identity-hold-{showId}`, `identity-hold-toggle-{showId}`, panel id `identity-hold-panel-{showId}`.
 
-- [ ] **Step 1: Failing tests** (jsdom; `/** @vitest-environment jsdom */` pragma first line, matching `tests/components/needsAttentionInboxSyncProblem.test.tsx`):
+- [ ] **Step 1: Write BOTH failing test files** (the transition audit is authored HERE, before implementation — real red, plan-R1 F4). tests/components/needsAttentionInboxIdentityHold.test.tsx (`/** @vitest-environment jsdom */` first line):
 
 ```tsx
 /** @vitest-environment jsdom */
@@ -532,76 +474,94 @@ import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 
 const NOW = new Date("2026-08-03T13:00:00Z");
-function holdItem(over: Partial<Extract<NeedsAttentionItem, { variant: "identity_hold" }>> = {}) {
+type HoldItem = Extract<NeedsAttentionItem, { variant: "identity_hold" }>;
+function holdItem(over: Partial<HoldItem> = {}): HoldItem {
   return {
-    variant: "identity_hold" as const, key: "hold-show:sX", showId: "sX", slug: "spring-gala",
+    variant: "identity_hold", key: "hold-show:sX", showId: "sX", slug: "spring-gala",
     title: "Spring Gala", summaries: ["Jane Doe's email is changing"],
     copy: "Jane Doe's email is changing", activityAt: "2026-08-03T12:00:00+00:00", ...over,
   };
 }
+function renderInbox(items: NeedsAttentionItem[]) {
+  return render(
+    <NeedsAttentionInbox items={items} totalCount={items.length} renderedCount={items.length} overflowCount={0} now={NOW} />,
+  );
+}
 
 describe("identity_hold card", () => {
-  it("single hold: summary + link, NO toggle", () => {
-    render(<NeedsAttentionInbox items={[holdItem()]} overflowCount={0} now={NOW} />);
+  it("single hold: summary + link with truthy-title aria, NO toggle", () => {
+    renderInbox([holdItem()]);
     const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
     expect(within(card).getByText("Jane Doe's email is changing")).toBeTruthy();
-    expect(within(card).getByTestId("needs-attention-link-identity-hold-sX").getAttribute("href")).toBe("/admin?show=spring-gala");
+    const link = within(card).getByTestId("needs-attention-link-identity-hold-sX");
+    expect(link.getAttribute("href")).toBe("/admin?show=spring-gala");
+    expect(link.getAttribute("aria-label")).toBe("Review held change for Spring Gala (spring-gala)");
     expect(within(card).queryByTestId("identity-hold-toggle-sX")).toBeNull();
   });
 
-  it("multi hold: count copy, aria-correct toggle, summaries + link revealed", () => {
+  it("null title: slug renders on the visible line; slug-only aria fork", () => {
+    renderInbox([holdItem({ title: null })]);
+    const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
+    expect(within(card).getByText("spring-gala")).toBeTruthy();
+    expect(within(card).getByTestId("needs-attention-link-identity-hold-sX").getAttribute("aria-label"))
+      .toBe("Review held change for spring-gala");
+  });
+
+  it("multi hold: tabular count copy, aria toggle, no-region panel, footer link in BOTH states", () => {
     const summaries = ["s one", "s two", "s three"];
-    render(<NeedsAttentionInbox items={[holdItem({ summaries, copy: "3 held changes waiting" })]} overflowCount={0} now={NOW} />);
+    renderInbox([holdItem({ summaries, copy: "3 held changes waiting" })]);
     const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
     const countLine = within(card).getByText("3 held changes waiting");
-    expect(countLine.className).toContain("tabular-nums"); // DESIGN.md count mandate (spec R5-J2)
+    expect(countLine.className).toContain("tabular-nums"); // spec R5-J2
+    const linkCollapsed = within(card).getByTestId("needs-attention-link-identity-hold-sX"); // BEFORE expansion
+    expect(linkCollapsed.getAttribute("aria-label")).toBe("Review held changes for Spring Gala (spring-gala)");
     const toggle = within(card).getByTestId("identity-hold-toggle-sX");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-controls")).toBe("identity-hold-panel-sX");
-    expect(document.querySelector('#identity-hold-panel-sX[role="region"]')).toBeNull(); // repeated-landmark opt-out
+    expect(toggle.getAttribute("aria-label")).toBe("Show details for 3 held changes for Spring Gala (spring-gala)");
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const panel = document.getElementById("identity-hold-panel-sX");
     if (!panel) throw new Error("panel missing");
+    expect(panel.getAttribute("role")).not.toBe("region"); // repeated-landmark opt-out (spec H3)
     for (const s of summaries) expect(within(panel as HTMLElement).getByText(s)).toBeTruthy();
-    // Footer link visible in BOTH states (it sits outside the panel)
-    expect(within(card).getByTestId("needs-attention-link-identity-hold-sX")).toBeTruthy();
+    expect(within(card).getByTestId("needs-attention-link-identity-hold-sX")).toBeTruthy(); // AFTER expansion
   });
 
-  it("caps panel lines at 10 with a derived 'and N more' line", () => {
+  it("caps panel at 10 lines: first ten ALL present, tail derived, eleventh absent", () => {
     const summaries = Array.from({ length: 13 }, (_, i) => `summary ${i}`);
-    render(<NeedsAttentionInbox items={[holdItem({ summaries, copy: "13 held changes waiting" })]} overflowCount={0} now={NOW} />);
+    renderInbox([holdItem({ summaries, copy: "13 held changes waiting" })]);
     fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
     const panel = document.getElementById("identity-hold-panel-sX") as HTMLElement;
-    const more = within(panel).getByText(`and ${summaries.length - 10} more`);
-    expect(more.className).toContain("tabular-nums"); // DESIGN.md count mandate (spec R5-J2)
+    for (let i = 0; i < 10; i++) expect(within(panel).getByText(`summary ${i}`)).toBeTruthy(); // plan-R1 F12
     expect(within(panel).queryByText("summary 10")).toBeNull();
+    const more = within(panel).getByText(`and ${summaries.length - 10} more`);
+    expect(more.className).toContain("tabular-nums"); // spec R5-J2
   });
 
-  it("title fallbacks: null → slug visible; EMPTY STRING → accessible names still carry slug", () => {
-    render(<NeedsAttentionInbox items={[holdItem({ title: "", summaries: ["a", "b"], copy: "2 held changes waiting" })]} overflowCount={0} now={NOW} />);
-    const toggle = screen.getByTestId("identity-hold-toggle-sX");
-    expect(toggle.getAttribute("aria-label")).toContain("spring-gala"); // truthy fork: "" is falsy → slug form
+  it("empty-string title: accessible names still carry slug via the truthy fork", () => {
+    renderInbox([holdItem({ title: "", summaries: ["a", "b"], copy: "2 held changes waiting" })]);
+    expect(screen.getByTestId("identity-hold-toggle-sX").getAttribute("aria-label"))
+      .toBe("Show details for 2 held changes for spring-gala");
   });
 });
 ```
 
-_Failure modes: island rendered for single holds; aria wiring drift; unbounded panel; empty-string title yielding a slug-less accessible name._
+tests/components/identityHoldTransitionAudit.test.tsx — the spec Transition Inventory pinned test-first. SOURCE tier (`readFileSync` on the island + inbox sources): NO `AnimatePresence`, NO `motion.` import, exactly one `CollapsePanel` usage, `region={false}` present, `label={` present (the label is DOM-invisible under `region={false}`, so source is the only pinnable tier — plan-R1 F12), and the island root has NO gap utility (the spacing contract, spec R6-K3). BEHAVIORAL tier (jsdom, same render helper): rerender single→multi and multi→single (mode elements mount/unmount, no throw); toggle open then rerender with a DIFFERENT same-length summaries array (compound a, count above 1: panel children update); rerender with `summaries: ["only"]` while open (count-drops-to-1 arm: island unmounts, summary line renders — mode boundary wins, spec R7-L2). _Genuine red: the island file does not exist and the inbox has no identity_hold branch until Step 3._
 
-- [ ] **Step 2: Run — FAIL.**
-- [ ] **Step 3: Implement island** components/admin/IdentityHoldDisclosure.tsx (mirror `IgnoredSheetsDisclosure` — `"use client"`, `useState(false)`, `ChevronRight` rotate, `CollapsePanel`):
+- [ ] **Step 2: Run both — FAIL.**
+- [ ] **Step 3: Implement** the island:
 
 ```tsx
 "use client";
 // Multi-hold disclosure for the needs-attention identity_hold card (spec §7).
 // Owns ONLY open/closed state; summaries arrive as server-rendered children
-// (IgnoredSheetsDisclosure composition, AddAdminDisclosure lineage).
+// (IgnoredSheetsDisclosure composition). Caps live in lib/admin/identityHolds
+// (server-safe; a client-module export would be unreadable from the server inbox).
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { CollapsePanel } from "@/components/admin/CollapsePanel";
-
-export const HOLD_SUMMARIES_RENDER_CAP = 10;
 
 export function IdentityHoldDisclosure({ showId, title, slug, count, children }: {
   showId: string; title: string | null; slug: string; count: number; children: ReactNode;
@@ -609,30 +569,27 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
   const [open, setOpen] = useState(false);
   const panelId = `identity-hold-panel-${showId}`;
   const verb = open ? "Hide" : "Show";
-  const ariaLabel = title
-    ? `${verb} details for ${count} held changes for ${title} (${slug})`
-    : `${verb} details for ${count} held changes for ${slug}`;
+  const forShow = title ? `${title} (${slug})` : slug;
   return (
     // No gap utility here: CollapsePanel's zero-height closed track would keep a
-    // parent gap visible (CollapsePanel.tsx:22-25); open-state spacing lives in the
-    // pt-3 wrapper below (IgnoredSheetsDisclosure.tsx:100-104 precedent).
+    // parent gap visible (CollapsePanel.tsx:22-25); open-state spacing is the pt-3
+    // wrapper below (IgnoredSheetsDisclosure.tsx:100-104 precedent).
     <div className="flex flex-col">
       <button
         type="button"
         data-testid={`identity-hold-toggle-${showId}`}
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={ariaLabel}
+        aria-label={`${verb} details for ${count} held changes for ${forShow}`}
         onClick={() => setOpen((v) => !v)}
         className="group flex min-h-tap-min items-center gap-2 rounded-sm text-left text-sm text-text-subtle transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         <ChevronRight aria-hidden="true" className={`size-4 shrink-0 transition-transform duration-fast ${open ? "rotate-90" : ""}`} />
         <span>{verb} details</span>
       </button>
-      {/* region={false}: this card repeats per show (20 dashboard / 100 page cap), and
+      {/* region={false}: this card repeats per show (20 dashboard / 100 page cap) —
           CollapsePanel mandates the landmark opt-out for many-panel callers
-          (CollapsePanel.tsx:40-47; RecentAutoAppliedStrip precedent). The toggle's
-          aria-expanded + aria-controls remain the accessible wiring. */}
+          (CollapsePanel.tsx:40-47; RecentAutoAppliedStrip precedent). */}
       <CollapsePanel open={open} id={panelId} region={false} label={title ? `Held changes for ${title} (${slug})` : `Held changes for ${slug}`}>
         <div className="flex flex-col gap-1 pt-3">{children}</div>
       </CollapsePanel>
@@ -641,10 +598,10 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
 }
 ```
 
-Inbox branch (in `ItemCard`, before the `existing_staged` fallthrough; single/multi fork on `item.summaries.length === 1`; reuse the sync-problem card's tile classes and `CardHeader status="warn"`; label `Held change`/`Held changes`; footer `Link` `Review →` with truthy-title aria fork; multi mode renders the island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines plus the `and N more` line when `item.summaries.length > HOLD_SUMMARIES_RENDER_CAP`; the multi-mode count copy line AND the `and N more` line both carry `tabular-nums` per DESIGN.md's every-count mandate, spec R5-J2).
+Inbox branch (server side, before the `existing_staged` fallthrough): fork on `item.summaries.length === 1`; tile + `CardHeader status="warn"` label `Held change`/`Held changes`; visible title line `item.title ?? item.slug`; single mode = summary copy line + footer link (aria `Review held change for …` truthy fork); multi mode = count line (`text-sm text-text-subtle tabular-nums`) + island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines (`text-sm text-text-subtle`) plus, when longer, the `and N more` line (`tabular-nums`); footer `Link` OUTSIDE the island (aria `Review held changes for …` truthy fork); `HOLD_SUMMARIES_RENDER_CAP` imported from `@/lib/admin/identityHolds`.
 
-- [ ] **Step 4: Run tests + tsc — PASS.**
-- [ ] **Step 5: Commit** `feat(admin): identity-hold inbox card with disclosure island`
+- [ ] **Step 4: Run both test files + tsc — PASS.**
+- [ ] **Step 5: Commit** `feat(admin): identity-hold inbox card with disclosure island + transition audit`
 
 ---
 
@@ -652,10 +609,10 @@ Inbox branch (in `ItemCard`, before the `existing_staged` fallthrough; single/mu
 
 **Files:**
 
-- Modify: `components/admin/NeedsAttentionSummaryCard.tsx` (prop + chip after the sync-problems chip, `NeedsAttentionSummaryCard.tsx:54-69` pattern — chips render only when > 0), `components/admin/Dashboard.tsx:738-744` (thread `identityHoldTotal={result.needsAttention.identityHoldTotal}`), Dashboard tooltip (`Dashboard.tsx:769-772`) and page tooltip (`app/admin/needs-attention/page.tsx:64-67`) copy.
-- Test: extend `tests/components/admin/NeedsAttentionSummaryCard.test.tsx` (companion: `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx` is the chip-test pattern to mirror).
+- Modify: `components/admin/NeedsAttentionSummaryCard.tsx` (required `identityHoldTotal: number` prop + chip after the sync-problems chip, `NeedsAttentionSummaryCard.tsx:54-69` pattern — chips render only when > 0), `components/admin/Dashboard.tsx:738-744` (thread `identityHoldTotal={result.needsAttention.identityHoldTotal}`), Dashboard tooltip (`Dashboard.tsx:769-772`), page tooltip (`app/admin/needs-attention/page.tsx:64-67`).
+- Test: `tests/components/admin/NeedsAttentionSummaryCard.test.tsx` PLUS companion `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx:12-41` (three renders gain the new required prop — plan-R1 F6).
 
-- [ ] **Step 1: Failing test:** chip `summary-chip-identity-holds` renders `2 held` (fixture total 2) with `aria-label` `2 held identity changes`; absent at 0; holds-only state (`identityHoldTotal: 3`, others 0) yields a non-empty breakdown. _Failure mode: G2 — holds-only mobile state showing a bare total with empty breakdown._
+- [ ] **Step 1: Failing test:** chip `summary-chip-identity-holds` renders `2 held` (fixture total 2) with `aria-label` `2 held identity changes`; absent at 0; holds-only state (`identityHoldTotal: 3`, other totals 0) yields a non-empty breakdown. _Failure mode: G2 — holds-only mobile state with a bare total and empty breakdown._
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement** chip:
 
 ```tsx
@@ -666,9 +623,9 @@ Inbox branch (in `ItemCard`, before the `existing_staged` fallthrough; single/mu
 )}
 ```
 
-Tooltip copy — dashboard (replace the sentence at `Dashboard.tsx:769-772`): `Sheets and changes waiting on you: new shows to review, staged edits to approve, held crew identity changes, or sheets that couldn't be processed.` Page tooltip (`page.tsx:64-67`): `Everything waiting on a decision from you: sheets we could not auto-apply, staged changes to review, and held crew identity changes. Items leave this list as soon as you resolve them.`
+Tooltips — dashboard (`Dashboard.tsx:769-772`): `Sheets and changes waiting on you: new shows to review, staged edits to approve, held crew identity changes, or sheets that couldn't be processed.` Page (`page.tsx:64-67`): `Everything waiting on a decision from you: sheets we could not auto-apply, staged changes to review, and held crew identity changes. Items leave this list as soon as you resolve them.`
 
-- [ ] **Step 4: Run + tsc — PASS.** **Step 5: Commit** `feat(admin): summary-card held-changes chip + tooltip copy`
+- [ ] **Step 4:** Update the three companion renders; run both summary-card test files + `tsc` — PASS. **Step 5: Commit** `feat(admin): summary-card held-changes chip + tooltip copy`
 
 ---
 
@@ -676,19 +633,15 @@ Tooltip copy — dashboard (replace the sentence at `Dashboard.tsx:769-772`): `S
 
 **Files:**
 
-- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + `itemCopy`/`slugFor`/`groupTitleFor` arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), digest tests (`tests/notify/` — extend the digest-model suite; fixtures pinning `sourceTotals` gain `holdShows`).
+- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + helper arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), `tests/notify/digest.test.ts` + any fixture pinning `sourceTotals`.
 
-**Interfaces:**
+**Interfaces:** consumes `groupHoldRows`/`IdentityHoldRow` (Task 1), builder inputs (Task 3), `asIso` (`lib/notify/digest.ts:76-79` — returns `string | null`, plan-R1 F5). Produces `DigestModel.sourceTotals.holdShows: number`.
 
-- Consumes: `groupHoldRows`, `IdentityHoldRow` (Task 1); builder inputs (Task 3); the digest's `asIso` (`lib/notify/digest.ts:76-78`).
-- Produces: `DigestModel.sourceTotals` gains `holdShows: number`.
-
-- [ ] **Step 1: Failing tests** (extend the digest suite using its existing sql-stub dep idiom — the stub returns rows per-query in call order; add a fourth stubbed result for the holds query):
-  1. **Representation compatibility (spec §9.12):** holds row with `created_at` as a `Date` (postgres.js shape) between two pending items' timestamps → merged model order places the hold between them (fails if the adapter passed a non-ISO string or the raw Date).
-  2. **Uncapped (spec §9.13):** 21 pending syncs + 1 hold older than all → hold present in `shows` groups; `sourceTotals.holdShows === 1`; holds-only digest (`ingestions=syncs=[]`, one hold) is NOT `no_send`.
-  3. **Literals:** invalid-recipient `no_send` returns `sourceTotals.holdShows === 0`; `runNotify` synthesized model carries `holdShows: 0` (assert via its existing monitor-only test).
-  4. **Selective fault (spec §9.14):** ingestion/sync/shows stubs succeed, holds stub rejects → `buildDigestModel` RESOLVES to `{ kind: "infra_error" }` (it never throws — `lib/notify/digest.ts:238-239`; existing tests pin that contract).
-- [ ] **Step 2: Run — FAIL.** **Step 3: Implement** in `buildDigestModel` after the syncs query:
+- [ ] **Step 1: Failing tests.** The digest suite's `fakeSql` dispatches BY SQL TEXT (`tests/notify/digest.test.ts:6-50`) — NOT call order, which is unstable (the shows query is skipped when `driveIds` is empty, `lib/notify/digest.ts:178-186`; plan-R1 F14). Extend `fakeSql` with a `/from\s+sync_holds/i` branch returning configurable rows (default `[]`, so every existing case is untouched). Cases:
+  1. **Representation compatibility (spec §9.12):** one hold row with `created_at` as a `Date` (postgres.js shape) timestamped BETWEEN two pending items → merged model order places the hold between them. Type-level pin: `const _pin: string = ({} as IdentityHoldRow)["created_at"];`.
+  2. **Uncapped + totals (spec §9.13, D8/D9):** 21 pending syncs + 1 older hold → hold present; `sourceTotals.holdShows === 1`; holds-only case (pending branches `[]`, one hold row; the shows query never fires — text dispatch is order-immune) is NOT `no_send`; the invalid-recipient `no_send` literal AND the `runNotify` synthesized model both carry `holdShows: 0`.
+  3. **Selective fault (spec §9.14):** pending branches succeed, the `sync_holds` branch REJECTS → `buildDigestModel` RESOLVES to its typed infra result (`lib/notify/digest.ts:238-239`; it never throws — existing tests pin that).
+- [ ] **Step 2: Run — FAIL.** **Step 3: Implement** in `buildDigestModel` after the syncs query (inside the existing try):
 
 ```ts
 const holdRows = await sql<{
@@ -706,87 +659,76 @@ const identityHolds = groupHoldRows(
     id: r.id, show_id: r.show_id, slug: r.slug, title: r.title ?? null,
     entity_key: r.entity_key, held_value: r.held_value, proposed_value: r.proposed_value,
     base_modified_time: r.base_modified_time == null ? null : asIso(r.base_modified_time),
-    created_at: asIso(r.created_at),
+    // created_at is NOT NULL in DDL; asIso(null) is unreachable here — the ?? ""
+    // satisfies the required-string contract without a non-null assertion (plan-R1 F5).
+    created_at: asIso(r.created_at) ?? "",
   })),
 );
 ```
 
-Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length }`, `cap: ingestions.length + syncs.length + identityHolds.length`, `sourceTotals: { ..., holdShows: identityHolds.length }`. Helper arms: `groupTitleFor` — before the final `return item.title;` add `if (item.variant === "identity_hold") return item.title;` (explicit, mirroring the defensive sync_problem arm); `itemCopy` — `if (item.variant === "identity_hold") return item.copy;`; `slugFor` — `if (item.variant === "identity_hold") return item.slug;`. Update the two zero literals (`digest.ts:127`, `runNotify.ts:457`) with `holdShows: 0`.
+Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + syncs.length + identityHolds.length` (D8), `sourceTotals.holdShows` (D9); helper arms in `groupTitleFor`/`itemCopy`/`slugFor`; `holdShows: 0` in both zero literals (`digest.ts:127`, `runNotify.ts:457`).
 
-- [ ] **Step 3b: SQL source pin.** Add to the digest test file a source-regex assertion that `lib/notify/digest.ts` contains `kind = 'mi11_pending'`, `s.archived = false`, and `order by sh.created_at desc, sh.id asc` — the digest-side halves of the R6/G7 fences.
+- [ ] **Step 3b: SQL source pin.** Source-regex assertion: `lib/notify/digest.ts` contains `kind = 'mi11_pending'`, `s.archived = false`, and `order by sh.created_at desc, sh.id asc`.
 - [ ] **Step 4: Run digest suite + tsc — PASS.** **Step 5: Commit** `feat: digest includes open identity holds (uncapped model, holdShows total)`
 
 ---
 
-### Task 9: help copy surfaces
+### Task 9: help copy surfaces (TDD)
 
 **Files:**
 
-- Modify: `app/help/admin/dashboard/page.mdx:35-43` (inventory list gains a held-changes bullet) and `page.mdx:51-53` (live-change description mentions holds clearing on approve/reject), `app/help/admin/review-queues/page.mdx:5-12` + `page.mdx:50-60` (overview + live-change guidance), `app/help/daily-rhythm/page.mdx:12-14` (inbox description), `app/help/admin/settings/page.mdx:33-38` (digest description mentions held identity changes).
+- Create: tests/help/heldChangesCopy.test.ts
+- Modify: `app/help/admin/dashboard/page.mdx`, `app/help/admin/review-queues/page.mdx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx` (tooltips already landed in Task 7; the test covers those two component files too)
 
-- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). EIGHT passage-anchored assertions (spec §9.14a): one each for `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`; for `app/help/admin/dashboard/page.mdx` slice at the "Changes and review" heading and assert the phrase in BOTH slices (card-inventory list above, live-change paragraph below); for `app/help/admin/review-queues/page.mdx` slice at the "Live-show changes" heading and assert in BOTH slices (queues table above, identity bullet below). Phrase: /held.{0,30}(identity|crew).{0,30}change/i. TWO-TIER normalization (spec R9-N1): phrase assertions (nine positives + both negative sentence checks) run on normalized text — strip bold (`replaceAll("**", "")`) then collapse whitespace (`replace(/\s+/g, " ")`) — because the tour's stale sentence wraps a newline (`app/help/tour/page.mdx:32-34`, spec R8-M1); the two STRUCTURE assertions (five-bullet count /^- \*\*/m and the `- **Sync problem.**` anchor) run on the RAW source, bold markers and newlines intact. NINTH assertion: `app/help/tour/page.mdx` matches the held phrase AND does NOT contain "Each queue is scoped to one show" (spec R7-L1). PLUS dashboard-inventory assertions (spec R6-K2): slice matches /Five kinds of cards/; exactly five /^- \*\*/m bullet lines; one bullet begins with the literal - **Sync problem.**; "Nothing here clears itself." ABSENT; /sync problem cards clear on their own/i PRESENT. Run: FAIL (nine phrase assertions + the inventory assertions). _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
-- [ ] **Step 1:** Exact edits (each in the file's existing voice; no em-dashes):
-  1. `app/help/admin/dashboard/page.mdx:37-43` — repair the inventory passage in FULL (spec R5-J1; it is pre-existing-stale): change "Three kinds of cards show up here:" to "Five kinds of cards show up here:"; append a sync-problem bullet: `- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.`; append a held-change bullet: `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`; and replace the closing sentence "A card stays in the inbox until you act on it. Nothing here clears itself." with "Sheets and held changes stay in the inbox until you act on them; sync problem cards clear on their own when the problem is fixed."
-  2. `app/help/admin/dashboard/page.mdx:51-53` ("Changes and review" paragraph) — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
-  3. `app/help/admin/review-queues/page.mdx:7-10` — add a third table row: `| **Held identity changes** | A crew member's identity change (usually an email) held for your Approve or Reject. It waits in the show's **Sheet changes** feed and also appears as a card in the **Needs attention** inbox. |`
-  4. `app/help/admin/review-queues/page.mdx:57-59` (the identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
-  5. `app/help/daily-rhythm/page.mdx:13` (the Needs attention inbox bullet) — append: `Held crew identity changes appear here too, until you approve or reject them.`
-  6. `app/help/admin/settings/page.mdx:35` (Daily review digest bullet) — append: `It also lists crew identity changes that are held for your review.`
-  7. `app/help/tour/page.mdx:31-34` (review-queues card) — extend the enumeration and fix the one-show claim: replace "first-seen sheets the app held for your sign-off, and staged edits to a sheet that's already live. Each queue is scoped to one show, so working through one feels like triaging a short list rather than scanning the full sheet." with "first-seen sheets the app held for your sign-off, staged edits to a sheet that's already live, and crew identity changes held for your approval. The Needs attention list collects all of them across shows, so working through it feels like triaging a short list rather than scanning every sheet."
-- [ ] **Step 2:** Run `pnpm vitest run tests/help/heldChangesCopy.test.ts` — PASS; also run the existing `tests/help` suite (walker tests must stay green with the new copy).
+- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk), implementing spec §9.14a's TWO-TIER contract (spec R9-N1): PHRASE tier (normalized: `replaceAll("**", "")` then `replace(/\s+/g, " ")` — the tour sentence wraps a newline, `app/help/tour/page.mdx:32-34`, spec R8-M1) carries the NINE positives (`/held.{0,30}(identity|crew).{0,30}change/i` — one per single-passage source: `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx`; two each for the dual-passage files, sliced first — dashboard at the "Changes and review" heading, review-queues at the "Live-show changes" heading), the TWO negatives (tour: "Each queue is scoped to one show" ABSENT; dashboard inventory: "Nothing here clears itself." ABSENT), and the replacement-behavior positive (`/sync problem cards clear on their own/i` in the dashboard inventory slice). STRUCTURE tier (RAW source, spec R9-N1): dashboard inventory slice has exactly five `/^- \*\*/m` bullet lines and one bullet beginning `- **Sync problem.**`. Run: FAIL across all files.
+- [ ] **Step 1: Exact edits** (existing voice; no em-dashes):
+  1. `app/help/admin/dashboard/page.mdx:37-43` — FULL inventory repair (spec R5-J1): "Three kinds" becomes "Five kinds of cards show up here:"; add `- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.`; add `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`; replace the closing "A card stays in the inbox until you act on it. Nothing here clears itself." with "Sheets and held changes stay in the inbox until you act on them; sync problem cards clear on their own when the problem is fixed."
+  2. `app/help/admin/dashboard/page.mdx:51-53` — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
+  3. `app/help/admin/review-queues/page.mdx:7-10` — third table row: `| **Held identity changes** | A crew member's identity change (usually an email) held for your Approve or Reject. It waits in the show's **Sheet changes** feed and also appears as a card in the **Needs attention** inbox. |`
+  4. `app/help/admin/review-queues/page.mdx:57-59` (identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
+  5. `app/help/daily-rhythm/page.mdx:13` — append: `Held crew identity changes appear here too, until you approve or reject them.`
+  6. `app/help/admin/settings/page.mdx:35` — append: `It also lists crew identity changes that are held for your review.`
+  7. `app/help/tour/page.mdx:31-34` — replace the enumeration + one-show sentence: "first-seen sheets the app held for your sign-off, and staged edits to a sheet that's already live. Each queue is scoped to one show, so working through one feels like triaging a short list rather than scanning the full sheet." becomes "first-seen sheets the app held for your sign-off, staged edits to a sheet that's already live, and crew identity changes held for your approval. The Needs attention list collects all of them across shows, so working through it feels like triaging a short list rather than scanning every sheet."
+- [ ] **Step 2: Run** the new test — PASS; run the rest of `tests/help` (walkers stay green).
 - [ ] **Step 3: Commit** `docs(admin): held-changes copy across tooltips + help, with source-walk contract test`
 
 ---
 
-### Task 10: transition-audit task
+### Task 10: e2e — seeded holds across page, badge, chip, clear-through
 
 **Files:**
 
-- Create: tests/components/identityHoldTransitionAudit.test.tsx
+- Create: tests/e2e/needs-attention-holds.spec.ts
+- Modify: `playwright.config.ts` — add `"needs-attention-holds"` to the `desktop-chromium` filename allowlist (`playwright.config.ts:77-80`); WITHOUT this the spec collects ZERO tests (plan-R1 F2). The 390px chip step uses `page.setViewportSize({ width: 390, height: 844 })` inside desktop-chromium; no mobile-safari registration.
 
-Spec Transition Inventory (verbatim contract under test): states **single / multi-collapsed / multi-expanded**; ONLY animated pair = CollapsePanel height-morph on USER toggle (collapsed↔expanded); refresh-remount collapse is instant; every other pair instant; expansion persistence across `router.refresh()` UNRATIFIED (both outcomes in-contract); compound (a) summaries change while expanded with count staying above 1; count dropping to exactly 1 unmounts the island (mode boundary wins, spec R7-L2); (b) group clears while expanded → card unmounts, no exit animation; (c) toggle mid-refresh.
+**e2e harness readiness:** server boot = the suite's existing `webServer` on `E2E_PORT` (`playwright.config.ts:34-44`). Readiness gate = HYDRATION-proof, not visibility: replicate the interaction-based `waitForRowHydration` idiom (`tests/e2e/published-review-modal.interactions.spec.ts:129-143`) before ANY client interaction — the disclosure toggle and `mi11-reject` are client handlers and a visible control can be pre-hydration (plan-R1 F15). Detach safety = re-query every locator after `page.reload()` and after the reject action.
 
-- [ ] **Step 1: Write the audit test:** (1) source-level assertions — IdentityHoldDisclosure.tsx and the inbox branch contain NO `AnimatePresence`, NO `motion.` import, and exactly one `CollapsePanel` usage (read the file with `fs.readFileSync`, assert on content — this pins "instant everywhere else" structurally); (2) behavioral — rerender single→multi and multi→single (props change, same key): no throw, correct mode elements mount/unmount; toggle open, then rerender with a DIFFERENT same-length summaries array (compound a, count above 1): panel children update; rerender with `summaries: ["only"]` while open (multi-expanded→single, the count-drops-to-1 arm of compound a — mode boundary wins, spec R7-L2): island gone, summary line rendered. _Failure modes: an exit animation sneaking in; mode fork crashing on live data changes; compound (a) rendering stale summaries._
-- [ ] **Step 2: Run — FAIL** (file assertions first run against not-yet-final source are fine; behavioral parts fail until Task 6 branch handles rerenders — order this task AFTER Task 6; if all passes immediately, verify each assertion can fail by temporarily inverting one locally, then restore).
-- [ ] **Step 3: Commit** `test(admin): identity-hold transition audit (inventory pins)`
-
----
-
-### Task 11: e2e — seeded holds across page, badge, chip, clear-through
-
-**Files:**
-
-- Create: tests/e2e/needs-attention-holds.spec.ts (model on `tests/e2e/needs-attention-page.spec.ts` — same server, seeding, and cleanup idioms)
-
-**e2e harness readiness (mandatory checklist):** server boot = the suite's existing Playwright `webServer` on `E2E_PORT` (`playwright.config.ts:34-44`), no new server; readiness gate = seeded-card visibility assertion (`getByTestId("needs-attention-item-identity-hold-…")` auto-wait), never `networkidle`; detach safety = re-query locators after `page.reload()` and after the approve action (both re-render the list), no cached `locator.evaluate` handles across navigation.
-
-- [ ] **Step 1: Write the spec:** prefix-namespace `e2e-needs-attention-holds-`; seed two shows (`shows` insert, archived=false) + `sync_holds` rows: show 1 one `mi11_pending` email_change (proposed_value `{"disposition":"email_change","email":"new@x.com"}`, held_value `{"email":"old@x.com"}`, `base_modified_time` set — the kind-shape CHECK at `supabase/migrations/20260608000000_sync_holds.sql:30-37` requires both), show 2 three holds (distinct `entity_key`, distinct domains/keys under the uniq constraint). Pre-clean by prefix; cleanup in `finally`. Assert:
-  1. `/admin/needs-attention` renders both cards; single-hold card copy contains the seeded entity name (scoped `within` the card testid — the per-show feed is NOT mounted here, but scope anyway per anti-tautology); multi card shows `3 held changes waiting`.
-  2. Badge (`admin-nav` attention badge testid, per `needs-attention-page.spec.ts` badge assertion) equals seeded expectation: 2 hold-shows + 0 pending.
-  3. Navigate to `/admin` at 390px (the summary card exists ONLY on the dashboard, `components/admin/Dashboard.tsx:738-745`): chip `summary-chip-identity-holds` shows `2 held`.
-  4. Expand multi card: three seeded summaries visible inside `identity-hold-panel-…`; **probe (spec G3):** trigger a data refresh (insert a pending row server-side, `router.refresh` via the page's existing refresh affordance or `page.reload()`), record whether the panel stayed open in a comment-visible assertion accepting EITHER (`expect([true, false]).toContain(panelOpen)`) plus a console annotation of the observed value — the pinning assertion is mode correctness, not persistence.
-  5. Single-hold card link navigates to `/admin?show={slug}` and `mi11-approve` / `mi11-reject` (`components/admin/Mi11GateActions.tsx:70`) are visible.
-  6. Exclusions (spec §9.7/§9.8): seed a THIRD show with `archived=true` plus one `mi11_pending` hold, and (on show 1) one `undo_override` row. Assert neither adds a card and the badge still reads the value from step 2 (2 hold-shows).
-  7. Clear-through: click `mi11-reject` (NOT approve — approve requires a live Drive modifiedTime match plus a crew_members row, `lib/sync/holds/mi11GateActions.ts:89-102`, unseedable here; reject needs only the hold row) (confirm per that surface's existing flow in the admin-changes-feed specs), return to `/admin/needs-attention`, reload → single-hold card GONE, badge decremented to 1 (the reject conversion removes the mi11_pending row, spec R2).
-- [ ] **Step 2: Run** `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts --project=desktop-chromium` — iterate to green.
-- [ ] **Step 3: Commit** `test(admin): e2e seeded identity-holds rollup (cards, badge, chip, clear-through)`
+- [ ] **Step 1: Write the spec.** Prefix `e2e-needs-attention-holds-`; pre-clean by prefix; cleanup in `finally`. **Executable seed helper** (plan-R1 F16) — full required columns: `shows` rows carry `drive_file_id` (prefixed), `slug` (prefixed), `title`, `client_label`, `template_version`, `archived` (`supabase/migrations/20260501000000_initial_public_schema.sql:3-10`); every `sync_holds` row carries `show_id`, `drive_file_id` (its show's), `domain` (`'crew_email'`/`'crew_identity'`, distinct per row under the `(show_id, domain, entity_key)` uniq), `entity_key`, `held_value` (`{"email":"old@x.com"}`), `proposed_value` (`mi11_pending`: `{"disposition":"email_change","email":"new@x.com"}` with NON-NULL `base_modified_time`; `undo_override`: NULL per the kind-shape CHECK `20260608000000_sync_holds.sql:30-37`), `kind`, `created_by` (`'e2e'`). Seeds: show 1 = one `mi11_pending`; show 2 = three `mi11_pending` (distinct entity keys, domains alternating); show 3 = active with ONLY an `undo_override` row (spec §9.8 — a reader wrongly including overrides adds a VISIBLE new card here, plan-R1 F13); show 4 = `archived=true` with one `mi11_pending` (R6). Assertions:
+  1. Cards for shows 1+2 ONLY (shows 3/4 produce NO card — scoped testid queries); copy fork correct (`within(card)`; multi = `3 held changes waiting`).
+  2. Badge equals 2 (fixture-derived).
+  3. `/admin` at 390px viewport: `summary-chip-identity-holds` shows `2 held` (the summary card exists ONLY on the dashboard, `components/admin/Dashboard.tsx:738-745`).
+  4. Hydration-gate, expand show 2's card: all three seeded summaries inside the panel. `page.reload()` → re-query → panel COLLAPSED (full document remount mounts the island at its default; this PINS the reload case. Soft-refresh persistence stays UNRATIFIED per spec G3 and is exercised by the Task 6 jsdom rerenders — no vacuous both-values assertion, plan-R1 F15).
+  5. Show 1's card link lands on `/admin?show={slug}` with `mi11-approve`/`mi11-reject` visible (`components/admin/Mi11GateActions.tsx:70`).
+  6. Clear-through: hydration-gate, click `mi11-reject` (NOT approve — approve needs a live Drive `modifiedTime` match + a `crew_members` row, `lib/sync/holds/mi11GateActions.ts:89-102`, unseedable here; reject needs only the hold row and the round-tripped `base_modified_time`), confirm per that surface's flow, return, reload → show 1's card GONE, badge reads 1.
+- [ ] **Step 2: Run** `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts --project=desktop-chromium` — iterate to green (config registration first, or the run collects nothing).
+- [ ] **Step 3: Commit** `test(admin): e2e seeded identity-holds rollup (cards, badge, chip, reject clear-through)`
 
 ---
 
-### Task 12: closeout
+### Task 11: closeout
 
-- [ ] **Step 1: Full local suite** `pnpm vitest run` + `pnpm exec tsc --noEmit` + `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts tests/e2e/needs-attention-page.spec.ts --project=desktop-chromium` — all green.
-- [ ] **Step 2: BACKLOG graduation** (invariant 12): rewrite the `BL-NEEDS-ATTENTION-HOLDS-ROLLUP` entry per the reconciliation-line idiom (BACKLOG.md line 7): shipped by this branch, spec path, one-line outcome; no in-flight marker survives the merge.
-- [ ] **Step 3: Impeccable dual gate** (invariant 8 — UI surface): run `/impeccable critique` AND `/impeccable audit` on the affected diff with the v3 setup gates (context.mjs PRODUCT.md + DESIGN.md, register read); fix or defer P0/P1 via DEFERRED.md; then fill the marker line below with real values.
-- [ ] **Step 4: Whole-diff cross-model review** to APPROVE (fresh-eyes brief; REVIEWER ONLY; scoped file lists per the split-tight-scope default).
-- [ ] **Step 5: Push, PR, real CI green, `gh pr merge --merge`,** fast-forward main, verify `git rev-list --left-right --count main...origin/main` → `0  0`.
+- [ ] **Step 1: Impeccable dual gate FIRST** (invariant 8): `/impeccable critique` AND `/impeccable audit` on the affected diff with the v3 setup gates; fix or defer P0/P1 via DEFERRED.md; REPLACE the template marker line below with the real RAN form (`impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`). Fill BEFORE the full-suite run — `tests/docs/_metaInvariant8Closeout.test.ts` accepts only the RAN/N-A/template forms (plan-R1 F3).
+- [ ] **Step 2: BACKLOG graduation** (invariant 12): MOVE the entire `BL-NEEDS-ATTENTION-HOLDS-ROLLUP` entry from `BACKLOG.md` to `BACKLOG-archive.md` (per `BACKLOG.md:5`; `tests/docs/_metaDeferralLedgerGraduation.test.ts:425-448` rejects terminal entries left in the open queue) and add the reconciliation-line segment at `BACKLOG.md:7` naming this branch/spec (plan-R1 F17).
+- [ ] **Step 3: Full local suite** — `pnpm vitest run`, `pnpm exec tsc --noEmit`, `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts tests/e2e/needs-attention-page.spec.ts --project=desktop-chromium` — all green.
+- [ ] **Step 4: Whole-diff cross-model review** to APPROVE (fresh-eyes; REVIEWER ONLY; split tight-scope briefs per the AGENTS.md default for large diffs).
+- [ ] **Step 5:** Sync with origin/main (`git fetch origin && git merge origin/main`, resolve, re-run the suite if anything merged), push, PR, REAL CI green, `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`, then CronDelete the session nudge and clear both herdr labels.
 
 ## 12. Closeout marker
 
-impeccable-gate: PENDING — filled at Task 12 Step 3 (grammar: `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`)
+impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
 
 ## Meta-test inventory (declared)
 
-- EXTENDS: `tests/admin/_metaInfraContract.test.ts` (new `loadOpenIdentityHolds` row; expanded `loadNeedsAttentionCount` contract), `tests/admin/_metaBoundedReads.test.ts` (lib/admin/identityHolds.ts in `READ_MODULES`; `sync_holds` in `UNBOUNDED_TABLES`).
+- EXTENDS: `tests/admin/_metaInfraContract.test.ts` (new `loadOpenIdentityHolds` row; expanded `loadNeedsAttentionCount` contract), `tests/admin/_metaBoundedReads.test.ts` (module in `READ_MODULES`; `sync_holds` in `UNBOUNDED_TABLES`).
 - CREATES: none.
-- Declared N/A: advisory-lock topology (no `pg_advisory*` touched), sentinel-hiding, admin-alert catalog, `AUDITABLE_MUTATIONS` (no mutation surfaces), DML lockdown, schema manifest/validation parity (no migrations). Layout-dimensions task N/A (spec §7 Dimensional Invariants: none introduced).
+- Declared N/A: advisory-lock topology (no `pg_advisory*` touched), sentinel-hiding, admin-alert catalog, `AUDITABLE_MUTATIONS` (no mutation surfaces), DML lockdown, schema manifest/validation parity (no migrations). Layout-dimensions task N/A (spec §7 Dimensional Invariants: none introduced; the one spacing-topology contract is pinned by the Task 6 source assertions).
