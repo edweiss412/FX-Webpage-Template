@@ -261,6 +261,34 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
     });
   }
 
+  // ── Section freshness cue (spec 2026-08-03-modal-freshness-cue §11.4) ──────
+  //
+  // The cue REPURPOSES accent-tint as a background for ordinary body text: it
+  // washes a whole section panel card, whose contents are `text` and
+  // `text-subtle`, not just the `text-strong` the share-link entry measured. That
+  // pairing had never been measured, and a repurposed token is exactly the case
+  // AGENTS.md requires a contrast pin for.
+  //
+  // The edge rows restate the share-link floors on THIS surface deliberately.
+  // DESIGN.md records that the ring is not decorative in dark, where it is the
+  // change signal itself; the same is true here, so this surface carries its own
+  // floor rather than inheriting one that a future share-link retune could remove.
+  for (const mode of MODES) {
+    it(`${mode.name}: the freshness wash keeps card text legible and its outline visible`, () => {
+      const tint = tokenIn(mode.src, "--color-accent-tint-runtime");
+      const edge = tokenIn(mode.src, "--color-accent-edge-runtime");
+      const text = tokenIn(mode.src, "--color-text-runtime");
+      const subtle = tokenIn(mode.src, "--color-text-subtle-runtime");
+      // C1 + C2: body and secondary text at the wash's peak.
+      expect(contrast(text, tint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(subtle, tint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      // C3 + C4: the outline at the peak, and as the wash settles back to the
+      // card's resting `surface` fill.
+      expect(contrast(edge, tint)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      expect(contrast(edge, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+  }
+
   it("accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical", () => {
     expect(css).toMatch(/--color-accent-edge:\s*var\(--color-accent-edge-runtime\)\s*;/);
     const lightVal = tokenIn(block(":root {"), "--color-accent-edge-runtime");

@@ -67,7 +67,7 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 
 ## 2. Task list
 
-- [ ] T1 — the detector module and its unit suite
+- [x] T1 — the detector module and its unit suite (19 tests, 6 mutants killed)
 - [ ] T2 — the normative CSS, DESIGN.md, contrast rows, structural pins
 - [ ] T3 — threading the flashing id set to the panel card
 - [ ] T4 — the state machine and the announcement region
@@ -145,6 +145,8 @@ D6 and D14 are the anti-tautology partners of D3 and D9: D3 alone passes if the 
 Warning routing in both is driven by `blockRef`, which is what lets D9 place a warn inside Crew without touching `crewMembers`; the existing example of that shape is `unknownFieldWarn` at `tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:37-45`.
 
 **GREEN:** `pnpm vitest run tests/components/admin/review/sectionFreshness.test.ts`.
+
+**Mutation results (run at implementation time, recorded so the anti-tautology claim is evidence rather than assertion).** Six deliberate mutants against the shipped detector, all killed: dropping `previewRoster` from crew, dropping routed warnings, dropping routed decisions, dropping the anchor, dropping `archivedTabOffer`, and deleting the removal half of the union diff. The routed-warnings mutant SURVIVED the first time — adding a warning also grows the routed-decision array from empty to one null, and that incidental signal was carrying D9. D9b was added to hold the warning count fixed and edit the text instead, so only the routed warnings themselves can satisfy it. This is exactly the accidental pass the anti-tautology rule exists to catch, and it was invisible until the mutant ran.
 
 ---
 

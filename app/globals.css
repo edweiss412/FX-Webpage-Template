@@ -949,6 +949,86 @@ details[open] > summary [data-agenda-day-count] {
   }
 }
 
+/* Published review modal: one-shot cue on the panel card of each registry
+   section whose CONTENT changed across a realtime-driven RSC reconcile
+   (spec 2026-08-03-modal-freshness-cue section 4.5, which makes this block
+   NORMATIVE — a test compares the shipped rules against it rather than against
+   a description of it). A brief accent-tint wash holding to 45%, plus a 2px
+   outline whose colour fades with it.
+
+   WHY AN OUTLINE AND NOT A BORDER OR BOX-SHADOW. The card already owns its
+   border (which switches to border-strong when the section is flagged) and its
+   tile shadow; animating either would fight an existing state. An outline is
+   layout-neutral, composes with both, and follows border-radius. It draws
+   OUTSIDE the border box, which the scroll container's gap-6 leaves room for.
+
+   WHY TWO IDENTICAL KEYFRAME PAIRS. Changing an attribute's VALUE does not
+   restart a CSS animation, and the key-based remount the share-link cue uses is
+   unavailable here: remounting a section card would destroy the scroll position
+   and focus inside it, which is the property the whole realtime design exists to
+   preserve. Alternating between -1 and -2 changes `animation-name`, which does
+   restart it. A drift pin keeps the two bodies identical.
+
+   Reduced motion: NO cue, matching the share-link row above. A one-shot "this
+   just changed" signal has no correct steady state. The sr-only announcement is
+   what carries the information there, and it is motion-independent. */
+@keyframes section-freshness-flash-bg-1 {
+  0%,
+  45% {
+    background-color: var(--color-accent-tint);
+  }
+  100% {
+    background-color: var(--color-surface);
+  }
+}
+@keyframes section-freshness-flash-outline-1 {
+  0%,
+  45% {
+    outline-color: var(--color-accent-edge);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+@keyframes section-freshness-flash-bg-2 {
+  0%,
+  45% {
+    background-color: var(--color-accent-tint);
+  }
+  100% {
+    background-color: var(--color-surface);
+  }
+}
+@keyframes section-freshness-flash-outline-2 {
+  0%,
+  45% {
+    outline-color: var(--color-accent-edge);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+[data-section-freshness-flash] {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+}
+[data-section-freshness-flash="1"] {
+  animation:
+    section-freshness-flash-bg-1 1600ms ease-out,
+    section-freshness-flash-outline-1 1600ms ease-out;
+}
+[data-section-freshness-flash="2"] {
+  animation:
+    section-freshness-flash-bg-2 1600ms ease-out,
+    section-freshness-flash-outline-2 1600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-section-freshness-flash] {
+    animation: none;
+    outline-color: transparent;
+  }
+}
+
 /*
  * /help long-form prose typography.
  *
