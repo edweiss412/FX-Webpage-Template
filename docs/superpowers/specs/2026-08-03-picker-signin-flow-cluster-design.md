@@ -20,11 +20,12 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
 | R1 | The bootstrap handler **preserves** the allow-listed `next` query rather than stripping to the canonical bare URL. | Owner, 2026-08-03, this branch's brainstorming gate. Rationale: `lib/auth/validateNextParam.ts:77` has already reduced the query to an allow-list before the handler sees it, and the handler already redirects to that same query-carrying string at `app/api/auth/picker-bootstrap/route.ts:189` and `app/api/auth/picker-bootstrap/route.ts:211`. |
 | R2 | `cleanupStaleEntry` gains the validate-then-redirect its sibling already has, **and** a new prod-build e2e lands in the same PR. Not e2e-only, not won't-fix. | Owner, 2026-08-03, brainstorming gate. The entry's own precondition ("write a prod-build e2e first so the change is provable") is satisfied by shipping both together. |
 | R3 | The claimed-row pending affordance is **spinner in place of the lock + role chip text swapped to `Signing in…`** (mockup option C). Not a bare fade, not a spinner alone, not a second line under the name. | Owner, 2026-08-03, brainstorming gate, chosen against a rendered four-option mockup. |
-| R4 | When a claimed row has no `role`, the pending chip **still renders** (it is the only right-side signal) and unmounts on completion. | This spec, §4.3. Routine guard-condition call; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:227` renders the chip conditionally on `c.role` today. |
+| R4 | When a claimed row has no **displayable** role, the pending chip **still renders** (it is the only right-side signal) and unmounts on completion. **Premise corrected in R2:** originally written as `role={null}`, which is unrealizable — `role` is non-nullable at `_PickerInterstitial.tsx:50`, `app/show/[slug]/[shareToken]/page.tsx:59`, and in the schema (`supabase/migrations/20260501000000_initial_public_schema.sql:37`, `role text not null`). The `c.role &&` guard at `_PickerInterstitial.tsx:227` is an **empty-string** check. The owner's decision stands; only the triggering input is corrected to `role: ""`. | Owner, 2026-08-03; premise corrected against live code in spec review R2. |
 | R5 | **Unclaimed** rows are out of scope and get no pending state. Their form posts a local Server Action, not a three-hop OAuth journey. | This spec, §4.2 mode boundary. The backlog item is scoped to the claimed row (`BACKLOG.md`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`). |
 | R6 | `SHOW_NEXT_RE` stays `$`-anchored against the **path portion**. The fix splits the query off before matching; it does not loosen the path grammar. | This spec, §3.2. Loosening the anchor would admit `/show/<slug>/<token>/anything`. |
 | R7 | No DB, migration, RPC, or advisory-lock surface is touched. Invariant 2 and the migration→validation parity checklist are N/A for this diff. | This spec, §7. |
 | R8 | Pending comes from **local client state**, NOT `useFormStatus`. The backlog entry's proposed `useFormStatus` fix is wrong for this form and was refuted by probe before drafting. Do not propose reverting to `useFormStatus`; do not cite the admin "no local flag" rule against it without first reading §3.4. | This spec, §3.4, with the probe output inline. |
+| R9 | Every behavioral claim about DOM, CSS, or framework semantics in this spec is settled by a recorded probe in §3.6, not by argument — and each is labelled with the environment that can settle it. R1 and R2 both found false asserted-behavior claims; §3.6 is the structural defense against a third round of the same vector. | This spec, §3.6. Project rule: `docs/agents/writing-plans.md:20` (ship the structural defense in the repair commit, do not wait for recurrence). |
 
 ### 1.2 Out of scope
 
@@ -171,12 +172,34 @@ no `gate` re-resolves as `no_auth: first_contact`, fails the `allowGateSkip` tes
 Welcome gate — not the picker that §2.2 promises. Dropping `s` would additionally discard a section
 deep link.
 
-Consequence for the input type: `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) currently
-carries `slug`, `shareToken`, `showId`, `expectedEpoch`, `expectedCrewMemberId` and no navigation
-context. It gains two optional fields, `gate` and `s`, sourced from two new hidden inputs on the
-existing `_StaleCleanupAutoSubmit` form. Both are re-validated against the same allow-lists
-`validateNextParam` uses before reaching `buildShowReturnUrl`; an absent or non-allow-listed value
-is dropped, and the redirect degrades to the bare canonical URL rather than failing.
+**`gate` is REQUIRED whenever the picker was reached with it; it is not a nice-to-have.** An
+earlier draft called it optional and said an absent value degrades to the bare canonical URL —
+that is self-contradictory, because the bare canonical URL is precisely the broken destination
+this section exists to avoid. Corrected: when the cleanup form supplies `gate=skip`, the redirect
+MUST carry it. When the picker genuinely was not reached with a gate, the bare redirect is correct
+for that case and no contradiction arises.
+
+**Threading matrix — every hop `gate` and `s` must survive.** The values originate in the page
+and must reach a hidden input. R2 found the middle three hops do not exist today; all five rows are
+in scope for this diff.
+
+| # | Hop | Today | Required |
+|---|---|---|---|
+| 1 | `page.tsx:189-195` reads `gate` and `allowlistedS` from search params | both present | unchanged |
+| 2 | `page.tsx:94-104` `renderPickerRepick` args | carries `s`, **no `gate`** | add `gate` |
+| 3 | `page.tsx:367-377` call site of `renderPickerRepick` | passes neither | pass `gate` (and keep `s`) |
+| 4 | `_PickerInterstitial.tsx:60-78` props | exposes `s`, **no `gate`** | add `gate` |
+| 5 | `_PickerInterstitial.tsx:274-281` `<StaleCleanupAutoSubmit>` mount | passes **neither** `s` nor `gate` | pass both |
+| 6 | `_StaleCleanupAutoSubmit.tsx` hidden inputs | five fields | seven — add `gate`, `s` |
+| 7 | `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) | five fields | seven — add optional `gate`, `s` |
+
+Any single missing hop silently reproduces the wrong-screen bug, which is why the matrix is
+enumerated rather than described. Both values are re-validated against the same allow-lists
+`validateNextParam` uses before reaching `buildShowReturnUrl`; a non-allow-listed value is dropped.
+
+**A second merge-gating test must move in lockstep.** `tests/components/StaleCleanupAutoSubmit.test.tsx:32`
+is literally named "renders a form carrying all five hidden inputs" and asserts that count. Row 6
+above breaks it. Updating that test to seven is part of this work, not a surprise at CI.
 
 This is a deliberate, minimal widening of §1.2's "`_StaleCleanupAutoSubmit` is out of scope": two
 hidden inputs are added to its form. Its `useEffect`, its empty dependency array, and its
@@ -230,7 +253,7 @@ Props (all required unless noted):
 | Prop | Type | Guard behavior |
 |---|---|---|
 | `name` | `string` | Rendered truncated. Empty string renders an empty span; the row still has its 44px floor and stays tappable. Not a new case — `c.name` is non-null in the roster query today. |
-| `role` | `string \| null` | `null` / empty → no chip in idle. In pending the chip renders regardless (R4). |
+| `role` | `string` | Empty string → no chip in idle (the live `c.role &&` guard is an empty-string check; `role` is non-nullable — R4). In pending the chip renders regardless. |
 | `crewMemberId` | `string` | Passed through to `data-crew-member-id`. |
 | `lockHint` | `string` | The `aria-label` on the lock. Falls back to `"Sign in to use this identity"`, matching the existing fallback at `_PickerInterstitial.tsx:212`. |
 | `chipClassName` | `string` | Computed server-side and passed in, so the client component holds no role-flag logic. |
@@ -255,8 +278,10 @@ and the **disable mechanism** (below).
 **Why `aria-disabled` and not `disabled`.** A natively `disabled` button is removed from the
 focusable set, so a keyboard user who activates the row loses their place the instant it goes
 busy — the browser drops focus to `<body>`. `aria-disabled` keeps the element focusable and
-announced as unavailable, and the `onClick` early-return is what actually blocks the second
-activation. This is the only mechanism that satisfies both halves of the requirement (stop the
+announced as unavailable. **The `onClick` handler must call `e.preventDefault()` on the pending
+path** — an early `return` alone does NOT cancel a submit button's default action (§3.6 P1:
+`submits=2`), and `aria-disabled` does not block activation either (§3.6 P2). Without
+`preventDefault` the row looks busy and still double-submits, i.e. the defect is untouched. This is the only mechanism that satisfies both halves of the requirement (stop the
 re-tap, keep the focus ring) — see §6, where the focus claim is now testable rather than assumed.
 
 The row must therefore style its own pending appearance: `disabled:` variants do not apply, and
@@ -277,6 +302,32 @@ reflow. Both occupy the same slot.
 
 **Copy.** `Signing in…` — U+2026 as a literal ellipsis character, matching `Retrying…` /
 `Confirming…`. No em-dash. The apostrophe rule does not apply (no apostrophe).
+
+### 3.6 Measured behaviors (R9)
+
+Every row here was run, not reasoned. Two review rounds each found a false asserted-behavior claim
+in this spec (R1: hover suppression and disabled-focus; R2: submit cancellation), so this table is
+the convergence device: **a claim about DOM/CSS/framework semantics is admissible only with a row
+here**, and the row names the environment that can actually settle it.
+
+| # | Claim | Result | Settled in |
+|---|---|---|---|
+| P1 | An `onClick` early return alone cancels the second submit | **FALSE — `submits=2`** | jsdom |
+| P1b | `onClick` early return **plus `e.preventDefault()`** cancels it | TRUE — `submits=1` | jsdom |
+| P2 | `aria-disabled="true"` alone blocks activation | **FALSE** | jsdom |
+| P3 | `useFormStatus` reports pending for a string-action GET form | **FALSE** (`NATIVE_GET=false`, `FUNCTION_ACTION=true`) | jsdom |
+| P4 | A natively `disabled` button loses focus | **NOT SETTLEABLE IN JSDOM** — jsdom reports `stillFocused=true`, real browsers blur. Must be asserted in Playwright | Playwright only |
+| P5 | Tailwind's `hover:` variant is suppressed by a disabled/`aria-disabled` element | **FALSE** — compiles to a bare hover pseudo-class inside `@media (hover: hover)` with no not-disabled guard | Tailwind source + Playwright |
+
+**Consequences, wired into the design:**
+
+- P1/P1b/P2 → the `onClick` handler MUST call `e.preventDefault()` on the pending path. An early
+  return alone leaves the defect exactly as it was, while making the row *look* fixed. This is the
+  R2 BLOCKING finding.
+- P4 → the focus-retention claim in §6 is **not** provable by the jsdom component test. It is
+  asserted only in Playwright (§8.3), and no jsdom test may be cited as evidence for it. A green
+  jsdom suite says nothing about this behavior in either direction.
+- P5 → pending background must win by explicit CSS precedence, never by assumed suppression.
 
 ---
 
@@ -304,16 +355,16 @@ The unclaimed branch (`_PickerInterstitial.tsx:240-260`) is untouched by this di
 
 ### 4.3 Guard conditions
 
-- `role` null/empty → idle renders no chip; pending renders the `Signing in…` chip anyway (R4).
+- `role` empty string → idle renders no chip; pending renders the `Signing in…` chip anyway (R4). `role` is non-nullable, so there is no null case to guard.
 - `name` empty → empty truncating span; row keeps its 44px floor.
 - `lockHint` missing → the existing literal fallback.
 - Pending with `prefers-reduced-motion: reduce` → spinner renders but does not animate; the chip
   text swap and the `disabled` state still convey pending. Motion is never the sole signal.
-- Rapid double-tap → the second tap reaches the `onClick` guard, which returns early because
-  `pending` is already true, so no second submit is issued. Note this is a JS-level guard, not the
-  DOM-level one a native `disabled` gives: `aria-disabled` alone does not stop activation, so the
-  early return is load-bearing and must be tested, not assumed (§3.5, §8.3). Closing this
-  double-submit is the actual defect being fixed.
+- Rapid double-tap → the second tap reaches the `onClick` guard, which calls `e.preventDefault()`
+  and returns because `pending` is already true, so no second submit is issued. Both halves are
+  required: `aria-disabled` does not stop activation (§3.6 P2) and an early return alone does not
+  cancel the default action (§3.6 P1). The `preventDefault` is the load-bearing part and is pinned
+  by a submit-count assertion (§8.3), never assumed. Closing this double-submit is the defect.
 
 ### 4.4 Cap / truncation
 
@@ -333,8 +384,9 @@ existing `items-center` is explicit and must stay.
 | Parent → child | Invariant | Guaranteed by |
 |---|---|---|
 | row → left group | vertically centered, single line | `items-center` on the row (`_PickerInterstitial.tsx:174`) |
-| row → spinner | 16px box, does not raise row height above the 44px floor | `size-4` on `Loader2`; row's `min-h-tap-min` is a floor, and 16px + `py` stays under it |
-| row → pending chip | single line, no wrap | `shrink-0` + `whitespace-nowrap` on the chip; `whitespace-nowrap` is **added** by this diff — `chipBase` (`_PickerInterstitial.tsx:182`) does not carry it today and `Signing in…` is wider than most role strings |
+| row → spinner | 16px box, does not raise row height above the 44px floor | `size-4` on `Loader2`; the row's `min-h-tap-min` is a floor and a 16px glyph sits under it. The row carries only `px-4` (`_PickerInterstitial.tsx:174`) — there is **no** vertical padding class, so do not cite one |
+| lock slot → spinner slot | **equal WIDTH**, so the name does not shift horizontally | Not equal by construction: the lock is a bare Unicode glyph in a span with no width class (`_PickerInterstitial.tsx:210-224`) while the spinner is `size-4`. The swap needs an explicit fixed-width slot wrapping BOTH. A height-only assertion cannot see this, so §8.3 additionally asserts the name span's left edge is unchanged across the swap (R2 finding 7) |
+| row → pending chip | single line, no wrap | `shrink-0` + `whitespace-nowrap` applied to the **pending chip only**, NOT to the shared `chipBase` at `_PickerInterstitial.tsx:182`. `chipBase` feeds both the claimed and the unclaimed chip (`_PickerInterstitial.tsx:253-257`); adding no-wrap there would change unclaimed-row overflow behavior for arbitrary `role` text, which R5 puts out of scope |
 | row → name span | truncates rather than wrapping | existing `truncate` + `min-w-0` on the left group |
 | row height, idle → pending | **unchanged** | the two states differ only in a 16px-for-16px glyph swap and chip text; neither adds a line |
 
@@ -412,7 +464,14 @@ would pass for an unrelated reason.
 - Unit, emit survival: `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws.
   Assert on the sink spy after catching the sentinel. Failure mode: reordering that puts the throw
   above the emit and silently drops invariant-10 telemetry.
-- Unit, destination: the thrown sentinel's path carries `gate=skip` when the form supplied it.
+- Unit, destination — `gate`: the thrown sentinel's path carries `gate=skip` when the form supplied it.
+- Unit, destination — `s`: the sentinel's path carries `s=schedule` when the form supplied it.
+  Without this, an implementation that threads `gate` correctly and drops `s` at any of the seven
+  hops passes every other stale-cleanup assertion while silently losing the deep link (R2
+  finding 3).
+- Unit, hidden-input count: `_StaleCleanupAutoSubmit` renders SEVEN hidden inputs. This is the
+  existing assertion at `StaleCleanupAutoSubmit.test.tsx:32` updated from five; it is the only
+  test that pins the middle of the threading matrix.
   Failure mode caught: the bare-canonical redirect, which re-resolves as `no_auth: first_contact`,
   fails `allowGateSkip` (`page.tsx:324`), and renders `<SignInOrSkipGate>` instead of the picker.
 - Prod-build e2e: one stale kind (`epoch_stale`), driven at `?gate=skip`, asserting the browser
@@ -438,14 +497,22 @@ does not apply to a native GET form (§3.4).
   unclaimed row, and the test asserts the claimed row reaches pending. A `useFormStatus`
   implementation would leave `pending` false forever and fail here — this is the test that catches
   a future "cleanup" back to the admin idiom. Concrete failure mode: pending never appears.
-- Component test, R4: a claimed row with `role={null}` renders no chip in idle and the
-  `Signing in…` chip in pending.
+- Component test, R4: a claimed row with `role=""` renders no chip in idle and the `Signing in…`
+  chip in pending. **Not `role={null}`** — the prop is `string` and the column is `not null`, so a
+  null fixture is unrealizable and would only prove the test harness accepts an impossible input.
+- **Component test, double-activation (the R2 BLOCKING regression guard).** Attach a submit
+  listener to the row's form, fire TWO activations, assert exactly ONE submit. Failure mode caught:
+  an `onClick` that early-returns without `e.preventDefault()` — measured `submits=2` (§3.6 P1),
+  i.e. the row looks busy and still double-submits, leaving the entire defect unfixed. Repeat for
+  keyboard activation (Enter and Space both dispatch a click), since a pointer-only assertion
+  passes while keyboard users still double-submit.
 - Component test, R5: an unclaimed row never renders `picker-row-spinner` in any state.
 - Component test, bfcache reset: dispatch a `pageshow` event with `persisted: true` after reaching
   pending, and assert the row returns to idle. Failure mode caught: a restored page showing a
   permanently disabled row.
 - Real-browser layout: idle vs pending row `getBoundingClientRect().height` equal within 0.5px
-  (§5), run over **two** fixtures — one row WITH a role and one with `role={null}`. The null-role
+  (§5), plus the name span's left edge unchanged within 0.5px (the lock-vs-spinner width
+  invariant), run over **two** fixtures — one row WITH a role and one with `role=""`. The null-role
   case is the higher-risk one and must not be omitted: with a role present, pending merely swaps
   one chip's text for another, but with `role={null}` pending ADDS a chip that idle does not have,
   which is the configuration most likely to change the row's height. A single role-bearing fixture
@@ -504,9 +571,12 @@ against a route unit test. If it fails, R1 did not actually ship.
 | File | Change |
 |---|---|
 | `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` splits the query before matching (§3.2) |
-| `lib/auth/picker/cleanupStaleEntry.ts` | guard-then-redirect after the existing emit (§3.3) |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | claimed `<button>` subtree extracted; `whitespace-nowrap` added to `chipBase` (§5) |
+| `lib/auth/picker/cleanupStaleEntry.ts` | redirect from the PUBLIC action outside the swallowing catch; input gains `gate`, `s` (§3.3 rows 7) |
+| `app/show/[slug]/[shareToken]/page.tsx` | `renderPickerRepick` gains `gate`; call site passes it (§3.3 threading rows 2-3) |
+| `app/show/[slug]/[shareToken]/_StaleCleanupAutoSubmit.tsx` | two new hidden inputs, `gate` and `s`. Mechanics untouched (§3.3 row 6) |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | claimed `<button>` subtree extracted; `gate` prop added and forwarded to the auto-submit mount (§3.3 threading rows 4-5). `whitespace-nowrap` goes on the PENDING chip only, not shared `chipBase` (§5) |
 | `_ClaimedRowButton` | **new**, `"use client"` (§3.4) |
+| `tests/components/StaleCleanupAutoSubmit.test.tsx` | `SANCTIONED` gains `_ClaimedRowButton` (else the client-island guard at `StaleCleanupAutoSubmit.test.tsx:61-79` fails); the five-hidden-inputs assertion at `StaleCleanupAutoSubmit.test.tsx:32` becomes seven |
 | `tests/auth/picker-bootstrap.test.ts` | §8.1 cases |
 | `tests/e2e/picker-flow.spec.ts` | §8.2 stale-cleanup e2e |
 | `tests/e2e/stage-restricted-crew-schedule.spec.ts` | §8.4 workaround retired at three sites |
