@@ -1,0 +1,191 @@
+# Plan — no-JavaScript notice in `LoadingShell`
+
+**Spec:** `docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md` (canonical; this plan never supersedes it)
+**Branch:** `fix/nojs-loading-shell-notice`
+**Closes:** `BL-ADMIN-NOJS-LOADING-CONFLICT`
+
+impeccable-gate: critique=PENDING audit=PENDING p0=- p1=- dispositions=pending
+
+---
+
+## Meta-test inventory (mandatory declaration)
+
+**Creates:** none.
+**Extends:** none.
+
+Explicit reason: the invariant-9 Supabase call-boundary registry (`tests/auth/_metaInfraContract.test.ts`) applies to helpers that call Supabase — this change calls nothing. The invariant-10 mutation-surface registries (`tests/log/_auditableMutations.ts`, `tests/log/mutationSurface/exemptions.ts`) apply to route handlers and `"use server"` actions — `components/layout/Skeleton.tsx` is neither, and adds no new file under `app/api/` or any `"use server"` module. The advisory-lock topology test applies to `pg_advisory*` callers — none here. `tests/docs/_metaLedgerInProgress.test.ts` is *exercised* by Task 4 but not extended: the marker convention is already implemented and this branch is an ordinary consumer of it.
+
+## Advisory-lock holder topology
+
+**N/A.** The diff touches no `pg_advisory*` call site, no RPC, and no SQL. Verified: `rg 'pg_advisory' components/ app/show app/admin/loading.tsx` → 0 hits.
+
+## Pre-draft code-verification pass
+
+Run 2026-08-03 against the worktree at `81e0aa216`. Every name below was grepped, not recalled.
+
+| Named thing | Verified |
+|---|---|
+| `LoadingShell` signature and body | `components/layout/Skeleton.tsx:30-44` |
+| `Skeleton` primitive | `components/layout/Skeleton.tsx:15-21` |
+| Nine `loading.tsx` callers | enumerated in spec §11 with per-file line anchors |
+| `ADMIN_FIXTURE` export | `tests/e2e/helpers/fixtures.ts`, imported at `tests/e2e/admin-layout.spec.ts:15` |
+| `signInAs` signature | `tests/e2e/helpers/signInAs.ts:43-73`; POSTs via `page.request.post` at `tests/e2e/helpers/signInAs.ts:60` |
+| `desktop-chromium` `testMatch` | `playwright.config.ts:78` |
+| `E2E_PORT` knob | `playwright.config.ts:8` |
+| jsdom pragma convention | `tests/components/layout/PageTransition.test.tsx:1` (`// @vitest-environment jsdom`) |
+| Existing tests touching `LoadingShell` | spec §7.3, all three read |
+| `rounded-lg` precedent in `components/` | `components/admin/BellPanel.tsx`, `components/admin/FinalizeButton.tsx` |
+| Backlog entry location | `BACKLOG.md:1261` heading, marker added directly beneath it |
+
+## e2e harness-readiness checklist (mandatory — plan attaches Playwright)
+
+- **(a) Server boot.** The baseline `webServer`, a `next dev -H 127.0.0.1 -p $E2E_PORT` (`playwright.config.ts:248`), reached at `http://127.0.0.1:${E2E_PORT}` (`playwright.config.ts:250`, default 3000 at `playwright.config.ts:8`). No new project and no new server: Task 3 adds the spec name to the existing `testMatch` regex.
+
+  **`CREW_E2E_ONLY=1` is mandatory for every local run of this spec, and it is not optional advice.** `playwright test` boots EVERY `webServer` entry in the config regardless of `--project`, and four of the other entries run a cold `pnpm build` first. Measured at plan time: without the flag, a single-spec run had not reached its first assertion after 25 minutes and was killed. `playwright.config.ts:406` filters the array down to the :3000 baseline when `CREW_E2E_ONLY` or `BASELINE_SERVER_ONLY` is set. The canonical local command is therefore:
+
+  ```
+  CREW_E2E_ONLY=1 E2E_PORT=3070 pnpm exec playwright test --project=desktop-chromium tests/e2e/nojs-loading-notice.spec.ts
+  ```
+- **(b) Readiness gate.** The JS-off cases await `expect(page.getByTestId("admin-dashboard-loading")).toBeAttached()` — the fallback is in the initial HTML (spec §1.0), so no hydration gate exists or is possible; attachment of the fallback IS the readiness signal, and it is the only one available when nothing will ever hydrate. The JS-on control case awaits `expect(page.getByTestId("admin-dashboard-loading")).toHaveCount(0)` — the fallback's *disappearance* is the settle signal, which is a positive edge rather than a timeout. Never `networkidle`.
+- **(c) Detach safety.** No sampler, no `locator.evaluate`, no polling of a node that can unmount. The JS-off cases run against a page that never changes after first paint. The JS-on control's only locator call is a `toHaveCount(0)` assertion, which is detach-safe by construction (it polls a count, not an element handle).
+
+---
+
+## Tasks
+
+Each task: failing test → minimal implementation → passing test → commit (invariant 1). Commit style `<type>(<scope>): <summary>`, scope `crew-page` is wrong here — use `ui` for the component and `test` for test-only steps.
+
+### Task 1 — component test for the no-JS block (RED)
+
+Create tests/components/layout/loadingShellNoJs.test.tsx (new file, path unlinked) with the seven assertions from spec §7.1. It must fail against unmodified `LoadingShell` (no `<noscript>` exists yet).
+
+Pragma `// @vitest-environment jsdom` — the file renders via `react-dom/server` but needs jsdom's `DOMParser` to make structural assertions (spec §7.1). Typechecked against the repo's strict tsconfig before commit, per the paste-time rule: `noUncheckedIndexedAccess` means every `querySelector` result is `Element | null` and every regex `exec` result is nullable, so each is narrowed with an explicit non-null assertion after an `expect(...).not.toBeNull()`.
+
+Shape:
+
+```tsx
+// @vitest-environment jsdom
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { LoadingShell } from "@/components/layout/Skeleton";
+
+const HIDE_RULE = "[data-loading-shell-content]{display:none}";
+
+function renderShell(): { noscriptInner: Document; outer: Document } {
+  const html = renderToStaticMarkup(
+    <LoadingShell testId="probe" label="Loading your dashboard…">
+      <div data-testid="child" />
+    </LoadingShell>,
+  );
+  const open = html.indexOf("<noscript>");
+  const close = html.indexOf("</noscript>");
+  expect(open).toBeGreaterThanOrEqual(0);
+  expect(close).toBeGreaterThan(open);
+  const inner = html.slice(open + "<noscript>".length, close);
+  const rest = html.slice(0, open) + html.slice(close + "</noscript>".length);
+  const parser = new DOMParser();
+  return {
+    noscriptInner: parser.parseFromString(inner, "text/html"),
+    outer: parser.parseFromString(rest, "text/html"),
+  };
+}
+```
+
+Assertions, one `it` each, each named for the failure it catches:
+
+1. `noscriptInner.querySelector('[data-testid="loading-nojs-notice"]')` is non-null **and** `outer.querySelector('[data-testid="loading-nojs-notice"]')` is null. Catches: the notice rendering outside `<noscript>`, showing the card to every visitor.
+2. `noscriptInner.querySelector("style")?.textContent` equals `HIDE_RULE` exactly. Catches: typo'd selector, renamed attribute, or React hoisting the `<style>` out of the block.
+3. Extract the selector with `/^(\[[^\]]+\])\{/.exec(styleText)`, then `outer.querySelector(extracted)` is non-null. Catches: style and wrapper attribute disagreeing — independently satisfiable while 2 and 4 both pass.
+4. `wrapper = outer.querySelector("[data-loading-shell-content]")` is non-null; `wrapper.contains(outer.querySelector('[role="status"]'))` and `wrapper.contains(outer.querySelector('[data-testid="child"]'))` are both true. Catches: an empty wrapper rendered as a *sibling* of the status and children — the round-1 false-green. Containment, never ordering.
+5. The `h1` in `noscriptInner` has `textContent` exactly `JavaScript is required`; the `p` has exactly `This page needs JavaScript to load. Turn it on in your browser settings, then reload.`. Catches: a benign but wrong message, which every other assertion tolerates.
+6. `noscriptInner.querySelector("h1")` is non-null (assert on tag, not on class). Catches: silent regression to a styled `<p>`.
+7. The concatenated notice text contains no `—` and does not match `/[A-Z]{2,}_[A-Z0-9_]+/`. Catches: copy-convention drift, which no existing scan reaches (spec §7.0).
+
+Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` fails on assertion 1 (no `<noscript>` in the markup, so the `indexOf` guard trips first). Commit: `test(ui): no-JS block assertions for LoadingShell (RED)`.
+
+### Task 2 — implement the `<noscript>` block (GREEN)
+
+Apply spec §2 verbatim to `components/layout/Skeleton.tsx`. Update the `LoadingShell` docblock to describe the two branches and to point at spec §7.0 so nobody "fixes" the test to use `@testing-library/react`.
+
+Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 7/7.
+
+Verify no collateral damage — the three files from spec §7.3, which passed 31/31 against a throwaway patch at spec time and must be re-confirmed against the real commit:
+
+```
+pnpm vitest run tests/components/crew/loading.test.tsx tests/app/admin/loadingSkeletons.test.tsx tests/components/layout/PageTransition.test.tsx
+```
+
+Commit: `feat(ui): tell no-JavaScript visitors the page cannot load`.
+
+### Task 3 — real-browser e2e (RED then GREEN, order inverted)
+
+This task's test cannot be written RED-first against an unmodified component in the usual way, because Task 2 has already landed. The equivalent discipline: write the spec, run it, and confirm each JS-off assertion fails when the `<noscript>` block is temporarily reverted (`git stash` the component, run, restore). Record that confirmation in the commit body — an e2e that has never been observed failing is not a test.
+
+Create tests/e2e/nojs-loading-notice.spec.ts (new file, path unlinked) per spec §7.2: two `test.describe` blocks, each with its own `test.use`, never a file-scoped one.
+
+**Two registrations, both required. Either one alone leaves the test dark.**
+
+1. `playwright.config.ts:78` — add `nojs-loading-notice` to the `desktop-chromium` `testMatch` alternation. Do **not** add it to `mobile-safari`: one project is enough for a no-JS assertion, and the WebKit cookie limitation documented at `playwright.config.ts:55-64` makes the auth path there unnecessarily fragile.
+2. `.github/workflows/lifecycle-layout-e2e.yml` — add a run step naming this spec file explicitly.
+
+Registration 2 is the one that is easy to skip and fatal to skip. **Every** Playwright workflow in this repo passes an explicit list of spec files (`crew-e2e.yml:151`, `published-modal-e2e.yml:149`, `lifecycle-layout-e2e.yml:110`, `step3-live-bundle.yml:75`); none runs the suite by project alone. A spec present only in `testMatch` therefore runs on no CI job at all — which is precisely how the predecessor test this branch is replacing sat failing on `main` unnoticed from M12.11 until it was deleted. Shipping the replacement into the same blind spot would repeat the original defect while appearing to fix it.
+
+`lifecycle-layout-e2e.yml` is the right host: it triggers on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:15`), boots only the :3000 baseline via the `CREW_E2E_ONLY` alias (`.github/workflows/lifecycle-layout-e2e.yml:13`), already seeds the admin fixtures and `app_settings` this spec's `signInAs(ADMIN_FIXTURE)` path needs (`.github/workflows/lifecycle-layout-e2e.yml:95`), and already installs chromium (`.github/workflows/lifecycle-layout-e2e.yml:108`). The new step mirrors `.github/workflows/lifecycle-layout-e2e.yml:110`, changing only the project and the file:
+
+```yaml
+      - name: Run no-JS loading notice e2e (desktop-chromium, :3000 only)
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/nojs-loading-notice.spec.ts
+```
+
+The job's `timeout-minutes` (`.github/workflows/lifecycle-layout-e2e.yml:32`, currently 35) is re-checked after the first real CI run and raised if the added step pushes the job near it.
+
+**The backlog entry's "No CI workflow runs Playwright" is stale and must not be carried forward** into the archive note — ten workflows run Playwright today (`rg -l playwright .github/workflows/`). Task 4's resolution paragraph says so explicitly, because that stale sentence is exactly the reasoning that would justify skipping registration 2.
+
+Commit: `test(ui): real-browser proof that no-JS visitors get the notice`.
+
+### Task 4 — archive the backlog entry
+
+Move `BL-ADMIN-NOJS-LOADING-CONFLICT` from `BACKLOG.md` to `BACKLOG-archive.md`, stripping the `**Status:** IN PROGRESS · **Branch:** …` line as part of the move (an archived entry may not carry a flight marker — `tests/docs/_metaLedgerInProgress.test.ts`). Append a resolution paragraph recording three things: the named symptom was already obsolete at `67ce6d082`; the structural half is fixed by this branch; and the entry's claim that no CI workflow runs Playwright is stale as of this date, with the replacement e2e wired into `lifecycle-layout-e2e.yml` so it cannot rot the way its predecessor did.
+
+Verify: `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` and `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts`.
+
+Commit: `docs(backlog): archive BL-ADMIN-NOJS-LOADING-CONFLICT as resolved`.
+
+### Task 5 — invariant-8 impeccable dual-gate
+
+`components/layout/Skeleton.tsx` is a UI surface, so both halves run before close-out, by external attestors (fresh subagents, not the implementing session), with the v3 setup gates (the skill's context-load step over PRODUCT.md + DESIGN.md, then the register reference read).
+
+- `/impeccable critique` on the diff.
+- `/impeccable audit` on the diff.
+
+P0 and P1 findings are fixed or explicitly deferred via a `DEFERRED.md` entry. Findings and dispositions land in §12 of this plan, and the `impeccable-gate:` marker at the top is updated from `PENDING` to the real counts.
+
+Note for the attestors: the notice is only ever visible with JavaScript disabled, so a browser-driven critique will not see it. Attestors evaluate the rendered markup from `renderToStaticMarkup` (the exact string is in spec §7.1) plus the token choices, not a live screenshot.
+
+### Task 6 — self-review
+
+Re-run the numeric sweep and the citation-grep across this plan; re-run `pnpm spec:lint` on both spec and plan; confirm every snippet above typechecks.
+
+### Task 7 — adversarial review (cross-model)
+
+Codex, to APPROVE, no round budget. Between self-review and execution handoff.
+
+### Task 8 — whole-diff review, CI, merge
+
+Whole-diff cross-model review to APPROVE → push → **real CI green**, not just local → `gh pr merge --merge` → fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
+
+---
+
+## Layout-dimensions task
+
+**Not applicable, per spec §5.** There is no fixed-dimension parent: `LoadingShell` renders unstyled block `<div>` elements that impose no dimension on their children. The one width-relative first child in the corpus (`app/help/loading.tsx:13`, `w-2/3`) resolves against the same containing-block width before and after the change.
+
+Verification is folded into Task 3 rather than skipped: the JS-on control case loads `/admin` in a real browser and asserts the dashboard settles, which exercises the new wrapper on the JS-on path end to end.
+
+## Transition-audit task
+
+**Not applicable, per spec §6.** Two branches, no transition between them: which branch renders is fixed by the browser at parse time and cannot change without a reload. No `AnimatePresence`, no conditional remount, no compound transition.
+
+## §12 — Impeccable findings + dispositions
+
+_Pending Task 5._
