@@ -3,9 +3,9 @@
  * transition matrix (M4 Task 4.12 Batch 2 Step 4).
  *
  * The crew page's tile-visibility logic is driven by the
- * `role_flags[]` capability array. Five derived predicates gate the
- * five gated tiles (FinancialsTile, AudioScopeTile, VideoScopeTile,
- * LightingScopeTile — see `lib/visibility/scopeTiles.ts`):
+ * `role_flags[]` capability array. The predicates in
+ * `CAPABILITY_PREDICATES` gate the tiles in the `GatedTile` union
+ * (see `lib/visibility/scopeTiles.ts`):
  *
  *   • `hasLead`  → `flags.includes('LEAD')`. Unlocks FinancialsTile +
  *                  AudioScopeTile (via the `flags.includes('LEAD')`
@@ -57,7 +57,7 @@ export const CAPABILITY_PREDICATES = ["hasLead", "hasA1", "hasV1", "hasL1", "has
 export type CapabilityPredicate = (typeof CAPABILITY_PREDICATES)[number];
 
 /**
- * The five gated tiles whose visibility this matrix covers. Listed
+ * The gated tiles whose visibility this matrix covers. Listed
  * as a string-literal union so the per-flip delta records can name
  * tiles by exact identifier (no free-text drift).
  */
