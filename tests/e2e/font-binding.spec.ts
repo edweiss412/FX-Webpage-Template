@@ -317,11 +317,16 @@ test.describe("font binding — the measured row", () => {
     seeded = await seedShowWithCrew({
       title: "Font Binding Row E2E Show",
       // One key from the group under test, kept SHORT so the group's own TITLE,
-      // not a long value, is what has to fit the row. Passed through the
-      // helper's own insert rather than a follow-up update from here: a direct
-      // `admin.from("shows").update(...)` would be a new unlocked mutation of a
-      // lock-governed table (invariant 2) and a new Supabase call boundary
-      // (invariant 9).
+      // not a long value, is what has to fit the row.
+      //
+      // Set through the helper's own INSERT rather than a follow-up write from
+      // here. A direct PostgREST write against a lock-governed table would be a
+      // new unlocked mutation path (invariant 2) and a new Supabase call
+      // boundary (invariant 9); adding a column to an insert the helper already
+      // performs is neither. `tests/help/walker-routes.test.ts` enforces this
+      // for every e2e spec — and note it text-scans, so do not spell the banned
+      // call shape out even in a comment explaining why you avoided it (that
+      // exact mistake failed CI here once).
       eventDetails: { keynote_requirements: "TBD" },
     });
   });

@@ -87,11 +87,11 @@ export type SeedShowWithCrewOptions = {
    * render real groups — e.g. the font-binding row measurement, which needs a
    * non-empty "Wardrobe & key moments" group.
    *
-   * Carried on this helper's EXISTING insert rather than a follow-up UPDATE
-   * from the caller: a separate `admin.from("shows").update(...)` at a call
-   * site would be a NEW unlocked mutation path against a lock-governed table
-   * (AGENTS.md invariant 2) and a new Supabase call boundary (invariant 9).
-   * Adding a column to the insert this helper already performs adds neither.
+   * Carried on this helper's EXISTING insert rather than a follow-up write from
+   * the caller: a separate PostgREST write at a call site would be a NEW
+   * unlocked mutation path against a lock-governed table (AGENTS.md invariant
+   * 2) and a new Supabase call boundary (invariant 9). Adding a column to the
+   * insert this helper already performs adds neither.
    */
   eventDetails?: ShowRow["event_details"];
   crew?: SeedCrewMemberInput[];
