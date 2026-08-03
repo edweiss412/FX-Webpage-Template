@@ -62,6 +62,7 @@ export type ActionStep = {
   uses?: unknown;
   if?: unknown;
   shell?: unknown;
+  env?: unknown;
 };
 /**
  * NARROW-ACCEPT profile (R9). The R8 version was a blacklist — it rejected
@@ -636,7 +637,263 @@ type Opts = {
    * rather than trusted (spec §5 L8).
    */
   localActions?: Record<string, string>;
+  /**
+   * Env-key allowlist override for fixtures (static-env spec §2.1). Live
+   * callers omit it and get ENV_KEY_ALLOWLIST.
+   */
+  envKeyAllowlist?: EnvKeyAllowlist;
 };
+
+/**
+ * Static env-block allowlist (static-env spec §2.0). A static `env:` block
+ * at workflow, job, or step level can set PATH (or any loader/interpreter
+ * control variable) so a textually clean `pnpm exec playwright test` runs a
+ * fake pnpm that exits 0 — no ordering to thread, the key is simply there.
+ * Rows pin exact (key, value-TEXT) pairs, NOT key names (spec §7 R2: a
+ * key-name registry needed a name-inertness judgment per row, and
+ * MODAL_PREFETCH_E2E/MODAL_REALTIME_E2E failed it — their values gate
+ * test.skip, so a value-only flip was a green run with no tests). A novel
+ * key OR a novel value for a pinned key fails closed: `path`, `LD_PRELOAD`,
+ * `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names have no
+ * row, and `MODAL_PREFETCH_E2E: "0"` is off-list the same way — there is no
+ * dangerous-key enumeration and no per-key inertness debate left. Expression
+ * values pin as TEXT (`${{ secrets.X }}` is one pinned string); what an
+ * expression resolves to at runtime is out of universe (spec §5 LS1). The
+ * hygiene suite reds a row whose (key, value) pair no live parsed env: map
+ * carries, so the list cannot rot.
+ *
+ * `governs` (spec §7 R3): the SORTED spec paths whose claiming workflow
+ * steps this key currently governs (workflow-root, job, or step env scope),
+ * derived mechanically from the live tree. The hygiene suite asserts set
+ * EQUALITY against a fresh derivation, so RELOCATING a pair away from the
+ * claims it gates (the R3 live mutant: park MODAL_PREFETCH_E2E elsewhere,
+ * the spec self-skips on absence, pair-level hygiene stays green) forces a
+ * reviewable registry edit instead of passing silently. Scan-time behavior
+ * ignores `governs` — absence is a hygiene-layer contract, not a per-scan
+ * refusal.
+ */
+const DEMO_ANON_JWT =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+const DEMO_SERVICE_JWT =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
+export type EnvKeyAllowlist = Record<
+  string,
+  { values: Array<{ text: string; governs: string[] }>; reason: string }
+>;
+
+/** The derived-governance map key: a (key, value-text) PAIR, not a bare key.
+ *  Keying by key alone drops value identity, and the final review (a) R2
+ *  probe showed what that costs: a row pinning two live values keeps
+ *  `governs` identical when those values SWAP between the claiming site and a
+ *  non-claiming one, so a value-gated spec self-skips with pair hygiene,
+ *  completeness, and governance equality all green. NUL is the separator
+ *  because it cannot occur in YAML scalar text. */
+export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
+export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  SUPABASE_URL: {
+    values: [
+      { text: "${{ secrets.SUPABASE_URL }}", governs: [] },
+      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
+    reason: "Supabase endpoint read by app/test code",
+  },
+  NEXT_PUBLIC_SUPABASE_URL: {
+    values: [
+      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
+    reason: "Supabase endpoint read by app code",
+  },
+  SUPABASE_SECRET_KEY: {
+    values: [
+      { text: "${{ secrets.SUPABASE_SECRET_KEY }}", governs: [] },
+      { text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+    ],
+    reason: "Supabase credential read by app/test code",
+  },
+  SUPABASE_ANON_KEY: {
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "Supabase credential read by app/test code",
+  },
+  SUPABASE_SERVICE_ROLE_KEY: {
+    values: [{ text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "Supabase credential read by app/test code",
+  },
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "Supabase credential read by app code",
+  },
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: {
+    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "Supabase credential read by app code",
+  },
+  SUPABASE_JWT_SECRET: {
+    values: [
+      {
+        text: "super-secret-jwt-token-with-at-least-32-characters-long",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
+    reason: "local-stack JWT secret read by test bridge code",
+  },
+  SUPABASE_REALTIME_ISS: {
+    values: [{ text: "supabase-demo", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "realtime issuer read by test bridge code",
+  },
+  SUPABASE_TEST_REST_URL: {
+    values: [{ text: "${{ vars.SUPABASE_TEST_REST_URL }}", governs: [] }],
+    reason: "test-project endpoint read by test code",
+  },
+  SUPABASE_TEST_JWT_SECRET: {
+    values: [{ text: "${{ secrets.SUPABASE_TEST_JWT_SECRET }}", governs: [] }],
+    reason: "test-project secret read by test code",
+  },
+  SUPABASE_TEST_PUBLISHABLE_KEY: {
+    values: [{ text: "${{ vars.SUPABASE_TEST_PUBLISHABLE_KEY }}", governs: [] }],
+    reason: "test-project credential read by test code",
+  },
+  VALIDATION_SUPABASE_PROJECT_REF: {
+    values: [{ text: "vzakgrxqwcalbmagufjh", governs: [] }],
+    reason: "validation project ref read by audit scripts",
+  },
+  TEST_DATABASE_URL: {
+    values: [{ text: "${{ secrets.SUPABASE_TEST_DATABASE_URL }}", governs: [] }],
+    reason: "database URL read by test code via postgres client",
+  },
+  HASH_FOR_LOG_PEPPER: {
+    values: [
+      {
+        text: "fxav-r41-test-pepper-32-chars-min-deterministic",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
+    reason: "log-hash pepper read by app code",
+  },
+  ENABLE_TEST_AUTH: {
+    values: [{ text: "true", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "test-auth toggle read by app code",
+  },
+  TEST_AUTH_SECRET: {
+    values: [
+      {
+        text: "fxav-m3-test-auth-2026-DO-NOT-SHIP",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+      { text: "test-secret-fixture", governs: [] },
+    ],
+    reason: "test-auth secret read by app code",
+  },
+  JWT_SIGNING_SECRET: {
+    values: [
+      {
+        text: "redeem-link-test-secret-32-bytes-min",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
+    reason: "JWT secret read by app code",
+  },
+  PICKER_COOKIE_SIGNING_KEY: {
+    values: [
+      {
+        text: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
+    reason: "cookie-signing key read by app code",
+  },
+  GOOGLE_SERVICE_ACCOUNT_JSON: {
+    values: [
+      {
+        text: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+    ],
+    reason: "service-account JSON read by sync code",
+  },
+  BASELINE_SERVER_ONLY: {
+    values: [{ text: "1", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    reason: "capture-mode flag read by screenshot scripts",
+  },
+  VITEST_EXCLUDE_ENV_BOUND: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by vitest config",
+  },
+  VITEST_INCLUDE_MUTATION_HARNESS: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by vitest config",
+  },
+  DEV_GATE_ONLY: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by playwright config",
+  },
+  CREW_E2E_ONLY: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by playwright config",
+  },
+  STEP3_LIVE_BUNDLE_ONLY: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by playwright config",
+  },
+  HELP_DOCS_WALKER_ONLY: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag read by playwright config",
+  },
+  MODAL_PREFETCH_E2E: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
+  },
+  MODAL_REALTIME_E2E: {
+    values: [{ text: "1", governs: [] }],
+    reason: "suite-selection flag gating test.skip (value-pinned: any flip reds, spec §7 R2)",
+  },
+  REPEATS: {
+    values: [{ text: "${{ github.event.inputs.transitions_repeats || '1' }}", governs: [] }],
+    reason: "repeat-count input read by test scripts",
+  },
+  BRANCH: {
+    values: [{ text: "${{ github.ref_name }}", governs: [] }],
+    reason: "branch name read by regen scripts",
+  },
+  PG_CRON_COVERAGE_TARGET: {
+    values: [{ text: "validation", governs: [] }],
+    reason: "coverage target read by audit scripts",
+  },
+  GH_TOKEN: {
+    values: [{ text: "${{ github.token }}", governs: [] }],
+    reason: "GitHub token read by gh CLI",
+  },
+  BRANCH_PROTECTION_PAT: {
+    values: [{ text: "${{ secrets.BRANCH_PROTECTION_PAT }}", governs: [] }],
+    reason: "GitHub token read by audit scripts",
+  },
+  GH_APP_TOKEN: {
+    values: [{ text: "${{ secrets.GH_APP_TOKEN }}", governs: [] }],
+    reason: "GitHub App token read by the branch-protection drift detector",
+  },
+};
+
+/**
+ * The SORTED off-allowlist keys of a static env: map (static-env spec §2.0):
+ * keys with no row, plus keys whose VALUE TEXT is outside their row's pinned
+ * set. Membership is OWN-property membership — `Object.hasOwn`, never `in`:
+ * the prototype chain would silently allowlist keys named `constructor`,
+ * `toString`, `__proto__`, `hasOwnProperty` (spec §7 R1 F2). Scalar coercion
+ * mirrors the parser: strings as-is, other scalars via String(). Non-mapping
+ * input returns [] — structural validity is validWorkflowShape's job.
+ */
+export function offAllowlistEnvKeys(
+  env: unknown,
+  allowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
+): string[] {
+  if (env === null || typeof env !== "object" || Array.isArray(env)) return [];
+  return Object.entries(env)
+    .filter(([k, v]) => {
+      if (!Object.hasOwn(allowlist, k)) return true;
+      const text = typeof v === "string" ? v : String(v);
+      return !allowlist[k]!.values.some((entry) => entry.text === text);
+    })
+    .map(([k]) => k)
+    .sort();
+}
 
 /**
  * Cross-step env-state predicate (cross-step-env-guard spec §2.0): after
@@ -742,6 +999,7 @@ export function usesValuePoisons(
   value: unknown,
   localActions: Record<string, string>,
   seen: ReadonlySet<string>,
+  envKeyAllowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
 ): boolean {
   const kind = usesKind(value);
   if (kind === "invalid") return true;
@@ -760,8 +1018,62 @@ export function usesValuePoisons(
   if (steps === null) return true;
   const text = canonicalYaml(raw);
   if (text === null || writesJobEnv(text)) return true;
+  // Static-env spec §2.1 (LS3): a composite step of EITHER kind handed an
+  // off-allowlist env: key poisons fail-closed — the step (or the action it
+  // invokes) executes with a hostile static env this scan cannot model.
+  if (steps.some((s) => offAllowlistEnvKeys(s.env, envKeyAllowlist).length > 0)) return true;
   const next = new Set(seen).add(ref);
-  return steps.some((s) => "uses" in s && usesValuePoisons(s.uses, localActions, next));
+  return steps.some(
+    (s) => "uses" in s && usesValuePoisons(s.uses, localActions, next, envKeyAllowlist),
+  );
+}
+
+/**
+ * Every (key, value-text) env pair carried by the steps of the composite a
+ * `uses:` value resolves to, at any depth (static-env spec §2.3, final
+ * review (a) R5 F2). Governance-only: an allowlisted pair at an
+ * action-scoped site never trips the refusal path (a dirty one already
+ * poisons via usesValuePoisons), but it IS part of the job's execution
+ * context, so relocating it away must red the declaring row like any other
+ * relocation. Remote refs are trusted and contribute nothing; unresolvable
+ * or cyclic refs contribute nothing here because they already poison.
+ */
+export function compositeEnvPairs(
+  value: unknown,
+  localActions: Record<string, string>,
+  seen: ReadonlySet<string>,
+): Array<[string, string]> {
+  if (usesKind(value) !== "local") return [];
+  const ref = (value as string).trim();
+  if (seen.has(ref)) return [];
+  const raw = localActions[ref];
+  if (raw === undefined) return [];
+  let doc: unknown;
+  try {
+    doc = parse(raw);
+  } catch {
+    return [];
+  }
+  const steps = validatedCompositeSteps(doc);
+  if (steps === null) return [];
+  const next = new Set(seen).add(ref);
+  const out: Array<[string, string]> = [];
+  for (const s of steps) {
+    // A composite step carrying `if:` provably may not run, so its env
+    // configures nothing, and a guarded parent hides its whole subtree.
+    // (R6 F2, CORRECTED at R7: an earlier probe used YAML boolean
+    // `if: false`, which `validatedCompositeSteps` rejects on TYPE, and
+    // wrongly concluded that `if:` on a composite step always poisons. A
+    // STRING condition — `if: "${{ false }}"` — is accepted, leaves the
+    // claim COVERED, and its env did confer governance. The skip is live.)
+    if ("if" in (s as Record<string, unknown>)) continue;
+    const env = (s as { env?: unknown }).env;
+    if (env !== null && typeof env === "object" && !Array.isArray(env))
+      for (const [k, v] of Object.entries(env))
+        out.push([k, typeof v === "string" ? v : String(v)]);
+    if ("uses" in s) out.push(...compositeEnvPairs(s.uses, localActions, next));
+  }
+  return out;
 }
 
 function localActionPoisons(
@@ -931,17 +1243,169 @@ const UNMODELLED_RE = /(^|\n)\s*-?\s*(shell|working-directory|defaults|container
 const UNMODELLED_SHELL_RE =
   /[$`]|(?:^|[\n;&|])[ \t]*[{}]|(?:^|[\n;&|({])[ \t]*(?:(?:if|then|else|elif|fi|case|esac|while|until|for|do|done|function|exit|return|exec|set|eval|hash|alias|unalias|shopt|trap|unset|export|declare|typeset|readonly|local|source|cd|pushd|popd|builtin|command|enable|let|read|mapfile|readarray|getopts|printf)\b|\.[ \t]|\(\(|[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|[^\s;&|(){}]+[ \t]*\([ \t]*\))/;
 
+const INVOKER_SEG =
+  /^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*[ \t]+)*(?:pnpm|npx|yarn|bun|playwright)\b/;
+
+/**
+ * The ONE claim recognizer (R13 command-position + alias resolution + the
+ * whole-config literal), shared by the scan loop AND the governance
+ * derivation. R4 (static-env spec §7): a governance derivation using a bare
+ * path regex credited `echo tests/e2e/…` prose as a claim, so a reviewed
+ * pair parked on an echo step laundered its declared governs set while the
+ * real Playwright step ran flagless. Recognition — not qualification — is
+ * what governance needs, and it must be THIS recognizer or the two diverge.
+ */
+function resolveAliasClaims(cmd: string, packageScripts: Record<string, string>): string[] {
+  const out: string[] = [];
+  for (const line of cmd.split("\n")) {
+    for (const seg of line.split(/(?:&&|\|\||[;&|])/)) {
+      if (!INVOKER_SEG.test(seg)) continue;
+      out.push(...(seg.match(SPEC_RE) ?? []));
+      // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
+      for (const mm of seg.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)) {
+        const name = mm[1]!;
+        if (name in packageScripts)
+          out.push(...resolveAliasClaims(packageScripts[name]!, packageScripts));
+      }
+    }
+  }
+  return out;
+}
+
+export function claimedSpecsOf(
+  cmd: string,
+  packageScripts: Record<string, string>,
+  configSpecs: Record<string, string[]> = {},
+): string[] {
+  const out = resolveAliasClaims(cmd, packageScripts);
+  // The whole-config literal applies to the TOP-LEVEL run block ONLY and
+  // deliberately NOT through alias resolution (ratified — an adversarial
+  // round claimed full coverage for a wrapped alias because recursion
+  // applied the exact match to the package-script BODY while qualification
+  // only ever saw the outer command; the R4 refactor briefly reintroduced
+  // exactly that and the wrapped-literal fixture caught it pre-commit).
+  const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
+  if (wholeConfigMatch) out.push(...(configSpecs[wholeConfigMatch[1]!] ?? []));
+  return out;
+}
+
+/**
+ * Key -> spec paths its env scope governs (static-env spec §2.3): governance
+ * IS the scan — a thin wrapper reading the `governance` map that
+ * scanWorkflowCoverage credits at its covered.add site, so it shares the
+ * recognizer AND the whole qualification chain (R4 closed prose laundering;
+ * R5 closed duplicate-claim substitution through disqualified sites). Specs
+ * the scan does not cover (path-gated, guarded, dark) confer no governance —
+ * they are outside the coverage guarantee and carry their own dark rows
+ * (spec §5 LS7).
+ */
+export function envPairGovernance(
+  workflows: Record<string, string>,
+  packageScripts: Record<string, string>,
+  configSpecs: Record<string, string[]> = {},
+  envKeyAllowlist: EnvKeyAllowlist = ENV_KEY_ALLOWLIST,
+  localActions: Record<string, string> = {},
+): Map<string, Set<string>> {
+  return scanWorkflowCoverage({
+    workflows,
+    packageScripts,
+    configSpecs,
+    localActions,
+    envKeyAllowlist,
+  }).governance;
+}
+
+/** governs-equality check (S8): every row's declared governs must equal the
+ *  derived set — relocation, prose-laundering, and silent governance gain
+ *  all force a reviewable registry edit. */
+export function governanceViolations(
+  allowlist: EnvKeyAllowlist,
+  derived: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, row] of Object.entries(allowlist)) {
+    for (const entry of row.values) {
+      const want = JSON.stringify([...(derived.get(govKey(key, entry.text)) ?? [])].sort());
+      if (want !== JSON.stringify([...entry.governs].sort()))
+        out.push(
+          `${key}=${entry.text}: declared governs ${JSON.stringify(entry.governs)} != live ${want}`,
+        );
+    }
+  }
+  return out;
+}
+
+/** Pair-level allowlist hygiene (S6, static-env spec §2.3): stale keys,
+ *  value-less rows, stale pinned values, and empty reasons, as problem
+ *  strings. Pure over (allowlist, live pairs) so the live gate and the
+ *  doctored twin run the SAME assertion logic — a deleted live assertion
+ *  cannot leave the twin green (plan-R1 F1 tautology repair). */
+export function envAllowlistHygieneProblems(
+  allowlist: EnvKeyAllowlist,
+  livePairs: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, row] of Object.entries(allowlist)) {
+    const live = livePairs.get(key);
+    if (!live) {
+      out.push(`stale env-key row: ${key} — remove it`);
+      continue;
+    }
+    if (row.values.length === 0) out.push(`value-less env-key row: ${key}`);
+    for (const { text } of row.values)
+      if (!live.has(text)) out.push(`stale pinned value for ${key}: ${text} — remove it`);
+    if (row.reason.trim().length === 0) out.push(`reason-less env-key row: ${key}`);
+  }
+  return out;
+}
+
+/** Completeness direction of pair-level hygiene (plan-R2): every LIVE
+ *  (key, value) pair must have a reviewed allowlist row. The stale-row check
+ *  alone is declared→live only, so a NEW live pair (the plan-R2 probe:
+ *  GH_APP_TOKEN landed in x-audits.yml with no row) sits unreviewed while
+ *  every gate stays green — an over-tight seed the live-green gate claims
+ *  to exclude. Pure over (allowlist, live pairs) like its sibling checker. */
+export function unreviewedLivePairs(
+  allowlist: EnvKeyAllowlist,
+  livePairs: Map<string, Set<string>>,
+): string[] {
+  const out: string[] = [];
+  for (const [key, values] of livePairs) {
+    const row = Object.hasOwn(allowlist, key) ? allowlist[key] : undefined;
+    for (const v of values)
+      if (!row || !row.values.some((entry) => entry.text === v))
+        out.push(`unreviewed live env pair: ${key}=${v} — add a reasoned row`);
+  }
+  return out.sort();
+}
+
 export function scanWorkflowCoverage({
   workflows,
   packageScripts,
   configSpecs = {},
   localActions = {},
+  envKeyAllowlist = ENV_KEY_ALLOWLIST,
 }: Opts): {
   covered: Set<string>;
   rejected: Array<{ file: string; spec: string; reason: string }>;
+  governance: Map<string, Set<string>>;
 } {
   const covered = new Set<string>();
   const rejected: Array<{ file: string; spec: string; reason: string }> = [];
+  // Static-env spec §2.3 (R5): env (key, value-text) PAIR -> specs it governs,
+  // credited ONLY at the covered.add site — governance shares the scan's full
+  // qualification chain by construction, so a duplicate claim the scan REJECTS
+  // (path filter, if:, non-PR trigger, poison) confers nothing. R5's live
+  // mutant parked the pair on a path-gated duplicate of the real invocation; a
+  // recognition-only derivation credited it while the real job ran flagless.
+  // Keyed by PAIR, not by key (final review (a) R2): a key-keyed map cannot
+  // see two live values of one row SWAP between the claiming site and a
+  // non-claiming one, which leaves a value-gated spec self-skipping green.
+  const governance = new Map<string, Set<string>>();
+  const envPairsOf = (env: unknown): Array<[string, string]> =>
+    env !== null && typeof env === "object" && !Array.isArray(env)
+      ? Object.entries(env).map(([k, v]) => [k, typeof v === "string" ? v : String(v)])
+      : [];
 
   // R13: a claim requires COMMAND POSITION. SPEC_RE and the alias grammar
   // used to grep the whole run block, so `echo tests/e2e/foo.spec.ts` — or a
@@ -952,24 +1416,6 @@ export function scanWorkflowCoverage({
   // Leading env-assignment prefixes stay CLAIMABLE on purpose: the claim
   // must survive to the qualification chain so UNMODELLED_SHELL_RE rejects
   // it WITH a reason ("REPORTED, not silently dropped").
-  const INVOKER_SEG =
-    /^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*[ \t]+)*(?:pnpm|npx|yarn|bun|playwright)\b/;
-  const resolveSpecs = (cmd: string): string[] => {
-    const out: string[] = [];
-    for (const line of cmd.split("\n")) {
-      for (const seg of line.split(/(?:&&|\|\||[;&|])/)) {
-        if (!INVOKER_SEG.test(seg)) continue;
-        out.push(...(seg.match(SPEC_RE) ?? []));
-        // pnpm alias resolution: `pnpm foo` / `pnpm run foo` -> scripts.foo
-        for (const mm of seg.matchAll(/pnpm(?:\s+run)?\s+([\w:.-]+)/g)) {
-          const name = mm[1]!;
-          if (name in packageScripts) out.push(...resolveSpecs(packageScripts[name]!));
-        }
-      }
-    }
-    return out;
-  };
-
   for (const [file, rawYaml] of Object.entries(workflows)) {
     // Everything below reads the CANONICAL text; an unparseable workflow
     // never runs on GitHub, so it claims nothing (safe-dark).
@@ -1036,6 +1482,13 @@ export function scanWorkflowCoverage({
     // truncate would false-positive on `uses:` inside a run body.
     const parsedJobsAll = (parsedDoc as { jobs?: Record<string, { steps?: unknown }> })?.jobs;
     const schemaInvalid = !validWorkflowShape(parsedDoc);
+    // Static-env spec §2.1: workflow-root env: governs every job. Scope-
+    // correct, not file-generic — the reason names the keys so the human
+    // routes to the ENV_KEY_ALLOWLIST registry, not a schema hunt.
+    const wfEnvOff = offAllowlistEnvKeys(
+      (parsedDoc as { env?: unknown } | null)?.env,
+      envKeyAllowlist,
+    );
     const mixedStepAnywhere = Object.values(parsedJobsAll ?? {}).some((jb) =>
       (Array.isArray(jb?.steps) ? (jb.steps as Array<Record<string, unknown>>) : []).some(
         (st) => st !== null && typeof st === "object" && "run" in st && "uses" in st,
@@ -1053,6 +1506,11 @@ export function scanWorkflowCoverage({
           : false;
       const parsedJob =
         jobName !== undefined && parsedJobs !== undefined ? parsedJobs[jobName] : undefined;
+      // Static-env spec §2.1: job env: governs this job's steps only.
+      const jobEnvOff = offAllowlistEnvKeys(
+        (parsedJob as { env?: unknown } | undefined)?.env,
+        envKeyAllowlist,
+      );
       // R18: keys placed AFTER `steps:` are invisible to the head text, so
       // read job-level if:/continue-on-error: from the parsed job too.
       const jobIf =
@@ -1086,6 +1544,9 @@ export function scanWorkflowCoverage({
       // read as a second step and covered specs it never executed. The
       // typed steps are exactly what the runner executes; each chunk is
       // still used for the text-level gates that need raw source.
+      // Action-scoped env pairs seen so far in THIS job (R5 F2). Reset per
+      // job: an action invoked in job A configures nothing in job B.
+      const jobActionEnvPairs: Array<[string, string]> = [];
       const parsedSteps: Array<Record<string, unknown>> =
         parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
           ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
@@ -1150,10 +1611,20 @@ export function scanWorkflowCoverage({
           // qualification only ever saw the outer command. Requiring the whole
           // run block to BE the literal removes the shell reasoning entirely —
           // there is no surrounding context left to smuggle anything into.
-          const wholeConfigMatch = cmd.trim().match(WHOLE_CONFIG_RE);
-          const fromConfig = wholeConfigMatch ? (configSpecs[wholeConfigMatch[1]!] ?? []) : [];
 
-          for (const spec of [...resolveSpecs(cmd), ...fromConfig]) {
+          // Static-env spec §2.1: the union of every scope governing THIS
+          // step (workflow < job < step precedence all reach its process
+          // env), sorted and deduped so the reason is deterministic and
+          // lists every key (§3 S5 pins the first-key-only mutant).
+          const envOff = [
+            ...new Set([
+              ...wfEnvOff,
+              ...jobEnvOff,
+              ...offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist),
+            ]),
+          ].sort();
+
+          for (const spec of claimedSpecsOf(cmd, packageScripts, configSpecs)) {
             if (!hasPr) rejected.push({ file, spec, reason: "no pull_request trigger" });
             else if (unmodelled)
               rejected.push({ file, spec, reason: "unmodelled execution override" });
@@ -1172,7 +1643,18 @@ export function scanWorkflowCoverage({
               rejected.push({
                 file,
                 spec,
-                reason: "earlier same-job step writes GITHUB_ENV/GITHUB_PATH",
+                // Generalized with the static-env layer (static-env spec
+                // §2.1): the poison flag now has two sources, and the
+                // write-only wording sent a human hunting an env-file write
+                // that may not exist.
+                reason:
+                  "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key",
+              });
+            else if (envOff.length > 0)
+              rejected.push({
+                file,
+                spec,
+                reason: `env block sets unmodelled key(s): ${envOff.join(", ")}`,
               });
             else if (hasPathsFilter || prActivityFilter)
               rejected.push({ file, spec, reason: "pull_request.paths/paths-ignore filter" });
@@ -1183,7 +1665,45 @@ export function scanWorkflowCoverage({
               rejected.push({ file, spec, reason: "exit-code suppression" });
             else if (UNMODELLED_SHELL_RE.test(cmd))
               rejected.push({ file, spec, reason: "unmodelled shell construct" });
-            else covered.add(spec);
+            else {
+              covered.add(spec);
+              // EFFECTIVE value only (final review (a) R5 F1). GitHub env
+              // precedence is step > job > workflow, so crediting every
+              // syntactically in-scope pair let a SHADOWED value keep the
+              // governance of the value that actually reaches the runner:
+              // root `K: inert` + job `K: required` credited BOTH, so
+              // swapping them (effective value now `inert`, spec self-skips)
+              // left governance byte-identical. Later writes win, so a Map
+              // filled root -> job -> step holds exactly what the step sees.
+              const effective = new Map<string, string>([
+                ...envPairsOf((parsedDoc as { env?: unknown } | null)?.env),
+                ...envPairsOf((parsedJob as { env?: unknown } | undefined)?.env),
+                ...envPairsOf(parsedStep.env),
+              ]);
+              // Action-scoped pairs from EARLIER same-job steps (R5 F2): a
+              // pair handed to a `uses:` invocation, or carried by a step of
+              // the composite it resolves, is part of this job's execution
+              // context from that step onward — an action gated on it can
+              // decide whether the later spec does anything. Never shadows a
+              // directly-scoped value; forward-only, like poison.
+              const credit = (k: string, text: string) => {
+                const pair = govKey(k, text);
+                const set = governance.get(pair) ?? new Set<string>();
+                set.add(spec);
+                governance.set(pair, set);
+              };
+              for (const [k, text] of effective) credit(k, text);
+              // EVERY distinct action-scoped value, not just the last one:
+              // two actions can each be handed a different value of one key
+              // and each affect the later spec independently (R6 F1).
+              // ADDITIVE, never suppressed by a same-key direct value
+              // (R7 F1): precedence resolves what ONE step sees, and an
+              // earlier action saw its own value regardless of what the
+              // claiming step later sets. Suppressing them let `K=required`
+              // at an action be relocated freely whenever the claiming step
+              // carried `K=inert`.
+              for (const [k, text] of jobActionEnvPairs) credit(k, text);
+            }
           }
         }
         if (stepSpelling) envPoisoned = true;
@@ -1191,10 +1711,32 @@ export function scanWorkflowCoverage({
         // every scalar the step carries is serialized for the mention
         // predicate, and the uses value goes through the shared classifier.
         if (writesJobEnv(JSON.stringify(parsedStep))) envPoisoned = true;
-        if ("uses" in parsedStep && usesValuePoisons(parsedStep.uses, localActions, new Set()))
+        // Static-env spec §2.1 (LS3): a uses: step handed an off-allowlist
+        // env: key is an untrusted action invocation — the action's process
+        // receives the hostile env (NODE_OPTIONS into a javascript action)
+        // and what it does to the job is thereafter unmodellable. Coarse
+        // poison, deliberately not step-local.
+        if ("uses" in parsedStep && offAllowlistEnvKeys(parsedStep.env, envKeyAllowlist).length > 0)
           envPoisoned = true;
+        if (
+          "uses" in parsedStep &&
+          usesValuePoisons(parsedStep.uses, localActions, new Set(), envKeyAllowlist)
+        )
+          envPoisoned = true;
+        // Accumulate action-scoped pairs for LATER claims in this job (R5 F2):
+        // the invocation's own env plus every env pair inside the composite it
+        // resolves, at any depth.
+        // A guarded invocation provably may not run, so it configures
+        // nothing (R6 F2) — same qualification the claim site already
+        // applies. A Map here would also collapse two action-scoped VALUES
+        // of one key and credit only the last (R6 F1), so this is a LIST.
+        if ("uses" in parsedStep && !("if" in parsedStep)) {
+          for (const [k, text] of envPairsOf(parsedStep.env)) jobActionEnvPairs.push([k, text]);
+          for (const [k, text] of compositeEnvPairs(parsedStep.uses, localActions, new Set()))
+            jobActionEnvPairs.push([k, text]);
+        }
       }
     }
   }
-  return { covered, rejected };
+  return { covered, rejected, governance };
 }

@@ -244,7 +244,7 @@ Per AGENTS.md §1.8 + memory `feedback_impeccable_critique_not_authoritative_vs_
 - `"use client"` boundary used only where needed (Sidebar + Breadcrumb for `usePathname`); Header is server (ThemeToggle carries its own internal client boundary).
 - Mirror-the-admin-layout discipline: AdminInfraError branch structurally identical to `app/admin/layout.tsx:47-71`.
 
-Disposition legend: **FIXED** (commit SHA), **DEFERRED** (link to `DEFERRED.md` — concrete trigger / scheduled phase home), **BACKLOG** (link to `docs/superpowers/plans/BACKLOG.md` — speculative, no scheduled home), **ACCEPT-as-is** (spec-cited or AGENTS.md-cited rationale + Doug-the-admin v1 impact assessment).
+Disposition legend: **FIXED** (commit SHA), **DEFERRED** (link to `DEFERRED.md` — concrete trigger / scheduled phase home), **BACKLOG** (link to `BACKLOG.md` — speculative, no scheduled home), **ACCEPT-as-is** (spec-cited or AGENTS.md-cited rationale + Doug-the-admin v1 impact assessment).
 
 ---
 
