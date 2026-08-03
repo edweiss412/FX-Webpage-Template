@@ -39,9 +39,18 @@ import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
+  CREW_CAP,
+  DIAGRAM_TILE_CAP,
   EVENT_DETAIL_GROUPS,
+  HOTELS_CAP,
+  PACK_LIST_CASES_CAP,
+  PACK_LIST_ITEMS_CAP,
+  ROOMS_CAP,
+  SCHEDULE_DAYS_CAP,
+  SCHEDULE_ENTRIES_CAP,
   findUseRawDecision,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 
 /**
  * One-shot cue duration, paired with the `section-freshness-flash-*` keyframes in
@@ -103,8 +112,31 @@ function pick<T extends object>(row: T | null | undefined, keys: readonly string
   const r = row as Record<string, unknown>;
   return keys.map((k) => r[k] ?? null);
 }
-const pickAll = (rows: readonly unknown[] | undefined, keys: readonly string[]) =>
-  (rows ?? []).map((row) => pick(row as object, keys));
+/**
+ * Rows a body actually renders: the first `cap` of them, and the length.
+ *
+ * WHY THE CAP IS PART OF THE PROJECTION, AND WHY IT IS IMPORTED. Every list body
+ * here slices to a permanent cap before rendering, so row 31 of a 30-row crew
+ * table is not "content that will scroll into view" — it is content the card can
+ * never show. Hashing it flashes a byte-identical card. The cap is imported from
+ * the module that applies it rather than re-typed as a literal, so the two cannot
+ * drift: raising `CREW_CAP` widens the signature in the same commit, and a
+ * structural test (N11) pins that no cap is written here as a bare number.
+ *
+ * The LENGTH is kept alongside, because the bodies render a count and an
+ * over-cap note; a 31st row appearing is invisible in the rows and visible in
+ * the count.
+ */
+const pickAll = (
+  rows: readonly unknown[] | undefined,
+  keys: readonly string[],
+  cap: number | null,
+) => [
+  (cap === null ? (rows ?? []) : (rows ?? []).slice(0, cap)).map((row) =>
+    pick(row as object, keys),
+  ),
+  (rows ?? []).length,
+];
 
 /**
  * The own-fields projection, section by section, narrowed to what each body
@@ -152,12 +184,12 @@ function renderedEventDetails(d: PublishedSectionData): unknown {
   return keys.map((k) => details[k] ?? null);
 }
 
-/** Schedule entries render start/title/kind plus the day's own meta. */
+/** Schedule entries render start/title/kind plus the day's own meta, both capped. */
 function renderedRunOfShow(d: PublishedSectionData): unknown {
   const ros = (d.ros ?? {}) as Record<string, unknown>;
-  return Object.keys(ros)
-    .sort()
-    .map((iso) => {
+  const isos = Object.keys(ros).sort();
+  return [
+    isos.slice(0, SCHEDULE_DAYS_CAP).map((iso) => {
       const day = (ros[iso] ?? {}) as Record<string, unknown>;
       const entries = Array.isArray(day.entries) ? day.entries : [];
       return [
@@ -165,23 +197,64 @@ function renderedRunOfShow(d: PublishedSectionData): unknown {
         day.showStart ?? null,
         day.window ?? null,
         day.showEnd ?? null,
-        entries.map((e) => pick(e as object, ["start", "title", "kind"])),
+        entries
+          .slice(0, SCHEDULE_ENTRIES_CAP)
+          .map((e) => pick(e as object, ["start", "title", "kind"])),
+        entries.length,
       ];
-    });
+    }),
+    isos.length,
+  ];
 }
+
+/**
+ * The four date fields the schedule body renders, via `aggregateDays`
+ * (`lib/crew/agendaDisplay.ts:119`, called at `step3ReviewSections.tsx:1961`).
+ * `loadIn` exists on the parsed type (`lib/parser/types.ts:222`) and reaches no
+ * DOM anywhere under `components/admin/`, so hashing the whole `dates` object
+ * cued the schedule card on a field nobody can see.
+ */
+const DATE_KEYS = ["travelIn", "set", "showDays", "travelOut"] as const;
 
 /** A pack case renders its label and each item's qty/item/cat/subCat, never the raw snippet. */
 function renderedPullSheet(d: PublishedSectionData): unknown {
-  return (d.pullSheet ?? []).map((c) => {
-    const row = (c ?? {}) as Record<string, unknown>;
-    const items = Array.isArray(row.items) ? row.items : [];
-    return [
-      row.caseLabel ?? null,
-      items.map((i) =>
-        typeof i === "string" ? i : pick(i as object, ["qty", "item", "cat", "subCat"]),
-      ),
-    ];
-  });
+  const cases = d.pullSheet ?? [];
+  return [
+    cases.slice(0, PACK_LIST_CASES_CAP).map((c) => {
+      const row = (c ?? {}) as Record<string, unknown>;
+      const items = Array.isArray(row.items) ? row.items : [];
+      return [
+        row.caseLabel ?? null,
+        items
+          .slice(0, PACK_LIST_ITEMS_CAP)
+          .map((i) =>
+            typeof i === "string" ? i : pick(i as object, ["qty", "item", "cat", "subCat"]),
+          ),
+        items.length,
+      ];
+    }),
+    cases.length,
+  ];
+}
+
+/**
+ * The diagrams sub-block renders three things and no more: the linked-folder
+ * link, the first `DIAGRAM_TILE_CAP` embedded images as tiles, and a COUNT of
+ * linked folder items (`step3ReviewSections.tsx:3741`, `:3745`, `:3752`). The
+ * per-item contents of `linkedFolderItems` never reach the DOM, so only its
+ * length belongs in the signature.
+ *
+ * (Round-2 review also named `diagrams.pending`. Refuted by probe: no such field
+ * exists on `ParseResult["diagrams"]` (`lib/parser/types.ts:513`); the wrapper
+ * that has one resolves to `current` before this data is built
+ * (`lib/data/diagrams.ts:54`), so it can never be hashed here.)
+ */
+function renderedDiagrams(d: PublishedSectionData): unknown {
+  const dg = (d.diagrams ?? null) as Record<string, unknown> | null;
+  if (dg === null) return null;
+  const images = Array.isArray(dg.embeddedImages) ? dg.embeddedImages : [];
+  const items = Array.isArray(dg.linkedFolderItems) ? dg.linkedFolderItems : [];
+  return [dg.linkedFolder ?? null, images.slice(0, DIAGRAM_TILE_CAP), images.length, items.length];
 }
 
 const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData) => unknown> = {
@@ -192,19 +265,19 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
   // toggle adds or removes a control on every row. `previewRoster` carries the
   // persisted ids those actions target.
   crew: (d) => [
-    pickAll(d.crewMembers, CREW_KEYS),
-    d.crewMembers.length,
+    pickAll(d.crewMembers, CREW_KEYS, CREW_CAP),
     d.published && !d.archived ? (d.previewRoster ?? null) : null,
   ],
   contacts: (d) => [
     pick(d.clientContact, ["name", "phone", "email", "officePhone", "secondary"]),
-    pickAll(d.contacts, CONTACT_KEYS),
+    // No cap: the contacts body renders every row it is given.
+    pickAll(d.contacts, CONTACT_KEYS, null),
   ],
-  schedule: (d) => [renderedRunOfShow(d), d.dates],
+  schedule: (d) => [renderedRunOfShow(d), pick(d.dates, DATE_KEYS)],
   agenda: (d) => d.agendaBaseline,
-  hotels: (d) => pickAll(d.hotels, HOTEL_KEYS),
+  hotels: (d) => pickAll(d.hotels, HOTEL_KEYS, HOTELS_CAP),
   transport: (d) => d.transportation,
-  rooms: (d) => [pickAll(d.rooms, ROOM_KEYS), d.diagrams],
+  rooms: (d) => [pickAll(d.rooms, ROOM_KEYS, ROOMS_CAP), renderedDiagrams(d)],
   // The archived-tab affordances are gated on the same lifecycle pair
   // (`step3ReviewSections.tsx:4310`), so they belong to this section's render.
   packlist: (d) => [
@@ -216,12 +289,12 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
     d.published && !d.archived,
   ],
   billing: (d) => d.billing,
-  // NOT the full warning list. The published Sheet-warnings panel renders the
-  // warnings routed to IT, and those arrive through `bySection` like every other
-  // section's do.
+  // Handled in `buildSectionSignatures`, not here: this card's body depends on
+  // the WHOLE routed map, which no `(data) => unknown` projection can see. See
+  // `pointerState` below.
   warnings: () => null,
   // A sub-block, never a rail id in its own right; present so the record is total.
-  diagrams: (d) => d.diagrams,
+  diagrams: renderedDiagrams,
 };
 
 /**
@@ -230,8 +303,37 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
  */
 export function buildSectionSignatures(input: SectionSignatureInput): SectionSignatures {
   const { data, bySection, attentionBySection } = input;
+  const ids = renderedSectionIds(data);
   const out = new Map<SectionId, string>();
-  for (const id of renderedSectionIds(data)) {
+
+  /**
+   * The Sheet-warnings card's "warnings are elsewhere" state, which round-2
+   * review found the detector blind to.
+   *
+   * When that panel has no rows of its own it renders a sentence NAMING the
+   * other sections that carry warnings (`step3ReviewSections.tsx:2906`, sentence
+   * at `:782`, cap at `:739`). So its rendered body is a function of the whole
+   * routed map, and a warn moving from Crew to Rooms rewrites this card while
+   * `bySection.warnings` never moves. `null` when the panel has rows of its
+   * own: the sentence is not rendered then, and hashing the map unconditionally
+   * would cue this card for content that belongs to another one.
+   *
+   * The ordered id list plus the section total is the EXACT input
+   * `pointerSentenceParts` consumes, so named / extra / missCount are all
+   * derived from what is hashed here rather than approximated.
+   */
+  const warningsHasOwnRows = warningsOf(bySection.warnings ?? null).length > 0;
+  const pointerTargets = ids.filter(
+    (id) => id !== "warnings" && warningsOf(bySection[id] ?? null).length > 0,
+  );
+  // Both halves of the render gate, not just the first. With no targets at all
+  // the panel renders no sentence, so the section TOTAL is not on screen either;
+  // hashing it unconditionally cued this card whenever any unrelated section
+  // appeared or vanished.
+  const pointerState =
+    warningsHasOwnRows || pointerTargets.length === 0 ? null : [pointerTargets, ids.length];
+
+  for (const id of ids) {
     const own = OWN_FIELDS[id as Exclude<SectionId, "report">];
     const routed = bySection[id] ?? null;
     // The decisions attached to THIS section's routed warnings, matched through
@@ -240,15 +342,60 @@ export function buildSectionSignatures(input: SectionSignatureInput): SectionSig
     const routedDecisions = warningsOf(routed).map((w) =>
       renderedDecisionState(findUseRawDecision(w, data.useRawDecisions)),
     );
+    // The RESOLVED href, not the raw anchor. `buildSheetDeepLink` collapses every
+    // anchor outside `SOURCE_LINK_ALLOWLIST`, and every one with a non-numeric
+    // `gid`, onto the same `#gid=0` (`lib/sheet-links/buildSheetDeepLink.ts:22`),
+    // discarding `gid` and `a1` on the way. Hashing the raw value cued the card
+    // when one unusable anchor replaced another and the link did not move. The
+    // drive id is a constant here because only the anchor's contribution to the
+    // fragment varies per section.
     const region = SECTION_REGION_MAP[id];
     const anchor = region === null ? null : (data.sourceAnchors?.[region] ?? null);
-    const attention = attentionBySection.get(id) ?? null;
+    const href = buildSheetDeepLink(ANCHOR_PROBE_DFID, anchor);
+    const attention = (attentionBySection.get(id) ?? []).map(renderedAttentionState);
     out.set(
       id,
-      hash([own === undefined ? null : own(data), routed, routedDecisions, anchor, attention]),
+      hash([
+        own === undefined ? null : own(data),
+        id === "warnings" ? pointerState : null,
+        routed,
+        routedDecisions,
+        href,
+        attention,
+      ]),
     );
   }
   return out;
+}
+
+/**
+ * A stand-in drive id, so `buildSheetDeepLink` performs its real normalization
+ * while the constant prefix contributes nothing that varies between sections.
+ * Never rendered; never leaves this module.
+ */
+const ANCHOR_PROBE_DFID = "anchor-probe";
+
+/**
+ * ONLY the parts of an attention item that `AttentionBanner` renders: the alert
+ * payload, the tone that picks its stripe, the actionable/clearing pair that
+ * picks its copy, and the id it anchors on
+ * (`components/admin/review/AttentionBanner.tsx:103`, `:108`, `:162`, `:261`).
+ *
+ * `menuTitle` / `menuSubtitle` are deliberately absent: they render in the
+ * attention MENU, which is modal chrome and not a section card, so a refresh
+ * that rewrites only the menu copy must not flash the card below it. `crewKey`,
+ * `crewMatch` and `sectionId` are routing inputs the caller has already consumed
+ * by bucketing the item.
+ */
+function renderedAttentionState(item: AttentionItem): unknown {
+  return [
+    item.id,
+    item.kind,
+    item.tone,
+    item.actionable,
+    item.clearingKind ?? null,
+    item.kind === "alert" ? item.alert : null,
+  ];
 }
 
 /**

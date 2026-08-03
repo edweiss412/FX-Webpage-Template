@@ -53,15 +53,46 @@ const CREW: readonly RawRow[] = [row("crew", "c1")];
 const CREW_EDITED: readonly RawRow[] = [row("crew", "c2")];
 /** Crew row UNCHANGED, rooms added: the only changed section is rooms. */
 const CREW_AND_ROOMS: readonly RawRow[] = [row("crew", "c1"), row("rooms", "r1")];
-/** Exactly three changed sections: the cap itself, which S8 must actually hit. */
-const AT_CAP: readonly RawRow[] = [row("crew", "c1"), row("rooms", "r1"), row("hotels", "h1")];
-/** Four sections beyond the crew baseline, so `changed` clears the cap of three. */
-const OVER_CAP: readonly RawRow[] = [
-  row("crew", "c9"),
-  row("rooms", "r1"),
-  row("hotels", "h1"),
-  row("venue", "v1"),
+/**
+ * The multi-section family. Every variant carries a warn in the SAME four
+ * sections and differs only in each warn's VALUE.
+ *
+ * WHY THE SET IS HELD CONSTANT, which the round-2 projection sweep made
+ * load-bearing. When the Sheet-warnings panel has no rows of its own it renders
+ * a sentence naming the sections that do (`step3ReviewSections.tsx:2906`), so
+ * ADDING a warn to a previously clean section rewrites that panel too and cues a
+ * fifth card. That is correct behaviour, and it is also a second variable: a
+ * case that starts from "no warnings anywhere" is measuring the appearance of
+ * the elsewhere sentence as much as the change it means to test. Holding the set
+ * fixed and moving only values keeps the pointer sentence byte-identical, so
+ * each case below changes exactly the sections it names.
+ */
+const four = (crew: string, rooms: string, hotels: string, venue: string): readonly RawRow[] => [
+  row("crew", "c1", crew),
+  row("rooms", "r1", rooms),
+  row("hotels", "h1", hotels),
+  row("venue", "v1", venue),
 ];
+const BASE4 = four("a", "a", "a", "a");
+/**
+ * Agenda's presence, which is what S17 and S18 turn on.
+ *
+ * Agenda is the ONE rail section gated on having content: its card renders only
+ * for a non-empty baseline, while rooms, crew and the rest render whether or not
+ * they hold data. So it is the only section whose card can appear and disappear
+ * on a refresh, which is the state both rows exist to reach.
+ */
+const AGENDA = [{ label: "Run of show", fileId: "AGENDA_FILE_1", extracted: { pages: 1 } }];
+const withAgenda = (rows: readonly RawRow[]) => publishedModalElement(rows, { agendaLinks: AGENDA });
+const agendaCard = () => document.querySelector('[data-testid$="-section-agenda-panel-card"]');
+/** One section moves. */
+const B_CREW = four("z", "a", "a", "a");
+/** Two. */
+const B_CREW_ROOMS = four("z", "z", "a", "a");
+/** Exactly three: the cap itself, which S8 must actually hit. */
+const B_THREE = four("z", "z", "z", "a");
+/** Four moves off B_CREW, so `changed` clears the cap of three. */
+const B_OVER = four("y", "y", "y", "y");
 
 /**
  * PANEL CARDS wearing the attribute, as [testid, value] pairs. Scoped to cards on
@@ -184,9 +215,9 @@ describe("published review modal: freshness cue", () => {
   });
 
   it("S7: over the cap, no card flashes and the announcement is the surface sentence", () => {
-    const { rerender } = render(publishedModalElement(CREW));
-    rerender(publishedModalElement(CREW));
-    rerender(publishedModalElement(OVER_CAP));
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_OVER));
     expect(armedCards(), "no individual card flashes over the cap").toEqual([]);
     // But the surface is NOT silent. Design review caught the first version
     // inverting its own signal: the largest change produced the least visual
@@ -199,9 +230,9 @@ describe("published review modal: freshness cue", () => {
     // Three, not two. The whole-diff review caught this claiming the cap while
     // changing two sections, so it never exercised the boundary it named and an
     // off-by-one in the comparison would have passed.
-    const { rerender } = render(publishedModalElement([]));
-    rerender(publishedModalElement([]));
-    rerender(publishedModalElement(AT_CAP));
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_THREE));
     expect(armedCards().length, "three is at the cap, not over it").toBe(3);
     expect(bandCue(), "at the cap the cards carry it, not the band").toBeNull();
   });
@@ -261,10 +292,72 @@ describe("published review modal: freshness cue", () => {
     expect(armedCards()).toEqual([]);
   });
 
+  it("S11c: reduced motion changes the tree not at all, and the copy not at all", () => {
+    // The announcement is the leg that carries the information when the flash is
+    // suppressed, so it must be byte-identical, not merely present. And the tree
+    // must not branch on the preference at all (M12.11): a component that renders
+    // a different SHAPE under reduce cannot be reasoned about from the
+    // motion-allowed tests, and the suppression is CSS's job
+    // (`@media (prefers-reduced-motion: reduce)` in the normative block).
+    const motionAllowed = render(publishedModalElement(BASE4));
+    motionAllowed.rerender(publishedModalElement(BASE4));
+    motionAllowed.rerender(publishedModalElement(B_CREW));
+    const copy = announcementText();
+    const armed = armedCards();
+    const shape = announcementNode().outerHTML;
+    expect(copy).toBe("Updated: Crew.");
+    motionAllowed.unmount();
+
+    const original = window.matchMedia;
+    window.matchMedia = ((q: string) =>
+      ({
+        matches: q.includes("prefers-reduced-motion") && q.includes("reduce"),
+        media: q,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as unknown as MediaQueryList) as typeof window.matchMedia;
+    try {
+      const reduced = render(publishedModalElement(BASE4));
+      reduced.rerender(publishedModalElement(BASE4));
+      reduced.rerender(publishedModalElement(B_CREW));
+      expect(announcementText()).toBe(copy);
+      expect(announcementNode().outerHTML).toBe(shape);
+      // The attribute is still WRITTEN under reduce; CSS is what declines to
+      // animate it. An implementation that withheld the attribute would leave
+      // the reduced-motion reader with no way to locate the change visually at
+      // all, and would make the tree preference-dependent.
+      expect(armedCards()).toEqual(armed);
+      reduced.unmount();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
+  it("S13: the Diagrams sub-block never wears the attribute, even when Rooms does", () => {
+    // Diagrams renders INSIDE the Rooms card as a sub-block, not as a rail
+    // section. It has no id in the section registry, so it can never be a cue
+    // target; if the attribute leaked onto it the reader would see two nested
+    // outlines for one change. The emit is gated on `chrome.sectionId !== undefined`
+    // precisely so a sub-block cannot receive one.
+    const { rerender } = render(publishedModalElement(CREW));
+    rerender(publishedModalElement(CREW));
+    rerender(publishedModalElement(CREW_AND_ROOMS));
+
+    expect(armedCards().length).toBeGreaterThan(0);
+    const leaked = [...document.querySelectorAll(`[${ATTR}]`)].filter((el) =>
+      (el.getAttribute("data-testid") ?? "").toLowerCase().includes("diagram"),
+    );
+    expect(leaked.map((el) => el.getAttribute("data-testid"))).toEqual([]);
+  });
+
   it("S12: copy matches the rendered registry labels, with no em dash or apostrophe", () => {
-    const first = render(publishedModalElement([]));
-    first.rerender(publishedModalElement([]));
-    first.rerender(publishedModalElement(CREW));
+    const first = render(publishedModalElement(BASE4));
+    first.rerender(publishedModalElement(BASE4));
+    first.rerender(publishedModalElement(B_CREW));
     const one = announcementText();
     expect(one).toBe("Updated: Crew.");
     first.unmount();
@@ -272,9 +365,9 @@ describe("published review modal: freshness cue", () => {
     // A SEPARATE mount for the two-item case: reusing the first would make the
     // second transition a one-section change, which is what an earlier draft of
     // this row accidentally asserted.
-    const second = render(publishedModalElement([]));
-    second.rerender(publishedModalElement([]));
-    second.rerender(publishedModalElement(CREW_AND_ROOMS));
+    const second = render(publishedModalElement(BASE4));
+    second.rerender(publishedModalElement(BASE4));
+    second.rerender(publishedModalElement(B_CREW_ROOMS));
     const two = announcementText();
 
     // The rooms label is read off the RENDERED rail chip rather than written here,
@@ -298,9 +391,9 @@ describe("published review modal: freshness cue", () => {
 
     // Three labels, the cap boundary, which the earlier version never reached.
     second.unmount();
-    const third = render(publishedModalElement([]));
-    third.rerender(publishedModalElement([]));
-    third.rerender(publishedModalElement(AT_CAP));
+    const third = render(publishedModalElement(BASE4));
+    third.rerender(publishedModalElement(BASE4));
+    third.rerender(publishedModalElement(B_THREE));
     const threeText = announcementText();
     expect(threeText.startsWith("Updated: ")).toBe(true);
     expect(threeText.split(", ").length, "three labels, comma separated").toBe(3);
@@ -313,13 +406,13 @@ describe("published review modal: freshness cue", () => {
   });
 
   it("S14: a different section changing mid-flash does NOT truncate the first", () => {
-    const { rerender } = render(publishedModalElement([]));
-    rerender(publishedModalElement([]));
-    rerender(publishedModalElement(CREW)); // batch 1: crew
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_CREW)); // batch 1: crew
     expect(armedCards().length).toBe(1);
 
     act(() => void vi.advanceTimersByTime(400));
-    rerender(publishedModalElement(CREW_AND_ROOMS)); // batch 2: rooms joins
+    rerender(publishedModalElement(B_CREW_ROOMS)); // batch 2: rooms joins, crew held
     // The wash holds through 45% of 1600ms, so at 400ms crew is still at full
     // tint. An implementation that REPLACED the id set would snap it to resting
     // here, which is what per-batch expiry exists to prevent.
@@ -333,13 +426,14 @@ describe("published review modal: freshness cue", () => {
   });
 
   it("S15: crossing from a LIVE cue to an over-cap update clears every attribute", () => {
-    const { rerender } = render(publishedModalElement([]));
-    rerender(publishedModalElement([]));
-    rerender(publishedModalElement(CREW));
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_CREW));
     expect(armedCards().length).toBe(1);
 
     act(() => void vi.advanceTimersByTime(200));
-    rerender(publishedModalElement(OVER_CAP));
+    // Every one of the four moves off B_CREW, so this clears the cap of three.
+    rerender(publishedModalElement(B_OVER));
     // S7 starts from rest and cannot catch a merge that leaves the earlier
     // attribute on under an announcement that no longer makes a per-card claim.
     expect(armedCards()).toEqual([]);
@@ -357,16 +451,16 @@ describe("published review modal: freshness cue", () => {
   });
 
   it("S16: a repeat cue with IDENTICAL copy still re-announces", () => {
-    const { rerender } = render(publishedModalElement([]));
-    rerender(publishedModalElement([]));
-    rerender(publishedModalElement(CREW));
+    const { rerender } = render(publishedModalElement(BASE4));
+    rerender(publishedModalElement(BASE4));
+    rerender(publishedModalElement(B_CREW));
     const first = announcementNode().firstElementChild;
     expect(announcementText()).toBe("Updated: Crew.");
 
     act(() => void vi.advanceTimersByTime(400));
-    rerender(publishedModalElement([]));
+    rerender(publishedModalElement(BASE4));
     act(() => void vi.advanceTimersByTime(10));
-    rerender(publishedModalElement(CREW));
+    rerender(publishedModalElement(B_CREW));
     const second = announcementNode().firstElementChild;
 
     // Asserted by NODE IDENTITY, never by text: the text is equal in both the
@@ -375,6 +469,61 @@ describe("published review modal: freshness cue", () => {
     // node, which is not a DOM mutation and is therefore never announced.
     expect(announcementText()).toBe("Updated: Crew.");
     expect(second).not.toBe(first);
+  });
+
+  it("S17: a removal degrades the sentence to the surface line, mixed case included", () => {
+    // The pure case first: Agenda leaves the rail.
+    const pure = render(withAgenda(BASE4));
+    pure.rerender(withAgenda(BASE4));
+    expect(agendaCard(), "Agenda must start on the rail").not.toBeNull();
+    pure.rerender(publishedModalElement(BASE4));
+    expect(
+      agendaCard(),
+      "the fixture must actually drop the Agenda card, or this row proves nothing",
+    ).toBeNull();
+    expect(announcementText()).toBe("Show details updated.");
+    pure.unmount();
+
+    // The MIXED case, which is the one that matters and which a filter-rather-
+    // than-gate implementation gets wrong. Agenda vanishes WHILE crew is edited.
+    // Naming only Crew states something true and implies something false: that
+    // Crew is all that moved. A reader who trusts it never goes looking for the
+    // section that is no longer on screen.
+    const mixed = render(withAgenda(BASE4));
+    mixed.rerender(withAgenda(BASE4));
+    mixed.rerender(publishedModalElement(B_CREW));
+    expect(agendaCard()).toBeNull();
+    const text = announcementText();
+    expect(text).toBe("Show details updated.");
+    expect(text, "the survivor must not be named alone").not.toContain("Crew");
+  });
+
+  it("S18: an APPEARING section mounts already armed under the cap, bare over it", () => {
+    // A section can enter the rail on a refresh, and its card's first commit is
+    // the only one that can carry the cue: there is no earlier render to
+    // transition from. An implementation that armed only sections present in the
+    // PREVIOUS map would leave the one card that is genuinely new silent.
+    const under = render(publishedModalElement(BASE4));
+    under.rerender(publishedModalElement(BASE4));
+    expect(agendaCard(), "Agenda must start OFF the rail").toBeNull();
+    under.rerender(withAgenda(BASE4));
+    const card = agendaCard();
+    expect(card, "Agenda must have entered the rail").not.toBeNull();
+    expect(card?.getAttribute(ATTR), "it mounts already wearing the cue").not.toBeNull();
+    under.unmount();
+
+    // Over the cap the same appearance mounts BARE, because no card flashes at
+    // all in that state. The card still has to exist: asserting only "no
+    // attribute" would pass if the section failed to render.
+    const over = render(publishedModalElement(BASE4));
+    over.rerender(publishedModalElement(BASE4));
+    // Agenda appears while three more sections change: four in one batch.
+    over.rerender(withAgenda(B_OVER));
+    const bare = agendaCard();
+    expect(bare, "Agenda must still enter the rail over the cap").not.toBeNull();
+    expect(bare?.hasAttribute(ATTR)).toBe(false);
+    expect(armedCards(), "no card flashes over the cap").toEqual([]);
+    expect(bandCue(), "the band carries it instead").not.toBeNull();
   });
 
   it("S19: the clear-on-hide branch is wired to `closing`", () => {

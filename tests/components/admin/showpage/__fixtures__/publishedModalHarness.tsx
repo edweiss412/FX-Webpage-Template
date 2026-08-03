@@ -44,7 +44,7 @@ export function unknownFieldWarn(row: RawRow): ParseWarning {
   };
 }
 
-function snapshot(rawRows: readonly RawRow[]): ShowReviewSnapshot {
+function snapshot(rawRows: readonly RawRow[], opts: HarnessOpts = {}): ShowReviewSnapshot {
   return {
     show: {
       id: SHOW_ID,
@@ -59,7 +59,7 @@ function snapshot(rawRows: readonly RawRow[]): ShowReviewSnapshot {
       },
       venue: { name: "Hall A", address: "1 Main St" },
       event_details: null,
-      agenda_links: [],
+      agenda_links: [...(opts.agendaLinks ?? [])] as ShowReviewSnapshot["show"]["agenda_links"],
       coi_status: "received",
       diagrams: null,
       pull_sheet: [],
@@ -101,10 +101,20 @@ export type HarnessOpts = {
   lastSyncedAt?: string | null;
   lastCheckedAt?: string | null;
   lastSyncStatus?: string | null;
+  /**
+   * Agenda links. Additive and default-preserving like the sync stamps above.
+   *
+   * The freshness-cue suite needs a section that genuinely ENTERS and LEAVES the
+   * rail, and agenda is the one that does: its card is gated on a non-empty
+   * baseline, while rooms, crew and the rest render whether or not they hold
+   * data. An earlier draft of those rows tried to drop Rooms by removing its only
+   * warn and asserted an appearance that never happened.
+   */
+  agendaLinks?: readonly unknown[];
 };
 
 function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): PublishedReviewModalProps {
-  const data = buildPublishedSectionData(snapshot(rawRows), { slug: SLUG });
+  const data = buildPublishedSectionData(snapshot(rawRows, opts), { slug: SLUG });
   const bySection = buildSectionWarningModel({
     slug: SLUG,
     warnings: data.warnings,

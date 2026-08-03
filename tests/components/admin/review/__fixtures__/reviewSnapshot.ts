@@ -129,17 +129,26 @@ const BASE: ShowReviewSnapshot = {
     // it change. Note `schedule` and `agenda` BOTH map to the `schedule` region
     // (`lib/admin/step3SectionStatus.ts:58-59`), which is exactly the trap D13
     // must derive from SECTION_REGION_MAP rather than hardcode.
+    //
+    // SHAPE: `{ title, gid, a1 }` objects, NOT A1-notation strings. The strings
+    // this fixture carried until the round-2 projection sweep are not what
+    // production stores (`lib/data/getShowForViewer.ts:315` types the map as
+    // `Record<string, SourceAnchor>`), and `buildSheetDeepLink` collapses any
+    // value whose `title` is outside SOURCE_LINK_ALLOWLIST onto a single
+    // `#gid=0`. So D13 was moving one unusable anchor to another unusable
+    // anchor and asserting a cue that the real rendered link could not produce.
+    // Titles here are allowlisted and gids are numeric, so the href really moves.
     source_anchors: {
-      venue: "INFO!A1:D9",
-      details: "INFO!A11:D20",
-      crew: "CREW!A1:H40",
-      contacts: "INFO!A22:D30",
-      schedule: "ROS!A1:F60",
-      hotels: "HOTELS!A1:H20",
-      transportation: "TRANSPO!A1:F20",
-      rooms: "ROOMS!A1:P40",
-      gear_packlist: "GEAR!A1:D80",
-      financials: "INFO!A32:D40",
+      venue: { title: "INFO", gid: 0, a1: "A1:D9" },
+      details: { title: "INFO", gid: 0, a1: "A11:D20" },
+      crew: { title: "INFO", gid: 0, a1: "A40:H80" },
+      contacts: { title: "INFO", gid: 0, a1: "A22:D30" },
+      schedule: { title: "AGENDA", gid: 11, a1: "A1:F60" },
+      hotels: { title: "TRAVEL", gid: 22, a1: "A1:H20" },
+      transportation: { title: "TRAVEL", gid: 22, a1: "A30:F50" },
+      rooms: { title: "GEAR", gid: 33, a1: "A1:P40" },
+      gear_packlist: { title: "PULL SHEET", gid: 44, a1: "A1:D80" },
+      financials: { title: "INFO", gid: 0, a1: "A32:D40" },
     },
     drive_file_id: DRIVE_FILE_ID,
     coi_status: "received",

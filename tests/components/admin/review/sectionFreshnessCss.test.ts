@@ -178,6 +178,58 @@ describe("section freshness cue: stylesheet contract", () => {
     }
   });
 
+  it("N11: every render cap is IMPORTED from the renderer, never re-typed here", () => {
+    // The structural close on the projection-fidelity vector, which cost three
+    // consecutive review rounds one field at a time.
+    //
+    // The detector must hash only what a body can actually show, and every list
+    // body slices to a permanent cap before rendering. The retail fix is to copy
+    // the numbers across, which drifts the first time someone raises one. This
+    // asserts the caps are the SAME BINDINGS the renderer applies, so raising
+    // `CREW_CAP` widens the signature in the same commit and cannot be forgotten.
+    //
+    // Two halves, because either alone is defeatable: the import list proves the
+    // bindings are in scope, and the literal scan proves none was re-typed
+    // alongside them.
+    const imported = /import \{([^}]*)\} from "@\/components\/admin\/wizard\/step3ReviewSections";/.exec(
+      MODULE_SRC,
+    )?.[1];
+    expect(imported, "the detector must import from the renderer").toBeDefined();
+    for (const cap of [
+      "CREW_CAP",
+      "ROOMS_CAP",
+      "HOTELS_CAP",
+      "PACK_LIST_CASES_CAP",
+      "PACK_LIST_ITEMS_CAP",
+      "SCHEDULE_DAYS_CAP",
+      "SCHEDULE_ENTRIES_CAP",
+      "DIAGRAM_TILE_CAP",
+    ]) {
+      expect(imported, `${cap} must come from the renderer`).toContain(cap);
+      // And it must be USED, not merely imported: an unused import satisfies the
+      // line above while the projection still hashes past the cap.
+      const uses = MODULE_SRC.split(cap).length - 1;
+      expect(uses, `${cap} must be imported AND applied`).toBeGreaterThan(1);
+    }
+    // No bare `slice(0, <number>)` anywhere in the detector: that is exactly the
+    // shape a re-typed cap takes.
+    expect(MODULE_SRC).not.toMatch(/\.slice\(\s*0\s*,\s*\d+\s*\)/);
+  });
+
+  it("N12: the detector resolves anchors through the SHIPPED href builder", () => {
+    // `buildSheetDeepLink` collapses unusable anchors onto one `#gid=0` and drops
+    // `gid`/`a1` on the way, so the raw anchor and the rendered link are not the
+    // same value. A reimplementation of that normalization here would be a second
+    // source of truth that drifts silently the first time the allowlist changes.
+    expect(MODULE_SRC).toContain(
+      'import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink"',
+    );
+    expect(MODULE_SRC).toMatch(/buildSheetDeepLink\(ANCHOR_PROBE_DFID, anchor\)/);
+    // And the raw anchor must not reach the hash alongside it.
+    const hashCall = MODULE_SRC.slice(MODULE_SRC.indexOf("out.set("));
+    expect(hashCall.slice(0, 400)).not.toMatch(/^\s*anchor,$/m);
+  });
+
   it("N7: the cap constant is 3 and is exported rather than repeated as a literal", () => {
     expect(SECTION_FRESHNESS_MAX_CUES).toBe(3);
     expect(MODULE_SRC).toMatch(/export const SECTION_FRESHNESS_MAX_CUES = 3;/);

@@ -261,14 +261,23 @@ describe("section freshness detector", () => {
     expect(changedSectionIds(build(), build())).toEqual([]);
   });
 
-  it("D9: a warn routed to crew changes crew, and ONLY crew", () => {
+  it("D9: the FIRST crew-routed warn changes crew AND the elsewhere sentence", () => {
     // Round-1 BLOCKING for the omission: the routed card renders INSIDE the crew
     // panel, so the crew card's content changed while `crewMembers` did not.
     // Round-2 HIGH for the over-correction: the published Sheet-warnings panel
-    // renders only what routed to IT, so an externally routed warn must not cue it.
+    // renders only what routed to IT, so an externally routed warn's CONTENT
+    // must not cue it (see D9b, which holds the count fixed and gets crew alone).
+    //
+    // Whole-diff R2 BLOCKING for the third state, which both earlier rounds
+    // missed. With no warnings of its own, the Sheet-warnings panel renders a
+    // sentence NAMING the sections that carry them
+    // (`step3ReviewSections.tsx:2906`). Going from zero routed warnings to one
+    // takes that panel from "no sentence" to "the warnings are in Crew", which
+    // is a visible change to a second card. Cueing crew alone would leave a card
+    // that just gained its only body content silent.
     expect(
       changedBetween((s) => void (internalOf(s).parse_warnings = [routedWarn("crew")])),
-    ).toEqual(["crew"]);
+    ).toEqual(["crew", "warnings"]);
   });
 
   it("D9c: a warn routed to NO section changes only the Sheet-warnings panel", () => {
@@ -372,9 +381,39 @@ describe("section freshness detector", () => {
     expect(expected.length).toBeGreaterThan(1);
 
     const changed = changedBetween((s) => {
-      (showOf(s).source_anchors as Record<string, unknown>).schedule = "ROS!A1:F99";
+      // A DIFFERENT allowlisted tab, so the rendered href really moves. Changing
+      // only `a1` would also move it; changing to an unusable anchor would not,
+      // which is the point of D13c below.
+      (showOf(s).source_anchors as Record<string, unknown>).schedule = {
+        title: "GEAR",
+        gid: 33,
+        a1: "A1:F99",
+      };
     });
     expect([...changed].sort()).toEqual(expected);
+  });
+
+  it("D13c: swapping one UNUSABLE anchor for another cues nothing", () => {
+    // The false-cue direction, and the reason the signature hashes the resolved
+    // href rather than the raw anchor. `buildSheetDeepLink` collapses every
+    // anchor outside SOURCE_LINK_ALLOWLIST, and every one with a non-numeric
+    // gid, onto the same `#gid=0` and discards `gid` and `a1` on the way
+    // (`lib/sheet-links/buildSheetDeepLink.ts:22`). Two different unusable
+    // values therefore render the SAME link, and a card whose link did not move
+    // must not flash. Hashing the raw anchor cued it.
+    const before = reviewSnapshot();
+    (showOf(before).source_anchors as Record<string, unknown>).schedule = {
+      title: "NOT_ALLOWLISTED",
+      gid: 7,
+      a1: "A1:B2",
+    };
+    const after = reviewSnapshot();
+    (showOf(after).source_anchors as Record<string, unknown>).schedule = {
+      title: "ALSO_NOT_ALLOWLISTED",
+      gid: 9,
+      a1: "Z9:Z9",
+    };
+    expect(changedSectionIds(signaturesOf(before), signaturesOf(after))).toEqual([]);
   });
 
   it("D13b: moving a null-mapped region's anchor changes nothing", () => {
