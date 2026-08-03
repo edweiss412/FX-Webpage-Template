@@ -356,11 +356,22 @@ test.describe("font binding — the measured row", () => {
     await page.evaluate(() => document.fonts.ready);
 
     const measured = await page.evaluate((title: string) => {
-      // Deliberately WIDE probe face. Measured on this row: "Courier New",
-      // serif, fantasy and monospace all still FIT (190-210px in a 238px row),
-      // so none of them can demonstrate falsifiability. `cursive` reaches 212px
-      // and wraps, which is what makes the non-vacuity check below meaningful.
-      const WIDE_PROBE_FACE = "cursive";
+      // The non-vacuity probe widens the text by a FIXED, font-independent
+      // amount rather than swapping in a system face.
+      //
+      // The face approach was tried and it failed in CI, which is exactly the
+      // bug class this whole change is about. Measured on this 238px row:
+      // "Courier New", serif, fantasy and monospace all still FIT (190-210px),
+      // and `cursive` reached 212px and wrapped ON MACOS — but the same
+      // `cursive` on the Ubuntu runner rendered 210px and did NOT wrap, so the
+      // check went red on a correct tree. Any oracle keyed to a system font's
+      // metrics is host-dependent by construction.
+      //
+      // `letter-spacing` adds a constant per character whatever the face, so
+      // 0.4em over a 22-character title adds ~0.4 x 12px x 22 = ~105px on top
+      // of the ~205px natural width. That overflows a 238px row on every host,
+      // by arithmetic rather than by luck.
+      const WIDE_PROBE_SPACING = "0.4em";
       const label = Array.from(document.querySelectorAll("span, h3, h4")).find(
         (el) => (el.textContent ?? "").trim() === title,
       );
@@ -390,12 +401,12 @@ test.describe("font binding — the measured row", () => {
       // prove nothing about the font. 'Courier New' is present on macOS,
       // Windows and the Ubuntu runner (or resolves to a monospace of similar
       // advance), and is wider per character than any UI sans.
-      const authored = label.style.fontFamily;
-      label.style.fontFamily = WIDE_PROBE_FACE;
+      const authored = label.style.letterSpacing;
+      label.style.letterSpacing = WIDE_PROBE_SPACING;
       void label.offsetWidth;
       const linesUnderWideFont = countLines();
       const widthUnderWideFont = Math.round(label.getBoundingClientRect().width);
-      label.style.fontFamily = authored;
+      label.style.letterSpacing = authored;
       void label.offsetWidth;
 
       return {
@@ -424,11 +435,11 @@ test.describe("font binding — the measured row", () => {
     // than green-washing the one below.
     expect(
       measured.linesUnderWideFont,
-      `the row is tight enough that a wide face wraps this title (row ` +
-        `${measured.rowWidth}px, label ${measured.widthUnderWideFont}px under the ` +
-        `probe face) — otherwise "stays on one line" is unfalsifiable here`,
+      `the row wraps this title once it is widened by a fixed amount (row ` +
+        `${measured.rowWidth}px, label ${measured.widthUnderWideFont}px when ` +
+        `letter-spaced) — otherwise "stays on one line" is unfalsifiable here`,
     ).toBeGreaterThan(1);
-    expect(measured.linesRestored, "the probe restored the authored font").toBe(measured.lines);
+    expect(measured.linesRestored, "the probe restored the authored spacing").toBe(measured.lines);
 
     // THE ASSERTION. Under the font the app actually loads, the title fits.
     expect(
@@ -436,7 +447,7 @@ test.describe("font binding — the measured row", () => {
       `"${GROUP_TITLE}" stays on one line (row ${measured.rowWidth}px, ` +
         `label ${measured.labelWidth}px, font ${measured.fontFamily}; ` +
         `at ${measured.fontSize}/${measured.whiteSpace}; the same row wraps to ` +
-        `${measured.linesUnderWideFont} lines under a wide face)`,
+        `${measured.linesUnderWideFont} lines when the text is widened)`,
     ).toBe(1);
   });
 });
