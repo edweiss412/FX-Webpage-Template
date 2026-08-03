@@ -73,7 +73,11 @@ while PASSING the type-aware one:**
 | A-m | Declaration-only `const` factory / callback-parameter factory | USE test requires a body — signals | AC-A7 |
 | A-n | `await asyncFactory()` | `await` is a site kind | AC-A7 |
 | A-o | Object spread INTO a warning (contextual-only selection) | FRAGMENT classification | AC-A1 |
-| **A-Z** | **Any shape not listed above** | **fail-closed default: SIGNALS.** This row is the closure — the recognizer cannot silently miss a shape, only loudly fail on one | AC-A7 |
+| A-p | `any`-sourced spread supplying the code (FRAGMENT swallow) | capture-link: enclosing warning site required | AC-A10 |
+| A-q | `unknown` JSON validated then spread (COPY swallow) | capture-link: spread source must be warning-typed, not `any`/`unknown` | AC-A10 |
+| A-r | Factory passed to `.map` — zero DIRECT call sites (FACTORY_BODY swallow) | capture-link: >=1 direct resolving call site | AC-A10 |
+| A-s | Validate-and-return factory whose body has no recognized site (USE swallow) | capture-link: callee body must have produced a captured code | AC-A10 |
+| **A-Z** | **Any shape not listed above** | **fail-closed default: SIGNALS**, and no classification can swallow it because every skip is capture-linked in pass 2 | AC-A7 |
 | A-b | Factory whose return type is spelled indirectly (`Alias["warnings"][number]`) | type-based site recognition | **AC-A5** |
 | A-c | `severity` supplied by a typed const rather than a literal | type-based site recognition | **AC-A6** |
 | A-d | Shorthand `code` whose type is a union of string literals | code extraction reads the *type* | AC-A5 |

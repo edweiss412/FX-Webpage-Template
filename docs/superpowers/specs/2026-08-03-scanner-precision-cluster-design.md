@@ -223,20 +223,23 @@ The code is resolved, in order, from: the node's OWN type's `code` property foll
 and union-typed parameters such as `ReelWarningCode`); then the object-literal initializer; then
 the literal arguments of the call itself.
 
-**If that fails, the site FAILS THE GUARD — unless it matches one of exactly four enumerated,
-machine-checkable classifications.** Each is a positive statement about the code, not an exemption
-list of names:
+**If that fails, the site FAILS THE GUARD — unless it matches one of exactly four
+classifications, EACH OF WHICH IS CAPTURE-LINKED.** R4a's decisive finding: a classification that
+states only a *local* syntax/type condition proves nothing, because it never establishes that the
+propagated or delegated code was captured anywhere else. All four of its compiled mutants were
+swallowed. So each classification is now validated in a **second pass**, against what pass 1
+actually captured:
 
-| # | Classification | Test | Live count |
-| --- | --- | --- | --- |
-| FRAGMENT | An object spread INTO a warning, not a warning | selected only via contextual type (own type not assignable) **and** no own `code` | 2 |
-| COPY | Propagates another warning's code | object literal, no own `code`, and the type's `code` is non-literal | 4 |
-| FACTORY_BODY | Defines by delegation | `code` is a PARAMETER of the enclosing function, and **every** call site of that function resolves to a literal (those literals ARE captured) | 4 |
-| USE | Calls a factory whose body is a site in its own right | callee resolves — through import aliases — to a function-like declaration **with a body** inside the scanned tree | 12 |
+| # | Classification | Local test | **Capture-link (pass 2)** | Live count |
+| --- | --- | --- | --- | --- |
+| FRAGMENT | spread INTO a warning | selected only via contextual type, no own `code` | an **enclosing assignable warning site exists** — that site carries the verdict on its own terms | 2 |
+| COPY | propagates another warning's code | no own `code`, type's `code` non-literal | the spread source is itself **warning-typed and not `any`/`unknown`**; an untraceable source SIGNALS | 4 |
+| FACTORY_BODY | defines by delegation | `code` is a parameter of the enclosing function | **at least one DIRECT call site** resolves, and all of them do. "Every call site resolves" is vacuously true at zero, which a `.map(factory)` reference exploits | 4 |
+| USE | calls a factory whose body is a site | callee resolves through aliases to a function-like declaration with a body | that callee's body must have **actually produced a captured code**; a validate-and-return factory with a body that captures nothing SIGNALS | 12 |
 
 A declaration-only `const` factory, a callback parameter, an out-of-tree callee, and every `new`
-expression all fail the USE test and therefore signal. A `FACTORY_BODY` whose call sites do not all
-resolve signals rather than partially capturing.
+expression fail the USE test outright. Nothing is skipped by name, and nothing is skipped on local
+shape alone.
 
 Roots are `["lib", "app"]` minus `lib/dev/**`, `lib/messages/__generated__/**`, and
 `lib/messages/catalog.ts`.
@@ -248,8 +251,9 @@ Roots are `["lib", "app"]` minus `lib/dev/**`, `lib/messages/__generated__/**`, 
 <!-- spec-lint: ignore — new file introduced by this change; not tracked until implementation -->
 The recognizer lands as `lib/messages/__internal__/parseWarningSites.ts`.
 
-**Measured (2026-08-03):** **58 codes · 0 signalled · 22 classified skips** (2 FRAGMENT, 4 COPY,
-4 FACTORY_BODY, 12 USE). Every skip is one of the four tests above; nothing is skipped by name.
+**Measured (2026-08-03), two-pass:** **58 codes · 0 signalled · 22 capture-linked skips**
+(2 FRAGMENT, 4 COPY, 4 FACTORY_BODY, 12 USE). Every skip passed both its local test and its
+capture-link.
 
 ### 3.2 Consumer change
 
@@ -441,6 +445,11 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
   proved nothing.)
 - **AC-A7** A fixture site whose `code` type is neither literal nor call-site-resolvable is
   **reported by name and fails the guard** — proving the "signaled, never dropped" posture.
+- **AC-A10** **Capture-link proof — the four R4a swallow mutants.** Each of the four compiled
+  mutants that defeated the local-only classifications (`any`-sourced spread, `unknown`-sourced
+  validated copy, `.map`-passed factory with zero direct call sites, validate-and-return factory)
+  is captured or **signalled**, never swallowed. These are live escaping mutants against the
+  previous design, so each is a genuine red-before-green.
 - **AC-A8** `pnpm gen:internal-code-enums` re-run and the regenerated artifact committed in the
   same commit. Machine-enforced by `tests/cross-cutting/no-raw-codes.test.ts:34`.
 - **AC-A9** `tests/cross-cutting/cron-run-summary-scanner-safety.test.ts` still passes —
@@ -507,6 +516,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | A6 | BLOCKING (R3a) — clauses 1/5/6 still permit three escape classes: a spread whose result preserves a literal code, declaration-only and callback factories treated as scanned uses, and `await asyncFactory()` outside the site kinds. | **Accepted, and answered structurally rather than by adding three more clauses.** This was round 3 on one vector, so §3.1 was INVERTED to fail-closed: the default is now SIGNAL, and a skip requires one of four machine-checkable classifications. `await` is a site kind; the USE test now requires a function-like declaration WITH A BODY (following import aliases), so declaration-only and callback factories signal; spread-preserved literals are captured by reading the OWN type. Re-measured 58 codes, 0 signalled, 22 classified skips. |
 | B6 | HIGH (R5b) — AC-B5 silently misses one stale marker: the in-flight guard scans body lines 1-12 and `BL-LEDGER-GUARD-BODY-DEFINED-IDS` has its status at body line 13. | **Accepted.** AC-B5a asserts the transition directly instead of relying on that guard. The window limitation belongs to the sibling guard; it is covered here rather than assumed away. |
 | B7 | HIGH (R5b) — P5-sole is canonical in the spec but absent from all five executable plan sites. | **Accepted, and it is the same defect R4b raised about P5-live one round earlier — my repair patched one site instead of sweeping the class.** All plan sites now enumerate TEN plants (P1-P8, P5-live, P5-sole), verified by grep rather than by inspection. |
+| A7 | BLOCKING (R4a) — all four classifications can swallow a real definition: an `any`-sourced spread (FRAGMENT), an `unknown`-sourced validated copy (COPY), a `.map`-passed factory with zero direct call sites making "every call site resolves" vacuous (FACTORY_BODY), and a validate-and-return factory whose body contains no recognized site (USE). Four compiled mutants, all captured as nothing with no signal. | **Accepted — the decisive finding of the arc.** Each classification is now **capture-linked** in a second pass: FRAGMENT requires an enclosing warning site, COPY requires a warning-typed non-`any` spread source, FACTORY_BODY requires at least one DIRECT resolving call site, USE requires the callee's body to have actually produced a captured code. A local condition alone is no longer sufficient for any skip. Re-measured 58 / 0 / 22. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
