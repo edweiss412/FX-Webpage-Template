@@ -42,6 +42,9 @@ const regrowSlice = (): string => {
  */
 const ARM_WINDOW = 900;
 
+/** The retry callback's opening token, matched literally at each arming site. */
+const CALLBACK_OPENER = "expect(async () => {";
+
 describe("T-REGROW settle contract", () => {
   it("reads a plausible T-REGROW body (anti-vacuity)", () => {
     const slice = regrowSlice();
@@ -76,7 +79,7 @@ describe("T-REGROW settle contract", () => {
       // callback opens, the measurement happens inside it, and the block closes
       // with .toPass. That ordering is what establishes containment from source
       // text — `expect(async () => {` … `measure()` … `}).toPass(`.
-      const opensAt = window.indexOf("expect(async () => {");
+      const opensAt = window.indexOf(CALLBACK_OPENER);
       const measuresAt = window.indexOf("measure()");
       const passesAt = window.indexOf(".toPass(");
       expect(
@@ -102,7 +105,12 @@ describe("T-REGROW settle contract", () => {
       // the callback to `expect(async () => { void measure(); }).toPass(...)` and
       // moved the real read back outside, and every assertion above stayed green.
       // So the callback BODY must actually await the measurement and assert on it.
-      const callbackBody = window.slice(opensAt, passesAt);
+      // Slice from AFTER the opener, not from it: `expect(async () => {` is itself
+      // an `expect(`, so counting from opensAt makes the assertion below trivially
+      // true — a second review probe showed an assertion-free
+      // `expect(async () => { await measure(); }).toPass(...)` passing every
+      // predicate here.
+      const callbackBody = window.slice(opensAt + CALLBACK_OPENER.length, passesAt);
       expect(
         /await\s+measure\(\)/.test(callbackBody),
         `arming site ${n + 1}: the retry callback must AWAIT measure() — a callback that ` +
