@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-17
 **Status:** spec (autonomous-ship pipeline; both user-review gates WAIVED per AGENTS.md autonomous-ship gate)
-**Deferral source:** `DEFERRED.md` → `ACCENT-PASS-1` (P2, deferred from the 2026-07-16 accent-contrast token pass). The deferral referenced a `BL-HERO-SEGMENT-VIBRANCY` backlog name, but that row was aspirational and was never filed in `BACKLOG.md` (grep-confirmed) — this work closes ACCENT-PASS-1 directly in `DEFERRED.md`, no BACKLOG twin.
+**Deferral source:** `DEFERRED.md` → `ACCENT-PASS-1` (P2, deferred from the 2026-07-16 accent-contrast token pass). The deferral referenced a `BL-HERO-SEGMENT-VIBRANCY` backlog name, but that row was aspirational and was never filed in `BACKLOG.md` (grep-confirmed) — this work closes ACCENT-PASS-1 directly in `DEFERRED.md`, no BACKLOG twin. **Stale as of 2026-08-02:** the dangling-citation filing pass wrote this never-filed id into `BACKLOG-archive.md` at its already-resolved state, so a grep now finds a row. Accurate when written; this document's outcome is unchanged.
 
 ---
 
@@ -88,7 +88,7 @@ The one genuinely visual question (does a 1px stroke on a 6px pill read as a cri
 | `tests/styles/_metaBgAccentInventory.test.ts` | add one `edge-treated` row for the new `bg-accent` occurrence (§6.2). |
 | `DESIGN.md` | §1.2 accent-edge row: add "active show-day progress segment" to the boundary-consumer list (§6.3). |
 | `DEFERRED.md` | `ACCENT-PASS-1` → ✅ RESOLVED; rewrite the `:625` "Backlog: `BL-HERO-SEGMENT-VIBRANCY`" line to "closed directly in DEFERRED — no `BL-*` row was ever filed"; add `HERO-VIBRANCY-DIM-1` DEFERRED-AS-N/A row. |
-| `BACKLOG.md` | **No change.** `BL-HERO-SEGMENT-VIBRANCY` was aspirational — it appears ONLY as a reference in `DEFERRED.md:625` and was never filed as a `BACKLOG.md` row (grep-confirmed). No twin row to flip. |
+| `BACKLOG.md` | **No change.** `BL-HERO-SEGMENT-VIBRANCY` was aspirational — it appears ONLY as a reference in `DEFERRED.md:625` and was never filed as a `BACKLOG.md` row (grep-confirmed). No twin row to flip. **Stale as of 2026-08-02** — the dangling-citation filing pass added a retroactive archive row; this document's outcome is unchanged. |
 
 ## 6. Tests
 
