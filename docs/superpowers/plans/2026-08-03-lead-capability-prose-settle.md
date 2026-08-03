@@ -74,8 +74,8 @@ Every hit is dispositioned. After Task 5 the master spec's hit is gone and the o
 - **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b). **Wiring, verified: no new entry is required.** `vitest.projects.ts:92` already globs `tests/visibility/**/*.test.{ts,tsx}`, so the file is collected by `pnpm test` on creation, and `.github/workflows/unit-suite.yml` runs on `pull_request` and on `push` to `main` with no path filter, so it is merge-gating from its first commit. No `testMatch` addition, no workflow edit, no path-filter change.
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
-- - **CREATES** `tests/docs/_metaCapabilityProseClaims.test.ts` — the prose-claim pins that give the documentation-only tasks a genuine RED (see §4 Tasks 3, 4, 5). Same wiring answer as the parity guard: `vitest.projects.ts` globs `tests/docs/**`, and `unit-suite.yml` has no path filter.
-- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, the diff touches the two ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and three test files: `tests/visibility/_metaDocumentedPredicateParity.test.ts` (new), `tests/docs/_metaCapabilityProseClaims.test.ts` (new), and `tests/visibility/capabilityTransitions.test.ts` and `tests/docs/_metaDeferralLedgerGraduation.test.ts` (both edited).
+- - **CREATES** `tests/db/isAdminRoleFlagsContract.test.ts` — the contract pin behind MI-9 (§4 Task 4). DB-bound, so it runs in the `unit-suite-db` matrix legs rather than the no-DB ones; `vitest.projects.ts` globs `tests/db/**` and `unit-suite.yml` has no path filter, so no wiring edit is needed.
+- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, the diff touches the two ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and four test files: `tests/visibility/_metaDocumentedPredicateParity.test.ts` and `tests/db/isAdminRoleFlagsContract.test.ts` (both new), plus `tests/visibility/capabilityTransitions.test.ts` and `tests/docs/_metaDeferralLedgerGraduation.test.ts` (both edited). `tests/visibility/capabilityTransitions.test.ts` is itself census file 3 (instance F), so it is both edited here and listed there; that is one file, not two.
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
 ## 2. Mutation-family closure (mandatory for guard work)
@@ -106,7 +106,9 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M21 | The sole exempt export deleted, leaving a stale exemption — **added at R5 with a live escaping mutant** | parity guard, dangling-exemption assertion | a `NOT_FLAG_GATED` key names no reflected export |
 | M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
 
-M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
+M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each.
+
+**Stated limit on the closure claim, corrected at R6.** An earlier draft claimed the family list was closed "by exhaustion" so that no predicate body could escape. That was too strong, and R6 refuted it with a probe: the bitmask emits one canonical ordering per subset, so `flags[0] === "L1" && flags[1] === "V1"` survived it. The sweep now also tests the reverse of every subset, which catches any position-dependent answer, but the full permutation space (20!) is not enumerable. **The honest claim: every order-insensitive predicate body over this input domain is checked at every input, and position-dependence is detected but not exhaustively characterised.** Real `scopeTiles` predicates are `Array.includes` disjunctions and are order-insensitive by construction. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
 
 **Explicitly outside the closure set** (stated so it is not re-proposed as a gap): free-text prose in either module remains unguarded — spec §2.3's named accepted limit. The guards cover predicate *expressions* and matrix *completeness*, not sentences about them.
 
@@ -362,6 +364,20 @@ describe("documented predicate lines match live scopeTiles behavior", () => {
             if (mask & (1 << i)) subset.push(ALL_ROLE_FLAGS[i]!);
           }
           const expected = (isAdmin && adminGrants) || (mask & tokenMask) !== 0;
+          // R6: the bitmask emits ONE canonical ordering per subset, so an
+          // order-sensitive branch (`flags[0] === "L1" && flags[1] === "V1"`)
+          // could hide. Production order is token-appearance order
+          // (lib/parser/personalization.ts extractRoleFlags), so ordering is
+          // not fixed. Check the reverse of every subset too; that is not the
+          // full permutation space (20! is not enumerable) but it catches any
+          // predicate whose answer depends on position at all.
+          const reversed = [...subset].reverse();
+          if (callPredicate(fn, reversed, isAdmin) !== expected) {
+            mismatches.push(
+              `${name}([${reversed.join(",")}] reversed, isAdmin=${isAdmin}) documented=${expected} live=${!expected}`,
+            );
+            if (mismatches.length >= 5) break;
+          }
           if (callPredicate(fn, subset, isAdmin) !== expected) {
             mismatches.push(
               `${name}([${subset.join(",")}], isAdmin=${isAdmin}) documented=${expected} live=${!expected}`,
@@ -488,91 +504,35 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
 
 **Commit:** `test(visibility): derive matrix size from CAPABILITY_PREDICATES instead of literals`
 
-### Task 3 — correct the mechanism claim (instance C)
+### Task 3 — correct the mechanism claim and drop the drifted counts (instances C, D, E)
 
-**RED.** Create `tests/docs/_metaCapabilityProseClaims.test.ts` with the first pin. The claim under repair is textual, so the pin is textual — but it is a *regression pin on a sentence that was false*, which is exactly the thing worth holding:
+**No test.** These are three prose corrections in one file, and review rounds R4 through R6 established that a prose pin cannot enforce them: R4 added substring bans, R5 showed synonyms defeat them, R6 showed the R5 repairs are defeated by "compiler error" and "seven capability predicates". Three rounds on one vector is the AGENTS.md stop condition, and the honest conclusion is that **a sentence is not machine-verifiable**. Pretending otherwise produced a test that fails to catch what it claims and costs a round every time someone probes it.
 
-```ts
-/**
- * Prose pins for the capability-visibility contract surface. Each case here
- * exists because the sentence it pins was FALSE and cost a review round.
- * These are text assertions by necessity (the claims are prose), so each
- * one names the specific falsehood it prevents rather than pinning wording
- * for its own sake.
- */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+**Invariant 1 disposition, stated rather than dodged.** Invariant 1's "failing test → implementation → passing test" governs behavior changes. A comment correction changes no behavior, and this project ships documentation-only commits routinely — including this branch's own spec and plan commits. The three corrections here are verified by review and by the ACs' greps, not by a test. What IS machine-checked is everything these sentences now describe: Task 2's synthetic-6 case proves the completeness claim in C, and `GatedTile`/`CAPABILITY_PREDICATES` are the definitions D and E now point at instead of counting.
 
-const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+Edits in `lib/visibility/capabilityTransitions.ts`:
 
-describe("lib/visibility/capabilityTransitions.ts prose", () => {
-  test("does not promise a TypeScript error the module cannot produce", () => {
-    // Instance C: the header claimed a predicate addition surfaces "as a
-    // TypeScript error if the matrix is incomplete". Probed false: the union
-    // had no link to the matrix. The real mechanism is a failing test.
-    // Positive assertion first: the header must name the test that actually
-    // enforces completeness. R5: a bare ban on the old phrase is satisfiable
-    // by "compile-time error", so the ban alone proves nothing.
-    const src = read("lib/visibility/capabilityTransitions.ts");
-    expect(src).toContain("tests/visibility/capabilityTransitions.test.ts");
-    expect(src).toContain("CAPABILITY_PREDICATES");
-    // ...and no compiler-error claim survives, in any phrasing.
-    expect(src).not.toMatch(/(TypeScript|compile[- ]time|type)\s+error/i);
-  });
-});
-```
+- `lib/visibility/capabilityTransitions.ts:47-52` (instance C) — replace the false "surfaces … as a TypeScript error if the matrix is incomplete" with what Task 2 actually built:
 
-Run it: RED, because the sentence is still there.
+  ```
+  /**
+   * The capability predicates that gate scope-tile and financials
+   * visibility on the crew page. This array is the single source: the
+   * `CapabilityPredicate` union is derived from it, and the matrix tests
+   * derive their expected pair set from its length — so adding a
+   * predicate here FAILS `tests/visibility/capabilityTransitions.test.ts`
+   * until the matrix carries every new pair.
+   */
+  ```
 
-**GREEN.** Replace `lib/visibility/capabilityTransitions.ts:47-52` with a description of the mechanism Task 2 actually built:
+- `lib/visibility/capabilityTransitions.ts:6-7` (instance D) — the sentence beginning `Five derived predicates gate the five gated tiles` (which then names four) becomes one naming `CAPABILITY_PREDICATES` and the `GatedTile` union instead of counting either.
+- `lib/visibility/capabilityTransitions.ts:56` (instance E) — "The five gated tiles whose visibility this matrix covers." becomes "The gated tiles whose visibility this matrix covers."
 
-```
-/**
- * The capability predicates that gate scope-tile and financials
- * visibility on the crew page. This array is the single source: the
- * `CapabilityPredicate` union is derived from it, and the matrix tests
- * derive their expected pair set from its length — so adding a
- * predicate here FAILS `tests/visibility/capabilityTransitions.test.ts`
- * until the matrix carries every new pair.
- */
-```
+Counts are deleted rather than corrected to four: a number that no longer exists cannot drift, and the authoritative counts are one line away in the code.
 
-Re-run: GREEN. The claim is now verified by the synthetic-6 case Task 2 already shipped.
+**Commit:** `docs(visibility): describe the guard that exists, and stop counting what the types already say`
 
-**Commit:** `docs(visibility): describe the completeness guard that exists, not one that does not`
-
-### Task 4 — remove the drifted counts (instances D and E)
-
-**RED.** Add the second pin to `tests/docs/_metaCapabilityProseClaims.test.ts` (AC-11a):
-
-```ts
-test("carries no gated-tile count that can drift from the GatedTile union", () => {
-  // Instances D and E: "the five gated tiles", naming four, twice. The fix
-  // deletes the count rather than correcting it, because a number that no
-  // longer exists cannot drift; this pin forbids the count words returning.
-  const src = read("lib/visibility/capabilityTransitions.ts");
-  // Positive: the sentences must point at the definitions instead of counting.
-  expect(src).toContain("GatedTile");
-  expect(src).toContain("CAPABILITY_PREDICATES");
-  // Negative, phrasing-independent: no number word or digit may quantify the
-  // predicates or the gated tiles. R5: banning "five gated tiles" alone is
-  // satisfiable by "five capability predicates".
-  const COUNTED = /\b(two|three|four|five|six|\d+)\s+(derived\s+|capability\s+|gated\s+)?(predicates?|tiles?)\b/i;
-  expect(src).not.toMatch(COUNTED);
-});
-```
-
-RED on both matches.
-
-**GREEN.** Two edits in `lib/visibility/capabilityTransitions.ts`:
-
-- `lib/visibility/capabilityTransitions.ts:6-7` — the sentence beginning `Five derived predicates gate the five gated tiles` (which then names four, and points at `scopeTiles.ts`) becomes one that names `CAPABILITY_PREDICATES` and the `GatedTile` union instead of counting either.
-- `lib/visibility/capabilityTransitions.ts:56` — "The five gated tiles whose visibility this matrix covers." becomes "The gated tiles whose visibility this matrix covers."
-
-**Commit:** `docs(visibility): drop the drifted gated-tile counts`
-
-### Task 5 — master spec MI-9 (instance B)
+### Task 4 — master spec MI-9 (instance B)
 
 One edit inside the MI-9 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`. Replace exactly:
 
@@ -588,44 +548,46 @@ with:
 
 Constraints: the row is a single markdown table cell, so the replacement must contain no newline; the file's line count must not change. **Never run prettier on the master spec** (the condensed-alert-copy plan records the same constraint at `docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:409`).
 
-**RED first.** Add the third pin to `tests/docs/_metaCapabilityProseClaims.test.ts` (AC-8):
+**RED first — but on the CONTRACT, not the sentence.** Create `tests/db/isAdminRoleFlagsContract.test.ts`. R6 refuted the lexical approach with a probe: slicing one historical migration between two string literals passes even when the `admin_emails` arm is deleted (an unmatched closing literal makes `indexOf` return `-1`, and `slice(a, -1)` then swallows the rest of the file), and a LATER migration redefining `is_admin()` through `role_flags` is invisible to it entirely. Ask the database for the resolved definition instead:
 
 ```ts
-test("no role flag grants admin: the fact MI-9 now describes", () => {
-  // Instance B's pin is on the CONTRACT, not on MI-9's wording. R5 showed a
-  // prose ban is satisfiable by a synonym ("administrative and operational
-  // surface"), so banning a phrase proves nothing. What is worth holding is
-  // the fact the sentence reports: is_admin() resolves admin identity from
-  // the JWT role claim and the admin_emails table, and never consults
-  // role_flags. If that ever changes, this fails and MI-9 must be revisited.
-  const sql = read(
-    "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql",
-  );
-  const body = sql.slice(
-    sql.indexOf("create or replace function public.is_admin()"),
-    sql.indexOf("revoke all on function public.is_admin()"),
-  );
-  expect(body).not.toBe("");
-  expect(body).toContain("app_metadata");
-  expect(body).toContain("admin_emails");
-  expect(body).not.toContain("role_flags");
-});
+/**
+ * Contract pin behind master-spec MI-9: no `role_flags` element grants admin.
+ *
+ * Asks Postgres for the CURRENTLY RESOLVED definition of public.is_admin(),
+ * so a later migration that redefines it is caught. A lexical scan of one
+ * historical migration file is not equivalent and was refuted by probe (R6).
+ */
+import type { Sql } from "postgres";
+import { afterAll, describe, expect, it } from "vitest";
+import { sqlClient } from "./_b2Helpers";
 
-test("MI-9 names what LEAD actually additionally unlocks", () => {
-  // Positive assertion, not a ban: the clause must name the three scope-tile
-  // predicates. A synonym for the OLD false claim cannot satisfy this.
-  const src = read("docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md");
-  const mi9 = src.split("\n").find((l) => l.includes("| MI-9  |")) ?? "";
-  expect(mi9).not.toBe("");
-  expect(mi9).toContain("audioScopeVisible");
-  expect(mi9).toContain("videoScopeVisible");
-  expect(mi9).toContain("lightingScopeVisible");
+const sql: Sql = sqlClient;
+
+describe("public.is_admin() resolves admin identity without role_flags", () => {
+  afterAll(async () => {
+    await sql.end({ timeout: 5 });
+  });
+
+  it("reads the JWT role claim and admin_emails, and never role_flags", async () => {
+    const [row] = await sql<{ def: string }[]>`
+      select pg_get_functiondef('public.is_admin()'::regprocedure) as def
+    `;
+    const def = row?.def ?? "";
+    expect(def).not.toBe("");
+    // Positive: both live arms are present, so this cannot pass vacuously on
+    // an is_admin() that was gutted to `select false`.
+    expect(def).toContain("app_metadata");
+    expect(def).toContain("admin_emails");
+    // The claim MI-9 now makes.
+    expect(def).not.toMatch(/role_flags/i);
+  });
 });
 ```
 
-RED until the clause is replaced. Then apply the edit above and re-run: GREEN.
+This is green on the current schema, so it is a **contract pin, not the RED for this task** — and it is worth having for exactly the reason MI-9 was wrong: if admin is ever routed through a role flag, this fails and forces MI-9 back open. The MI-9 edit itself is a documentation correction with no failing test, on the same reasoning as Task 3.
 
-Verification in the same commit:
+Verification in the same commit:Verification in the same commit:
 
 ```
 rg -n 'admin/ops' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md   # expect 0
@@ -635,7 +597,7 @@ pnpm test:audit:x1-catalog-parity                                            # n
 
 **Commit:** `docs(spec): MI-9 states what LEAD actually grants, and that admin is not it`
 
-### Task 6 — file `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (the descoped class)
+### Task 5 — file `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (the descoped class)
 
 No source file is edited. Add the row to `BACKLOG.md` carrying, verbatim from spec §2.7: the twelve known instances, the ground-truth probe block, the single blocker (`tests/e2e/right-now-transitions.spec.ts:285-290`), the two already-honest sites that must NOT be "fixed" (`tests/visibility/capabilityTransitions.test.ts:224` and `tests/visibility/capabilityTransitions.test.ts:272`), and the methodological finding that a hand-run grep cannot bound the class, with both failed patterns named so the next pass does not repeat them.
 
@@ -645,7 +607,7 @@ Verify: `pnpm vitest run tests/docs/` — `_metaLedgerReferentialIntegrity` reso
 
 **Commit:** `docs(backlog): file BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES with three rounds of evidence`
 
-### Task 7 — ledger graduation
+### Task 6 — ledger graduation
 
 **RED first.** Append the `BACKLOG_GRADUATED` row BEFORE moving the entry: `tests/docs/_metaDeferralLedgerGraduation.test.ts` then asserts a graduation whose archive section does not yet exist, and fails. That is the natural failing test for this task, so no synthetic pin is needed.
 
@@ -657,11 +619,11 @@ Verify: `pnpm vitest run tests/docs/`.
 
 **Commit:** `docs(backlog): graduate BL-LEAD-CAPABILITY-PROSE-STALE as RESOLVED`
 
-### Task 8 — full-suite gates
+### Task 7 — full-suite gates
 
 `pnpm typecheck` (also proves families M12 and M19's compile-time half), `pnpm test`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both new documents. Fix anything red; no commit if all green and nothing changed.
 
-### Task 9 — Adversarial review (cross-model)
+### Task 8 — Adversarial review (cross-model)
 
 Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes posture, `REVIEWER ONLY`, the do-not-relitigate list from spec §1.1, the §2 mutation-family closure set as the convergence criterion, and the finding-admissibility contract. No nested reviews.
 
@@ -669,7 +631,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4 (the reflection assertion ships with the guard); Task 2 → AC-5, AC-6; Task 3 → AC-5a; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10. Every task that CHANGES the tree owns at least one criterion it can fail. Task 9 (adversarial review) deliberately owns none — it is a gate on the whole diff, not a change with its own acceptance test, and inventing an AC for it would be ceremony.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4; Task 2 → AC-5, AC-6; Task 3 → AC-5a, AC-11a; Task 4 → AC-8; Task 5 → AC-11; Task 6 → AC-9; Task 7 → AC-7, AC-10; Task 8 → none, by design. Every task that CHANGES the tree owns at least one criterion it can fail. Task 9 (adversarial review) deliberately owns none — it is a gate on the whole diff, not a change with its own acceptance test, and inventing an AC for it would be ceremony.
 
 ## 12. Close-out
 
