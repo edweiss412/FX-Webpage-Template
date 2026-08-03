@@ -83,7 +83,7 @@ Advisory-lock holder topology: N/A, no lock key is touched.
 
 ## T1 — the detector module and its unit suite
 
-**Creates:** `components/admin/review/sectionFreshness.ts (new)`, `tests/components/admin/review/sectionFreshness.test.ts (new)`.
+**Creates:** `components/admin/review/sectionFreshness.ts (new)`, `tests/components/admin/review/sectionFreshness.test.ts (new)`, and a snapshot fixture builder beside it under `tests/components/admin/review/__fixtures__/`.
 
 **RED first.** Write the suite against a module that does not exist yet; it fails to import. Then implement.
 
@@ -138,7 +138,11 @@ Concrete failure each catches:
 
 D6 and D14 are the anti-tautology partners of D3 and D9: D3 alone passes if the projection returns one entry, and D9 alone passes if the diff never reports removals. D9 through D14 all came from the round-1 review, which probed the routing and found the original own-fields-only projection silently missing five classes of visible change.
 
-**Fixture discipline.** The base snapshot is built once by a helper and deep-cloned per case, so a case that mutates cannot leak into the next. Expected section id lists are derived from `renderedSectionIds` on the fixture, never hardcoded.
+**Fixture discipline.** The base snapshot is built once by a helper and deep-cloned per case, so a case that mutates cannot leak into the next. Expected section id lists are derived from `renderedSectionIds` on the fixture, and D13's expectation from `SECTION_REGION_MAP`, never hardcoded.
+
+**Why this task builds its own fixture rather than widening the modal harness's.** The published-modal harness has an RPC-shaped snapshot builder, but it is module-private and carries one crew row, empty `rooms`, `hotel_reservations`, `transportation` and `contacts`, and empty `source_anchors`. D6 needs every section populated, D2b needs two hotel rows, D12 needs two crew rows with swappable ids, and D13 needs real anchors. Widening the harness's builder would change the inputs of every test already using it. So the detector suite owns a richer builder under its own fixtures directory and T4 reuses the harness as-is plus additive opts. Two fixtures with two jobs, not duplication: one exercises the projection across every section, the other exercises the component's state machine through the real pipeline.
+
+Warning routing in both is driven by `blockRef`, which is what lets D9 place a warn inside Crew without touching `crewMembers`; the existing example of that shape is `unknownFieldWarn` at `tests/components/admin/showpage/__fixtures__/publishedModalHarness.tsx:37-45`.
 
 **GREEN:** `pnpm vitest run tests/components/admin/review/sectionFreshness.test.ts`.
 
