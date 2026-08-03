@@ -1125,6 +1125,8 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
 
+**Status:** IN PROGRESS · **Branch:** feat/sync-feed-undo-announce
+
 **Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the `BACKLOG-B2UI-*` batch below (`:1303-1305`): one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line gave that family a `BL-` prefix, which resolves to nothing — the real ids carry the `BACKLOG-` prefix. A one-word prefix typo, not a vanished family; the analogy it draws was always sound. The wrong spelling is described rather than written out, since re-typing it would re-create the dangling reference.
 
 - **BL-SYNCFEED-UI-1** — `UndoChangeButton`: post-submit success relies on page revalidation flipping the row to `undone`; consider an `aria-live` region announcing undo success (the failure path already surfaces via `ErrorExplainer`).
