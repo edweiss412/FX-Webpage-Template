@@ -206,7 +206,7 @@ Props (all required unless noted):
 | `name` | `string` | Rendered truncated. Empty string renders an empty span; the row still has its 44px floor and stays tappable. Not a new case — `c.name` is non-null in the roster query today. |
 | `role` | `string` | Empty string → no chip in idle (the live `c.role &&` guard is an empty-string check; `role` is non-nullable — R4). In pending the chip renders regardless. |
 | `crewMemberId` | `string` | Passed through to `data-crew-member-id`. |
-| `lockHint` | `string` | The `aria-label` on the lock. Falls back to `"Sign in to use this identity"`, matching the existing fallback at `_PickerInterstitial.tsx:212`. |
+| `lockHint` | `string` | Rendered in an `sr-only` SIBLING of the glyph, never as an `aria-label` on it: `aria-label` on a span with an implicit `generic` role is dropped by assistive tech (ARIA 1.2), so the hint would reach nobody — raised as a P1 by the invariant-8 gate. The glyph itself is `aria-hidden`. Falls back to `"Sign in to use this identity"`, matching the existing fallback at `_PickerInterstitial.tsx:212`. |
 | `chipClassName` | `string` | Computed server-side and passed in, so the client component holds no role-flag logic. |
 | `rowClassName` | `string` | Same, for the row's class string. |
 
@@ -220,7 +220,7 @@ and the **disable mechanism** (below).
 
 | Element | Idle | Pending |
 |---|---|---|
-| Lock glyph (`data-testid="picker-row-lock"`) | 🔒 with `aria-label` | not rendered |
+| Lock glyph (`data-testid="picker-row-lock"`) | 🔒, `aria-hidden`, with the hint in an `sr-only` sibling (see §3.4 `lockHint`) | not rendered |
 | Spinner | not rendered | `<Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />`, `data-testid="picker-row-spinner"` |
 | Name | truncated | unchanged |
 | Role chip (`data-testid="picker-role-chip"`) | `role` if present, else absent | text `Signing in…` (R4: renders even when `role` is the empty string) |

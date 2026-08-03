@@ -366,7 +366,10 @@ Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
 ### Task 5 — transition audit
 
 `docs/agents/writing-plans.md:9` requires listing EVERY ternary and conditional block, not just
-the state pairs. `_ClaimedRowButton` has five, and each needs a declared treatment:
+the state pairs. `_ClaimedRowButton` has **seven** as shipped, and each needs a declared
+treatment. C6 and C7 arrived with the invariant-8 gate fixes (the pending timeout and the live
+region); the shipped audit at `tests/show/claimedRowTransitionAudit.test.ts` is the authority and
+declares all seven:
 
 | # | Conditional | Treatment |
 |---|---|---|
@@ -375,11 +378,14 @@ the state pairs. `_ClaimedRowButton` has five, and each needs a declared treatme
 | C3 | chip present vs absent (empty `role`, idle only) | instant |
 | C4 | chip text: `role` vs `Signing in…` | instant |
 | C5 | `pageshow` listener resetting pending | instant, no exit animation |
+| C6 | `clearPendingTimeout` guard (shared by unmount, `pageshow`, re-activation) | not a render branch — no animation |
+| C7 | live-region text mirrors pending | instant — announcement only, no visual state |
 
-**Falsification requirement (proof task):** add a SIXTH conditional to `_ClaimedRowButton` with no
-row in the table above and show the audit failing on it. The earlier wording said "a fourth",
-which was undefined — the component already has five (R4 finding 5). If the audit passes with an
-undeclared branch present, it is enumerating nothing.
+**Falsification requirement (proof task):** add an EIGHTH conditional to `_ClaimedRowButton` with
+no row in the table above and show the audit failing on it. The count has moved twice — the
+original wording said "a fourth" when there were already five, and the invariant-8 gate fixes then
+added two more — so the number comes from the shipped audit, not from this prose. If the audit
+passes with an undeclared branch present, it is enumerating nothing.
 
 Enumerate every conditional branch in `_ClaimedRowButton` and assert each is animated as stated or
 deliberately instant, against spec §6:
