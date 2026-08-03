@@ -27,6 +27,13 @@ failing test for a deletion" has two honest forms and one dishonest one:
 A deletion task's own protection is the guard from Task 2 plus the existing suites; where a task
 adds no new assertion, it says so plainly instead of inventing one.
 
+**Ledger rule, binding on EVERY task from Task 2 onward** (plan R5 BLOCKING-1 found Tasks 3 and 4
+rewriting 17 and 8 exempted lines with no ledger step and no guard in their verify command):
+**any task that edits, moves, or deletes a line covered by a `line`/`pending` row owns that row in
+the same commit**, and **every task's verify command from Task 2 onward includes
+`pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`.** An unmatched row fails by design,
+so "I only renamed a test file" is exactly the case that breaks it.
+
 ---
 
 ## 0. Pre-draft verification pass (run 2026-08-03, before this body was written)
@@ -217,7 +224,7 @@ drop the assertion. Record the divergence in the closeout (§12) as a finding an
 assertion to the hero's own rendered output, still derived from fixture inputs and never imported
 from the production render helper.
 
-**Verify:** `pnpm test -- tests/components/crew/rightNowHeroRecovery.test.tsx`
+**Verify:** `pnpm test -- tests/components/crew/rightNowHeroRecovery.test.tsx` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `test(crew): retarget the stale-tint unwind pins onto the live RightNowHero`
 
 ## Task 4 — retarget the reduced-motion-at-mount suite onto `RightNowHero`
@@ -244,7 +251,7 @@ task had no reachable RED): mutate `components/crew/RightNowHero.tsx` to read th
 an event-only source instead of the mount-time hook, run the suite, require RED; revert, require
 green. Record both. Without that step this task proves only that two hooks have the same name.
 
-**Verify:** `pnpm test -- tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx`
+**Verify:** `pnpm test -- tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `test(crew): retarget the reduced-motion-at-mount pin onto the live RightNowHero`
 
 ## Task 5 — retire `RightNowCard`
@@ -294,7 +301,7 @@ component.
    for a file you simply did not want to edit — that is the exact move that cost three rounds. Every code/test hit is repaired in THIS
    commit, not one per review round.
 
-**Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/components/crew`
+**Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/components/crew` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 then `pnpm typecheck`
 **Commit:** `chore(crew-page): retire RightNowCard, superseded by RightNowHero`
 
@@ -315,7 +322,7 @@ rows pointed at files nobody ships, so its green says less each release.
 6. Re-run the Task 2 guard; every `PerShowCrewSection` / `PerShowCrewRow` hit repaired or
    allowlisted with a reason.
 
-**Verify:** `pnpm test -- tests/cross-cutting tests/help tests/components/_metaOrphanedComponents.test.ts`
+**Verify:** `pnpm test -- tests/cross-cutting tests/help tests/components/_metaOrphanedComponents.test.ts` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `chore(admin): retire PerShowCrewSection, superseded by the modal's CrewBreakdown`
 
 ## Task 7 — retire `ResolveAlertButton`
@@ -343,7 +350,7 @@ can reach, while five live files cite it as the pattern to copy.
    same defect class the orphan guard exists to catch.
 5. Re-run the Task 2 guard; every `ResolveAlertButton` hit repaired or allowlisted with a reason.
 
-**Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
+**Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's resolve control`
 
 ## Task 8 — retire `RunFinalCASButton`
@@ -355,8 +362,16 @@ which reads as finalize coverage and is not.
 2. Delete `components/admin/RunFinalCASButton.tsx` and
    `tests/components/admin/RunFinalCASButton.test.tsx`; remove the `RunFinalCASButton` describe
    from `tests/components/admin/FinalizeReentry.test.tsx` (the `CleanupAbandonedFinalizeButton`
-   contracts in that file stay) and the now-unused import in
-   `tests/components/admin/RescanSheetButton.test.tsx`.
+   contracts in that file stay).
+   **`tests/components/admin/RescanSheetButton.test.tsx` does NOT merely import it** — plan R5
+   BLOCKING-2 corrected the draft: the file RENDERS it inside a live test
+   (`tests/components/admin/RescanSheetButton.test.tsx:446` names it,
+   `tests/components/admin/RescanSheetButton.test.tsx:460` renders `<RunFinalCASButton>`), which
+   asserts an OUTDATED per-row code renders while a corrupt one does not. Deleting the import alone
+   leaves an unresolved JSX reference and the suite fails. **Delete that whole test**, and state in
+   the commit message that the surviving coverage of the same 409 per-row contract is
+   `tests/components/admin/FinalizeButton.test.tsx:524-903` (verified at spec R1) — the assertion
+   dies with the dead component it renders, not with the contract.
 3. Registries: delete `"RunFinalCASButton.tsx"` from `MIGRATED_FILES`
    (`tests/styles/accent-button-atom.test.ts:62`), covered by the same de-migration note Task 7
    extends.
@@ -370,7 +385,7 @@ which reads as finalize coverage and is not.
    `BACKLOG.md` entries Task 12 handles and `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
    alone.
 
-**Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts`
+**Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `chore(admin): retire RunFinalCASButton, superseded by FinalizeButton's finish mode`
 
 ## Task 9 — amend the `WrappedTile` allowlist row to its decided terminal state
@@ -400,7 +415,7 @@ deleting a file three ratified contracts retain — which would orphan `TileErro
 3. Confirm the retention guards are still green:
    `tests/crew/_metaTileProducerTopology.test.ts`, `tests/migration/crew-redesign-cleanup.test.ts`.
 
-**Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/crew/_metaTileProducerTopology.test.ts tests/migration/crew-redesign-cleanup.test.ts`
+**Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/crew/_metaTileProducerTopology.test.ts tests/migration/crew-redesign-cleanup.test.ts` · `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`
 **Commit:** `chore(components): record WrappedTile's retention as a decided terminal state`
 
 ## Task 10 — correct the `capabilityTransitions` predicate quote + ship the anti-drift guard
@@ -432,7 +447,8 @@ that has been three-branch since 2026-07-16.
    `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` (Task 1); Task 12 only amends it if this task changes
    what it says.
 
-**Verify:** `pnpm test -- tests/visibility` and `pnpm typecheck`
+**Verify:** `pnpm test -- tests/visibility tests/docs/retiredIdentifierReferences.test.ts` and
+`pnpm typecheck`
 **Commit:** `fix(visibility): the header's verbatim predicate quote drifted; pin it against the source`
 
 ## Task 11 — correct master spec MI-9 + ship the capability-claim guard
@@ -500,6 +516,8 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
    no §12.4 change, no regen.
 
 **Verify:** `pnpm test -- tests/docs tests/cross-cutting/codes.test.ts` and
+`pnpm spec:lint docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (`tests/docs` includes the
+retired-identifier guard)
 `pnpm spec:lint docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`
 **Commit:** `docs(spec): MI-9 no longer claims LEAD grants an admin surface`
 
@@ -508,10 +526,11 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
 **Failure mode it catches:** a queue that silently becomes a changelog (`BACKLOG.md:5`), and a
 settled decision that reads as open work.
 
-0. **Clear both entries' `Status: IN PROGRESS · Branch:` flight fields** (invariant 12). The
-   graduating entry takes its marker to the archive by construction; the amended entry must have
-   the field REMOVED, or `tests/docs/_metaLedgerInProgress.test.ts` will claim work is in flight on
-   a merged branch.
+0. **Do NOT clear the flight markers here** (plan R5 BLOCKING-3 corrected the draft). Invariant 12
+   removes them at Stage 4.4, AFTER the `0  0` check — until the PR merges the work IS in flight,
+   and clearing them at Task 12 would leave closeout, review, CI, and merge running undeclared. The
+   graduating entry takes its marker to the archive by construction; the entry that stays open keeps
+   its `Status: IN PROGRESS · Branch:` field until Task 13's final step.
 1. `BL-LEAD-CAPABILITY-PROSE-STALE` — move the whole entry to `BACKLOG-archive.md` at its terminal
    state, with both settlements recorded (which of the two possibilities each claim turned out to
    be, and the probe that established it).
@@ -540,7 +559,9 @@ settled decision that reads as open work.
    from the same file concurrently. Resolve by keeping BOTH sides — the entries are disjoint and
    the reconciliation line concatenates. Do not drop a sibling's segment.
 
-**Verify:** `pnpm test -- tests/docs` (the whole directory — it covers the graduation, referential-integrity, in-flight, and retired-identifier guards, all of which this task can move)
+**Verify:** `pnpm test -- tests/docs` (the whole directory — it covers the graduation,
+referential-integrity, in-flight, and retired-identifier guards, every one of which this task can
+move)
 **Commit:** `docs(backlog): graduate the LEAD-prose entry, amend the orphan and accent-sweep entries`
 
 ## Task 13 — closeout, UI gate, and whole-diff adversarial review
@@ -572,6 +593,9 @@ settled decision that reads as open work.
    `conforms`. A green that comes from not declaring is the vacuous pass this branch has now been
    charged with twice.
 7. Push, real CI green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
+8. **Stage 4.4, after the `0  0` check** (invariant 12): remove the `Status: IN PROGRESS · Branch:`
+   field from the orphan entry — the graduated entry took its own to the archive — then `CronDelete`
+   the nudge, clear the pane and agent labels, and set the ship marker's `stage` to `"done"`.
 
 **Commit:** `docs(plan): close out the orphan-components + LEAD-prose cluster`
 

@@ -142,8 +142,10 @@ own message says it "trimmed FinalizeReentry to the surviving RunFinalCAS/Cleanu
 was true of the CONTRACTS, but the button was never re-mounted.
 
 **Action:** delete the component and `tests/components/admin/RunFinalCASButton.test.tsx`; trim the
-`RunFinalCASButton` describe from `tests/components/admin/FinalizeReentry.test.tsx` and the import
-in `tests/components/admin/RescanSheetButton.test.tsx`; drop the allowlist row and the
+`RunFinalCASButton` describe from `tests/components/admin/FinalizeReentry.test.tsx`; delete the
+`RunFinalCASButton` test in `tests/components/admin/RescanSheetButton.test.tsx`, which RENDERS the
+component rather than merely importing it (`tests/components/admin/RescanSheetButton.test.tsx:446`,
+`tests/components/admin/RescanSheetButton.test.tsx:460` — corrected at plan R5); drop the allowlist row and the
 `accent-button-atom` row (`tests/styles/accent-button-atom.test.ts:62`); repair citing comments
 (§5).
 
