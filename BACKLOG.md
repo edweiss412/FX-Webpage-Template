@@ -8,6 +8,46 @@ Last reconciled: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-
 
 ---
 
+## BL-LEDGER-GUARD-INTENSIFIER-BLIND — an intensifier hides a terminal status from the graduation guard
+
+**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
+
+`tests/docs/_ledgerMdast.ts` recognizes a terminal word only in leading position, so any
+intensifier in front of it makes a closed entry read as OPEN. Probed against the shipped walker:
+
+| heading suffix                           | guard verdict |
+| ---------------------------------------- | ------------- |
+| `✅ CLOSED`                              | TERMINAL      |
+| `✅ RESOLVED (2026-07-03)`               | TERMINAL      |
+| `**RESOLVED 2026-06-11 (PR #22)**`       | TERMINAL      |
+| `✅ FULLY CLOSED (both instances fixed)` | **open**      |
+| `✅ FULLY RESOLVED`                      | **open**      |
+| `✅ COMPLETELY DONE`                     | **open**      |
+| `✅ ALREADY SHIPPED`                     | **open**      |
+
+The `PARTIALLY CLOSED` and `NOT CLOSED` cases correctly stay open — those are the ratified
+`VETO` negations/qualifiers, and a fix must not weaken them. The gap is that VETO enumerates
+words that _negate_, while nothing enumerates words that merely _intensify_, and an
+unrecognized leading word currently defaults to "not terminal".
+
+**Live corruption this caused:** `BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK` shipped, was annotated
+`✅ FULLY CLOSED` in place, and sat in the open queue undetected. Class-swept at filing time:
+exactly one instance across the active `BACKLOG.md` (84 entries) and `DEFERRED.md` (15) —
+now archived — so this is a latent hole, not a backlog of mis-filings.
+
+**Why backlog, not a one-line fix:** lane semantics are spec-canonical
+(`docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md`, eleven adversarial
+rounds). Adding an intensifier class touches the same recognizer the VETO negations run
+through, so it needs the plants-corpus treatment (`M1`–`M9` in
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`): a discriminating plant per new spelling,
+plus proof the existing negation plants still red. Doing it inline here would be an unreviewed
+edit to a ratified guard.
+
+**Trigger:** the next change that touches `_ledgerMdast.ts` lane semantics, or a second
+instance of this shape appearing in either ledger.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
@@ -949,23 +989,6 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
-### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)
-
-**✅ RESOLVED (2026-06-22).** Both instances of the Drive-under-lock class are fixed and the advisory-lock guard now enforces the whole `lib/sync` / `lib/drive` / `lib/asset` subtree with **no allowlist** (the `knownDriveUnderLockPaths` exemption was removed). History retained below.
-
-- **Instance 1 — wizard revision-race restage — CLOSED in PR #77.** Now prepares pre-lock + stages under the lock via `prepareOnboardingFiles` + `scanOnboardingPreparedFiles`; the combined-fetch dedup landed; the advisory-lock guard was extended to follow cross-file scan calls (`runOnboardingScan` / `prepareOnboardingFiles` are Drive-reaching markers). That guard extension is what surfaced instance 2.
-- **Instance 2 — `retrySingleFile` — CLOSED in PR #80.** The reorder surfaced TWO latent production bugs that the guard's cross-file blindness + the scan-mocking tests had hidden:
-  - **Bug 1 (deadlock).** The retry held `withPostgresSyncPipelineLock` (= `withShowLock(hashtext('show:'||driveFileId))`) on connection A and `await`ed `runOnboardingScan`, whose connection B blocked on the SAME key → app-level deadlock (Postgres can't detect it). Confirmed empirically by a new live-DB repro (`tests/onboarding/retrySingleFileNestedLockDeadlockDb.test.ts`) that ran the real route lock + real scan lock, reproduced the hang (RED), then went GREEN after the reorder. The repro terminates only the two key-scoped hung backends (pid-snapshot diff) so the shared local DB is never wedged.
-  - **Bug 2 (false supersession, masked by Bug 1).** With the hang gone, the real scan revealed it deletes the wizard `pending_ingestion` on successful stage (`phase1.ts:355`); `finalize` *also* deleted it and read the 0-row as supersession → a bogus 409 on a retry that actually succeeded. `finalize` now detects a **post-scan** supersession via a wizard-session **currency re-check** (the scan owns the delete + in-scan supersession detection).
-  - **Bug 3 (defer/ignore race — Codex adversarial-review R1, HIGH).** The first cut of the fix ran the scan OUTSIDE the lock, opening a window where a concurrent defer/ignore (which takes the show lock, transitions the manifest, deletes the pending row) interleaves and the retry's scan overwrites the resolved manifest. **Fixed** by running the DB scan UNDER the finalize lock — the same lock the defer/ignore takes — so staging + finalize are atomic and a concurrent resolution is serialized (a re-preflight aborts the retry with `not_found`). A new live-DB regression test pins this.
-  - **Bug 4 (live-partition corruption — Codex R2 + independent multi-lens review, CRITICAL).** The first under-lock cut staged via `makeInlineOnboardingScanTx`, which overrides only manifest/log/alert/probe and INHERITS the pipeline tx's LIVE-only `upsertLivePendingSync`/`deleteLivePendingIngestion` (`wizard_session_id` null). So a clean retry staged `pending_syncs` into the LIVE partition while the manifest stayed wizard-scoped+unresolved → the wizard finalize/approve pipeline (filters `wizard_session_id = SESSION`) never saw the row → onboarding session **wedged**. Empirically confirmed (staged `wizard_session_id` was null). **Fixed** by building the under-lock scan tx as a real wizard-scoped `PostgresOnboardingScanTx` bound to the locked connection via `tx.holdPort()` (the service-role hold-port that rides the held show lock — no new connection/lock); `makeInlineOnboardingScanTx` is DELETED. This also closes a related HIGH (an in-scan supersession now 0-rows the staging INSERT via the wizard EXISTS guard instead of committing an orphan null-partition row F4 reap could never sweep). A new real-DB partition assertion pins `wizard_session_id = SESSION`. **The identical bug in the #77 wizard revision-race restage (`stageWizardRestageInline`) was fixed the same way** (it staged live → `readWizardPendingSyncForApply` returned null → reported `source_gone` for a successful restage).
-
-**Fix shape (instance 2):** `retrySingleFile` keeps only the slow Drive prepare PRE-lock; the DB staging + finalize run together UNDER one pipeline lock. Lock#1 `retrySingleFilePreflight` reads the pending-folder id → pre-lock Drive metadata + `prepareOnboardingFiles` → Lock#2 { re-preflight (a concurrent defer/ignore or supersession aborts here) → `scanOnboardingPreparedFiles` on the SAME locked connection via a wizard-scoped `PostgresOnboardingScanTx` bound to `tx.holdPort()` + a passthrough `withShowLock` (single-holder) → `retrySingleFileFinalize` }. Because the scan now shares the locked transaction, a supersession throw rolls its staging back atomically — **no orphan residue** (the R32-1 race test updated: residue 1→0, the moot F4-reap-of-residue half removed since F4 sweep stays covered by `reapStaleSessionsDb`). `retrySingleFile_unlocked` was split into the exported `preflight` + `finalize` (R1, separate commit); both structural meta-test registries (`_advisoryLockSingleHolderContract`, `_metaInfraContract`) + 4 test files were migrated; the guard exemption was removed. Full suite green (6992 pass).
-
-**Residual:** a dedicated real-DB restage test for #77 (the existing restage tests mock the scan) is a recommended follow-up — the wizard-scoped-via-holdPort mechanism is proven by the retry's real-DB partition assertion + identical wiring. Pairs naturally with BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY in any future sync-robustness milestone — but the lock-hygiene class itself is closed. The applyStaged-wide supersession-return concern is filed separately as `BL-APPLYSTAGED-SUPERSESSION-ROLLBACK` below.
-
----
-
 ### BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files
 
 **✅ RESOLVED (2026-06-21, `chore/lint-format-ci-gates` branch):** promotion prerequisite (a) was taken — a CI lint gate (`.github/workflows/quality.yml` running `pnpm lint` + `pnpm typecheck` + `pnpm format:check`) was added AND the full lint debt was cleared in the same branch (`pnpm lint` now exits 0). Root cause was mostly `.validation-local` design-mock noise (now eslint-ignored) plus ~48 real findings fixed. The same branch also normalized the repo-wide prettier drift (~56% of files) and added a `simple-git-hooks` + `lint-staged` pre-commit gate to stop regression. Retained for history; no further work. (A residual eslint blind spot — array-join classNames — is tracked separately as `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT` below.)
@@ -1038,7 +1061,7 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 **Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
 
-**Distinction from `BL-CREW-SHEET-TEMPLATE-V2`:** that entry is about a NEW standardized *source* sheet (making genuinely-absent fields reliably present). THIS entry is about *surfacing fields that the organic sheets already carry* (and the parser already captures or trivially could) but the projection/UI never exposes — no new source needed, just projection + UI + tests.
+**Distinction from `BL-CREW-SHEET-TEMPLATE-V2`:** that entry is about a NEW standardized _source_ sheet (making genuinely-absent fields reliably present). THIS entry is about _surfacing fields that the organic sheets already carry_ (and the parser already captures or trivially could) but the projection/UI never exposes — no new source needed, just projection + UI + tests.
 
 **Scope (each upgrades a Phase-1 section/empty-state in place):**
 
@@ -1138,7 +1161,7 @@ Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cro
 
 ### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
 
-**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding *reduces* per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
+**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
 
 A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
 
