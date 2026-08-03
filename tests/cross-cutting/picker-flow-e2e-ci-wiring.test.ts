@@ -239,15 +239,28 @@ function skippedTitles(json: string, spec: string): string[] {
   return [...new Set(titles)].sort();
 }
 
+/**
+ * UNIQUE, non-skipped test identities for `spec` — not result rows.
+ *
+ * R13 (HIGH): `repeatEach: 2` with a `grep` selecting half the cases preserved every count while
+ * half the unique coverage went dark. `spec.id` carries repeat identity, so counting ids makes a
+ * repeat a repeat.
+ */
 function countTests(json: string, spec: string): number {
   const parsed = JSON.parse(json.slice(json.indexOf("{"))) as { suites?: unknown[] };
   const base = spec.split("/").pop()!;
-  let n = 0;
+  const ids = new Set<string>();
   const walk = (suites: unknown[]): void => {
     for (const suite of suites) {
       const s = suite as {
         suites?: unknown[];
-        specs?: { file?: string; tests?: { expectedStatus?: string }[] }[];
+        specs?: {
+          file?: string;
+          id?: string;
+          line?: number;
+          title?: string;
+          tests?: { expectedStatus?: string }[];
+        }[];
       };
       for (const sp of s.specs ?? []) {
         if (!(sp.file ?? "").endsWith(base)) continue;
@@ -257,13 +270,18 @@ function countTests(json: string, spec: string): number {
         // Counting only non-skipped tests makes that mutant drive the count to 0, which the
         // `> 0` assertion rejects. `--forbid-only` on both resolutions closes the `test.only`
         // twin: Playwright errors instead of silently narrowing the run.
-        n += (sp.tests ?? []).filter((t) => t.expectedStatus !== "skipped").length;
+        // IDENTITIES, not rows (R13 HIGH): `repeatEach: 2` with a `grep` selecting half the
+        // cases preserved every count while half the unique coverage went dark. `spec.id` carries
+        // repeat identity, so a repeat counts once.
+        if ((sp.tests ?? []).some((t) => t.expectedStatus !== "skipped")) {
+          ids.add(sp.id ?? `${sp.file}:${sp.line}:${sp.title}`);
+        }
       }
       if (s.suites) walk(s.suites);
     }
   };
   walk(parsed.suites ?? []);
-  return n;
+  return ids.size;
 }
 
 /**
@@ -413,8 +431,14 @@ describe("picker-flow e2e CI wiring", () => {
     const runs = activatedRunScalars(read("crew-e2e.yml"))
       .map((c) => stripYamlComments(c).trim())
       .filter((c) => !/&&|\|\||;|\|/.test(c));
+    // COMMAND POSITION, like every other guarded invocation (R13 HIGH): `echo
+    // scripts/check-crew-e2e-executed.mjs` exits 0 without reading the report, and a
+    // token-anywhere test accepted it.
     expect(
-      runs.some((c) => c.split(/\s+/).includes("scripts/check-crew-e2e-executed.mjs")),
+      runs.some((c) => {
+        const t = c.split(/\s+/);
+        return t[0] === "node" && t[1] === "scripts/check-crew-e2e-executed.mjs";
+      }),
       "crew-e2e.yml runs no post-run executed-count check. Without it a runtime skip empties the " +
         "whole job while every static assertion here stays green.",
     ).toBe(true);

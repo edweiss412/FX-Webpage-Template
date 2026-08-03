@@ -110,6 +110,14 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF26 — repeat-inflated counts + non-command-position check (whole-diff review R13 live
+  mutants):** a config-level `grep` selecting half the cases plus `repeatEach: 2` preserved every
+  count on both sides while half the unique coverage — Theo and the unrestricted admin control
+  among them — never ran; and the new post-run-check assertion accepted the script path in ANY
+  token position, so `echo scripts/check-crew-e2e-executed.mjs` exited 0 without reading the
+  report. Closed by counting UNIQUE `spec.id` identities rather than result rows (a repeat counts
+  once) in both the oracle and the guard, and by requiring the check to sit in command position
+  (`node` then the script) exactly as the other guarded invocations do.
 - **MF25 — unscoped assertions / partial-dark minimums (whole-diff review R12 live mutants):** two
   shapes, one root — asserting a POSITION instead of the CLAIM. (a) The fold cases checked row
   state by index with a page-global marker locator and never asserted the day LABEL, so swapping

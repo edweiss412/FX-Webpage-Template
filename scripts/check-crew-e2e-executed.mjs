@@ -47,7 +47,14 @@ if (reportPath === undefined || !existsSync(reportPath)) {
 
 const report = JSON.parse(readFileSync(reportPath, "utf8"));
 
-/** file basename -> number of tests that actually produced a non-skipped result. */
+/**
+ * file basename -> set of UNIQUE spec ids that produced a passing result.
+ *
+ * Identities, not result rows. Whole-diff review R13 (HIGH): a config-level `grep` selecting half
+ * the cases plus `repeatEach: 2` preserves every count while half the unique coverage — Theo and
+ * the unrestricted admin control among them — never runs. Counting `spec.id` makes a repeat a
+ * repeat rather than a second test.
+ */
 const executed = new Map();
 const walk = (suites) => {
   for (const suite of suites ?? []) {
@@ -61,7 +68,9 @@ const walk = (suites) => {
         // assertions, counts as outcome "expected", and does not fail the run — a quarantined
         // suite that looks executed. A test that proves something ends green.
         const ran = (test.results ?? []).some((r) => r.status === "passed");
-        if (ran) executed.set(base, (executed.get(base) ?? 0) + 1);
+        if (!ran) continue;
+        if (!executed.has(base)) executed.set(base, new Set());
+        executed.get(base).add(spec.id ?? `${spec.file}:${spec.line}:${spec.title}`);
       }
     }
     walk(suite.suites);
@@ -71,7 +80,7 @@ walk(report.suites);
 
 const failures = [];
 for (const [file, min] of Object.entries(REQUIRED)) {
-  const n = executed.get(file) ?? 0;
+  const n = executed.get(file)?.size ?? 0;
   if (n < min) failures.push(`${file}: executed ${n}, expected at least ${min}`);
 }
 
@@ -87,7 +96,7 @@ if (failures.length > 0) {
 
 console.log(
   `check-crew-e2e-executed: ok — ${[...executed.entries()]
-    .map(([f, n]) => `${f} ${n}`)
+    .map(([f, ids]) => `${f} ${ids.size}`)
     .sort()
     .join(", ")}`,
 );
