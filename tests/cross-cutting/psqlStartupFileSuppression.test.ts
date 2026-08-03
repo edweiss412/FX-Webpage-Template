@@ -948,6 +948,105 @@ describe("R11 escaping mutants", () => {
   });
 });
 
+describe("R12 escaping mutants — a wrong line is a FALSE SAFE", () => {
+  // Both of these are the reviewer's mutants verbatim. The shape is the same in
+  // each: an unprotected psql is reported one line early, lands on a protected
+  // call's exemption comment, and inherits an exemption written for something
+  // else — so the live-tree `unprotected` list comes back empty.
+  const EXEMPT_FIRST = `execFileSync("psql", ["-X"]); // ${EXEMPTION_MARKER} first call is intentionally exempt`;
+
+  test("a backslash-newline continuation does not pull psql onto the line above", () => {
+    // The continuation consumes a physical line while producing no cooked
+    // character, so raw and cooked newline counts disagree.
+    const source = [EXEMPT_FIRST, 'execSync("echo hi && \\', 'psql -qAt mydb");', ""].join("\n");
+    const sites = scanSource(source, "scripts/mutant.mjs");
+    expect(sites).toHaveLength(2);
+    expect(sites[1]!.line).toBe(3);
+    expect(sites[1]!.exemptReason).toBeNull();
+    expect(sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)).toHaveLength(
+      1,
+    );
+  });
+
+  test("a multiline `bash -c` script does not pull psql onto the line above", () => {
+    // The script word is quote-stripped, so an offset measured inside it is not
+    // contiguous with the opening quote's index.
+    const source = [EXEMPT_FIRST, "execSync(`bash -c 'echo hi", "psql -qAt mydb'`);", ""].join(
+      "\n",
+    );
+    const sites = scanSource(source, "scripts/mutant.mjs");
+    expect(sites).toHaveLength(2);
+    expect(sites[1]!.line).toBe(3);
+    expect(sites[1]!.exemptReason).toBeNull();
+    expect(sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)).toHaveLength(
+      1,
+    );
+  });
+
+  test.each(["sh", "bash", "zsh"])("the same holds for a multiline `%s -c`", (shell) => {
+    const source = [EXEMPT_FIRST, `execSync(\`${shell} -c "echo hi`, 'psql -qAt mydb"`);', ""].join(
+      "\n",
+    );
+    const sites = scanSource(source, "scripts/mutant.mjs");
+    expect(sites[1]!.line).toBe(3);
+    expect(sites[1]!.exemptReason).toBeNull();
+  });
+
+  test("a multiline `eval` argument maps the same way", () => {
+    const source = [EXEMPT_FIRST, "execSync(`eval 'echo hi", "psql -qAt mydb'`);", ""].join("\n");
+    const sites = scanSource(source, "scripts/mutant.mjs");
+    expect(sites[1]!.line).toBe(3);
+    expect(sites[1]!.exemptReason).toBeNull();
+  });
+
+  test.each([
+    ["\\x70sql", 'execSync("\\x70sql -qAt mydb");'],
+    ["\\u0070sql", 'execSync("\\u0070sql -qAt mydb");'],
+    ["\\u{70}sql", 'execSync("\\u{70}sql -qAt mydb");'],
+  ])("a %s escape still maps to its own line", (_name, call) => {
+    const source = ["const a = 1;", call, ""].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("an alias to a MULTILINE anchor reports the `run:` key, not a line past EOF", () => {
+    const source = [
+      "env:",
+      "  CMD: &cmd |",
+      "    echo ready",
+      "    psql -qAt mydb",
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: *cmd",
+      "",
+    ].join("\n");
+    const physicalLines = source.trimEnd().split("\n").length;
+    const sites = scanSource(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(8);
+    expect(sites[0]!.line).toBeLessThanOrEqual(physicalLines);
+  });
+
+  test("a NON-alias block scalar still reports its own physical line", () => {
+    // The alias pin must not swallow the ordinary case.
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      "          echo ready",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = scanSource(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(6);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

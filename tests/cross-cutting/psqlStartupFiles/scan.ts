@@ -549,7 +549,19 @@ function exemptionOnLines(
  * processing, redirection removal and operator recognition that the shell does
  * before argv exists, and everything downstream consumes words.
  */
-type ShellWord = { text: string; line: number; offset: number; operator: boolean };
+type ShellWord = {
+  text: string;
+  line: number;
+  offset: number;
+  /** Raw index in the scanned text for EACH character of `text`. Quoting and
+   * escaping mean the word's characters are not contiguous with its start —
+   * adding an offset measured in the quote-stripped script to the opening
+   * quote's index undercounts every delimiter, which is how a `bash -c` script
+   * mapped its psql onto the PRECEDING physical line and inherited an
+   * exemption written for an unrelated call. */
+  offsets: number[];
+  operator: boolean;
+};
 
 const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
@@ -588,6 +600,7 @@ type NestedShell = { text: string; line: number; offset: number; backtick: boole
 function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
+  let bufferOffsets: number[] = [];
   let started = false;
   let startLine = 0;
   let startOffset = 0;
@@ -598,10 +611,17 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const flush = (): void => {
     if (started) {
       if (!dropWord)
-        words.push({ text: buffer, line: startLine, offset: startOffset, operator: false });
+        words.push({
+          text: buffer,
+          line: startLine,
+          offset: startOffset,
+          offsets: bufferOffsets,
+          operator: false,
+        });
       dropWord = false;
     }
     buffer = "";
+    bufferOffsets = [];
     started = false;
   };
   const begin = (index: number): void => {
@@ -610,7 +630,13 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       startLine = line;
       startOffset = index;
       buffer = "";
+      bufferOffsets = [];
     }
+  };
+  /** Append to the current word, recording where each character came from. */
+  const append = (piece: string, at: number): void => {
+    buffer += piece;
+    for (let k = 0; k < piece.length; k++) bufferOffsets.push(at);
   };
 
   for (let i = 0; i < text.length; i++) {
@@ -627,7 +653,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       }
       if (next !== undefined) {
         begin(i);
-        buffer += next;
+        append(next, i + 1);
         i++;
         continue;
       }
@@ -658,7 +684,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           offset: i + 2 + entry.offset,
           backtick: entry.backtick,
         });
-      buffer += slice;
+      append(slice, i);
       line += (slice.match(/\n/g) ?? []).length;
       i = close;
       continue;
@@ -685,7 +711,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       // The substitution stands in as an opaque word so surrounding argv is
       // still read correctly.
       begin(i);
-      buffer += "${}";
+      append("${}", i);
       i = close;
       continue;
     }
@@ -699,7 +725,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       begin(i);
       const close = text.indexOf("'", i + 1);
       const body = close === -1 ? text.slice(i + 1) : text.slice(i + 1, close);
-      buffer += body;
+      for (let k = 0; k < body.length; k++) append(body[k]!, i + 1 + k);
       line += (body.match(/\n/g) ?? []).length;
       i = close === -1 ? text.length : close;
       continue;
@@ -712,7 +738,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
           i++;
           if (text[i] === "\n") line++; // a continuation still eats a line
-          buffer += text[i];
+          append(text[i]!, i);
           continue;
         }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
@@ -723,7 +749,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           // reported later invocations one line early, which let them inherit a
           // marker comment written for something else.
           line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
-          buffer += "${}";
+          append("${}", i);
           i = close;
           continue;
         }
@@ -732,12 +758,12 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           const end = close === -1 ? text.length : close;
           nested.push({ text: text.slice(i + 1, end), line, offset: i + 1, backtick: true });
           line += (text.slice(i, end + 1).match(/\n/g) ?? []).length;
-          buffer += "${}";
+          append("${}", i);
           i = end;
           continue;
         }
         if (text[i] === "\n") line++;
-        buffer += text[i];
+        append(text[i]!, i);
       }
       continue;
     }
@@ -750,7 +776,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
 
     if (character === "\n") {
       flush();
-      words.push({ text: "\n", line, offset: i, operator: true });
+      words.push({ text: "\n", line, offset: i, offsets: [i], operator: true });
       line++;
       continue;
     }
@@ -788,13 +814,19 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       flush();
       const two = text.slice(i, i + 2);
       const operator = two === "&&" || two === "||" ? two : character;
-      words.push({ text: operator, line, offset: i, operator: true });
+      words.push({
+        text: operator,
+        line,
+        offset: i,
+        offsets: [...operator].map((_, k) => i + k),
+        operator: true,
+      });
       i += operator.length - 1;
       continue;
     }
 
     begin(i);
-    buffer += character;
+    append(character, i);
   }
   flush();
   return words;
@@ -858,6 +890,8 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
     for (const site of scanShellText(inner.text, file, lineOffset + inner.line))
       sites.push({
         ...site,
+        // `inner.text` is a raw SLICE of this text, so its indices are simply
+        // shifted; no quote stripping happened between them.
         offset: inner.offset + site.offset,
         nested: true,
         // Backtick-ness is inherited: a `$(…)` inside a backtick span is still
@@ -897,7 +931,15 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         const script = argv[scriptIndex];
         if (script === undefined) break;
         for (const site of scanShellText(script.text, file, lineOffset + script.line))
-          sites.push({ ...site, offset: script.offset + site.offset });
+          sites.push({
+            // The script word was QUOTE-STRIPPED, so its characters are not
+            // contiguous with its start. Map through the per-character index
+            // the lexer recorded; adding a stripped-text offset to the opening
+            // quote's index undercounts every delimiter and landed psql on the
+            // preceding physical line.
+            ...site,
+            offset: script.offsets[site.offset] ?? script.offset,
+          });
         break;
       }
     }
@@ -956,7 +998,11 @@ function shellStringSites(
     return {
       ...site,
       line: actualLine,
-      exemptReason: exemptionOnLines(lines, actualLine, commentAt),
+      // An INEXACT map may point at a line whose comment belongs to something
+      // else, so no exemption is granted at all. Failing closed here is the
+      // whole reason the flag exists: the alternative is a site silently
+      // exempted by a marker written for its neighbour.
+      exemptReason: composed.exact ? exemptionOnLines(lines, actualLine, commentAt) : null,
     };
   });
 }
@@ -990,26 +1036,134 @@ function literalText(node: ts.Node): string | null {
  * physical lines. A wrong line is not cosmetic — `exemptionOnLines` reads the
  * reported line, so it could match a marker written for a different statement.
  */
-type Composed = { text: string; lineAt: number[] };
+type Composed = {
+  text: string;
+  lineAt: number[];
+  /** False when some fragment's raw source could not be walked through JS's
+   * escape grammar. The reported line is then a best effort, and exemption
+   * lookup is SKIPPED so an unrelated marker cannot exempt this site. */
+  exact: boolean;
+};
+
+/**
+ * The physical line each character of `cooked` came from, by walking `raw`
+ * through JS's string-escape grammar. `raw` includes its delimiters.
+ * Returns null when the walk does not reproduce `cooked` exactly, which is the
+ * signal to stop trusting the mapping rather than to guess one.
+ */
+function mapRawToLines(raw: string, cooked: string, startLine: number): number[] | null {
+  const lines: number[] = [];
+  let produced = "";
+  let line = startLine;
+  // Skip the opening delimiter: `"`, `'`, a backtick, or a template middle/tail
+  // opener (`}`); template heads end with `${`, which the caller's slice keeps.
+  let i = raw.length > 0 && /["'`}]/.test(raw[0]!) ? 1 : 0;
+  const end = raw.length > i && /["'`]/.test(raw.at(-1)!) ? raw.length - 1 : raw.length;
+  const emit = (piece: string): void => {
+    produced += piece;
+    for (let k = 0; k < piece.length; k++) lines.push(line);
+  };
+  while (i < end) {
+    const character = raw[i]!;
+    if (character === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) return null;
+      // A line continuation produces NOTHING and consumes a physical line.
+      if (next === "\n" || next === "\u2028" || next === "\u2029") {
+        line++;
+        i += 2;
+        continue;
+      }
+      if (next === "\r") {
+        line++;
+        i += raw[i + 2] === "\n" ? 3 : 2;
+        continue;
+      }
+      const simple: Record<string, string> = {
+        n: "\n",
+        t: "\t",
+        r: "\r",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        "0": "\0",
+      };
+      if (next === "x") {
+        const hex = raw.slice(i + 2, i + 4);
+        if (!/^[0-9a-fA-F]{2}$/.test(hex)) return null;
+        emit(String.fromCharCode(parseInt(hex, 16)));
+        i += 4;
+        continue;
+      }
+      if (next === "u") {
+        if (raw[i + 2] === "{") {
+          const close = raw.indexOf("}", i + 3);
+          if (close === -1) return null;
+          const hex = raw.slice(i + 3, close);
+          if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
+          emit(String.fromCodePoint(parseInt(hex, 16)));
+          i = close + 1;
+          continue;
+        }
+        const hex = raw.slice(i + 2, i + 6);
+        if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null;
+        emit(String.fromCharCode(parseInt(hex, 16)));
+        i += 6;
+        continue;
+      }
+      emit(simple[next] ?? next);
+      i += 2;
+      continue;
+    }
+    // A REAL newline inside a template literal is both a cooked `\n` and a
+    // physical line. CRLF cooks to a single `\n`.
+    if (character === "\r") {
+      emit("\n");
+      line++;
+      i += raw[i + 1] === "\n" ? 2 : 1;
+      continue;
+    }
+    if (character === "\n") {
+      emit("\n");
+      line++;
+      i++;
+      continue;
+    }
+    emit(character);
+    i++;
+  }
+  return produced === cooked ? lines : null;
+}
 
 function composedText(node: ts.Node, sourceFile: ts.SourceFile): Composed | null {
-  const out: Composed = { text: "", lineAt: [] };
+  const out: Composed = { text: "", lineAt: [], exact: true };
 
   /** Append a literal fragment, mapping each character to its physical line. */
   const fragment = (cooked: string, pos: number, end: number): void => {
     const startLine = sourceFile.getLineAndCharacterOfPosition(pos).line;
-    const raw = sourceFile.text.slice(pos, end);
-    // A cooked `\n` from an ESCAPE consumes no physical line, while a real
-    // newline in a template literal does. When the two counts agree the
-    // newlines correspond 1:1 and the line can advance; when they do not, pin
-    // the whole fragment to its first line rather than inventing a mapping.
-    const aligned = (raw.match(/\n/g) ?? []).length === (cooked.match(/\n/g) ?? []).length;
-    let line = startLine;
-    for (const character of cooked) {
-      out.text += character;
-      out.lineAt.push(line);
-      if (character === "\n" && aligned) line++;
+    // Walk the RAW source through JS's escape grammar so each cooked character
+    // gets the physical line it actually came from. Counting newlines on both
+    // sides and calling them "aligned" was not enough: a backslash-newline
+    // CONTINUATION consumes a physical line while producing no cooked
+    // character, so the counts disagreed, the whole fragment pinned to its
+    // opening line, and an unprotected psql one line down inherited an
+    // exemption written for an unrelated call above it.
+    const mapped = mapRawToLines(sourceFile.text.slice(pos, end), cooked, startLine);
+    if (mapped === null) {
+      // Refuse to certify a mapping that could not be derived. The line is
+      // still the fragment's own, and `exact: false` skips exemption lookup so
+      // an unrelated marker can never apply.
+      out.exact = false;
+      for (const character of cooked) {
+        out.text += character;
+        out.lineAt.push(startLine);
+      }
+      return;
     }
+    out.text += cooked;
+    // One at a time: spreading a long literal's map overflows the argument
+    // limit.
+    for (const mappedLine of mapped) out.lineAt.push(mappedLine);
   };
 
   /** Append the opaque stand-in for a runtime piece, at its own line. */
@@ -1365,7 +1519,15 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // escape can land on a physical line that is blank.
       const keyRange = (node.key as { range?: [number, number, number] } | undefined)?.range;
       const offset = lineStartOf(keyRange ? keyRange[0] : range[0]);
-      const found = scanShellText(raw, file, offset);
+      // An ALIAS (`run: *cmd`) resolves to a scalar defined ELSEWHERE, so its
+      // internal line offsets belong to the anchor, not to this step. Adding
+      // them to the `run:` key's line invents a position: an eight-line
+      // workflow reported its site on line 10. Pin every site from an alias to
+      // the key itself, which is the documented anchoring contract.
+      const aliased = range[0] < (keyRange?.[0] ?? 0);
+      const found = scanShellText(raw, file, offset).map((site) =>
+        aliased ? { ...site, line: offset + 1 } : site,
+      );
       // A double-quoted scalar can DECODE to a psql command whose raw slice
       // holds no recognizable word (`\\x70sql`, `\\u0070sql`, an escaped
       // newline). Scan the decoded value too and keep whatever the raw pass
