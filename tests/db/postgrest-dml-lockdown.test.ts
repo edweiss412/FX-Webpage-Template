@@ -53,6 +53,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, test } from "vitest";
+import { ADMIN_TABLES } from "@/lib/audit/admin-tables.generated";
 
 function resolveDatabaseUrl(): string {
   const raw = process.env.TEST_DATABASE_URL;
@@ -277,7 +278,10 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     // either, so the retained SELECT is harmless.
     selectAnon: true,
     selectAuthenticated: true,
-    postBody: { show_id: "00000000-0000-0000-0000-000000000000", preview_revision_id: "00000000-0000-0000-0000-000000000000" },
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      preview_revision_id: "00000000-0000-0000-0000-000000000000",
+    },
     rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
@@ -907,6 +911,88 @@ describe("PostgREST DML lockdown — RPC-gated tables (Layers 2+3)", () => {
 // This is the lockstep gate: adding a new RPC-gated table requires landing
 // BOTH the REVOKE migration AND the registry row in the same commit.
 // Forgetting either side surfaces as a Layer 4 diff.
+
+// =============================================================================
+// Layer 5 — spec-derived completeness (spec §4.4).
+//
+// Layers 1-4 are REVOKE-derived: they can prove that everything already locked
+// down STAYS locked down, but they can never fail for a table that was simply
+// forgotten, because a forgotten table has no REVOKE for Layer 4 to find. That
+// blind spot is what BL-ADMIN-POSTGREST-DML-LOCKDOWN was filed about.
+//
+// Layer 5 closes it by walking ADMIN_TABLES -- the SPEC-derived set -- and
+// requiring every member to be either locked down or consciously exempted. A
+// 20th §4.3 table added tomorrow lands in neither set and fails by default.
+//
+// Scoped against ADMIN_TABLES, never against RPC_GATED_TABLES: asserting a
+// registry against itself is precisely the defect this cluster exists to close.
+// =============================================================================
+
+interface AdminDmlExemption {
+  table: string;
+  /** Why table-level DML legitimately remains, anchored to the write path. */
+  reason: string;
+}
+
+/**
+ * §4.3 admin-only tables that deliberately retain table-level DML for a
+ * non-service role. Class (c) in spec §4.1: NOT lockdown candidates.
+ *
+ * Both rows are admin-session write paths whose own comments name RLS as the
+ * AUTHORITATIVE gate -- revoking would invert a deliberate trust boundary
+ * rather than reinforce one. BACKLOG.md:556 records the admin_alerts posture as
+ * explicitly accepted. Spec §11 carries the promotion path if that changes.
+ *
+ * A bare exemption is not a licence: each row must cite the write path that
+ * justifies it, so a wrong row is falsifiable at review time.
+ */
+const ADMIN_DML_EXEMPTIONS: readonly AdminDmlExemption[] = [
+  {
+    table: "app_settings",
+    reason:
+      "Four admin Settings toggles UPDATE this singleton through the user session; " +
+      "app/admin/settings/_actions/setAutoPublish.ts:47 states the app_settings admin_only " +
+      "RLS IS the authoritative write gate, with requireAdmin as defense-in-depth.",
+  },
+  {
+    table: "admin_alerts",
+    reason:
+      "resolveAdminAlertFormAction and resolveHealthAlertFormAction UPDATE through the user " +
+      "session; app/admin/actions.ts:139 documents the RLS-gated UPDATE as the mechanism. " +
+      "BACKLOG.md:556 accepts this posture; closing it is the whole-resolve-path change " +
+      "tracked by BL-HEALTH-RESOLVE-DB-LOCKDOWN.",
+  },
+];
+
+describe("PostgREST DML lockdown — spec-derived completeness (Layer 5)", () => {
+  test("every §4.3 admin-only table is locked down or explicitly exempted", () => {
+    const locked = new Set(RPC_GATED_TABLES.map((entry) => entry.table));
+    const exempt = new Set(ADMIN_DML_EXEMPTIONS.map((row) => row.table));
+    const uncovered = ADMIN_TABLES.filter((table) => !locked.has(table) && !exempt.has(table)).map(
+      (table) => `${table}:neither-locked-nor-exempt`,
+    );
+    expect(uncovered).toEqual([]);
+  });
+
+  test("every exemption names a real §4.3 table and carries a reason", () => {
+    const adminTables = new Set<string>(ADMIN_TABLES);
+    const failures = ADMIN_DML_EXEMPTIONS.flatMap((row) => {
+      const problems: string[] = [];
+      if (!adminTables.has(row.table)) problems.push(`${row.table}:not-a-4.3-table`);
+      if (row.reason.trim().length < 40) problems.push(`${row.table}:reason-too-thin`);
+      return problems;
+    });
+    expect(failures).toEqual([]);
+  });
+
+  test("no table is both locked down and exempted", () => {
+    const locked = new Set(RPC_GATED_TABLES.map((entry) => entry.table));
+    const both = ADMIN_DML_EXEMPTIONS.filter((row) => locked.has(row.table)).map(
+      (row) => `${row.table}:both-locked-and-exempt`,
+    );
+    expect(both).toEqual([]);
+  });
+});
 
 describe("PostgREST DML lockdown — registry meta-assertion (Layer 4)", () => {
   function loadMigrationCorpus(): Map<string, string> {
