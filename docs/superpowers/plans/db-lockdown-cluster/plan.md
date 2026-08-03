@@ -150,7 +150,7 @@ This keeps the assertion honest in both environments: it can never pass vacuousl
 
 **Citation reconciliation — same commit as the deletion (R3 finding 1).** `spec:lint` hard-fails on a backticked path that is no longer tracked, so deleting the old test without rewriting its citations makes Task 8's mandatory lint impossible. Rewrite every backticked reference to `tests/db/admin-rls-runtime.test.ts` and its baseline into bold-or-prose form, in this commit, at exactly these sites:
 
-- plan: lines 21, 39, 122 of this document
+- plan: lines 21, 39, 122 **and 151** of this document — 151 is this very instruction, which backtick-cites the path it is telling you to de-cite. Self-referential, and `spec:lint` does not care that the citation appears inside the fix.
 - spec: lines 20, 101, 124, 297, 324, 342, 370, 397 of `docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md`
 
 Verify with `pnpm spec:lint` on **both** documents before committing — 0 hard is the gate. (The historical claims those citations support stay accurate; only the citation *form* changes, because the file they point at is intentionally gone.)
