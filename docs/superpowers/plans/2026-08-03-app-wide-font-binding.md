@@ -211,7 +211,7 @@ Corrected: **T1 is one task** — every test for this change, plus the implement
 ## Checklist
 
 1. [x] Self-review
-2. [ ] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE. **Not yet approved: R1 through R6 have all returned BLOCKING, each repaired in turn.** Marked complete prematurely in an earlier revision; review R4 caught that, and the box stays open until a round returns APPROVE.
+2. [ ] Adversarial review (cross-model, Codex) — spec + plan, to APPROVE. **Not yet approved. R1-R11 all returned BLOCKING and were repaired in turn; R12 returned NEEDS-ATTENTION with no user-facing failure found in the shipped behaviour, only documentation inconsistencies.** Rounds 8-11 all landed on one vector — the loader guard's location census — which was DESCOPED at R11 per the AGENTS.md same-vector rule rather than patched a fifth time (spec §4.3). Marked complete prematurely in an earlier revision; review R4 caught that, and the box stays open until a round returns APPROVE.
 3. [x] T1 — tests + implementation + CI wiring (`2ab7e966a`, amended by `e58725c5b` and the impeccable/R4 repairs)
 4. [x] T2 — the measured row, branch (a): reachable via `/admin?show=<slug>` (`461c164dc`)
 5. [x] T3 — screenshot baselines regenerated from the pinned image (`dd0bbbf8d`, all 14 changed including the six crew-preview, which confirms they render under the admin tree)

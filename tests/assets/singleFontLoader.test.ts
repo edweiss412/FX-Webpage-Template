@@ -108,7 +108,12 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = join(__dirname, "..", "..");
 
 /**
- * The census: every file the bundler could turn into a font loader.
+ * The census: the files this tripwire walks.
+ *
+ * NOT "every file the bundler could turn into a font loader" — that was the
+ * claim four rounds disproved. It is a broad, deliberately-denylisted walk that
+ * catches loaders in ordinary places; see the header above for what it does not
+ * catch.
  *
  * **Built as a DENYLIST over the repo root, not an allowlist of directories.**
  * Two rounds of review each found a directory the allowlist did not name —
@@ -383,7 +388,7 @@ function toRepoRelative(absolute: string): string {
 describe("single next/font loader — live tree", () => {
   const appFiles = censusFiles(REPO_ROOT, true);
 
-  it("the walk actually reached every shipped tree", () => {
+  it("the walk reaches the trees a loader would ordinarily live in", () => {
     // Anti-vacuity: an empty or narrow walk satisfies every assertion below
     // trivially, and the guard would silently protect nothing. Each tree is
     // asserted SEPARATELY — a total count alone stays green if one tree drops
