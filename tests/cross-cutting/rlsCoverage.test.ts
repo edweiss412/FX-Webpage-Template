@@ -129,6 +129,9 @@ function rowCount(table: string): number {
 /** Tables whose behavioral SELECT cell degraded this run, for the global floor. */
 const degraded: string[] = [];
 
+/** Class-(c) write cells that degraded this run. */
+const degradedWrites: string[] = [];
+
 describe("RLS coverage derived from spec §4.3", () => {
   test("every §4.3 table has a declared posture", () => {
     const missing = ADMIN_TABLES.filter((t) => !RLS_POSTURE[t]).map(
@@ -236,5 +239,162 @@ describe("RLS coverage derived from spec §4.3", () => {
       degraded.length,
       "every behavioral cell degraded — the matrix proved nothing",
     ).toBeLessThan(behavioral.length);
+  });
+});
+
+// =============================================================================
+// Class-(c) behavioral WRITE cells (spec §6.3; plan Task 4).
+//
+// app_settings and admin_alerts deliberately RETAIN table-level DML for the
+// admin session, so RLS is genuinely their only write gate — which makes these
+// the two tables where behavioral write coverage actually matters. Every other
+// §4.3 table is REVOKEd, and there the write verbs are grant-layer facts owned
+// by tests/db/postgrest-dml-lockdown.test.ts (a write probe would die at 42501
+// before RLS is ever evaluated).
+//
+// The v1 probe of these cells was removed in M9 C9 R3 because it false-passed
+// when NOT NULL / CHECK constraints fired before RLS. We dodge that by
+// targeting rows that already validate (UPDATE/DELETE) and by supplying a
+// constraint-satisfying payload (INSERT).
+// =============================================================================
+
+function nonAdminWriteAffectedRows(sql: string): number {
+  const out = runPsql(`
+    begin;
+    set local role authenticated;
+    set local request.jwt.claims = ${nonAdminJwtClaims()};
+    with mutated as (${sql} returning 1)
+    select 'rows=' || count(*) from mutated;
+    rollback;
+  `);
+  return Number(out.replace("rows=", ""));
+}
+
+describe("class-(c) behavioral write cells", () => {
+  test("admin_alerts INSERT is denied — unconditional, needs no pre-existing row", () => {
+    // admin_alerts requires only code + context; every other column defaults
+    // (supabase/migrations/20260501001000_internal_and_admin.sql:268), so this
+    // cell never degrades on an empty table.
+    //
+    // INSERT denial takes the RAISING form, not the zero-rows form: a with_check
+    // violation errors rather than filtering. AC-2.5's pass condition is
+    // "permission-denied / zero-affected-rows" and this is the former.
+    let denial = "";
+    try {
+      nonAdminWriteAffectedRows(
+        `insert into public.admin_alerts (code, context) values ('RLS_PROBE', '{}'::jsonb)`,
+      );
+    } catch (error) {
+      denial = String((error as { stderr?: Buffer })?.stderr ?? error);
+    }
+    expect(denial, "a non-admin INSERT must be refused by with_check").toContain(
+      "violates row-level security policy",
+    );
+  });
+
+  test.each(["admin_alerts", "app_settings"])("%s UPDATE is denied to a non-admin", (table) => {
+    if (rowCount(table) === 0) {
+      degradedWrites.push(`${table}:UPDATE`);
+      return;
+    }
+    // Targets rows that ALREADY validate, so no constraint can fire before
+    // RLS — the false-pass mode that killed the v1 probe.
+    const column = table === "admin_alerts" ? "occurrence_count" : "id";
+    const value = table === "admin_alerts" ? "occurrence_count" : "id";
+    const rows = nonAdminWriteAffectedRows(`update public.${table} set ${column} = ${value}`);
+    expect(rows, `${table}: a non-admin UPDATE must affect zero rows`).toBe(0);
+  });
+
+  test.each(["admin_alerts", "app_settings"])("%s DELETE is denied to a non-admin", (table) => {
+    if (rowCount(table) === 0) {
+      degradedWrites.push(`${table}:DELETE`);
+      return;
+    }
+    const rows = nonAdminWriteAffectedRows(`delete from public.${table}`);
+    expect(rows, `${table}: a non-admin DELETE must affect zero rows`).toBe(0);
+  });
+
+  test("app_settings INSERT is structurally unavailable, and that is asserted, not assumed", () => {
+    // Pre-seeded singleton: `id text primary key default 'default'` with
+    // `constraint app_settings_singleton check (id = 'default')`, row already
+    // inserted (supabase/migrations/20260501001000_internal_and_admin.sql:233).
+    // A non-admin INSERT can only ever raise a duplicate key or affect zero
+    // rows with conflict suppression — identically whether RLS is on or off —
+    // so probing it would prove nothing. Assert the structure that makes it so.
+    const facts = runPsql(`
+      select 'singleton_check=' || count(*)
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      where rel.relname = 'app_settings' and con.conname = 'app_settings_singleton';
+    `);
+    expect(facts, "the singleton CHECK is what makes the INSERT cell unavailable").toBe(
+      "singleton_check=1",
+    );
+    expect(rowCount("app_settings"), "the singleton row must already exist").toBe(1);
+  });
+
+  test("write cells did not all degrade", () => {
+    if (degradedWrites.length > 0) {
+      console.info(
+        `[rls-coverage] write cells unavailable — no rows: ${degradedWrites.join(", ")}`,
+      );
+    }
+    expect(
+      degradedWrites.length,
+      "every class-(c) write cell degraded — proved nothing",
+    ).toBeLessThan(4);
+  });
+});
+
+// =============================================================================
+// Mutation coverage (plan Task 4). Each mutant runs inside a transaction that
+// is rolled back, and asserts the arm it is meant to trip.
+// =============================================================================
+
+describe("RLS coverage mutants", () => {
+  test("disabling RLS is caught — pg_policies alone cannot see it", () => {
+    const out = runPsql(`
+      begin;
+      alter table public.recovery_drift_cooldowns disable row level security;
+      select 'rls=' || c.relrowsecurity
+        || '|policies=' || (select count(*) from pg_policies
+             where schemaname = 'public' and tablename = 'recovery_drift_cooldowns')
+        || '|qual_is_admin=' || coalesce((select bool_and(qual ilike '%is_admin%') from pg_policies
+             where schemaname = 'public' and tablename = 'recovery_drift_cooldowns'), false)
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'recovery_drift_cooldowns';
+      rollback;
+    `);
+    // The whole point: the policy row SURVIVES the disable with its is_admin
+    // qual intact, so every structural arm stays green. Only relrowsecurity
+    // reveals it.
+    expect(out).toBe("rls=false|policies=1|qual_is_admin=true");
+  });
+
+  test("a second permissive policy is caught by the policy-count arm", () => {
+    const out = runPsql(`
+      begin;
+      create policy zz_probe_widen on public.recovery_drift_cooldowns for select using (true);
+      select 'policies=' || count(*) from pg_policies
+        where schemaname = 'public' and tablename = 'recovery_drift_cooldowns';
+      rollback;
+    `);
+    // Postgres ORs permissive policies, so this silently widens access while
+    // admin_only remains present and correct.
+    expect(out).toBe("policies=2");
+  });
+
+  test("an empty table degrades rather than passing vacuously", () => {
+    const out = runPsql(`
+      begin;
+      delete from public.sync_log;
+      select 'count=' || count(*) from public.sync_log;
+      rollback;
+    `);
+    expect(out).toBe("count=0");
+    // With zero rows the paired witness is unprovable: nonadmin_count=0 holds
+    // whether RLS denied the rows or none existed. The suite records that as a
+    // degradation instead of a pass, and the global floor fails if every cell
+    // degrades.
   });
 });
