@@ -19,7 +19,7 @@ No file under `app/` outside `app/api/**`, none under `components/`, no `@theme`
 - Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — N/A, and see the topology enumeration below: no acquisition is added, so there is no new holder for the guard to pin.
 - Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — N/A. No route handler, no `"use server"` action, no mutation surface is added or removed. Both routes already carry their registered emits and neither route's exported surface changes.
 - Admin-alert catalog (`tests/messages/_metaAdminAlertCatalog.test.ts`) and the §12.4 catalog (`tests/cross-cutting/codes.test.ts`) — N/A. No new code; the anchors path has no user-visible error state.
-- Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`) — **activated, not edited.** The Stage-0 marker on `BL-ONBOARDING-CAS-SOURCE-ANCHORS` opts that entry into the guard, which then requires the branch to exist on `origin` (it does, pushed at Stage 0) and requires the marker to come off at Stage 4.4.
+- Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`) — **activated, not edited.** The Stage-0 marker on `BL-ONBOARDING-CAS-SOURCE-ANCHORS` opts that entry into the guard, which then requires the branch to exist on `origin` (it does, pushed at Stage 0) and requires the marker to come off in the PR's OWN diff — see Task 4, which explains why after-the-merge is unfixable.
 
 **Test-file wiring.** The one new test file lands under `tests/onboarding/`, matched by `BASE_INCLUDE` (`vitest.projects.ts:34`) and absent from `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`), so it joins the **serial** project by glob — no config edit, and CI runs it in `unit-suite-db` (`.github/workflows/unit-suite.yml:101`), which boots Supabase. It is not added to `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:69`); it self-skips when Postgres is unreachable, matching every sibling `*.db.test.ts`.
 
@@ -208,16 +208,19 @@ branch that no longer exists. It has to be in the PR's own diff.
    branch's.
 2. `pnpm spec:lint` on both spec and plan; re-run the numeric and self-consistency sweeps over both
    after every repair round.
-3. Whole-diff cross-model adversarial review to APPROVE.
-4. **Final commit on the branch, before push:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the
-   whole entry moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the
-   open-queue-only rule at `BACKLOG.md:5`. The `**Status:** IN PROGRESS · **Branch:** …` line goes
-   away with it, which is what satisfies invariant 12 and its guard. Verify with
-   `pnpm vitest run tests/docs` before pushing.
+3. **Final commit on the branch:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the whole entry
+   moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the open-queue-only rule
+   at `BACKLOG.md:5`. The `**Status:** IN PROGRESS · **Branch:** …` line goes away with it, which is
+   what satisfies invariant 12 and its guard. Verify with `pnpm vitest run tests/docs`.
+4. Whole-diff cross-model adversarial review to APPROVE — AFTER step 3, so the reviewed diff is the
+   diff that merges. A review that runs before the graduation commit does not cover it.
 5. Push, real CI green, `gh pr merge --merge`.
 6. Fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` reports
-   `0  0`. Then clear the pane and agent labels and the pipeline marker — the only Stage-4.4 work
-   left, since the ledger edit already merged.
+   `0  0`. Then, in that same turn: `CronDelete` the Stage-0 nudge job, whose id the pipeline
+   marker records under `cronJobId` (the marker is the gitignored ship-state file in the worktree's
+   `.claude/`). It is session-scoped, so no ledger edit and no marker edit cancels it, and it keeps
+   firing for up to seven days. Then clear the pane and agent labels and set the marker's `stage` to
+   `done`.
 
 ## Regression budget
 
