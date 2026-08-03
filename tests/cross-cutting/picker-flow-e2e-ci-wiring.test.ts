@@ -146,6 +146,20 @@ const hasToken = (tokens: string[], token: string): boolean => tokens.includes(t
  * in CI. `--list` starts no webServer, so this stays a unit-speed check. Fail-closed — a command
  * that cannot be loaded or collects nothing yields an empty map, which fails the callers.
  */
+/**
+ * Vitest budget for the cases that REPLAY a Playwright command.
+ *
+ * `resolvedByCommand` shells out to `playwright --list`, which grows with the
+ * number of specs the workflow names. Vitest's 5s default was already tight and
+ * went over when crew-e2e gained its fifth spec (font-binding, 2026-08-03) —
+ * three cases timed out locally and one in CI, on a tree whose CONTRACT was
+ * correct. The subprocess itself already allows 300s (`resolvedByCommand`), so
+ * the 5s default was the binding constraint, not a real signal. Raised, not
+ * removed: a hang still fails, it just is not confused with a slow-but-correct
+ * resolution.
+ */
+const PLAYWRIGHT_RESOLUTION_TIMEOUT_MS = 120_000;
+
 function resolvedByCommand(segment: string[], spec: string): number {
   const i = segment.indexOf("playwright");
   const argv = segment.slice(i + 1);
@@ -403,24 +417,32 @@ const DOCS_ONLY = /^(\.github\/ISSUE_TEMPLATE\/|LICENSE$|[^/]+\.md$)/;
 const KEYED_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"] as const;
 
 describe("picker-flow e2e CI wiring", () => {
-  it("crew-e2e.yml's own command collects the picker-flow spec", () => {
-    // From `run:` lines only: a step `name:` mentioning the spec must not satisfy this, which an
-    // earlier version accepted. Naming is then not enough either — the command's own filters
-    // decide what it collects, so expectWired replays it (see resolvedByCommand).
-    expectWired(playwrightTestSegments(read("crew-e2e.yml")), SPEC, "Un-skipped cases");
-  });
+  it(
+    "crew-e2e.yml's own command collects the picker-flow spec",
+    () => {
+      // From `run:` lines only: a step `name:` mentioning the spec must not satisfy this, which an
+      // earlier version accepted. Naming is then not enough either — the command's own filters
+      // decide what it collects, so expectWired replays it (see resolvedByCommand).
+      expectWired(playwrightTestSegments(read("crew-e2e.yml")), SPEC, "Un-skipped cases");
+    },
+    PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
+  );
 
-  it("crew-e2e.yml's own command collects the stage-restricted crew spec", () => {
-    // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot provide
-    // this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any workflow
-    // actually names it, so only a run-command assertion makes an unwired file fail. This file
-    // also gates every case on its own project, which expectWired pins (R3 HIGH).
-    expectWired(
-      playwrightTestSegments(read("crew-e2e.yml")),
-      "tests/e2e/stage-restricted-crew-schedule.spec.ts",
-      "The seeded agenda-fold cases",
-    );
-  });
+  it(
+    "crew-e2e.yml's own command collects the stage-restricted crew spec",
+    () => {
+      // BL-AGENDA-FOLD-NO-SEEDED-E2E wiring red (spec §6 T3). The coverage registry cannot provide
+      // this red: its PATH_GATED_BY_EXCLUSION row EXEMPTS the file whether or not any workflow
+      // actually names it, so only a run-command assertion makes an unwired file fail. This file
+      // also gates every case on its own project, which expectWired pins (R3 HIGH).
+      expectWired(
+        playwrightTestSegments(read("crew-e2e.yml")),
+        "tests/e2e/stage-restricted-crew-schedule.spec.ts",
+        "The seeded agenda-fold cases",
+      );
+    },
+    PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
+  );
 
   it("crew-e2e.yml asserts the guarded specs actually EXECUTED", () => {
     // Static wiring proves collection, never execution. R10 (HIGH) escaping mutant: a `beforeEach`
@@ -453,50 +475,54 @@ describe("picker-flow e2e CI wiring", () => {
     ).toBe(true);
   });
 
-  it("the executed-count oracle's thresholds match live Playwright resolution", async () => {
-    // R14 (HIGH), a genuinely new class: the guard pinned that the checker RUNS, never what it
-    // demands. Lowering `stage-restricted-crew-schedule.spec.ts` from 6 to 3 let the three SFS-1
-    // cases pass while all three agenda-fold cases runtime-skipped, and CI stayed green — the
-    // oracle calibrated to the degradation it exists to catch. So the thresholds are not trusted
-    // as literals: each one must equal what Playwright ACTUALLY resolves for that spec under the
-    // workflow's own projects, which also keeps them correct as specs gain cases.
-    const { REQUIRED } = (await import("../../scripts/check-crew-e2e-executed.mjs")) as {
-      REQUIRED: Record<string, number>;
-    };
-    const segments = playwrightTestSegments(read("crew-e2e.yml"));
-    const projects = [
-      ...new Set(
-        segments.flatMap((t) =>
-          t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
+  it(
+    "the executed-count oracle's thresholds match live Playwright resolution",
+    async () => {
+      // R14 (HIGH), a genuinely new class: the guard pinned that the checker RUNS, never what it
+      // demands. Lowering `stage-restricted-crew-schedule.spec.ts` from 6 to 3 let the three SFS-1
+      // cases pass while all three agenda-fold cases runtime-skipped, and CI stayed green — the
+      // oracle calibrated to the degradation it exists to catch. So the thresholds are not trusted
+      // as literals: each one must equal what Playwright ACTUALLY resolves for that spec under the
+      // workflow's own projects, which also keeps them correct as specs gain cases.
+      const { REQUIRED } = (await import("../../scripts/check-crew-e2e-executed.mjs")) as {
+        REQUIRED: Record<string, number>;
+      };
+      const segments = playwrightTestSegments(read("crew-e2e.yml"));
+      const projects = [
+        ...new Set(
+          segments.flatMap((t) =>
+            t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
+          ),
         ),
-      ),
-    ];
-    // The KEY SET is pinned to the workflow's own file list, not just the values: deleting a row
-    // outright escaped a values-only parity loop (measured while closing R14). Every spec the job
-    // runs must have a threshold, and no threshold may name a spec the job does not run.
-    const named = [
-      ...new Set(
-        segments.flatMap((t) =>
-          t.filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!),
+      ];
+      // The KEY SET is pinned to the workflow's own file list, not just the values: deleting a row
+      // outright escaped a values-only parity loop (measured while closing R14). Every spec the job
+      // runs must have a threshold, and no threshold may name a spec the job does not run.
+      const named = [
+        ...new Set(
+          segments.flatMap((t) =>
+            t.filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!),
+          ),
         ),
-      ),
-    ].sort();
-    expect(
-      Object.keys(REQUIRED).sort(),
-      "the oracle's REQUIRED table does not cover exactly the specs crew-e2e.yml runs. A missing " +
-        "row means that spec may go dark unnoticed; an extra row means the oracle guards a spec " +
-        "this job never runs.",
-    ).toEqual(named);
-    for (const [base, threshold] of Object.entries(REQUIRED)) {
-      const spec = `tests/e2e/${base}`;
+      ].sort();
       expect(
-        threshold,
-        `${base}: the oracle demands ${threshold} executed, but Playwright resolves a different ` +
-          "number of unique non-skipped tests for it. A threshold below the real count is an " +
-          "oracle calibrated to a partially dark run.",
-      ).toBe(definedResolution(spec, projects).count);
-    }
-  });
+        Object.keys(REQUIRED).sort(),
+        "the oracle's REQUIRED table does not cover exactly the specs crew-e2e.yml runs. A missing " +
+          "row means that spec may go dark unnoticed; an extra row means the oracle guards a spec " +
+          "this job never runs.",
+      ).toEqual(named);
+      for (const [base, threshold] of Object.entries(REQUIRED)) {
+        const spec = `tests/e2e/${base}`;
+        expect(
+          threshold,
+          `${base}: the oracle demands ${threshold} executed, but Playwright resolves a different ` +
+            "number of unique non-skipped tests for it. A threshold below the real count is an " +
+            "oracle calibrated to a partially dark run.",
+        ).toBe(definedResolution(spec, projects).count);
+      }
+    },
+    PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
+  );
 
   it("crew-e2e.yml's pull_request trigger narrows on NOTHING but paths-ignore", () => {
     // R8 (HIGH) escaping mutant: `types: [closed]` left every other trigger predicate green while

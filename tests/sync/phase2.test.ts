@@ -796,8 +796,8 @@ describe("runPhase2 destructive snapshot", () => {
 
   // Capability-narrow (2026-07-17): arm (c) — a capability holder REMOVED from the roster (present
   // in prior, absent from applied, NOT identity-link-renamed) has lost that access → a
-  // ROLE_FLAGS_NOTICE loss (prior → []). Path-independent (covers the staged remove+add of an
-  // identity-link rename). A removed scope-tile-only member emits nothing.
+  // ROLE_FLAGS_NOTICE loss (prior → []). Path-independent (covers a staged `independent`
+  // resolution's remove+add). A removed scope-tile-only member emits nothing.
   test.each([
     { label: "removed LEAD holder", flags: ["LEAD", "A1"] as CrewMemberRow["role_flags"] },
     { label: "removed FINANCIALS holder", flags: ["FINANCIALS"] as CrewMemberRow["role_flags"] },
