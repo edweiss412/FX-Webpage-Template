@@ -26,7 +26,7 @@ Shipped in this cluster:
 
 1. `REVOKE INSERT, UPDATE, DELETE` on **8** admin-only tables + registry rows (§4).
 2. A spec-derived completeness assertion so an unclassified §4.3 table fails CI (§4.4).
-3. **`ADMIN_TABLES` retired from prose derivation** to an explicit list reconciled three ways against the live catalog (§4.5) — the prerequisite the other two rest on.
+3. **A full public-schema classification registry** reconciled against the live catalog, so a new table fails by default for being a new table (§4.5) — the prerequisite the other two rest on.
 4. The RLS probe re-derived from §4.3, relocated cross-cutting, with `relrowsecurity`, policy-count, and non-vacuous behavioral assertions (§6).
 5. A live-catalog completeness assertion for canonical-email CHECKs, closing 3 name-invisible ones (§5).
 
@@ -47,7 +47,7 @@ Shipped in this cluster:
 | The 8 new registry rows are `selectAnon: true` / `selectAuthenticated: true`. SELECT is retained by design and the original grant covered both roles. | R2 finding 1; §4.2; the `true`/`true` posture of every comparable REVOKE-only row in `tests/db/postgrest-dml-lockdown.test.ts:147-511`. |
 | The generator fails loud via a **declared-count tripwire**, NOT via "throw on any unresolved name". The latter fails on today's corpus because 4 backticked prose identifiers in §4.3 are not tables. | R2 finding 2 probe; §4.5. |
 | AC-2.5's four-verb contract is satisfied by the UNION of the RLS test and the lockdown test; `42501` is literally AC-2.5's stated pass condition for the write verbs. No spec amendment needed. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792` ("permission-denied / zero-affected-rows"); §6.3. |
-| Both §4.3 extractors are DELETED, not unified. `ADMIN_TABLES` is an explicit reviewed list reconciled three ways against the catalog. | R4 finding 1 (prose grammar defeats any parser, as SQL grammar did); §4.5. |
+| The generator STAYS. The guarantee moves to a full public-schema classification registry reconciled against the catalog (direction C: every live table must be classified). Parsing §4.3 is no longer load-bearing. | R1-R4 vector history; §4.5. |
 | The behavioral witness is a PAIRED assertion (`admin_count > 0 AND nonadmin_count = 0`), never a seed. No admin table is mutated, so invariant 2 is not engaged. | R3 finding 3 + R4 finding 4; §6.2, §8. |
 | `email_deliveries`' SELECT cell is grant-layer, not RLS — it revokes ALL, so `authenticated` never reaches RLS. | R4 finding 2; `supabase/migrations/20260602000004_b3_email_deliveries.sql:21`. |
 | `app_settings`' INSERT cell is structurally unavailable — pre-seeded singleton with a `id = 'default'` CHECK. Claiming it would be a tautology. | R4 finding 3; `supabase/migrations/20260501001000_internal_and_admin.sql:246`. |
@@ -199,7 +199,7 @@ for each table in ADMIN_TABLES (generated from spec §4.3):
 
 Anti-tautology: the assertion is scoped against `ADMIN_TABLES` (the spec-derived registry), never against `RPC_GATED_TABLES` itself — asserting a registry against itself is the failure mode this whole spec is about.
 
-### 4.5 Retiring §4.3 prose parsing — the load-bearing prerequisite
+### 4.5 The §4.3 projection — put the guarantee in the catalog, not the parser
 
 Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. Four review rounds attacked that projection and **every parser-based repair was defeated**:
 
@@ -207,21 +207,35 @@ Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4
 | --- | --- | --- |
 | R1 | widen the CREATE TABLE regex; throw on unresolved | 4 backticked §4.3 identifiers are prose, not tables — throws on today's corpus |
 | R2 | declared-count tripwire + continuation-line read | R3: quoted schema, spaced qualification dot, comment between keywords |
-| R3 | stop parsing DDL; subtract a prose denylist | R4: `` `public.future_admin` ``, bare `future_admin`, `` `_future_admin` ``, `` `"future_admin"` ``, blank-line-separated continuation paragraph |
+| R3 | stop parsing DDL; subtract a prose denylist | R4: `` `public.future_admin` ``, bare `future_admin`, `` `_future_admin` ``, `` `"future_admin"` ``, blank-line continuation |
+| R4 | retire prose derivation; hand-maintained list | blast radius: 5 `x-audits.yml` steps, and `scripts/generate-traceability.ts:284` *asserts those steps exist* |
 
-R3's repair did not dissolve the vector — it **relocated** it from SQL grammar to Markdown prose grammar. Both are open-ended, and §4.3's bullet is human prose that will stay human prose. Per this project's own stop rule (three-round cap on a design-correctness vector; comprehensive re-analysis on same-vector recurrence), the answer is not a fifth grammar.
+The recurring error was treating this as a parsing problem. **It is not.** No parser of human prose is trustworthy, and R4's retirement bought that insight at the price of touching nine sites including the CI guard that mandates the generator. The guarantee never came from the derivation — it comes from reconciliation against the database, which has no grammar to defeat.
 
-**Structural pivot: `ADMIN_TABLES` stops being derived from prose.** It becomes an explicit, reviewed, checked-in list — and its correctness is established by three independent reconciliations, none of which parses prose beyond a single integer:
+**Design: keep the generator, move the authority to the catalog.** `scripts/generate-admin-tables.ts` and its wiring stay exactly as they are (no `package.json`, `scripts/pretest-gen.mjs`, `.github/workflows/x-audits.yml`, `tests/cross-cutting/pretest-gen-manifest.test.ts`, or `scripts/generate-traceability.ts` changes). Its output is no longer *trusted* — it is *checked*, by a single registry in the cross-cutting test classifying **every table in the public schema**:
 
-1. **Count tripwire (prose, one integer).** §4.3 declares its own counts at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641` (`(**23 tables**`) and `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643` (``ADMIN_TABLES.length = 19 = 23 − 4 dropped``). Assert `list.length === declaredLive` and `declaredLive + dropped === declaredProse`. Editing §4.3 without updating the list breaks this — and the counts sit in the same prose a §4.3 editor is already editing.
-2. **Forward catalog check.** Every listed table exists in `information_schema.tables`. Catches a typo, a retired table, and a hand-edit naming nothing.
-3. **Reverse catalog check.** Every live table that carries an `admin_only` policy, or a `REVOKE … FROM anon, authenticated` in its grants, must be in the list or in an explicit `NON_ADMIN_TABLE_ALLOWLIST` (today `ignored_warnings`, `admin_emails`). Catches an admin-shaped table added to the DB and never listed.
+```
+PUBLIC_TABLE_CLASSIFICATION: Record<tableName, {
+  posture: "admin_only" | "deny_all" | "crew_readable" | "infra";
+  reason: string;   // carries a file:line
+}>
+```
 
-Direction 3 is what makes the hand-maintained list safe: a new admin-only table cannot ship without either entering the list or being explicitly allowlisted, and it is checked against the **database**, which has no grammar to defeat.
+Live shape today: **41** public base tables, 39 with RLS enabled — a registry of that size is reviewable in one sitting.
 
-**Blast radius.** `scripts/generate-admin-tables.ts` is retired as a generator; `lib/audit/admin-tables.generated.ts` becomes a plain reviewed module (same export name, same 19 entries, same order — no consumer changes). `scripts/pretest-gen.mjs:17-23` drops its `gen:admin-tables` entry, and `package.json:36`'s `x3-trust-domain` script drops the `pnpm gen:admin-tables &&` prefix. `scripts/generate-traceability.ts:182-192`'s duplicate extractor (R3 finding 2) is deleted and imports the list directly, which also removes the second defective copy rather than repairing it.
+Three reconciliations, run against `information_schema` / `pg_class` / `pg_policies`:
 
-**Mutation-family closure set**, pinned by the cross-cutting test: (i) list entry naming no live relation (expect fail, direction 2); (ii) live `admin_only` table absent from list and allowlist (expect fail, direction 3); (iii) live REVOKE-bearing table absent from both (expect fail, direction 3); (iv) list length disagreeing with `declaredLive` (expect fail, direction 1); (v) `declaredLive + dropped != declaredProse` (expect fail, direction 1); (vi) the current real repo (expect exactly 19, all green). The R1/R3/R4 grammar families are **retired as unreachable** — no grammar is parsed. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+- **A — forward.** Every `ADMIN_TABLES` entry is classified `admin_only` or `deny_all`, and exists as a live relation. Catches a generator over-read and a retired table.
+- **B — reverse.** Every table classified `admin_only` or `deny_all` is in `ADMIN_TABLES`. Catches the generator silently dropping a §4.3 table — the entire R1-R4 family, regardless of which grammar defeated the parser.
+- **C — total.** Every live public base table appears in the registry. **This is the fail-by-default property.** A new table is caught because it is a *new table*, not because it has RLS, a REVOKE, a particular policy name, or a particular prose spelling. Nothing about its shape can hide it.
+
+Direction C is what the previous four attempts were all reaching for. It does not read the spec, the migrations, or any DDL; it reads the list of relations that exist.
+
+**Retained from earlier rounds, as cheap defense-in-depth, not as the guarantee:** the count tripwire against §4.3's own declared counts (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641`, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`) still runs, because it costs one integer comparison and localizes a §4.3 edit to the moment it happens. If it disagrees with directions A-C, the catalog wins.
+
+`scripts/generate-traceability.ts:182-192`'s duplicate extractor (R3 finding 2) is still deleted and replaced with an import — that was a real duplication defect independent of the parsing question, and removing it does not touch the generator's wiring.
+
+**Mutation-family closure set**, pinned by the cross-cutting test: (i) a live table absent from the registry (expect fail, direction C); (ii) a table classified `admin_only` but missing from `ADMIN_TABLES` (expect fail, direction B); (iii) an `ADMIN_TABLES` entry naming no live relation (expect fail, direction A); (iv) an `ADMIN_TABLES` entry classified `crew_readable` (expect fail, direction A); (v) count declarations disagreeing (expect fail, tripwire); (vi) the current real repo (expect green, 41 classified, 19 admin). The R1-R4 grammar families are **retired as irrelevant** — direction C catches their outcome without modelling their cause. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 ## 5. Item 2 — canonical-email aperture
 
