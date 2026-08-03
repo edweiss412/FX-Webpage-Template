@@ -33,6 +33,8 @@ Reveal mechanism, the last thing in `<body>`:
 <script>…$RC("B:0","S:0")</script>
 ```
 
+The boundary ids differ between the two excerpts — the content div is boundary 1, the reveal call names boundary 0 — because the response carried more than one suspense boundary — the layout's and the page's — and the excerpts were pulled from different ones by searching for different markers. Nothing turns on the pairing; what matters is that every such pair is completed by a `$RC` call and there is no non-script completion path.
+
 **Conclusions carried into this design, each grounded in the excerpt above:**
 
 1. The fallback markup is in the initial HTML, so a `<noscript>` block placed inside `LoadingShell` reaches a no-JS visitor. The design's delivery mechanism is proven, not assumed.
@@ -77,7 +79,7 @@ export function LoadingShell({
           data-testid="loading-nojs-notice"
           className="rounded-lg border border-border bg-surface p-4"
         >
-          <p className="font-semibold text-text-strong">JavaScript is required</p>
+          <h1 className="text-base font-semibold text-text-strong">JavaScript is required</h1>
           <p className="mt-1 text-sm text-text-subtle">
             This page needs JavaScript to load. Turn it on in your browser settings, then reload.
           </p>
@@ -101,17 +103,18 @@ export function LoadingShell({
 - `data-loading-shell-content=""` with an explicit empty string, not the bare JSX attribute. Bare `<div data-loading-shell-content>` is `={true}` in JSX and serializes to `data-loading-shell-content="true"`, which the attribute selector still matches, but the empty-string form keeps the rendered HTML and the test's expected markup identical and free of a meaningless value.
 - The selector is the attribute `[data-loading-shell-content]`, unique to this component, so the rule cannot reach any other element. It is inside `<noscript>`, so it exists only when JS is off.
 - `data-testid="loading-nojs-notice"` is the handle for both the component test and the e2e probe.
+- The title is an `<h1>`, not a styled `<p>`. For a no-JS visitor this notice is the entire page — the route's real content never renders (§1.0) — so it is the document's only heading, and a screen-reader user navigating by heading has exactly one landmark that says what state the page is in. `text-base` holds the visual size at the paragraph scale the mockup showed, so the semantic upgrade costs nothing visually. (The earlier draft used a `<p>` and justified it as "should not invite interaction"; heading semantics do not imply interactivity, and the two undifferentiated paragraphs that produced were a real a11y defect.)
 - Tokens only: `border-border`, `bg-surface`, `text-text-strong`, `text-text-subtle` — all four are existing `@theme` tokens spanning light and dark (`app/globals.css`), so the notice inherits theme correctly with no new token and no new contrast row in `DESIGN.md` §1.2.
 
 ### 2.1 SSR probe — React does not hoist the `<noscript>` `<style>`
 
-React 19 promotes some `<style>` elements to hoisted stylesheet resources, which would move the rule out of `<noscript>` and apply it to every visitor, hiding the skeleton for everyone. That risk was measured rather than reasoned about. A standalone script rendered the exact tree above through the worktree's own `react-dom/server` (React 19, from `node_modules`, run 2026-08-03) via both `renderToStaticMarkup` and `renderToString`. Both produced byte-identical output, with the rule in place:
+React 19 promotes some `<style>` elements to hoisted stylesheet resources, which would move the rule out of `<noscript>` and apply it to every visitor, hiding the skeleton for everyone. That risk was measured rather than reasoned about. A standalone script rendered the tree above through the worktree's own `react-dom/server` (React 19, from `node_modules`, run 2026-08-03) via both `renderToStaticMarkup` and `renderToString`, with one deliberate difference: the wrapper used the bare JSX attribute rather than the empty-string form, which is why the transcript below reads `="true"`. Both renderers produced byte-identical output, with the rule in place:
 
 ```html
 <div data-testid="shell"><noscript><style>[data-loading-shell-content]{display:none}</style><div data-testid="loading-nojs-notice">…</div></noscript><div data-loading-shell-content="true"><p role="status" class="sr-only">Loading your dashboard…</p><div data-testid="child"></div></div></div>
 ```
 
-No hoisting, no dedupe, no drop. The `="true"` in that transcript is the bare-attribute JSX form; §2 pins the empty-string form instead, which is why the shipped markup reads `data-loading-shell-content=""`.
+No hoisting, no dedupe, no drop. Independently corroborated by the round-1 cross-model review, which reproduced it against React 19.2.4 in both static and streaming SSR and additionally confirmed that no existing selector or `!important` rule in the stylesheet competes with the unclassed wrapper.
 
 **Visual treatment.** A quiet bordered card on the surface fill, with the skeleton hidden — chosen by the user on 2026-08-03 over an amber warning card above a still-shimmering skeleton, and over a bare line of text. Rationale: a shimmer that will never resolve is an active lie about the page's state, so removing it is the point of the change, not a side effect.
 
@@ -140,7 +143,7 @@ Those first three mirror the scans at `tests/components/crew/loading.test.tsx:60
 | `children` | `null` / empty | Wrapper `<div data-loading-shell-content>` renders empty. No-JS branch is unaffected — the notice does not depend on children. |
 | `children` | any tree | Never inspected. The hide rule is attribute-scoped to the wrapper, so arbitrary children are hidden wholesale with no per-child requirement. |
 
-There is no failure mode where both the notice and the skeleton are visible: they are mutually exclusive by the browser's `<noscript>` semantics, not by application logic.
+With CSS applied, there is no failure mode where both the notice and the skeleton are visible: they are mutually exclusive by the browser's `<noscript>` semantics, not by application logic. With CSS disabled *and* JS disabled both appear, which is a stylesheet-less rendering of the whole app and is out of scope (§9).
 
 ---
 
@@ -185,27 +188,55 @@ Anyone later "fixing" this test to use `@testing-library/react` will get a test 
 <div data-testid="probe"><noscript><style>[data-loading-shell-content]{display:none}</style><div data-testid="loading-nojs-notice" class="rounded-lg border border-border bg-surface p-4"><p class="font-semibold text-text-strong">JavaScript is required</p><p class="mt-1 text-sm text-text-subtle">This page needs JavaScript to load. Turn it on in your browser settings, then reload.</p></div></noscript><div data-loading-shell-content=""><p role="status" class="sr-only">Loading your dashboard…</p><div data-testid="child"></div></div></div>
 ```
 
-Assertions run against that string. Substring matching is sufficient and unambiguous here; the test must NOT snapshot the whole string, which would fail on every unrelated class-order change.
+**Assertions are structural, not positional.** An earlier draft asserted that the status element and the sentinel child appear *after* the wrapper attribute in the string. That is a false-green: `<div data-loading-shell-content=""></div>` followed by a visible status element and a visible skeleton satisfies every "appears after" check while leaving the feature completely broken, and the e2e's `toBeHidden()` — scoped to that same empty wrapper — would pass too. Ordering is not containment.
 
-| Assertion | Failure it catches |
-|---|---|
-| Slice the markup between `<noscript>` and `</noscript>`; assert `data-testid="loading-nojs-notice"` appears **in that slice** and **nowhere in the remainder** of the markup. | The notice rendered outside `<noscript>`, which would show the "JavaScript is required" card to every visitor on every route load. This is the anti-tautology point of the test: a bare `expect(html).toContain("loading-nojs-notice")` passes in exactly that broken state, so presence alone is not an assertion — position is. |
-| The `<noscript>` slice contains `<style>[data-loading-shell-content]{display:none}</style>`. | A typo'd selector, a renamed attribute, or React hoisting the style out of the block (§2.1) — any of which leaves the skeleton visible under the notice. |
-| Extract the selector from the rendered `<style>` text with a regex, then assert the markup contains an element carrying **that** attribute. | Selector and attribute disagreeing. Neither of the two prior assertions catches this, because each is independently satisfiable: the style can be present and correct while the wrapper attribute is misspelled. Deriving the expectation from the rendered output rather than restating the literal is what closes the gap. |
-| The `role="status"` element and the sentinel `data-testid="child"` both appear **after** the `data-loading-shell-content` attribute and **outside** the `<noscript>` slice. | The wrapper drifted off the announcement or the children, so the hide rule would leave a misleading "Loading…" announcement, or the skeleton itself, visible to a no-JS visitor. |
-| Notice copy contains no U+2014 and no `/[A-Z]{2,}_[A-Z0-9_]+/`. | Copy-convention drift. Necessary because no existing scan reaches this string (§7.0). |
+So the test splits the markup at the `<noscript>` boundary and parses each half as DOM, which is possible precisely because neither half then contains a `<noscript>` element (HTML parsers treat `<noscript>` contents inconsistently depending on whether scripting is considered enabled; removing the element sidesteps that entirely):
+
+1. `noscriptInner` — the substring strictly between `<noscript>` and `</noscript>`.
+2. `outer` — the full markup with that whole element removed.
+
+Each is parsed with `DOMParser` (so the test file runs under `// @vitest-environment jsdom` while still rendering via `react-dom/server` — jsdom supplies the parser, not the renderer). Assertions then use real DOM containment.
+
+The test must NOT snapshot the whole string, which would fail on every unrelated class-order change.
+
+| # | Assertion | Failure it catches |
+|---|---|---|
+| 1 | `noscriptInner` contains an element matching `[data-testid="loading-nojs-notice"]`, and `outer` contains **no** such element. | The notice rendered outside `<noscript>`, showing the "JavaScript is required" card to every visitor on every route load. A bare `toContain("loading-nojs-notice")` passes in exactly that broken state, so presence alone is not an assertion. |
+| 2 | `noscriptInner` contains a `<style>` whose `textContent` is exactly `[data-loading-shell-content]{display:none}`. | A typo'd selector, a renamed attribute, or React hoisting the style out of the block (§2.1) — any of which leaves the skeleton visible under the notice. |
+| 3 | Extract the selector from that `<style>` element's text with a regex, then assert `outer.querySelector(<extracted selector>)` returns a non-null element. | Selector and attribute disagreeing. Assertions 2 and 4 are each independently satisfiable while this is broken: the style can be perfect and the wrapper attribute misspelled. Deriving the expectation from the rendered output rather than restating the literal is what closes the gap. |
+| 4 | `const wrapper = outer.querySelector("[data-loading-shell-content]")` is non-null, **and** `wrapper.contains(status)` and `wrapper.contains(sentinelChild)` are both true, where `status` is `outer.querySelector('[role="status"]')` and `sentinelChild` is `outer.querySelector('[data-testid="child"]')`. | The wrapper rendered empty as a sibling of the announcement and the children — the false-green this table exists to close. Containment, not ordering. |
+| 5 | `noscriptInner`'s heading element (`h1`) has `textContent` exactly `JavaScript is required`, and the body paragraph's `textContent` is exactly `This page needs JavaScript to load. Turn it on in your browser settings, then reload.` | A benign but wrong message — "Cookies are required", a stale draft, a truncation. Every other assertion passes with any string at all in those nodes. |
+| 6 | The heading in `noscriptInner` is an `h1` (assert `tagName`). | Silent regression to a styled `<p>`, which is what the a11y finding in round 1 was about. |
+| 7 | The concatenated notice text contains no U+2014 and no `/[A-Z]{2,}_[A-Z0-9_]+/`. | Copy-convention drift. Necessary because no existing scan reaches this string (§7.0). |
 
 ### 7.2 Real-browser probe — tests/e2e/nojs-loading-notice.spec.ts (new file, so the path is unlinked)
 
 jsdom cannot evaluate `<noscript>` semantics or CSS, so the behavioral claim needs a real browser. This test is also the regression guard that the deleted admin-banner spec used to provide, and the standing proof of §1.0.
 
-- `test.use({ javaScriptEnabled: false })` at file scope.
-- Authenticate with `signInAs(page, …)` — the helper POSTs through `page.request` (`tests/e2e/helpers/signInAs.ts:60`), not through browser JS, so it works with scripting disabled.
-- `page.goto("/admin")`, which has `app/admin/loading.tsx`.
-- Assert `getByTestId("loading-nojs-notice")` **is visible** — Playwright's visibility check evaluates computed style, so this also proves the notice is not itself caught by the hide rule.
-- Assert `getByTestId("admin-dashboard-loading")`'s skeleton content **is hidden** — scoped to `[data-loading-shell-content]`, asserting `toBeHidden()`. This is the assertion that proves the `<noscript>` `<style>` actually applied; the notice being visible alone does not.
-- Assert the dashboard's real content is absent from the accessible tree, matching §1.0 conclusion 2.
-- A companion case in the same file with `javaScriptEnabled` left at its default asserts the notice is **not** present, so the test cannot pass by the notice rendering unconditionally.
+**Two `describe` blocks, each with its own `test.use` — never a file-scoped one.** A file-scoped `test.use({ javaScriptEnabled: false })` applies to every case in the file, including the JS-on control, which would then silently test the same configuration twice and prove nothing about the JS-on path. The structure is:
+
+```ts
+test.describe("JavaScript disabled", () => {
+  test.use({ javaScriptEnabled: false });
+  // cases 1-3
+});
+
+test.describe("JavaScript enabled (control)", () => {
+  test.use({ javaScriptEnabled: true });
+  // case 4
+});
+```
+
+Both blocks authenticate with `signInAs(page, ADMIN_FIXTURE)` — the helper POSTs through `page.request` (`tests/e2e/helpers/signInAs.ts:60`), not through browser JS, so it works with scripting disabled — then `page.goto("/admin")`, which has `app/admin/loading.tsx`.
+
+| # | Block | Assertion | Failure it catches |
+|---|---|---|---|
+| 1 | JS off | `getByTestId("admin-dashboard-loading")` is **attached** to the DOM. | The run landed on a different page. `/admin` can resolve to a checkpoint or onboarding branch rather than the dashboard (`app/admin/page.tsx:175`, `app/admin/page.tsx:237`, `app/admin/page.tsx:250`), so without this the remaining assertions could be measuring some other route entirely. Pinning the admin loading fallback's own testId is what makes cases 2 and 3 mean something. Note this holds regardless of which branch the page *would* have resolved to, because with JS off it never resolves at all. |
+| 2 | JS off | `getByTestId("loading-nojs-notice")` is **visible**. | The notice absent, or itself caught by the hide rule. Playwright's visibility check evaluates computed style, so this is a real rendering assertion, not a DOM-presence one. |
+| 3 | JS off | The `[data-loading-shell-content]` element **inside** `admin-dashboard-loading` is **hidden**, located as `getByTestId("admin-dashboard-loading").locator("[data-loading-shell-content]")`. | The `<noscript>` `<style>` never applied — the single thing case 2 cannot prove. Scoping through the admin testId rather than page-wide also means an empty stray wrapper elsewhere cannot satisfy it. |
+| 4 | JS on | `getByTestId("loading-nojs-notice")` has count 0, after the dashboard has settled. | The notice rendering unconditionally. Without this case the whole feature could be a permanently-visible card and every JS-off assertion would still pass. |
+
+The earlier draft also asserted "the real dashboard content is absent from the accessible tree." That is dropped: with JS off nothing ever resolves, so the assertion holds no matter what is wrong, and it would equally hold if the fixture had landed on onboarding. Case 1 replaces it with a claim that can actually fail.
 
 Register the spec in `playwright.config.ts` under an existing project's `testMatch` (the `desktop-chromium` project, `playwright.config.ts:78`) so it runs against the port-3000 webServer rather than adding a new project and server.
 
@@ -226,7 +257,7 @@ All three were read before drafting, then **measured**: the change from §2 was 
 ## 9. Documented limits
 
 - **Pages without a `loading.tsx` are untouched.** A no-JS visitor to such a route gets whatever the server rendered, which for most of this app is a non-interactive page. Making those pages announce their own JS requirement is out of scope and would require a different mechanism (a root-layout `<noscript>`), which would then fire on pages that genuinely do render.
-- **The notice is unstyled beyond the four tokens.** No icon, no heading landmark, no link to browser instructions. Deliberate: it is a dead-end state that should not invite interaction.
+- **The notice is unstyled beyond the four tokens.** No icon, no link to per-browser instructions, no `<main>` landmark. Deliberate: it is a dead-end state that should not invite interaction. It does carry an `<h1>` (§2) — heading semantics describe structure, not interactivity, and a page whose entire content is one card should say so programmatically.
 - **A visitor with CSS disabled but JS enabled** sees nothing new; a visitor with both disabled sees the notice text and the skeleton's markup unstyled. Neither is a regression and neither is addressed.
 - **`next dev` was the probe environment.** Streaming boundary emission is identical in `next build`, and the e2e in §7.2 runs against the suite's own server, so the behavioral claim is verified in whatever mode CI uses rather than inferred from the probe.
 
