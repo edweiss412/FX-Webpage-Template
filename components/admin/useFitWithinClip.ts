@@ -99,7 +99,6 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // fires continuously, and a ResizeObserver can fire for both observed
     // nodes at once. Leading-edge throttle to one apply per frame.
     const coalescer = createRafCoalescer(apply);
-    const schedule = coalescer.schedule;
 
     // The band can grow (a wrapping header or strip pushes the anchor down)
     // and the panel's height is viewport-derived, so both need watching: a
@@ -114,7 +113,7 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     // The positioned ancestor is a SEPARATE node from the clip ancestor, and it
     // is the one whose content changes move this overlay's top edge.
     const positioned = node.offsetParent;
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(coalescer.schedule) : null;
     if (observer !== null) {
       if (clip !== null) observer.observe(clip);
       if (positioned instanceof Element) observer.observe(positioned);
@@ -135,16 +134,16 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     const onTransitionEnd = (event: Event) => {
       if (event.target !== positioned) return;
       if ((event as TransitionEvent).propertyName !== "transform") return;
-      schedule();
+      coalescer.schedule();
     };
     if (positioned instanceof Element)
       positioned.addEventListener("transitionend", onTransitionEnd);
-    window.addEventListener("resize", schedule);
+    window.addEventListener("resize", coalescer.schedule);
     return () => {
       observer?.disconnect();
       if (positioned instanceof Element)
         positioned.removeEventListener("transitionend", onTransitionEnd);
-      window.removeEventListener("resize", schedule);
+      window.removeEventListener("resize", coalescer.schedule);
       // A frame scheduled just before unmount would otherwise run `apply()`
       // against a detached node.
       coalescer.cancel();
