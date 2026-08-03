@@ -459,10 +459,14 @@ does not apply to a native GET form (§3.4).
     `overflow` is `hidden`, plus its right edge within its parent's content box. Deleting
     `truncate` leaves height, name-edge, chip containment, chip `white-space` and spinner
     geometry all green while the name paints past its allocation.
-  - `items-center` on the row → assert the pending chip's height is strictly less than the row's.
-    A spinner-centre-vs-row-centre check does not discriminate: the left group carries its own
-    `items-center` (`_PickerInterstitial.tsx:210`) and re-centres the spinner within a stretched
-    group while the chip stretches unnoticed.
+  - `items-center` on the row → assert the pending chip's measured height is strictly less than the
+    row's **`clientHeight`**, NOT its `getBoundingClientRect().height`. Two earlier versions of this
+    oracle were vacuous: a spinner-centre-vs-row-centre check fails because the left group carries
+    its own `items-center` (`_PickerInterstitial.tsx:210`) and re-centres the spinner inside a
+    stretched group; and a border-box comparison fails because the row has a 1px border under
+    `box-sizing: border-box`, so a stretched chip measures ~42px against a 44px border-box and stays
+    "less than". `clientHeight` excludes the border, so the stretched chip equals it exactly and the
+    assertion flips (R7).
   - `size-4` on the spinner → assert a 16×16 box within 0.5px. Without it lucide-react falls back
     to 24×24, still under the 44px row floor, so a row-height comparison cannot see it.
   - `whitespace-nowrap` on the pending chip → assert its computed `white-space` is `nowrap`.

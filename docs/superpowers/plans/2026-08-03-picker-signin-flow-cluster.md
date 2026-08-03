@@ -295,13 +295,17 @@ assertion dependent on content — R5 finding 3.
 **Two invariants in the §5 checklist are NOT killed by height/name-edge/containment alone, and
 need their own assertions:**
 
-- `items-center` on the ROW: assert the pending **chip's** measured height is strictly less than
-  the row's height. Do NOT assert spinner-centre-equals-row-centre — that does not discriminate:
-  the extracted subtree keeps its own nested `items-center` on the left group
-  (`_PickerInterstitial.tsx:210`), so deleting the row's `items-center` lets that group stretch to
-  the full cross-axis and re-centre the spinner inside itself, leaving both centres equal while the
-  right-hand chip stretches vertically — a broken layout the centre check cannot see (R6).
-  A stretched chip is exactly what the height comparison catches.
+- `items-center` on the ROW: assert the pending **chip's** measured height is strictly less than the
+  row's **`clientHeight`**. Both the obvious alternatives are vacuous, measured:
+  - spinner-centre-equals-row-centre does NOT discriminate — the extracted subtree keeps its own
+    nested `items-center` on the left group (`_PickerInterstitial.tsx:210`), so deleting the row's
+    `items-center` lets that group stretch and re-centre the spinner inside itself. Both centres stay
+    equal while the right-hand chip stretches vertically (R6).
+  - comparing against the row's `getBoundingClientRect().height` does NOT discriminate either — the
+    row has a 1px border (`_PickerInterstitial.tsx:174`) under Tailwind preflight's
+    `box-sizing: border-box`, so a stretched chip fills the ~42px CONTENT box while the border box
+    reads 44px, and `chip < row` stays true (R7).
+  `clientHeight` excludes the border, so a stretched chip equals it and the assertion flips.
 - `size-4` on the spinner: assert its measured box is 16×16 within 0.5px. Deleting `size-4` lets
   Lucide fall back to 24×24 (lucide-react ships a 24x24 default in its `defaultAttributes` module),
   which is still under the 44px row floor, so a row-height comparison cannot see it.
