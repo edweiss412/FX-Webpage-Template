@@ -99,10 +99,6 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
     reason: "Unpublish-link doug copy; marker-free.",
   },
   {
-    file: "components/admin/ParsePanel.tsx",
-    reason: "Comment-only messageFor mention; renders warningSummary strings, not catalog copy.",
-  },
-  {
     file: "components/admin/CleanupAbandonedFinalizeButton.tsx",
     reason: "Finalize-cleanup status toasts; codes marker-free.",
   },

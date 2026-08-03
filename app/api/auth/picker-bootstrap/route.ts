@@ -49,8 +49,26 @@ function htmlResponse(code: MessageCode, status: number): Response {
   );
 }
 
-function parseNextPath(path: string): { slug: string; shareToken: string } | null {
-  const match = SHOW_NEXT_RE.exec(path);
+/**
+ * Split the query off BEFORE matching, and keep SHOW_NEXT_RE `$`-anchored on
+ * the path portion.
+ *
+ * `validateNextParamDetailed` re-attaches allow-listed `s`/`gate` params for a
+ * tokenized crew route (`lib/auth/validateNextParam.ts:77`), so the string
+ * reaching here can legitimately carry a query — while this regex anchored on
+ * the 64-hex token and rejected it. Three of the four shapes
+ * `buildShowReturnUrl` emits were 403ing as a result.
+ *
+ * Anchoring stays: loosening it instead would admit `/show/<slug>/<token>/…`.
+ * The redirect target remains `nextOutcome.path` (the full query-carrying
+ * string), which is already allow-listed upstream.
+ *
+ * Exported for the grammar unit test — a route-level test cannot pin this
+ * anchor, because ALLOWED_NEXT_RE (`lib/auth/validateNextParam.ts:18`) is
+ * independently `$`-anchored and rejects a trailing segment first.
+ */
+export function parseNextPath(path: string): { slug: string; shareToken: string } | null {
+  const match = SHOW_NEXT_RE.exec(path.split("?")[0]!);
   if (!match) return null;
   return { slug: match[1]!, shareToken: match[2]! };
 }

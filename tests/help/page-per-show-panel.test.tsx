@@ -65,6 +65,56 @@ describe("/help/admin/per-show-panel (E.8)", () => {
     expect(src).not.toContain("<ScreenshotPlaceholder");
   });
 
+  it("does not describe the retired status-strip copy-link (the share hub absorbed it)", () => {
+    // The share-hub consolidation removed the strip's standalone copy-link
+    // (docs/superpowers/specs/2026-07-20-share-hub-design.md §8). Copy now lives
+    // only inside the hub popover, so any "copy-link" on this page is stale.
+    expect(src).not.toMatch(/copy-link/i);
+  });
+
+  it("names the Share link button in the strip inventory and in the Re-sync placement", () => {
+    expect(src).toMatch(/\*\*Status strip\.\*\*[^\n]*\*\*Share link\*\* button/);
+    expect(src).toMatch(
+      /\*\*Re-sync\*\* button sits in the status strip, between the sync line and the \*\*Share link\*\* button/,
+    );
+  });
+
+  it("puts archiving in the Share link panel, not the Overview section", () => {
+    // The share-hub consolidation moved the archive lifecycle control into the
+    // hub popover's Show section (components/admin/showpage/ShareHub.tsx). The
+    // dashboard help page already documented the new location; this page still
+    // claimed a row in the Overview section, sending Doug to the wrong half of
+    // the panel. Caught by the invariant-8 critique gate.
+    expect(src).not.toMatch(/archiving is a row in the Overview section/i);
+    expect(src).toMatch(/archiving lives in the \*\*Share link\*\* panel, under \*\*Show\*\*/);
+  });
+
+  it("names all three lifecycle labels of the share-hub trigger", () => {
+    // ShareHub relabels its primary: "Share link" when published, "Share link ·
+    // paused" when not, "Show actions" when archived. Naming only the first
+    // leaves the button unrecognizable in two of its three states.
+    expect(src).toContain("**Share link · paused**");
+    expect(src).toContain("**Show actions**");
+  });
+
+  it("describes the archived state as recoverable, not as a dead end", () => {
+    // The trigger persists when archived and the panel holds Unarchive, which
+    // lives nowhere else. Saying an archived show has "no share controls at
+    // all" hides the only route back.
+    expect(src).not.toMatch(/show no share controls at all/i);
+    expect(src).toContain("**Unarchive**");
+  });
+
+  it("names the kebab as a button rather than leaving a bare glyph", () => {
+    // A screen reader reads a lone ⋮ as "vertical ellipsis" while the control
+    // announces "More show actions", so the help text and the control never
+    // meet. Every ⋮ in this page must carry a noun.
+    for (const match of src.matchAll(/\*\*⋮\*\*(.{0,12})/g)) {
+      expect(match[1] ?? "", `bare ⋮ glyph at "${match[0]}"`).toMatch(/^\s*(button|menu)/);
+    }
+    expect(src).toMatch(/\*\*⋮\*\* button next to it opens the same panel/);
+  });
+
   it("contains no em-dashes (DESIGN.md §9 absolute ban)", () => {
     expect(src).not.toMatch(/—/);
   });

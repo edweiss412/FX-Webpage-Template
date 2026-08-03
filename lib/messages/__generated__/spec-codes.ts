@@ -1068,7 +1068,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "In <sheet-name>, <role-changes><lead-hint>",
     "followUp": "none (informational)",
-    "helpfulContext": "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
+    "helpfulContext": "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials, and every change is logged. Nothing to do unless it was a mistake; if so, correct it in the sheet or role mapping.",
   },
   "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
     "crewFacing": null,

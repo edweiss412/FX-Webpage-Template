@@ -312,6 +312,35 @@ const BACKLOG_GRADUATED = [
     id: "BL-MASTERSPEC-FINANCIALS-VOCAB",
     provenance: "docs/citation-rot-financials-vocab",
   },
+  // chore/copy-deadcode-sweep (2026-08-02): the copy-and-dead-code batch — the
+  // §12.4 ROLE_FLAGS_NOTICE helpfulContext no longer claims either capability
+  // role unlocks admin access (five-surface lockstep + the row's
+  // longExplanation), the orphaned ParsePanel component is deleted behind a
+  // zero-production-importer guard, and the per-show help prose names the Share
+  // link button instead of the retired strip copy-link
+  // (spec 2026-08-02-copy-deadcode-sweep-design.md).
+  {
+    id: "BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT",
+    provenance: "chore/copy-deadcode-sweep",
+  },
+  {
+    id: "BL-ADMIN-PARSEPANEL-ORPHANED",
+    provenance: "chore/copy-deadcode-sweep",
+  },
+  {
+    id: "BL-HELP-STRIP-COPYLINK-STALE",
+    provenance: "chore/copy-deadcode-sweep",
+  },
+  // docs/close-v1-override-wont-build (2026-08-03): closed WON'T BUILD, not
+  // shipped. A force-classify override IS the approve-ambiguous path the
+  // confidence gate exists to prevent, and the row's premise was false: a real
+  // legacy-v1 sheet, once seen, is registrable via the marker-registration path
+  // the gate spec already prescribes, like any other unregistered template.
+  // Leaving the open queue is what a graduation is.
+  {
+    id: "BL-VERSION-AMBIGUOUS-V1-OVERRIDE",
+    provenance: "docs/close-v1-override-wont-build",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

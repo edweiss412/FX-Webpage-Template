@@ -38,9 +38,9 @@
  *                          with Audio and Video — LEADs need visibility
  *                          into lighting scope details even when not
  *                          managing hands-on)
- *   financialsVisible    → admin OR LEAD (load-bearing for FinancialsTile
- *                          in Task 4.8 + the transition-audit gate in
- *                          Task 4.12)
+ *   financialsVisible    → admin OR LEAD OR FINANCIALS (load-bearing for
+ *                          FinancialsTile in Task 4.8 + the transition-audit
+ *                          gate in Task 4.12)
  *
  * Server-safe (pure functions; no environment reads, no side effects).
  */

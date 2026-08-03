@@ -2,7 +2,7 @@
 /**
  * tests/components/StaleCleanupAutoSubmit.test.tsx (M11.5 §B Task C3)
  *
- * Pins the public contract of the picker tree's ONLY client component
+ * Pins the public contract of the picker tree's auto-submit client island
  * (spec §4.7 R25). It mounts an invisible form with five hidden inputs
  * carrying the stale cookie entry's identifying tuple, then auto-submits
  * on mount via useEffect so the cookie cleanup races no further user
@@ -59,11 +59,18 @@ describe("<StaleCleanupAutoSubmit>", () => {
 });
 
 describe("only-use-client-in-picker-tree static grep (R25)", () => {
-  test("no UNSANCTIONED 'use client' islands in app/show/[slug]/[shareToken]/ (StaleCleanupAutoSubmit + error.tsx exempt)", () => {
+  test("no UNSANCTIONED 'use client' islands in app/show/[slug]/[shareToken]/ (three sanctioned)", () => {
     const dir = join(process.cwd(), "app", "show", "[slug]", "[shareToken]");
     // Sanctioned client files: the picker auto-submit island, and error.tsx — a React error
     // boundary, which MUST be a Client Component (Phase 3 crew boundary).
-    const SANCTIONED = new Set(["_StaleCleanupAutoSubmit.tsx", "error.tsx"]);
+    // _ClaimedRowButton.tsx is the third sanctioned island: the claimed roster row
+    // needs local pending state for the OAuth hop, and useFormStatus cannot supply
+    // it for a native GET form (see that file's header).
+    const SANCTIONED = new Set([
+      "_StaleCleanupAutoSubmit.tsx",
+      "error.tsx",
+      "_ClaimedRowButton.tsx",
+    ]);
     const offenders: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile()) continue;

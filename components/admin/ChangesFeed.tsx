@@ -8,7 +8,7 @@
 // Cap = 50 (00-overview resolution #8); readShowChangeFeed sets `truncated`. The
 // truncation copy names the cap. Both the truncation note and the empty state are
 // hard-coded English — they are absence-of-overflow / absence-of-failure states,
-// not catalog failure codes (mirrors ParsePanel's empty-state rationale).
+// not catalog failure codes, so they carry no code and need no catalog row.
 "use client";
 
 import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";

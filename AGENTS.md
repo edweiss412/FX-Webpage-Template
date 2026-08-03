@@ -24,6 +24,19 @@ These are hard constraints from the spec. Violating any of them is a P0 bug rega
 
 11. **All work happens in an isolated worktree — never in the main checkout.** Every task that mutates tracked files — feature, fix, docs, spec/plan edit, one-line typo — begins by creating a git worktree off `origin/main` (`git worktree add -b <branch> ../FX-worktrees/<name> origin/main`), BEFORE the first edit. Do not edit in the main checkout `/Users/ericweiss/FX-Webpage-Template` and relocate afterward. The main checkout is read-only: inspection, `git log`, and post-merge fast-forward sync (`git pull --ff-only`, verifying `git rev-list --left-right --count main...origin/main` == `0  0`). Rationale: parallel agent sessions share the main checkout, and two writers in one working tree race — one session's staged edits get swept into the other's commit. Worktree setup for any task that runs tests: `pnpm install`, then `pnpm worktree:link-env` (symlinks the gitignored `.env.local`), then `pnpm preflight` (fails loud on missing secrets / unreachable local DB). Docs-only branches may skip `preflight` — declare the skip in the PR body. This invariant subsumes the worktree step already required by the autonomous-ship gate below; that gate is one caller, not the only one.
 
+12. **Work in flight is declared in the ledger, not held in a head.** The moment a branch starts work traceable to a `BL-`/`DEF-` entry, that entry is marked in the ledger; the moment the PR merges, the marker goes away with it (an entry that graduates to an archive takes its marker with it by construction). The form is a bold-run field on the entry's meta line, and it must point at something resolvable:
+
+    ```
+    **Status:** IN PROGRESS · **Branch:** feat/whatever
+    **Status:** IN PROGRESS · **PR:** #681
+    ```
+
+    **Why it is declared and never inferred.** No signal in the corpus means "someone is on this". The tempting proxy — a recent edit — is wrong in the most misleading direction available: `**VERIFIED INCOMPLETE 2026-08-03 — do not archive.**` is an audit stamp on a _dormant_ entry, and reading it as in-flight would sort the least live item to the top of the queue. The ledger only ever reports what an author wrote down.
+
+    **The failure mode this exists to stop is the stale marker, not the missing one.** Work starts, the entry is marked, the PR merges, the marker stays. Six weeks on, the queue claims three things are in flight and none are — and a reader burned once by that stops trusting the other five statuses too. `tests/docs/_metaLedgerInProgress.test.ts` is the enforcement: an in-progress entry must carry a `Branch`/`PR`, the value must be shaped like a real one, **the branch must still exist on `origin`**, archives may not hold in-flight work, and a flight field without the status that explains it fails (so ledger prose and the ledger viewer can never disagree about a state). Every rule is conditional on the entry opting in — an entry that declares nothing is untouched, so the convention costs nothing until it is used and becomes self-enforcing the moment it is. Ledger files are discovered from disk, so a new one is covered by default rather than silently exempt.
+
+    Pipeline wiring, so this is a step rather than a good intention: **Stage 0**, in the same turn as the worktree and the pane labels, writes the marker onto every entry the branch will close. **Stage 4.4**, after the `0  0` check, removes it. A run that finds no matching ledger entry does nothing — this tracks ledger work, it does not require every branch to have a ledger row.
+
 ---
 
 ## Brainstorming gate: autonomous-ship checkpoint (mandatory)
@@ -37,7 +50,7 @@ This gate hooks `superpowers:brainstorming` and OVERRIDES its default flow (per 
 **Branches:**
 
 - **User declines (or no answer):** continue the normal interactive flow — write the spec, pause for the user's spec review, then plan with a user plan-review gate, etc. Default behavior; nothing is waived.
-- **User approves:** drive the full autonomous pipeline — relocate into a fresh worktree off `origin/main` (`pnpm install`; then `pnpm worktree:link-env` to symlink the gitignored `.env.local` from the main checkout, then `pnpm preflight` to fail-loud on any missing secret / unreachable local DB before tests run; `--no-verify`); spec → self-review → Codex `adversarial-review` to APPROVE (no round budget); plan → self-review → Codex `adversarial-review` to APPROVE (no round budget); TDD-per-task implementation honoring every plan-wide invariant (incl. the invariant-8 impeccable dual-gate if UI is touched, and migration→validation parity); whole-diff Codex cross-model review to APPROVE; push → **real CI green** (not just local) → `gh pr merge --merge` → fast-forward local `main` (verify `rev-list --left-right --count main...origin/main` == `0  0`). Both user-review gates (spec, plan) are WAIVED; stop only for a genuine, unresolvable ambiguity.
+- **User approves:** drive the full autonomous pipeline — relocate into a fresh worktree off `origin/main` (`pnpm install`; then `pnpm worktree:link-env` to symlink the gitignored `.env.local` from the main checkout, then `pnpm preflight` to fail-loud on any missing secret / unreachable local DB before tests run; `--no-verify`); spec → self-review → Codex `adversarial-review` to APPROVE (no round budget); plan → self-review → Codex `adversarial-review` to APPROVE (no round budget); mark the ledger entries in progress (invariant 12); TDD-per-task implementation honoring every plan-wide invariant (incl. the invariant-8 impeccable dual-gate if UI is touched, and migration→validation parity); whole-diff Codex cross-model review to APPROVE; push → **real CI green** (not just local) → `gh pr merge --merge` → fast-forward local `main` (verify `rev-list --left-right --count main...origin/main` == `0  0`). Both user-review gates (spec, plan) are WAIVED; stop only for a genuine, unresolvable ambiguity.
 
 This pipeline is the authoritative definition (it lives here in the tracked repo so it is cross-CLI durable). A local convenience command `/ship-feature <description>` runs the same pipeline triggered explicitly, but `.claude/` is gitignored on this repo, so that command is per-machine and may be absent in a fresh checkout — never rely on it existing; rely on this section.
 
@@ -118,7 +131,9 @@ Never rewrite `sessionId` merely to inspect a worktree — inspection sessions l
 Lifecycle — both commands at every site:
 
 - **Stage 0**, immediately after worktree creation: `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>" && herdr agent rename "$HERDR_PANE_ID" "<branch>"` (e.g. `docs/agent-arc-naming`).
+  Same turn, per invariant 12: mark every ledger entry the branch will close with `**Status:** IN PROGRESS · **Branch:** <branch>`.
 - **Stage 4.4**, after the `0  0` check: `herdr pane rename "$HERDR_PANE_ID" --clear` and `herdr agent rename "$HERDR_PANE_ID" --clear`.
+  Same turn, per invariant 12: clear the IN PROGRESS marker from every entry that carried it, so no marker outlives the branch it named.
 - **Takeover session**: sets both of its own labels to the same arc (protocol step 4).
 - **Superseded session**: clears both during stand-down.
 

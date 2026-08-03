@@ -8,6 +8,62 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
+
+**Filed:** 2026-08-02 (docs/citation-rot-financials-vocab, spec review R2 finding 3) · **Class:** docs/copy (§12.4 catalog) · **Severity:** low · **Effort:** S
+
+Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3356`) reads "This fires only for LEAD or FINANCIALS, the roles that unlock internal financials and admin access". FINANCIALS unlocks the `financials` column only ("Nothing else", the Effect row of `docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md`); LEAD alone additionally grants the admin/ops surface, stated correctly at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`. Explanatory copy only, so no access is actually granted, but it is Doug-visible text. Fix requires the §12.4 three-way lockstep in ONE commit (spec §12.4 prose edit + `pnpm gen:spec-codes` regen + `lib/messages/catalog.ts` row) and touches the frozen helpfulContext byte-parity contract (BL-CARD-COPY-HELPFULCONTEXT-PARITY, graduated 2026-08-01) — re-freeze parity after the edit. Trigger: next §12.4 copy pass.
+
+## BL-ADMIN-PARSEPANEL-ORPHANED — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+## BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned
+
+Since the show-page→modal pivot (#476) nothing imports `components/admin/ParsePanel.tsx` (its per-show mount was deleted; whole-parse review was deliberately dropped from published shows in 65d5be75a in favor of MI-11 holds in the Changes feed). `StagedReviewCard` remains live in the onboarding wizard; the live-scope `ParsePanel` wrapper is dead code. Surfaced during published-show-alerts (2026-07-19, spec §14). **Fix (when prioritized):** delete ParsePanel or re-home it explicitly; sweep `tests/e2e/_metaEmphasisRenderContract` style registries on removal.
+
+## BL-HELP-STRIP-COPYLINK-STALE — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
+
+### BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link
+
+**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** DOCS
+
+Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip copy-link that the share-hub consolidation removed: `:7` lists it among the strip's contents, and `:30` places the Re-sync button "between the sync line and the copy-link button". Both are user-visible and both are wrong.
+
+Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
+
+## BL-UNPUBLISH-TO-HELD — RESOLVED (2026-08-03, `docs/graduate-bl-unpublish-to-held` — already shipped 2026-07-01; row filed on a false verification)
+
+## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
+
+The existing M12.13 token-unpublish ARCHIVES the show; there is no published→Held transition. Verified 2026-08-02: no such RPC exists in `supabase/migrations/` or `lib/`. So an operator who published early has one exit, and it is the destructive one.
+
+**Work:** a `published → held` RPC plus its admin affordance. Treat the state machine as the hard part, not the SQL: Held is the pre-publish review state, so returning to it has to say what happens to the share token, to any in-flight finalize, and to a crew member holding a live link, and it must not become a second path to the archived state. Advisory-lock discipline (invariant 2) and the `AUDITABLE_MUTATIONS` registry (invariant 10) both apply.
+
+**Resolution (2026-08-03):** already shipped a month before the row was filed. The published toggle (spec `docs/superpowers/specs/admin/2026-07-01-published-toggle.md`, commit 945bd4ef0) is exactly this feature: `unpublish_show` RPC (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:27`) does a pure `published=false` with archived untouched — which IS Held, since Held has no column of its own (`published=F ∧ archived=F`) — and is driven by `setShowPublishedAction(slug, false)` from the admin show review modal. Both of the row's factual claims were wrong at filing time: the RPC existed, and the M12.13 token-unpublish never archived — the emailed-link path is a pure unpublish too (`lib/sync/unpublishShow.ts`). Every state-machine question the row poses is answered in the shipped surface: the share token is deliberately not rotated (spec D1 — a crew member's live link lands on the paused-link UI via the `published≠true` check in `app/show/[slug]/[shareToken]/page.tsx` and revives on republish); in-flight finalize is refused (`FINALIZE_OWNED_SHOW`); archived rows are immutable (`SHOW_ARCHIVED_IMMUTABLE`), so the RPC cannot become a second path to archived; the advisory lock is held in-RPC with the single-holder topology pinned (`tests/sync/_advisoryLockSingleHolderContract.test.ts:528`); and the `AUDITABLE_MUTATIONS` row has executable behavioral proof including the performed-only emit contract (`tests/log/adminOutcomeBehavior.test.ts:1969`, commit 72862711f). A 10-point graduation audit found no functional gap; its one finding — the validation-schema-parity gate covers tables×columns and never functions — is repo-wide, not feature-specific, and is filed as `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED`.
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — RESOLVED — WON'T BUILD (2026-08-03, `docs/close-v1-override-wont-build`)
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
+
+`VERSION_AMBIGUOUS` has deliberately no in-app "approve the ambiguous parse as-is" affordance, because approving a parse the system is not confident about defeats the gate. The two live resolutions are: the operator restores the sheet's version markers, or a developer registers the new template's markers. A genuine legacy-v1 sheet has neither, and none exists in the corpus today — it would flag ambiguous with no way forward but those same two actions. Verified 2026-08-02: no force-classify path exists.
+
+**Read the deferral before picking this up.** The reason it is open is not that nobody thought about it: an admin override IS an approve-ambiguous path, which is the exact thing the gate exists to prevent. Any design here has to explain why it is not that, and a real legacy-v1 sheet appearing is the trigger that would make the question live.
+
+**Resolution (2026-08-03): WON'T BUILD.** Closed on `docs/close-v1-override-wont-build` per `docs/superpowers/specs/data-quality/2026-08-03-close-v1-override-wont-build.md`. No admin force-classify override gets built, now or trigger-gated.
+
+The row's own premise was false as stated, and that is what closes it rather than a priority call. `v1` is a **fallback bucket, not a confirmed legacy template**: `lib/parser/schema.ts:37` calls it the fallback for when markdown table syntax is present but no v2/v4 markers are found, and the registry entry at `lib/parser/schema.ts:53` is `{ id: "v1", fallback: true }` with no `requires` array — so nothing positively identifies a v1 sheet. The gate spec says the same thing independently at its D2 row: v1 is defined purely by absence. **Probed 2026-08-03:** all 10 committed fixtures in `fixtures/shows/raw/` classify confidently through `classifyVersion` — six v2 at scores 7/0, four v4 at 8/0 — with zero ambiguous and zero v1, against a `MIN_MARGIN` of 2. The oldest sheet in the corpus, `2024-05-east-coast-family-office.md`, is the one a legacy-v1 template would most plausibly be, and it scores 7/0 for v2 on the typo spelling `Hotal Contact Info`. That probe establishes exactly one claim — **the committed corpus contains no v1 sheet** — and neither the broader "no v1 sheet has ever existed" nor anything about the live-sheet population; the argument below needs none of those.
+
+Four things can land in the ambiguous bucket, indistinguishable by construction, which is why the gate pauses for human triage instead of publishing a guess: (1) a **damaged v2/v4 sheet** — resolved by restoring its markers, and force-classifying it as v1 would parse it with the wrong template, strictly worse than the repair; (2) a **genuinely new template** — resolved by a developer registering its markers, where an override would instead ship a permanent wrong classification; (3) a **junk non-show spreadsheet** with a table sitting in the synced folder — resolved by disregarding it, where the correct outcome is not parsing it at all; (4) a **hypothetical genuine legacy-v1 sheet**, never observed. An override serves none of them better than its existing disposition.
+
+The insight that closes the question is about occupant (4): **a real legacy-v1 sheet, once actually seen, is indistinguishable from occupant (2).** Any real sheet has some stable column-0 labels — that is exactly what the confidence-scoring marker sets are built from (`V4_BLOCKS` and `V2_BLOCKS`, `lib/parser/schema.ts:90-99`, each spanning three independent blocks against a diversity clause requiring ≥2) — so a developer registers them as a version entry, which is §7.1 resolution #2. Nothing about that path is restricted to _new_ templates; it is restricted to _unregistered_ ones, and a legacy sheet nobody registered is unregistered. This entry's "a genuine legacy-v1 sheet has neither" therefore conflated **no markers registered today** (true of a hypothetical legacy sheet, and of every new template before someone registers it) with **no registrable structure** (unsupported). And a sheet that genuinely had no registrable structure would not be parseable by the block parsers either: force-classifying it as v1 would hand them a document they cannot read, producing a confidently-wrong parse instead of a signaled one. The override does not turn an unparseable sheet into a parseable one — it turns a _signaled_ failure into a _silent_ one, inverting the posture the preparedness audit requires (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`: every input "parsed correctly or _signaled_, never silently wrong").
+
+**Re-open trigger, deliberately conjunctive — both halves required:** a real legacy sheet surfaces **AND** marker registration proves impossible, i.e. the sheet has no stable column-0 labels spanning ≥2 blocks. The first alone is not enough; that is occupant (2), already resolved. If the second ever holds, the right follow-up is still probably not a force-classify override — a sheet with no registrable structure is one the block parsers cannot read — but the question would at least be live again, which it is not today.
+
 ## BL-PARSER-HOTEL-INLINE-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
 
 **Filed:** 2026-07-07 (ambiguity-warnings-v1 §6 deferred-exemption seed) · **Resolved:** 2026-07-26 · **Class:** parser observability · **Effort:** M
@@ -2589,3 +2645,55 @@ Reconciliation history moved out of `BACKLOG.md`'s header line on 2026-08-02. Th
 **Why backlog, not deferred:** The M9 C9 probe works today; behaviorally there's no coverage gap. Promotion is polish work (move from per-domain test to cross-cutting meta-test for discoverability + CI gate naming consistency). Promotion requires (a) a spec amendment decision about AC placement, (b) a ROUTING.md decision about whether the new AC gets a check name, (c) a brainstorming session to confirm the promotion is worth the spec churn vs leaving the probe in `tests/db/`.
 
 **Promotion prerequisite:** spec amendment defining the new AC, OR a decision to reframe AC-X.5/X.6 to absorb RLS coverage. Either path is a real spec-amendment cycle with adversarial review, not a casual edit.
+
+---
+
+## BL-PICKER-CLAIMED-ROW-PENDING-STATE — RESOLVED (2026-08-03, `fix/picker-signin-flow-cluster`) — no pending affordance on the claimed-row sign-in control
+
+**Status:** OPEN · **Severity:** low-medium (re-tap risk on venue wifi) · **Surfaced:** impeccable critique of `fix/picker-flow-app-bugs` (2026-07-25), P2
+
+Tapping a claimed roster row (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`) is a full GET to `/auth/sign-in` and then on to Google — three or more hops with the row visually inert the whole time. On ballroom wifi a crew member will tap it again. Every other mutating control in the admin surfaces uses `useFormStatus` for this (10+ components), and the `"Confirming…"` pending idiom is ratified in `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175` (this entry previously cited "master spec §16.6", which does not exist — §16 has only §16.1 and §16.2).
+
+Not a regression: the control had no pending state before the hidden-input fix either. Deferred rather than folded into that branch because the row is currently rendered by a Server Component, so a pending state needs a new client boundary — a real change to the picker's component topology, not a class tweak. **Fix (when prioritized):** extract the claimed-row control into a client component using `useFormStatus`, matching the disabled + label-swap recipe the admin surfaces already use. Trigger: next crew-page UX pass, or a report of double-tap sign-in loops.
+
+**Resolved.** The claimed row's button became a `"use client"` island with local pending state:
+the lock swaps to a spinner in a shared fixed-width slot, the role chip reads `Signing in…`, and
+the row reports `aria-disabled` + `aria-busy`. Three mechanism choices were forced by measurement,
+not preference — `useFormStatus` does NOT fire for this form (it is a native GET, measured
+`NATIVE_GET=false` / `FUNCTION_ACTION=true`), `aria-disabled` rather than the native `disabled`
+attribute keeps keyboard focus, and the `onClick` must call `preventDefault` because neither
+`aria-disabled` nor an early return cancels a submit's default action (measured `submits=2`).
+The entry's own proposed fix — "use `useFormStatus`, matching the admin surfaces" — was therefore
+wrong, and would have shipped an affordance that never appeared.
+
+---
+
+### BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED — RESOLVED (2026-08-03, `fix/picker-signin-flow-cluster`) — a `next` carrying a query string fails the bootstrap
+
+**Status:** OPEN — measured on `test/agenda-fold-seeded-e2e` (2026-08-02) · **Severity:** low · **Class:** AUTH UX
+
+A Google session that matches a crew row with no picker-cookie entry yet resolves to
+`needs_picker_bootstrap` and redirects through `/api/auth/picker-bootstrap`. When the `next` it
+carries has a query string — e.g. the deep link `/show/<slug>/<token>?s=schedule`, which is exactly
+what a crew member gets from a section link — the handler does not land back on the show and renders
+"Sign-in unavailable / Sign-in landed somewhere we don't recognize." Measured on BOTH engines
+(Chromium and WebKit), so it is not a cookie-storage artifact: the bare URL bootstraps fine and the
+same URL with `?s=schedule` does not.
+
+**Blast radius today.** First contact only, and only on a deep link: once the cookie exists the
+query rides along normally. A crew member who hits it can recover by opening the bare show link, so
+the effect is a confusing dead end rather than lost access.
+
+**Worked around, not fixed, in e2e.** `stage-restricted-crew-schedule.spec.ts` bootstraps on the
+bare URL and re-navigates with `?s=schedule`. That documents the limit; it does not close it.
+
+**Fix (when prioritized):** decide whether the bootstrap should preserve the `next` query (probably)
+or strip it and redirect to the canonical show URL, then pin the chosen behavior with a route test
+covering a query-bearing `next`.
+
+**Resolved.** `parseNextPath` now splits the query off before matching `SHOW_NEXT_RE`, which keeps
+its `$` anchor on the path portion. Blast radius was wider than this entry recorded: three of the
+four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links — `?gate=skip` is
+an ordinary first-contact path. The two-step workaround in
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
+fix reds them, which is the end-to-end proof.
