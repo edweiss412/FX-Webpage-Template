@@ -8,6 +8,38 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
+
+### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
+
+**Filed:** 2026-06-28 (cross-model review of PR #179) · **Class:** data fidelity · **Effort:** S · **Resolved:** 2026-08-03
+
+**The gap.** PR #179 threaded `source_anchors` into the FIRST-SEEN onboarding materialization so a
+freshly-onboarded show got correct "In sheet" deep links immediately. The EXISTING-SHOW re-onboard
+path had the same gap and kept it: `stageExistingShowShadow` staged a shadow payload without the
+anchors, `deleteApprovedPending` consumed the `pending_syncs` row in the same transaction, and by
+Phase D the value the scan computed no longer existed anywhere. A re-onboarded show kept whatever
+anchors the last sync-pipeline pass left.
+
+**What shipped, and why it is not what this entry originally prescribed.** The entry called for
+computing anchors pre-lock in `finalize-cas`'s apply path. That was right for PR #179's era and
+stale by the time it was picked up: the 2026-07-01 persist-at-scan rewrite made Phase D SQL-only, so
+an XLSX export there is no longer an option. The anchors ride the shadow payload instead — the same
+channel `use_raw_decisions` already uses, for the same reason. Three edits: a `source_anchors` key in
+`stageExistingShowShadow`'s `jsonb_build_object`, a tolerant `sourceAnchors` field on
+`parseShadowPayloadForApply` (anything unusable degrades to `{}` rather than refusing a shadow over
+a cosmetic deep link), and a never-pass-`{}` spread at the Phase-D `applyStagedCore` call. No
+migration, no new §12.4 code, no UI surface.
+
+**The limit it does NOT close.** Flow B preserves the stored map on ANY empty scan, where the sync
+pipeline would clear on some of them — `pending_syncs.source_anchors` flattens a transient Drive
+failure and a workbook with no recognized regions into the same `{}`, so clearing on that value
+would wipe good anchors on every hiccup during a re-onboard. The consequence is that a preserved map
+can predate the applied revision and still produce a structurally valid deep link to a stale range.
+Documented in full at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md`
+§4.1, with the revision-stamp fix that would detect it filed as
+`BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH`.
+
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
