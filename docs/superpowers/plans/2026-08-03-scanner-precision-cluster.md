@@ -85,7 +85,7 @@ while PASSING the type-aware one:**
 | A-f | `code` resolvable to no literal at all | **reported and fails** — never dropped | **AC-A7** |
 | A-g | `severity: "info"` rather than `"warn"` | both are members of the union (`lib/parser/types.ts:68`) | AC-A1 |
 
-**Item B — the TEN plants P1–P8, P5-live and P5-sole (spec §4.2, §4.2a) ARE the family
+**Item B — the plant set scheduled in Task 2's RED step (spec §4.2, §4.2a) IS the family
 enumeration.** P7/P8 exist because R1 demonstrated the intervening-non-id-heading mutant;
 **P5-live** because R4b demonstrated a widened-default mutant; **P5-sole** because the §4.2a
 re-analysis found nothing pinned that `bodyDefinedIds` has no second production caller.
@@ -243,8 +243,8 @@ uses (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:240-244`), then implem
 (`tests/docs/_ledgerMdast.ts:302`). Union into `definedIds()`. Delete the eight `KNOWN_DANGLING`
 rows.
 
-**Verify.** AC-B1, AC-B2 (**all ten plants**, P5-live AND P5-sole included — each is a prior
-round's regression test, and omitting one is precisely the failure R4b and R5b each caught), AC-B3 (exactly 8 over the live ledgers, not
+**Verify.** AC-B1, AC-B2 (**every plant scheduled in the RED step above** — each is a prior round's
+regression test, and omitting one is precisely the failure R4b, R5b and R6b each caught), AC-B3 (exactly 8 over the live ledgers, not
 11), AC-B4. The guard's
 existing stale-row ratchet is what proves the eight deletions were required rather than optional.
 
