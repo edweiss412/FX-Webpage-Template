@@ -61,6 +61,11 @@ function sitesIn(source: string, file: string) {
   return scanSource(source, file);
 }
 
+/** ONE full-tree walk for the whole file. It reads ~2950 files, so doing it
+ * twice doubled this file's cost inside the serial project, where a neighbour
+ * with a 5s per-test timeout has to share the CPU. */
+const LIVE_USAGE = collectPsqlUsage(REPO_ROOT);
+
 // ── flag-cluster parsing (the -qAtX trap) ───────────────────────────────
 
 // ── psql option grammar (R2 BLOCKING) ───────────────────────────────────
@@ -1530,7 +1535,7 @@ describe("scanBinaryIndirection", () => {
 // ── LIVE: the whole tree ────────────────────────────────────────────────
 
 describe("live tree scan", () => {
-  const usage = collectPsqlUsage(REPO_ROOT);
+  const usage = LIVE_USAGE;
 
   test("the walk is not vacuous — it finds the known psql surface", () => {
     expect(usage.filesScanned).toBeGreaterThan(500);
@@ -1936,7 +1941,7 @@ describe("R20 escaping mutants", () => {
 describe("R21 escaping mutants", () => {
   // `__generated__` is TRACKED source here: lib/admin/__generated__ is imported
   // at runtime. Skipping it contradicted the fail-by-default contract.
-  const generatedUsage = collectPsqlUsage(REPO_ROOT);
+  const generatedUsage = LIVE_USAGE;
 
   test.each(["lib/admin/__generated__", "lib/messages/__generated__", "supabase/__generated__"])(
     "an unprotected call under %s is a violation",
