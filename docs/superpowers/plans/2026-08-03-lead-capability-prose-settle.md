@@ -74,7 +74,8 @@ Every hit is dispositioned. After Task 5 the master spec's hit is gone and the o
 - **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b). **Wiring, verified: no new entry is required.** `vitest.projects.ts:92` already globs `tests/visibility/**/*.test.{ts,tsx}`, so the file is collected by `pnpm test` on creation, and `.github/workflows/unit-suite.yml` runs on `pull_request` and on `push` to `main` with no path filter, so it is merge-gating from its first commit. No `testMatch` addition, no workflow edit, no path-filter change.
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
-- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). No file outside the three census files is touched.
+- - **CREATES** `tests/docs/_metaCapabilityProseClaims.test.ts` — the prose-claim pins that give the documentation-only tasks a genuine RED (see §4 Tasks 3, 4, 5). Same wiring answer as the parity guard: `vitest.projects.ts` globs `tests/docs/**`, and `unit-suite.yml` has no path filter.
+- **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, only ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and the two test registries are touched.
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
 ## 2. Mutation-family closure (mandatory for guard work)
@@ -479,7 +480,36 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
 
 ### Task 3 — correct the mechanism claim (instance C)
 
-`lib/visibility/capabilityTransitions.ts:47-52` currently promises a TypeScript error that does not exist. Replace with what Task 2 actually built:
+**RED.** Create `tests/docs/_metaCapabilityProseClaims.test.ts` with the first pin. The claim under repair is textual, so the pin is textual — but it is a *regression pin on a sentence that was false*, which is exactly the thing worth holding:
+
+```ts
+/**
+ * Prose pins for the capability-visibility contract surface. Each case here
+ * exists because the sentence it pins was FALSE and cost a review round.
+ * These are text assertions by necessity (the claims are prose), so each
+ * one names the specific falsehood it prevents rather than pinning wording
+ * for its own sake.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+
+const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+
+describe("lib/visibility/capabilityTransitions.ts prose", () => {
+  test("does not promise a TypeScript error the module cannot produce", () => {
+    // Instance C: the header claimed a predicate addition surfaces "as a
+    // TypeScript error if the matrix is incomplete". Probed false: the union
+    // had no link to the matrix. The real mechanism is a failing test.
+    const src = read("lib/visibility/capabilityTransitions.ts");
+    expect(src).not.toMatch(/TypeScript error if the matrix is incomplete/);
+  });
+});
+```
+
+Run it: RED, because the sentence is still there.
+
+**GREEN.** Replace `lib/visibility/capabilityTransitions.ts:47-52` with a description of the mechanism Task 2 actually built:
 
 ```
 /**
@@ -492,18 +522,31 @@ The exported type is byte-identical in effect; `tests/visibility/transportTransi
  */
 ```
 
-No test changes. Task 2's guard is the thing this comment now describes; the claim is verified by the synthetic-6 case already shipped.
+Re-run: GREEN. The claim is now verified by the synthetic-6 case Task 2 already shipped.
 
 **Commit:** `docs(visibility): describe the completeness guard that exists, not one that does not`
 
 ### Task 4 — remove the drifted counts (instances D and E)
 
-Two edits in `lib/visibility/capabilityTransitions.ts`:
+**RED.** Add the second pin to `tests/docs/_metaCapabilityProseClaims.test.ts` (AC-11a):
 
-- `lib/visibility/capabilityTransitions.ts:6-7` — the sentence beginning `Five derived predicates gate the five gated tiles` (which then names four, and points at `scopeTiles.ts`) becomes a sentence naming `CAPABILITY_PREDICATES` and the `GatedTile` union instead of counting either.
+```ts
+test("carries no gated-tile count that can drift from the GatedTile union", () => {
+  // Instances D and E: "the five gated tiles", naming four, twice. The fix
+  // deletes the count rather than correcting it, because a number that no
+  // longer exists cannot drift; this pin forbids the count words returning.
+  const src = read("lib/visibility/capabilityTransitions.ts");
+  expect(src).not.toMatch(/five gated tiles/i);
+  expect(src).not.toMatch(/Five derived predicates/i);
+});
+```
+
+RED on both matches.
+
+**GREEN.** Two edits in `lib/visibility/capabilityTransitions.ts`:
+
+- `lib/visibility/capabilityTransitions.ts:6-7` — the sentence beginning `Five derived predicates gate the five gated tiles` (which then names four, and points at `scopeTiles.ts`) becomes one that names `CAPABILITY_PREDICATES` and the `GatedTile` union instead of counting either.
 - `lib/visibility/capabilityTransitions.ts:56` — "The five gated tiles whose visibility this matrix covers." becomes "The gated tiles whose visibility this matrix covers."
-
-Counts are deleted rather than corrected to four: a number that no longer exists cannot drift, and the authoritative counts are one line away in the code.
 
 **Commit:** `docs(visibility): drop the drifted gated-tile counts`
 
@@ -522,6 +565,20 @@ with:
 ```
 
 Constraints: the row is a single markdown table cell, so the replacement must contain no newline; the file's line count must not change. **Never run prettier on the master spec** (the condensed-alert-copy plan records the same constraint at `docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:409`).
+
+**RED first.** Add the third pin to `tests/docs/_metaCapabilityProseClaims.test.ts` (AC-8):
+
+```ts
+test("master spec MI-9 claims no admin grant for any role flag", () => {
+  // Instance B: MI-9 asserted "LEAD additionally grants the admin/ops
+  // surface". Probed false: is_admin() never reads role_flags, and it
+  // inverts §4.4, where admin implies LEAD-equivalence, not the reverse.
+  const src = read("docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md");
+  expect(src).not.toMatch(/admin\/ops/);
+});
+```
+
+RED until the clause is replaced. Then apply the edit above and re-run: GREEN.
 
 Verification in the same commit:
 
@@ -545,8 +602,10 @@ Verify: `pnpm vitest run tests/docs/` — `_metaLedgerReferentialIntegrity` reso
 
 ### Task 7 — ledger graduation
 
-- Move the `BL-LEAD-CAPABILITY-PROSE-STALE` section from `BACKLOG.md` into `BACKLOG-archive.md` under `## BL-LEAD-CAPABILITY-PROSE-STALE — RESOLVED (2026-08-03, docs/settle-lead-capability-prose)`, preserving the entry body and **dropping the `**Status:** IN PROGRESS · **Branch:** …` marker** — `tests/docs/_metaLedgerInProgress.test.ts` forbids an archive holding in-flight work.
-- Append `{ id: "BL-LEAD-CAPABILITY-PROSE-STALE", provenance: "docs/settle-lead-capability-prose" }` to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts:90`, with the leading comment block the neighbouring rows use.
+**RED first.** Append the `BACKLOG_GRADUATED` row BEFORE moving the entry: `tests/docs/_metaDeferralLedgerGraduation.test.ts` then asserts a graduation whose archive section does not yet exist, and fails. That is the natural failing test for this task, so no synthetic pin is needed.
+
+- Append `{ id: "BL-LEAD-CAPABILITY-PROSE-STALE", provenance: "docs/settle-lead-capability-prose" }` to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts:90`, with the leading comment block the neighbouring rows use. Run: RED.
+- Then move the `BL-LEAD-CAPABILITY-PROSE-STALE` section from `BACKLOG.md` into `BACKLOG-archive.md` under `## BL-LEAD-CAPABILITY-PROSE-STALE — RESOLVED (2026-08-03, docs/settle-lead-capability-prose)`, preserving the entry body and **dropping the `**Status:** IN PROGRESS · **Branch:** …` marker** — `tests/docs/_metaLedgerInProgress.test.ts` forbids an archive holding in-flight work.
 - Prepend this pass to `BACKLOG.md`'s "Last reconciled" header line, demoting the current text behind `Prior:` per the file's own convention.
 
 Verify: `pnpm vitest run tests/docs/`.
@@ -565,7 +624,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3; Task 2 → AC-4, AC-5, AC-6; Task 3 → AC-5; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4 (the reflection assertion ships with the guard); Task 2 → AC-5, AC-6; Task 3 → AC-5a; Task 4 → AC-11a; Task 5 → AC-8; Task 6 → AC-11; Task 7 → AC-9; Task 8 → AC-7, AC-10. Every task now owns at least one criterion, and no criterion is owned by a task that cannot fail it.
 
 ## 12. Close-out
 
