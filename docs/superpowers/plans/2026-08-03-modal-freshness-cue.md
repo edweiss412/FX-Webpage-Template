@@ -196,7 +196,7 @@ The alternating value (spec §4.7) is computed in `PublishedReviewModal` and pas
 
 **Touches:** `components/admin/showpage/PublishedReviewModal.tsx`; **creates** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx (new)`.
 
-Implements spec §4.2 verbatim: the memoised signature, the FOUR-branch render-phase adjustment (including the mount-baseline branch that keeps a stale prefetched open from flashing everything that changed while the modal was shut), the per-section arming map with its per-batch timers registered in a ref and cleared only on unmount, the per-section attribute value flip, and the §4.6 announcement region as the first child of the shell body slot with `key="freshness-announce"` and its inner text node keyed by batch.
+Implements spec §4.2 verbatim: the memoised signature, the FOUR-branch render-phase adjustment (including the mount-baseline branch that keeps a stale prefetched open from flashing everything that changed while the modal was shut), the per-section arming map with its per-batch timers registered in a ref and cleared only on unmount, the per-section attribute value flip, and the §4.6 announcement region as a key-stable sibling of `StatusStrip` in the shell's `subHeader` slot with `key="freshness-announce"`, its inner text node keyed by batch.
 
 Three details are easy to get subtly wrong and each has a test aimed at it:
 

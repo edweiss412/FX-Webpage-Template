@@ -333,7 +333,9 @@ The reduced-motion block resolves `animation-name` to `none` AND pins the outlin
 
 A branch-stable sr-only region, per `DESIGN.md:479`. The REGION element is always mounted with a stable key and is never conditionally rendered and never `display: contents`, because a region that mounts at the same moment its text appears is unreliably announced.
 
-Placement: the FIRST child of the shell's body slot in `PublishedReviewModal`, inside the dialog subtree and above `ShowReviewSurface`, with `key="freshness-announce"`. It is a `<span>` rather than a `<div>` so it cannot participate in the body's flex column.
+Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:907-909`), with `key="freshness-announce"`.
+
+NOT the body slot, which was the first draft and is wrong. `ReviewModalShell` documents a contract that its `children` mount directly in the panel's flex column with no wrapper, so that the consumer's surface root IS the body element and owns the scroller (`components/admin/review/ReviewModalShell.tsx:20-21`, `ReviewModalShell.tsx:688-696`). `ShowReviewSurface` is that sole child. A second body child would contradict the contract for no gain. The `subHeader` band is inside the same dialog subtree, so the live region is announced identically, and it is where a status readout about this surface already lives.
 
 **The text node is keyed by batch, and that is load-bearing.** Round 1 found the obvious implementation silent on a repeat: Crew changes at T, Crew changes again at T plus 400ms, and React reconciles the identical string `Updated: Crew.` onto the same text node. No DOM mutation, no announcement, so the visual restarts while the screen reader hears nothing. Keying the inner node on the batch forces a remove-and-insert inside the stable region, which is a childList mutation and re-announces:
 
