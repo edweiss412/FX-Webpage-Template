@@ -79,7 +79,11 @@ describe("claimed-row pending affordance", () => {
     // to regress.
     expect(lock?.getAttribute("aria-hidden")).toBe("true");
     expect(lock?.getAttribute("aria-label")).toBeNull();
-    expect(row.querySelector(".sr-only")?.textContent ?? "").not.toBe("");
+    const hint = row.querySelector(".sr-only");
+    expect(hint?.textContent ?? "").not.toBe("");
+    // SIBLING, not descendant: nested inside the aria-hidden glyph it is
+    // hidden from AT too, and a bare querySelector cannot tell the difference.
+    expect(lock?.contains(hint ?? null)).toBe(false);
 
     fireEvent.click(row);
 
