@@ -20,7 +20,7 @@ Only one branch uses it:
 - **First-seen (Flow A)** spreads it into the apply core — `app/api/admin/onboarding/finalize/route.ts:1280`.
 - **Existing-show (Flow B)** drops it. `stageExistingShowShadow` (`app/api/admin/onboarding/finalize/route.ts:602`) writes a shadow payload that carries `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, and `use_raw_decisions` — but not the anchors. `deleteApprovedPending` (`app/api/admin/onboarding/finalize/route.ts:689`) then consumes the `pending_syncs` row in the same Phase-B transaction, so by Phase D the value no longer exists anywhere. `applyShadow` (`app/api/admin/onboarding/finalize-cas/route.ts:410`) builds its `applyStagedCore` args (`app/api/admin/onboarding/finalize-cas/route.ts:546`) with no `sourceAnchors` key.
 
-Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded — the cron path repopulates on the next sheet edit (`lib/sync/runScheduledCronSync.ts:1527`), and a show that never had anchors links safely at `#gid=0` meanwhile — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1 — this change makes it strictly rarer and does not claim to eliminate it.
+Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded: a show that never had anchors links safely at `#gid=0`, and the cron path is the other writer that can refresh them — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1; this change makes it rarer and does not claim to eliminate it, and §4.1 is explicit that no recovery bound exists.
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -105,19 +105,24 @@ Byte-for-byte the same guard as Flow A (`app/api/admin/onboarding/finalize/route
 | Payload value is a legacy double-encoded JSON string of an object | that string | decoded map | yes | replaced with the decoded map |
 | Map present but an individual entry is malformed | the map | the map | yes | stored as-is. Falls back to `#gid=0` only if the entry's `title` is not allowlisted or its `gid` is not a number; otherwise it produces a link (§4.1). No producer emits such an entry |
 
-Every degraded row lands on "unchanged," never on "wiped": the change can only replace anchors with the freshly scanned ones or leave the prior ones alone. "Unchanged" is the conservative outcome, not an unconditionally correct one. §4.1 enumerates the two ways a preserved or stored map can still yield a wrong link.
+No row in this table is ever WIPED — a value that cannot be used omits the arg, and the coalesce keeps what is stored. That is the only guarantee this change makes. It is not a guarantee of correctness: rows 1, 7 and 8 replace the stored map with whatever the payload holds, and rows 2 through 6 keep a map that may already be wrong. §4.1 is the single place that states what is and is not guaranteed; every other section defers to it rather than restating it.
 
 ### 4.1 Documented limits
 
-**Limit 1 — a preserved map can predate the applied revision.** A scan yields `{}` for four
-distinct reasons, only two of which are faults:
+**What this change guarantees, in full:** an existing-show re-onboard whose scan produced a
+non-empty anchor map writes that map to `shows.source_anchors`; every other case leaves the stored
+map untouched. Nothing here guarantees the stored map is CURRENT. Two limits follow, and neither is
+introduced by this change.
 
-| Cause | Fault? | Site |
+**Limit 1 — a preserved map can predate the applied revision.** A scan yields `{}` for four
+distinct reasons:
+
+| Cause | Character | Site |
 | --- | --- | --- |
-| The tab-gid fetch failed | transient | `lib/sync/runOnboardingScan.ts:1353` |
-| The XLSX bytes are absent | transient | the `if (bytes)` guard at `lib/sync/runOnboardingScan.ts:1336` leaves the initialized `{}` from `lib/sync/runOnboardingScan.ts:1332` in place |
-| `extractSourceAnchors` threw | fault, non-transient if the workbook shape defeats it | `lib/sync/runOnboardingScan.ts:1348` |
-| Extraction SUCCEEDED and found no recognized region | not a fault | `lib/drive/sourceAnchors.ts:188`; the empty-result cases are pinned at `tests/onboarding/prepareSourceAnchorsRegion.test.ts:92` |
+| The tab-gid fetch failed | fault, transient | `lib/sync/runOnboardingScan.ts:1353` |
+| The XLSX bytes are absent | fault, transient | the `if (bytes)` guard at `lib/sync/runOnboardingScan.ts:1336` leaves the initialized `{}` from `lib/sync/runOnboardingScan.ts:1332` in place |
+| `extractSourceAnchors` threw | fault, NOT transient if the workbook shape is what defeats it | `lib/sync/runOnboardingScan.ts:1348` |
+| Extraction SUCCEEDED and recognized no region | not a fault at all | `lib/drive/sourceAnchors.ts:188`; per-region omission on a successful extraction is pinned at `tests/drive/sourceAnchors.test.ts:37` and `tests/drive/sourceAnchors.test.ts:43`, and a workbook where every region omits yields the whole-map `{}` |
 
 In every one of them the apply advances `shows.last_seen_modified_time` while the coalesce keeps the
 previous anchor map (`lib/sync/runScheduledCronSync.ts:1524` and
@@ -126,19 +131,24 @@ anchor is still structurally valid — allowlisted title, numeric gid — so
 `lib/sheet-links/buildSheetDeepLink.ts:22` accepts it and the "In sheet" link opens the old range
 rather than falling back to `#gid=0`.
 
-The last row matters most: a sheet whose recognized regions were removed or renamed scans
-SUCCESSFULLY to `{}`, so it is not self-limiting the way a transient fault is. It persists until a
-later scan of that sheet produces a non-empty map.
+**There is no recovery bound, and this spec does not claim one.** Recovery requires a later scan of
+that sheet that produces a NON-EMPTY map — not merely a later edit. An edit is necessary but not
+sufficient: below the watermark the cron path skips the file entirely
+(`lib/sync/perFileProcessor.ts:337`), and above it the same four causes can recur. The bottom two
+rows are the ones with no self-limiting behavior: a workbook whose recognized regions were renamed
+or removed scans cleanly to `{}` on every subsequent pass, so its R1 anchors persist indefinitely.
+Wherever an earlier draft of this spec said stale anchors are "repopulated on the next sheet edit"
+or "covered by the cron refresh," this paragraph is what it should have said.
 
 This is the shipped system's ratified posture, not something this change introduces. The cron path
 deliberately emits `undefined` rather than `{}` on a genuine sheets-list failure precisely so the
 coalesce preserves the stored anchors (`lib/sync/runScheduledCronSync.ts:3073`, and the audit
 idx12/idx63 comment above it). Flow A already behaves this way
 (`app/api/admin/onboarding/finalize/route.ts:1280`). Flow B today writes no anchors at all, so
-before this change every existing-show re-onboard was permanently in the "retained older anchors"
-state; after it, anchors are refreshed on every re-onboard whose scan produced a non-empty map, and retained on the rest.
+before this change EVERY existing-show re-onboard left the stored anchors untouched; after it, the
+re-onboards whose scan produced a non-empty map refresh them.
 
-The alternative — forwarding a defined `{}` so a failed scan clears the map — trades a stale range
+The alternative — forwarding a defined `{}` so an empty scan clears the map — trades a stale range
 for a guaranteed loss of every good anchor on every transient Drive hiccup, on shows whose sheets
 did not change. That is why preserve-over-wipe is the ratified choice at all three call sites, and
 this spec does not reopen it.
@@ -169,7 +179,7 @@ anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and 
 | Wizard first-seen finalize, Flow A (`app/api/admin/onboarding/finalize/route.ts:1280`) | Yes | Unchanged |
 | Wizard existing-show re-onboard, Flow B (`app/api/admin/onboarding/finalize-cas/route.ts:546`) | No | **Yes — this spec** |
 | Wizard existing-show UNCHECKED (spec §7.4 D10 no-op, `app/api/admin/onboarding/finalize/route.ts:1178`) | No | Unchanged — no shadow is staged, the live show is deliberately untouched |
-| Live dashboard staged-apply (`lib/sync/applyStaged.ts`) | No | Unchanged — out of scope; that path never carried anchors and the cron refresh covers it |
+| Live dashboard staged-apply (`lib/sync/applyStaged.ts`) | No | Unchanged — out of scope; that path never carried anchors, and the cron path remains its only writer (§4.1 bounds what that does and does not guarantee) |
 | Validation backfill script (`scripts/backfill-validation-source-anchors.ts:77`) | Yes, under its own `pg_advisory_xact_lock` (`scripts/backfill-validation-source-anchors.ts:75`) | Unchanged — an operator-run one-shot, not a request path; it skips writing when extraction produces zero anchors, so it cannot wipe either |
 
 ## 6. Layer completeness matrix
@@ -236,7 +246,7 @@ Each task is failing test → minimal implementation → passing test → commit
 
 ## 10. Out of scope
 
-- **Backfilling existing shows.** Shows whose anchors are stale today are refreshed by the next cron sync of their sheet. No backfill job.
-- **The live dashboard staged-apply path** (`lib/sync/applyStaged.ts`). It has never carried anchors; adding them there is a separate change with its own review, and the cron path already covers those shows.
+- **Backfilling existing shows.** No backfill job. A stale show is refreshed only by a later scan of its sheet that produces a non-empty map, which §4.1 is explicit is not guaranteed to happen.
+- **The live dashboard staged-apply path** (`lib/sync/applyStaged.ts`). It has never carried anchors; adding them there is a separate change with its own review. Those shows keep the cron path as their only anchor writer, subject to §4.1.
 - **Per-entry anchor validation** anywhere in the system (§1.1).
 - **The `#gid=0` fallback behavior** (`lib/sheet-links/buildSheetDeepLink.ts:22`) — unchanged. It is what makes a show with NO anchors link safely; it is not what makes a stale or malformed anchor safe, and §4.1 says so.
