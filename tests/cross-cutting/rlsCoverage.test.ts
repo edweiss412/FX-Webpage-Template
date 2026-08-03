@@ -96,8 +96,13 @@ interface PolicyFacts {
   cmdAll: boolean;
 }
 
-function policyFacts(table: string): PolicyFacts {
+function policyFacts(table: string, preDdl = ""): PolicyFacts {
+  // `preDdl` runs in the same rolled-back transaction. Mutants pass it so they
+  // exercise THIS acquisition — a duplicate copy meant weakening production
+  // acquisition left the mutants green (diff-R3 finding 1).
   const out = runPsql(`
+    begin;
+    ${preDdl}
     select
       (select c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where n.nspname = 'public' and c.relname = '${table}')
@@ -110,6 +115,7 @@ function policyFacts(table: string): PolicyFacts {
             where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
       || '|' || coalesce((select bool_and(cmd = 'ALL') from pg_policies
             where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false);
+    rollback;
   `);
   const parts = out.split("|");
   return {
@@ -150,6 +156,16 @@ function postureFailures(table: string, posture: RlsPosture, facts: PolicyFacts)
 
 /** Tables whose behavioral SELECT cell degraded this run, for the global floor. */
 const degraded: string[] = [];
+
+/**
+ * The anti-vacuity floor. ONE implementation — the real test and the mutant
+ * both call it, so weakening `<` to `<=` fails the mutant too.
+ */
+function floorFailures(degradedCells: readonly string[], totalCells: number): string[] {
+  return degradedCells.length < totalCells
+    ? []
+    : [`every-cell-degraded:${degradedCells.length}/${totalCells}`];
+}
 
 /** Class-(c) write cells that degraded this run. */
 const degradedWrites: string[] = [];
@@ -355,37 +371,8 @@ describe("class-(c) behavioral write cells", () => {
 // =============================================================================
 
 describe("RLS coverage mutants", () => {
-  /** Apply DDL in a rolled-back transaction and read the facts back through production policyFacts-shaped SQL. */
-  function factsUnderMutation(table: string, ddl: string): PolicyFacts {
-    const out = runPsql(`
-      begin;
-      ${ddl}
-      select (select c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
-                where n.nspname = 'public' and c.relname = '${table}')
-        || '|' || (select count(*) from pg_policies where schemaname = 'public' and tablename = '${table}')
-        || '|' || coalesce((select bool_and(qual ilike '%is_admin%') from pg_policies
-              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
-        || '|' || coalesce((select bool_and(with_check ilike '%is_admin%') from pg_policies
-              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
-        || '|' || coalesce((select bool_and(qual = with_check) from pg_policies
-              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false)
-        || '|' || coalesce((select bool_and(cmd = 'ALL') from pg_policies
-              where schemaname = 'public' and tablename = '${table}' and policyname = 'admin_only'), false);
-      rollback;
-    `);
-    const parts = out.split("|");
-    return {
-      rlsEnabled: parts[0] === "true",
-      policyCount: Number(parts[1] ?? "0"),
-      qualIsAdmin: parts[2] === "true",
-      withCheckIsAdmin: parts[3] === "true",
-      qualEqualsWithCheck: parts[4] === "true",
-      cmdAll: parts[5] === "true",
-    };
-  }
-
   test("disabling RLS is caught by the guard — pg_policies alone cannot see it", () => {
-    const facts = factsUnderMutation(
+    const facts = policyFacts(
       "recovery_drift_cooldowns",
       "alter table public.recovery_drift_cooldowns disable row level security;",
     );
@@ -400,7 +387,7 @@ describe("RLS coverage mutants", () => {
   });
 
   test("a second permissive policy is caught by the guard's policy-count arm", () => {
-    const facts = factsUnderMutation(
+    const facts = policyFacts(
       "recovery_drift_cooldowns",
       "create policy zz_probe_widen on public.recovery_drift_cooldowns for select using (true);",
     );
@@ -411,7 +398,7 @@ describe("RLS coverage mutants", () => {
   });
 
   test("a deny_all table that grows a policy is caught", () => {
-    const facts = factsUnderMutation(
+    const facts = policyFacts(
       "email_deliveries",
       "create policy zz_probe on public.email_deliveries for select using (true);",
     );
@@ -432,11 +419,13 @@ describe("RLS coverage mutants", () => {
     `);
     expect(out).toBe("count=0");
 
+    // Route the all-degraded case through the PRODUCTION floor, so weakening
+    // `<` to `<=` fails here too.
     const behavioral = ADMIN_TABLES.filter((t) => RLS_POSTURE[t] === "admin_only");
-    const allDegraded = [...behavioral];
-    expect(
-      allDegraded.length < behavioral.length,
-      "the global floor must reject a run where every behavioral cell degraded",
-    ).toBe(false);
+    expect(floorFailures([...behavioral], behavioral.length)).toEqual([
+      `every-cell-degraded:${behavioral.length}/${behavioral.length}`,
+    ]);
+    // ...and one real degradation must still be tolerated.
+    expect(floorFailures(behavioral.slice(1), behavioral.length)).toEqual([]);
   });
 });

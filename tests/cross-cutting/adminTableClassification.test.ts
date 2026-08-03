@@ -204,7 +204,7 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   _allowed_watermark_columns: {
     posture: "infra",
     reason:
-      "watermark-column allowlist read by the X.4 audit; RLS on, zero grants to anon/authenticated (supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql)",
+      "watermark-column allowlist read by the X.4 audit; RLS on, zero grants to anon/authenticated (supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql:3)",
   },
   admin_alert_reads: {
     posture: "infra",
@@ -224,32 +224,32 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   agenda_extract_leases: {
     posture: "infra",
     reason:
-      "agenda-extraction lease ledger; RLS off by design, all anon/authenticated privileges revoked so the grant layer is the gate (supabase/migrations/20260629000001_agenda_extract_leases.sql)",
+      "agenda-extraction lease ledger; RLS off by design, all anon/authenticated privileges revoked so the grant layer is the gate (supabase/migrations/20260629000001_agenda_extract_leases.sql:2)",
   },
   app_events: {
     posture: "infra",
     reason:
-      "append-only app event stream; service-role writer only (supabase/migrations/20260501001000_internal_and_admin.sql)",
+      "append-only app event stream; service-role writer only (supabase/migrations/20260629000002_app_events.sql:3)",
   },
   data_migration_markers: {
     posture: "infra",
     reason:
-      "one-shot migration bookkeeping; service-role only (supabase/migrations/20260501001000_internal_and_admin.sql)",
+      "one-shot migration bookkeeping; service-role only (supabase/migrations/20260611000001_onboarding_fixups_remediation.sql:14)",
   },
   destructive_reset_gate: {
     posture: "infra",
     reason:
-      "validation destructive-reset interlock, read through assert_destructive_reset_enabled (supabase/migrations/20260527204241_validation_state.sql)",
+      "validation destructive-reset interlock, read through assert_destructive_reset_enabled (supabase/migrations/20260622000001_validation_reset_rpc.sql:6)",
   },
   drive_watch_reconcile_state: {
     posture: "infra",
     reason:
-      "Drive watch reconciliation cursor; cron writer only (supabase/migrations/20260501001000_internal_and_admin.sql)",
+      "Drive watch reconciliation cursor; cron writer only (supabase/migrations/20260727000000_drive_watch_reconcile_state.sql:9)",
   },
   geocode_cache: {
     posture: "infra",
     reason:
-      "venue geocode cache; no admin data (supabase/migrations/20260501001000_internal_and_admin.sql)",
+      "venue geocode cache; no admin data (supabase/migrations/20260627000001_geocode_cache.sql:16)",
   },
   ignored_warnings: {
     posture: "infra",
@@ -259,7 +259,7 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   onboarding_rebuild_attempts: {
     posture: "infra",
     reason:
-      "wizard rebuild attempt ledger; RLS off by design, all anon/authenticated privileges revoked (supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql)",
+      "wizard rebuild attempt ledger; RLS off by design, all anon/authenticated privileges revoked (supabase/migrations/20260718000000_onboarding_rebuild_attempts.sql:4)",
   },
   role_token_mappings: {
     posture: "infra",
@@ -269,7 +269,7 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   show_change_log: {
     posture: "infra",
     reason:
-      "per-show change feed; service-role sync writer only (supabase/migrations/20260601000000_b2_show_lifecycle.sql)",
+      "per-show change feed; service-role sync writer only (supabase/migrations/20260608000001_show_change_log.sql:7)",
   },
   show_share_tokens: {
     posture: "infra",
@@ -279,7 +279,7 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   sync_holds: {
     posture: "infra",
     reason:
-      "per-show sync hold ledger; service-role only (supabase/migrations/20260601000000_b2_show_lifecycle.sql)",
+      "per-show sync hold ledger; service-role only (supabase/migrations/20260608000000_sync_holds.sql:6)",
   },
 };
 
