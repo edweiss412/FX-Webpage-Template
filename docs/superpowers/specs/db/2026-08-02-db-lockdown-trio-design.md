@@ -47,6 +47,8 @@ Shipped in this cluster:
 | The 8 new registry rows are `selectAnon: true` / `selectAuthenticated: true`. SELECT is retained by design and the original grant covered both roles. | R2 finding 1; §4.2; the `true`/`true` posture of every comparable REVOKE-only row in `tests/db/postgrest-dml-lockdown.test.ts:147-511`. |
 | The generator fails loud via a **declared-count tripwire**, NOT via "throw on any unresolved name". The latter fails on today's corpus because 4 backticked prose identifiers in §4.3 are not tables. | R2 finding 2 probe; §4.5. |
 | AC-2.5's four-verb contract is satisfied by the UNION of the RLS test and the lockdown test; `42501` is literally AC-2.5's stated pass condition for the write verbs. No spec amendment needed. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792` ("permission-denied / zero-affected-rows"); §6.3. |
+| `scripts/generate-traceability.ts` is NOT touched. Its extractor omits the drop-list intentionally — it tracks the prose 23 against the plan's 23-name `ADMIN_BOOTSTRAP_NAMES`. Unifying it turns the traceability gate red. R3 finding 2 is REVERSED. | `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:765`; `scripts/generate-traceability.ts:381`; `pnpm gen:traceability` green. |
+| Keeping the generator does NOT reopen the R1-R4 parser vector. Direction C catches a missing admin table by its existence as a relation, independent of how the parser failed. The parser is non-load-bearing, not trusted. | §4.5 directions A/B/C. |
 | The generator STAYS. The guarantee moves to a full public-schema classification registry reconciled against the catalog (direction C: every live table must be classified). Parsing §4.3 is no longer load-bearing. | R1-R4 vector history; §4.5. |
 | The behavioral witness is a PAIRED assertion (`admin_count > 0 AND nonadmin_count = 0`), never a seed. No admin table is mutated, so invariant 2 is not engaged. | R3 finding 3 + R4 finding 4; §6.2, §8. |
 | `email_deliveries`' SELECT cell is grant-layer, not RLS — it revokes ALL, so `authenticated` never reaches RLS. | R4 finding 2; `supabase/migrations/20260602000004_b3_email_deliveries.sql:21`. |
@@ -233,7 +235,9 @@ Direction C is what the previous four attempts were all reaching for. It does no
 
 **Retained from earlier rounds, as cheap defense-in-depth, not as the guarantee:** the count tripwire against §4.3's own declared counts (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641`, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`) still runs, because it costs one integer comparison and localizes a §4.3 edit to the moment it happens. If it disagrees with directions A-C, the catalog wins.
 
-`scripts/generate-traceability.ts:182-192`'s duplicate extractor (R3 finding 2) is still deleted and replaced with an import — that was a real duplication defect independent of the parsing question, and removing it does not touch the generator's wiring.
+**R3 finding 2 is REVERSED — `scripts/generate-traceability.ts` is not touched at all.** R3 flagged its `extractAdminTablesFromSpec` as a duplicate carrying the same defects "and it does not even apply `removedByPickerPivot`". Probing that claim (which I should have done before accepting it) shows the omission is **intentional and load-bearing**: traceability compares the spec's set against the plan's `ADMIN_BOOTSTRAP_NAMES` at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:765`, which is deliberately the **23-name prose baseline** — it lists all four M11.5-dropped tables. Substituting the 19-entry `ADMIN_TABLES` would emit four `-extra_in_ac25` findings at `scripts/generate-traceability.ts:381` and turn the traceability gate red. `pnpm gen:traceability` is green today.
+
+The two extractors therefore serve **different contracts** — one tracks the live 19, the other the prose 23 — and their difference is the contract, not a defect. Fenced in both directions so neither side relitigates: do not unify them, and do not add `removedByPickerPivot` to the traceability copy.
 
 **Mutation-family closure set**, pinned by the cross-cutting test: (i) a live table absent from the registry (expect fail, direction C); (ii) a table classified `admin_only` but missing from `ADMIN_TABLES` (expect fail, direction B); (iii) an `ADMIN_TABLES` entry naming no live relation (expect fail, direction A); (iv) an `ADMIN_TABLES` entry classified `crew_readable` (expect fail, direction A); (v) count declarations disagreeing (expect fail, tripwire); (vi) the current real repo (expect green, 41 classified, 19 admin). The R1-R4 grammar families are **retired as irrelevant** — direction C catches their outcome without modelling their cause. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
@@ -339,10 +343,10 @@ Adding the three write verbs to the relocated RLS test would assert `42501` whil
 
 | Table class | SELECT | INSERT | UPDATE / DELETE |
 | --- | --- | --- | --- |
-| REVOKEd, SELECT retained (16 after this cluster) | behavioral, RLS test (paired witness) | grant-layer `42501` | grant-layer `42501` |
+| REVOKEd, SELECT retained (16 after this cluster) | behavioral **when rows exist**, else declared `unavailable — no rows` (§6.2) | grant-layer `42501` | grant-layer `42501` |
 | REVOKEd ALL — `email_deliveries` only | **grant-layer `42501`** — `authenticated` has no SELECT | grant-layer `42501` | grant-layer `42501` |
-| class (c) — `admin_alerts` | behavioral, RLS test | **behavioral — new here** | **behavioral — new here** |
-| class (c) — `app_settings` | behavioral, RLS test | **structurally unavailable** — see below | **behavioral — new here** |
+| class (c) — `admin_alerts` | behavioral **when rows exist** | **behavioral when rows exist — new here** | **behavioral when rows exist — new here** |
+| class (c) — `app_settings` | behavioral (singleton row always exists) | **structurally unavailable** — see below | **behavioral — new here** (singleton row always exists) |
 
 The genuine residual AC-2.5 gap is exactly the two class-(c) tables: the grant remains, so RLS really is their only write gate, and today they have structural coverage only. The relocated test adds behavioral write cells **for them**, dodging the v1 false-pass by targeting rows that already validate: `UPDATE`/`DELETE` against an existing row under a non-admin session must affect **zero rows**, and no NOT NULL or CHECK constraint can fire on a row that is already valid.
 
@@ -350,6 +354,8 @@ Two cells cannot be produced as stated, and the spec says so rather than claimin
 
 - **`email_deliveries` SELECT is grant-layer, not RLS** (R4 finding 2). `supabase/migrations/20260602000004_b3_email_deliveries.sql:21` revokes **ALL** from `anon, authenticated`, so a non-admin SELECT is rejected before its zero-policy RLS posture is ever reached — the paired witness is impossible, and `tests/db/postgrest-dml-lockdown.test.ts:292` already records `selectAnon: false` / `selectAuthenticated: false`. AC-2.5's SELECT cell is satisfied for it at the grant layer, which is strictly stronger than "zero rows".
 - **`app_settings` INSERT is structurally unavailable** (R4 finding 3). It is a pre-seeded singleton: `id text primary key default 'default'` with `constraint app_settings_singleton check (id = 'default')` and the row already inserted (`supabase/migrations/20260501001000_internal_and_admin.sql:233`). A non-admin INSERT can only ever raise a duplicate-key error or affect zero rows with conflict suppression — identically whether RLS is enabled or disabled — so the cell would pass under an `ALTER TABLE … DISABLE ROW LEVEL SECURITY` mutant and proves nothing. Its INSERT coverage is the `relrowsecurity` and policy-count assertions plus the singleton CHECK itself. `admin_alerts`, which is not a singleton, does get a real behavioral INSERT cell.
+
+**Row-dependence is a property of the matrix, not a footnote.** Every cell marked "behavioral when rows exist" degrades to `unavailable — no rows` on an empty table and is reported as such rather than passing (§6.2). Exhaustively, the row-dependent cells are: SELECT for any empty member of the 16-table SELECT-retaining class, and `admin_alerts`' SELECT/UPDATE/DELETE. The cells that are **not** row-dependent are `app_settings`' SELECT/UPDATE/DELETE (pre-seeded singleton, always present), `app_settings`' INSERT and `email_deliveries`' SELECT (both declared unavailable for structural reasons), and every grant-layer `42501` cell.
 
 Any future admin-only table that is not REVOKEd inherits the same treatment by registry posture.
 
@@ -388,7 +394,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 **Relocates:** `tests/db/admin-rls-runtime.test.ts` → a new RLS-coverage test under `tests/cross-cutting/`, derivation inverted; `tests/db/admin-rls-runtime.baseline.json` retired.
 
-**Creates:** a generator-extraction test pinning `scripts/generate-admin-tables.ts` against the §4.5 mutant set (three CREATE TABLE spellings + an unresolvable name expecting a throw).
+**Creates:** the `PUBLIC_TABLE_CLASSIFICATION` registry and its three catalog reconciliations (§4.5), pinned by the §4.5 mutation-family closure set. Note this is a **catalog** test, not a parser-extraction test — no generator mutants are exercised, because §4.5 makes the parser non-load-bearing rather than trustworthy.
 
 **Advisory-lock topology:** N/A, and this time for a verified reason rather than an assumption. R3 correctly rejected the first N/A claim because §6.2 seeded every `ADMIN_TABLES` member, two of which (`pending_syncs`, `pending_ingestions`) are named in invariant 2. R4 then showed the repaired holder enumeration was itself wrong (`_archive_show_core` and `_unarchive_show_apply` are lock-free delegated helpers whose wrappers hold the lock, and `set_pull_sheet_override` was omitted). Rather than enumerate a 20-site lock landscape correctly, §6.2 no longer seeds lock-scoped tables at all — so no code path in this cluster mutates any invariant-2 table, and the invariant is not engaged. No SECURITY DEFINER function is added. The REVOKE itself acquires no lock (grants are catalog-level), and it makes the existing RPC holders *more* authoritative, not less.
 
