@@ -241,17 +241,36 @@ MI-9 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627`) reads "**L
 are the capability-granting `role_flags` elements** (both gate `shows_internal.financials` access …;
 LEAD additionally grants the admin/ops surface)".
 
-Provenance: the parenthetical entered the spec at `aaab97102` (2026-07-17), the commit that
-reconciled §6.8 to LEAD ∪ FINANCIALS. Its diff shows the phrase was lifted from the THEN-LIVE
-`ROLE_FLAGS_NOTICE` copy, which said "LEAD status (which grants admin/ops/financials access)". That
-copy is exactly what `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT` corrected on 2026-08-02: the
+Provenance, traced end to end: the phrase "admin/ops" has always been COPY, never a contract.
+Its oldest instances in this repo are the §12.4 copy strings ratified at `9700c447b` (2026-05-09)
+— `MI-9_ROLE_FLAGS_DELTA` ("LEAD grants admin/ops surface access including the ability to see
+internal financials") and the then-current `ROLE_FLAGS_NOTICE` body. MI-9's own earlier wording
+carried the same claim ("LEAD is the only `role_flags` element that grants capability
+(admin/ops/`shows_internal.financials` access)", quoted at
+`docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`), and `aaab97102`
+(2026-07-17) rewrote the clause to LEAD ∪ FINANCIALS while carrying the parenthetical forward
+verbatim. `MI-9_ROLE_FLAGS_DELTA` was retired (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2865`);
+`BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT` corrected the surviving copy on 2026-08-02, so the
 live catalog row now says only "the roles that unlock internal financials"
-(`lib/messages/catalog.ts:895-899`). The spec clause is the last surviving instance of the
-corrected claim — a description that went stale when its source string was fixed, not an intent the
-code has yet to implement.
+(`lib/messages/catalog.ts:895-899`). The MI-9 clause is the last instance of a claim whose every
+other instance has been retired or corrected — a description that went stale when its source
+strings were fixed, not an intent the code has yet to implement.
 
 **"admin/ops surface" denoted nothing LEAD actually confers.** What LEAD confers beyond FINANCIALS
 is scope-tile breadth, not admin access.
+
+**Class sweep, run 2026-08-03** (`rg -n "admin/ops" --glob '!node_modules' .`, 12 files). Every
+instance outside this spec and its plan, dispositioned:
+
+| Site | Disposition |
+| --- | --- |
+| `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` MI-9 | **CORRECTED here** — the only claim still in force |
+| `BACKLOG.md` (4 lines: the `BL-LEAD-CAPABILITY-PROSE-STALE` entry) | Moves to `BACKLOG-archive.md` with the entry; quoting the defect IS the filing |
+| `BACKLOG-archive.md` (the archived `BL-ROLEFLAGS-…` entry) | History; already archived at its terminal state |
+| `docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md` (5), `docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md`, `docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md`, `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md` | History — shipped design records quoting the copy as it stood. Left alone on the same reasoning `2026-08-02-copy-deadcode-sweep-design.md` §1.1 item 13 applied to them |
+
+`rg -n "admin/ops" lib app components tests` returns **zero** hits: no production code, no rendered
+copy, and no test carries the claim. That is the post-condition this branch preserves.
 
 **Fix:** correct the clause in place to state what LEAD additionally does (unlocks the
 audio/video/lighting scope tiles per `lib/visibility/scopeTiles.ts:86`,
