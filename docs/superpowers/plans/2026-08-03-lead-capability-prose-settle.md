@@ -537,7 +537,7 @@ pnpm test:audit:x1-catalog-parity                                            # n
 
 No source file is edited. Add the row to `BACKLOG.md` carrying, verbatim from spec §2.7: the twelve known instances, the ground-truth probe block, the single blocker (`tests/e2e/right-now-transitions.spec.ts:285-290`), the two already-honest sites that must NOT be "fixed" (`tests/visibility/capabilityTransitions.test.ts:224` and `tests/visibility/capabilityTransitions.test.ts:272`), and the methodological finding that a hand-run grep cannot bound the class, with both failed patterns named so the next pass does not repeat them.
 
-Status OPEN, severity LOW-MEDIUM (dark coverage on documented contracts; no product impact), effort L, class "docs/contract — test-coverage claims". Record that the set is **not known to be complete** and that its open question is a design call: guard the class mechanically, or delete the class of sentence rather than maintain it.
+Status OPEN, severity LOW-MEDIUM (dark coverage on documented contracts; no product impact), effort L, class `docs/contract, test-coverage claims`. Record that the set is **not known to be complete** and that its open question is a design call: guard the class mechanically, or delete the class of sentence rather than maintain it.
 
 Verify: `pnpm vitest run tests/docs/` — `_metaLedgerReferentialIntegrity` resolves every `BL-` id this branch's documents cite.
 
