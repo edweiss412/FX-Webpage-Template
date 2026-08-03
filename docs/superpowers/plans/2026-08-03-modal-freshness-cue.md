@@ -54,7 +54,7 @@ Declared before tasks, per `docs/agents/writing-plans.md:16`.
 |---|---|
 | `tests/components/admin/review/sectionFreshnessCss.test.ts (new)` | **CREATES.** Pins the constant against its declaration, the normative CSS block byte for byte, the four keyframe names, the `-1` and `-2` bodies being identical apart from name, the reduced-motion override, and the staged surface emitting nothing. |
 | `tests/styles/status-token-contrast.test.ts` | **EXTENDS.** Four rows for the repurposed `--color-accent-tint` background and the outline against both grounds it touches. |
-| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in already-wired specs, so no new `testMatch` row or workflow path filter is created. Running it is the proof of that claim, not an assumption. |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in specs that already have a `testMatch` row and a workflow. Running it is the proof of that claim, not an assumption. It is NOT sufficient on its own, for the reason in T5: coverage at spec granularity does not imply coverage at case granularity. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A.** No `pg_advisory` call is added or touched; no SQL of any kind is in the diff. |
 | `tests/auth/_metaInfraContract.test.ts` | **N/A.** No Supabase client call site is added or touched. |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | **N/A.** No route handler, no server action, no mutation surface (spec §9). |
@@ -233,7 +233,7 @@ S13 covers the sub-block case from T3 at the component level. S14 through S17 ca
 
 ## T5 — real-browser dimension assertion
 
-**Touches:** `tests/e2e/admin-layout-dimensions.spec.ts`.
+**Touches:** `tests/e2e/admin-layout-dimensions.spec.ts`, `.github/workflows/phantom-gap-e2e.yml`.
 
 Mandatory per `docs/agents/writing-plans.md:8`, and pointed at spec §7's dimensional invariants:
 
@@ -243,9 +243,13 @@ Mandatory per `docs/agents/writing-plans.md:8`, and pointed at spec §7's dimens
 
 jsdom cannot make this claim: it computes no layout, so a `border`-based implementation that shifted every card by 2px would pass every unit test in T2 through T4. That is the concrete failure mode this task catches.
 
+**CI wiring is NOT free here, and the plan was wrong about it before this pass.** `tests/e2e/admin-layout-dimensions.spec.ts` is matched by a playwright project and IS referenced by `.github/workflows/phantom-gap-e2e.yml`, but only through two grep-filtered steps: `-g "T-NOPHANTOM"` at `.github/workflows/phantom-gap-e2e.yml:173` and `-g "width chain"` at `.github/workflows/phantom-gap-e2e.yml:183`. A new case whose title matches neither runs NOWHERE in CI, which is the exact failure that workflow's own header comment documents at `.github/workflows/phantom-gap-e2e.yml:16-21` and that its second step exists to avoid. The spec-granularity coverage guard cannot see it, because the spec is wired.
+
+So this task ALSO adds a third run step to that workflow, filtered on the new cases' title tag, and does not rely on the added cases being picked up implicitly. That workflow already path-filters on the broad components glob and on the stylesheet, so every file this diff touches triggers it and no path filter changes. Verification for the claim is a real run, not a reading: the workflow carries `workflow_dispatch`, or gains it, so close-out can fire it with `gh workflow run` rather than waiting for the next PR event.
+
 **Harness readiness** (mandatory per `docs/agents/writing-plans.md:23`): the spec's existing boot mechanism and readiness gate are reused unchanged, never `networkidle` alone. The attribute is applied through a test-only hook that sets it directly on the card rather than by driving a broadcast, because this task measures geometry, not the detector; T6 is what proves the detector drives it.
 
-**GREEN:** the spec's existing run command, scoped to the added cases.
+**GREEN:** the spec's existing run command, scoped to the added cases, plus the new workflow step present and grep-matching them.
 
 ---
 
