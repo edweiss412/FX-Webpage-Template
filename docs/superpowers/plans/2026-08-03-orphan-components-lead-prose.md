@@ -124,9 +124,12 @@ structural-defense calibration, the guard ships instead of a fourth curated list
      `docs/superpowers/artifacts/**`, `BACKLOG-archive.md`, `DEFERRED-archive.md`. Globs, not files,
      because the census over `git ls-files` finds roughly forty matching documents under
      `docs/superpowers/**` alone and forty hand rows would be a curated list by another name.
-     **Carve out the LIVE LEDGERS from those globs** — `BACKLOG.md` and every `DEFERRED.md` under
-     `docs/superpowers/plans/**` — they carry commitments, not records, and must use `line`/`pending`
-     rows. A glob that swallowed a live ledger would reintroduce spec R4's defect at directory scale.
+     **Carve the CURRENT-STATE documents out of those globs** (spec §5.0's table): `BACKLOG.md`,
+     every `DEFERRED.md` under `docs/superpowers/plans/**`, the master plan's `00-overview.md`
+     (canonical amendments per `AGENTS.md` invariant 7, plus a file map that declares itself the
+     source of truth), and the master plan's `ROUTING.md` and `HANDOFF-TEMPLATE.md`. They describe
+     how things ARE, so a stale reference in one is a defect, not a record. The guard asserts every
+     carved-out path EXISTS, so a rename cannot silently return a file to the archive glob.
    - `line` — one historical line inside a LIVE file, keyed by that line's exact trimmed text.
    - `pending` — a live reference, keyed the same way, owned by `repairedBy: "Task N"`.
      Tasks 5-8 delete their `pending` rows as they repair the references.
@@ -143,8 +146,9 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a matching
    `line` row PASSES; (c) a file with TWO occurrences where only one carries a `line` row still
    FAILS — the case a file-keyed allowlist cannot express, and the reason this design exists;
-   (d) a `line` row whose text matches nothing FAILS (the fail-safe direction); (d2) a live-ledger
-   path is NOT covered by an `archive` glob even when the glob would otherwise match it; (e) **the terminal
+   (d) a `line` row whose text matches nothing FAILS (the fail-safe direction); (d2) a carved-out
+   current-state path is NOT covered by an `archive` glob even when the glob would otherwise match
+   it, and a carve-out path that does not exist FAILS; (e) **the terminal
    zero-`pending` assertion FAILS against a fixture ledger holding one `pending` row.** (e) is
    written HERE, where it can still fail, not at Task 13 where the real ledger is already empty —
    plan R2 BLOCKING-3. Both must fail before the walker is written. This proves the contract regardless of
@@ -276,10 +280,15 @@ component.
    `components/layout/PageTransition.tsx:8`; the header prose of `tests/e2e/right-now.spec.ts` and
    `tests/e2e/right-now-transitions.spec.ts` (prose only — the specs drive the real page and their
    assertions are untouched).
-5. **Live tracking rows (spec §5.1) — these are commitments, not history:**
+5. **Current-state documents (spec §5.0's carve-out table) — a stale reference in one is a defect:**
+   `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:363` lists
+   `right-now/RightNowCard.tsx` in the file map that `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:329`
+   declares "the source of truth for where does X live". Repoint it to
+   `components/crew/RightNowHero.tsx` (found at R7; the blanket plans glob would have swallowed it).
+6. **Live tracking rows (spec §5.1) — these are commitments, not history:**
    `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:83` names the card and the
    suite Task 3 renames (repoint both; the coverage GAP is unchanged, only its coordinates).
-6. **Sweep is now the guard, not a grep:** re-run
+7. **Sweep is now the guard, not a grep:** re-run
    `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`. Every remaining `RightNowCard`
    hit must be either repaired or an allowlist row with a stated reason. Do not add an allowlist row
    for a file you simply did not want to edit — that is the exact move that cost three rounds. Every code/test hit is repaired in THIS
@@ -432,11 +441,20 @@ that has been three-branch since 2026-07-16.
 reader planning auth work from MI-9 would believe a sheet edit can confer admin access; it cannot
 (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:135-149`).
 
-1. **RED first:** write `tests/docs/capabilityClaimProse.test.ts`, asserting the master spec's §6.8
-   MI-9 row contains no claim that a `role_flags` element grants admin/ops access. Scope it to the
-   MI-9 row rather than the whole file, so the §12.4 retired-row strikethrough at
-   `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2865` (history, deliberately preserved)
-   does not make it fail. **Anti-tautology:** the test must fail on the CURRENT text before the
+1. **RED first:** write `tests/docs/capabilityClaimProse.test.ts`. It asserts that **no capability
+   over-grant claim exists in either place this branch found one** — plan R4 HIGH caught the draft
+   scoping it to the master-spec row alone, which left `lib/sync/phase2.ts` free to regress with the
+   guard still green, an escaping mutant against the exact sibling occurrence repaired in the same
+   commit. Two scan targets, one recognizer:
+   - **The master spec's §6.8 MI-9 row.** Scoped to the row rather than the whole file, so the §12.4
+     retired-row strikethrough at
+     `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2865` (history, deliberately preserved)
+     does not make it fail.
+   - **Production source** — every `.ts`/`.tsx` under `app/`, `components/`, and `lib/`, comments
+     included, since `lib/sync/phase2.ts:291` was a comment. `lib/parser/typoVocabRegistry.ts:55`
+     must NOT match: it says "ops/financials field-alias fuzzy fallback", which names a field-alias
+     family and asserts nothing about entitlement. It is the recognizer's hardest negative fixture,
+     so it is one of the required fixtures below. **Anti-tautology:** the test must fail on the CURRENT text before the
    edit — run it RED and record the output.
 
    **Anti-vacuity, mandatory** (plan R1 HIGH-2): assert that **exactly one** MI-9 row was located
@@ -450,11 +468,17 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
    (`LEAD`, `FINANCIALS`, `role_flags`, "capability role") is the grammatical subject of a granting
    verb (`grants`, `unlocks`, `confers`, `gives access to`) whose object names an admin/ops surface
    (`admin`, `admin/ops`, `ops surface`, `admin surface`) — with a NEGATION guard so "neither … grants
-   … admin access" and "never grants" do not match. Fixture-test the recognizer against four
-   strings in the test file itself: the pre-edit MI-9 text (must match), the post-edit MI-9 text
-   (must not), "LEAD additionally grants the admin/ops surface" (must match), and
-   "LEAD does not grant admin access" (must not). Those four fixtures are what make the recognizer
-   reviewable instead of a regex nobody can audit.
+   … admin access" and "never grants" do not match. Fixture-test the recognizer against SIX
+   strings in the test file itself — four from the spec side: the pre-edit MI-9 text (must match),
+   the post-edit MI-9 text (must not), "LEAD additionally grants the admin/ops surface" (must
+   match), "LEAD does not grant admin access" (must not); and two from the production side, which
+   plan R4 HIGH showed the draft had no coverage for at all: `lib/sync/phase2.ts:291`'s pre-edit
+   text (must match) and `lib/parser/typoVocabRegistry.ts:55` (must NOT — it names a field-alias
+   family, not an entitlement, and is the recognizer's hardest negative). Those six fixtures are
+   what make the recognizer reviewable instead of a regex nobody can audit.
+
+   **Anti-vacuity for the source scan:** assert it walked >100 files, so a broken glob cannot pass
+   by scanning nothing.
 2. Correct the clause: state that LEAD additionally unlocks the audio/video/lighting scope tiles
    (`lib/visibility/scopeTiles.ts:86`, `lib/visibility/scopeTiles.ts:97`,
    `lib/visibility/scopeTiles.ts:114`) and renders the crew-page "Lead" chip

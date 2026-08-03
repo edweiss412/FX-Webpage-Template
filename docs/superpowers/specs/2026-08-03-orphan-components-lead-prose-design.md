@@ -399,11 +399,24 @@ stop. The corpus splits cleanly instead:
 | `docs/audits/**`, `docs/superpowers/artifacts/**` | Dated snapshots. Rewriting one falsifies it |
 | `BACKLOG-archive.md`, `DEFERRED-archive.md` | Terminal-state archives |
 
-**With one carve-out that is the whole reason the design is line-keyed:** the LIVE LEDGERS inside
-those globs — `BACKLOG.md`, and every `DEFERRED.md` under `docs/superpowers/plans/**` — carry
-COMMITMENTS, not records. They are excluded from the globs and require `line` or `pending` rows,
-which is exactly the mixed-liveness case R4 found. A glob that swallowed a live ledger would
-reintroduce R4's defect at directory scale.
+**With a carve-out that is the whole reason the design is line-keyed.** Inside those globs sit
+CURRENT-STATE documents: files that describe how things are NOW, not what was true when written.
+They are excluded from the globs and require `line`/`pending` rows — the mixed-liveness case R4
+found, at directory scale. R7 caught the first draft of this list being too narrow, so it is
+enumerated and its membership test is stated:
+
+| Carved out | Why it is current-state, not a record |
+| --- | --- |
+| `BACKLOG.md` | The OPEN queue (`BACKLOG.md:5`); its rows are commitments |
+| every `DEFERRED.md` under `docs/superpowers/plans/**` | Deferral ledgers; a row is a promise with a trigger |
+| `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` | Carries the three ratified amendments `AGENTS.md` invariant 7 makes canonical, AND a file map that declares itself "the source of truth for where does X live" (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:329`). Its map still lists the deleted card's path at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:363` — a stale source-of-truth citation the moment Task 5 deletes the file |
+| `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/ROUTING.md` and the sibling `HANDOFF-TEMPLATE.md` | Named by `AGENTS.md` as the current routing/handoff contracts. No hit today, carved out so a future one cannot hide |
+
+**Membership test, so the list is auditable rather than arbitrary:** a file is current-state if a
+reader consults it to learn how things ARE. A milestone handoff, a shape session, and a closed
+milestone plan all describe a past state and are records; a ledger, a routing table, and a canonical
+overview describe the present. The guard asserts every carved-out path EXISTS, so a rename cannot
+silently return the file to the archive glob.
 
 A `line`/`pending` row that no longer matches any line FAILS rather than passing vacuously, so
 editing an exempted line invalidates its exemption instead of silently widening it. That is the
