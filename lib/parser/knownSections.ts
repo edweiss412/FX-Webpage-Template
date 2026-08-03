@@ -18,8 +18,11 @@
  * the shared factory `lib/parser/blocks/_sectionHeaderMatch.ts` and export their tokens for
  * introspection. A registry-keyed source-text backstop also flags a hand-rolled matcher for a
  * REGISTERED opener a file neither owns nor allowlists, and a no-orphan check fails for any
- * registry entry no parser opens (minus eight declared EXPECTED_ORPHANS: aliases, prefix-family
- * variants, scalar-field labels, and sections parsed outside `lib/parser/blocks/`).
+ * registry entry no parser opens — with two exemptions: the eight declared EXPECTED_ORPHANS
+ * (aliases, scalar-field labels, and sections parsed outside `lib/parser/blocks/`), and every
+ * PREFIX_SECTION_FAMILIES member, which the check counts as claimed independently of any parser.
+ * `BREAKOUTS` is the live example: registered here, opened by no parser, absent from
+ * EXPECTED_ORPHANS, and green solely because it is a prefix family.
  *
  * WHAT THE WALKER DOES NOT CATCH (ratified residual, spec
  * docs/superpowers/specs/parser/2026-07-06-known-sections-walker.md §6.7 — do not relitigate): it
