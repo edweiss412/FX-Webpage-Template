@@ -280,8 +280,9 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
       // The cue is an OUTLINE only; the accent-tint wash was removed on design
       // review, so the text-on-tint rows this block once carried no longer
       // describe anything that ships. What remains is the outline against the two
-      // grounds it actually touches: the card's own `surface`, and the sunken
-      // band it marks when a change clears the cap.
+      // grounds it can touch: `surface`, which is the card's fill AND the
+      // sub-header band's, and `surface-sunken` as a defensive second ground so a
+      // future band retune cannot drop the cue below floor unnoticed.
       expect(contrast(edge, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
       expect(contrast(edge, sunken)).toBeGreaterThanOrEqual(DOT_FLOOR);
     });

@@ -630,10 +630,12 @@ The cue is an OUTLINE only, so the rows measure the outline against the two grou
 
 | Id | Assertion | Floor | Measured light / dark |
 |---|---|---|---|
-| C1 | `--color-accent-edge` against `--color-surface` (the card) | 3:1 | 8.42 / 8.84 |
-| C2 | `--color-accent-edge` against `--color-surface-sunken` (the band it marks over the cap) | 3:1 | 7.59 / 9.65 |
+| C1 | `--color-accent-edge` against `--color-surface` | 3:1 | 8.42 / 8.84 |
+| C2 | `--color-accent-edge` against `--color-surface-sunken` | 3:1 | 7.59 / 9.65 |
 
 **The text-on-tint rows this section used to carry are gone with the wash.** They measured `text` and `text-subtle` against `--color-accent-tint`, which was the right pin while the cue washed a whole card full of body text. It does not any more, and a row asserting a pairing that never renders is worse than no row: it reads as coverage. The numbers were fine; they simply stopped describing anything.
+
+C1 is the load-bearing row: `--color-surface` is the ground for the card AND for the sub-header band the cue marks over the cap (`components/admin/review/ReviewModalShell.tsx:682`). An earlier draft of this section called the band `surface-sunken`, which the audit half of the invariant-8 gate corrected. C2 stays as a defensive second ground rather than being deleted with the wrong claim: a future band retune toward the sunken tone must not drop the cue below floor unnoticed.
 
 Measured from the live hex in `app/globals.css` with the same relative-luminance formula the harness uses. Both reproduce values `DESIGN.md:297` already pins for the share-link ring, which is what validates the measurement rather than merely reporting it.
 

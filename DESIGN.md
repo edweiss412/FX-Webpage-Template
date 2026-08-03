@@ -303,7 +303,7 @@ They fall into two kinds, and the distinction matters for §10's hardcoding ban:
 
 **It shipped with an `accent-tint` wash as well, and design review removed it.** Two reasons, both worth keeping written down. PRODUCT.md reserves the orange for "this matters now" and spends it sparingly, and a background reconcile is informational: a full-card wash on a 390px phone can be the entire viewport shouting about a sync. And the wash was occluded unevenly, because cards hold opaque children (`surface-sunken` tiles, nested cards, warning callouts), so a sparse section washed fully while a dense one showed colour only in the gaps and the same event read at very different loudness. The outline renders identically on every card, so it is the whole cue.
 
-Measured contrast, both themes: outline against `surface` 8.42:1 / 8.84:1 and against `surface-sunken`, the band it marks over the cap, 7.59:1 / 9.65:1 (non-text floor 3:1). Pinned in `tests/styles/status-token-contrast.test.ts`.
+Measured contrast, both themes: outline against `surface` 8.42:1 / 8.84:1, which is the ground for BOTH the card and the sub-header band it marks over the cap (`ReviewModalShell.tsx:682`); and against `surface-sunken` 7.59:1 / 9.65:1, pinned as the defensive second ground so a future band retune cannot drop the cue below floor unnoticed. Non-text floor 3:1. Pinned in `tests/styles/status-token-contrast.test.ts`.
 
 ---
 
