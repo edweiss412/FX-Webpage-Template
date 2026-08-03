@@ -53,9 +53,9 @@ $ rg -n 'admin/ops' lib app components tests
 (no output — zero hits)
 
 $ rg -n 'admin/ops' docs BACKLOG.md BACKLOG-archive.md
-docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627        → FIXED by Task 5 (instance B)
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1627        → FIXED by Task 4 (instance B)
 BACKLOG.md:7                                                        → reconciliation-log history; left as written
-BACKLOG.md:645,653,654,656 (the entry itself)                       → moves to BACKLOG-archive.md by Task 7
+BACKLOG.md:645,653,654,656 (the entry itself)                       → moves to BACKLOG-archive.md by Task 6
 docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:34,80,107,119,167,264   → the filing + its census; history, left
 docs/superpowers/plans/2026-08-02-copy-deadcode-sweep.md:52,63      → history, left
 docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md:142     → the endorsement; left, per spec §2.5
@@ -65,7 +65,7 @@ docs/superpowers/specs/step3-onboarding/2026-07-17-mi9-lead-autoapply-fyi.md:45 
 docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md:6,159,178  → history, left
 ```
 
-Every hit is dispositioned. After Task 5 the master spec's hit is gone and the only remaining ones are history plus this branch's own documents.
+Every hit is dispositioned. After Task 4 the master spec's hit is gone and the only remaining ones are history plus this branch's own documents.
 
 ---
 
@@ -74,7 +74,7 @@ Every hit is dispositioned. After Task 5 the master spec's hit is gone and the o
 - **CREATES** `tests/visibility/_metaDocumentedPredicateParity.test.ts` — documented-predicate behavioral parity (spec §2.2b). **Wiring, verified: no new entry is required.** `vitest.projects.ts:92` already globs `tests/visibility/**/*.test.{ts,tsx}`, so the file is collected by `pnpm test` on creation, and `.github/workflows/unit-suite.yml` runs on `pull_request` and on `push` to `main` with no path filter, so it is merge-gating from its first commit. No `testMatch` addition, no workflow edit, no path-filter change.
 - **EXTENDS** `tests/visibility/capabilityTransitions.test.ts` — matrix-size expectations derived from `CAPABILITY_PREDICATES` rather than literals (spec §2.2c), and the duplicate `ALL_PREDICATES` list retired (instance F).
 - **EXTENDS** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — one `BACKLOG_GRADUATED` row.
-- - **CREATES** `tests/db/isAdminRoleFlagsContract.test.ts` — the contract pin behind MI-9 (§4 Task 4). DB-bound, so it runs in the `unit-suite-db` matrix legs rather than the no-DB ones; `vitest.projects.ts` globs `tests/db/**` and `unit-suite.yml` has no path filter, so no wiring edit is needed.
+- **CREATES** `tests/db/isAdminRoleFlagsContract.test.ts` — the contract pin behind MI-9 (§4 Task 4). DB-bound, so it runs in the `unit-suite-db` matrix legs rather than the no-DB ones; `vitest.projects.ts` globs `tests/db/**` and `unit-suite.yml` has no path filter, so no wiring edit is needed.
 - **Descoped, no edit:** the coverage-claim class is handed to `BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES` (spec §1.2, §2.7). Outside the three census files, the diff touches the two ledger files (`BACKLOG.md`, `BACKLOG-archive.md`) and four test files: `tests/visibility/_metaDocumentedPredicateParity.test.ts` and `tests/db/isAdminRoleFlagsContract.test.ts` (both new), plus `tests/visibility/capabilityTransitions.test.ts` and `tests/docs/_metaDeferralLedgerGraduation.test.ts` (both edited). `tests/visibility/capabilityTransitions.test.ts` is itself census file 3 (instance F), so it is both edited here and listed there; that is one file, not two.
 - **No other registry applies.** Not a Supabase call boundary (invariant 9 — no Supabase client call is added), not a mutation surface (invariant 10 — no route handler, no `"use server"` action), not an advisory-lock surface (invariant 2 — no `pg_advisory*` anywhere in the diff), not a tile-render or sentinel surface, not an `admin_alerts` catalog change.
 
@@ -104,11 +104,15 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M18 | A new exported `*Visible` function that is neither documented nor exempted — **added at R2 with a live escaping export** (`transportTileVisible`) | parity guard, unclassified-export assertion | the export appears in neither the documented set nor `NOT_FLAG_GATED` |
 | M20 | An exemption row hollowed out to a blank or citation-less reason — **added at R3** | parity guard, exemption-reason assertion | reason is under 20 chars or cites no `file:line` |
 | M21 | The sole exempt export deleted, leaving a stale exemption — **added at R5 with a live escaping mutant** | parity guard, dangling-exemption assertion | a `NOT_FLAG_GATED` key names no reflected export |
+| M22 | `is_admin()` gutted to `select false` while retaining `app_metadata`/`admin_emails` as dead strings — **added at R7 with a live escaping mutant against a containment-only assertion** | DB contract test, behavioral arms | the admin-claims case returns false |
+| M23 | A later migration redefines `is_admin()` to consult `role_flags` | DB contract test, resolved-definition assertion | `pg_get_functiondef` returns the NEW definition, which matches `/role_flags/i` |
 | M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
 
 M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each.
 
-**Stated limit on the closure claim, corrected at R6.** An earlier draft claimed the family list was closed "by exhaustion" so that no predicate body could escape. That was too strong, and R6 refuted it with a probe: the bitmask emits one canonical ordering per subset, so `flags[0] === "L1" && flags[1] === "V1"` survived it. The sweep now also tests the reverse of every subset, which catches any position-dependent answer, but the full permutation space (20!) is not enumerable. **The honest claim: every order-insensitive predicate body over this input domain is checked at every input, and position-dependence is detected but not exhaustively characterised.** Real `scopeTiles` predicates are `Array.includes` disjunctions and are order-insensitive by construction. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
+**Stated limit on the closure claim — narrowed at R6, narrowed again at R7.** An early draft claimed closure "by exhaustion" so that no predicate body could escape. R6 refuted that (the bitmask emits one ordering per subset, so `flags[0] === "L1" && flags[1] === "V1"` survived). The sweep now also evaluates the reverse of every subset — but R7 refuted the follow-on claim too, with a three-element permutation (`["L1","V1","GS"]`) that neither the canonical order nor its reverse reaches.
+
+**So the claim is exactly this, and no more: the guard checks every SUBSET of the flag universe, at two orderings each, against both `isAdmin` values.** It does not establish order-insensitivity — 20! is not enumerable and no sampling strategy short of it would. What makes that acceptable rather than a hole: the live predicates are `Array.includes` disjunctions, order-insensitive by construction, and a permutation-sensitive rewrite of one is not a drift a comment could silently outlive — it is a conspicuous code change. The guard's job is catching comment/predicate divergence, and for the disjunctive bodies that actually exist it is total. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
 
 **Explicitly outside the closure set** (stated so it is not re-proposed as a gap): free-text prose in either module remains unguarded — spec §2.3's named accepted limit. The guards cover predicate *expressions* and matrix *completeness*, not sentences about them.
 
@@ -120,7 +124,7 @@ M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and
 | Transition-audit task | **N/A** — no `AnimatePresence`, no ternary render, no component visual state. The "transition matrix" here is a data structure |
 | e2e harness-readiness checklist | **N/A** — no Playwright spec is added or modified; no server boot |
 | Advisory-lock holder topology | **N/A** — `rg 'pg_advisory' <diff>` is empty |
-| §12.4 three-way lockstep | **N/A** — the master-spec edit is in §6.8, not the error-code catalog. Task 5 nonetheless runs `pnpm test:audit:x1-catalog-parity` as a negative check |
+| §12.4 three-way lockstep | **N/A** — the master-spec edit is in §6.8, not the error-code catalog. Task 4 nonetheless runs `pnpm test:audit:x1-catalog-parity` as a negative check |
 
 ---
 
@@ -570,22 +574,53 @@ const DB_URL =
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const sql: Sql = postgres(DB_URL, { max: 1, prepare: false });
 
+const ADMIN_CLAIMS = JSON.stringify({
+  sub: "00000000-0000-0000-0000-000000000020",
+  email: "dlarson@fxav.net",
+  app_metadata: { role: "admin" },
+});
+const CREW_CLAIMS = JSON.stringify({
+  sub: "00000000-0000-0000-0000-000000000099",
+  email: "crew@example.com",
+  app_metadata: { role: "crew" },
+});
+
+async function isAdminUnder(claims: string): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    await tx`select set_config('role', 'authenticated', true)`;
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+    const [r] = await tx<{ v: boolean }[]>`select public.is_admin() as v`;
+    return r?.v ?? false;
+  }) as Promise<boolean>;
+}
+
 describe("public.is_admin() resolves admin identity without role_flags", () => {
   afterAll(async () => {
     await sql.end({ timeout: 5 });
   });
 
-  it("reads the JWT role claim and admin_emails, and never role_flags", async () => {
+  // BEHAVIORAL, not lexical. R7 refuted containment-only assertions with a
+  // probe: a definition gutted to `select false` that retains "app_metadata"
+  // and "admin_emails" as dead strings satisfies every containment check.
+  // Calling the function cannot be fooled that way.
+  it("grants admin under an admin JWT role claim", async () => {
+    expect(await isAdminUnder(ADMIN_CLAIMS)).toBe(true);
+  });
+
+  it("refuses a signed-in non-admin", async () => {
+    expect(await isAdminUnder(CREW_CLAIMS)).toBe(false);
+  });
+
+  it("consults no role flag, in any definition Postgres currently resolves", async () => {
+    // The one claim that IS textual, and legitimately so: MI-9 asserts an
+    // ABSENCE. Behavior cannot prove an absence, but the resolved definition
+    // can, and asking Postgres catches a later migration that a scan of one
+    // historical migration file would miss.
     const [row] = await sql<{ def: string }[]>`
       select pg_get_functiondef('public.is_admin()'::regprocedure) as def
     `;
     const def = row?.def ?? "";
     expect(def).not.toBe("");
-    // Positive: both live arms are present, so this cannot pass vacuously on
-    // an is_admin() that was gutted to `select false`.
-    expect(def).toContain("app_metadata");
-    expect(def).toContain("admin_emails");
-    // The claim MI-9 now makes.
     expect(def).not.toMatch(/role_flags/i);
   });
 });
@@ -594,32 +629,17 @@ describe("public.is_admin() resolves admin identity without role_flags", () => {
 Probed against the live local schema before this plan was finalized, so the snippet is measured rather than asserted:
 
 ```
-$ node <probe: pg_get_functiondef('public.is_admin()'::regprocedure)>
-resolved: true
-has app_metadata: true
-has admin_emails: true
-has role_flags: false
-
-CREATE OR REPLACE FUNCTION public.is_admin()
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-  select coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false)
-      or exists (
-           select 1 from public.admin_emails ae
-            where ae.email = public.auth_email_canonical()
-              and ae.revoked_at is null
-         );
-$function$
+$ node <probe: set request.jwt.claims, then call public.is_admin()>
+admin claims  -> is_admin(): true
+crew claims   -> is_admin(): false
+def mentions role_flags: false
 ```
 
-That output is also the empirical settlement of instance B: the resolved definition, not a file, and it consults no role flag.
+That output is the empirical settlement of instance B: the function actually grants on the JWT role claim, actually refuses a signed-in non-admin, and its resolved definition names no role flag.
 
 This is green on the current schema, so it is a **contract pin, not the RED for this task** — and it is worth having for exactly the reason MI-9 was wrong: if admin is ever routed through a role flag, this fails and forces MI-9 back open. The MI-9 edit itself is a documentation correction with no failing test, on the same reasoning as Task 3.
 
-Verification in the same commit:Verification in the same commit:
+Verification in the same commit:
 
 ```
 rg -n 'admin/ops' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md   # expect 0
@@ -663,7 +683,7 @@ Whole-diff Codex review to APPROVE, per AGENTS.md. Brief inlines the fresh-eyes 
 
 ## 5. Acceptance criteria
 
-Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4; Task 2 → AC-5, AC-6; Task 3 → AC-5a, AC-11a; Task 4 → AC-8; Task 5 → AC-11; Task 6 → AC-9; Task 7 → AC-7, AC-10; Task 8 → none, by design. Every task that CHANGES the tree owns at least one criterion it can fail. Task 9 (adversarial review) deliberately owns none — it is a gate on the whole diff, not a change with its own acceptance test, and inventing an AC for it would be ceremony.
+Inherited from spec §4 (AC-1 … AC-11). Task→AC map: Task 1 → AC-1, AC-2, AC-3, AC-4; Task 2 → AC-5, AC-6; Task 3 → AC-5a, AC-11a; Task 4 → AC-8; Task 5 → AC-11; Task 6 → AC-9; Task 7 → AC-7, AC-10; Task 8 → none, by design. Every task that CHANGES the tree owns at least one criterion it can fail. Task 8 (adversarial review) deliberately owns none — it is a gate on the whole diff, not a change with its own acceptance test, and inventing an AC for it would be ceremony.
 
 ## 12. Close-out
 
