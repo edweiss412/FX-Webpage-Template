@@ -83,9 +83,20 @@ export const CURRENT_STATE_CARVE_OUTS = [
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md",
 ] as const;
 
-/** Any `DEFERRED.md` under the plans tree is a live ledger, however deeply nested. */
+/**
+ * Live, current-state files inside the archive globs.
+ *
+ * Three families, each discovered by SHAPE rather than enumerated, so a new one is
+ * covered the day it lands:
+ *   - any `DEFERRED.md` under the plans tree (a deferral is a commitment),
+ *   - any `README.md` under `docs/superpowers/**` (whole-diff R3: these are
+ *     catalogs and subsystem indexes — they describe what exists NOW, so a stale
+ *     entry in one is a defect, not a record),
+ *   - the explicitly named documents in CURRENT_STATE_CARVE_OUTS.
+ */
 export function isLiveLedger(file: string): boolean {
   if ((CURRENT_STATE_CARVE_OUTS as readonly string[]).includes(file)) return true;
+  if (file.startsWith("docs/superpowers/") && file.endsWith("/README.md")) return true;
   return file.startsWith("docs/superpowers/plans/") && file.endsWith("/DEFERRED.md");
 }
 

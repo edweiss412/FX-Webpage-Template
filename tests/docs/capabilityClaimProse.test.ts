@@ -50,8 +50,16 @@ const CURRENT_STATE_DOCS = [
 const SUBJECT = /\b(LEAD|FINANCIALS|role_flags|capability (?:role|flag))\b/i;
 const VERB =
   /\b(grants?|granting|unlocks?|unlocking|confers?|conferring|provides?|providing|gives? access to|enables? access to|opens? up)\b/i;
+// "admin" or "administrator" followed by any surface/permission noun, plus the
+// ops variants. Whole-diff R3: an enumerated noun list missed `admin privileges`
+// and `admin dashboard`, which are the same claim — so the noun is a class, not a
+// list.
+// The surface noun is REQUIRED. An earlier draft made it optional, which turned
+// bare "admin" into an object and produced false positives on true sentences like
+// "grant financials … viewer.kind === 'admin'". The class is
+// (admin|administrator) + a surface/permission noun, plus the ops variants.
 const OBJECT =
-  /\b(admin\/ops|ops surface|admin surface|admin access|administrator access|admin\/financials|ops\/financial|(?:the\s+)?(?:internal\s+)?ops\b|access to admin|admin tools|admin panel|admin surfaces?)\b/i;
+  /\b((?:admin|administrator)\s*(?:access|privileges?|rights?|surfaces?|tools?|panels?|dashboards?|pages?|routes?|areas?|capabilit(?:y|ies))|admin\/ops|admin\/financials|ops\/financial|(?:the\s+)?(?:internal\s+)?ops\s+(?:surface|access))\b/i;
 // Negation counts only when it sits ADJACENT to the granting verb. Whole-diff
 // review finding 3: a sentence-wide negation test let an unrelated "not" suppress
 // a real claim ("LEAD grants admin access, not just financials access"), which is
@@ -242,7 +250,8 @@ describe("no in-force prose claims a role flag grants admin access", () => {
         }
         return lo + 1;
       };
-      for (const [start, end] of commentRanges(text, kind)) {
+      const ranges = commentRanges(text, kind);
+      for (const [start, end] of ranges) {
         const body = text
           .slice(start, end)
           .replace(/^\/\*+|\*+\/$|^\/\/+/gm, " ")
@@ -251,6 +260,21 @@ describe("no in-force prose claims a role flag grants admin access", () => {
           .trim();
         for (const s of withCarriedSubject(sentences(body))) {
           if (claimsAdminGrant(s)) offending.push(`${file}:${lineOf(start)} ${s}`);
+        }
+      }
+      // ...and everything OUTSIDE the comments. Whole-diff R3: routing the scan
+      // through commentRanges alone silently dropped string literals, template
+      // literals and JSX text — user-visible copy is exactly where a capability
+      // claim would do the most harm, so scanning only comments inverted the
+      // priority. Comment spans are blanked (not removed) so line numbers hold.
+      let code = text;
+      for (const [start, end] of ranges) {
+        code =
+          code.slice(0, start) + code.slice(start, end).replace(/[^\n]/g, " ") + code.slice(end);
+      }
+      for (const [i, line] of code.split("\n").entries()) {
+        for (const s of withCarriedSubject(sentences(line))) {
+          if (claimsAdminGrant(s)) offending.push(`${file}:${i + 1} ${s}`);
         }
       }
     }

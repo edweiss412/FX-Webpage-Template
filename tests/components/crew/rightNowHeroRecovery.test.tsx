@@ -14,7 +14,7 @@
  *
  * The retarget is NOT a testid swap. In `show_day_n` the hero sets
  * `detail: null` and routes the call time into a `Show` STAT
- * (`components/crew/RightNowHero.tsx:158-178`), rendered as
+ * (`components/crew/RightNowHero.tsx`'s `show_day_n` branch), rendered as
  * `data-stat="Show"` inside `right-now-stats` — so the card's
  * `right-now-detail` node does not exist here. Every `Call: <t>`
  * assertion reads `[data-stat="Show"] dd` instead, and the `Call: `
@@ -24,7 +24,7 @@
  *
  * The anti-`lastGood` guarantee survives the move intact: `makeContext`
  * sets `showAnchors: []`, which is exactly the hero's legacy fallback
- * to `ctx.callTime` (`components/crew/RightNowHero.tsx:158-161`), so
+ * to `ctx.callTime` (the `ctx.callTime` fallback in `components/crew/RightNowHero.tsx`'s `show_day_n` branch), so
  * 14:00 and 15:30 still render as DIFFERENT values in the Show stat and
  * a render-`lastGood` bug still cannot produce 15:30. Do not
  * "simplify" the fixture by adding per-day anchors: that would route
@@ -314,6 +314,9 @@ describe("RightNowHero — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     const showStatLabel = () => container.querySelector('[data-stat="Show"] dt');
 
     expect(showStat()?.textContent).toContain("11:11");
+    // The stat CARRIES its label: the card rendered "Call: <t>" as one string, the
+    // hero splits label from value, so the label is what the prefix used to say.
+    expect(showStatLabel()?.textContent).toBe("Show");
 
     // Degrade.
     const ctxDegraded = makeContext({ dates: partialDates() });

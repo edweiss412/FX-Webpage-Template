@@ -176,8 +176,8 @@ code is what got carried into the hero:
   R2:** this suite uses Testing Library's client-only `render()`, so it does NOT and cannot prove
   anything about server rendering or hydration. `usePrefersReducedMotion` returns `null` on the
   server and on the first hydrating render by design
-  (`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero deliberately treats `null` as
-  "animate at full duration" (`components/crew/RightNowHero.tsx:337`). What the pin catches is a
+  (`lib/a11y/usePrefersReducedMotion.ts`'s documented return contract), and the hero deliberately treats `null` as
+  "animate at full duration" (`components/crew/RightNowHero.tsx`, where the hook's `null` is treated as animate-at-full-duration). What the pin catches is a
   regression to an event-only read, where a reduced-motion viewer animates until the first
   preference CHANGE that may never come.
 
@@ -191,21 +191,21 @@ the identical prop (`{ context: RightNowContext }` from
 
 **The retarget is NOT a testid swap** — spec R1 refuted the draft's claim that it was. In the
 `show_day_n` state the hero sets `detail: null` and routes the call time into a `Show` STAT
-(`components/crew/RightNowHero.tsx:158-178`), rendered as `data-stat="Show"` inside
-`data-testid="right-now-stats"` (`components/crew/RightNowHero.tsx:571-585`), so the conditional
+(`components/crew/RightNowHero.tsx`'s `show_day_n` branch), rendered as `data-stat="Show"` inside
+`data-testid="right-now-stats"` (the hero's `right-now-stats` `<dl>` in `components/crew/RightNowHero.tsx`), so the conditional
 `right-now-detail` node the card's recovery suite reads
 (`tests/components/RightNowCardRecovery.test.tsx:143-150` and the two later assertions in the same suite) is ABSENT. Retarget
 contract:
 
 | Card hook | Hero hook | Note |
 | --- | --- | --- |
-| `right-now-card` (root) | `right-now-hero` (`components/crew/RightNowHero.tsx:467`) | root only |
+| `right-now-card` (root) | `right-now-hero` (the root `<section>` in `components/crew/RightNowHero.tsx`) | root only |
 | `right-now-detail` → `Call: <t>` | `[data-stat="Show"] dd` | the call-time carrier in `show_day_n` |
-| `data-stale`, `data-prefers-reduced-motion`, `right-now-state`, `right-now-body`, `right-now-lead` | same names | unchanged (`components/crew/RightNowHero.tsx:467-528`) |
+| `data-stale`, `data-prefers-reduced-motion`, `right-now-state`, `right-now-body`, `right-now-lead` | same names | unchanged (the hero's root `<section>` and body slots in `components/crew/RightNowHero.tsx`) |
 
 The anti-`lastGood` guarantee survives the move intact: the suite's `makeContext` sets
 `showAnchors: []`, which is exactly the legacy single-anchor case where the hero falls back to
-`ctx.callTime` (`components/crew/RightNowHero.tsx:158-161`), so the pre-degradation `14:00` and the
+`ctx.callTime` (the `ctx.callTime` fallback in `components/crew/RightNowHero.tsx`'s `show_day_n` branch), so the pre-degradation `14:00` and the
 post-recovery `15:30` still render as DIFFERENT values in the `Show` stat and a buggy
 render-`lastGood` implementation still cannot produce `15:30`. Scope the extraction to the
 `data-stat="Show"` node — never the whole hero — so the lead line cannot satisfy the assertion by

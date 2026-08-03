@@ -44,7 +44,7 @@ so "I only renamed a test file" is exactly the case that breaks it.
 | The guard's failure families | read `tests/components/_metaOrphanedComponents.test.ts:52-80` | (a) unlisted orphan, (b) row for a deleted file, (c) newly orphaned, (d) row for an imported file |
 | `admin-alert-confirm-resolve-button` is dead | `rg -n "admin-alert-confirm-resolve-button" app components tests` | 6 hits, all in `ResolveAlertButton.tsx` + its own test |
 | `WrappedTile` is the sole prod importer of two files | `rg -n "TileServerFallback\|TileErrorBoundary" app components lib` | `TileServerFallback` ← `WrappedTile` only; `TileErrorBoundary` ← `WrappedTile` only; `TileErrorFallback` ← `TileServerFallback` + `WrappedSection` (live) |
-| The hero exposes every DOM hook the retargeted suites use | `rg -n "data-testid=\|data-stale\|data-prefers-reduced-motion" components/crew/RightNowHero.tsx` | all present at `components/crew/RightNowHero.tsx:467-528`; only the root testid differs |
+| The hero exposes every DOM hook the retargeted suites use | `rg -n "data-testid=\|data-stale\|data-prefers-reduced-motion" components/crew/RightNowHero.tsx` | all present at the hero's root `<section>` and body slots in `components/crew/RightNowHero.tsx`; only the root testid differs |
 | `admin/ops` census | `rg -n "admin/ops" --glob '!node_modules' .` | 12 files, dispositioned in spec §4.2 |
 | The invariant-8 marker grammar | read `tests/docs/_invariant8Closeout.ts:45-49` | exactly `impeccable-gate: N/A — no UI surface` or the RAN form; no free-text reason on the marker line |
 | `spec:lint` on the spec | `pnpm spec:lint <spec>` | 0 hard, 33 advisory |
@@ -184,12 +184,12 @@ is pinned only against a component nothing renders.
    (`{ context: RightNowContext }` from `components/right-now/buildRightNowContext.ts`), so the
    fixture builder ports unchanged.
 3. **Retarget the selectors per spec §3.4's table — this is NOT a testid swap** (spec R1). Root
-   `right-now-card` → `right-now-hero` (`components/crew/RightNowHero.tsx:467`).
+   `right-now-card` → `right-now-hero` (the root `<section>` in `components/crew/RightNowHero.tsx`).
    `right-now-state`, `right-now-body`, `right-now-lead`, `data-stale` keep their names. But
    `right-now-detail` has NO hero counterpart in `show_day_n`: the hero sets `detail: null` and
-   routes the call time into a `Show` stat (`components/crew/RightNowHero.tsx:158-178`) rendered as
+   routes the call time into a `Show` stat (`components/crew/RightNowHero.tsx`'s `show_day_n` branch) rendered as
    `data-stat="Show"` inside `data-testid="right-now-stats"`
-   (`components/crew/RightNowHero.tsx:571-585`).
+   (the hero's `right-now-stats` `<dl>` in `components/crew/RightNowHero.tsx`).
 
    **Exact inventory — NINE assertions, not three** (plan R1 MEDIUM; counted with
    `rg -n "expect\(" tests/components/RightNowCardRecovery.test.tsx | rg "detail\(\)"`):
@@ -209,7 +209,7 @@ is pinned only against a component nothing renders.
    guarantee that the recovery assertion uses a callTime absent from `lastGood` (15:30 vs 14:00) is
    the load-bearing one, and it SURVIVES the move: the suite's `makeContext` sets
    `showAnchors: []`, which is exactly the hero's legacy fallback to `ctx.callTime`
-   (`components/crew/RightNowHero.tsx:158-161`), so the two values still render as different
+   (the `ctx.callTime` fallback in `components/crew/RightNowHero.tsx`'s `show_day_n` branch), so the two values still render as different
    strings and a render-`lastGood` bug still cannot produce `15:30`. Note that fact in the header
    so the next reader does not "simplify" the fixture and silently defeat the pin.
 5. **Prove non-vacuity by MUTATION, not by a stale selector** (plan R1 BLOCKING-1). The hero's
@@ -241,13 +241,13 @@ until a preference CHANGE that may never arrive.
 **Scope, pinned at spec R2 so the closeout does not overclaim:** the suite uses Testing Library's
 client-only `render()`. It proves nothing about SSR or hydration, and it cannot:
 `usePrefersReducedMotion` returns `null` on the server and on the first hydrating render by design
-(`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero treats `null` as "animate at full
-duration" (`components/crew/RightNowHero.tsx:337`). Write the header to say what it proves.
+(`lib/a11y/usePrefersReducedMotion.ts`'s documented return contract), and the hero treats `null` as "animate at full
+duration" (`components/crew/RightNowHero.tsx`, where the hook's `null` is treated as animate-at-full-duration). Write the header to say what it proves.
 
 Same procedure as Task 3 against `tests/components/RightNowCardReducedMotionInitial.test.tsx` →
 `tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx`. The assertion reads
 `data-prefers-reduced-motion` on the root, which the hero carries at
-`components/crew/RightNowHero.tsx:470`, so the retarget here IS mechanically a root-testid swap
+the hero's root `<section>` attributes in `components/crew/RightNowHero.tsx`, so the retarget here IS mechanically a root-testid swap
 (unlike Task 3).
 
 **That is exactly why it needs the mutation proof** (plan R1 BLOCKING-1 correctly observed this

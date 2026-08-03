@@ -13,7 +13,7 @@
  * Testing Library's client-only `render()`. It proves nothing about SSR or
  * hydration and cannot — `usePrefersReducedMotion` returns `null` on the
  * server and on the first hydrating render BY DESIGN
- * (`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero treats
+ * (`lib/a11y/usePrefersReducedMotion.ts`'s documented return contract), and the hero treats
  * `null` as "animate at full duration". What it catches is a regression to
  * an event-only read, where a reduced-motion viewer keeps animating until
  * a preference CHANGE that may never arrive.
