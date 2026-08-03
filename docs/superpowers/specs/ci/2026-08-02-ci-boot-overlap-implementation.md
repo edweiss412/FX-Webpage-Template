@@ -103,7 +103,9 @@ $ git status --porcelain supabase/
 
 **Probe A is not sufficient, for two reasons, and both are why probe B exists.** First, `pnpm rebuild` and `pnpm install` do NOT execute the same lifecycle set: rebuild runs `preinstall`/`install`/`postinstall`/`prepublish`/`prepare`, while install additionally runs `preprepare` and `postprepare` (pnpm 10.33.2). This tree declares only `prepare`, so the two coincide TODAY — but the guard must forbid the install set, not the rebuild set, which is why §5h's forbidden list includes `preprepare` and `postprepare`. Second, these build scripts branch on platform — Sentry picks a download per platform, esbuild selects a platform package, sharp branches on platform and prebuilt availability — and a rebuild of an already-materialized Darwin tree is not evidence about the operation that actually runs in CI: a FRESH install on x86_64 Linux.
 
-**Probe B — fresh install, x86_64 Linux, from a clean tree.** `git archive HEAD` (so no `node_modules/` comes along) piped into a `--platform linux/amd64` `node:20-bookworm` container: same glibc/x86_64/Linux profile as the `ubuntu-latest` runner, corepack resolving the same pinned pnpm 10.33.2, then `pnpm install --frozen-lockfile` and the same two checks.
+**Probe B — fresh install, x86_64 Linux, from a clean tree.** `git archive HEAD` (so no `node_modules/` comes along) piped into a `--platform linux/amd64` `node:20-bookworm` container, corepack resolving the same pinned pnpm 10.33.2, then `pnpm install --frozen-lockfile`.
+
+**Fidelity, stated exactly.** The container is Debian 12; `ubuntu-latest` currently maps to Ubuntu 24.04. They differ in distribution and glibc version (2.36 vs 2.39) and in runner tool inventory. What they SHARE is what these four install scripts actually branch on: `process.platform === "linux"`, `process.arch === "x64"`, and glibc-vs-musl. That is the axis probe A could not exercise and probe B does, and it is the axis the round-1 finding was about. The residual — a script that behaves differently between two glibc minor versions on the same distro family — is a documented gap, not a closed one, and the §7 accept gate is what would surface it.
 
 ```
 .../node_modules/@sentry/cli postinstall$ node ./scripts/install.js
@@ -119,7 +121,17 @@ $ uname -m                   -> x86_64
 $ /etc/os-release            -> Debian GNU/Linux 12 (bookworm)
 ```
 
-All four enabled build scripts plus the root `prepare` executed on the target architecture, from a fresh install, and **wrote nothing under `supabase/`**. That is the observation the disjointness premise rests on.
+All four enabled build scripts plus the root `prepare` executed on the target architecture, from a fresh install, and **wrote nothing under `supabase/`**.
+
+**And `find -newer` is not enough on its own** — it detects additions and touches, not deletions, and not a same-mtime rewrite. So probe B was re-run with a content manifest on both sides: `find supabase -type f -exec sha256sum {} \; | sort` before the install and after, then `diff`:
+
+```
+manifest entries before: 126
+=== manifest diff (adds, deletes, content changes) ===
+IDENTICAL
+```
+
+126 files, byte-identical set, before and after a full fresh install on the target architecture. That closes additions, deletions and content changes in one check, and it is the observation the disjointness premise rests on. (A `git status` equivalent is unavailable inside the container — `git archive` carries no `.git` — which is precisely why the manifest diff replaces it rather than being described as "the same two checks".)
 
 **One thing probe B surfaced that probe A could not:** on Linux, a FIFTH build-script candidate exists — `@parcel/watcher` version 2.6.0, a platform-conditional optional dependency absent from the macOS resolution — and pnpm **ignored** it, because it is not in `allowBuilds`. That is the allow-list working as designed: the concurrent install's executable surface is exactly the four enabled entries, on either platform. It also means `allowBuilds` is an ALLOW-list of what may run, not an inventory of what pnpm would otherwise want to run; §5h pins the former, which is the set that matters here.
 
@@ -317,7 +329,7 @@ The two items are independently revertible, and the file sets do not intersect:
 
 - Everything in §1.1.
 - The ~60 app-dependent dark e2e specs of `BL-E2E-LIFECYCLE-SPECS-CI-DARK`.
-- The T-CONFIRM-SCROLL case, whose `scrollIntoView` assertion at `tests/e2e/admin-lifecycle-layout.spec.ts:411` the PR #604 run also failed. **It carries the same defect shape** — a fixed `waitForTimeout(250)` at `tests/e2e/admin-lifecycle-layout.spec.ts:378`, immediately before the geometry and call-record reads. It is excluded on SCOPE, not because the shape is absent, and the class sweep required by this project's discipline is discharged by enumerating the residue rather than by silently stopping: the file's remaining fixed waits are at `tests/e2e/admin-lifecycle-layout.spec.ts:378` (T-CONFIRM-SCROLL), `tests/e2e/admin-lifecycle-layout.spec.ts:916` and `tests/e2e/admin-lifecycle-layout.spec.ts:998` (other cases). Each needs its own settle condition — T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`", which is a different predicate from T-REGROW's growth-then-replace and carries its own risk of being converted into a tautology. §6's change is the one the backlog names and the one whose settle condition is established. The residue is filed as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` in `BACKLOG.md`, so it is tracked rather than forgotten.
+- The T-CONFIRM-SCROLL case, whose `scrollIntoView` assertion at `tests/e2e/admin-lifecycle-layout.spec.ts:411` the PR #604 run also failed. **It carries the same defect shape** — a fixed `waitForTimeout(250)` at `tests/e2e/admin-lifecycle-layout.spec.ts:378`, immediately before the geometry and call-record reads. It is excluded on SCOPE, not because the shape is absent, and the class sweep required by this project's discipline is discharged by enumerating the residue rather than by silently stopping: the file's three remaining fixed waits are anchored by ENCLOSING TEST, not by line, because §6's edits insert lines above two of them and any line anchor here goes stale the moment this branch lands: one in the `390x560: arming scrolls the popover's OWN scroller to the confirm` case (T-CONFIRM-SCROLL, opening at `tests/e2e/admin-lifecycle-layout.spec.ts:328`), one in the `T-FIT/T-REACH @ 390x{height}` case (opening at `tests/e2e/admin-lifecycle-layout.spec.ts:819`), and one in the `T-TRANSITION` case (opening at `tests/e2e/admin-lifecycle-layout.spec.ts:969`). Each needs its own settle condition — T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`", which is a different predicate from T-REGROW's growth-then-replace and carries its own risk of being converted into a tautology. §6's change is the one the backlog names and the one whose settle condition is established. The residue is filed as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` in `BACKLOG.md`, so it is tracked rather than forgotten.
 - Promoting any e2e job into branch protection's required-context set (an owner GitHub-settings action, `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT`).
 - The next wall-clock lever, a pre-baked Postgres image removing the ~14s schema+migration phase.
 

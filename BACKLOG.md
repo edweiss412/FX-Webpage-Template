@@ -677,8 +677,10 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 
 `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` §6 replaced T-REGROW's two fixed `waitForTimeout` calls with `toPass` blocks, which is the instance `BL-E2E-LIFECYCLE-SPECS-CI-DARK` names. The class sweep behind that fix found three more in the same file, enumerated here rather than left implicit:
 
-- `tests/e2e/admin-lifecycle-layout.spec.ts:378` — T-CONFIRM-SCROLL, a 250ms wait immediately before the geometry read and the `window.__siv` call-record assertions at `tests/e2e/admin-lifecycle-layout.spec.ts:410-411`. This case failed once in the same PR #604 run that produced the T-REGROW instance, so it is a live flake surface, not a theoretical one.
-- `tests/e2e/admin-lifecycle-layout.spec.ts:916` and `tests/e2e/admin-lifecycle-layout.spec.ts:998` — other cases in the same file.
+Anchored by ENCLOSING TEST rather than by line: the T-REGROW fix inserts lines above two of the three, so any line number recorded here rots the moment that branch lands.
+
+- The `390x560: arming scrolls the popover's OWN scroller to the confirm` case (T-CONFIRM-SCROLL, opening at `tests/e2e/admin-lifecycle-layout.spec.ts:328`) — a 250ms wait immediately before the geometry read and the `window.__siv` call-record assertions. This case failed once in the same PR #604 run that produced the T-REGROW instance, so it is a live flake surface, not a theoretical one.
+- The `T-FIT/T-REACH @ 390x{height}` case (opening at `tests/e2e/admin-lifecycle-layout.spec.ts:819`) and the `T-TRANSITION` case (opening at `tests/e2e/admin-lifecycle-layout.spec.ts:969`) — one fixed wait each.
 
 **Why not fixed with T-REGROW.** Each needs its own settle predicate, and the predicate is the whole difficulty. T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`" — a different condition from T-REGROW's growth-then-replace, and one where folding the assertion into the retry risks converting the thing under test into the wait condition. Picking each predicate is per-case work with its own tautology review; batching them behind one settle template is exactly the shortcut that would produce a green test proving nothing.
 
