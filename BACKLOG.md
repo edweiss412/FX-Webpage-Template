@@ -8,6 +8,78 @@ Last reconciled: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGEN
 
 ---
 
+## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
+
+The host embedded in `cron.job.command` is environment-supplied and varies by target: `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. The suite therefore keys every assertion on the route PATH, which is host-agnostic, and never checks the host at all.
+
+**Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
+
+**Status:** OPEN.
+
+---
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
+
+`/admin/needs-attention` rolls up the durable attention stream but shows no pending MI-11 holds, so a hold is visible only from the show it belongs to. Verified 2026-08-02: no cross-show holds read path exists in `lib/` or `app/`, which is the actual blocker — the page cannot roll up what nothing can query.
+
+**Work:** build the cross-show holds read, then add the rollup. Prerequisite first; the page change is small once the read exists. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** OPEN.
+
+---
+
+## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
+
+The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+
+**Explicitly not a safety gap** (owner decision, spec §10): retain-last-good plus the alert already prevent the data loss, and the modifiedTime binding already makes acceptance explicit and version-bound. Do not promote this on safety grounds; promote it if the diff-review workflow is actually wanted.
+
+**Status:** OPEN.
+
+---
+
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** OPEN.
+
+---
+
+## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
+
+The existing M12.13 token-unpublish ARCHIVES the show; there is no published→Held transition. Verified 2026-08-02: no such RPC exists in `supabase/migrations/` or `lib/`. So an operator who published early has one exit, and it is the destructive one.
+
+**Work:** a `published → held` RPC plus its admin affordance. Treat the state machine as the hard part, not the SQL: Held is the pre-publish review state, so returning to it has to say what happens to the share token, to any in-flight finalize, and to a crew member holding a live link, and it must not become a second path to the archived state. Advisory-lock discipline (invariant 2) and the `AUDITABLE_MUTATIONS` registry (invariant 10) both apply.
+
+**Status:** OPEN.
+
+---
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
+
+`VERSION_AMBIGUOUS` has deliberately no in-app "approve the ambiguous parse as-is" affordance, because approving a parse the system is not confident about defeats the gate. The two live resolutions are: the operator restores the sheet's version markers, or a developer registers the new template's markers. A genuine legacy-v1 sheet has neither, and none exists in the corpus today — it would flag ambiguous with no way forward but those same two actions. Verified 2026-08-02: no force-classify path exists.
+
+**Read the deferral before picking this up.** The reason it is open is not that nobody thought about it: an admin override IS an approve-ambiguous path, which is the exact thing the gate exists to prevent. Any design here has to explain why it is not that, and a real legacy-v1 sheet appearing is the trigger that would make the question live.
+
+**Status:** OPEN.
+
+---
+
 ## BL-LEDGER-GUARD-BODY-DEFINED-IDS — the citation guard resolves headings only, so a deliberate sub-item reads as dangling
 
 **Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.

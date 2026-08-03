@@ -90,16 +90,6 @@ const NOT_CITATIONS = new Set([
  * stale, and a row nobody cites any more fails as dead.
  */
 const KNOWN_DANGLING: Record<string, string> = {
-  "BL-ATTENTION-PILL-FOCUS-UNWIRED":
-    "cited in docs/superpowers/plans/2026-07-24-attention-index.md — no entry as of 2026-08-02",
-  "BL-CI-P3-FILE-GRANULAR-SERIAL":
-    "cited in docs/superpowers/specs/ci/2026-07-20-ci-overlap-boot-with-setup.md — no entry as of 2026-08-02",
-  "BL-CI-UNIT-SUITE-PHASE2":
-    "cited in docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md — no entry as of 2026-08-02",
-  "BL-DESTRUCT-FORK-FOCUS-TRANSFER":
-    "cited in docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md +1 more — no entry as of 2026-08-02",
-  "BL-E2E-REPORT-MODAL-UNRUNNABLE":
-    "cited in docs/superpowers/plans/2026-07-26-ci-dark-descoped-closeout/plan.md — no entry as of 2026-08-02",
   "BL-MUTATION-COLUMN-SHIFT":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-MUTATION-MERGED-CELL":
@@ -110,36 +100,14 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-MUTATION-UNICODE":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-NEEDS-ATTENTION-HOLDS-ROLLUP":
-    "cited in docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md — no entry as of 2026-08-02",
-  "BL-PARSER-ADDRESS-SPLIT-AMBIGUITY":
-    "cited in docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md +3 more — no entry as of 2026-08-02",
-  "BL-PARSER-HOTEL-INLINE-AMBIGUITY":
-    "cited in docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md +3 more — no entry as of 2026-08-02",
-  "BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL":
-    "cited in docs/superpowers/plans/2026-07-27-inline-later-group-own-hotel/00-overview.md +5 more — no entry as of 2026-08-02",
-  "BL-PG-CRON-HOST-ASSERTION":
-    "cited in docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md — no entry as of 2026-08-02",
-  "BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW":
-    "cited in BACKLOG-archive.md +4 more — no entry as of 2026-08-02",
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
-  "BL-RESYNC-STAGED-REVIEW-UI":
-    "cited in docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md +1 more — no entry as of 2026-08-02",
-  "BL-SHOWSTABLE-720-TITLE-FLOOR":
-    "cited in docs/superpowers/plans/admin/2026-07-01-shows-720-title-floor.md +2 more — no entry as of 2026-08-02",
-  "BL-STEP3-FULL-CREW-PREVIEW":
-    "cited in docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-1":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-2":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-3":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-UNPUBLISH-TO-HELD":
-    "cited in docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md — no entry as of 2026-08-02",
-  "BL-VERSION-AMBIGUOUS-V1-OVERRIDE":
-    "cited in docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md — no entry as of 2026-08-02",
 };
 
 type Cited = { id: string; files: string[] };

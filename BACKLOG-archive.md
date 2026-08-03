@@ -8,6 +8,80 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-PARSER-HOTEL-INLINE-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
+
+**Filed:** 2026-07-07 (ambiguity-warnings-v1 §6 deferred-exemption seed) · **Resolved:** 2026-07-26 · **Class:** parser observability · **Effort:** M
+
+Ambiguity-warnings-v1 scoped its guest-cell warning STRICTLY to the structured path — `parseGuestCell`'s two call sites in `hotels.ts` — and left the inline shapes (v1 "Hotel Stays", v2 inline "Hotel Reservations" rows), which parse guest lines through separate code, carrying a `deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY` exemption in that file's `TRANSFORM_SITES`. The transform-sites walker enforced that every `deferred:` ref resolve in `BACKLOG.md`, so the row was load-bearing for a live guard. Closed by the hotel-ambiguity-coverage spec, which names it under **Closes:**; `HOTEL_GUEST_SPLIT_AMBIGUOUS` is now a real catalog code (`lib/messages/catalog.ts:1383`) and no `deferred:BL-` exemption remains anywhere under `lib/parser/blocks/` (verified 2026-08-02).
+
+Its `BACKLOG.md` row lived under a section called "Parser ambiguity-warning coverage (2026-07-07, ambiguity-warnings-v1)", which was DELETED at close rather than graduated here, which is why the id dangled: the spec's own **Closes:** line still cites that section by name.
+
+---
+
+## BL-PARSER-ADDRESS-SPLIT-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
+
+**Filed:** 2026-07-07 (ambiguity-warnings-v1 §6 deferred-exemption seed) · **Resolved:** 2026-07-26 · **Class:** parser observability · **Effort:** M
+
+Twin of the entry above, same spec, same close, same deleted section. `splitHotelNameAddress` un-glues a venue name from a street address the exporter has flattened, using a first-standalone-street-number heuristic — a genuinely ambiguous transform that emitted nothing, and carried the `deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` exemption in `hotels.ts`'s `TRANSFORM_SITES` rather than a warning. `HOTEL_ADDRESS_SPLIT_AMBIGUOUS` is now a real catalog code (`lib/messages/catalog.ts:1426`).
+
+---
+
+## BL-PARSER-INLINE-LATER-GROUP-OWN-HOTEL — RESOLVED (2026-07-31, PR #635 `feat/inline-later-group-own-hotel`)
+
+**Filed:** 2026-07-27 · **Resolved:** 2026-07-31 · **Class:** parser correctness · **Effort:** L
+
+A later segment of an inline hotel cell could carry its own hotel rather than inheriting the nearest preceding one, and the parser had no way to tell those apart. Closed by `classifyLaterSegment(rawSegment, ordinal, contextYear)` in `lib/parser/blocks/hotels.ts` — a pure exported three-tier detector implementing the spec's D1-D7 pipeline (normalize, divider strip, conf-delimiter prefix cut, address anchor plus tail extension, tier decision with guards, caps and scans, rebuild through the existing `buildInlineHotel`) — wired into `buildInlineReservations`, with caller-side scope-A/scope-B degraded scans and nearest-preceding inheritance for multi-marker and fallback cells, plus two new warn-severity ParseWarnings. Pinned by `tests/parser/inlineLaterGroupDetector.test.ts` against the spec's ~159-row §8.1 behavior table, every row copied byte-exact.
+
+Spec `docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md`, APPROVED after 58 adversarial rounds; the round-economy rules in `docs/agents/adversarial-round-economy-2026-07-31.md` were written from this arc's retrospective. The plan's `00-overview.md` names it under **Closes:**, but no row was ever graduated.
+
+---
+
+## BL-PHANTOM-GAP-HAIRLINE-CROWDED-ROW — RESOLVED (2026-07-26, PR #580)
+
+**Filed:** before 2026-07-24 · **Resolved:** 2026-07-26 · **Class:** UI layout (phantom gap) · **Effort:** S
+
+A `flex-1` decorative hairline in the `BulkIgnoreControls` eyebrow is a flex ITEM. In a row with enough real content to consume the line, `flex-1` resolves to ZERO width and the row still charges its `gap` on BOTH sides of the invisible rule. Closed by hiding the rule below 480px (`hidden min-[480px]:block`) plus a `min-w-*` floor; `DESIGN.md` §7a gained the zero-WIDTH sibling case alongside the childless-item `empty:hidden` idiom.
+
+The row was DELETED from `BACKLOG.md` at close rather than graduated — `docs/superpowers/specs/2026-07-24-dq-eyebrow-divider-and-confirm-bar-design.md:222` instructs exactly that ("delete the entry — the debt is paid, not deferred"), which is what left five citations, including two e2e specs and `BACKLOG-archive.md:541`, pointing at nothing. Recorded here instead; deleting a closed row is what this file exists to prevent.
+
+---
+
+## BL-SHOWSTABLE-720-TITLE-FLOOR — RESOLVED (2026-07-01)
+
+**Filed:** before 2026-07-01 · **Resolved:** 2026-07-01, `fix(admin): raise shows-table stacked→columnar breakpoint 720→768` · **Class:** UI layout · **Effort:** S
+
+The shows-table's multi-column grid activated at `min-[720px]`, but at exactly 720px the `minmax(0,1fr)` title track resolved to about 106px, under the band sweep's `MIN_TITLE_PX = 120` floor. Raised the stacked-to-columnar breakpoint to `min-[768px]` (live at `components/admin/ShowsTable.tsx:86`), so the table keeps the existing stacked mobile layout below 768px, where the columns genuinely do not fit with a readable title. Spec `docs/superpowers/specs/admin/2026-07-01-shows-720-title-floor-design.md`, plan `docs/superpowers/plans/admin/2026-07-01-shows-720-title-floor.md` — both open by naming this id as the gap they fix, and neither graduated a row.
+
+---
+
+## Backlog ids named by a conditional that never fired, or withdrawn before filing (recorded 2026-08-02)
+
+Five ids that a spec or plan spells out as a REAL id, in a branch that turned out not to be taken. Nothing was ever filed, and nothing should have been. They are recorded rather than left dangling for two reasons: the citations are load-bearing prose that should stay readable, and a reader who greps one of these should learn that the branch did not fire, not find silence and assume the work was dropped.
+
+Verified 2026-08-02 against live code, not against the documents that name them.
+
+### BL-ATTENTION-PILL-FOCUS-UNWIRED — conditional never fired (spec is wired)
+
+`docs/superpowers/plans/2026-07-24-attention-index.md:299` is the RED branch of a wiring task: "do not wire it. File `BL-ATTENTION-PILL-FOCUS-UNWIRED` in `BACKLOG.md` with the failure output." The GREEN branch was taken — `attention-pill-focus` is in the standalone harness project regex (`tests/e2e/standalone.config.ts:86`), it carries no `LOCAL_ONLY_ALLOWLIST` row, and `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes, which it could not do if the spec were dark and unallowlisted.
+
+### BL-E2E-REPORT-MODAL-UNRUNNABLE — conditional never fired (registration kept)
+
+`docs/superpowers/plans/2026-07-26-ci-dark-descoped-closeout/plan.md:603` is the RED half of a disposition step: if `report-modal` failed beyond quick fixture drift, revert its registration and add a `DARK_SPEC_ALLOWLIST` row citing this id. It went green: `report-modal` is registered in both Playwright project alternations (`playwright.config.ts:65` and `:79`) and keeps the pre-existing `UNSEEN` row (`tests/ci/_metaE2eWorkflowCoverage.test.ts:164`), which is exactly the step's stated GREEN outcome ("keep registration + the existing `UNSEEN` row — premise restored").
+
+### BL-CI-UNIT-SUITE-PHASE2 — conditional never fired, and its question was superseded
+
+`docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:507` instructs, on one branch of a keep-fastest fallback, appending the residual wall-clock gap to `BACKLOG.md` as a heading of this name. No such heading was ever added. The 6-vs-8 leg question the branch turned on has since been superseded outright: `unit-suite` now splits by database need rather than by leg count alone (8 db legs running `--project=serial`, 3 no-db legs running `--project=parallel`, per the workflow's own header comment), so the residual that heading would have recorded no longer describes the pipeline.
+
+### BL-DESTRUCT-FORK-FOCUS-TRANSFER — withdrawn at spec time, never filed
+
+`docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md:195` withdraws it in as many words, in a "Not needed / Why" table: "Focus transfer across a fork — no fork to cross; `BL-DESTRUCT-FORK-FOCUS-TRANSFER` is withdrawn rather than filed." The design ended up with one subtree and no branch, so the finding it would have tracked has no surface to occur on.
+
+### BL-CI-P3-FILE-GRANULAR-SERIAL — a ratification pointer, not an item
+
+`docs/superpowers/specs/ci/2026-07-20-ci-overlap-boot-with-setup.md:17` cites it in a "Resolved scope — do not relitigate" table as the ratification for keeping test-membership changes (which files run in which vitest project) out of scope: P3 measured no wall-clock gain from them and was **closed unmerged** (PR #510). So the id names a decision with its evidence, not open work, and re-proposing file-granular serial membership needs a new measurement that beats P3's, not this row.
+
+---
+
 ## Impeccable-gate deferrals whose backlog row was never opened (filed retroactively 2026-08-02)
 
 Fifteen ids named by a `Backlog: BL-…` line at the end of a `DEFERRED.md` gate deferral, where the row that line promises was never created in `BACKLOG.md`. Each deferral has since closed — resolved by a later pass, or made moot when its surface was removed — so the promised row never had an open life to have; but the ids stay cited from specs, plans, and `DEFERRED-archive.md`, and this file's contract is that every such reference resolves to something readable (see the preamble above).
