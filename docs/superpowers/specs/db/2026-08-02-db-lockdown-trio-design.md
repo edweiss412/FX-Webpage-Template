@@ -26,8 +26,9 @@ Shipped in this cluster:
 
 1. `REVOKE INSERT, UPDATE, DELETE` on **8** admin-only tables + registry rows (§4).
 2. A spec-derived completeness assertion so an unclassified §4.3 table fails CI (§4.4).
-3. The RLS runtime probe re-derived from §4.3 and relocated cross-cutting (§6).
-4. The canonical-email walk re-apertured on body shape, closing 3 name-invisible CHECKs (§5).
+3. **Hardening `ADMIN_TABLES`' generator so a §4.3 table can never drop out silently** (§4.5) — the prerequisite the other two rest on.
+4. The RLS probe re-derived from §4.3, relocated cross-cutting, with `relrowsecurity`, policy-count, and non-vacuous behavioral assertions (§6).
+5. A live-catalog completeness assertion for canonical-email CHECKs, closing 3 name-invisible ones (§5).
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -40,6 +41,9 @@ Shipped in this cluster:
 | `admin_field_overrides.created_by`'s canonical CHECK is **not** a gap. The table was dropped; only stale migration text remains. | `supabase/migrations/20260710000000_remove_admin_field_overrides.sql`; live `to_regclass('public.admin_field_overrides')` returns NULL (§5.1 probe). |
 | Prose §4.3 count is **23**; live `ADMIN_TABLES.length` is **19**. Both are correct; the delta is the 4 dropped tables. | master spec footnote `[^admintables-22]` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`. |
 | Statement-level lockdown does **not** replace RLS. It is the statement-level half of a two-half contract; RLS remains the row-level half. | `BACKLOG.md:918`. |
+| The catalog assertion gets its **own** registry, not `expectedBoundaryChecks`. The two police different contracts, and merging them would drag in the AC-X.5 manifest coupling. | R1 finding 2; `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:202`; `scripts/extract-email-boundaries.ts:87`. See §5.3. |
+| `email_deliveries` having **zero** RLS policies is correct, not a coverage hole — zero policies under enabled RLS is deny-all, stronger than `admin_only`. | §2.4 probe; `supabase/migrations/20260602000004_b3_email_deliveries.sql:21`. |
+| Registering `role_token_mappings.decided_by` in the AC-X.5 manifest is a **separate** cycle, not part of this cluster. Its write paths already canonicalize correctly. | `app/admin/show/[slug]/_actions/roleToken.ts:57`; §5.3 follow-up. |
 
 ---
 
@@ -81,6 +85,35 @@ admin_session_direct_DELETE_rows=2
 An **admin-authenticated session** can INSERT/UPDATE/DELETE these tables directly through PostgREST, bypassing every SECURITY DEFINER RPC gate — its advisory locks, its atomicity, and its audit emission. On `admin_alerts` specifically this bypasses `upsert_admin_alert` and forges `resolved_by`, which is the precise exposure `BACKLOG.md:556` describes.
 
 Statement-level baseline for all 10 (`delete ... where false` as `authenticated`): **`STATEMENT_PERMITTED` on every one.** This is the "before" fixture the new Layer 1 rows invert.
+
+### 2.4 Probe: what the RLS guard cannot see
+
+Three findings from probing `tests/db/admin-rls-runtime.test.ts` directly. Each is the cluster's root defect in the row-level half, and each drives an assertion in §6.2.
+
+**(i) `DISABLE ROW LEVEL SECURITY` ships green.** The probe's derivation reads `pg_policies`, never `pg_class.relrowsecurity`:
+
+```
+begin;
+alter table public.recovery_drift_cooldowns disable row level security;
+--> policy_rows_after_disable=1 | qual_still_is_admin=true
+--> relrowsecurity=false
+rollback;
+```
+
+The `admin_only` row survives with its `is_admin` qual intact, so the derivation still finds the table and every structural arm still passes — while row-level gating is entirely off.
+
+**(ii) The behavioral arm is vacuous on empty tables.** It asserts `nonadmin_count=0`, which cannot distinguish "RLS denied the rows" from "there are no rows". Live counts: `recovery_drift_cooldowns=0`, `revision_race_cooldowns=0`, `pending_snapshot_uploads=0`, `drive_watch_channels=0`, `sync_audit=0`; only `sync_log=4073` is populated. So (i) is not caught here either, for 5 of the 6 tables sampled.
+
+**(iii) The two 19-element sets are not the same 19.** `ADMIN_TABLES` (spec-derived) and the live `admin_only`-derived set have equal cardinality but differ by one in each direction:
+
+```
+in ADMIN_TABLES, no admin_only policy : email_deliveries
+admin_only policy, not in ADMIN_TABLES: ignored_warnings
+```
+
+`tests/db/admin-rls-runtime.test.ts:111`'s `toHaveLength(19)` and `tests/db/admin-rls-runtime.test.ts:115`'s frozen-baseline comparison both stay green through a swap — a count cannot see one, and the baseline was frozen from the very query it is compared against.
+
+`email_deliveries` is not a defect: it has RLS enabled with **zero** policies, which is deny-all and stronger than `admin_only`, and `supabase/migrations/20260602000004_b3_email_deliveries.sql:21` revokes ALL from anon+authenticated as well. It is the motivating case for §6.2's two declared postures.
 
 ---
 
@@ -154,6 +187,31 @@ for each table in ADMIN_TABLES (generated from spec §4.3):
 
 Anti-tautology: the assertion is scoped against `ADMIN_TABLES` (the spec-derived registry), never against `RPC_GATED_TABLES` itself — asserting a registry against itself is the failure mode this whole spec is about.
 
+### 4.5 Hardening the generator — the load-bearing prerequisite
+
+Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. R1 finding 1 established, by probe, that it is not. `scripts/generate-admin-tables.ts:29-30` intersects the §4.3 bullet names with
+
+```js
+Array.from(spec.matchAll(/create table ([a-z][a-z0-9_]*)/g), (m) => m[1])
+```
+
+then `.filter((name) => tableDefinitions.has(name) && …)`. The regex is case-sensitive, requires an unqualified name, and does not accept `if not exists`. Three valid CREATE TABLE spellings each drop the table **silently** — no throw, no diff, so regeneration stays clean and the X.3 freshness check passes:
+
+```
+create table public.future_admin (id uuid);        => generated=19, future_admin absent
+CREATE TABLE future_admin (id uuid);               => generated=19, future_admin absent
+create table if not exists future_admin (id uuid); => generated=19, future_admin absent
+```
+
+A §4.3 table written any of those ways is invisible to Layer 5, to the RLS test, and to `PROTECTED_TABLES` in `lib/audit/authPrimitives.ts:92` — i.e. the generator's silent intersection-drop is the same defect class the cluster exists to close, sitting upstream of all of it.
+
+Two changes, and the second is the real fix:
+
+1. **Widen the regex** to `/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z][a-z0-9_]*)/gi`.
+2. **Make the drop loud.** Every §4.3 bullet name must resolve to a CREATE TABLE block or be a declared member of `removedByPickerPivot`; anything else **throws** with the offending name. Regex-widening alone only moves the goalpost to the next unanticipated spelling — a name the generator cannot resolve must fail the build, never vanish.
+
+Pinned by a test that runs the generator's extraction against synthetic §4.3 mutants covering all three spellings above plus an unresolvable name (expecting a throw). This is the mutation-family closure set for the generator surface; a new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+
 ---
 
 ## 5. Item 2 — canonical-email aperture
@@ -186,9 +244,20 @@ A 20th table named outside the convention passes silently today.
 
 ### 5.3 Fix
 
-Add a **live-catalog completeness assertion** to `_canonicalEmailCheckContract.test.ts`: query `pg_constraint` for CHECKs whose body matches `= lower(btrim|trim(<col>))`, and assert that set equals the registry. Sourcing from the catalog rather than migration text is deliberately drop-aware — it is exactly why `admin_field_overrides` correctly does not appear (§1.1).
+Add a **live-catalog completeness assertion** to `_canonicalEmailCheckContract.test.ts`: query `pg_constraint` for CHECKs whose body matches `= lower(btrim|trim(<col>))`, and assert that set equals a **new, separate `CATALOG_CANONICAL_CHECKS` registry**. Sourcing from the catalog rather than migration text is deliberately drop-aware — it is exactly why `admin_field_overrides` correctly does not appear (§1.1).
 
-The existing static walk and its per-column body assertions are **unchanged**; this is a pure addition. Registry grows by the 3 tables above. Probe confirms **zero** non-email canonical-shaped CHECKs exist, so body-shape detection has no false positives today; if one ever lands it registers with an explicit non-email row rather than widening the predicate.
+**The new registry is deliberately NOT `expectedBoundaryChecks`.** R1 finding 2 established why: `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:202` requires every `expectedBoundaryChecks` row to have BOTH a check parsed by the name-filtered static walk AND an AC-X.5 manifest entry in `lib/audit/email-boundaries.generated.ts`. Adding the 3 tables there would fail on both counts, because the static parser skips their constraint names and `EMAIL_BOUNDARIES` derives from master spec AC-X.5 prose (`scripts/extract-email-boundaries.ts:87`). The two registries police different contracts:
+
+| Registry | Contract | Source of truth |
+| --- | --- | --- |
+| `expectedBoundaryChecks` | an app write path must call `canonicalize()`, and the DB CHECK is its safety net | master spec AC-X.5 |
+| `CATALOG_CANONICAL_CHECKS` (new) | every canonical-shaped CHECK that exists in the live catalog is known and intended | `pg_constraint` |
+
+So the existing static walk, its per-column body assertions, and the AC-X.5 manifest coupling are all **unchanged**; the catalog assertion is a pure addition alongside them. The earlier draft's "registry grows by the 3 tables" was inconsistent with "unchanged" — that contradiction is what R1 finding 2 correctly flagged, and this split is the resolution.
+
+Probe confirms **zero** non-email canonical-shaped CHECKs exist (19 live, all email/identity columns), so body-shape detection has no false positives today; if one ever lands it registers with an explicit non-email row rather than widening the predicate.
+
+**Separable follow-up, filed not smuggled.** `role_token_mappings.decided_by` is a genuine AC-X.5 coverage gap: both write paths canonicalize correctly today (`app/admin/show/[slug]/_actions/roleToken.ts:57`, `app/admin/settings/_actions/roleTokenMappings.ts:38`) but the boundary is absent from the AC-X.5 manifest, so removing a `canonicalize()` call there would not fail the x5 gate. Registering it requires a **master spec §17.2 AC-X.5 amendment**, which has lockstep consequences for `pnpm gen:email-boundaries`, the `x5-email-canonicalization` gate, and traceability. That belongs in its own review cycle, not riding along inside a lockdown cluster. This cluster pins the CHECK's existence via `CATALOG_CANONICAL_CHECKS`; the manifest registration is filed as `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY`.
 
 ---
 
@@ -200,11 +269,24 @@ The existing static walk and its per-column body assertions are **unchanged**; t
 
 ### 6.2 Fix — re-derive from §4.3
 
-Relocate to a new RLS-coverage test under `tests/cross-cutting/` (the placement `BACKLOG.md:862` asks for) and invert the derivation: iterate `ADMIN_TABLES`, and for each assert an `admin_only` `FOR ALL` policy exists with `is_admin()` in both `qual` and `with_check` and `qual = with_check`. The existing behavioral SELECT arm (admin sees rows / non-admin sees zero, `tests/db/admin-rls-runtime.test.ts:131`) and the structural + equivalence arms (`tests/db/admin-rls-runtime.test.ts:177`) are preserved verbatim — this changes the **iteration source**, not the assertions.
+Relocate to a new RLS-coverage test under `tests/cross-cutting/` (the placement `BACKLOG.md:862` asks for) and invert the derivation: iterate `ADMIN_TABLES` rather than `pg_policies`.
 
-The `pg_policies`-derived set is retained as a second, opposite-direction assertion: every `admin_only` table found live must be in `ADMIN_TABLES` or an explicit non-§4.3 allowlist (today `admin_emails`, `ignored_warnings` — both admin-gated but not §4.3 members). Two directions, so neither a spec addition nor a stray policy drifts unnoticed.
+**Per-table posture assertion.** For every `ADMIN_TABLES` member assert `pg_class.relrowsecurity = true`, AND exactly one of two declared postures:
 
-`tests/db/admin-rls-runtime.baseline.json` and its frozen 19-name list are retired — the spec-derived registry is the baseline. `tests/db/admin-rls-runtime.test.ts:111`'s stale title ("18" asserting 19) dies with it.
+- **`admin_only`** — exactly one policy, named `admin_only`, `cmd=ALL`, `is_admin()` in both `qual` and `with_check`, and `qual = with_check`.
+- **`deny_all`** — **zero** policies. Under enabled RLS this denies every non-owner role, which is *stronger* than `admin_only`.
+
+The posture is declared per table in the registry, never inferred. `email_deliveries` is the live `deny_all` member (§2.4). An earlier draft asserted `admin_only` for every member and would have false-failed on it.
+
+**Three assertions the current probe lacks**, each closing a probe-demonstrated blind spot (§2.4):
+
+1. **`relrowsecurity`** — `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` leaves every `admin_only` row intact in `pg_policies`, so today's derivation, length, baseline, structural and equivalence arms all stay green while row-level gating is off.
+2. **Policy count** — Postgres ORs permissive policies together, so an added permissive policy reopens a table while `admin_only` remains present and correct. Pinning the count (1 for `admin_only`, 0 for `deny_all`) is what catches it.
+3. **Non-vacuous behavioral arm** — the existing arm asserts `nonadmin_count=0`, which on an empty table passes whether RLS denies the rows or no rows exist. 5 of 6 sampled §4.3 tables are empty locally and emptier in a fresh CI bootstrap, so the arm cannot currently fail for them. The relocated test seeds a sentinel row inside the test transaction before the non-admin SELECT, so the assertion can actually fail.
+
+**Second direction.** Every `admin_only` table found live must be in `ADMIN_TABLES` or an explicit non-§4.3 allowlist (today exactly `ignored_warnings`; `admin_emails` carries an `admin_only` policy but is excluded by the current derivation's own `tablename <> 'admin_emails'` clause and gets an explicit row). Both directions are required because the two sets genuinely disagree (§2.4).
+
+`tests/db/admin-rls-runtime.baseline.json` and its frozen 19-name list are retired — the spec-derived registry is the baseline, and the baseline could only ever detect drift from itself, never disagreement with the spec. Its sole consumer is the test being relocated (verified: `grep -rl admin-rls-runtime.baseline` matches only `tests/db/admin-rls-runtime.test.ts`). `tests/db/admin-rls-runtime.test.ts:111`'s stale title ("18" asserting 19) dies with it.
 
 ### 6.3 CI placement
 
@@ -237,7 +319,9 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 - `tests/db/postgrest-dml-lockdown.test.ts` — 8 registry rows + new spec-derived Layer 5 + `ADMIN_DML_EXEMPTIONS`.
 - `tests/cross-cutting/_canonicalEmailCheckContract.test.ts` — live-catalog completeness assertion + 3 registry rows.
 
-**Relocates:** `tests/db/admin-rls-runtime.test.ts` → a new RLS-coverage test under `tests/cross-cutting/`, derivation inverted.
+**Relocates:** `tests/db/admin-rls-runtime.test.ts` → a new RLS-coverage test under `tests/cross-cutting/`, derivation inverted; `tests/db/admin-rls-runtime.baseline.json` retired.
+
+**Creates:** a generator-extraction test pinning `scripts/generate-admin-tables.ts` against the §4.5 mutant set (three CREATE TABLE spellings + an unresolvable name expecting a throw).
 
 **Advisory-lock topology:** N/A — this cluster acquires no `pg_advisory*` lock and adds no SECURITY DEFINER function. Grants and test assertions only. (Invariant 2 unaffected: locks live inside the RPCs, which the REVOKE makes *more* authoritative, not less.)
 
@@ -247,7 +331,9 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 1. **`app_settings` + `admin_alerts` remain admin-session-writable.** Closing them requires choosing a replacement gate — service-role-after-`requireAdmin`, or a SECURITY DEFINER RPC per write — and either inverts the documented "RLS is authoritative" contract at `setAutoPublish.ts:47-48` and `actions.ts:139-143`. For `admin_alerts` the RPC path additionally has to encode the HEALTH-code developer-gate (`actions.ts:114-131`) in SQL, which is the "materially larger, whole-resolve-path change" already scoped at `BACKLOG.md:556`. Both stay class (c) with `ADMIN_DML_EXEMPTIONS` rows; §11 names the decision Eric owns.
 2. **Body-structure of canonical CHECKs is still unverified** (§5.1). The three substring regexes accept a wrong boolean grouping. Widening to a full predicate parse is a separate, larger change; filed rather than smuggled in.
-3. **Layer 5 proves classification exists, not that it is correct.** A future table wrongly classed (c) with a plausible reason passes. The reason string must carry a `file:line`, which makes a wrong row falsifiable at review time, but no test can adjudicate intent.
+3. **`role_token_mappings.decided_by` stays outside the AC-X.5 manifest** until its own amendment cycle (§5.3). Its canonicalization is correct today but unpoliced by the `x5-email-canonicalization` gate; this cluster pins only that the CHECK exists.
+4. **The `deny_all` posture is declared, not derived.** A table wrongly declared `deny_all` when it should carry `admin_only` passes. The posture column is one greppable word per table, which makes a wrong declaration visible at review; no test can adjudicate intent.
+5. **Layer 5 proves classification exists, not that it is correct.** A future table wrongly classed (c) with a plausible reason passes. The reason string must carry a `file:line`, which makes a wrong row falsifiable at review time, but no test can adjudicate intent.
 
 ## 10. Migration → validation parity checklist (per AGENTS.md)
 
