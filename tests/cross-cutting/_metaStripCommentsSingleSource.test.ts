@@ -172,7 +172,7 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
     family: "startswith-filter",
     marker: "--",
     reason:
-      'psql LONG-OPTION detection (`token.startsWith("--")` in argvSuppressesStartupFiles), not ' +
+      "psql's LONG-OPTION detection (`token.startsWith('--')` in argvSuppressesStartupFiles), not " +
       "comment handling — `--` is psql's end-of-options marker and the prefix of --no-psqlrc. " +
       "Detector false positive, same shape as the tests/db/_localDbUrl.ts row",
   },

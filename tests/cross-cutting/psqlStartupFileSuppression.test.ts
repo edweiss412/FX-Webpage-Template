@@ -694,6 +694,47 @@ describe("R8 escaping mutants", () => {
   });
 });
 
+// ── R9: `command -p`, and tripwire recall on wrapped commands ──────────
+
+describe("R9 escaping mutants", () => {
+  test("`command -p psql` RUNS psql; only `command -v` inspects it", () => {
+    expect(sitesIn("command -p psql -qAt mydb\n", "x.sh")).toHaveLength(1);
+    expect(sitesIn("command -p /usr/bin/psql -qAt mydb\n", "x.sh")).toHaveLength(1);
+    expect(sitesIn("command -v psql\n", "x.sh")).toHaveLength(0);
+  });
+
+  test.each([
+    [
+      "a nested substitution after printf",
+      `const c = "printf x $(psql -qAt mydb)"; execSync(c);`,
+      true,
+    ],
+    [
+      "a LONG outer command with a substitution",
+      `const c = "echo one two three four five six seven $(psql -qAt mydb)"; execSync(c);`,
+      true,
+    ],
+    ["a flagless call under sudo", `const c = "sudo -u postgres psql mydb"; execSync(c);`, true],
+    ["kubectl exec with --", `const c = "kubectl exec db -- psql -qAt mydb"; execSync(c);`, true],
+    [
+      "several env assignments",
+      `const c = "PGHOST=localhost PGPORT=5432 PGUSER=postgres psql mydb"; execSync(c);`,
+      true,
+    ],
+    // Precision. Each of these is a real string shape in this repo.
+    ["an exit-code message", "const m = `psql exit ${code}: ${stderr}`;", false],
+    ["an invocation-failed message", "const m = `psql invocation failed: ${e}`;", false],
+    [
+      "an assertion about output",
+      `const m = "psql output must contain ---LOCKS--- marker";`,
+      false,
+    ],
+    ["a test title", `const m = "parses pipe-separated psql -qAt rows";`, false],
+  ])("the tripwire sees %s -> %s", (_name, source, expected) => {
+    expect(scanBinaryIndirection(source, "x.mjs").length > 0).toBe(expected);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

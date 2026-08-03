@@ -767,7 +767,8 @@ const PROBE_COMMANDS = new Set(["command", "which", "type", "hash", "whereis", "
 const NOT_AN_INVOCATION = new Set([
   "-v",
   "-V",
-  "-p",
+  // NOT `-p`: `command -p psql …` RUNS psql with the default PATH; it does not
+  // inspect it. `command -v psql` remains denied, which is the CI probe.
   "which",
   "type",
   "whereis",
@@ -972,7 +973,7 @@ function looksLikePsqlCommandLine(text: string): boolean {
   //   • wrapper-only prefix — "parses pipe-separated psql -qAt rows", where
   //     the words before psql are English, not `sudo` / `PGHOST=` / a flag.
   const WRAPPERS =
-    /^(?:sudo|doas|su|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|docker|cat|true|false|echo|sh|bash)$/;
+    /^(?:sudo|doas|su|env|command|exec|time|timeout|nice|ionice|nohup|stdbuf|xargs|docker|kubectl|podman|nerdctl|cat|true|false|echo|printf|sh|bash|zsh)$/;
   const prefixIsCommandish = (before: readonly string[]): boolean =>
     before.every(
       (word, index) =>
@@ -980,40 +981,40 @@ function looksLikePsqlCommandLine(text: string): boolean {
         /^-/.test(word) ||
         WRAPPERS.test(basename(word)) ||
         // a wrapper's own argument: `timeout 30 psql …`, `sudo -u postgres psql …`
+        word === "--" ||
         /^-/.test(before[index - 1] ?? "") ||
-        (index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ""))),
+        (index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ""))) ||
+        (index > 1 && WRAPPERS.test(basename(before[index - 2] ?? ""))),
     );
   return sites.some((site) => {
-    // A backtick inside operator-guidance prose is a markdown code span, not a
-    // shell substitution: `via \`psql "$DSN" -f <migration>\`` is documentation.
-    // For a variable HOLDING a command, the command is the string itself.
     const words = text.trim().split(/\s+/).length;
     // A backtick in operator-guidance PROSE is a markdown code span, not a
-    // shell substitution — `via \`psql "$DSN" -f <migration>\`` is
-    // documentation. But `echo "$(psql -qAt db)"` is a real command, so a
-    // nested site still counts when the whole string is command-length.
+    // shell substitution: `' to validation via \`psql "$T" -f <m>\`'` is
+    // documentation, while `printf x $(psql -qAt db)` is a command. The signal
+    // is the OUTER text's head word, NOT its length — capping length wrongly
+    // rejected `echo one two … $(psql …)`.
     if (site.nested) {
-      // `echo "$(psql -qAt db)"` is a command; `' to validation via `psql …`'`
-      // is a sentence. The difference is the OUTER text: a command starts with
-      // a command word, prose starts with English.
-      const outerHead = text.trim().split(/\s+/)[0] ?? "";
-      const outerIsCommand =
-        /^[A-Za-z_]\w*=/.test(outerHead) || WRAPPERS.test(basename(outerHead.replace(/^["']/, "")));
-      if (!outerIsCommand || words > 8) return false;
+      const head = (text.trim().split(/\s+/)[0] ?? "").replace(/^["']/, "");
+      if (!/^[A-Za-z_]\w*=/.test(head) && !WRAPPERS.test(basename(head))) return false;
     }
     const hasFlag = site.tokens.some(
       (t) => /^-{1,2}[A-Za-z0-9]/.test(t) || t.startsWith("service="),
     );
-    // psql needs no flags at all — `psql mydb`, `psql "$DSN"`, `psql <dump.sql`
-    // (the shell eats the redirection before argv exists). Those are credible
-    // because they are SHORT; prose never is.
-    const isTerseCommand = site.tokens.length <= 2 && words <= 4;
+    // psql needs no flags at all — `psql mydb`, `psql "$DSN"`,
+    // `sudo -u postgres psql mydb`, `psql <dump.sql` (the shell eats the
+    // redirection before argv exists). Three bounds keep prose out, each with a
+    // named counterexample from this repo's own strings:
+    //   argv length  — "psql output must contain ---LOCKS--- marker"
+    //   string length — a STANDING_ALLOWLIST reason, whose command stops after
+    //     two words only because a `(` splits it
+    //   no `word:`   — `psql invocation failed: …`, `psql exit ${code}: …`
+    const isTerseCommand =
+      site.tokens.length <= 3 && words <= 8 && !site.tokens.some((t) => /:$/.test(t));
     if (!hasFlag && !isTerseCommand) return false;
-    const follower = site.tokens[0] ?? "";
-    if (/:$/.test(follower)) return false;
-    // The real precision carrier: everything before the command word must look
-    // like a wrapper, an assignment, or a flag — not English. That is what keeps
-    // "parses pipe-separated psql -qAt rows" out, so no length cap is needed.
+    if (/:$/.test(site.tokens[0] ?? "")) return false;
+    // The main precision carrier: every word before the command must look like a
+    // wrapper, an assignment, or a flag — not English. That is what keeps
+    // "parses pipe-separated psql -qAt rows" out.
     return prefixIsCommandish(site.precedingWords);
   });
 }
