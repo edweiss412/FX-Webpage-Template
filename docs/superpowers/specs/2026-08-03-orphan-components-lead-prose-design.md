@@ -168,8 +168,16 @@ code is what got carried into the hero:
 
 - `tests/components/RightNowCardRecovery.test.tsx` — the Codex round-9 HIGH: stale tint must UNWIND
   on `unknown → show_day_n` recovery instead of pinning the card on `lastGood` forever.
-- `tests/components/RightNowCardReducedMotionInitial.test.tsx` — the Codex round-19 MEDIUM:
-  `data-prefers-reduced-motion` resolves at mount with no SSR flash.
+- `tests/components/RightNowCardReducedMotionInitial.test.tsx` — the Codex round-19 MEDIUM: the
+  component reads the INITIAL `matchMedia` value at mount rather than waiting for a `change` event
+  (framer-motion's own `useReducedMotion()` misses the initial value). **Scoped precisely at spec
+  R2:** this suite uses Testing Library's client-only `render()`, so it does NOT and cannot prove
+  anything about server rendering or hydration. `usePrefersReducedMotion` returns `null` on the
+  server and on the first hydrating render by design
+  (`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero deliberately treats `null` as
+  "animate at full duration" (`components/crew/RightNowHero.tsx:337`). What the pin catches is a
+  regression to an event-only read, where a reduced-motion viewer animates until the first
+  preference CHANGE that may never come.
 
 `tests/components/crew/rightNowHero.test.tsx` covers the 12-state map, per-day anchors, live clock,
 stat guards, and the clock freeze — **not** either of these two behaviors. Deleting the card and
@@ -376,17 +384,19 @@ The full table, from a bare-string sweep of all four retired identifiers run 202
 | `tests/components/Header.test.tsx:8`, `tests/components/Header.test.tsx:12` | header rationale prose cites the card as the hero spot | Repoint to the hero |
 | `tests/components/crew/rightNowHero.test.tsx:5`, `tests/components/crew/rightNowHero.test.tsx:7` | provenance prose | Rewrite as retirement-aware provenance |
 | `tests/e2e/right-now-transitions.spec.ts` (3 hits) | header prose names the card | Prose only; assertions untouched |
+| `tests/e2e/right-now.spec.ts:128` | a skipped `test.describe` whose TITLE names the card, not header prose | Rename the describe title to the hero. Found at spec R2; the draft authorized "header prose" only, which would have left the identifier live in a test name |
+| `BACKLOG.md:1120` (`BL-ACCENT-BUTTON-ATOM-SWEEP`) | a DIFFERENT active entry naming `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call sites | **Does NOT graduate with this branch.** Amend that entry in Task 10 to record that two of the eight named call sites have since been retired, so its census stays true |
 | `components/admin/ArchiveShowButton.tsx:9` | cites `ResolveAlertButton` as a pattern exemplar | Repoint to a live exemplar |
 | `tests/components/atoms/AccentButton.test.tsx:7` | lists both retired buttons | Repoint to live call sites |
 | `DEFERRED-archive.md` (3 hits, `RunFinalCASButton`) | archived deferrals naming the button | **History — left alone.** An archive records what was true when it closed |
-| `BACKLOG.md` (rows for all four) | the entry being worked | Graduates with the entry (§7) |
+| `BACKLOG.md` (the `BL-ORPHANED-…` and `BL-LEAD-…` rows) | the entries being worked | Graduate with their entries (§7). Note this does NOT cover every `BACKLOG.md` hit — see the `BL-ACCENT-BUTTON-ATOM-SWEEP` row above, which stays open |
 | `tests/cross-cutting/no-load-show-crew-with-auth.test.ts:5-8` | `FILES` lists the component + its test | Drop both rows; the surviving row (`app/admin/show/[slug]/page.tsx`) keeps the guard non-vacuous |
 | `tests/help/forbidden-prose-registry.test.ts:80` | reason prose: "No copy-URL affordance ships in PerShowCrewSection" | Reword to name the live surface; the registry's assertion is unchanged |
 | `tests/styles/_metaDestructiveConfirm.test.ts:85` | `R("components/admin/ResolveAlertButton.tsx", …)` | Delete the row |
 | `tests/styles/accent-button-atom.test.ts:59-66` | `MIGRATED_FILES` contains both retired buttons | Delete both rows; extend the existing `ResumeFinalizeButton` de-migration note to cover them (that note is the precedent) |
 | `components/shared/AccentButton.tsx:7-8` and `components/shared/AccentButton.tsx:34` | header cites `ResolveAlertButton` + `RunFinalCASButton` as call sites | Repoint to live call sites (`PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`) |
 | `app/admin/settings/admins/RevokeRowButton.tsx:7` | "C4 ResolveAlertButton pattern" | Repoint to a live two-tap exemplar |
-| `components/admin/RetryWatchButton.tsx:7` | contrasts with "ResolveAlertButton's destructive Dismiss" | Repoint to `BellPanel`'s Dismiss |
+| `components/admin/RetryWatchButton.tsx:7` | contrasts its safe retry with the retired button's destructive confirm | Repoint to the bell panel's resolve control, naming its real label (`Confirm` / `Mark resolved`) |
 | `components/admin/PendingPanelDiscardButtons.tsx:59` | cites `ResolveAlertButton "Confirm dismiss"` | Repoint |
 | `tests/components/RetryWatchButton.test.tsx:11` | same contrast in test prose | Repoint |
 | `tests/onboarding/finalize-cas.test.ts:513` | "RunFinalCASButton renders per-row codes via messageFor()" | Repoint to `FinalizeButton` |
@@ -423,7 +433,7 @@ never skipped because the file "isn't a UI file".
 | --- | --- | --- |
 | T1 | `tests/components/_metaOrphanedComponents.test.ts` green with a 1-row `ORPHAN_ALLOWLIST` | A deleted component's row left behind (family b) or a retained file's row dropped (family a) |
 | T2 | Retargeted `RightNowHeroRecovery` suite: `show_day_n → unknown → show_day_n` clears stale AND renders the NEW body (asserting a callTime absent from `lastGood`) | The round-9 HIGH regressing in the LIVE component — stale tint pinned on `lastGood` after recovery |
-| T3 | Retargeted `RightNowHeroReducedMotionInitial` suite: `data-prefers-reduced-motion` correct at first paint for both `useReducedMotion` values | The round-19 MEDIUM regressing in the live component — SSR flash to a stub state |
+| T3 | Retargeted `RightNowHeroReducedMotionInitial` suite: `data-prefers-reduced-motion` reflects the INITIAL `matchMedia` value on the first committed client render, for both hook return values | A regression to an event-only read: a reduced-motion viewer animates until a preference CHANGE arrives, which may never happen. NOT an SSR/hydration pin (client-only `render()`; the hook returns `null` pre-mount by design) |
 | T4 | `tests/crew/_metaTileProducerTopology.test.ts:169` still green | `WrappedTile` gaining a production call site, waking the dormant `TILE_SERVER_RENDER_FAILED` producer whose write-site pin assumes dormancy |
 | T5 | `tests/migration/crew-redesign-cleanup.test.ts` `RETAINED` still green | Over-deletion of the retained tile-error infra while emptying the ledger |
 | T6 | `tests/docs/_metaInvariant8Closeout.test.ts` green | A plan unit missing its `impeccable-gate:` marker |

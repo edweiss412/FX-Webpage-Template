@@ -99,9 +99,16 @@ from the production render helper.
 
 ## Task 2 — retarget the reduced-motion-at-mount suite onto `RightNowHero`
 
-**Failure mode it catches:** the Codex round-19 MEDIUM regressing in the live component —
-`data-prefers-reduced-motion` resolving after mount, so a reduced-motion viewer gets one animated
-frame before the preference applies (an SSR flash to a stub state).
+**Failure mode it catches:** the Codex round-19 MEDIUM regressing in the live component — a
+regression to an event-only read of the motion preference, where `data-prefers-reduced-motion`
+never reflects the viewer's INITIAL `matchMedia` value and a reduced-motion viewer keeps animating
+until a preference CHANGE that may never arrive.
+
+**Scope, pinned at spec R2 so the closeout does not overclaim:** the suite uses Testing Library's
+client-only `render()`. It proves nothing about SSR or hydration, and it cannot:
+`usePrefersReducedMotion` returns `null` on the server and on the first hydrating render by design
+(`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero treats `null` as "animate at full
+duration" (`components/crew/RightNowHero.tsx:337`). Write the header to say what it proves.
 
 Same procedure as Task 1 against `tests/components/RightNowCardReducedMotionInitial.test.tsx` →
 `tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx`. The assertion reads
@@ -197,7 +204,7 @@ can reach, while five live files cite it as the pattern to copy.
 5. Class sweep: `rg -n "ResolveAlertButton" app components lib tests` must be empty.
 
 **Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
-**Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's Dismiss`
+**Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's resolve control`
 
 ## Task 6 — retire `RunFinalCASButton`
 
@@ -217,7 +224,8 @@ which reads as finalize coverage and is not.
    `tests/components/atoms/AccentButton.test.tsx:7` — each repoints to `FinalizeButton`, the live
    renderer of the per-row block (`components/admin/FinalizeButton.tsx:827`).
 5. Class sweep, unscoped: `rg -n "RunFinalCASButton" --glob '!node_modules' --glob '!.next' .`
-   must return only this plan, the spec, `BACKLOG.md` (graduating in Task 10), and
+   must return only this plan, the spec, the two `BACKLOG.md` entries Task 10 handles (the one that
+   graduates and `BL-ACCENT-BUTTON-ATOM-SWEEP`, which is amended and stays open), and
    `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
    alone.
 
@@ -319,13 +327,18 @@ settled decision that reads as open work.
    (spec §4.1). Documentary only (no production consumer:
    `CAPABILITY_TRANSITION_MATRIX`'s sole reader is `tests/visibility/capabilityTransitions.test.ts`),
    effort M (10 → 15 rows plus tests), trigger = the next milestone touching scope-tile visibility.
-4. File `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` — six comment lines in `components/admin/BellPanel.tsx`
+4. **Amend `BL-ACCENT-BUTTON-ATOM-SWEEP` (`BACKLOG.md:1120`) — it does NOT graduate here.** Its
+   description names `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call
+   sites; two of those are retired by Tasks 5 and 6. Record that in the entry so its census stays
+   true, and leave the entry open (spec R2). This is the one `BACKLOG.md` hit the sweep must NOT
+   treat as graduating with this branch.
+5. File `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` — six comment lines in `components/admin/BellPanel.tsx`
    (from `components/admin/BellPanel.tsx:224`) call the trailing ghost control "Dismiss"; it renders
    `Confirm` / `Mark resolved`. Same class as this branch's subject, different shape, so filed
    rather than swept (spec §7). Effort S, no product question.
-5. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
+6. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
    dispositions.
-6. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
+7. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
    from the same file concurrently. Resolve by keeping BOTH sides — the entries are disjoint and
    the reconciliation line concatenates. Do not drop a sibling's segment.
 
