@@ -83,7 +83,14 @@ const EXEMPT_MARKER = "timeout-floor-exempt:";
 // cannot mistake `sql.end({ timeout: 5 })`, postgres.js
 // `idle_timeout`/`connect_timeout`, or an `execFileSync` options bag for a test
 // budget — the over-selection risk the regex had to enumerate its way around.
-type Budget = { line: number; ms: number };
+//
+// A budget whose value the walker cannot resolve is reported as UNRESOLVABLE
+// rather than skipped. `postgrest-dml-lockdown.test.ts` passes a named constant
+// (`HTTP_TEST_TIMEOUT_MS`, 35_000 — above the floor), and a guard that silently
+// ignores what it cannot read would keep passing if someone later edited that
+// constant below the floor. Same-file numeric consts are therefore folded; what
+// survives folding fails loudly and can be exempted with a reason.
+type Budget = { line: number; ms: number | null; text: string };
 
 function testBudgets(file: string, body: string): Budget[] {
   const source = ts.createSourceFile(
@@ -94,6 +101,70 @@ function testBudgets(file: string, body: string): Budget[] {
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const found: Budget[] = [];
+
+  // Module-level `const NAME = <numeric expr>` bindings, for folding a budget
+  // written as a named constant.
+  const consts = new Map<string, ts.Expression>();
+  const collectConsts = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      consts.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, collectConsts);
+  };
+  collectConsts(source);
+
+  // Fold to a number, or null when the value is not statically knowable here.
+  // Cycle-guarded: a self-referential const resolves to null rather than
+  // recursing forever.
+  const fold = (expr: ts.Expression, seen = new Set<string>()): number | null => {
+    if (ts.isNumericLiteral(expr)) return Number(expr.getText(source).replaceAll("_", ""));
+    if (ts.isParenthesizedExpression(expr)) return fold(expr.expression, seen);
+    if (ts.isPrefixUnaryExpression(expr) && expr.operator === ts.SyntaxKind.MinusToken) {
+      const inner = fold(expr.operand, seen);
+      return inner === null ? null : -inner;
+    }
+    if (ts.isIdentifier(expr)) {
+      if (seen.has(expr.text)) return null;
+      const bound = consts.get(expr.text);
+      return bound ? fold(bound, new Set(seen).add(expr.text)) : null;
+    }
+    if (ts.isBinaryExpression(expr)) {
+      const left = fold(expr.left, seen);
+      const right = fold(expr.right, seen);
+      if (left === null || right === null) return null;
+      switch (expr.operatorToken.kind) {
+        case ts.SyntaxKind.PlusToken:
+          return left + right;
+        case ts.SyntaxKind.MinusToken:
+          return left - right;
+        case ts.SyntaxKind.AsteriskToken:
+          return left * right;
+        default:
+          return null;
+      }
+    }
+    return null;
+  };
+
+  // Vitest's test entry points, plus any local alias of one (`import { it as
+  // check }`), so renaming the import does not hide a budget.
+  const testNames = new Set(["test", "it", "describe"]);
+  const collectAliases = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.moduleSpecifier.getText(source).includes("vitest") &&
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const spec of node.importClause.namedBindings.elements) {
+        if (spec.propertyName && testNames.has(spec.propertyName.text)) {
+          testNames.add(spec.name.text);
+        }
+      }
+    }
+    ts.forEachChild(node, collectAliases);
+  };
+  collectAliases(source);
 
   // The callee's root identifier, through property access and call chains, so
   // `test`, `test.skipIf(x)`, `it.each(rows)`, and `describe.sequential` all
@@ -110,28 +181,40 @@ function testBudgets(file: string, body: string): Budget[] {
     }
   };
 
-  const record = (node: ts.Node): void => {
+  const record = (node: ts.Node, ms: number | null): void => {
     found.push({
       line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
-      ms: Number(node.getText(source).replaceAll("_", "")),
+      ms,
+      text: node.getText(source).slice(0, 60),
     });
   };
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const name = rootName(node.expression);
-      if (name === "test" || name === "it" || name === "describe") {
+      if (name !== null && testNames.has(name)) {
         for (const arg of node.arguments) {
           if (!ts.isObjectLiteralExpression(arg)) continue;
           for (const prop of arg.properties) {
+            // A spread could carry a timeout from anywhere; unreadable here.
+            if (ts.isSpreadAssignment(prop)) record(prop, null);
             if (!ts.isPropertyAssignment(prop)) continue;
             if (prop.name.getText(source) !== "timeout") continue;
-            if (ts.isNumericLiteral(prop.initializer)) record(prop.initializer);
+            record(prop.initializer, fold(prop.initializer));
           }
         }
-        // The numeric-final-argument overload: test(name, fn, 15000).
+        // The numeric-final-argument overload: test(name, fn, 15000). A budget
+        // only ever appears in third position or later, after the callback, so
+        // a two-argument call's last argument is the callback, not a budget.
         const last = node.arguments.at(-1);
-        if (last && ts.isNumericLiteral(last)) record(last);
+        if (
+          last &&
+          node.arguments.length >= 3 &&
+          !ts.isArrowFunction(last) &&
+          !ts.isFunctionExpression(last)
+        ) {
+          record(last, fold(last));
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -208,9 +291,10 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
 
       const rawLines = body.split("\n");
       for (const budget of testBudgets(file, body)) {
-        if (budget.ms >= TIMEOUT_FLOOR_MS) continue;
+        if (budget.ms !== null && budget.ms >= TIMEOUT_FLOOR_MS) continue;
         if (rawLines[budget.line - 1]?.includes(EXEMPT_MARKER)) continue;
-        offenders.push(`${relative(ROOT, file)}:${budget.line} — ${budget.ms}ms`);
+        const value = budget.ms === null ? `UNRESOLVABLE (${budget.text})` : `${budget.ms}ms`;
+        offenders.push(`${relative(ROOT, file)}:${budget.line} — ${value}`);
       }
     }
 
