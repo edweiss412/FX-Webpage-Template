@@ -9,7 +9,7 @@
 
 ## 1. Problem
 
-`shows.source_anchors` drives the "In sheet" deep links — the map from a parser region id to a `SourceAnchor` — `{title, gid, a1}` (`lib/sheet-links/buildSheetDeepLink.ts:3`). A show whose anchors are stale or empty gets the deterministic whole-sheet fallback `#gid=0`, guarded by `isAllowed(anchor.title)` (`lib/sheet-links/buildSheetDeepLink.ts:22`) instead of a link that lands on the right tab and range.
+`shows.source_anchors` drives the "In sheet" deep links — the map from a parser region id to a `SourceAnchor` — `{title, gid, a1}` (`lib/sheet-links/buildSheetDeepLink.ts:3`). A show with no anchor for a region, or one whose stored anchor is structurally unusable, gets the deterministic whole-sheet fallback `#gid=0`, guarded by `isAllowed(anchor.title)` (`lib/sheet-links/buildSheetDeepLink.ts:22`). That guard is structural only: an anchor that is well-formed but describes an older revision of the sheet passes it and produces a link to a stale range. See §4.1.
 
 Anchors are computed once per sheet at scan time and persisted on the staged row (`lib/sync/runOnboardingScan.ts:1332` computes, `lib/sync/runOnboardingScan.ts:797` threads them into the Phase-1 staging upsert, `lib/sync/runOnboardingScan.ts:576` writes `pending_syncs.source_anchors`). This is done for **every** scanned sheet, first-seen or already-live — the column is unconditional (`supabase/migrations/20260701000001_pending_syncs_source_anchors.sql:9`).
 
@@ -20,7 +20,7 @@ Only one branch uses it:
 - **First-seen (Flow A)** spreads it into the apply core — `app/api/admin/onboarding/finalize/route.ts:1280`.
 - **Existing-show (Flow B)** drops it. `stageExistingShowShadow` (`app/api/admin/onboarding/finalize/route.ts:602`) writes a shadow payload that carries `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, and `use_raw_decisions` — but not the anchors. `deleteApprovedPending` (`app/api/admin/onboarding/finalize/route.ts:689`) then consumes the `pending_syncs` row in the same Phase-B transaction, so by Phase D the value no longer exists anywhere. `applyShadow` (`app/api/admin/onboarding/finalize-cas/route.ts:410`) builds its `applyStagedCore` args (`app/api/admin/onboarding/finalize-cas/route.ts:546`) with no `sourceAnchors` key.
 
-Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded — the cron path repopulates on the next sheet edit (`lib/sync/runScheduledCronSync.ts:1527`), and the `#gid=0` fallback keeps every link safe meanwhile — which is why this was filed as backlog rather than deferred.
+Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded — the cron path repopulates on the next sheet edit (`lib/sync/runScheduledCronSync.ts:1527`), and a show that never had anchors links safely at `#gid=0` meanwhile — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1, which this change makes no worse and does not claim to fix.
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -105,7 +105,37 @@ Byte-for-byte the same guard as Flow A (`app/api/admin/onboarding/finalize/route
 | Payload value is a legacy double-encoded JSON string of an object | that string | decoded map | yes | replaced with the decoded map |
 | Map present but an individual entry is malformed | the map | the map | yes | stored as-is; the read boundary falls back to `#gid=0` for that entry (`lib/sheet-links/buildSheetDeepLink.ts:22`) |
 
-Every degraded row lands on "unchanged," never on "wiped." That is the whole safety argument: the change is monotone — it can only replace anchors with the freshly scanned ones or leave the prior ones alone.
+Every degraded row lands on "unchanged," never on "wiped." The change can only replace anchors with the freshly scanned ones or leave the prior ones alone. "Unchanged" is the conservative outcome, not an unconditionally safe one — §4.1 states exactly what it does not cover.
+
+### 4.1 Documented limits
+
+**Preserved anchors can predate the applied revision.** When the scan's tab-gid fetch fails,
+`lib/sync/runOnboardingScan.ts:1350` yields `{}` and the scan continues; the apply then advances
+`shows.last_seen_modified_time` while the coalesce keeps the previous anchor map
+(`lib/sync/runScheduledCronSync.ts:1524` and `lib/sync/runScheduledCronSync.ts:1527`). If rows
+moved between the two revisions, the retained anchor is still structurally valid — allowlisted
+title, numeric gid — so `lib/sheet-links/buildSheetDeepLink.ts:22` accepts it and the "In sheet"
+link opens the old range rather than falling back to `#gid=0`. It self-corrects on the next
+successful sync of that sheet.
+
+This is the shipped system's ratified posture, not something this change introduces. The cron path
+deliberately emits `undefined` rather than `{}` on a genuine sheets-list failure precisely so the
+coalesce preserves the stored anchors (`lib/sync/runScheduledCronSync.ts:3073`, and the audit
+idx12/idx63 comment above it). Flow A already behaves this way
+(`app/api/admin/onboarding/finalize/route.ts:1280`). Flow B today writes no anchors at all, so
+before this change every existing-show re-onboard was permanently in the "retained older anchors"
+state; after it, the retained-anchor window shrinks to transient-failure scans only.
+
+The alternative — forwarding a defined `{}` so a failed scan clears the map — trades a stale range
+for a guaranteed loss of every good anchor on every transient Drive hiccup, on shows whose sheets
+did not change. That is why preserve-over-wipe is the ratified choice at all three call sites, and
+this spec does not reopen it.
+
+**Not covered by the §7 tests, deliberately.** The wipe-guard case asserts `PRIOR` survives an empty
+scan; it therefore passes in exactly the state described above and cannot distinguish "correctly
+preserved" from "stale but preserved." No test at this layer can: the staleness is a property of the
+sheet's revision history, not of the apply. Detecting it needs a revision stamp stored alongside the
+anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and is out of scope here.
 
 ---
 
@@ -118,6 +148,7 @@ Every degraded row lands on "unchanged," never on "wiped." That is the whole saf
 | Wizard existing-show re-onboard, Flow B (`app/api/admin/onboarding/finalize-cas/route.ts:546`) | No | **Yes — this spec** |
 | Wizard existing-show UNCHECKED (spec §7.4 D10 no-op, `app/api/admin/onboarding/finalize/route.ts:1178`) | No | Unchanged — no shadow is staged, the live show is deliberately untouched |
 | Live dashboard staged-apply (`lib/sync/applyStaged.ts`) | No | Unchanged — out of scope; that path never carried anchors and the cron refresh covers it |
+| Validation backfill script (`scripts/backfill-validation-source-anchors.ts:77`) | Yes, under its own `pg_advisory_xact_lock` (`scripts/backfill-validation-source-anchors.ts:75`) | Unchanged — an operator-run one-shot, not a request path; it skips writing when extraction produces zero anchors, so it cannot wipe either |
 
 ## 6. Layer completeness matrix
 
@@ -150,7 +181,7 @@ Each task is failing test → minimal implementation → passing test → commit
 - **Wipe guard:** same fixture with `pending_syncs.source_anchors = '{}'`, assert `shows.source_anchors` still equals `PRIOR` after a successful apply. This is the case that fails loudly if the implementation drops the `Object.keys(...)` guard.
 - Drive export functions are `vi.mock`'d to throw, as in `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts:16-30`, pinning that Phase D remains Drive-free.
 
-**Anti-tautology note.** Task 3 asserts on the `shows` row read back from Postgres after the apply, not on the args object handed to the core — a test that asserted the latter would pass against an implementation whose plumbing is broken downstream. `FRESH` and `PRIOR` are distinct fixtures so neither case can pass by coincidence, and the wipe-guard case is the negative control for the refresh case.
+**Anti-tautology note.** Task 3 asserts on the `shows` row read back from Postgres after the apply, not on the args object handed to the core — a test that asserted the latter would pass against an implementation whose plumbing is broken downstream. `FRESH` and `PRIOR` are distinct fixtures so neither case can pass by coincidence, and the wipe-guard case is the negative control for the refresh case. What the wipe guard cannot prove is stated in §4.1.
 
 ---
 
@@ -177,7 +208,7 @@ Each task is failing test → minimal implementation → passing test → commit
 | `$14` | the 14th bind parameter of `stageExistingShowShadow`, which binds 13 today (`app/api/admin/onboarding/finalize/route.ts:671-685`) |
 | `$18` | the `source_anchors` bind in the `applyShowSnapshot` UPDATE arm (`lib/sync/runScheduledCronSync.ts:1527`) |
 | 8 guard rows | §4 enumerates every representable payload state: populated, empty, corrupt-upstream, absent, null, array-or-scalar, legacy string, malformed entry |
-| 5 write paths | §5 — cron, Flow A, Flow B, D10 no-op, live staged-apply |
+| 6 write paths | §5 — cron, Flow A, Flow B, D10 no-op, live staged-apply, validation backfill script |
 
 ---
 
