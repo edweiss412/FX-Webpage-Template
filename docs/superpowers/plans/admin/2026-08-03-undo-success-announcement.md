@@ -23,7 +23,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — two assertions (Task 9): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`. Each carries its own planted violation.
+- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — two assertions (Task 10): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`. Each carries its own planted violation.
 - **EXTENDS** none.
 - No advisory-lock topology section: the plan does not touch `pg_advisory*`.
 
@@ -39,7 +39,7 @@ An earlier draft declared this N/A. That was wrong, and the reason is the whole 
 - **Readiness gate:** the suite's existing row-hydration gate before the first assertion, never `networkidle` alone.
 - **Detach safety:** the undo click removes its own row, so the post-click assertion targets the region (a stable body-level node), never the removed button; no `locator.evaluate` on an element that can unmount.
 
-Covered by Task 8b.
+Covered by Task 9.
 
 ---
 
@@ -140,23 +140,23 @@ The layout edit is the whole point of the redesign; wrapping each return separat
 
 `ChangesFeed.tsx` is not edited in this task or any other. If a diff to it appears, the redesign was not followed.
 
-## Task 8 — Survival probes (spec §3.7, six branches)
+## Task 8 — Survival probes (spec §3.7, seven branches)
 
-- [ ] Six probes per spec §11. **Every one captures the region node before the action and asserts `toBe` afterwards** — text equality alone passes when the region was destroyed and a populated replacement mounted, which is precisely the round-2 failure mode.
+- [ ] Seven probes per spec §11. **Every one captures the region node before the action and asserts `toBe` afterwards** — text equality alone passes when the region was destroyed and a populated replacement mounted, which is precisely the round-2 failure mode.
 - [ ] Commit `test(admin): prove the undo announcement survives every branch`.
 
-Branches covered, each one a case a prior review round proved could replace a per-surface region: strip to `groups: []`; the same interleaved with an unresolved action promise; strip to `infra_error`; the provider's `children` swapped wholesale (the `Dashboard.tsx:563` shape); feed row `action` flipped to `"none"`; `ChangesSection` flipped to its `feed === null` rendering (`ChangesSection.tsx:60`).
+Branches covered, each one a case a prior review round proved could replace a per-surface region: strip to `groups: []`; the same interleaved with an unresolved action promise; strip to `infra_error`; the provider's `children` swapped wholesale (the `components/admin/Dashboard.tsx:565` shape); feed row `action` flipped to `"none"`; `ChangesSection` flipped to its `feed === null` rendering (`components/admin/showpage/ChangesSection.tsx:60`); and the layout's own branch flip, which is §3.5's central claim and until round 3 had no falsifier.
 
 If any probe fails, the layout-level owner is not immune and the design is wrong again. Do not weaken a probe to make it pass.
 
-## Task 8b — Real-browser accessibility-tree assertion
+## Task 9 — Real-browser accessibility-tree assertion
 
 - [ ] Add a Playwright spec: open the published review modal on a seeded show with an undoable feed row; assert `admin-undo-status` is attached **and** that no ancestor carries `aria-hidden="true"` or `inert`; click Undo; assert the announcement text lands in that region.
 - [ ] Commit `test(admin): prove the undo region stays in the a11y tree under the review modal`.
 
 Failure caught: the region nested inside `[data-inert-root]` instead of wrapping it — a placement that passes every jsdom test in this plan while the feature is completely dead for screen-reader users. This is the only assertion that can catch it.
 
-## Task 9 — Structural guard
+## Task 10 — Structural guard
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 - [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the two assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
@@ -166,12 +166,12 @@ Failure caught: the region nested inside `[data-inert-root]` instead of wrapping
 - [ ] Commit `test(admin): guard the announce channel's single layout-level owner`.
 
 Each assertion carries its **own** planted violation. Round 2's finding was a widened guard shipping a mutant for only one branch, so a guard silently ignoring the second would still have passed.
-## Task 10 — `DESIGN.md` announcement contract
+## Task 11 — `DESIGN.md` announcement contract
 
 - [ ] Add the paragraph naming the two channel shapes, when each applies, and the always-mounted rule.
 - [ ] Commit `docs(design): record the announcement channel contract`.
 
-## Task 11 — Ledger dispositions
+## Task 12 — Ledger dispositions
 
 - [ ] `BL-SYNCFEED-UI-1` resolved; `BL-SYNCFEED-UI-3` graduated as already-shipped (`c3920fe6a`); `BL-SYNCFEED-UI-2` ratified untriggered with its re-open trigger preserved; parent `BL-SYNC-FEED-UI-POLISH` moved to `BACKLOG-archive.md`.
 - [ ] The three `KNOWN_DANGLING` rows **stay**; refresh their reason strings to name the archive (spec §9.4).
@@ -180,7 +180,7 @@ Each assertion carries its **own** planted violation. Round 2's finding was a wi
 - [ ] Run `pnpm exec vitest run tests/docs/` — the ledger guards are the acceptance test.
 - [ ] Commit `docs(backlog): close BL-SYNC-FEED-UI-POLISH and file the swept class`.
 
-## Task 12 — Transition audit
+## Task 13 — Transition audit
 
 The spec's §10.2 Transition Inventory has six rows, five of which are invisible (`sr-only` additions and removals) and one of which is the failure card's instant appear/disappear. The audit confirms that inventory describes what shipped.
 
@@ -190,12 +190,12 @@ The spec's §10.2 Transition Inventory has six rows, five of which are invisible
 
 Failure caught: an implementer "improving" the error card with a fade, which delays the assistive-technology announcement behind an animation, and which the inventory explicitly forbids.
 
-## Task 13 — Adversarial review (cross-model)
+## Task 14 — Adversarial review (cross-model)
 
 - [ ] Dispatch the whole-diff Codex review per the `AGENTS.md` cross-CLI discipline: fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list drawn from spec §1.1, iterate to APPROVE with no round budget.
 - [ ] Triage findings by deferral discipline: land-now, `DEFERRED.md`, or `BACKLOG.md`.
 
-## Task 14 — Invariant-8 dual gate and closeout
+## Task 15 — Invariant-8 dual gate and closeout
 
 - [ ] `/impeccable critique` and `/impeccable audit` on the diff, both with the canonical v3 setup gates (the context load of PRODUCT.md + DESIGN.md, then the register reference read).
 - [ ] P0 fixed inline; P1+ fixed or deferred with a `DEFERRED.md` entry.
