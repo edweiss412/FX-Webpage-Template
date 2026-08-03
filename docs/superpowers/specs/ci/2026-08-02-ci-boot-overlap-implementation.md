@@ -121,9 +121,9 @@ $ uname -m                   -> x86_64
 $ /etc/os-release            -> Debian GNU/Linux 12 (bookworm)
 ```
 
-All four enabled build scripts plus the root `prepare` executed on the target architecture, from a fresh install, and **wrote nothing under `supabase/`**.
+All four enabled build scripts plus the root `prepare` executed on x86_64 Linux, from a fresh install.
 
-**And `find -newer` is not enough on its own** — it detects additions and touches, not deletions, and not a same-mtime rewrite. So probe B was re-run with a content manifest on both sides: `find supabase -type f -exec sha256sum {} \; | sort` before the install and after, then `diff`:
+**`find -newer` is not enough on its own** — it detects additions and touches, not deletions, and not a same-mtime rewrite. So probe B was re-run with a content manifest on both sides: `find supabase -type f -exec sha256sum {} \; | sort` before the install and after, then `diff`:
 
 ```
 manifest entries before: 126
@@ -131,7 +131,19 @@ manifest entries before: 126
 IDENTICAL
 ```
 
-126 files, byte-identical set, before and after a full fresh install on the target architecture. That closes additions, deletions and content changes in one check, and it is the observation the disjointness premise rests on. (A `git status` equivalent is unavailable inside the container — `git archive` carries no `.git` — which is precisely why the manifest diff replaces it rather than being described as "the same two checks".)
+126 files, byte-identical set, before and after a full fresh install on the target architecture. (A `git status` equivalent is unavailable inside the container — `git archive` carries no `.git` — which is why the manifest diff replaces it rather than being described as "the same two checks".)
+
+**And a before/after manifest is still only END STATE.** It cannot see a transient create-then-delete, a mode-only change, or a symlink or directory touch — and the premise being established is safe CONCURRENT access, where a transient write is exactly the thing that would collide. So probe B was run a third time with the whole directory under a live watch: `inotifywait -m -r -e create,delete,modify,move,attrib,close_write supabase` started before `pnpm install --frozen-lockfile` and killed after it.
+
+```
+=== inotify watch established? ===
+1
+=== filesystem events under supabase/ during the install ===
+0
+(end-events)
+```
+
+Watch established (so the zero is not a watch that never started), and **zero filesystem events of any kind under `supabase/` for the entire duration of a fresh install** — creates, deletes, modifies, moves, attribute changes and closed writes all included, recursively, directories and symlinks included. That is the observation the disjointness premise rests on: not "the end state matched", but "nothing happened there at all".
 
 **One thing probe B surfaced that probe A could not:** on Linux, a FIFTH build-script candidate exists — `@parcel/watcher` version 2.6.0, a platform-conditional optional dependency absent from the macOS resolution — and pnpm **ignored** it, because it is not in `allowBuilds`. That is the allow-list working as designed: the concurrent install's executable surface is exactly the four enabled entries, on either platform. It also means `allowBuilds` is an ALLOW-list of what may run, not an inventory of what pnpm would otherwise want to run; §5h pins the former, which is the set that matters here.
 
