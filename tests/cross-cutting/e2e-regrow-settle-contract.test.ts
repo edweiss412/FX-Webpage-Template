@@ -66,7 +66,9 @@ describe("T-REGROW settle contract", () => {
       sites.push(i);
       i = slice.indexOf("archive-show-confirm-button", i + 1);
     }
-    expect(sites.length, "T-REGROW should arm the confirm exactly twice (ladder + real run)").toBe(2);
+    expect(sites.length, "T-REGROW should arm the confirm exactly twice (ladder + real run)").toBe(
+      2,
+    );
     sites.forEach((at, n) => {
       const window = slice.slice(at, at + ARM_WINDOW);
       // Proximity alone would accept a one-shot measurement followed by an
@@ -96,6 +98,21 @@ describe("T-REGROW settle contract", () => {
         `arming site ${n + 1}: the measurement must sit INSIDE the retry callback ` +
           `(callback opens at +${opensAt}, measure() at +${measuresAt}, .toPass( at +${passesAt})`,
       ).toBe(true);
+      // Token ORDER alone still admits a hollow retry: a review mutation reduced
+      // the callback to `expect(async () => { void measure(); }).toPass(...)` and
+      // moved the real read back outside, and every assertion above stayed green.
+      // So the callback BODY must actually await the measurement and assert on it.
+      const callbackBody = window.slice(opensAt, passesAt);
+      expect(
+        /await\s+measure\(\)/.test(callbackBody),
+        `arming site ${n + 1}: the retry callback must AWAIT measure() — a callback that ` +
+          "fires it and discards the promise retries on nothing",
+      ).toBe(true);
+      expect(
+        (callbackBody.match(/\bexpect\(/g) ?? []).length,
+        `arming site ${n + 1}: the retry callback must contain at least one expect() — ` +
+          "a callback that asserts nothing passes on its first attempt and the retry is decorative",
+      ).toBeGreaterThan(0);
       expect(
         window.includes("waitForTimeout"),
         `arming site ${n + 1}: a fixed wait reappeared`,
