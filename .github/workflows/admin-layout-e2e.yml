@@ -38,6 +38,13 @@ on:
       - "app/api/admin/alerts/bell/**"
       - "tests/e2e/bell-panel-layout.spec.ts"
       - "tests/e2e/admin-nav-layout-dimensions.spec.ts"
+      # The no-JS notice lives in the shared LoadingShell, so the trigger has
+      # to name that component: a PR touching only Skeleton.tsx would otherwise
+      # not match any path here and this gate would run dark against the exact
+      # file it guards -- the same "matched by a project but invoked by no
+      # step" class this workflow's header was written about.
+      - "components/layout/Skeleton.tsx"
+      - "tests/e2e/nojs-loading-notice.spec.ts"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
       - ".github/workflows/admin-layout-e2e.yml"
