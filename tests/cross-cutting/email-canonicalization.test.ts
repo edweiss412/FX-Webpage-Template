@@ -526,7 +526,6 @@ describe("X.5 email canonicalization audit", () => {
         dev_pending_change: "dev.pendingchange@example.com",
       });
     },
-    15000,
   );
 
   test.skipIf(!livePsqlReachable)(
@@ -640,14 +639,9 @@ describe("X.5 email canonicalization audit", () => {
         dev_nocanon_rows: 1,
       });
     },
-    15000,
   );
 
-  test.skipIf(!livePsqlReachable)(
-    "live project satisfies all seven AC-X.5 audit layers",
-    () => {
-      expect(auditLiveEmailCanonicalization()).toEqual([]);
-    },
-    15000,
-  );
+  test.skipIf(!livePsqlReachable)("live project satisfies all seven AC-X.5 audit layers", () => {
+    expect(auditLiveEmailCanonicalization()).toEqual([]);
+  });
 });

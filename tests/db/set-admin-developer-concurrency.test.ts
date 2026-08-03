@@ -80,5 +80,5 @@ describe("set_admin_developer_rpc cross-demotion race (post-lock re-check isolat
 
     // cleanup
     await psql(`delete from public.admin_emails where email in ('${a}','${b}');`);
-  }, 15000); // 2s pg_sleep hold window exceeds vitest's 5s default; raise per-test timeout.
+  });
 });

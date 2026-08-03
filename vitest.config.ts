@@ -68,6 +68,22 @@ export default defineConfig({
     environment: "node",
     globals: false,
     setupFiles: ["tests/setup.ts"],
+    // Timeout floor for the DB-bound suites (BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE).
+    // Vitest's 5s/10s defaults fit a psql-per-assertion test on a quiet box and
+    // not on a loaded 2-core CI runner, where the miss surfaces as a TIMEOUT on
+    // healthy code and reds the required `unit-suite` gate until someone re-runs
+    // the leg. 242 test files reach a database (counted 2026-08-03 with the
+    // guard's own marker set), and after this change none of them carries a
+    // budget BELOW the floor, so the floor belongs here, at the root both
+    // projects inherit, not sprinkled per-file. A file needing MORE still raises
+    // its own (the 90s
+    // doc-scan in tests/scripts/validation-report-fixtures.test.ts) — vi.setConfig
+    // wins over the config file. Pinned by tests/cross-cutting/db-test-timeout-floor.test.ts,
+    // which also bans the OTHER wall-clock budget this class hides behind:
+    // vi.waitFor's own 1000ms default, which testTimeout does not govern.
+    // Cost: a genuinely hung test burns 30s before failing instead of 5s.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     // PR E: weight-balanced --shard partition (the two hot serial files no longer
     // both land in shard 1). No-op unless --shard is passed (vitest gates shard()
     // on config.shard), so local `pnpm test` + the x-audits' `vitest run <file>`
