@@ -1,6 +1,6 @@
 # Spec: Carry source anchors through the existing-show shadow so finalize-cas refreshes them
 
-**Backlog entry:** `BL-ONBOARDING-CAS-SOURCE-ANCHORS` (`BACKLOG.md:847`)
+**Backlog entry:** `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — in the open queue while this ships, then graduated to the archive with the branch. Cited by id, not by line: the entry moves, so a line anchor here would be dead on `main` the day this merges.
 **Predecessor:** `docs/superpowers/specs/step3-onboarding/2026-07-01-step3-persist-source-anchors.md` — persist-at-scan; its §7 matrix (line 159) declared the existing-show branches out of scope. This spec closes exactly that row.
 **Status:** draft for adversarial review
 **Effort:** S. No migration, no new error code, no UI surface.
@@ -257,7 +257,7 @@ Each task is failing test → minimal implementation → passing test → commit
 4. **No global sync cursor** — untouched; anchors travel per-show.
 5. **No raw error codes in UI** — no new code; no user-visible surface.
 6. **Commit per task** — `feat(onboarding):` / `test(onboarding):`.
-7. **Spec is canonical** — this spec supersedes only the stale mechanism wording in `BACKLOG.md:853`, and says so in §1.1.
+7. **Spec is canonical** — this spec supersedes exactly one thing outside itself: the backlog entry's prescription to "compute anchors **pre-lock** in `finalize-cas`'s apply path", quoted here so the claim survives the entry being rewritten at graduation. §1.1 records why it is stale.
 8. **UI quality gate** — N/A, no UI surface.
 9. **Supabase call boundary** — no new call site.
 10. **Mutation-surface observability** — no new surface.

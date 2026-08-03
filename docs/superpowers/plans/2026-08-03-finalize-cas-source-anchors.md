@@ -266,7 +266,9 @@ branch that no longer exists. It has to be in the PR's own diff.
    `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }` to
    `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and make sure the
    archived section names that branch — without the row the graduation guard covers nothing. Verify
-   with `pnpm vitest run tests/docs`.
+   with `pnpm vitest run tests/docs`, and re-run `pnpm spec:lint` on the spec and on this plan AFTER
+   the move — step 2's run happened while the entry was still in the open queue, so it cannot have
+   checked any citation the move invalidates.
 4. Whole-diff cross-model adversarial review to APPROVE — AFTER step 3, so the reviewed diff is the
    diff that merges. A review that runs before the graduation commit does not cover it.
 5. Push, real CI green, `gh pr merge --merge`.
