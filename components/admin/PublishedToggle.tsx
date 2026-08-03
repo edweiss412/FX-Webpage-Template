@@ -57,7 +57,7 @@ const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 // FINALIZE_CHIP below (CASP2-4 item 1, BL-CASP2-STRIP-POLISH) so it never overlays the rail
 // content below the strip during the longer-lived finalize window.
 const POPOVER_POSITION =
-  "absolute inset-x-0 top-full z-40 mt-1 break-words overflow-y-auto rounded-sm p-2 text-sm shadow-tile";
+  "absolute inset-x-0 top-full z-40 mt-1 overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm break-words shadow-tile";
 
 // Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the
 // `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
@@ -131,6 +131,8 @@ export function PublishedToggle({
   if (variant === "inline" || variant === "settings") {
     const isSettings = variant === "settings";
     const popoverId = `published-toggle-popover-${_slug}`;
+    /** Names the scroll region from the error copy it wraps (see the banner). */
+    const errorTextId = `${popoverId}-text`;
     const showError = errorCode != null || genericError;
     const showFinalize = !showError && finalizeOwned;
     // Settings sublabel (spec §3 R1): finalize copy verbatim when locked,
@@ -179,25 +181,33 @@ export function PublishedToggle({
           <div
             id={popoverId}
             data-testid="published-toggle-popover"
-            role="alert"
-            // A named, tabbable SCROLL REGION (spec §4.3): the banner is capped
-            // against the review-modal panel's clip edge, so its overflow has to
-            // be reachable — and its catalog copy can be long enough to overflow
-            // with zero focusable descendants, which engines do not reliably
-            // place in sequential focus order.
-            aria-label="Publish error details"
+            // A tabbable SCROLL REGION (spec §4.3): the banner is capped against
+            // the review-modal panel's clip edge, so its overflow has to be
+            // reachable, and its catalog copy can be long enough to overflow.
+            //
+            // The region and the LIVE region are deliberately two nodes.
+            // Collapsed onto one, an author name on the alert competes with the
+            // alert's own contents for the announcement, and the operator can
+            // hear a generic label instead of why the publish was refused.
+            // `aria-labelledby` points at the error text itself, so the region's
+            // name can never diverge from what is displayed.
+            // `ReSyncButton` uses the same split.
+            role="group"
+            aria-labelledby={errorTextId}
             tabIndex={0}
             ref={fitRef}
             className={`${POPOVER_POSITION} border border-border-strong bg-warning-bg text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset`}
           >
-            {errorCode ? (
-              <>
-                <ErrorExplainer code={errorCode} surface="admin" />
-                <HelpAffordance code={errorCode} />
-              </>
-            ) : (
-              RETRY_COPY
-            )}
+            <div id={errorTextId} role="alert" className="min-w-0">
+              {errorCode ? (
+                <>
+                  <ErrorExplainer code={errorCode} surface="admin" />
+                  <HelpAffordance code={errorCode} />
+                </>
+              ) : (
+                RETRY_COPY
+              )}
+            </div>
           </div>
         ) : showFinalize ? (
           <span

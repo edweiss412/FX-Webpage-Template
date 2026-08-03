@@ -656,6 +656,111 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 
 **What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
 
+---
+
+## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02), and pinned by
+`tests/components/admin/useFitWithinClip.test.tsx` case (g), which asserts the count is 2 so a
+change to the mount path is visible rather than silently absorbed.
+
+`useFitWithinClip` measures once when the layout effect runs, then the ref callback's
+`setAttachCount` bump re-runs the effect and it measures again. Both passes see a valid node
+and compute the same number, so the second is pure cost: one extra forced synchronous reflow
+(write, read, read, read, write) per mount, on every overlay the hook serves.
+
+The bump exists for a real reason — these overlays mount long after their owner, so an effect
+keyed on the ref alone would run once with `null` and never wire the observers up. The fix is
+not to remove it but to stop needing it: React 19 lets a ref callback return a cleanup, so the
+callback itself could own the observer wiring and the state counter could go away entirely.
+
+**Trigger:** a refactor of the hook's attach mechanism, or evidence that mount cost matters on
+a surface with many simultaneous overlays. Not worth a standalone change at two reflows.
+
+---
+
+## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`findClippingAncestor` (`components/admin/useFitWithinClip.ts`) accepts ANY non-`visible`
+overflow as the clip edge, which deliberately includes `overflow-y: auto` — a scrolling
+ancestor clips just as a `overflow-clip` panel does. But the effect subscribes to resize
+(ResizeObserver on the clip ancestor and the offsetParent), `transitionend`, and window
+resize. It never listens for `scroll`.
+
+So on a surface where the clip edge SCROLLS, the fitted cap is computed once against the
+ancestor's position at mount and then goes stale: scrolling moves the clip edge relative to
+the overlay without resizing anything, and nothing re-measures.
+
+Not reachable on today's surfaces — every current clip ancestor is the review-modal panel
+(`overflow-clip`, non-scrolling). This is a latent gap in the hook's stated contract, not a
+live defect.
+
+**Trigger:** the first consumer whose clip ancestor scrolls. Fix is a passive `scroll` listener
+on the resolved clip ancestor, routed through the same coalescer as the other signals.
+
+---
+
+## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`apply()` walks up from the node to resolve the clip ancestor, and the layout effect walks
+again immediately afterwards to decide what to observe. Each walk calls `getComputedStyle` on
+every ancestor until it finds a non-`visible` overflow.
+
+Hoisting the result is not free: `apply()` must re-walk on every invocation, because the
+ancestor chain can change between measures (an overlay can be reparented, and an ancestor's
+overflow can change). Only the effect's own second walk is redundant, and only for the run
+that just called `apply()`.
+
+**Trigger:** profiling that shows ancestor-walk cost is material, or a refactor that already
+restructures the effect body. Micro-optimisation otherwise.
+
+---
+
+## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking is raw Tailwind numerics, not named bands
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
+backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
+and their ordering are explained only in code comments, so the relationships they encode —
+"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
+the strip" — are invisible at each use site and are re-derived by hand every time an overlay
+is added.
+
+`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
+scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
+a new surface picks a band rather than a number.
+
+**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
+surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
+since the value of the scale is that every site uses it.
+
+---
+
+## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`components/admin/showpage/AttentionMenu.tsx` names the panel `"Needs you"` when any needs-you
+item exists and `"Monitoring"` otherwise — the first group actually present. When both groups
+are present the panel therefore announces as "Needs you" while also containing Monitoring rows,
+so its accessible name understates what it holds.
+
+This is deliberate and documented in-code: the name mirrors the visible leading heading, which
+is what a sighted user sees at the top of the panel, and the alternative names ("Needs you and
+monitoring", or a neutral third noun) either read as clutter or drift from the visible text.
+The related genuine defect — the inner scroller calling itself "Show issues", which was wrong
+for a monitoring-only list — is fixed separately.
+
+**Trigger:** a screen-reader pass on the show page that judges the understatement in practice,
+or a redesign that gives the panel a visible title of its own to name it from.
+
+---
+
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under

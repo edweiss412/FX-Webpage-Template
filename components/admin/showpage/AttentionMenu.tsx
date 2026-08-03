@@ -138,7 +138,7 @@ function AttentionMenuPanel({
       data-testid="published-show-review-attention-menu"
       role="group"
       aria-label={hasNeedsYou ? "Needs you" : "Monitoring"}
-      className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-lg transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
+      className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-(--shadow-popover) transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
@@ -171,7 +171,7 @@ function AttentionMenuPanel({
       <div
         ref={fitRef}
         role="group"
-        aria-label="Show issues"
+        aria-label="Attention items"
         tabIndex={0}
         className="max-h-96 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
       >

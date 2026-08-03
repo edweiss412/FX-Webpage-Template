@@ -170,6 +170,16 @@ describe("AttentionMenu", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  test("the panel uses the canonical popover shadow token, not a raw Tailwind shadow", () => {
+    renderMenu();
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    // `shadow-lg` is a fixed rgba with no dark-mode runtime, so the panel kept a
+    // light-theme shadow in dark. `--shadow-popover` carries both runtimes
+    // (app/globals.css) and is the canonical utility for popover surfaces.
+    expect(panel.className).toContain("shadow-(--shadow-popover)");
+    expect(panel.className).not.toContain("shadow-lg");
+  });
+
   test("motion classes: origin-top-right + duration-fast ease-out-quart + motion-reduce off", () => {
     renderMenu();
     const panel = screen.getByTestId("published-show-review-attention-menu");
@@ -198,11 +208,27 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   /** ResizeObserver callbacks captured so a test can fire one deliberately. */
   let observerCallbacks: ResizeObserverCallback[];
   let observedTargets: Element[];
+  /** Frames held rather than run: the hook coalesces event-driven applies. */
+  let pendingFrames: FrameRequestCallback[];
+
+  function flushFrames(): void {
+    const queued = pendingFrames;
+    pendingFrames = [];
+    for (const cb of queued) cb(0);
+  }
 
   function installLayoutStubs() {
     geometry = { scrollerTop: SCROLLER_TOP, clipBottom: CLIP_BOTTOM };
     observerCallbacks = [];
     observedTargets = [];
+    pendingFrames = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback): number => {
+      pendingFrames.push(cb);
+      return pendingFrames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (): void => {
+      pendingFrames = [];
+    });
 
     // The clip ancestor is a real DOM node OUTSIDE the rendered menu, so the
     // hook's upward walk has somewhere distinct to land.
@@ -299,7 +325,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
 
   test("the scroller is an accessible, tabbable scrollable region", () => {
     renderMenu();
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     expect(scroller.tabIndex).toBe(0);
     expect(scroller.className).toContain("max-h-96");
     expect(scroller.className).toContain("overflow-y-auto");
@@ -310,7 +336,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   test("the scroller is capped against the clip ancestor, not just by the CSS cap", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     expect(scroller.style.maxHeight).toBe(expectedFitted());
     expect(scroller.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
       `${CAP_PX}px`,
@@ -320,7 +346,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   test("an observer callback re-applies the fit even before the entrance settles", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     const first = scroller.style.maxHeight;
 
     // A React rerender cannot fire a ResizeObserver in jsdom, so the captured
@@ -332,6 +358,9 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
     act(() => {
       for (const cb of observerCallbacks) cb([], {} as ResizeObserver);
+      // The observer path is coalesced onto one frame, so the re-measure lands
+      // when the frame runs, not when the callback fires.
+      flushFrames();
     });
 
     expect(scroller.style.maxHeight).toBe(expectedFitted());

@@ -121,7 +121,7 @@ const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
-const SCROLLER = 'div[role="group"][aria-label="Show issues"]';
+const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
 
 /** The fit gutter, mirroring DEFAULT_CLIP_GUTTER (lib/layout/fitWithinClip.ts). */
 const GUTTER = 8;
@@ -530,10 +530,27 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
 // ---------------------------------------------------------------------------
 
 test.describe("§9 obligation 3 — PublishedToggle refusal banner fits its clip panel", () => {
-  test("the banner is an alert named for what it is", async ({ page }) => {
+  test("the scroll region is named by the error copy it wraps, and the alert is bare", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openToggleBanner(page);
-    await expect(page.getByRole("alert", { name: "Publish error details" })).toBeVisible();
+
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible();
+    const copy = ((await alert.textContent()) ?? "").trim();
+    expect(copy.length, "the alert must carry the catalog copy").toBeGreaterThan(0);
+
+    // The region takes its name FROM that copy, so an operator can never hear a
+    // generic label in place of the reason the publish was refused.
+    const region = page.getByTestId("published-toggle-popover");
+    await expect(region).toHaveAttribute("role", "group");
+    const name = await region.evaluate((el) => {
+      const id = el.getAttribute("aria-labelledby") ?? "";
+      return (el.ownerDocument.getElementById(id)?.textContent ?? "").trim();
+    });
+    expect(name).toBe(copy);
+    expect(name).not.toBe("Publish error details");
   });
 
   test("containment: banner.bottom never crosses the clip edge", async ({ page }) => {

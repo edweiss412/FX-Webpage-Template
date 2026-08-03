@@ -114,6 +114,16 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/components/admin/useFitWithinClip",
     requiresCancelAdoption: false,
   },
+  // The hook coalesces its own event-driven re-measures, so it consumes the
+  // shared throttle exactly as ShareHub and HoverHelp do. Registered so a future
+  // local `requestAnimationFrame` + frame-id bookkeeping inside the hook fails
+  // here instead of quietly reintroducing the per-event forced reflow.
+  {
+    consumer: "components/admin/useFitWithinClip.ts",
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
+  },
 ];
 
 /**
@@ -125,6 +135,20 @@ const NEVER_DECLARED_IN_CONSUMERS = [
   "useFitWithinClip",
   "findClippingAncestor",
 ] as const;
+
+/**
+ * Where each shared name is legitimately DECLARED. A file can be both a
+ * definer and a consumer — `useFitWithinClip.ts` defines the hook and
+ * `findClippingAncestor`, and separately consumes `createRafCoalescer` — so
+ * rule (iii) has to exempt a name in its own defining module or it reports the
+ * definition itself as a local copy. The exemption is per NAME, not per file:
+ * `useFitWithinClip.ts` declaring `createRafCoalescer` is still an offence.
+ */
+const DEFINING_MODULE: Readonly<Record<string, string>> = {
+  createRafCoalescer: "lib/popover/rafCoalescer.ts",
+  useFitWithinClip: "components/admin/useFitWithinClip.ts",
+  findClippingAncestor: "components/admin/useFitWithinClip.ts",
+};
 
 /** The shared coalescer's semantic marker comment. Exactly one source file may carry it. */
 const COALESCER_MARKER = "cleared BEFORE running";
@@ -452,6 +476,7 @@ describe("shared helper adoption (spec §7, §11 closure)", () => {
     for (const consumer of CONSUMER_FILES) {
       const source = sourceOf(consumer);
       for (const name of NEVER_DECLARED_IN_CONSUMERS) {
+        if (DEFINING_MODULE[name] === consumer) continue;
         for (const where of declarationsOfName(source, name)) {
           offences.push(`${consumer}: ${name} declared as ${where}`);
         }

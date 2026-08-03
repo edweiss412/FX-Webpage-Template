@@ -27,10 +27,19 @@ export const DEFAULT_CLIP_GUTTER = 8;
  *
  * DELIBERATELY wins over the available room: when the anchor sits within
  * `MIN_FITTED_HEIGHT` of the clip edge the overlay overhangs the clip rather
- * than collapsing — the least-bad of two bad options, and unreachable on
- * today's surfaces (measured room below the band: 209.75px at 375×667, the
- * tightest real viewport, against a 320px CSS cap). Callers that must know
- * they are in that regime can compare against {@link MIN_FITTED_HEIGHT}.
+ * than collapsing — the least-bad of two bad options.
+ *
+ * Reachability is measured PER ANCHOR, and only one anchor has been measured:
+ * the Re-sync band, with 209.75px of room at 375×667 against a 320px CSS cap.
+ * That number says nothing about the two anchors added by the popover/overlay
+ * cluster (the AttentionMenu scroller and the PublishedToggle refusal banner) —
+ * an earlier version of this comment generalized it to the whole hook, which is
+ * a claim it does not support. Static estimates put both well clear of the
+ * floor, but neither has been measured on the real surface.
+ *
+ * Callers that must know they are in that regime can compare against
+ * {@link MIN_FITTED_HEIGHT} — note that none currently do, so an overhang is
+ * silent today.
  */
 export const MIN_FITTED_HEIGHT = 48;
 

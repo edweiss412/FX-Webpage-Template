@@ -197,7 +197,9 @@ describe("PublishedToggle — inline variant", () => {
     });
     const pop = popover()!;
     expect(pop).not.toBeNull();
-    expect(pop.getAttribute("role")).toBe("alert");
+    // The live region is the INNER node: the outer div is the named scroll
+    // region wrapping it (see the region/alert split case below).
+    expect(pop.querySelector('[role="alert"]')).not.toBeNull();
     const expected = messageFor("PUBLISH_BLOCKED_PENDING_REVIEW").dougFacing!;
     expect(pop.textContent).toContain(expected);
     expect(pop.textContent).not.toContain("PUBLISH_BLOCKED_PENDING_REVIEW"); // invariant 5
@@ -212,7 +214,9 @@ describe("PublishedToggle — inline variant", () => {
       fireEvent.click(screen.getByTestId("published-toggle"));
     });
     const pop = popover()!;
-    expect(pop.getAttribute("role")).toBe("alert");
+    // The live region is the INNER node: the outer div is the named scroll
+    // region wrapping it (see the region/alert split case below).
+    expect(pop.querySelector('[role="alert"]')).not.toBeNull();
     expect(pop.textContent).toContain("That didn’t go through. Refresh and try again.");
   });
 
@@ -264,7 +268,8 @@ describe("PublishedToggle — inline variant", () => {
       />,
     );
     const pop = popover()!;
-    expect(pop.getAttribute("role")).toBe("alert"); // error wins, not the finalize hint
+    // error wins, not the finalize hint; the live region is the inner node
+    expect(pop.querySelector('[role="alert"]')).not.toBeNull();
     expect(pop.textContent).toContain(messageFor("PUBLISH_BLOCKED_PENDING_REVIEW").dougFacing!);
     expect(screen.getByTestId("published-toggle").hasAttribute("disabled")).toBe(true);
   });
@@ -293,7 +298,10 @@ describe("PublishedToggle — inline variant", () => {
       "break-words",
       // The banner is a capped SCROLL REGION now (spec §4.3): useFitWithinClip
       // writes its max-height, so the overflow has to be scrollable rather than
-      // clipped away.
+      // clipped away. The x axis is pinned explicitly because `overflow-y: auto`
+      // forces the other axis's `visible` to compute to `auto`, which would give
+      // the banner a horizontal scroll range it never asked for.
+      "overflow-x-hidden",
       "overflow-y-auto",
       "rounded-sm",
       "p-2",
@@ -556,13 +564,43 @@ describe("PublishedToggle — refusal banner clip fit (§4.3)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("the banner is a named, tabbable scroll region and keeps role=alert", async () => {
+  it("the scroll region is named by the error copy, and the alert carries no author name", async () => {
     const clip = installLayoutStubs();
     const banner = await refuseInto(clip);
-    expect(banner.getAttribute("role")).toBe("alert");
-    expect(banner.getAttribute("aria-label")).toBe("Publish error details");
+
+    // The tabbable SCROLL REGION and the LIVE REGION are separate nodes.
+    // Collapsed onto one, the region's author name competes with its own
+    // contents for the announcement, and an operator can hear a generic label
+    // instead of the reason the publish was refused. ReSyncButton already
+    // splits them for exactly this reason.
+    expect(banner.getAttribute("role")).toBe("group");
     expect(banner.tabIndex).toBe(0);
     expect(banner.className).toContain("overflow-y-auto");
+    // `overflow-y: auto` forces the other axis's `visible` to compute to
+    // `auto`, so the banner silently gains a horizontal scroll range it never
+    // wanted. Pin the axis explicitly.
+    expect(banner.className).toContain("overflow-x-hidden");
+    expect(
+      banner.getAttribute("aria-label"),
+      "a static author name on the region can shadow the error copy",
+    ).toBeNull();
+
+    // Named BY THE ERROR TEXT, so the region's name can never diverge from
+    // what is actually displayed.
+    const labelledBy = banner.getAttribute("aria-labelledby");
+    expect(labelledBy, "the region must be named by its own contents").toBeTruthy();
+    const alert = banner.ownerDocument.getElementById(labelledBy ?? "");
+    expect(alert, "aria-labelledby must resolve to a real node").not.toBeNull();
+    expect(
+      alert !== null && banner.contains(alert),
+      "the naming node must live inside the region it names",
+    ).toBe(true);
+    expect(alert?.getAttribute("role")).toBe("alert");
+    expect(
+      alert?.getAttribute("aria-label"),
+      "the live region must announce its contents, not an author name",
+    ).toBeNull();
+    expect(alert?.textContent?.trim()).not.toBe("");
   });
 
   it("the banner is capped against the clip ancestor", async () => {
