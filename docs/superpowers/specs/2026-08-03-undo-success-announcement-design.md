@@ -264,9 +264,21 @@ No new copy. `ErrorExplainer` already resolves `code` through the catalog and re
 
 This is the `_metaDestructiveConfirm` T4 shape (`2026-08-01-announce-a11y-pass-design.md:156-158`): a file-walk, so a NEW parent fails by default rather than being silently exempt. It exists because the no-op context default converts "forgot the provider" from a crash into silence, and silence is exactly what this feature is fixing.
 
-Expected members at ship time: `ChangesFeed.tsx`, `RecentAutoAppliedStrip.tsx`. `ChangeFeedEntry.tsx` renders `<UndoChangeButton` and sits under `ChangesFeed`'s provider — it carries the inline exemption naming that parent.
+**Exactly two files render the button**, and the split is not the intuitive one:
+
+| File | Renders `<UndoChangeButton` | Holds the provider | Guard disposition |
+|---|---|---|---|
+| `components/admin/ChangeFeedEntry.tsx:141` | yes | no — the provider is one level up in `ChangesFeed` | **inline exemption**, naming `ChangesFeed` as the providing parent |
+| `components/admin/RecentAutoAppliedStrip.tsx:298` | yes (in `AutoAppliedRow`) | yes (in `GroupSection`, same file) | passes on the file-level rule |
+| `components/admin/ChangesFeed.tsx` | **no** — it imports only `type UndoButtonResult` (`ChangesFeed.tsx:17`) | yes | not a member; the walk never sees it |
+
+`ChangesFeed.tsx` is not a guard member despite owning a provider, and `ChangeFeedEntry.tsx` is a member despite owning nothing. A file-level rule cannot see across the module boundary between them, which is exactly why the exemption comment exists rather than being a smell.
+
+Two implementation details the walk must get right, both learned from `_metaDestructiveConfirm`: detection of `<UndoChangeButton` runs against **comment-stripped** source (`tests/styles/_classScanUtils` exposes `stripCommentsForFile`), so a commented-out usage cannot make a file a member; the exemption is matched against the **raw** source, because the exemption is itself a comment.
 
 The guard must be proven by a **planted violation** (a temp file rendering the button with no provider and no exemption, asserted to fail the walk), not merely by passing on the current tree.
+
+**Consumers need no changes.** Both providers live inside the components that already exist, so the three call sites above them — `components/admin/showpage/ChangesSection.tsx:71`, `app/admin/needs-attention/page.tsx:105`, `components/admin/Dashboard.tsx:791` — are untouched. No prop is threaded through a page.
 
 ---
 
