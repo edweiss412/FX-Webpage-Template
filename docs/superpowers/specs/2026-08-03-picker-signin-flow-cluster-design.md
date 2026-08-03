@@ -24,6 +24,7 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
 | R5 | **Unclaimed** rows are out of scope and get no pending state. Their form posts a local Server Action, not a three-hop OAuth journey. | This spec, §4.2 mode boundary. The backlog item is scoped to the claimed row (`BACKLOG.md`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`). |
 | R6 | `SHOW_NEXT_RE` stays `$`-anchored against the **path portion**. The fix splits the query off before matching; it does not loosen the path grammar. | This spec, §3.2. Loosening the anchor would admit `/show/<slug>/<token>/anything`. |
 | R7 | No DB, migration, RPC, or advisory-lock surface is touched. Invariant 2 and the migration→validation parity checklist are N/A for this diff. | This spec, §7. |
+| R8 | Pending comes from **local client state**, NOT `useFormStatus`. The backlog entry's proposed `useFormStatus` fix is wrong for this form and was refuted by probe before drafting. Do not propose reverting to `useFormStatus`; do not cite the admin "no local flag" rule against it without first reading §3.4. | This spec, §3.4, with the probe output inline. |
 
 ### 1.2 Out of scope
 
@@ -146,10 +147,39 @@ precede the throw.
 
 ### 3.4 Claimed row: one new client boundary
 
-`useFormStatus` reads from the nearest enclosing `<form>` and only fires for a **descendant** of
-that form. So the boundary is the `<button>` subtree, not the `<form>`:
+**Measured first (empirical spike).** The backlog entry proposes `useFormStatus`, matching the
+admin surfaces. A probe run against this repo's React on 2026-08-03 refutes that for this form:
+
+```
+NATIVE_GET=false          // <form action="/auth/sign-in" method="GET">, submit fired
+FUNCTION_ACTION=true      // <form action={async () => …}>, control
+```
+
+`useFormStatus` reports pending only when React owns the submission — i.e. when `action` is a
+**function**. The claimed row's form has a **string** action (`_PickerInterstitial.tsx:197`), so
+the browser performs a native GET navigation and React never enters a pending state.
+`useFormStatus` would have returned `false` for the entire OAuth journey and the affordance would
+never have appeared.
+
+The admin recipe therefore does not transfer, and the backlog entry's stated fix is wrong. The
+pending state comes from **local client state** set on submit:
 
 - New file `_ClaimedRowButton`, `"use client"`.
+- `const [pending, setPending] = useState(false)`, flipped in the button's `onClick`. The form's
+  native submit proceeds; nothing is prevented.
+- **This is a deliberate exception to the "no local flag" rule** stated at
+  `components/admin/RetryWatchButton.tsx:8-9` and `tests/components/RetryWatchButton.test.tsx:11-15`.
+  That rule exists because a Server Action can return without revalidating, leaving a local flag
+  stuck. Here the submit is a full-page navigation that destroys the component, so there is no
+  "returns without revalidating" case. The exception is documented in the component header so the
+  next reader does not "fix" it back to `useFormStatus`.
+- Reset on `pageshow` so a bfcache back-navigation returns the row to idle rather than restoring
+  it disabled.
+
+Consequences for the boundary: since pending no longer needs `useFormStatus`, the client component
+does **not** have to be a form descendant. It stays the `<button>` subtree anyway — that is the
+smallest boundary that can hold the state, and it keeps the `<form>` and hidden input on the
+server.
 - It renders the entire `<button>` currently inline at `_PickerInterstitial.tsx:203-232`.
 - `_PickerInterstitial.tsx` keeps the `<form action="/auth/sign-in" method="GET">` and the hidden
   `next` input server-side; only the button moves.
@@ -172,9 +202,10 @@ Props (all required unless noted):
 ### 3.5 Pending treatment (R3)
 
 Follows the ratified idle/pending idiom
-(`docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`) and the
-`useFormStatus` recipe at `components/admin/RetryWatchButton.tsx:36-47`
-(`disabled={pending}` + `aria-busy={pending}` + label swap).
+(`docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`) and the rendered shape
+of the recipe at `components/admin/RetryWatchButton.tsx:38-48` — `disabled={pending}` +
+`aria-busy={pending}` + label swap. Only the **source** of `pending` differs (§3.4): local state
+here, `useFormStatus` there.
 
 | Element | Idle | Pending |
 |---|---|---|
@@ -266,7 +297,7 @@ The claimed row has two states, so one pair, plus compounds.
 | From → To | Treatment |
 |---|---|
 | idle → pending | Lock unmounts, spinner mounts in the same slot; chip text swaps. **Instant — no animation**, deliberately: the spinner's own rotation is the motion, and a fade would delay the one signal the user is waiting for. Row background keeps its existing `transition-colors duration-fast` (120ms, `app/globals.css:223`), which is a hover treatment and is unrelated. |
-| pending → idle | Does not occur in the normal flow — the pending state ends by navigating away. It **can** occur if the browser restores the page from bfcache after a back-navigation, in which case React remounts with `pending: false` and the row returns to idle instantly. No exit animation. |
+| pending → idle | Does not occur in the normal flow — the pending state ends by navigating away. It **does** occur on a bfcache back-navigation, where the page is restored with its DOM (and React state) intact rather than remounted; the `pageshow` listener from §3.4 is what returns the row to idle. Instant, no exit animation. Without that listener the restored page would show a permanently disabled row. |
 
 Compound transitions:
 
@@ -275,7 +306,7 @@ Compound transitions:
 | pending while the pointer is over the row | Hover background (`hover:bg-surface`) is suppressed — a `disabled` button takes no hover styling. No conflict with the 120ms color transition. |
 | pending while the row holds keyboard focus | Focus ring persists on the disabled button. The row keeps its `focus-visible:ring-2 ring-focus-ring ring-offset-2` (`_PickerInterstitial.tsx:176`). Keyboard users must not lose their place because the row went busy. |
 | pending arriving mid-hover-transition | The 120ms color transition completes against the disabled state's background; no interruption, no flash. Verified in the plan's transition-audit task. |
-| two rows tapped in quick succession | Impossible to have two pending: the first tap begins a full-page navigation. If it were possible, `useFormStatus` is per-form, so each row reports only its own form's status. |
+| two rows tapped in quick succession | Each row owns its own `pending` state, so a second tap on a *different* row can legitimately show two pending rows for the instant before the first navigation commits. Accepted: both taps are real, and the navigation that wins is the browser's call. No cross-row coordination is introduced — that would need lifted state and buys nothing. |
 
 ---
 
@@ -328,14 +359,28 @@ would pass for an unrelated reason.
 
 ### 8.3 Claimed row
 
+Harness: jsdom + `@testing-library/react`, rendering `PickerInterstitial` with a roster fixture —
+the shape already used by `tests/show/pickerAffordance.test.tsx:20-26`. Pending is driven by
+firing a real click on the row, **not** by a controlled action promise: the controlled-promise
+idiom at `tests/components/RetryWatchButton.test.tsx:50-56` exists to hold a Server Action open and
+does not apply to a native GET form (§3.4).
+
 - Component test: pending renders `picker-row-spinner`, drops `picker-row-lock`, sets
   `disabled` + `aria-busy="true"`, and shows `Signing in…` in `picker-role-chip`. Scope the chip
   query to the claimed row's subtree — the unclaimed rows in the same list render
   `picker-role-chip` too, and an unscoped query would pass on the wrong node.
+- **Anti-regression on the probe (§3.4):** the fixture roster must contain BOTH a claimed and an
+  unclaimed row, and the test asserts the claimed row reaches pending. A `useFormStatus`
+  implementation would leave `pending` false forever and fail here — this is the test that catches
+  a future "cleanup" back to the admin idiom. Concrete failure mode: pending never appears.
 - Component test, R4: a claimed row with `role={null}` renders no chip in idle and the
   `Signing in…` chip in pending.
 - Component test, R5: an unclaimed row never renders `picker-row-spinner` in any state.
+- Component test, bfcache reset: dispatch a `pageshow` event with `persisted: true` after reaching
+  pending, and assert the row returns to idle. Failure mode caught: a restored page showing a
+  permanently disabled row.
 - Real-browser layout: idle vs pending `getBoundingClientRect().height` equal within 0.5px (§5).
+  jsdom cannot compute this; this one runs in Playwright.
 - Transition audit: enumerate every conditional branch in `_ClaimedRowButton` against the §6 table
   and assert each is either animated as stated or deliberately instant.
 
@@ -360,9 +405,18 @@ against a route unit test. If it fails, R1 did not actually ship.
   other two (`removed_from_roster`, `identity_invalidated`) share the same code path below the
   branch that classifies them, so the coverage is representative rather than exhaustive. Stated
   here rather than discovered in review.
-- `pending → idle` via bfcache (§6) is reasoned from React remount semantics, not measured. It is
-  not a designed state — no behavior depends on it — and the worst case is a row that correctly
-  reads as tappable again.
+- **Cancelled navigation leaves the row disabled.** Local pending state (§3.4) is cleared by
+  navigating away or by `pageshow`. If the user taps and then stops the navigation before it
+  commits (browser stop button, or a `/auth/sign-in` that hangs without ever completing), the row
+  stays disabled until the page is reloaded. Accepted rather than mitigated with a timeout: a
+  timeout that re-enables the row while the OAuth hop is genuinely still in flight would restore
+  the exact double-tap defect this change closes, and the cancel path requires deliberate user
+  action. The `pageshow` listener covers the common recovery (back-navigation).
+- The bfcache reset path is specified from the `pageshow` contract and is covered by a component
+  test firing a synthetic `pageshow` (§8.3). A synthetic event proves the listener is wired; it
+  does not prove a real browser's bfcache restores this page at all (Chrome declines bfcache for
+  pages with certain headers). The worst case if it never fires is the cancelled-navigation limit
+  above, which is already documented.
 
 ---
 
