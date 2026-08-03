@@ -100,8 +100,19 @@
   --color-status-idle-text: var(--color-text-subtle);
 
   /* ── Typography ── */
+  /* `var(--font-inter)` first, NOT the literal "Inter". The token is defined by
+     next/font's generated class (app/fonts.ts) and carries BOTH `Inter` and its
+     generated `Inter Fallback` -- a face built with size-adjust/ascent-override
+     specifically so the `display: "swap"` window does not reflow. Naming the
+     literal skipped that face entirely, so first paint used a system font at
+     native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
+     real string) on every React-root route. The var() fallback keeps the literal pair for
+     any surface without the generated class -- notably the standalone test
+     harnesses, which compile this file with no Next runtime -- so the
+     declaration is never invalid at computed-value time. DESIGN.md 2.1. */
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+    var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", "Helvetica Neue", sans-serif;
 
   --text-xs: 0.75rem;
   --text-xs--line-height: 1.4;

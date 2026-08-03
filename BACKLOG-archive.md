@@ -867,6 +867,35 @@ The `roleToken` field added to `UNKNOWN_ROLE_TOKEN` warnings (feat/extend-role-s
 
 ---
 
+## BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT — ✅ RESOLVED (2026-07-22, `chore/mutation-ledger-autocorrect-rebless`, PR #548)
+
+**Filed:** 2026-07-22 · **Class:** benign ledger drift · **Effort:** XS (corpus re-run + surgical re-bless) · **Resolved:** 2026-07-22
+
+The `autocorrect` field populated at all 13 parser producers (`7295d794c`, merged via the
+warning-card-identity-placement chain, PR #543-era) changes parse output for corpus fixtures whose
+mutated cells produce autocorrect-bearing warnings, so the redacted parse-output fingerprints in
+`tests/parser/mutation/knownHoles.ts` drift. Nightly run 29907734946 (2026-07-22): DRIFTED
+fingerprint rows across 7 shards — SAME siteIds, fingerprint-only, zero NEW siteIds, zero fixed
+holes — the benign class per the 2026-07-09 triage discipline (BL-MUTATION-LEDGER-ROLETOKEN-DRIFT
+above and BL-MUTATION-LEDGER-REFRESH-AMBIGUITY below are the identical prior instances). The nightly
+`mutation-harness` workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it
+gated no PR.
+
+**Resolution (2026-07-22, `c5847a9f4`):** re-blessed the same day it was filed, on
+`chore/mutation-ledger-autocorrect-rebless` (PR #548), from the full HEAD corpus — 8 LPT shard dumps,
+101,705 mutants, reconciled bidirectionally: **2452 pure fingerprint drifts, 0 new holes, 0 fixed
+holes**; ledger totals unchanged (7912 rows, 7514 `wrong` + 398 `signal_loss`, section-reorder 82).
+
+**Why it sat in the open queue twelve days after it was fixed:** the entry named its own trigger as
+"the next mutation-file-touching PR or the next post-merge nightly triage", and that PR shipped
+within hours — the refresh happened, the entry was never closed. Graduated on
+`chore/close-mutation-autocorrect-drift` (2026-08-03) after re-verifying the claim rather than
+trusting the commit message: every scheduled `mutation-harness` nightly from 2026-07-29 through
+2026-08-03 is green, and the intervening 07-27 / 07-28 red runs were the SEPARATE hotel
+ambiguity-judgment drift, closed by `9af6610a8` + `704de0833`.
+
+---
+
 ## BL-ROLE-VOCAB-SETTINGS-DESKTOP-GRID — one-line desktop grid rows for the roles settings list
 
 **Filed:** 2026-07-16 (extend-role-scope-vocab impeccable dual-gate, `DEFERRED.md` ROLE-VOCAB-1) · **Class:** UX density (P2) · **Effort:** S (responsive layout branch + tests + dual-gate re-run)
@@ -2841,3 +2870,36 @@ The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContex
 2. **Master spec MI-9 — a STALE DESCRIPTION, not encoded intent.** "admin/ops" was always copy: its oldest instances are the §12.4 strings ratified at `9700c447b` (2026-05-09), MI-9's earlier wording carried the same claim, and `aaab97102` rewrote the clause around it. Every other instance had since been retired or corrected, leaving this one. The clause now states what LEAD actually confers beyond FINANCIALS — the audio/video/lighting scope tiles and the crew-page "Lead" chip — and that neither flag grants admin access, naming `is_admin()`'s two arms.
 
 **A third instance the literal sweep could not see:** `lib/sync/phase2.ts` said a capability flag "would grant ops/financial access silently" — the same claim in production source, in a semantic variant. Corrected in the same commit. `tests/docs/capabilityClaimProse.test.ts` now scans the MI-9 rows AND every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` with a positive-claim recognizer (a raw admin/grant ban could never go green, since the corrected prose itself says neither flag grants admin access), pinned by six fixtures including `lib/parser/typoVocabRegistry.ts`'s unrelated "ops/financials field-alias" as the hardest negative.
+
+---
+
+## BL-HEADER-FONT-FALLBACK-WRAP — RESOLVED (2026-08-03, `feat/font-binding-modal-freshness-cue`)
+
+**Resolution.** The browser check the entry asked for was run first, and it changed the shape of the finding.
+
+_What the probe found._ Next 16's `next/font/google` registers the face under the **literal** family name `Inter`, not a hashed one — so the crew layout's import DID bind, and the entry's stated doubt ("`next/font`'s hashed `@font-face` family name does not obviously satisfy") is empirically refuted for this Next version. Measured on a real crew page: inherited width 192.38px, forced `"Inter"` 192.38px, generic `sans-serif` 182.61px. But on every non-crew route the same string measured 187.28px against Inter's 168.91px — the host system font, not Inter.
+
+_So the real finding was wider than the entry knew._ The product rendered **two type families across its trees** — Inter on crew pages, the host sans on admin, auth, help and the crash screen — while `DESIGN.md` §2.1 commits to one, and named `app/layout.tsx` as the place to load it. That wiring had never been done. Admin numerics also silently lost the `cv11`/`tnum` treatment §2.4 specifies, since those alternates exist only in Inter.
+
+_What shipped._ The loader lives in `app/fonts.ts`, whose single exported instance both Next roots import — `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error, so the crash screen was otherwise the one tree left behind. `--font-sans` reads `var(--font-inter, "Inter", "Inter Fallback"), …`: naming the literal skipped next/font's generated metric-matched fallback face, so the `display: "swap"` window reflowed ~10% on every route until the impeccable critique measured it.
+
+_Scope, stated plainly — and narrowed twice during review, so read the claim as written._ This closes the wide-fallback path for **every Next-rendered surface with a React root** — every page of the product proper. Deliberately NOT "everything a user reads": the four auth error documents below are read when they appear. Two things it does NOT reach, both documented rather than quietly implied:
+
+- The 31 standalone test harnesses compile `app/globals.css` with no Next runtime, so they keep measuring the ambient host font by construction. Costs nothing today (the one font-sensitive measurement carries a deliberate Arial / Liberation Sans pin). Filed as `BL-HARNESS-FONT-FIDELITY`.
+- Four route handlers build their own complete `<html>` as a string and mount no React root: the Google-auth start, the picker bootstrap, the auth callback, and sign-out. All four are persistent ERROR pages (503/403/502/500) with readable copy and no automatic redirect — review R6 corrected an earlier claim that they were transient bounces. Sign-out's explicit `system-ui` is defensible on one narrow fact — it is a self-contained document requesting ZERO external assets, so a webfont would add its first network dependency — and NOT on any general "error pages avoid webfonts" principle, which this change contradicts by binding the font on the fatal-error page. The other three fall to browser-default serif. Filed as `BL-AUTH-INTERSTITIAL-FONT`.
+
+_The tolerance in `tests/e2e/section-header-layout.layout.spec.ts` was NOT widened_, per this entry's own instruction.
+
+_Guards._ `tests/e2e/font-binding.spec.ts` measures rendered text width on `/admin`, `/auth/sign-in` and a seeded crew route — width, not `document.fonts.check()`, which returned `true` on a tree with no Inter face registered at all. It also asserts exactly one font family and no duplicate `@font-face` tuple, which CORROBORATE the static guard rather than closing it — four review rounds each produced new syntactic escapes from a source-parsing check, so the guard's claim was narrowed to what it actually proves. `tests/assets/singleFontLoader.test.ts` is the millisecond tripwire, pinning the loader's PATH (a count cannot tell "one loader, at the root" from "one loader, in the wrong layout" — exactly this bug). It is a tripwire for the ORDINARY accident and proves no closure: four adversarial rounds each found a location a file-walk cannot see, and the vector was descoped per the AGENTS.md same-vector rule rather than patched a fifth time. Spec §4.3 records what that leaves open and why it is acceptable. Wired into `crew-e2e.yml`, which builds and starts the production artifact.
+
+Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md`
+
+---
+
+## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — RESOLVED (2026-08-03, `feat/staged-identitylink-rename-identity`) — dashboard staged apply treats identity-link renames as remove+add
+
+**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)
+
+The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
+
+**Resolved.** `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`, branch `feat/staged-identitylink-rename-identity`: `computeStagedIdentityLinkRenames` links a pair only when its validated reviewer choice is `rename` (the per-item admin vouch, the staged analogue of cron's version-bound accept), and `applyStagedCore` threads the result into `runPhase2` behind a length gate. A staged rename now preserves `crew_members.id` and `claimed_via_oauth_at`; `independent` still applies as remove+add, so the R33-2 feed assertions are untouched. The double-apply / override risk this entry flagged resolved as a choice gate, not a path override — the role-flags spec's staged loss+grant audit shape is superseded in part, banner-fenced in both directions.

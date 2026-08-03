@@ -49,7 +49,7 @@ const PSQL_CONNECT_TIMEOUT_S = "10";
 const PSQL_PROCESS_TIMEOUT_MS = 30_000;
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     input: sql,
     encoding: "utf8",
     timeout: PSQL_PROCESS_TIMEOUT_MS,

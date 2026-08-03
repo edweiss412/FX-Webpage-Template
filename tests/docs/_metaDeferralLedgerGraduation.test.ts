@@ -99,6 +99,14 @@ const BACKLOG_GRADUATED = [
     id: "BL-LEDGER-GUARD-BODY-DEFINED-IDS",
     provenance: "chore/scanner-precision-cluster",
   },
+  // chore/close-mutation-autocorrect-drift (2026-08-03): a stale entry, not new work. The
+  // re-bless it asked for shipped the same day it was filed (c5847a9f4, PR #548 — 2452 pure
+  // fingerprint drifts, 0 new holes, 0 fixed holes) and nobody closed the entry. Provenance is
+  // the branch that RESOLVED it, per this list's contract, not the one that archived it.
+  {
+    id: "BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT",
+    provenance: "chore/mutation-ledger-autocorrect-rebless",
+  },
   // fix/onboarding-cas-source-anchors (2026-08-03): the existing-show re-onboard now threads the
   // scan's source_anchors through the shadow payload to the Phase-D apply. Archived with the
   // shipped mechanism, not the stale pre-lock-compute one the entry was filed with.

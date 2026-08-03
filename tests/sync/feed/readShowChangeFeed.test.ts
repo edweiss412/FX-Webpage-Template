@@ -7,7 +7,7 @@ import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const runPsql = (sql: string) =>
-  execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();

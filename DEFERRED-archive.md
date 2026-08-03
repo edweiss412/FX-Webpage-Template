@@ -2,6 +2,82 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## PSQL-STARTUP-FILE-NO-X-CLASSWIDE — GRADUATED 2026-08-03
+
+RESOLVED by branch `chore/psql-startup-file-no-x`. Every psql call site in tracked non-docs source
+now suppresses startup files, and a structural guard keeps the class closed.
+
+**The filing-time census was badly incomplete and is preserved verbatim below.** It was taken with
+`rg -n 'execFileSync\("psql"'`, which listed 10 sites. The authoritative re-census found **73
+invocation sites across 66 files** — the regex missed `spawnSync`, `spawn`, prettier's multi-line
+opener (`execFileSync(\n  "psql",`), the seed scripts (`supabase/seed.ts`,
+`supabase/seedWalkerFixtures.ts`), the e2e helper (`tests/e2e/helpers/lockedCrewRestriction.ts`), a
+second site in an already-listed file (`tests/cross-cutting/email-canonicalization.test.ts` has two),
+and the shell invocation in `scripts/ci/supabase-local-bootstrap.sh`.
+
+| form           | sites |
+| -------------- | ----- |
+| `execFileSync` | 67    |
+| `spawn`        | 3     |
+| `spawnSync`    | 2     |
+| shell (`.sh`)  | 1     |
+
+Two sites were already closed and were NOT re-fixed: `tests/e2e/helpers/devCaptureStaged.ts`
+(separate `"-X"`, closed on `test/step3-live-render-cluster`) and
+`tests/db/crew-rpc-lifecycle-guard-meta.test.ts` (combined cluster `"-qAtX"`). The other 71 gained a
+separate `"-X"` argument after argv[0].
+
+**What replaced the "add a meta-test asserting `execFileSync("psql", …)` passes -X" plan.** That
+assertion, taken literally, would have been the naive `args.includes("-X")` the combined `-qAtX`
+spelling defeats, and would have seen only one of the four JS spellings. The shipped guard —
+`tests/cross-cutting/psqlStartupFiles/scan.ts`, asserted by
+`tests/cross-cutting/psqlStartupFileSuppression.test.ts` — instead walks the filesystem from the repo
+root (so a site in a brand-new directory fails by default), matches the spawn family through the
+TypeScript AST (so multi-line openers and member callees are free), reads `.sh` files and workflow
+`run:` scalars with a denylist-based shell reader, and parses flag CLUSTERS rather than substring
+matching. Statically undetectable forms are named in its header with the tripwire that backstops
+each.
+
+**Decisions made under the task brief's explicit "decide and justify" delegation:**
+`scripts/ci/supabase-local-bootstrap.sh` took an inline `-X` rather than an exemption — psql runs
+there via `docker exec` inside the supabase_db container, so `HOME` is the container's, but an
+image-baked or bind-mounted psqlrc is exactly as invisible and suppressing costs nothing. The
+exemption mechanism (`psql-startup-files-ok: <reason>`, reason mandatory) exists and is tested, and
+has **zero users** in the tree.
+
+The filing-time entry follows verbatim, census and all, so the gap between what an `rg` census sees
+and what the tree actually contains stays legible.
+
+### PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)
+
+Surfaced by whole-diff review R3 on `test/step3-live-render-cluster`, which proved the vector
+against the installed binary: with a `PSQLRC` (or `$HOME/.psqlrc`, or the compiled system psqlrc)
+containing `\connect postgresql://…@192.0.2.3:5432/postgres`, psql executes it BEFORE the
+statements arriving on stdin, so a validated-local connection is silently replaced and the work
+runs remotely. `psql -X` suppresses startup files and is the documented contract.
+
+**Closed on the gallery path in that branch** (`tests/e2e/helpers/devCaptureStaged.ts`), which is
+the only site the branch touches. **Still open everywhere else.** Census at filing time, from
+`rg -n 'execFileSync\("psql"'`:
+
+- `tests/reports/quota.test.ts:12`
+- `tests/reports/_dbHelpers.ts:7`
+- `scripts/generate-schema-manifest.ts:44`
+- `scripts/ci/realtime-relay-diagnostic.ts:26`
+- `tests/dev/materializeRoundTrip.realdb.test.ts:53`
+- `tests/db/_metaCrewReadArchivedGate.test.ts:16`
+- `tests/db/show_share_tokens.test.ts:8`
+- `tests/db/reset_picker_epoch_atomic.test.ts:9`
+- `tests/db/mint-validation-fixture-atomic.test.ts:22`
+- `lib/audit/emailCanonicalization.ts:668`
+
+Deferred rather than swept in that branch because it was a test-and-docs change; adding `-X` to ten
+unrelated call sites would have put unreviewed change into it, and `lib/audit/emailCanonicalization.ts`
+is not a test surface at all. **Fix when prioritized:** add `-X` at every site above, and add a
+structural meta-test asserting that any `execFileSync("psql", …)` in the tree passes `-X`, so the
+class stays closed rather than being re-swept. **Un-defer trigger:** the next milestone touching any
+psql call site, or any hardening pass on local-DB test transport.
+
 ## Settings dev-row copy close-out (2026-07-24)
 
 All four findings of `SETTINGS-DEVROW-GALLERY-RESIDUE-1` RESOLVED by branch
