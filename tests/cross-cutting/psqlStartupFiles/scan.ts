@@ -15,40 +15,41 @@
  *    argv[0] is `"psql"` or a path ending `/psql`. Parsed with the TypeScript
  *    AST, so prettier's multi-line opener (`execFileSync(\n  "psql",`) and
  *    interleaved comments cost nothing — no regex to outrun.
- * 2. JS/TS literal shell strings — `execSync("psql …")` / `exec("psql …")`, and
- *    the spawn family when argv[0] is a SHELL rather than psql
- *    (`spawnSync("sh", ["-c", "psql …"])`, `/bin/bash`, …), where every literal
- *    argv element is read as shell text. The command word may be quoted
- *    (`"psql" "$DSN" …`) — a probe during cross-model review found all three of
- *    these returning zero sites against the first cut of this scanner.
- * 3. `.sh` scripts — a bare `psql` word, after joining backslash line
- *    continuations and dropping quote-aware `#` comments. Recognition is a
- *    DENYLIST on the preceding word, not an allowlist of command-position
- *    prefixes: an allowlist has to enumerate every wrapper (`docker exec "$C"`,
- *    an UNQUOTED `docker exec $C`, `sudo`, `env`, `time`, `xargs`) and silently
- *    misses the one it forgot, which is the wrong failure mode for a security
- *    guard. Every bare `psql` is an invocation unless the word before it is a
- *    probe or package-manager word (`-v` — which covers `command -v psql`, the
- *    CI availability check, ~14 occurrences in `.github/workflows/` — plus
- *    `which`, `type`, `hash`, `whereis`, `install`, `apt-get`, `echo`, …).
+ * 2. JS/TS shell strings — `execSync("psql …")` / `exec("psql …")`, and the
+ *    spawn family when argv[0] is a SHELL rather than psql
+ *    (`spawnSync("sh", ["-c", "psql …"])`, `/bin/bash`, …), where every argv
+ *    element is read as shell text. Template literals and `+` concatenations
+ *    count: `` `psql ${dsn}` ``, `"psql " + dsn` and `` `${binDir}/psql` `` are
+ *    read with each runtime piece standing in as an opaque word.
+ * 3. `.sh` scripts — LEXED the way the shell lexes (see `lexShellWords`), then
+ *    split into commands on operators. A command is a psql invocation when some
+ *    word's basename is `psql`, unless the word before it is a probe or
+ *    package-manager word (`-v` — which covers `command -v psql`, the CI
+ *    availability check, ~14 occurrences in `.github/workflows/` — plus
+ *    `which`, `type`, `hash`, `whereis`, `install`, `apt-get`, `echo`, …). That
+ *    is a DENYLIST, not an allowlist of command-position prefixes: an allowlist
+ *    has to enumerate every wrapper (`docker exec "$C"`, an UNQUOTED
+ *    `docker exec $C`, `sudo`, `env`, `time`, `xargs`) and silently misses the
+ *    one it forgot, which is the wrong failure mode for a security guard.
  * 4. Workflow YAML — the raw source slice of every `run:` scalar, scanned with
- *    the same shell reader. Both spellings: a `run: |` block and a quoted
- *    single-line `run: "psql …"`. A step `name:` that merely mentions psql is
- *    not a call site.
+ *    the same shell reader, plus the DECODED scalar as a fallback when the raw
+ *    slice yields nothing (a double-quoted scalar can spell the command
+ *    `\\x70sql` or hide it behind an escaped newline). Both `run: |` blocks and
+ *    quoted single-line `run: "psql …"`. A step `name:` that merely mentions
+ *    psql is not a call site.
  *
  * The file list is a FILESYSTEM WALK from the repo root (see IGNORED_DIRS), not
  * a hardcoded roster: a psql site added in a brand-new directory fails by
  * default. `docs/**` and `*.md` are excluded on purpose — plan and spec prose
  * quotes the idiom and is not a call site.
  *
- * ── The `-qAtX` trap ───────────────────────────────────────────────────────
+ * ── Reading psql's option grammar ──────────────────────────────────────────
  *
- * A naive `args.includes("-X")` reports `tests/db/crew-rpc-lifecycle-guard-meta
- * .test.ts` — which passes the combined cluster `"-qAtX"` — as unprotected.
- * Flag CLUSTERS are parsed here, not substring-matched: a single-dash run of
- * letters containing `X` counts, and so does the long form `--no-psqlrc`.
- * Lowercase `-x` (expanded output) does not, and neither does a long option or
- * a value that merely contains an X (`--set=XYZ`, `ON_ERROR_STOP=1`).
+ * See `argvSuppressesStartupFiles`. A membership test on the token list is
+ * wrong in three directions, each confirmed against the installed binary: the
+ * combined cluster `-qAtX` (which a substring match calls unprotected), an `X`
+ * consumed as another option's ARGUMENT (`-FX`, `-F -X`), and a flag sitting
+ * after the first positional, which `POSIXLY_CORRECT=1` discards entirely.
  *
  * ── What is NOT statically detectable, and what backstops it ───────────────
  *
@@ -57,13 +58,15 @@
  *   is a hard tripwire — any `"psql"` string literal that is NOT argv[0] of a
  *   recognized call fails the meta-test with "pass it as a literal argv[0]".
  *   There is no such site in the tree today and this keeps it that way.
- * • A shell command assembled at runtime (`execSync(buildCmd())`). Undetectable
- *   by construction. BACKSTOP: the same indirection tripwire — assembling the
- *   string requires the literal `"psql"` somewhere in a scanned file, which the
- *   tripwire catches.
- * • Shell recognition is word-level, so a `psql` word produced by expansion
- *   (`$PG psql`, `eval "$cmd"`, an alias) is invisible. The denylist keeps this
- *   as narrow as it can be — `command psql …` IS caught, because only `-v`
+ * • A shell command assembled entirely at runtime (`execSync(buildCmd())`),
+ *   where no fragment of the command word survives as source text. Templates
+ *   and concatenations ARE read (`composedText`), so this is narrower than it
+ *   sounds. BACKSTOP: the indirection tripwire, which fires on any `"psql"`-ish
+ *   literal that is not argv[0] of a recognized call.
+ * • Shell recognition is word-level, so a `psql` word produced by EXPANSION
+ *   (`$PG psql`, `eval "$cmd"`, an alias) is invisible. Lexical spellings are
+ *   not: `p"s"ql`, `p\\s\\q\\l` and a backslash-newline splice all resolve to the
+ *   same word and are found. `command psql …` is caught too, because only `-v`
  *   (not `command`) is denied, which still excludes `command -v psql`.
  * • Anything outside the scanned extensions — a Makefile, a package.json
  *   script. Checked at authoring time (2026-08-03): no Makefile/justfile exists
@@ -92,6 +95,17 @@ import { parseDocument, visit, isPair, isScalar, type Node as YamlNode } from "y
 export const EXEMPTION_MARKER = "psql-startup-files-ok:";
 
 export type PsqlSiteForm = "execFileSync" | "execFile" | "spawnSync" | "spawn" | "shell";
+
+/**
+ * Stands in for an argv element the AST could not read (an identifier, a
+ * spread, a call, a conditional). It is NOT dropped: `execFileSync("psql",
+ * [dsn, "-X"])` recovers tokens `["-X"]` if you drop it, and the analyzer then
+ * certifies a call whose `-X` sits AFTER the positional DSN — exactly the
+ * POSIXLY_CORRECT defect, reintroduced through token recovery. Rendering it as
+ * a positional makes the analyzer stop there, which is the conservative and
+ * correct reading: the guard cannot know it is not the DSN.
+ */
+export const DYNAMIC_TOKEN = "<dynamic>";
 
 export type PsqlSite = {
   /** Repo-relative, POSIX separators. */
@@ -273,7 +287,8 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
     let found = -1;
     for (let i = 0; i < line.length; i++) {
       const character = line[i]!;
-      if (character === "\\" && quote !== "'") {
+      // JS honours a backslash escape inside single quotes; POSIX shell does not.
+      if (character === "\\" && (style === "js" || quote !== "'")) {
         i++;
         continue;
       }
@@ -290,10 +305,19 @@ function commentIndexPerLine(text: string, style: CommentStyle): number[] {
           found = i;
           break;
         }
-      } else if (character === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
+      } else if (character === "/" && line[i + 1] === "/") {
         found = i;
-        if (line[i + 1] === "*" && !line.slice(i + 2).includes("*/")) inBlockComment = true;
         break;
+      } else if (character === "/" && line[i + 1] === "*") {
+        const close = line.indexOf("*/", i + 2);
+        if (close === -1) {
+          found = i;
+          inBlockComment = true;
+          break;
+        }
+        // A block comment that CLOSES on this line does not make the REST of
+        // the line comment-qualified; skip it and keep scanning.
+        i = close + 1;
       }
     }
     // A single/double-quoted string does not survive a newline in either
@@ -328,15 +352,161 @@ function exemptionOnLines(
 // ── shell reading ────────────────────────────────────────────────────────
 
 /**
- * A bare `psql` word in shell text. Deliberately a DENYLIST, not an allowlist of
- * command-position prefixes: an allowlist has to enumerate every wrapper
- * (`docker exec "$C"`, `sudo`, `env`, `time`, `xargs`, an unquoted `$DB`) and
- * silently misses the one it forgot. Here every bare `psql` is an invocation
- * unless the preceding word says otherwise, so the failure mode is a LOUD false
- * positive a human reads, not a silent hole in a security guard.
+ * ── The shell layer is a LEXER, not a line slicer ─────────────────────────
+ *
+ * Successive review rounds each found another way a regex over raw text
+ * disagreed with what the shell actually passes to psql:
+ *
+ *   -F" -X"        one argv word `-F -X`, but split into two apparent options
+ *   -F\ -X         same, via an escaped space
+ *   -F 2>err -X    the shell REMOVES the redirection, so -F swallows -X
+ *   psql -qAt \ # …   `\` + space is NOT a continuation; the next line is a
+ *                     separate command that carries the -X
+ *   p"s"ql, p\s\q\l   ordinary lexical spellings of the command word
+ *   /opt/psql-X/bin/psql   an earlier `psql` inside the PATH
+ *
+ * They are one defect: the scanner was reading text where the shell reads
+ * WORDS. `lexShellWords` performs the word splitting, quote removal, escape
+ * processing, redirection removal and operator recognition that the shell does
+ * before argv exists, and everything downstream consumes words.
  */
-const SHELL_BARE_PSQL =
-  /(?:^|[\s;&|()<>"'])["']?(?:[^\s;&|()<>"']*\/)?psql["']?(?=[\s;&|()<>"']|$)/g;
+type ShellWord = { text: string; line: number; operator: boolean };
+
+const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
+
+function lexShellWords(text: string): ShellWord[] {
+  const words: ShellWord[] = [];
+  let buffer = "";
+  let started = false;
+  let startLine = 0;
+  let line = 0;
+  /** Redirections and their targets never reach argv. */
+  let dropWord = false;
+
+  const flush = (): void => {
+    if (started) {
+      if (!dropWord) words.push({ text: buffer, line: startLine, operator: false });
+      dropWord = false;
+    }
+    buffer = "";
+    started = false;
+  };
+  const begin = (): void => {
+    if (!started) {
+      started = true;
+      startLine = line;
+      buffer = "";
+    }
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const character = text[i]!;
+
+    if (character === "\\") {
+      const next = text[i + 1];
+      if (next === "\n") {
+        // A backslash IMMEDIATELY followed by the newline is a continuation:
+        // the word (if any) keeps going. Whitespace in between is not.
+        line++;
+        i++;
+        continue;
+      }
+      if (next !== undefined) {
+        begin();
+        buffer += next;
+        i++;
+        continue;
+      }
+      continue;
+    }
+
+    if (character === "'") {
+      begin();
+      const close = text.indexOf("'", i + 1);
+      const body = close === -1 ? text.slice(i + 1) : text.slice(i + 1, close);
+      buffer += body;
+      line += (body.match(/\n/g) ?? []).length;
+      i = close === -1 ? text.length : close;
+      continue;
+    }
+
+    if (character === '"') {
+      begin();
+      i++;
+      for (; i < text.length && text[i] !== '"'; i++) {
+        if (text[i] === "\\" && text[i + 1] !== undefined) {
+          i++;
+          buffer += text[i];
+          continue;
+        }
+        if (text[i] === "\n") line++;
+        buffer += text[i];
+      }
+      continue;
+    }
+
+    if (character === "#" && !started) {
+      const end = text.indexOf("\n", i);
+      i = end === -1 ? text.length : end - 1;
+      continue;
+    }
+
+    if (character === "\n") {
+      flush();
+      words.push({ text: "\n", line, operator: true });
+      line++;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      flush();
+      continue;
+    }
+
+    // Redirections: an optional fd, the operator, and an optionally ATTACHED
+    // target. The shell strips all of it, so neither reaches argv.
+    if (!started || /^\d+$/.test(buffer)) {
+      const redirection = /^(?:&>>?|>>|>&|<<|[<>])/.exec(text.slice(i));
+      if (redirection && (character === "<" || character === ">" || character === "&")) {
+        const isBackgroundAmp = character === "&" && text[i + 1] !== ">";
+        if (!isBackgroundAmp) {
+          // A pending all-digit buffer is this redirection's FD (`2>err`), not
+          // a word — discard it rather than emitting it as an argv token.
+          if (!/^\d+$/.test(buffer)) flush();
+          buffer = "";
+          started = false;
+          i += redirection[0].length - 1;
+          // An attached target follows immediately; otherwise the next word is
+          // the target and is dropped when it is flushed.
+          const rest = text.slice(i + 1);
+          const attached = /^[^\s;&|()<>]+/.exec(rest);
+          if (attached) i += attached[0].length;
+          else dropWord = true;
+          continue;
+        }
+      }
+    }
+
+    if (OPERATOR_STARTS.has(character)) {
+      flush();
+      const two = text.slice(i, i + 2);
+      const operator = two === "&&" || two === "||" ? two : character;
+      words.push({ text: operator, line, operator: true });
+      i += operator.length - 1;
+      continue;
+    }
+
+    begin();
+    buffer += character;
+  }
+  flush();
+  return words;
+}
+
+/** The command word, with any directory prefix removed. */
+function basename(word: string): string {
+  return word.slice(word.lastIndexOf("/") + 1);
+}
 
 /** Preceding words that make `psql` an argument rather than the command:
  * availability probes and package tooling. */
@@ -366,160 +536,51 @@ const NOT_AN_INVOCATION = new Set([
  * which made the rest of the line look like a comment and granted an exemption
  * from a data value. Single quotes take no escapes, per POSIX.
  */
-function hashCommentIndex(line: string): number {
-  let quote: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const character = line[i]!;
-    if (character === "\\" && quote !== "'") {
-      i++;
-      continue;
-    }
-    if (quote !== null) {
-      if (character === quote) quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-    if (character === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return i;
-  }
-  return -1;
-}
-
-/**
- * The slice of `text` belonging to ONE command — up to the first UNQUOTED
- * separator (`;`, `&&`, `||`, `|`, `&`, newline).
- *
- * Without this the token list ran to end of line, so an unrelated `-X` later on
- * the line was read as this call's flag. Review probes:
- *
- *     psql $A -qAt; psql -X $B     -> first site reported SAFE
- *     psql $A -qAt && echo -X      -> reported SAFE
- *
- * A lone `&` after `>` (or before one) is redirection — `2>&1`, `>&2` — not a
- * separator.
- */
-function firstCommandSegment(text: string): string {
-  let quote: string | null = null;
-  for (let i = 0; i < text.length; i++) {
-    const character = text[i]!;
-    if (character === "\\" && quote !== "'") {
-      i++;
-      continue;
-    }
-    if (quote !== null) {
-      if (character === quote) quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-    if (character === "\n" || character === ";") return text.slice(0, i);
-    if (character === "|") return text.slice(0, i);
-    if (character === "&") {
-      const isRedirection = text[i - 1] === ">" || text[i + 1] === ">";
-      if (!isRedirection) return text.slice(0, i);
-    }
-  }
-  return text;
-}
-
-/** Drop a trailing `#` comment, ignoring `#` inside single or double quotes. */
-function stripShellComment(line: string): string {
-  const at = hashCommentIndex(line);
-  return at === -1 ? line : line.slice(0, at);
-}
-
-/** A redirection operator, which the shell consumes — it never reaches argv. */
-const REDIRECTION = /^(?:\d*(?:>>?|<)&?\d*|&>>?)$/;
-
-/** Whitespace tokenizer that keeps quoted runs together and unwraps them.
- * Redirections (and the target of a bare one) are dropped so the token list is
- * the argv psql actually receives. */
-function shellTokens(text: string): string[] {
-  const raw: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) raw.push(m[1] ?? m[2] ?? m[3] ?? "");
-
-  const out: string[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const token = raw[i]!;
-    if (!REDIRECTION.test(token)) {
-      out.push(token);
-      continue;
-    }
-    // `2>&1` names its target inline; a bare `>` / `<` / `2>` takes the next word.
-    if (!token.includes("&")) i++;
-  }
-  return out;
-}
-
 /**
  * Scan shell text (a `.sh` file, or the raw slice of a workflow `run:` scalar).
  * `lineOffset` is added to the 0-indexed line within `text`.
+ */
+/**
+ * Find every psql invocation in shell text. Word-level throughout: the text is
+ * lexed the way the shell lexes it, split into commands on operators, and each
+ * command's argv is what psql would actually receive.
  */
 function scanShellText(text: string, file: string, lineOffset: number): PsqlSite[] {
   const rawLines = text.split("\n");
   const commentAt = commentIndexPerLine(text, "hash");
   const sites: PsqlSite[] = [];
 
-  // Join backslash continuations into logical lines, remembering where each
-  // physical line started so a hit reports the line carrying `psql`.
-  type Logical = { text: string; startLines: number[] };
-  const logicals: Logical[] = [];
-  let current: Logical | null = null;
-  rawLines.forEach((raw, index) => {
-    const stripped = stripShellComment(raw);
-    const continues = /\\\s*$/.test(stripped);
-    const body = stripped.replace(/\\\s*$/, "");
-    if (current === null) current = { text: "", startLines: [] };
-    current.startLines.push(index);
-    current.text += (current.text === "" ? "" : " ") + body.trim();
-    if (!continues) {
-      logicals.push(current);
-      current = null;
+  const words = lexShellWords(text);
+  let command: ShellWord[] = [];
+  const commands: ShellWord[][] = [];
+  for (const word of words) {
+    if (word.operator) {
+      if (command.length > 0) commands.push(command);
+      command = [];
+      continue;
     }
-  });
-  if (current !== null) logicals.push(current);
+    command.push(word);
+  }
+  if (command.length > 0) commands.push(command);
 
-  for (const logical of logicals) {
-    SHELL_BARE_PSQL.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = SHELL_BARE_PSQL.exec(logical.text))) {
-      const wordAt = m.index + m[0].indexOf("psql");
-      const before = logical.text.slice(0, wordAt).trimEnd();
-      const previousWord = before.slice(before.lastIndexOf(" ") + 1).replace(/^["']|["']$/g, "");
-      if (NOT_AN_INVOCATION.has(previousWord)) continue;
-      const after = firstCommandSegment(logical.text.slice(wordAt + "psql".length));
-      const tokens = shellTokens(after);
-      let consumed = 0;
-      let hitLine = logical.startLines[0]!;
-      for (const [i, physical] of logical.startLines.entries()) {
-        const segment = stripShellComment(rawLines[physical]!)
-          .replace(/\\\s*$/, "")
-          .trim();
-        const end = consumed + segment.length + (i === 0 ? 0 : 1);
-        if (wordAt <= end) {
-          hitLine = physical;
-          break;
-        }
-        consumed = end;
-        hitLine = physical;
-      }
-      const line = hitLine + lineOffset + 1;
-      sites.push({
-        file,
-        line,
-        form: "shell",
-        tokens,
-        hasDynamicTokens: tokens.some((t) => t.includes("$")),
-        suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
-        exemptReason: exemptionOnLines(rawLines, hitLine + 1, commentAt),
-      });
-    }
+  for (const argv of commands) {
+    const index = argv.findIndex((word) => basename(word.text) === "psql");
+    if (index === -1) continue;
+    const previous = argv[index - 1];
+    if (previous && NOT_AN_INVOCATION.has(previous.text)) continue;
+
+    const rest = argv.slice(index + 1);
+    const tokens = rest.map((word) => word.text);
+    const hit = argv[index]!;
+    sites.push({
+      file,
+      line: hit.line + lineOffset + 1,
+      form: "shell",
+      tokens,
+      hasDynamicTokens: tokens.some((token) => token.includes("$")),
+      suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
+      exemptReason: exemptionOnLines(rawLines, hit.line + 1, commentAt),
+    });
   }
   return sites;
 }
@@ -559,6 +620,31 @@ function literalText(node: ts.Node): string | null {
   return null;
 }
 
+/**
+ * The text of a string-ish expression, with every runtime piece replaced by a
+ * placeholder word. Covers `` `psql ${dsn}` ``, `"psql " + dsn` and
+ * `` `${binDir}/psql` `` — all three of which a literal-only reader saw as
+ * nothing at all, while the header claimed the indirection tripwire caught
+ * them. It did not: the literal is `psql ` or a template head, never exactly
+ * `"psql"`.
+ */
+function composedText(node: ts.Node): string | null {
+  const literal = literalText(node);
+  if (literal !== null) return literal;
+  if (ts.isTemplateExpression(node)) {
+    let out = node.head.text;
+    for (const span of node.templateSpans) out += "${}" + span.literal.text;
+    return out;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = composedText(node.left);
+    const right = composedText(node.right);
+    if (left === null && right === null) return null;
+    return (left ?? "${}") + (right ?? "${}");
+  }
+  return null;
+}
+
 function isPsqlBinary(text: string): boolean {
   return text === "psql" || text.endsWith("/psql");
 }
@@ -588,7 +674,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
     if (ts.isCallExpression(node)) {
       const callee = calleeName(node);
       const first = node.arguments[0];
-      const firstText = first ? literalText(first) : null;
+      const firstText = first ? composedText(first) : null;
 
       if (
         callee &&
@@ -602,8 +688,10 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         if (argv && ts.isArrayLiteralExpression(argv)) {
           for (const element of argv.elements) {
             const text = literalText(element);
-            if (text === null) hasDynamicTokens = true;
-            else tokens.push(text);
+            if (text === null) {
+              hasDynamicTokens = true;
+              tokens.push(DYNAMIC_TOKEN);
+            } else tokens.push(text);
           }
         } else if (argv !== undefined) {
           hasDynamicTokens = true;
@@ -623,7 +711,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
       // Literal shell strings handed to execSync("psql …") / exec("psql …").
       if (callee && SHELL_CALLEES.has(callee)) {
         for (const argument of node.arguments) {
-          const text = literalText(argument);
+          const text = composedText(argument);
           if (text === null) continue;
           const line = lineOf(sourceFile, argument.getStart(sourceFile));
           sites.push(...shellStringSites(text, file, line, lines, commentAt));
@@ -642,7 +730,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         const argv = node.arguments[1];
         if (argv && ts.isArrayLiteralExpression(argv)) {
           for (const element of argv.elements) {
-            const text = literalText(element);
+            const text = composedText(element);
             if (text === null) continue;
             const line = lineOf(sourceFile, element.getStart(sourceFile));
             sites.push(...shellStringSites(text, file, line, lines, commentAt));
@@ -683,7 +771,7 @@ export function scanBinaryIndirection(source: string, file: string): Indirection
   mark(sourceFile);
 
   const visitNode = (node: ts.Node): void => {
-    const text = literalText(node);
+    const text = composedText(node);
     if (text !== null && isPsqlBinary(text) && !recognized.has(node.getStart(sourceFile))) {
       hits.push({
         file,
@@ -720,7 +808,17 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       const range = (value as { range?: [number, number, number] }).range;
       if (!range) return;
       const raw = source.slice(range[0], range[1]);
-      sites.push(...scanShellText(raw, file, lineStartOf(range[0])));
+      const offset = lineStartOf(range[0]);
+      const found = scanShellText(raw, file, offset);
+      // A double-quoted scalar can DECODE to a psql command whose raw slice
+      // holds no recognizable word (`\\x70sql`, `\\u0070sql`, an escaped
+      // newline). Scan the decoded value too and keep whatever the raw pass
+      // missed; the decoded pass reports the scalar's own line.
+      const decoded = (value as { value?: unknown }).value;
+      if (found.length === 0 && typeof decoded === "string" && decoded !== raw) {
+        found.push(...scanShellText(decoded, file, offset));
+      }
+      sites.push(...found);
     },
   });
   return sites;

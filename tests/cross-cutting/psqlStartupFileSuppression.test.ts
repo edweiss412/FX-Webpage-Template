@@ -141,14 +141,14 @@ describe("scanSource — JS/TS spawn family", () => {
 
   test('a separate "-X" argument satisfies the contract', () => {
     const sites = sitesIn(
-      `execFileSync("psql", [dsn, "-X", "-v", "ON_ERROR_STOP=1", "-At"]);`,
+      `execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn]);`,
       "tests/x.test.ts",
     );
     expect(sites[0]!.suppressesStartupFiles).toBe(true);
   });
 
   test("the combined -qAtX cluster satisfies the contract (naive includes() trap)", () => {
-    const source = `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAtX"]);`;
+    const source = `execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-qAtX", databaseUrl]);`;
     expect(source.includes('"-X"')).toBe(false); // the naive check would fail here
     expect(sitesIn(source, "tests/x.test.ts")[0]!.suppressesStartupFiles).toBe(true);
   });
@@ -171,14 +171,14 @@ describe("scanSource — JS/TS spawn family", () => {
 
   test("a spread arg list is scanned for the literal -X and marked dynamic", () => {
     const withX = sitesIn(
-      `execFileSync("psql", [dbUrl, "-X", "-v", "ON_ERROR_STOP=1", ...args]);`,
+      `execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", ...args, dbUrl]);`,
       "tests/x.ts",
     );
     expect(withX[0]!.suppressesStartupFiles).toBe(true);
     expect(withX[0]!.hasDynamicTokens).toBe(true);
 
     const withoutX = sitesIn(
-      `execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", ...args]);`,
+      `execFileSync("psql", ["-v", "ON_ERROR_STOP=1", ...args, dbUrl]);`,
       "tests/x.ts",
     );
     expect(withoutX[0]!.suppressesStartupFiles).toBe(false);
@@ -230,6 +230,81 @@ describe("scanSource — JS/TS spawn family", () => {
     expect(
       sitesIn(`execSync("psql -X -U postgres");`, "scripts/x.mjs")[0]!.suppressesStartupFiles,
     ).toBe(true);
+  });
+});
+
+// ── R3: the shell layer is a lexer, not a line slicer ──────────────────
+
+describe("R3 escaping mutants — each was certified SAFE before the fix", () => {
+  test.each([
+    // A non-literal argv element is a POSITIONAL; dropping it recreated the
+    // POSIXLY_CORRECT defect through token recovery.
+    ['execFileSync("psql", [dsn, "-X"]);', "x.ts"],
+    ['execFileSync("psql", [...pre, "-X"]);', "x.ts"],
+    ['execFileSync("psql", [a ? b : c, "--no-psqlrc"]);', "x.ts"],
+    // The shell hands psql ONE argv word here; -F swallows it.
+    ['psql -F" -X" $DSN\n', "x.sh"],
+    ["psql -F\\ -X $DSN\n", "x.sh"],
+    // The shell REMOVES the redirection, so -F swallows -X.
+    ["psql -F 2>err -X $DSN\n", "x.sh"],
+    ["psql -F 2>>err -X $DSN\n", "x.sh"],
+    ["psql -F >out -X $DSN\n", "x.sh"],
+    ["psql -F </dev/null -X $DSN\n", "x.sh"],
+    // `\` + SPACE is not a continuation: the -X belongs to the next command.
+    ['psql -qAt \\ # comment\n-X "$DSN"\n', "x.sh"],
+    // An earlier `psql` inside the PATH is not the command word.
+    ['/opt/psql-X-tools/bin/psql "$DSN" -qAt\n', "x.sh"],
+  ])("%j is NOT certified", (source, file) => {
+    const sites = sitesIn(source, file);
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["quote concatenation", 'p"s"ql -qAt $DSN\n'],
+    ["escaped letters", "p\\s\\q\\l -qAt $DSN\n"],
+    ["backslash-newline splice", "ps\\\nql -qAt $DSN\n"],
+  ])("a command word spelled via %s is still found", (_name, source) => {
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["template", "execSync(`psql ${dsn} -qAt`);"],
+    ["concatenation", 'execSync("psql " + dsn);'],
+    ["sh -c template", 'spawnSync("sh", ["-c", `psql ${dsn} -qAt`]);'],
+    ["template binary", "execFileSync(`${binDir}/psql`, args);"],
+  ])("a runtime-composed %s is discovered, not invisible", (_name, source) => {
+    const sites = sitesIn(source, "scripts/x.mjs");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a psql command that only exists in the DECODED yaml scalar is found", () => {
+    for (const raw of ['"echo ready\\npsql -qAt $DSN"', '"\\x70sql -qAt $DSN"']) {
+      const source = ["jobs:", "  x:", "    steps:", `      - run: ${raw}`, ""].join("\n");
+      const sites = sitesIn(source, ".github/workflows/x.yml");
+      expect(sites, raw).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    }
+  });
+
+  test("options-first with a dynamic DSN last is still certified", () => {
+    expect(sitesIn('execFileSync("psql", ["-X", dsn]);', "x.ts")[0]!.suppressesStartupFiles).toBe(
+      true,
+    );
+  });
+
+  test.each([
+    ["an escaped apostrophe in a JS string", `const s = 'a\\'b // MARKER unrelated value';`],
+    ["a CLOSED block comment earlier on the line", `/* x */ const s = "// MARKER unrelated";`],
+  ])("%s does not fake a comment", (_name, tail) => {
+    const sites = sitesIn(
+      `execFileSync("psql", ["-qAt", d]); ${tail.replace("MARKER", EXEMPTION_MARKER)}`,
+      "scripts/x.mjs",
+    );
+    expect(sites[0]!.exemptReason).toBeNull();
   });
 });
 
@@ -445,9 +520,9 @@ describe("exemptions", () => {
     const source = [
       "#!/usr/bin/env bash",
       'x="opening',
-      "psql -qAt $DSN",
       `# ${EXEMPTION_MARKER} unrelated string data`,
       'closing"',
+      "psql -qAt $DSN",
     ].join("\n");
     const sites = sitesIn(source, "scripts/probe.sh");
     expect(sites).toHaveLength(1);

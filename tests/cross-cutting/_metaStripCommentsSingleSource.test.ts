@@ -177,16 +177,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
       "Detector false positive, same shape as the tests/db/_localDbUrl.ts row",
   },
   {
-    file: "tests/cross-cutting/psqlStartupFiles/scan.ts",
-    family: "name-family",
-    marker: "stripShellComment",
-    reason:
-      "shell/YAML # grammar, which tests/_shared/stripComments does not model (it covers TS, " +
-      "MDX, SQL, CSS) — same scanner-local class as the tests/ci/_workflowCoverageScan.ts " +
-      "stripCommentLines row: a pure psql-invocation scanner whose only reason to drop # lines " +
-      "is that they never EXECUTE",
-  },
-  {
     file: "tests/db/_localDbUrl.ts",
     family: "line-replace-idiom",
     marker: "//",
