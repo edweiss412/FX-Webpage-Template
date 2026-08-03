@@ -284,6 +284,15 @@ legfix () {  # usage: legfix <RUN_ID>  -> prints "<n legs> <median seconds>"
 }
 ```
 
+**Validated, not just written down.** Run against the most recent all-green `push` run of `unit-suite` on `main` as of 2026-08-02:
+
+```
+$ legfix 30783618781
+8 96
+```
+
+Eight legs, leg-median fixed overhead **96s** — close to the 101s the 2026-07-20 spec measured on the pre-split topology, which is the sanity check that the metric survived the job split. The accept threshold applied to this figure is ≤88s.
+
 **Baseline selection is a rule, not a choice** (an operator picking among noisy `main` runs could turn a revert into an accept): the baseline is the **most recent `push`-event `unit-suite` run on `main` whose head commit is at or before this PR's merge-base and in which every `unit-suite-db` leg concluded `success`**. If that run is unusable (fewer than 8 legs reported, or a leg re-run so its timings are not comparable), step to the next most recent run satisfying the same predicate and say in the PR body which run was skipped and why. Both run IDs, both leg counts, and both medians go in the PR body.
 
 **Item 1 (real CI, per 2026-07-20 §5, restated against the current topology):**
@@ -307,4 +316,4 @@ The two items are independently revertible: item 1 touches `.github/workflows/un
 
 ## 9. Numeric self-consistency register
 
-Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by each of the two §3.2 probes, zero writes under `supabase/` in both; audited build-package versions `@sentry/cli` 2.58.5, `esbuild` 0.28.0, `sharp` 0.34.5, `unrs-resolver` 1.11.1 (§3.1, pinned by §5h); one Linux-only ignored build candidate, `@parcel/watcher` 2.6.0 (§3.2); the setup composite consumed by 31 job steps across 17 workflows (§4); `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
+Theoretical upper-bound saving 16s (the install step's measured duration, 2026-07-20 §2); accept threshold ≥8s median fixed-overhead reduction (§7.3), deliberately half of it; measured main baseline 96s over 8 legs on run 30783618781 (§7.1), so the accept figure against that baseline is ≤88s; `unit-suite-db` 8 legs, `unit-suite-nodb` 3 legs (§2); `allowBuilds` five keys, four enabled (§3.1); five lifecycle scripts executed by each of the two §3.2 probes, zero writes under `supabase/` in both; audited build-package versions `@sentry/cli` 2.58.5, `esbuild` 0.28.0, `sharp` 0.34.5, `unrs-resolver` 1.11.1 (§3.1, pinned by §5h); one Linux-only ignored build candidate, `@parcel/watcher` 2.6.0 (§3.2); the setup composite consumed by 31 job steps across 17 workflows (§4); `toPass` timeout 15_000 ms in both item-2 blocks (§6.2), matching `openHub`; test-level timeout 240_000 ms, unchanged; install-failure report delay ~70s typical, hard-bounded only by `timeout-minutes: 20` (§1.1).
