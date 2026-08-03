@@ -70,8 +70,6 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-LEDGER-GUARD-BODY-DEFINED-IDS — the citation guard resolves headings only, so a deliberate sub-item reads as dangling
 
-**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
-
 **Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
 
 `tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
@@ -83,13 +81,11 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 **Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
 
 ---
 
 ## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — the parse-warning enum generator scans one directory, so four live emitters are hand-listed
-
-**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
 
 **Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
 
@@ -99,7 +95,7 @@ The `tier1.ts` comment attributes the miss to the content regex alone. Verified 
 
 **Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster
 
 ---
 

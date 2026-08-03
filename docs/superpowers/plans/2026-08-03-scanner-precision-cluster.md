@@ -42,7 +42,7 @@ and the ratified `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-de
 - `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — eight `KNOWN_DANGLING` rows deleted
   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:95`), `definedIds()`
   (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:127`) unions in body-defined ids.
-- `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P8.
+- `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P8; **P5 and P5-live live in `tests/docs/_metaLedgerReferentialIntegrity.test.ts`** instead, because both need the file-scoping seam.
 
 **Declared not applicable:** Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) — no
 Supabase call added. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no
@@ -76,8 +76,9 @@ while PASSING the type-aware one:**
 | A-f | `code` resolvable to no literal at all | **reported and fails** — never dropped | **AC-A7** |
 | A-g | `severity: "info"` rather than `"warn"` | both are members of the union (`lib/parser/types.ts:68`) | AC-A1 |
 
-**Item B — the eight plants P1–P8 of spec §4.2 ARE the family enumeration.** P7 and P8 exist
-because R1 demonstrated the intervening-non-id-heading mutant.
+**Item B — the nine plants P1–P8 plus P5-live of spec §4.2 ARE the family enumeration.** P7/P8 exist
+because R1 demonstrated the intervening-non-id-heading mutant; **P5-live** exists because R4b
+demonstrated a widened-default mutant that survived every earlier P5 assertion.
 
 ---
 
@@ -205,8 +206,9 @@ suite instead of three. Measure and record the real delta.
 
 ## Task 2 — Item B: body-defined ledger ids
 
-**RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` with plants P1–P8 (spec §4.2) against
-synthetic ledgers. Failure modes caught, per the anti-tautology rule:
+**RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` with plants P1–P4 and P6–P8 (spec §4.2)
+against synthetic ledgers, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` with **P5 and
+P5-live**, which need the file-scoping seam. Failure modes caught, per the anti-tautology rule:
 
 - **P3** — a code-span-lead rule would let `BACKLOG.md:79` define the five ids it merely
   enumerates, from the wrong parent.
@@ -231,7 +233,9 @@ uses (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:240-244`), then implem
 (`tests/docs/_ledgerMdast.ts:302`). Union into `definedIds()`. Delete the eight `KNOWN_DANGLING`
 rows.
 
-**Verify.** AC-B1, AC-B2, AC-B3 (exactly 8 over the live ledgers, not 11), AC-B4. The guard's
+**Verify.** AC-B1, AC-B2 (all nine plants, P5-live included — it is the R4b regression test and
+omitting it is the failure this row exists to prevent), AC-B3 (exactly 8 over the live ledgers, not
+11), AC-B4. The guard's
 existing stale-row ratchet is what proves the eight deletions were required rather than optional.
 
 **Commit.** `fix(docs): let a ledger entry define sub-item ids in its own body`
