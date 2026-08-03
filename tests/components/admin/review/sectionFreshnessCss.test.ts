@@ -138,6 +138,46 @@ describe("section freshness cue: stylesheet contract", () => {
     }
   });
 
+  it("N10: every picked field name exists on the row type it projects", () => {
+    // The failure this catches is SILENT and is the worse of the two directions.
+    // The projections narrow to rendered fields by NAME, so a typo, or a field
+    // renamed in `lib/parser/types.ts` without updating the list here, hashes
+    // `null` forever: the section then never cues for that field, which is the
+    // miss this whole feature exists to prevent. Nothing else would notice, since
+    // the shape still typechecks and every existing test still passes.
+    const types = readFileSync(join(ROOT, "lib/parser/types.ts"), "utf8");
+    const fieldsOf = (typeName: string): Set<string> => {
+      const m = new RegExp(`export type ${typeName} = \\{(.*?)\\n\\};`, "s").exec(types);
+      expect(m, `${typeName} must exist in lib/parser/types.ts`).not.toBeNull();
+      const body = m?.[1] ?? "";
+      return new Set([...body.matchAll(/^\s*(\w+)\??:/gm)].map((x) => x[1] as string));
+    };
+    const keysOf = (constName: string): string[] => {
+      const m = new RegExp(`const ${constName} = \\[(.*?)\\] as const;`, "s").exec(MODULE_SRC);
+      expect(m, `${constName} must be declared`).not.toBeNull();
+      return (m?.[1] ?? "")
+        .split(",")
+        .map((s) => s.trim().replace(/^"|"$/g, ""))
+        .filter(Boolean);
+    };
+
+    for (const [constName, typeName] of [
+      ["CREW_KEYS", "CrewMemberRow"],
+      ["CONTACT_KEYS", "ContactRow"],
+      ["HOTEL_KEYS", "HotelReservationRow"],
+      ["ROOM_KEYS", "RoomRow"],
+    ] as const) {
+      const declared = fieldsOf(typeName);
+      const picked = keysOf(constName);
+      expect(picked.length, `${constName} must not be empty`).toBeGreaterThan(0);
+      for (const key of picked) {
+        expect(declared.has(key), `${constName} picks "${key}", absent from ${typeName}`).toBe(
+          true,
+        );
+      }
+    }
+  });
+
   it("N7: the cap constant is 3 and is exported rather than repeated as a literal", () => {
     expect(SECTION_FRESHNESS_MAX_CUES).toBe(3);
     expect(MODULE_SRC).toMatch(/export const SECTION_FRESHNESS_MAX_CUES = 3;/);
