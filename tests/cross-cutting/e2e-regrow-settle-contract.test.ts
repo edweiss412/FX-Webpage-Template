@@ -45,6 +45,27 @@ const ARM_WINDOW = 900;
 /** The retry callback's opening token, matched literally at each arming site. */
 const CALLBACK_OPENER = "expect(async () => {";
 
+/**
+ * Per arming site, the measurement fields whose presence inside the retry callback
+ * is what makes the retry REAL. Site 1 is the ladder sweep, which settles on the
+ * armed body having grown past the idle one; site 2 is the real run, which asserts
+ * the clip-rect invariant and that placement re-ran.
+ *
+ * DOCUMENTED LIMIT, stated so it is not rediscovered: this is a source-text
+ * TRIPWIRE, not a proof of semantics. It cannot tell an assertion from the same
+ * token inside a comment, and no textual predicate can — three review rounds
+ * closed three progressively hollower callbacks and a fourth shape is always
+ * constructible against a purely generic check. Naming the invariant's own fields
+ * is where the tripwire stops being generic: a hollow callback cannot mention what
+ * it never measured, and moving the real assertions outside the retry removes
+ * these tokens from the callback body. What ultimately proves the retry works is
+ * the case itself running in `lifecycle-layout-e2e`.
+ */
+const ARM_SITE_REQUIRED_FIELDS: readonly (readonly string[])[] = [
+  ["natural", "idle.natural"],
+  ["bodyTop", "bodyBottom", "boundsTop", "boundsBottom", "inlineMaxHeight"],
+];
+
 describe("T-REGROW settle contract", () => {
   it("reads a plausible T-REGROW body (anti-vacuity)", () => {
     const slice = regrowSlice();
@@ -106,21 +127,28 @@ describe("T-REGROW settle contract", () => {
       // moved the real read back outside, and every assertion above stayed green.
       // So the callback BODY must actually await the measurement and assert on it.
       // Slice from AFTER the opener, not from it: `expect(async () => {` is itself
-      // an `expect(`, so counting from opensAt makes the assertion below trivially
-      // true — a second review probe showed an assertion-free
-      // `expect(async () => { await measure(); }).toPass(...)` passing every
-      // predicate here.
+      // an `expect(`, so counting from opensAt would make any assertion check
+      // trivially true.
       const callbackBody = window.slice(opensAt + CALLBACK_OPENER.length, passesAt);
       expect(
         /await\s+measure\(\)/.test(callbackBody),
         `arming site ${n + 1}: the retry callback must AWAIT measure() — a callback that ` +
           "fires it and discards the promise retries on nothing",
       ).toBe(true);
-      expect(
-        (callbackBody.match(/\bexpect\(/g) ?? []).length,
-        `arming site ${n + 1}: the retry callback must contain at least one expect() — ` +
-          "a callback that asserts nothing passes on its first attempt and the retry is decorative",
-      ).toBeGreaterThan(0);
+      // Name the invariant's OWN fields rather than asking for "an expect(".
+      // Three review rounds each defeated a more generic predicate with a hollower
+      // callback -- `void measure()`, then no assertion at all, then
+      // `expect(true).toBe(true)`. Every one of them satisfies a shape check and
+      // none of them retries the thing under test. Requiring the fields the
+      // measurement actually returns is what a hollow callback cannot supply, and
+      // it fails just as loudly if the real assertions are moved back outside.
+      for (const field of ARM_SITE_REQUIRED_FIELDS[n]!) {
+        expect(
+          callbackBody.includes(field),
+          `arming site ${n + 1}: the retry callback must assert on \`${field}\` — without it the ` +
+            "retry is decorative and the invariant is being read once, outside the retry",
+        ).toBe(true);
+      }
       expect(
         window.includes("waitForTimeout"),
         `arming site ${n + 1}: a fixed wait reappeared`,
