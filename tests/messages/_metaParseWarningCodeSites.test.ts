@@ -1,4 +1,8 @@
+import { execSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
+
+import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
 
 import {
   collectParseWarningCodeSites,
@@ -231,6 +235,54 @@ describe("parse-warning code sites", () => {
       const { sites } = scan();
       const recognized = [...new Set(sites.map((s) => s.code))].sort();
       expect(recognized).toEqual([...EXPECTED_PARSE_WARNING_CODES]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "leaves nothing unrecognized",
+    () => {
+      const { unresolved } = scan();
+      // Assertion 2. An emit shape the four rules cannot resolve is SIGNALED
+      // here rather than silently dropped — the "recognized or signaled, never
+      // silently wrong" bound. There is no exemption mechanism: two schemas were
+      // tried and both admitted an escaping mutant, so adding one is a
+      // deliberate change to this guard's own code.
+      expect(unresolved).toEqual([]);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "agrees with the committed manifest",
+    () => {
+      const { sites } = scan();
+      const recognized = [...new Set(sites.map((s) => s.code))].sort();
+      const manifest: Record<string, { source: string } | undefined> = INTERNAL_CODE_ENUMS;
+      const attributed = Object.keys(INTERNAL_CODE_ENUMS)
+        .filter((code) => manifest[code]?.source.includes("parse_warnings.code"))
+        .sort();
+      // Set EQUALITY, not a subset check. A subset check passes under an
+      // additive implementation that retains the old regex scan alongside the
+      // collector, because the extra provenance it adds is never missing.
+      expect(attributed, "run `pnpm gen:internal-code-enums`").toEqual(recognized);
+    },
+    SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps warning factories out of production imports",
+    () => {
+      // Assertion 5, the mirror class the fixture-tree exclusion opens: a factory
+      // whose BODY lives in an excluded tree would have its production call sites
+      // silently dropped. Narrowed to FACTORIES because ten production files
+      // legitimately import types and scenario data from that tree.
+      const offenders = execSync(
+        "rg -l --glob '!tests/**' --glob '!lib/dev/attentionScenarios/**' " +
+          "\"import[^;]*\\b(buildWarning|crewScopedWarning)\\b[^;]*from .@/lib/dev/attentionScenarios\" . || true",
+        { cwd: process.cwd(), encoding: "utf8" },
+      ).trim();
+      expect(offenders).toBe("");
     },
     SCAN_TIMEOUT_MS,
   );

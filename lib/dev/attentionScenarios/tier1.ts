@@ -113,33 +113,20 @@ export function tier1AlertScenarios(): AttentionScenario[] {
 
 // ── Warning half (spec §3.2, §3.2a) ─────────────────────────────────────────
 //
-// No single runtime module enumerates the parse-warning universe:
-//   - INTERNAL_CODE_ENUMS is generated and lib-importable, but its producer
-//     (scripts/extract-internal-code-enums.ts:71-72) only scans files matching
-//     /\bParseWarning\b|\bwarnings\b|hardErrors/, so emitters elsewhere are missed.
-//   - tests/messages/warningCardCopyRegistry.ts has more codes but lives under
-//     tests/, which lib/ must not import, and is not a superset either.
-//   - MESSAGE_CATALOG holds all of them but carries no field to partition on.
-// So: the generated enum PLUS an enumerated residue, de-duplicated.
-
-/**
- * Parse-warning codes the generator's scan heuristic misses, each with the file
- * that emits it. Backlog BL-INTERNAL-CODE-ENUM-SCAN-WIDEN widens the heuristic,
- * after which this list becomes a no-op rather than a double-render, because
- * warningCodes() de-duplicates.
- */
-export const EXTRA_WARNING_CODES: readonly string[] = [
-  "AGENDA_SCHEDULE_LOW_CONFIDENCE", // lib/agenda/extractAgendaSchedule.ts
-  "AGENDA_SCHEDULE_TIME_ADJUSTED", // lib/sync/enrichAgenda.ts
-  "PULL_SHEET_ON_ARCHIVED_TAB", // lib/sync/pullSheetOverride.ts
-  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED", // lib/sync/pullSheetOverride.ts
-];
+// The universe comes from the generated manifest alone. The hand-maintained
+// residue this used to union in is gone: the generator now recognizes every
+// ParseWarning emitter through the TypeScript checker
+// (lib/messages/__internal__/parseWarningCodeSites.ts), including the factory
+// and union shapes no `code:` regex could reach.
 
 export function warningCodes(): string[] {
   const generated = Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => v.source === "parse_warnings.code")
+    // `.includes`, not `===`: a code with more than one provenance carries a
+    // comma-joined source, and strict equality made three of them invisible to
+    // the gallery while the observe CLI (serializeWarning.ts:29) saw them.
+    .filter(([, v]) => v.source.includes("parse_warnings.code"))
     .map(([k]) => k);
-  return [...new Set([...generated, ...EXTRA_WARNING_CODES])].sort();
+  return [...new Set(generated)].sort();
 }
 
 /**

@@ -4,7 +4,6 @@ import {
   warningCodes,
   buildWarning,
   tier1WarningScenarios,
-  EXTRA_WARNING_CODES,
   scenarioIdForCode,
 } from "@/lib/dev/attentionScenarios/tier1";
 import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
@@ -30,11 +29,18 @@ describe("tier 1 warning scenarios", () => {
     }
   });
 
-  test("includes the residue the generator's scan heuristic misses", () => {
-    // Each of these is emitted from a file the generator does not scan; without
-    // the explicit list the gallery would silently omit them.
-    expect(EXTRA_WARNING_CODES.length).toBeGreaterThan(0);
-    for (const code of EXTRA_WARNING_CODES) {
+  test("carries the codes the old scan heuristic could not reach", () => {
+    // These four were the hand-maintained residue. The generator now reaches
+    // every one through the type checker: the two AGENDA_SCHEDULE_* codes and
+    // PULL_SHEET_OVERRIDE_CONTENT_CHANGED arrive via the factory rule, and
+    // PULL_SHEET_ON_ARCHIVED_TAB is multi-provenance, so it was invisible to the
+    // gallery's former strict-equality filter even though the manifest held it.
+    for (const code of [
+      "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+      "AGENDA_SCHEDULE_TIME_ADJUSTED",
+      "PULL_SHEET_ON_ARCHIVED_TAB",
+      "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+    ]) {
       expect(warningCodes(), code).toContain(code);
     }
   });

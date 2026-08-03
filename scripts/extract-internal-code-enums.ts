@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
+import { collectParseWarningCodeSites } from "@/lib/messages/__internal__/parseWarningCodeSites";
 
 export type InternalCodeEnumPayload = {
   source: string;
@@ -67,10 +68,14 @@ function stableObjectLiteral(entries: InternalCodeEnums): string {
 export function extractInternalCodeEnums(): InternalCodeEnums {
   const out = new Map<string, Set<string>>();
 
-  for (const { source } of readFiles(["lib/parser"])) {
-    if (/\bParseWarning\b|\bwarnings\b|hardErrors/.test(source)) {
-      addCodeLiteralsFromSource(out, source, "parse_warnings.code", CODE_PROPERTY_RE);
-    }
+  // Type-aware: every string literal reaching the `code` property of a
+  // ParseWarning, resolved through the TypeScript checker rather than by
+  // scanning a directory list for `code:` matches. The former heuristic both
+  // over-selected (nothing textual separates a ParseWarning's code from an
+  // admin alert's in the same file) and under-selected (a factory takes its
+  // code as an argument). See lib/messages/__internal__/parseWarningCodeSites.ts.
+  for (const { code } of collectParseWarningCodeSites().sites) {
+    add(out, code, "parse_warnings.code");
   }
 
   for (const { source } of readFiles(["supabase/migrations", "lib/sync", "app/api"])) {
