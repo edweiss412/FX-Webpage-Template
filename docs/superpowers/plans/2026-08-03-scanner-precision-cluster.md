@@ -241,7 +241,16 @@ existing stale-row ratchet is what proves the eight deletions were required rath
 ## Task 3 — backlog graduation
 
 Move both entries to `BACKLOG-archive.md`; add a new leading segment to `BACKLOG.md:7`; add both
-ids to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
+ids to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` with provenance
+`chore/scanner-precision-cluster`.
+
+**The meta-line transition is not optional (AC-B5).** Each entry's
+`**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster` becomes
+`**Status:** RESOLVED on branch \`chore/scanner-precision-cluster\` (2026-08-03)`. Deleting the
+marker instead fails the `BACKLOG_GRADUATED` provenance assertion
+(`tests/docs/_metaDeferralLedgerGraduation.test.ts:393-396`), because that marker is the section's
+only mention of the branch; leaving it fails `_metaLedgerInProgress.test.ts`, because an archive may
+not hold in-flight work. R3b found this collision.
 
 **Ordering that matters:** `BL-LEDGER-GUARD-BODY-DEFINED-IDS`'s body contains the
 `BACKLOG.md:79` bullets enumerating the eight ids as code spans, not strong — so under Task 2's

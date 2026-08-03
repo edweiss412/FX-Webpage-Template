@@ -380,6 +380,7 @@ Measured: conditions 1–2 alone yield 11 ids (3 wrong); all three yield exactly
 | P3 — code-span lead, no strong | does NOT define (trap 1) |
 | P4 — strong id mid-sentence, not leading | does NOT define |
 | P5 — the P1 markdown supplied for a file NOT in `ledgers`, via injected `read` | defines nothing; the SAME text supplied for a ledger file DOES define (the control that makes it non-vacuous) |
+| **P5-live — the LIVE `definedIds()` invocation** | `definedIds()` with no arguments equals `definedIds(LEDGERS)`; every `LEDGERS` entry matches `/^(BACKLOG\|DEFERRED)(-archive)?\.md$/`; and adding a plan path to the list CHANGES the result. Without this, a widened default or live call-site argument scans a plan, lets its typo define itself, and still passes P5 and AC-B3. |
 | P6 — the P1 bullet under a heading whose own id does not resolve | defines nothing |
 | **P7 — the P1 bullet after an intervening non-id heading** | **does NOT define (trap 2)** |
 | **P8 — the real `BACKLOG-archive.md:1094-1096` shape, with the picker headings removed in-memory** | **does NOT define** — the R1 mutant, pinned |
@@ -419,6 +420,14 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
 **Item B**
 
 - **AC-B1** All eight ids resolve; `KNOWN_DANGLING` retains exactly one row, `BL-RESOLVED`.
+- **AC-B5** **Graduation state transition.** On graduation each entry's meta line goes from
+  `**Status:** IN PROGRESS · **Branch:** chore/scanner-precision-cluster` to
+  `**Status:** RESOLVED on branch \`chore/scanner-precision-cluster\` (2026-08-03)`. That single
+  edit satisfies three guards at once: `_metaLedgerInProgress.test.ts` (archives may not hold
+  in-flight work), the `BACKLOG_GRADUATED` provenance assertion
+  (`tests/docs/_metaDeferralLedgerGraduation.test.ts:393-396` requires the archived section to
+  CONTAIN the branch string), and the terminal-state requirement. Stripping the marker without
+  this replacement removes the section's only branch provenance and fails the second.
 - **AC-B2** Plants P1–P8 pass as specified in §4.2. P5 is exercised against the exported
   `definedIds(ledgers, read)` seam with a paired control, so "ledger files only" is proven
   behaviorally rather than asserted structurally.
@@ -455,6 +464,8 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | A3 | HIGH (R2a) — the stated rule contradicts the zero-unresolved measurement: warning-copy spreads have no own code, and `any`/`never` selected 13 non-warnings. | **Accepted.** §3.1 clause 5 defines copy-vs-definition (6 such sites) and clause 3 excludes `any`/`never`/`unknown`. The earlier zero was partly an artifact of silently skipping those sites; it is now a measured zero under the stated rule. |
 | A4 | MEDIUM (R2a) — false-positive arithmetic wrong under the actual roots. | **Accepted.** §2.3(a) now states both baselines and names the three additional codes. |
 | A5 | MEDIUM (R2a) — the perf fallback removes only one of three project loads; `isolate:false` is rejected. | **Accepted.** §3.5 replaces it: the guard becomes the single extractor and absorbs the parity assertion; the third caller reads the committed artifact. One extraction, not three. |
+| B2 | HIGH (R3b) — P5's paired control proves the parameter is respected but not that the LIVE `definedIds()` call passes only `LEDGERS`; a widened live argument still passes. | **Accepted.** Plant **P5-live** pins the live invocation, the shape of `LEDGERS`, and that the list is load-bearing (§4.2). |
+| B3 | HIGH (R3b) — Task 3 cannot literally move the entries: archives may not hold `IN PROGRESS`, and stripping the marker removes the branch provenance `BACKLOG_GRADUATED` asserts. | **Accepted for the transition, PARTLY REFUTED for the premise.** AC-B5 specifies the exact meta-line rewrite that satisfies both guards. The finding's third claim — that both sections "additionally retain `Status: OPEN`" — is **refuted by probe**: the `Status: OPEN` lines at `BACKLOG.md:67` and `BACKLOG.md:86` belong to the entries PRECEDING each heading (`BACKLOG.md:71`, `BACKLOG.md:88`); both target sections carry the in-flight marker as their only status. Recorded so a later round does not re-derive it. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
