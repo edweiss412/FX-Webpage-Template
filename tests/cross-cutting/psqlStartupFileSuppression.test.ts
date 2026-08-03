@@ -3009,3 +3009,74 @@ describe("R32 escaping mutants — an interpreter's positionals are not its comm
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R33 escaping mutants — a logical command is not a physical line", () => {
+  /** Caught either way: an unprotected site or a tripwire hit. */
+  function caught(source: string, file: string) {
+    const unprotected = sitesIn(source, file).filter(
+      (site) => !site.suppressesStartupFiles && site.exemptReason === null,
+    ).length;
+    return unprotected + scanShellIndirection(source, file).length;
+  }
+
+  // The R32 positional tripwire read PHYSICAL lines while the site scanner
+  // reads LOGICAL commands, so a backslash-newline continuation — ordinary
+  // formatting, not an adversarial spelling — put the interpreter and its
+  // positional on different lines and the rule could not see across the break.
+  test.each([["sh"], ["bash"], ["zsh"], ["dash"], ["ash"], ["ksh"]])(
+    "a continued `%s -c '$0 …' psql -X` is caught",
+    (shell) => {
+      expect(caught(`${shell} -c '$0 -qAt mydb' \\\n  psql -X\n`, "x.sh")).toBeGreaterThan(0);
+    },
+  );
+
+  test.each([
+    ["a break before -c", "bash \\\n  -c '$0 -qAt mydb' psql -X\n"],
+    ["a break inside the quoted script", "bash -c '$0 -qAt \\\n  mydb' psql -X\n"],
+    ["a break before the positional", "bash -c '$0 -qAt mydb' \\\n  psql -X\n"],
+    ["two breaks", "bash \\\n  -c '$0 -qAt mydb' \\\n  psql -X\n"],
+  ])("%s is caught", (_label, source) => {
+    expect(caught(source, "x.sh")).toBeGreaterThan(0);
+  });
+
+  test("the same continuation inside a workflow run block is caught", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      "          bash -c '$0 -qAt mydb' \\",
+      "            psql -X",
+      "",
+    ].join("\n");
+    expect(caught(source, ".github/workflows/x.yml")).toBeGreaterThan(0);
+  });
+
+  test("the same continuation inside a JS shell string is caught", () => {
+    const source = "execSync(`bash -c '$0 -qAt mydb' \\\\\n  psql -X`);\n";
+    const unprotected = sitesIn(source, "x.mjs").filter(
+      (site) => !site.suppressesStartupFiles && site.exemptReason === null,
+    ).length;
+    expect(unprotected + scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // PRECISION: a continuation that binds nothing stays quiet.
+  test.each([
+    ["a continued psql-free command", "bash \\\n  -c 'echo hi' \\\n  pg_dump\n"],
+    ["a continued protected invocation", "psql -X \\\n  -qAt mydb\n"],
+  ])("%s is not reported by the tripwire", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toEqual([]);
+  });
+
+  test(
+    "the logical-line reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});

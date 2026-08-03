@@ -2060,7 +2060,13 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(code)
         ? ["", ""]
         : null;
-    const positionalBinding = INTERPRETER_POSITIONAL_BINDING.test(code) ? ["", ""] : null;
+    // Tested against the LOGICAL line, not the physical one. A backslash-
+    // newline continuation is ordinary formatting, and the site scanner has
+    // always read logical commands — reading this rule per PHYSICAL line let
+    // `bash -c '$0 …' \` + newline + `psql -X` put the interpreter and its
+    // positional on different lines, where the rule could not see either. Same
+    // `logical` join the bound-command rule uses, for the same reason.
+    const positionalBinding = INTERPRETER_POSITIONAL_BINDING.test(logical) ? ["", ""] : null;
     const hit =
       assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
