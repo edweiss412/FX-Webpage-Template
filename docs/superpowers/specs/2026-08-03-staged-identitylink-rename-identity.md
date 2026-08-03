@@ -83,9 +83,19 @@ Uniform for every core caller (§1.1 #7: dashboard `applyStaged`, `finalize` Pha
 
 The step-3 "applies WHOLESALE" comment is rewritten to name the carve-out: rename-resolved MI-12/13/14 items now ALSO thread `identityLinkRenames` (identity-preserving in-place apply); the per-action difference is no longer floors+audit only.
 
-### 3.3 Downstream: zero code change
+### 3.3 Downstream: zero code change, complete comment/doc reconciliation
 
-`phase2.ts` and `applyParseResult.ts` are code-untouched. One comment edit: the arm-(c) comment asserting "the staged remove+add of an identity-link rename, where args.identityLinkRenames is empty" (`lib/sync/phase2.ts`, inside `capabilityRoleChangesForNotice` arm (c) block) is rewritten — after this spec a staged rename-choice pair is present in `identityLinkRenames` and arm (c) excludes it, same as cron; only a staged `independent` (or a genuine removal) reaches arm (c).
+`phase2.ts` and `applyParseResult.ts` are code-untouched. The behavior flip makes a set of shipped comments stale; this is the COMPLETE reconciliation inventory (review R2 finding — the sweep was grep-driven: `rg -n "remove\+add|version-bound" lib/sync/ tests/sync/phase2.test.ts`, all hits enumerated):
+
+1. `lib/sync/applyStagedCore.ts` step-3 "applies WHOLESALE" comment — rewritten per §3.2.
+2. `lib/sync/phase2.ts` arm-(c) comment inside `capabilityRoleChangesForNotice` ("esp. the staged remove+add of an identity-link rename, where args.identityLinkRenames is empty") — rewritten: a staged rename-choice pair is now present and excluded same as cron; only a staged `independent` (or genuine removal) reaches arm (c).
+3. `lib/sync/phase2.ts` `Phase2Args.identityLinkRenames` field doc ("Computed by the orchestrator via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept)") — add the staged producer: `computeStagedIdentityLinkRenames` (per-item rename choice).
+4. `lib/sync/applyParseResult.ts` `identityLinkRenames` arg doc ("MI-13/MI-14 pairs only on the version-bound accepted apply. A skipped/absent pair degrades to today's delete+insert") — add the staged per-item-choice producer; correct the degrade sentence (a hold-protected old name is retained, not replaced).
+5. `lib/sync/applyParseResult.ts` rename-loop inline comment ("a skipped pair degrades to today's delete+insert, which is fail-safe") — same degrade nuance.
+6. `lib/sync/identityLinkRenames.ts` header doc (vouch rule states the version-bound accept only) — name both confirm forms: cron version-bound accept, staged per-item rename choice.
+7. `tests/sync/phase2.test.ts` arm-(c) test comment ("Path-independent (covers the staged remove+add of an identity-link rename)") — reword to "covers a staged `independent` resolution (remove+add)"; the test body (generic removal fixture) stays valid unchanged.
+
+Verified by grep 2026-08-03: NO shipped test builds a staged-path fixture asserting the loss+grant shape (`rg -ln "ROLE_FLAGS_NOTICE|LEAD_ROLE_APPLIED" tests/ | xargs rg -ln "staged|applyStaged"` → empty), so the flip breaks no existing test; the arm tests at `tests/sync/phase2.test.ts` use generic-removal and cron-rename fixtures and remain valid.
 
 ### 3.4 Behavior matrix
 
@@ -103,8 +113,8 @@ Explicitly unchanged surfaces: `sync_audit` row (items + choices + derived side 
 
 ### 3.5 Docs amendments (same branch)
 
-1. Role-flags spec `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`: append a dated supersession note to §2.5, the §2.1 arm-(c) exclusion paragraph, and do-not-relitigate item 2h — "superseded 2026-08-03 by this spec: the staged rename-choice path now threads `identityLinkRenames`; the loss+grant audit shape for that path is retired; `independent` remains remove+add with arms (c)/(b)." Existing text stays (history), the note redirects.
-2. `lib/sync/applyStagedCore.ts` step-3 comment + `lib/sync/phase2.ts` arm-(c) comment per §3.2/§3.3.
+1. Role-flags spec `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`: ONE dated supersession banner immediately after the document header ("Superseded in part, 2026-08-03: the staged RENAME-CHOICE path now threads `identityLinkRenames` and is identity-preserving; its loss+grant audit shape is retired; staged `independent` remains remove+add with arms (c)/(b); R33-2 feed assertions untouched; fenced both directions" plus a pointer to this spec), PLUS a short "(superseded 2026-08-03, see banner)" tag at EVERY staged-remove+add-normative site. Complete site list (grep-driven, `rg -n "remove\+add" <doc>` returns 9 lines, plus the arm-(c)-exclusion test item's staged-contrast clause): the §2.1 arm-(c) intro clause "(or, on the staged path, whose rename is applied as remove+add per the ratified R33-2 contract)"; the §2.1 exclusion paragraph's staged-path sentences; the §2.4 parenthetical "incl. a staged identity-link rename applied as remove+add"; the summary line "Staged identity-linked renames (remove+add per R33-2) are handled by arms (b)/(c)"; both §2.5 paragraphs; the test-requirements "Staged rename + capability" item (its loss+grant assertions are superseded by this spec's §4 item 4); the arm-(c)-exclusion test item's "Contrast: the STAGED remove+add" clause; do-not-relitigate items 2h AND 2e (2e's roster-changes parenthetical). Existing text stays (history); tags redirect to the banner.
+2. Code-comment reconciliation per the COMPLETE §3.3 inventory (7 sites: applyStagedCore step-3, phase2 arm-(c), Phase2Args field doc, applyParseResult arg doc + loop comment, identityLinkRenames header vouch doc, phase2.test.ts arm-(c) test comment).
 3. BACKLOG.md: graduate `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY` to `BACKLOG-archive.md` at close-out.
 4. BACKLOG.md: file the three pre-existing classes surfaced by review R1, each with its verification citations from §1.1 #7-#9: `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` (Phase D discards `roleFlagsNotice`; no `ROLE_FLAGS_NOTICE`/`LEAD_ROLE_APPLIED` sink post-commit), `BL-IDENTITYLINK-LANDED-VS-REQUESTED` (notice/feed consume requested pairs, cron-shared), `BL-UNDO-SELECTIONS-RESET-AT-DROP` (`crewImage` + Direction A re-insert omit `selections_reset_at`).
 

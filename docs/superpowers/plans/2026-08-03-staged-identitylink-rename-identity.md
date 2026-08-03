@@ -224,7 +224,7 @@ test("no rename choices: runPhase2 args carry NO identityLinkRenames key (length
     syncDeps,
   );
 
-  const phase2Args = vi.mocked(syncDeps.runPhase2).mock.calls[0]?.[1];
+  const phase2Args = vi.mocked(syncDeps.runPhase2!).mock.calls[0]?.[1];
   expect(phase2Args).toBeDefined();
   expect(phase2Args !== undefined && "identityLinkRenames" in phase2Args).toBe(false);
 });
