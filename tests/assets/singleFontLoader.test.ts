@@ -93,31 +93,69 @@
  *
  * Spec: docs/superpowers/specs/2026-08-03-app-wide-font-binding.md §4.3
  */
-import { readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { extname, join, relative, sep } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
 /**
- * Every shipped source tree, not just `app/`.
+ * The census: every file the bundler could turn into a font loader.
  *
- * Review R8 probed Next 16's own SWC transform and showed a loader call is
- * rewritten — i.e. really loads a font — from `lib/`, `components/`, and from
- * `.js` / `.jsx` files, none of which an `app/`-only, `.ts`/`.tsx`-only census
- * could see. An app route can then import that module transitively, and if the
- * second call is byte-identical the runtime checks cannot separate it either.
- * So the census walks every tree a route can import from, at every extension
- * the bundler will transform.
+ * **Built as a DENYLIST over the repo root, not an allowlist of directories.**
+ * Two rounds of review each found a directory the allowlist did not name —
+ * R8 found `lib/` and `components/` missing from an `app/`-only walk, and R9
+ * then found root-level modules and arbitrary shared directories missing from
+ * the three-directory replacement, because `tsconfig.json`'s `@/*` maps across
+ * the WHOLE repo root, so any directory at all can be imported by a route. An
+ * allowlist fails OPEN on the case it did not think of; a denylist fails
+ * CLOSED, which is the property this guard needs.
  *
- * `tests/` is deliberately absent: nothing there ships, and the setup file's
- * `vi.mock("next/font/google", …)` is a string argument rather than an import
- * declaration, so it would not match anyway.
+ * `.mdx` is included because this project enables MDX (`next.config.ts`), and
+ * R9's SWC probe showed a loader declared in MDX gets the same `target.css`
+ * rewrite as one in TypeScript. MDX is not TypeScript, so it is matched
+ * textually rather than parsed.
  */
-const SHIPPED_DIRS = ["app", "components", "lib"].map((d) => join(REPO_ROOT, d));
+const DENIED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".claude",
+  ".vercel",
+  "coverage",
+  "test-results",
+  "playwright-report",
+  // Not shipped: a loader here cannot reach a route.
+  "tests",
+  "docs",
+  "public",
+  "__generated__",
+]);
+const DENIED_DIR_PREFIXES = [".next"];
+
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+const TEXT_SCANNED_EXTENSIONS = [".mdx"];
+
+function censusFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (DENIED_DIRS.has(entry.name)) continue;
+      if (DENIED_DIR_PREFIXES.some((p) => entry.name.startsWith(p))) continue;
+      out.push(...censusFiles(full));
+      continue;
+    }
+    const ext = extname(entry.name);
+    if (SOURCE_EXTENSIONS.includes(ext) || TEXT_SCANNED_EXTENSIONS.includes(ext)) out.push(full);
+  }
+  return out;
+}
+
+/** `.mdx` carries ESM imports but is not TypeScript, so match the module
+ *  specifier textually. Deliberately loose: over-matching here costs a false
+ *  failure that a human resolves, under-matching costs a silent second font. */
+const MDX_FONT_IMPORT = /from\s+["']next\/font\//;
 
 /** The one file allowed to CALL a font loader. Not `app/layout.tsx`: Next 16 has
  *  two roots, and `app/global-error.tsx` replaces the root layout entirely, so
@@ -303,7 +341,7 @@ function toRepoRelative(absolute: string): string {
 }
 
 describe("single next/font loader — live tree", () => {
-  const appFiles = walkSourceFiles(SHIPPED_DIRS, { extensions: SOURCE_EXTENSIONS });
+  const appFiles = censusFiles(REPO_ROOT);
 
   it("the walk actually reached every shipped tree", () => {
     // Anti-vacuity: an empty or narrow walk satisfies every assertion below
@@ -312,12 +350,18 @@ describe("single next/font loader — live tree", () => {
     // out, which is exactly how the app-only census went unnoticed until R8.
     const rel = appFiles.map(toRepoRelative);
     expect(rel.length, "the census found source files").toBeGreaterThan(100);
-    for (const tree of ["app/", "components/", "lib/"]) {
+    for (const tree of ["app/", "components/", "lib/", "scripts/"]) {
       expect(
         rel.some((f) => f.startsWith(tree)),
         `the census covers ${tree} — a loader there loads a font just as much as one in app/`,
       ).toBe(true);
     }
+    // A ROOT-LEVEL module, which the previous directory allowlist could not see
+    // even though `@/*` maps across the repo root (R9).
+    expect(
+      rel.some((f) => !f.includes("/")),
+      "the census covers root-level modules, not just named subtrees",
+    ).toBe(true);
     expect(rel).toContain(CANONICAL_LOADER);
   });
 
@@ -326,7 +370,12 @@ describe("single next/font loader — live tree", () => {
     // hasFontImport. This is the assertion that actually cannot be evaded by
     // call syntax.
     const loaders = appFiles
-      .filter((file) => hasFontImport(readFileSync(file, "utf8"), file))
+      .filter((file) => {
+        const source = readFileSync(file, "utf8");
+        return TEXT_SCANNED_EXTENSIONS.includes(extname(file))
+          ? MDX_FONT_IMPORT.test(source)
+          : hasFontImport(source, file);
+      })
       .map(toRepoRelative);
 
     // toEqual on the SET, not a length check: a length check passes on a tree
@@ -341,7 +390,11 @@ describe("single next/font loader — live tree", () => {
 
   it("the shipped trees invoke a font loader exactly once", () => {
     const total = appFiles.reduce(
-      (sum, file) => sum + countLoaderInvocations(readFileSync(file, "utf8"), file),
+      (sum, file) =>
+        sum +
+        (TEXT_SCANNED_EXTENSIONS.includes(extname(file))
+          ? 0 // counted by the path-set check above; MDX is not parsed
+          : countLoaderInvocations(readFileSync(file, "utf8"), file)),
       0,
     );
     expect(
