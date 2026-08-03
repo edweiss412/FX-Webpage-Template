@@ -238,7 +238,7 @@ No new user-visible fault copy (existing surfaces own their infra rendering); no
 
 ## 9. Tests
 
-Unit (jest):
+Unit (vitest):
 
 1. **`groupHoldRows`** — grouping, order preservation (groups newest-first; summaries newest-first), empty input, single-row group, multi-show interleaved rows.
 2. **`buildNeedsAttention` identity_hold** — single-hold copy = `summaries[0]`; multi-hold copy = count line with `summaries.length`; sort interleaving against other streams (fixture-derived timestamps — assert the merged ORDER derived from fixture values, never a hardcoded order); `totalCount`/`overflowCount`/`identityHoldTotal` arithmetic when the stream total exceeds rendered cards; defaults byte-identical when the new keys are omitted (regression fence for D4); empty-summaries group skipped.
