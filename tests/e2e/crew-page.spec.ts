@@ -1414,7 +1414,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("crew page — layout shell (Task 4.2)", () => {
-  test("renders page-shell + tile-grid (2 cols mobile) + right-now-card + footer at /show/[slug]?crew=…", async ({
+  test("renders page-shell + tile-grid (2 cols mobile) + right-now-hero + footer at /show/[slug]?crew=…", async ({
     page,
   }) => {
     // M9 C1 / M4-D6: assertion is mobile-specific (§8.4: 2 cols < 640px).
@@ -1431,7 +1431,7 @@ test.describe.skip("crew page — layout shell (Task 4.2)", () => {
 
     await expect(page.getByTestId("page-shell")).toBeVisible();
     await expect(page.getByTestId("page-container")).toBeVisible();
-    await expect(page.getByTestId("right-now-card")).toBeVisible();
+    await expect(page.getByTestId("right-now-hero")).toBeVisible();
     await expect(page.getByTestId("tile-grid")).toBeVisible();
     await expect(page.getByTestId("page-footer")).toBeVisible();
 

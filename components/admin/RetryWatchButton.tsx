@@ -4,7 +4,8 @@
  * components/admin/RetryWatchButton.tsx (Task 10 — spec §3.4.2)
  *
  * Single-tap retry for WATCH_CHANNEL_ORPHANED. No two-tap confirm — retry is
- * safe/idempotent (unlike ResolveAlertButton's destructive Dismiss). Pending
+ * safe/idempotent, so it is one-tap rather than the two-tap arm/confirm the
+ * destructive admin actions use. Pending
  * derives ONLY from useFormStatus (child-of-form; M9-D-C4-1) — there is NO local
  * flag, so the button re-enables automatically when the Server Action returns,
  * even on a failure path that skips revalidatePath. Labels are UI chrome

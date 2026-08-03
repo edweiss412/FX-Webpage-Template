@@ -20,7 +20,7 @@ import { useSyncExternalStore } from "react";
  *     remount); branch only animation params and data attributes.
  *   - `boolean` from mount onward, live-updated on preference changes.
  *
- * Extracted from components/layout/PageTransition.tsx so RightNowCard and
+ * Extracted from components/layout/PageTransition.tsx so the Today hero and
  * future motion surfaces share one verified implementation.
  */
 const QUERY = "(prefers-reduced-motion: reduce)";

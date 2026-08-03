@@ -1,11 +1,11 @@
 /**
  * components/layout/Header.tsx — page-chrome header for /show/[slug].
  *
- * M9 C1 / M4-D3: shrunken to a context strip so the RightNowCard wins the
+ * M9 C1 / M4-D3: shrunken to a context strip so the Today hero wins the
  * page's primary visual moment unambiguously. The title sits at text-
  * base/lg semibold (was text-2xl/3xl bold); the date · venue meta runs at
  * text-xs (was text-sm); the orange hairline is removed (it was fighting
- * the RightNowCard's accent dot); the FXAV wordmark tones down to text-
+ * the Today hero's accent dot); the FXAV wordmark tones down to text-
  * faint; vertical padding tightens to py-3/sm:py-4.
  *
  * Server Component — no interactivity. The theme-toggle button lives in

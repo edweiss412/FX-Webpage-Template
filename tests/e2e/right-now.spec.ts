@@ -1,5 +1,5 @@
 /**
- * Playwright E2E suite for RightNowCard (M4 Task 4.11; spec §8.2;
+ * Playwright E2E suite for the Today hero (M4 Task 4.11; spec §8.2;
  * AC-4.3).
  *
  * AC-4.3 verbatim: "Right Now card renders the correct state for a
@@ -125,7 +125,7 @@ async function pinClock(page: Page, isoUtc: string): Promise<void> {
 // which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
+test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
   let s: SeededShow;
 
   test.beforeAll(async () => {
@@ -150,7 +150,7 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
     const r = await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     expect(r?.status()).toBe(200);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     const stateMarker = card.getByTestId("right-now-state");
     await expect(stateMarker).toHaveAttribute("data-state", "show_day_n");
@@ -170,7 +170,7 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",
@@ -191,7 +191,7 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",
@@ -216,7 +216,7 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",

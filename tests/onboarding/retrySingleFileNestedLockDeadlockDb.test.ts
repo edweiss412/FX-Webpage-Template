@@ -301,7 +301,6 @@ test.skipIf(!dbUp)(
           }`,
     ).toBe(true);
   },
-  20000,
 );
 
 // Concurrency regression (Codex R1 HIGH): running the scan OUTSIDE the lock would
@@ -375,7 +374,6 @@ test.skipIf(!dbUp)(
     );
     expect(staged).toHaveLength(0);
   },
-  20000,
 );
 
 // Partition regression (Codex R2 + independent review, CRITICAL): the under-lock
@@ -412,5 +410,4 @@ test.skipIf(!dbUp)(
     );
     expect(visible).toHaveLength(1);
   },
-  20000,
 );

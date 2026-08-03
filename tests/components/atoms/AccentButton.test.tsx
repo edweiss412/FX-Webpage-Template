@@ -3,9 +3,10 @@
  * Unit tests for the shared AccentButton atom (M5-D7).
  *
  * The accent-button chrome had drifted across ~8 admin call sites
- * (ResolveAlertButton, PendingPanelRetryButton, ReSyncButton,
- * PublishShowButton, RunFinalCASButton, ResumeFinalizeButton,
- * FinalizeButton, StagedReviewCard). M5-D7 extracts the canonical
+ * (PendingPanelRetryButton, FinalizeButton, StagedReviewCard — still on the
+ * atom — plus PublishShowButton, ResumeFinalizeButton, ResolveAlertButton and
+ * RunFinalCASButton, all since deleted, and ReSyncButton, de-migrated).
+ * M5-D7 extracts the canonical
  * composition into one atom so the chrome can't re-drift; a structural
  * meta-test (tests/styles/accent-button-atom.test.ts) bans raw
  * compositions in the migrated files outside the atom.

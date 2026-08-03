@@ -208,7 +208,10 @@ const CELLS: Cell[] = [
 describe("cleanup vs concurrent recovery (T10 2×2, real DB)", () => {
   for (const cell of CELLS) {
     const label = `${cell.path} × ${cell.resolving ? "RESOLVING" : "NON_RESOLVING"} → recheck ${cell.expect}`;
-    test.skipIf(!dbUp)(label, { timeout: 15000 }, async () => {
+    // The 15s option this carried was a RAISE over vitest's old 5s default. The
+    // root config's 30s floor (BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE) does that
+    // job now, and keeping the option would turn it into a cap.
+    test.skipIf(!dbUp)(label, async () => {
       await seed(cell.path);
 
       const recoveryPromise = runRecovery(cell.resolving);

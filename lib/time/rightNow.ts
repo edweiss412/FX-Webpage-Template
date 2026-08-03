@@ -110,7 +110,7 @@ function getFormatter(timeZone: string): Intl.DateTimeFormat {
  * cache lives at module scope above).
  *
  * Exported so the Right Now card client island can reuse the same
- * cached formatter — see `components/right-now/RightNowCard.tsx`.
+ * cached formatter — see `components/crew/RightNowHero.tsx`.
  */
 export function formatIsoForTimezone(date: Date, timeZone: string): string {
   return getFormatter(timeZone).format(date);
