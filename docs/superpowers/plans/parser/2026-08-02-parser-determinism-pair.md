@@ -8,7 +8,15 @@ impeccable-gate: N/A — no UI surface
 
 ## Meta-test inventory
 
-No new guard surface. Existing registries touched:
+One new test surface, plus one existing registry.
+
+**New (spec §5.4):** one case appended to `tests/parser/_metaKnownSectionsWalker.test.ts` — the
+docstring-truth guard. Not a new file and not a new registry: two named files, one stale-phrase
+list, one required pointer, no allowlist. It is Task 3's red state (invariant 1) and its
+admissibility rests on a measured 4-week regression, not a hypothetical. Its declared limit (a new
+false paraphrase that also names the walker would pass) is recorded in spec §5.4.
+
+**Existing registry touched:**
 
 - `tests/docs/_metaDeferralLedgerGraduation.test.ts` → two `{ id, provenance }` rows appended to
   `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:90`). Required by the
@@ -94,15 +102,22 @@ a lone typo row does not open the block (spec §2.3).
 | Partition | Assert |
 | --- | --- |
 | Trim-equivalent (`typo.trim() === alias.toUpperCase()`) | no `UNKNOWN_FIELD`; no `FIELD_LABEL_AUTOCORRECTED`; `TYPO_NORMALIZED` present **iff** the alias is in `TYPO_ALIASES` (`lib/parser/aliases.ts:142`) |
-| Non-trim, assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; the typo's value reaches `VENUE_OUTPUT_FIELD[canonical]`; **and no other output field carries it** |
-| Non-trim, non-assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape; **and no output field carries the typo's value at all** |
+| Non-trim, assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
+| Non-trim, non-assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-Use a distinctive sentinel as the typo row's value and scan the whole result object, not one field —
-that is what makes this a routing assertion and what kills mutation D.
+**Then, for EVERY case in EVERY partition** (spec §4.2 — not partition-scoped; review round 4 showed
+scoping these to the non-trim rows left all 22 trim cases warning-shape-only, and a row-skipping
+mutant dropped 10 values with 0 failures):
 
-**Anchor integrity, every partition:** also assert the anchor row's own field still holds the
-anchor's exact value. Kills mutation F, which otherwise passes with 1444 corrupted outputs and 0
-assertion failures.
+1. **Target routing** — if the canonical is assignable, the sentinel reaches
+   `VENUE_OUTPUT_FIELD[canonical]`.
+2. **No stray routing** — the sentinel is in no other field, and in no field at all when the
+   canonical is non-assignable. Kills mutation D.
+3. **Anchor integrity** — the anchor row's field still holds its exact anchor value. Kills mutation
+   F, which otherwise passes with 1444 corrupted outputs and 0 failures.
+
+Use a distinctive sentinel as the typo row's value and scan the whole result object, not one field.
+Measured today: all 22 trim cases satisfy all three clauses.
 
 Failure messages name both alias and typo, as `tests/parser/blocks/venue.test.ts:328` does today.
 

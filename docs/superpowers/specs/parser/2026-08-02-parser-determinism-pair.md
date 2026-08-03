@@ -24,7 +24,8 @@ in a different direction, and the corrected work is smaller and sharper than eit
 2. **`BL-KNOWN-SECTIONS-WALKER`** — the entry asks for "real auto-drift enforcement … not cheaply
    achievable today." It shipped 2026-07-06 and is green on `main`. The entry is stale, and two
    source files still carry docstrings asserting the walker does not exist. **Fix: archive the
-   entry, correct the two docstrings.** No new guard.
+   entry, correct the two docstrings, and add one narrow guard so the false claim cannot return**
+   (§5.4). That guard is the only new test surface in this work.
 
 No `lib/parser/**` behavior changes. The only `lib/` edit is a comment block (§5.1).
 
@@ -197,7 +198,8 @@ consistency. Neither reads prose in `lib/`, and neither should.
 - W1. Rewrite the venue typo-generator case: exhaustive enumeration, non-colliding anchor,
   value-assignment assertions, explicit timeout (§4).
 - W2. Archive both backlog entries, including their `BACKLOG_GRADUATED` registry rows (§5.3).
-- W3. Correct the two stale docstrings (§5.1).
+- W3. Correct the two stale docstrings (§5.1) and add the narrow guard that keeps them correct
+  (§5.4).
 
 **Out of scope**
 
@@ -255,15 +257,29 @@ choice from `resolveAlias(alias)`; never hardcode a per-alias table.
 | Partition | Count | Assert |
 | --- | --- | --- |
 | Trim-equivalent (`typo.trim() === alias.toUpperCase()`) | 22 | no `UNKNOWN_FIELD`; no `FIELD_LABEL_AUTOCORRECTED`; `TYPO_NORMALIZED` present **iff** the alias is in `TYPO_ALIASES` |
-| Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; the typo's value reaches the alias's `parseVenue` field; **and no other output field carries it** |
-| Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape; **and no `parseVenue` output field carries the typo's value at all** |
+| Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
+| Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape |
 
-**Anchor integrity, every partition.** In addition, every case asserts the anchor row's own field
-still holds the anchor's exact value. Without this clause a mutant that assigns the typo correctly
-**and also** overwrites the already-populated anchor field passes: the sentinel is still in the
-target field and nowhere else, so a sentinel-only scan sees nothing. Review round 3 demonstrated
-exactly that escaping mutant — 1444 corrupted outputs, 0 assertion failures, and all 56 current
-venue tests green. The anchor-integrity clause is what reds it.
+**Routing and anchor integrity apply to EVERY case, in every partition** — they are not
+partition-specific, and review round 4 showed that scoping them to the non-trim partitions leaves
+all 22 trim cases asserting warning shape only. A mutant that silently skipped doubled-edge-
+whitespace rows dropped 10 values with 0 assertion failures. Every case therefore asserts all three
+of:
+
+1. **Target routing** — if the alias's canonical is assignable, the sentinel reaches
+   `VENUE_OUTPUT_FIELD[canonical]`.
+2. **No stray routing** — the sentinel appears in **no other** output field (and in **no** field at
+   all when the canonical is non-assignable).
+3. **Anchor integrity** — the anchor row's own field still holds the anchor's exact value.
+
+Measured on the current tree, all 22 trim-equivalent cases satisfy all three: the 12 assignable ones
+route the sentinel to exactly their target field, the 10 non-assignable ones carry it nowhere, and
+every one leaves the anchor intact.
+
+Clause 3 exists because of a round-3 escaping mutant: one that assigns the typo correctly **and
+also** overwrites the already-populated anchor field passes a sentinel-only scan, since the sentinel
+is still in the target field and nowhere else. That mutant produced 1444 corrupted outputs, 0
+assertion failures, and all 56 current venue tests green.
 
 Both value clauses use a distinctive sentinel value in the typo row, and are stated over the whole
 result object rather than a single field. Together with anchor integrity this makes the case a
@@ -404,6 +420,28 @@ the archive ledgers too (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:48`
 
 These are comment-only edits. No executable line in `lib/parser/knownSections.ts` changes.
 
+### 5.4 The docstring-truth guard (the one new test surface)
+
+A comment-only edit has no red state, and invariant 1 is non-negotiable, so W3 opens by adding the
+assertion that makes the stale wording fail — one case appended to
+`tests/parser/_metaKnownSectionsWalker.test.ts`, not a new file:
+
+- Neither `lib/parser/knownSections.ts` nor `tests/parser/_metaKnownSectionsRegistry.test.ts` may
+  contain any phrase from a small named stale-absence list.
+- Both must name `_metaKnownSectionsWalker`, so the guard cannot be satisfied by deleting the
+  paragraph and saying nothing.
+
+**Admissibility.** The corruption is measured, not hypothesised: both docstrings asserted the walker
+did not exist for the ~4 weeks after it shipped on 2026-07-06, and that false claim is what scoped
+`BL-KNOWN-SECTIONS-WALKER` as open work at the start of this branch. The guard is deliberately
+narrow — two named files, one phrase list, one required pointer, no allowlist — so it cannot become
+the drift-prone parallel artifact this project distrusts.
+
+**Declared limit.** It is semantically circumventable: a *new* false paraphrase that also names
+`_metaKnownSectionsWalker` would pass. It is a regression pin on the specific claim that was
+actually wrong, not a prose classifier. Building the latter is the `_ledgerMdast` problem, which
+took thirty review rounds; it is deliberately not attempted here.
+
 ### 5.2 Why `tests/parser/_metaKnownSectionsRegistry.test.ts` survives
 
 Not redundant. The walker's exact-subset check catches a registry deletion only for a token some
@@ -490,6 +528,11 @@ both active and archived, and that no active entry carries a terminal status.
   probe shows an actual parser defect, this is settled.
 - **No UI surface**, so `impeccable-gate: N/A — no UI surface` is carried in the plan.
 
-One assertion family WAS added after this fence was first written: anchor integrity (§4.2), added
-in review round 3 against a live escaping mutant (Mutation F). The admissibility contract was met
-by that demonstration, not waived. The fence covers settled decisions, not future evidence.
+Two things WERE added after this fence was first written, both against live escaping mutants and
+both with the admissibility contract met by demonstration rather than waived: anchor integrity
+(§4.2, round-3 Mutation F), and universal routing across all partitions (§4.2, round 4). The fence
+covers settled decisions, not future evidence.
+
+The one new test surface in this work is the docstring-truth guard (§5.4); "no new guard" in §1
+refers to the known-sections **registry-drift** enforcement the backlog entry asked for, which is
+already shipped.
