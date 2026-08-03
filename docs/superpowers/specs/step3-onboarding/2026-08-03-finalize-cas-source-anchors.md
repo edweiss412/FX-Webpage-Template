@@ -158,9 +158,9 @@ what it should have said.
 The preserve-on-ambiguity posture is the shipped system's, not this change's. Flow A already behaves
 this way (`app/api/admin/onboarding/finalize/route.ts:1280`), and the sync pipeline takes it for the
 one cause it can identify (`lib/sync/runScheduledCronSync.ts:3073`, and the audit idx12/idx63 comment
-above it). Flow B today writes no anchors at all, so before this change EVERY existing-show
-re-onboard left the stored anchors untouched; after it, the re-onboards whose scan produced a
-non-empty map refresh them.
+above it). Flow B at the merge-base writes no anchors at all, so every existing-show
+re-onboard left the stored anchors untouched; after this change, the re-onboards whose scan produced
+a non-empty map refresh them.
 
 **Limit 2 — the read boundary validates two fields, not the entry.**
 `lib/sheet-links/buildSheetDeepLink.ts:22` checks `isAllowed(anchor.title)` and
@@ -269,7 +269,7 @@ Each task is failing test → minimal implementation → passing test → commit
 | Literal | Where it comes from |
 | --- | --- |
 | 3 edits | §3.1, §3.2, §3.3 — three, and §7 has three tasks covering them |
-| `$14` | the 14th bind parameter of `stageExistingShowShadow`, which binds 13 today (`app/api/admin/onboarding/finalize/route.ts:671-685`) |
+| `$14` | the 14th bind parameter of `stageExistingShowShadow`, which binds 13 at the merge-base (`app/api/admin/onboarding/finalize/route.ts:671-685`) and 14 after §3.1 |
 | `$18` | the `source_anchors` bind in the `applyShowSnapshot` UPDATE arm (`lib/sync/runScheduledCronSync.ts:1527`) |
 | 8 guard rows | §4 enumerates every representable payload state: populated, empty, corrupt-upstream, absent, null, array-or-scalar, legacy string, malformed entry |
 | 6 matrix rows, 4 of which write | §5 — the shared sync pipeline (one path, five invocation modes), Flow A, Flow B, and the validation backfill script write; the D10 no-op and the live dashboard staged-apply do not. Derived from the sweep below, not from recall |

@@ -250,9 +250,15 @@ branch that no longer exists. It has to be in the PR's own diff.
 
 1. Full suite: `pnpm test`. Any failure triaged against the merge-base before it is treated as this
    branch's.
-2. `pnpm spec:lint` takes exactly one document path (`scripts/spec-lint.ts:101`), so run it twice —
-   once for the spec, once for this plan. Re-run the numeric and self-consistency sweeps over both
-   after every repair round.
+2. `pnpm spec:lint` takes exactly one document path (`scripts/spec-lint.ts:101`), so run it twice,
+   naming each document:
+
+   ```
+   pnpm spec:lint docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md
+   pnpm spec:lint docs/superpowers/plans/2026-08-03-finalize-cas-source-anchors.md
+   ```
+
+   Re-run the numeric and self-consistency sweeps over both after every repair round.
 3. **Final commit on the branch:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the whole entry
    moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the open-queue-only rule
    at `BACKLOG.md:5`. **Rewrite the body as you move it** — the archived text is what `main` keeps,
@@ -266,9 +272,9 @@ branch that no longer exists. It has to be in the PR's own diff.
    `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }` to
    `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and make sure the
    archived section names that branch — without the row the graduation guard covers nothing. Verify
-   with `pnpm vitest run tests/docs`, and re-run `pnpm spec:lint` on the spec and on this plan AFTER
-   the move — step 2's run happened while the entry was still in the open queue, so it cannot have
-   checked any citation the move invalidates.
+   with `pnpm vitest run tests/docs`, and re-run BOTH `pnpm spec:lint` invocations from step 2
+   AFTER the move — that earlier run happened while the entry was still in the open queue, so it
+   cannot have checked any citation the move invalidates.
 4. Whole-diff cross-model adversarial review to APPROVE — AFTER step 3, so the reviewed diff is the
    diff that merges. A review that runs before the graduation commit does not cover it.
 5. Push, real CI green, `gh pr merge --merge`.
