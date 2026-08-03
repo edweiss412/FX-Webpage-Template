@@ -1820,6 +1820,33 @@ describe("static env-block key allowlist (static-env spec §2.1)", () => {
     expect(r.rejected[0]!.reason, "claim at a later job step").toBe(ENV_REASON(["PATH"]));
   });
 
+  it("dirt is found at a LATER job and a LATER workflow step, per source kind (S1 position matrix)", () => {
+    // Completing the position matrix rather than adding one more cell: the
+    // refusal path iterates FILES, JOBS, and STEPS, and dirt can sit at job
+    // scope, run-step scope, or uses-step scope. Rounds 1-3 pinned the file
+    // axis and the composite-sibling axis but left every JOB and every
+    // workflow-STEP source at position 0, so first-position-only checks
+    // escaped (final review (a) R4 F1). One later-position positive per
+    // (iterated thing x source kind) cell.
+    // Dirty SECOND job — the first job is clean and non-claiming.
+    const secondJob = `name: x\non:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n  z:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - ${INVOKE}\n`;
+    const j = S(secondJob);
+    expect(j.covered.has(spec), "dirty second job").toBe(false);
+    expect(j.rejected[0]!.reason, "dirty second job").toBe(ENV_REASON(["PATH"]));
+    // Dirty SECOND run-step: the claiming step is itself the later step and
+    // carries the dirt, behind a clean first step.
+    const secondRun = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      - ${INVOKE}\n        env:\n          PATH: fixtures/fake\n`;
+    const r = S(secondRun);
+    expect(r.covered.has(spec), "dirty second run-step").toBe(false);
+    expect(r.rejected[0]!.reason, "dirty second run-step").toBe(ENV_REASON(["PATH"]));
+    // Dirty SECOND uses-step, behind a clean first uses-step, poisoning the
+    // later claim.
+    const secondUses = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/cache@v4\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    const u = S(secondUses);
+    expect(u.covered.has(spec), "dirty second uses-step").toBe(false);
+    expect(u.rejected[0]!.reason, "dirty second uses-step").toBe(POISON_REASON);
+  });
+
   it("allowlisted pairs stay covered at every direct scope (S3 clean cells)", () => {
     // Workflow-root, run-step, and uses:-step clean twins — the job-scope
     // twin lives in the S2 block. A scope whose clean cell is missing lets
@@ -2034,6 +2061,66 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     expect(
       governanceViolations(bare, gv({ "w.yml": cfg }, members, bare)),
       "config gain",
+    ).toHaveLength(1);
+  });
+
+  it("governance is credited at LATER positions and accumulates over ALL claims (S8 position/cardinality)", () => {
+    // The credit-site fixtures pinned WHICH scopes confer governance but put
+    // every positive at position 0 with exactly one governed spec, so a
+    // derivation truncated to the first job, first step, first configSpecs
+    // member, or first accumulated claim passed all of them — and a
+    // correspondingly truncated row then satisfied governanceViolations,
+    // re-opening relocation/value-swap for every omitted claim (final review
+    // (a) R4 F2). Position AND cardinality, per iterated thing.
+    const CFG = "tests/e2e/standalone.config.ts";
+    const gv = (
+      workflows: Record<string, string>,
+      allowlist: EnvKeyAllowlist,
+      configSpecs: Record<string, string[]> = {},
+    ) => envPairGovernance(workflows, {}, configSpecs, allowlist);
+    const rowFor = (governs: string[]): EnvKeyAllowlist => ({
+      K: { values: [{ text: "v", governs }], reason: "r" },
+    });
+    const claimOf = (s: string) => `run: pnpm exec playwright test ${s}`;
+    // LATER JOB: the first job is clean and claiming; the pair sits in job two.
+    const laterJob = `on:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n  z:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - ${claimOf("tests/e2e/z.spec.ts")}\n`;
+    const jobRow = rowFor(["tests/e2e/z.spec.ts"]);
+    expect(governanceViolations(jobRow, gv({ "w.yml": laterJob }, jobRow)), "later job").toEqual(
+      [],
+    );
+    // LATER STEP: step-scope pair on the SECOND step of a job.
+    const laterStep = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n      - ${claimOf("tests/e2e/z.spec.ts")}\n        env:\n          K: v\n`;
+    const stepRow = rowFor(["tests/e2e/z.spec.ts"]);
+    expect(
+      governanceViolations(stepRow, gv({ "w.yml": laterStep }, stepRow)),
+      "later step",
+    ).toEqual([]);
+    // CARDINALITY, whole-config: a config with TWO members governs BOTH.
+    const cfgWf = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test --config ${CFG}\n`;
+    const members = { [CFG]: ["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"] };
+    const bothCfg = rowFor(["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"]);
+    expect(
+      governanceViolations(bothCfg, gv({ "w.yml": cfgWf }, bothCfg, members)),
+      "both config members",
+    ).toEqual([]);
+    // …and a row naming only the FIRST member must RED, so a truncated
+    // derivation cannot be satisfied by a matching truncated row.
+    const firstCfgOnly = rowFor(["tests/e2e/a.spec.ts"]);
+    expect(
+      governanceViolations(firstCfgOnly, gv({ "w.yml": cfgWf }, firstCfgOnly, members)),
+      "truncated config row",
+    ).toHaveLength(1);
+    // CARDINALITY, accumulation: two claiming steps under one governing scope.
+    const twoClaims = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n      - ${claimOf("tests/e2e/b.spec.ts")}\n`;
+    const bothClaims = rowFor(["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"]);
+    expect(
+      governanceViolations(bothClaims, gv({ "w.yml": twoClaims }, bothClaims)),
+      "both accumulated claims",
+    ).toEqual([]);
+    const firstClaimOnly = rowFor(["tests/e2e/a.spec.ts"]);
+    expect(
+      governanceViolations(firstClaimOnly, gv({ "w.yml": twoClaims }, firstClaimOnly)),
+      "truncated accumulation row",
     ).toHaveLength(1);
   });
 

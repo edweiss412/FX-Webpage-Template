@@ -1821,6 +1821,35 @@ describe("spec registration detector (spec §3.1)", () => {
       { run: "echo inside", guarded: false, poisoned: true },
       { run: "echo after", guarded: false, poisoned: true },
     ]);
+    // Position matrix for the census's own iteration (final review (a) R4):
+    // every dirty job / run-step / uses-step source above sits at position 0,
+    // so a first-job-only or first-step-only check escaped them all.
+    expect(
+      rb(
+        "jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo clean\n  z:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo dirty\n",
+      ),
+      "dirty-second-job",
+    ).toEqual([
+      { run: "echo clean", guarded: false, poisoned: false },
+      { run: "echo dirty", guarded: false, poisoned: true },
+    ]);
+    // Dirty SECOND run-step — first step clean; step env stays block-local.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo clean\n      - run: echo dirty\n        env:\n          PATH: fixtures/fake\n",
+      ),
+      "dirty-second-run-step",
+    ).toEqual([
+      { run: "echo clean", guarded: false, poisoned: false },
+      { run: "echo dirty", guarded: false, poisoned: true },
+    ]);
+    // Dirty SECOND uses-step — first uses-step clean; poisons onward.
+    expect(
+      rb(
+        "jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/cache@v4\n        env:\n          PATH: fixtures/fake\n      - run: echo later\n",
+      ),
+      "dirty-second-uses-step",
+    ).toEqual([{ run: "echo later", guarded: false, poisoned: true }]);
     // Dirt in a LATER composite sibling (final review (a) R3): every other
     // cell puts the dirty step first or alone, so a first-sibling-only
     // regression — or recursion into only the first `uses:` — passed them all.
