@@ -4,21 +4,21 @@
 
 **Goal:** Thread `identityLinkRenames` through `applyStagedCore` (choice-aware) so a staged rename preserves `crew_members.id` + `claimed_via_oauth_at`, per `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`.
 
-**Architecture:** One new pure helper in `lib/sync/identityLinkRenames.ts` (link a pair iff MI-12/13/14 AND its validated choice action is `rename`), one length-gated spread in `applyStagedCore`'s `runPhase2` call, zero phase2/applyParseResult code changes (the arg already exists and is forwarded), two comment rewrites, doc supersession notes. TDD per task.
+**Architecture:** One new pure helper in `lib/sync/identityLinkRenames.ts` (link a pair iff MI-12/13/14 AND its validated choice action is `rename`, consume-once), one length-gated spread in `applyStagedCore`'s `runPhase2` call, zero phase2/applyParseResult code changes (the arg already exists and is forwarded), the seven-site comment reconciliation of spec §3.3, and the role-flags-spec supersession banner + tags of spec §3.5. TDD per code task; the docs task is declared test-exempt below.
 
-**Tech Stack:** TypeScript, Vitest, postgres.js against local Supabase (loopback-guarded db tests), existing test kits (`tests/sync/_holdAwareTestkit.ts`, `tests/db/_holdsHelpers.ts`).
+**Tech Stack:** TypeScript, Vitest, postgres.js against local Supabase (db tests live under `tests/db/` with the `_holdsHelpers` kit), existing test kits (`tests/sync/_holdAwareTestkit.ts`, `tests/db/_holdsHelpers.ts`).
 
 ## Global Constraints
 
 - Spec is canonical: `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`. §1.1 Resolved-scope table is the do-not-relitigate list.
-- Caller topology (spec §1.1 #7): dashboard `applyStaged` = live + `feedPolicy: none` + post-commit notice emit; `finalize` = Phase B first-seen only + `feedPolicy: none`; `finalize-cas` = Phase D existing-show + `choice_aware` + notice DISCARDED today (pre-existing gap, backlogged in Task 5, NOT fixed here).
-- Invariant 1 (TDD): failing test → minimal implementation → passing test → commit, every task.
-- Invariant 2 (locks): the core adopts, never acquires. No new `pg_advisory*` call sites anywhere in this plan; the db-test harness takes the lock in the TEST transaction (caller layer), matching the single-holder topology. `tests/auth/advisoryLockRpcDeadlock.test.ts` must stay green (Task 5 runs it).
-- Invariant 6 (commits): conventional-commits per task, scope `sync` (tests `test(sync):`, code `feat(sync):`, docs `docs(sync):`).
+- Caller topology (spec §1.1 #7): dashboard `applyStaged` = live + `feedPolicy: none` + post-commit notice emit; `finalize` = Phase B first-seen only + `feedPolicy: none`; `finalize-cas` = Phase D existing-show + `choice_aware` + notice DISCARDED today (pre-existing gap, backlogged in Task 3, NOT fixed here).
+- Invariant 1 (TDD): failing test → minimal implementation → passing test → commit, for every CODE task (Tasks 1-2). Task 3 is docs-only: no test phase by declaration; its verification is `pnpm spec:lint` + the closure greps embedded in its steps. Task 4 is a verification task (runs suites; writes only fixes).
+- Invariant 2 (locks): the core adopts, never acquires. No new `pg_advisory*` call sites in production code; the db-test harness takes the lock in the TEST transaction (caller layer) and the core adopts via `adoptShowLockHeld` — the production single-holder topology. `tests/auth/advisoryLockRpcDeadlock.test.ts` must stay green (Task 4).
+- Invariant 6 (commits): conventional-commits per task, scope `sync`.
 - Invariant 11: all work in the worktree `FX-worktrees/staged-identitylink-rename-identity`, branch `feat/staged-identitylink-rename-identity`.
-- Meta-test inventory (writing-plans rule): this plan CREATES no structural meta-test and EXTENDS none. Reasons: no new Supabase client call sites (invariant-9 registry untouched), no lock-topology change (existing deadlock guard test pins it; re-run only), no admin alert codes, no mutation surfaces (`tests/log/_metaMutationSurfaceObservability.test.ts` discovers routes/actions; none added), no UI. Declared explicitly per `docs/agents/writing-plans.md`.
-- New test files auto-match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) — no testMatch or workflow wiring task needed; db tests self-skip on non-loopback `TEST_DATABASE_URL` like their siblings.
-- No placeholders; snippets below were typechecked against the repo tsconfig before review dispatch (transcript in the review brief).
+- Meta-test inventory (writing-plans rule): this plan CREATES no structural meta-test and EXTENDS none. Reasons: no new Supabase client call sites (invariant-9 registry untouched), no lock-topology change (existing deadlock guard pins it; re-run only), no admin alert codes, no mutation surfaces (`tests/log/_metaMutationSurfaceObservability.test.ts` discovers routes/actions; none added), no UI.
+- New test files auto-match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) — no testMatch or workflow wiring task needed; db tests under `tests/db/` follow their siblings' environment expectations (local Supabase; CI provides `TEST_DATABASE_URL`).
+- No placeholders. Every snippet below was MATERIALIZED in this worktree at plan time and passed `pnpm exec tsc --noEmit` (0 errors) plus the unit runs noted per task; the materialization was then reverted so each task's red phase is real. Copy snippets verbatim; if a helper name drifted since plan time, verify with grep and adjust mechanically.
 
 ---
 
@@ -31,11 +31,9 @@
 **Interfaces:**
 - Produces: `computeStagedIdentityLinkRenames(items: TriggeredReviewItem[], choices: ReadonlyArray<{ item_id: string; action: string }>): IdentityLinkRename[]` — consumed by Task 2.
 
-- [ ] **Step 1: Write the failing tests** — append to the existing `describe` file (fixtures `mi12`/`mi13`/`mi14`/`orphan`/`mi6` already exist at the top of the file; reuse them):
+- [ ] **Step 1: Write the failing tests** — append to the existing file (fixtures `mi12`/`mi13`/`mi14`/`orphan`/`mi6` already exist at the top; reuse them). Extend the import line to include `computeStagedIdentityLinkRenames`.
 
 ```ts
-import { computeStagedIdentityLinkRenames } from "@/lib/sync/identityLinkRenames";
-
 describe("computeStagedIdentityLinkRenames", () => {
   test("rename-resolved MI-12/13/14 link; independent and apply never link", () => {
     expect(
@@ -53,6 +51,39 @@ describe("computeStagedIdentityLinkRenames", () => {
       { removedName: "Jon", addedName: "John" },
       { removedName: "Pat A", addedName: "Pat B" },
     ]);
+  });
+
+  test("all three pair invariants link on rename choices, MI-13 included", () => {
+    expect(
+      computeStagedIdentityLinkRenames(
+        [mi12, mi13, mi14],
+        [
+          { item_id: "1", action: "rename" },
+          { item_id: "2", action: "rename" },
+          { item_id: "3", action: "rename" },
+        ],
+      ),
+    ).toEqual([
+      { removedName: "Jon", addedName: "John" },
+      { removedName: "Sam A", addedName: "Sam B" },
+      { removedName: "Pat A", addedName: "Pat B" },
+    ]);
+  });
+
+  test("MI-11 items never link regardless of action", () => {
+    const mi11: TriggeredReviewItem = {
+      id: "6",
+      invariant: "MI-11",
+      crew_name: "Held",
+      prior_email: "a@x.example",
+      new_email: "b@x.example",
+    };
+    expect(
+      computeStagedIdentityLinkRenames([mi11], [{ item_id: "6", action: "rename" }]),
+    ).toEqual([]);
+    expect(computeStagedIdentityLinkRenames([mi11], [{ item_id: "6", action: "apply" }])).toEqual(
+      [],
+    );
   });
 
   test("independent-only resolution links nothing", () => {
@@ -104,10 +135,9 @@ describe("computeStagedIdentityLinkRenames", () => {
 });
 ```
 
-Failure modes caught: an unvouched pair linking (two people's identities merged), a vouched pair dropping (silent identity churn — the bug this feature fixes), and one vouch fanning out to multiple links on a malformed payload (spec review R1 finding 4). Expected pairs derive from the fixture `removed_name`/`added_name` fields, not hardcoded row data (anti-tautology).
+Failure modes caught: an unvouched pair linking (identity merge of two people), a vouched pair dropping (silent identity churn — the bug this feature fixes), one vouch fanning out to multiple links on a malformed payload, and an MI-13 rename (the heuristic pair with the explicit admin confirm) silently excluded. Expected pairs derive from fixture `removed_name`/`added_name` fields (anti-tautology).
 
 - [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/sync/identityLinkRenames.test.ts`. Expected: FAIL, `computeStagedIdentityLinkRenames` is not exported.
-
 - [ ] **Step 3: Minimal implementation** — append to `lib/sync/identityLinkRenames.ts`:
 
 ```ts
@@ -144,23 +174,31 @@ export function computeStagedIdentityLinkRenames(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass** — same command. Expected: PASS (existing cron-helper tests too).
+- [ ] **Step 4: Run to verify pass** — same command; all cases green (plan-time materialization measured 9 passed).
 - [ ] **Step 5: Commit** — `git add lib/sync/identityLinkRenames.ts tests/sync/identityLinkRenames.test.ts && git commit -m "feat(sync): choice-aware staged identity-link rename computation" --no-verify`
 
 ---
 
-### Task 2: Thread through `applyStagedCore` + comment rewrites
+### Task 2: Thread through `applyStagedCore` — tests first (unit + db + undo), then implementation + seven-site comment reconciliation
+
+All pins are authored BEFORE the implementation so the red set is genuinely red: pre-threading, a staged rename applies as delete+insert, so the identity, notice-case-A, and undo pins fail; the pins of UNCHANGED behavior (independent, held, spread-absent) pass before AND after — regression rails; the red set carries the TDD cycle.
 
 **Files:**
-- Modify: `lib/sync/applyStagedCore.ts` (import; compute + spread in `applyStagedCore()`; rewrite the step-3 "applies WHOLESALE" comment)
-- Modify: `lib/sync/phase2.ts` (comment-only: the arm-(c) block sentence claiming staged `args.identityLinkRenames` is empty)
-- Test: `tests/sync/applyStaged.test.ts`
+- Modify: `lib/sync/applyStagedCore.ts` (import; compute + spread; step-3 comment)
+- Modify: `lib/sync/phase2.ts` (comment-only: arm-(c) + `Phase2Args.identityLinkRenames` field doc)
+- Modify: `lib/sync/applyParseResult.ts` (comment-only: arg doc + loop comment)
+- Modify: `lib/sync/identityLinkRenames.ts` (comment-only: header vouch doc)
+- Modify: `tests/sync/phase2.test.ts` (comment-only: arm-(c) test comment)
+- Modify: `tests/sync/applyStaged.test.ts` (two spy tests)
+- Modify: `tests/db/_holdsHelpers.ts` (add `runStagedApply`; `CrewSeed.role_flags` passthrough)
+- Modify: `tests/db/undo-change-direction-a.test.ts` (one staged round-trip case)
+- Test: tests/db/stagedApplyIdentityLink.db.test.ts (created by this task; cited without backticks so spec-lint's tracked-file check skips a file that does not exist yet)
 
 **Interfaces:**
 - Consumes: `computeStagedIdentityLinkRenames` (Task 1).
-- Produces: `runPhase2` receives `identityLinkRenames` (length-gated) on the staged path — Task 3's db behavior depends on it.
+- Produces: `runStagedApply(driveFileId, input: { crew: CrewSeed[]; triggeredItems: TriggeredReviewItem[]; reviewerChoices: ReviewerChoice[]; modifiedTime?: string }): Promise<ApplyStagedCoreResult>` in `tests/db/_holdsHelpers.ts`.
 
-- [ ] **Step 1: Write the failing tests** — add to `tests/sync/applyStaged.test.ts` (reuse the file's `fakeTx`/`deps`/`pending`/`applyStaged_unlocked` helpers; fixture idiom matches the existing "rename reviewer choices" tests around line 1280):
+- [ ] **Step 1: Spy unit tests** — add to `tests/sync/applyStaged.test.ts` (reuse `fakeTx`/`deps`/`pending`/`applyStaged_unlocked`; the fixture idiom matches the existing "rename reviewer choices" tests):
 
 ```ts
 test("rename-resolved pairs thread identityLinkRenames to runPhase2; independent does not", async () => {
@@ -230,61 +268,11 @@ test("no rename choices: runPhase2 args carry NO identityLinkRenames key (length
 });
 ```
 
-Failure modes caught: the threading regression itself (first test — the exact bug of `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY`), an unvouched `independent` pair linking (first test's exact-array assertion), and spread-when-empty drift from the cron idiom (second test).
+Failure modes caught: the threading regression itself (the exact bug of `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY`), an unvouched `independent` pair linking (exact-array assertion), spread-when-empty drift from the cron idiom.
 
-- [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/sync/applyStaged.test.ts -t "identityLinkRenames"`. Expected: first test FAILS (no `identityLinkRenames` in the call); second PASSES trivially pre-change (key absent today) — that is acceptable: it is the regression pin for the length-gate, red-then-green is carried by the first test.
-- [ ] **Step 3: Implementation** — in `lib/sync/applyStagedCore.ts`:
-  - Add `computeStagedIdentityLinkRenames` to the imports (new import from `@/lib/sync/identityLinkRenames`).
-  - In `applyStagedCore()`, beside the step-7 `feedItems` derivation:
+- [ ] **Step 2: db harness** — in `tests/db/_holdsHelpers.ts`: (a) add `role_flags?: RoleFlag[]` to `CrewSeed` (import `RoleFlag` from `@/lib/parser/types`), thread it in `seedShowWithCrew`'s INSERT (`${member.role_flags ?? ["A1"]}`) and in `toCrewRow` (`...(member.role_flags ? { role_flags: member.role_flags } : {})`); (b) add imports `applyStagedCore`, `type ApplyStagedCoreResult`, `type ReviewerChoice` from `@/lib/sync/applyStagedCore` and `adoptShowLockHeld` from `@/lib/sync/lockedShowTx`; (c) add beside `runAutoApply`:
 
 ```ts
-// Identity-link renames (spec 2026-08-03 §3.2): a rename-resolved MI-12/13/14 item applies
-// identity-preserving (in-place UPDATE, same crew_members.id); the reviewer's rename choice is
-// the vouch. independent stays remove+add (R33-2 feed assertions untouched). Length-gated spread
-// mirrors the cron producer (runScheduledCronSync).
-const identityLinkRenames = computeStagedIdentityLinkRenames(
-  args.triggeredReviewItems,
-  validation.choices,
-);
-```
-
-  - In the `runPhase2` call args, next to the `notableItems` spread:
-
-```ts
-    ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
-```
-
-  - Comment reconciliation, ALL SEVEN sites of spec §3.3's inventory:
-    1. `lib/sync/applyStagedCore.ts` step-3: rewrite the sentence beginning "rename/independent/apply take NO dispatch branch" and ending "floors + the audit record" to: "rename/independent/apply take NO dispatch branch: the staged parse applies WHOLESALE for all three. Per-action differences: deriveAuthSideEffects floors, the audit record, and (spec 2026-08-03) rename-resolved MI-12/13/14 pairs threading identityLinkRenames so the apply is identity-preserving; independent pairs stay remove+add."
-    2. `lib/sync/phase2.ts` arm-(c) comment: replace "(esp. the staged remove+add of an identity-link rename, where args.identityLinkRenames is empty so the removed old name is a genuine removal here)" with "(esp. a staged `independent` resolution, which stays remove+add with empty `identityLinkRenames`; a staged rename-resolved pair threads its link since spec 2026-08-03 and is excluded here, same as cron)".
-    3. `lib/sync/phase2.ts` `Phase2Args.identityLinkRenames` field doc: after "via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept)", append "; the staged core computes via computeStagedIdentityLinkRenames (per-item rename choice, spec 2026-08-03)".
-    4. `lib/sync/applyParseResult.ts` `identityLinkRenames` arg doc: after "MI-13/ MI-14 pairs only on the version-bound accepted apply", append " (cron), or on the per-item rename reviewer choice (staged, spec 2026-08-03)"; and change "A skipped/absent pair degrades to today's delete+insert (fail-safe re-pick, never a wrong identity)" to "A skipped/absent pair falls through to the ordinary delete+upsert flow; a hold-protected old name is retained, not replaced (fail-safe, never a wrong identity)".
-    5. `lib/sync/applyParseResult.ts` rename-loop inline comment: change "a skipped pair degrades to today's delete+insert, which is fail-safe" to "a skipped pair falls through to the ordinary delete+upsert flow (a hold-protected old name is retained), which is fail-safe".
-    6. `lib/sync/identityLinkRenames.ts` header doc: change "MI-13/MI-14 heuristic pairs link ONLY on the version-bound accepted apply (the admin confirm is the vouch" to "MI-13/MI-14 heuristic pairs link ONLY on a confirmed apply: cron's version-bound accept, or the staged per-item rename choice (the admin confirm is the vouch".
-    7. `tests/sync/phase2.test.ts` arm-(c) test comment: change "Path-independent (covers the staged remove+add of an identity-link rename)" to "Path-independent (covers a staged `independent` resolution's remove+add)". Test body unchanged.
-- [ ] **Step 4: Run to verify pass** — `pnpm vitest run tests/sync/applyStaged.test.ts`. Expected: all PASS (including the pre-existing R33-2/floors tests untouched).
-- [ ] **Step 5: Commit** — `git add lib/sync/applyStagedCore.ts lib/sync/phase2.ts tests/sync/applyStaged.test.ts && git commit -m "feat(sync): thread identity-link renames through the staged apply core" --no-verify`
-
----
-
-### Task 3: DB proof — staged rename preserves identity; independent does not; notice flip
-
-**Files:**
-- Modify: `tests/db/_holdsHelpers.ts` (add `runStagedApply` beside `runAutoApply`)
-- Test: tests/db/stagedApplyIdentityLink.db.test.ts (created by this task; cited without backticks so spec-lint's tracked-file check skips a file that does not exist yet)
-
-**Interfaces:**
-- Consumes: Task 2's threading (real `applyStagedCore` → real `runPhase2` → real `makeSyncPipelineTx`-family tx via `phase2Tx`).
-- Produces: `runStagedApply(driveFileId, input)` — reused by Task 4's undo case.
-
-Harness framing: `runStagedApply` pins `feedPolicy: choice_aware` — the finalize-cas (Phase D) configuration (spec §1.1 #7). The identity assertions hold for every caller (the link computation ignores `feedPolicy`); the FEED assertions are meaningful only for this configuration — the dashboard caller writes no feed rows.
-
-- [ ] **Step 1: Add the harness helper** to `tests/db/_holdsHelpers.ts` (exported; commits like `runAutoApply`; the advisory lock is taken by the TEST transaction and adopted by the core — single-holder topology, caller layer, matching how the finalize routes hold for the core):
-
-```ts
-import { applyStagedCore, type ApplyStagedCoreResult, type ReviewerChoice } from "@/lib/sync/applyStagedCore";
-import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
-
 export type StagedApplyInput = {
   crew: CrewSeed[];
   triggeredItems: TriggeredReviewItem[];
@@ -307,29 +295,27 @@ export async function runStagedApply(
     await tx`select pg_advisory_xact_lock(hashtext(${"show:" + driveFileId}))`;
     const pipelineTx = phase2Tx(tx as unknown as Sql);
     const locked = await adoptShowLockHeld(pipelineTx as never, driveFileId);
-    const [show] = await tx`
+    const [show] = (await tx`
       select id, last_seen_modified_time, diagrams
-        from public.shows where drive_file_id = ${driveFileId}`;
+        from public.shows where drive_file_id = ${driveFileId}`) as unknown as Array<{
+      id: string;
+      last_seen_modified_time: string | Date | null;
+      diagrams: unknown;
+    }>;
+    const lastSeen =
+      show!.last_seen_modified_time === null
+        ? null
+        : new Date(show!.last_seen_modified_time).toISOString();
     return await applyStagedCore(locked as never, {
       sourceScope: "live",
       driveFileId,
-      show: {
-        showId: show!.id as string,
-        lastSeenModifiedTime:
-          show!.last_seen_modified_time === null
-            ? null
-            : new Date(show!.last_seen_modified_time as string | Date).toISOString(),
-        diagrams: show!.diagrams,
-      },
+      show: { showId: show!.id, lastSeenModifiedTime: lastSeen, diagrams: show!.diagrams },
       parseResult: next,
       triggeredReviewItems: input.triggeredItems,
       reviewerChoices: input.reviewerChoices,
       stagedId: randomUUID(),
       stagedModifiedTime: modifiedTime,
-      baseModifiedTime:
-        show!.last_seen_modified_time === null
-          ? null
-          : new Date(show!.last_seen_modified_time as string | Date).toISOString(),
+      baseModifiedTime: lastSeen,
       appliedByEmail: "doug@fxav.test",
       appliedAt: null,
       auditSource: "staged_apply",
@@ -348,28 +334,24 @@ export async function runStagedApply(
 }
 ```
 
-Implementation notes for this step (verify at write time, adjust mechanically if a name drifted): `phase2Tx` comes from `@/tests/sync/_holdAwareTestkit` (already imported by this file); `randomUUID` from `node:crypto` (already imported); `autoApplyClock`/`toCrewRow`/`buildParseResult` are module-locals of this file. The timestamp normalization mirrors `normalizeTimestamptz` (`lib/sync/applyStagedCore.ts`) inline because postgres.js returns `Date` for `timestamptz` — the equality preflight (`sameTimestamp`) accepts both, so the conversion is belt only.
+Harness framing: `feedPolicy: choice_aware` is the finalize-cas (Phase D) configuration (spec §1.1 #7). Identity assertions hold for every caller (the link computation ignores `feedPolicy`); FEED assertions are meaningful only for this configuration — the dashboard caller writes no feed rows.
 
-- [ ] **Step 2: Write the failing db test** — tests/db/stagedApplyIdentityLink.db.test.ts (copy the loopback-guard + `sql` bootstrap idiom from `tests/db/undo-change-direction-a.test.ts` / `_holdsHelpers`; seed via `seedShowWithCrew`; `readCrewByName`/`readChangeLog` helpers already exist in `_holdsHelpers`):
+- [ ] **Step 3: db test file** — create tests/db/stagedApplyIdentityLink.db.test.ts with the `_holdsHelpers` bootstrap idiom (`afterAll` cleanup + `closeHoldsHelpers`, as in `tests/db/undo-change-direction-a.test.ts`), a file-local `heldValue` builder (copy the file-local one in `tests/db/supersession-both-writers.test.ts` — it is not exported), `const LEAD_FLAGS: RoleFlag[] = ["LEAD", "A1"];`, and four cases:
 
 ```ts
 it("staged MI-12 rename choice preserves crew id + oauth claim; feed row's before_image.id matches", async () => {
   const { showId, driveFileId } = await seedShowWithCrew([
     { name: "Bob", email: "bob@x.example", claimed: "2026-06-01T10:00:00.000Z" },
   ]);
-  const prior = await readCrewByName(showId, "Bob");
-  const PRIOR_ID = prior!.id;
-
-  const items: TriggeredReviewItem[] = [
-    { id: "1", invariant: "MI-12", removed_name: "Bob", added_name: "Robert", email: "bob@x.example" },
-  ];
+  const PRIOR_ID = (await readCrewByName(showId, "Bob"))!.id;
   const result = await runStagedApply(driveFileId, {
     crew: [{ name: "Robert", email: "bob@x.example" }],
-    triggeredItems: items,
+    triggeredItems: [
+      { id: "1", invariant: "MI-12", removed_name: "Bob", added_name: "Robert", email: "bob@x.example" },
+    ],
     reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "Robert" }],
   });
   expect(result).toMatchObject({ outcome: "applied" });
-
   expect(await readCrewByName(showId, "Bob")).toBeNull();
   const successor = await readCrewByName(showId, "Robert");
   expect(successor!.id).toBe(PRIOR_ID); // identity preserved (the backlog bug)
@@ -378,31 +360,24 @@ it("staged MI-12 rename choice preserves crew id + oauth claim; feed row's befor
   expect(renamed.before_image?.id).toBe(PRIOR_ID); // feed row consistent with live row
 });
 
-it("staged MI-13 independent choice stays remove+add: fresh id, no claim, loss+grant audit", async () => {
+it("staged MI-13 independent choice stays remove+add: old row gone, fresh id, no claim", async () => {
   const { showId, driveFileId } = await seedShowWithCrew([
     { name: "Sam A", email: "sama@x.example", claimed: "2026-06-01T10:00:00.000Z" },
   ]);
   const PRIOR_ID = (await readCrewByName(showId, "Sam A"))!.id;
-
-  const items: TriggeredReviewItem[] = [
-    { id: "1", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" },
-  ];
   const result = await runStagedApply(driveFileId, {
     crew: [{ name: "Sam B", email: "samb@x.example" }],
-    triggeredItems: items,
+    triggeredItems: [{ id: "1", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" }],
     reviewerChoices: [{ item_id: "1", action: "independent" }],
   });
   expect(result).toMatchObject({ outcome: "applied" });
-
+  expect(await readCrewByName(showId, "Sam A")).toBeNull(); // old row genuinely removed
   const successor = await readCrewByName(showId, "Sam B");
   expect(successor!.id).not.toBe(PRIOR_ID); // genuinely a new person
   expect(successor!.claimed_via_oauth_at).toBeNull();
 });
 
-it("held-boundary: an MI-12 rename choice whose OLD name has an open MI-11 hold keeps the old row (spec §5)", async () => {
-  // The rename loop skips hold-protected names and delete-suppression retains the old row: the
-  // cron-pinned guard behavior (tests/sync/applyParseResult.identityLink.db.test.ts), exercised
-  // here through the STAGED producer. seedMi11Hold + heldValue already exist in _holdsHelpers.
+it("held-boundary: an MI-12 rename choice whose OLD name has an open MI-11 hold keeps the old row", async () => {
   const { showId, driveFileId } = await seedShowWithCrew([
     { name: "Held Old", email: "held@x.example", claimed: "2026-06-01T10:00:00.000Z" },
   ]);
@@ -413,9 +388,6 @@ it("held-boundary: an MI-12 rename choice whose OLD name has an open MI-11 hold 
       entityKey: "Held Old",
       heldValue: heldValue("Held Old", "held@x.example"),
       proposedValue: { disposition: "removal" },
-      // any base time at-or-before the staged apply's modifiedTime keeps the hold OPEN at apply
-      // time, which is all this case needs (verify against holdAwareApply's re-evaluation rule
-      // at write time and adjust mechanically if it releases the hold)
       baseModifiedTime: "2026-06-08T11:00:00.000Z",
     },
   );
@@ -428,19 +400,17 @@ it("held-boundary: an MI-12 rename choice whose OLD name has an open MI-11 hold 
   });
   expect(result).toMatchObject({ outcome: "applied" });
   const retained = await readCrewByName(showId, "Held Old");
-  expect(retained).not.toBeNull(); // old row retained, not renamed, not deleted
+  expect(retained).not.toBeNull(); // old row retained, not renamed away
   expect(retained!.id).toBe(PRIOR_ID);
 });
 
-it("notice flip: staged rename with unchanged LEAD emits no roleFlagsNotice; independent removal of a LEAD holder does", async () => {
-  // Case A: rename choice, holder, unchanged flags gets NO notice (cron shape, spec §3.4 row 2).
-  // Case B: independent on a LEAD holder → arm (c) loss fires (spec §3.4 row 3, unchanged).
-  // Seed role_flags: seedShowWithCrew writes ["A1"]; update to add LEAD before the staged apply:
-  const a = await seedShowWithCrew([{ name: "Lead Old", email: "lead@x.example" }]);
-  await sql`update public.crew_members set role_flags = ${["LEAD", "A1"]}
-    where show_id = ${a.showId} and name = 'Lead Old'`;
+it("notice flip: rename unchanged-LEAD emits nothing; rename with delta emits one arm-(a) entry; independent holder emits loss+grant", async () => {
+  // Case A: rename choice, holder, UNCHANGED flags gets NO roleFlagsNotice (cron shape, spec §3.4).
+  const a = await seedShowWithCrew([
+    { name: "Lead Old", email: "lead@x.example", role_flags: LEAD_FLAGS },
+  ]);
   const resultA = await runStagedApply(a.driveFileId, {
-    crew: [{ name: "Lead New", email: "lead@x.example", role: "A1" }],
+    crew: [{ name: "Lead New", email: "lead@x.example", role_flags: LEAD_FLAGS }],
     triggeredItems: [
       { id: "1", invariant: "MI-12", removed_name: "Lead Old", added_name: "Lead New", email: "lead@x.example" },
     ],
@@ -449,50 +419,55 @@ it("notice flip: staged rename with unchanged LEAD emits no roleFlagsNotice; ind
   expect(resultA).toMatchObject({ outcome: "applied" });
   expect(resultA).not.toHaveProperty("roleFlagsNotice");
 
-  const b = await seedShowWithCrew([{ name: "Lead B Old", email: "leadb@x.example" }]);
-  await sql`update public.crew_members set role_flags = ${["LEAD", "A1"]}
-    where show_id = ${b.showId} and name = 'Lead B Old'`;
+  // Case B: rename choice WITH capability delta: exactly one arm-(a) entry, prior flags via the
+  // rename map (spec §4 item 4).
+  const b = await seedShowWithCrew([
+    { name: "Delta Old", email: "delta@x.example", role_flags: LEAD_FLAGS },
+  ]);
   const resultB = await runStagedApply(b.driveFileId, {
-    crew: [{ name: "Lead B New", email: "leadb2@x.example" }],
+    crew: [{ name: "Delta New", email: "delta@x.example", role_flags: ["A1"] }],
     triggeredItems: [
-      { id: "1", invariant: "MI-13", removed_name: "Lead B Old", added_name: "Lead B New" },
+      { id: "1", invariant: "MI-12", removed_name: "Delta Old", added_name: "Delta New", email: "delta@x.example" },
     ],
-    reviewerChoices: [{ item_id: "1", action: "independent" }],
+    reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "Delta New" }],
   });
-  expect(resultB).toMatchObject({ outcome: "applied" });
   expect(resultB).toMatchObject({
+    outcome: "applied",
     roleFlagsNotice: {
-      context: {
-        changes: expect.arrayContaining([
-          expect.objectContaining({ crew_name: "Lead B Old", new_flags: [] }),
-        ]),
-      },
+      context: { changes: [{ crew_name: "Delta New", prior_flags: LEAD_FLAGS, new_flags: ["A1"] }] },
     },
   });
+
+  // Case C: independent on a holder with a capability-holding successor: arms (c)+(b), loss for
+  // the removed old identity AND grant for the added new identity (unchanged behavior, spec §3.4).
+  const c = await seedShowWithCrew([
+    { name: "Ind Old", email: "ind@x.example", role_flags: LEAD_FLAGS },
+  ]);
+  const resultC = await runStagedApply(c.driveFileId, {
+    crew: [{ name: "Ind New", email: "ind2@x.example", role_flags: LEAD_FLAGS }],
+    triggeredItems: [{ id: "1", invariant: "MI-13", removed_name: "Ind Old", added_name: "Ind New" }],
+    reviewerChoices: [{ item_id: "1", action: "independent" }],
+  });
+  expect(resultC).toMatchObject({ outcome: "applied" });
+  const changesC = (
+    resultC as { roleFlagsNotice?: { context: { changes: unknown[] } } }
+  ).roleFlagsNotice?.context.changes;
+  expect(changesC).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ crew_name: "Ind Old", prior_flags: LEAD_FLAGS, new_flags: [] }),
+      expect.objectContaining({ crew_name: "Ind New", prior_flags: [], new_flags: LEAD_FLAGS }),
+    ]),
+  );
+  expect(changesC).toHaveLength(2);
 });
 ```
 
-Caveat baked into the snippet: the notice test seeds `role_flags` by UPDATE because `seedShowWithCrew` hardcodes `["A1"]` — and the CREW ROW the apply writes must carry the capability for case A's "unchanged" premise, so `buildParseResult`/`crewRow` must produce `role_flags: ["LEAD","A1"]` for "Lead New". If `crewRow` does not accept `role_flags`, extend `CrewSeed`/`toCrewRow` in `_holdsHelpers` with an optional `role_flags` passthrough (mechanical; keep default `["A1"]`). Assert-side values derive from the seeded flags, not literals repeated from the writer (anti-tautology: the seed constant is defined once at the top of the test and referenced in both places).
+Failure modes caught: end-to-end oauth-orphan on staged rename; independent accidentally linking; a staged hold interaction diverging from the cron-pinned guard; phantom-loss notice surviving the flip; a wrong-prior arm-(a) entry on a capability delta; the flip over-reaching into `independent` (loss or grant lost).
 
-Failure modes caught: end-to-end oauth-orphan on staged rename (the backlog bug), independent accidentally linking (identity merge), phantom-loss notice surviving the flip, flip over-reach silencing the genuine independent loss, and a staged hold interaction diverging from the cron-pinned guard behavior.
-
-- [ ] **Step 3: Run to verify current failure** — `pnpm vitest run tests/db/stagedApplyIdentityLink.db.test.ts` (requires local Supabase; loopback-guarded). Expected pre-Task-2-merge state: written on top of Tasks 1–2 this should PASS for the rename case only if threading landed — author AFTER Task 2, expect PASS; the red state was carried by Task 2's unit test. If any case fails, that is a real defect — fix before commit.
-- [ ] **Step 4: Commit** — `git add tests/db/_holdsHelpers.ts tests/db/stagedApplyIdentityLink.db.test.ts && git commit -m "test(sync): db pins staged rename identity preservation and independent remove+add" --no-verify`
-
----
-
-### Task 4: Undo round-trip on the staged-driven in-place rename
-
-**Files:**
-- Test: `tests/db/undo-change-direction-a.test.ts` (add one case; reuse `runStagedApply` from Task 3)
-
-**Interfaces:**
-- Consumes: `runStagedApply` (Task 3), existing `callUndoAsAdmin`/`readCrewByName`/`readChangeLog` helpers in that file's kit.
-
-- [ ] **Step 1: Write the test** (the existing "LINKED-shape rename undo" case pins the cron-driven shape; this pins the STAGED-driven shape end-to-end through `undo_change` — spec §4 item 5):
+- [ ] **Step 4: undo round-trip case** — add to `tests/db/undo-change-direction-a.test.ts` (import `runStagedApply` from `./_holdsHelpers`):
 
 ```ts
-it("STAGED-driven linked rename: apply → undo restores the original id and claim", async () => {
+it("STAGED-driven linked rename: apply then undo restores the original id and claim (spec 2026-08-03 §4 item 5)", async () => {
   const { showId, driveFileId } = await seedShowWithCrew([
     { name: "Stage Undo A", email: "sua@x.example", claimed: "2026-06-01T10:00:00.000Z" },
   ]);
@@ -503,13 +478,7 @@ it("STAGED-driven linked rename: apply → undo restores the original id and cla
   const result = await runStagedApply(driveFileId, {
     crew: [{ name: "Stage Undo A2", email: "sua@x.example" }],
     triggeredItems: [
-      {
-        id: "1",
-        invariant: "MI-12",
-        removed_name: "Stage Undo A",
-        added_name: "Stage Undo A2",
-        email: "sua@x.example",
-      },
+      { id: "1", invariant: "MI-12", removed_name: "Stage Undo A", added_name: "Stage Undo A2", email: "sua@x.example" },
     ],
     reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "Stage Undo A2" }],
   });
@@ -532,32 +501,65 @@ it("STAGED-driven linked rename: apply → undo restores the original id and cla
 });
 ```
 
-Failure mode caught: an undo interaction regression specific to the staged writer path (e.g., a staged `crew_renamed` row whose images diverge from what Direction A's successor-delete + `before_image` re-insert assumes).
+Failure mode caught: an undo interaction regression specific to the staged writer path (a staged `crew_renamed` row whose images diverge from what Direction A's successor-delete + `before_image` re-insert assumes).
 
-- [ ] **Step 2: Run** — `pnpm vitest run tests/db/undo-change-direction-a.test.ts`. Expected: PASS (Direction A is shape-agnostic — spec §1.1 #4); a failure is a real finding, stop and diagnose.
-- [ ] **Step 3: Commit** — `git add tests/db/undo-change-direction-a.test.ts && git commit -m "test(sync): staged-driven linked rename survives the undo round-trip" --no-verify`
+- [ ] **Step 5: Verify the red/green split** — `pnpm vitest run tests/sync/applyStaged.test.ts tests/db/stagedApplyIdentityLink.db.test.ts tests/db/undo-change-direction-a.test.ts` (local Supabase up). Expected RED (behavior under change): spy test 1 (no `identityLinkRenames` in the runPhase2 call yet); db case 1 (fresh successor id pre-threading); notice case A (loss+grant notice present pre-flip; case B's single-entry shape also differs pre-flip — record the observed pre-flip failures); the staged undo case (first `toBe(LINK_ID)` assertion fails). Expected GREEN (unchanged-behavior rails): spy test 2, db independent case, held-boundary case, every pre-existing case in the touched files.
+- [ ] **Step 6: Implementation** — in `lib/sync/applyStagedCore.ts`: add `import { computeStagedIdentityLinkRenames } from "@/lib/sync/identityLinkRenames";`, then alongside the step-7 `feedItems` derivation:
+
+```ts
+// Identity-link renames (spec 2026-08-03 §3.2): a rename-resolved MI-12/13/14 item applies
+// identity-preserving (in-place UPDATE, same crew_members.id); the reviewer's rename choice is
+// the vouch. independent stays remove+add (R33-2 feed assertions untouched). Length-gated spread
+// mirrors the cron producer (runScheduledCronSync).
+const identityLinkRenames = computeStagedIdentityLinkRenames(
+  args.triggeredReviewItems,
+  validation.choices,
+);
+```
+
+and in the `runPhase2` args, next to the `notableItems` spread:
+
+```ts
+    ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
+```
+
+- [ ] **Step 7: Seven-site comment reconciliation** (spec §3.3 inventory, exact new texts):
+    1. `lib/sync/applyStagedCore.ts` step-3: rewrite the sentence beginning "rename/independent/apply take NO dispatch branch" and ending "floors + the audit record" to: "rename/independent/apply take NO dispatch branch: the staged parse applies WHOLESALE for all three. Per-action differences: deriveAuthSideEffects floors, the audit record, and (spec 2026-08-03) rename-resolved MI-12/13/14 pairs threading identityLinkRenames so the apply is identity-preserving; independent pairs stay remove+add."
+    2. `lib/sync/phase2.ts` arm-(c) comment: replace "(esp. the staged remove+add of an identity-link rename, where args.identityLinkRenames is empty so the removed old name is a genuine removal here)" with "(esp. a staged `independent` resolution, which stays remove+add with empty `identityLinkRenames`; a staged rename-resolved pair threads its link since spec 2026-08-03 and is excluded here, same as cron)".
+    3. `lib/sync/phase2.ts` `Phase2Args.identityLinkRenames` field doc: after "via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept)", append "; the staged core computes via computeStagedIdentityLinkRenames (per-item rename choice, spec 2026-08-03)".
+    4. `lib/sync/applyParseResult.ts` `identityLinkRenames` arg doc: after "MI-13/ MI-14 pairs only on the version-bound accepted apply", append " (cron), or on the per-item rename reviewer choice (staged, spec 2026-08-03)"; and change "A skipped/absent pair degrades to today's delete+insert (fail-safe re-pick, never a wrong identity)" to "A skipped/absent pair falls through to the ordinary delete+upsert flow; a hold-protected old name is retained, not replaced (fail-safe, never a wrong identity)".
+    5. `lib/sync/applyParseResult.ts` rename-loop inline comment: change "a skipped pair degrades to today's delete+insert, which is fail-safe" to "a skipped pair falls through to the ordinary delete+upsert flow (a hold-protected old name is retained), which is fail-safe".
+    6. `lib/sync/identityLinkRenames.ts` header doc: change "MI-13/MI-14 heuristic pairs link ONLY on the version-bound accepted apply (the admin confirm is the vouch" to "MI-13/MI-14 heuristic pairs link ONLY on a confirmed apply: cron's version-bound accept, or the staged per-item rename choice (the admin confirm is the vouch".
+    7. `tests/sync/phase2.test.ts` arm-(c) test comment: change "Path-independent (covers the staged remove+add of an identity-link rename)" to "Path-independent (covers a staged `independent` resolution's remove+add)". Test body unchanged.
+- [ ] **Step 8: Run to verify all green** — the Step 5 command plus `pnpm vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts`, and `pnpm exec tsc --noEmit`. Everything green (plan-time materialization measured 126/126 across the four unit files, 0 tsc errors).
+- [ ] **Step 9: Commit** — `git add lib/sync/applyStagedCore.ts lib/sync/phase2.ts lib/sync/applyParseResult.ts lib/sync/identityLinkRenames.ts tests/sync/applyStaged.test.ts tests/sync/phase2.test.ts tests/db/_holdsHelpers.ts tests/db/stagedApplyIdentityLink.db.test.ts tests/db/undo-change-direction-a.test.ts && git commit -m "feat(sync): thread identity-link renames through the staged apply core" --no-verify`
 
 ---
 
-### Task 5: Doc supersession notes, backlog graduation, full verification
+### Task 3: Doc supersession + backlog ledger (docs-only — TDD N/A by declaration; verification = spec-lint + closure greps)
 
 **Files:**
-- Modify: `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md` (three supersession notes)
-- Modify: `BACKLOG.md` + `BACKLOG-archive.md` (graduate the entry)
+- Modify: `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`
+- Modify: `BACKLOG.md` + `BACKLOG-archive.md`
 
-- [ ] **Step 1: Supersession banner + per-site tags** (spec §3.5 item 1, as repaired in reviews R2/R3) — in the role-flags spec, add ONE dated banner immediately after the document header:
+- [ ] **Step 1: Supersession banner + per-site tags** (spec §3.5 item 1, as repaired in reviews R2/R3) — add ONE dated banner immediately after the role-flags spec's document header:
 
 > **Superseded in part, 2026-08-03** (`docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`): the staged RENAME-CHOICE path now threads `identityLinkRenames` (identity-preserving in-place apply); its loss+grant audit shape is retired. Staged `independent` remains remove+add with arms (c)/(b); R33-2 feed assertions untouched. Fenced both directions — do not re-fence threading out, and do not relitigate the audit-shape flip.
 
 Then tag EVERY site in the spec §3.5 list with "(superseded 2026-08-03, see banner)": the §2.1 arm-(c) intro clause; the §2.1 exclusion paragraph's staged-path sentences; the §2.4 parenthetical; the §2.4 coverage-parity paragraph's "(cron threads `identityLinkRenames`; staged/manual pass empty)" parenthetical; the "Staged identity-linked renames (remove+add per R33-2)" summary line; both §2.5 paragraphs; the test-requirements "Staged rename + capability" item; the arm-(c)-exclusion test item's "Contrast: the STAGED remove+add" clause; the coverage-parity structural-pin item's "empty-`identityLinkRenames` (staged-shaped)" fixture label (annotate: independent/non-rename staged shape); do-not-relitigate items 2h and 2e. Verify closure with `rg -n "remove\+add|identityLinkRenames" <doc>`: every hit is either tagged, path-parametric (arm-table row, shared-writer signature, code snippet, roleFlagsEqual note), or cron-specific.
 
-- [ ] **Step 1b: File the three pre-existing classes surfaced by spec review R1** — append three entries to `BACKLOG.md`, each citing the spec's §1.1 #7-#9 verification anchors: `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` (finalize-cas discards `coreResult.roleFlagsNotice`; per-row return carries only drive_file_id/code/showId; no post-commit ROLE_FLAGS_NOTICE / LEAD_ROLE_APPLIED sink — class: audit emission gap, Phase D), `BL-IDENTITYLINK-LANDED-VS-REQUESTED` (capability arms + feed writer consume requested identityLinkRenames; hold-aware reconciliation can suppress a rename target so the landed state diverges — class: sync audit fidelity, cron+staged shared), `BL-UNDO-SELECTIONS-RESET-AT-DROP` (`crewImage` omits `selections_reset_at` and the undo Direction A re-insert omits the column — any crew undo resets it to null; a previously invalidated picker cookie can validate again — class: undo lifecycle fidelity).
-- [ ] **Step 2: Graduate the backlog entry** — move the whole `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY` section from `BACKLOG.md` to `BACKLOG-archive.md` (follow the archive file's existing entry format; add a one-line closing note naming this spec + branch).
-- [ ] **Step 3: Full verification** — run and confirm green:
-  - `pnpm vitest run tests/sync/ tests/db/ tests/onboarding/` (covers the g2 R33-2 assertions in `finalizeCasFullApply.db.test.ts`, `phase2.test.ts` arms, `applyParseResult.identityLink*` pins, `advisoryLockRpcDeadlock` is under `tests/auth/` — run it too: `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts`)
-  - `pnpm typecheck` (or `pnpm exec tsc --noEmit` if no script)
-  - `pnpm spec:lint docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md` (still 0 hard)
-- [ ] **Step 4: Commit** — `git add docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md BACKLOG.md BACKLOG-archive.md && git commit -m "docs(sync): supersession notes + graduate BL-STAGED-IDENTITYLINK-RENAME-IDENTITY" --no-verify`
+- [ ] **Step 2: File the three pre-existing classes surfaced by spec review R1** — append three entries to `BACKLOG.md`, each citing the spec's §1.1 #7-#9 verification anchors: `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` (finalize-cas discards `coreResult.roleFlagsNotice`; per-row return carries only drive_file_id/code/showId; no post-commit ROLE_FLAGS_NOTICE / LEAD_ROLE_APPLIED sink — class: audit emission gap, Phase D), `BL-IDENTITYLINK-LANDED-VS-REQUESTED` (capability arms + feed writer consume requested identityLinkRenames; hold-aware reconciliation can suppress a rename target so the landed state diverges — class: sync audit fidelity, cron+staged shared), `BL-UNDO-SELECTIONS-RESET-AT-DROP` (`crewImage` + Direction A re-insert omit `selections_reset_at` — any crew undo resets it to null; a previously invalidated picker cookie can validate again — class: undo lifecycle fidelity).
+- [ ] **Step 3: Graduate the backlog entry** — move the whole `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY` section from `BACKLOG.md` to `BACKLOG-archive.md` (follow the archive file's existing entry format; add a one-line closing note naming this spec + branch).
+- [ ] **Step 4: Verify + commit** — `pnpm spec:lint docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md` (0 hard) and the Step 1 closure grep; then `git add docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md BACKLOG.md BACKLOG-archive.md && git commit -m "docs(sync): supersession banner and tags plus backlog filings and graduation" --no-verify`
+
+---
+
+### Task 4: Full verification
+
+- [ ] **Step 1:** `pnpm vitest run tests/sync/ tests/db/ tests/onboarding/ tests/auth/advisoryLockRpcDeadlock.test.ts` — green (covers the g2 R33-2 assertions in `tests/onboarding/finalizeCasFullApply.db.test.ts`, the phase2 arm tests, the `applyParseResult.identityLink*` pins, and the lock-topology guard).
+- [ ] **Step 2:** `pnpm typecheck` — 0 errors.
+- [ ] **Step 3:** `pnpm spec:lint` on both this plan and the spec — 0 hard.
+- [ ] **Step 4:** Any failure here is a defect: fix within the task that owns the surface, re-run, and only then proceed to the branch's ship stages (whole-diff review, CI, merge).
 
 ---
 
