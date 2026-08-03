@@ -8,6 +8,31 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-LEDGER-GUARD-BODY-DEFINED-IDS — RESOLVED (2026-08-03, `chore/ledger-body-ids-enum-scan-widen`)
+
+### BL-LEDGER-GUARD-BODY-DEFINED-IDS — the citation guard resolves headings only, so a deliberate sub-item reads as dangling
+
+**Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Resolved:** 2026-08-03. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
+
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
+
+**Decision (2026-08-02): they stay body-defined.** Promoting them would give each a heading whose content is one bullet, and would break the thing that makes them meaningful — the parent's ratchet or gate semantics. The eight below are the full current set:
+
+- `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, `BL-MUTATION-COLUMN-SHIFT`, `BL-MUTATION-MERGED-CELL`, `BL-MUTATION-SECTION-ORDER` — the five operator classes enumerated by `BL-MUTATION-HARNESS-OPEN-HOLES` above, which states outright that "each is tracked as a backlog sub-item below". They are also the `finding` tags on thousands of rows in `tests/parser/mutation/knownHoles.ts`, where they identify a hole CLASS, not an item. The parent owns the shrink-only ratchet that gives them their meaning: hardening a class turns its holes into `staleRows` and fails the nightly harness until they are removed. Split across five headings, that ratchet has no single home.
+- `BL-SYNCFEED-UI-1`, `BL-SYNCFEED-UI-2`, `BL-SYNCFEED-UI-3` — the three LOW / no-user-harm findings enumerated by `BL-SYNC-FEED-UI-POLISH` above, each a one-sentence "only act if" note from one impeccable dual-gate that PASSED. Their shared provenance and shared "no concrete trigger" disposition is the entry; individually they are not items.
+
+**Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
+
+**Resolution.** `bodyDefinedIds` (`tests/docs/_ledgerMdast.ts`) mints an id from a bullet whose LEAD is a `strong` run holding exactly one id token, followed by an em-dash; `definedIds()` unions those with heading ids, minting only from the four ledger files so a bullet in a plan or spec still defines nothing. All eight `KNOWN_DANGLING` rows are gone.
+
+One correction to the **Work** paragraph above, found by reading the corpus rather than the row: the form it names, ``- **`BL-…`** — …``, is one of TWO live definition shapes. `BACKLOG.md:1116-1118` writes `- **BL-SYNCFEED-UI-1** — …` with no backticks, and this entry's own enumeration bullets write `` - `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, … — … `` with no `strong`, which must NOT mint. The `strong` wrapper, not the code span, is what separates a definition from a discussion, so the grammar keys on it and deliberately ACCEPTS `inlineCode` inside the strong lead (where `headingId` rejects code provenance).
+
+Twelve plants in `tests/docs/_ledgerMdast.walker.test.ts` cover both shapes and every rejection the grammar rests on. Two live-corpus assertions pin it in both directions: every body-defined id resolves, and `BACKLOG.md` mints EXACTLY those eight — over-minting is the worse failure, because a bullet that accidentally defines an id makes a typo resolve and retires the thought the guard exists to keep alive.
+
+**Status:** RESOLVED (2026-08-03, `chore/ledger-body-ids-enum-scan-widen`).
+
+---
+
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors

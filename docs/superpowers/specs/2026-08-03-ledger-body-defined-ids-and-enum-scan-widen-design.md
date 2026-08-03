@@ -241,7 +241,7 @@ because a first pass misread it as a fourth case.)
 `tests/dev/attentionScenariosWarnings.test.ts:21` do not. This defect is independent of
 the scan roots, is a one-line fix on each side, and is in scope regardless of §B.4.
 
-### B.4 Scope decision (open)
+### B.4 Scope decision — RATIFIED 2026-08-03
 
 The row is filed **Effort: S** on a premise the probes refute. Deleting
 `EXTRA_WARNING_CODES` outright requires the generator to recognize ParseWarning
@@ -250,8 +250,25 @@ corpus are (a) `code:` object properties, (b) positional `warn("CODE", msg)` hel
 and (c) object literals that never name the type. That is a different, larger change than
 the row describes, and it carries a 382 s cost that needs a lane answer.
 
-This is a scope call for the user, not for the run. It is asked after Part A ships, so
-nothing waits on it.
+**Ratified: this branch ships the provable half and AMENDS the row; it does not close it.**
+In scope here:
+
+1. `warningCodes()` partitions on `source.split(",").includes("parse_warnings.code")`
+   instead of `===`, matching `serializeWarning.ts:29`. Recovers
+   `MI-1_VERSION_DETECTION_FAILED`, `PULL_SHEET_ON_ARCHIVED_TAB`, `VERSION_AMBIGUOUS`.
+2. `EXTRA_WARNING_CODES` is re-derived from the type-aware census rather than trusted:
+   four rows become ten, the wrong `extractAgendaSchedule.ts` attribution is corrected,
+   and the already-generated row is dropped.
+3. A **dead-row ratchet** — the same posture as the ledger guard's `KNOWN_DANGLING`
+   ratchets — fails the moment a residue row starts being generated. This is what makes
+   the list unable to rot silently, which was the row's actual complaint, and it is what
+   justifies leaving the residue in place rather than racing to delete it.
+
+Out of scope here, and what the amended row will carry: making the generator type-aware,
+deleting `EXTRA_WARNING_CODES`, and a completeness guard over emit sites (type-aware, so
+it needs the slow audit lane, not the default vitest run).
+
+Gallery coverage: 47 → 56 parse-warning scenarios.
 
 ### B.5 Blast radius, either way
 
