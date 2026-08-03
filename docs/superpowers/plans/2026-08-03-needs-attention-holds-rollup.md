@@ -4,7 +4,7 @@
 
 **Goal:** Surface open MI-11 identity holds (`sync_holds`, `kind='mi11_pending'`) as a fourth needs-attention stream across the page, dashboard inbox, AdminNav badge, mobile summary card, and digest email.
 
-**Architecture:** One pure grouping core + one service-role PostgREST reader (new `lib/admin/identityHolds.ts`) feed both admin helpers; the digest reuses the pure core over its own `sql` transport with `asIso` normalization. The builder gains an `identity_hold` variant; the inbox gains a card with a client-island disclosure. No DB changes, no new routes, no mutation surfaces.
+**Architecture:** One pure grouping core + one service-role PostgREST reader (new file lib/admin/identityHolds.ts) feed both admin helpers; the digest reuses the pure core over its own `sql` transport with `asIso` normalization. The builder gains an `identity_hold` variant; the inbox gains a card with a client-island disclosure. No DB changes, no new routes, no mutation surfaces.
 
 **Tech Stack:** Next.js 16 server components, supabase-js (service-role), postgres.js (digest), vitest, Playwright.
 
@@ -253,7 +253,7 @@ describe("loadOpenIdentityHolds", () => {
 
     // Over-cap with a TIE at the boundary: the last two rows share one timestamp.
     // The DB returns them id-asc within the tie, so the sentinel-drop must keep
-    // idOf(CAP-1)'s show and exclude idOf(CAP)'s (plan-R1 F11 — membership, not length).
+    // idOf(CAP-1)'s show and exclude idOf(CAP)'s (plan-R1 F11: membership, not length).
     const tieTs = "2026-08-01T00:00:00+00:00";
     const over = [
       ...Array.from({ length: HOLDS_ROW_CAP - 1 }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` })),
@@ -587,7 +587,7 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
         <ChevronRight aria-hidden="true" className={`size-4 shrink-0 transition-transform duration-fast ${open ? "rotate-90" : ""}`} />
         <span>{verb} details</span>
       </button>
-      {/* region={false}: this card repeats per show (20 dashboard / 100 page cap) —
+      {/* region={false}: this card repeats per show (20 dashboard / 100 page cap);
           CollapsePanel mandates the landmark opt-out for many-panel callers
           (CollapsePanel.tsx:40-47; RecentAutoAppliedStrip precedent). */}
       <CollapsePanel open={open} id={panelId} region={false} label={title ? `Held changes for ${title} (${slug})` : `Held changes for ${slug}`}>
@@ -659,7 +659,7 @@ const identityHolds = groupHoldRows(
     id: r.id, show_id: r.show_id, slug: r.slug, title: r.title ?? null,
     entity_key: r.entity_key, held_value: r.held_value, proposed_value: r.proposed_value,
     base_modified_time: r.base_modified_time == null ? null : asIso(r.base_modified_time),
-    // created_at is NOT NULL in DDL; asIso(null) is unreachable here — the ?? ""
+    // created_at is NOT NULL in DDL; asIso(null) is unreachable here, so ?? ""
     // satisfies the required-string contract without a non-null assertion (plan-R1 F5).
     created_at: asIso(r.created_at) ?? "",
   })),
