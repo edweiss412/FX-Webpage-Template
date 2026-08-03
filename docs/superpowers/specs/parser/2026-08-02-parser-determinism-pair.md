@@ -255,11 +255,17 @@ choice from `resolveAlias(alias)`; never hardcode a per-alias table.
 | Partition | Count | Assert |
 | --- | --- | --- |
 | Trim-equivalent (`typo.trim() === alias.toUpperCase()`) | 22 | no `UNKNOWN_FIELD`; no `FIELD_LABEL_AUTOCORRECTED`; `TYPO_NORMALIZED` present **iff** the alias is in `TYPO_ALIASES` |
-| Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; **and the typo's value reaches the alias's `parseVenue` field** |
-| Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape. No value assertion — §2.2 |
+| Non-trim, **assignable** alias | 3914 | no `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; the typo's value reaches the alias's `parseVenue` field; **and no other output field carries it** |
+| Non-trim, **non-assignable** alias | 4517 | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape; **and no `parseVenue` output field carries the typo's value at all** |
 
-The value assertion on the assignable partition is what makes this non-tautological: it cannot pass
-with the parser doing nothing, and it cannot pass with the anchor shadowing.
+Both value clauses use a distinctive sentinel value in the typo row, and are stated over the whole
+result object rather than a single field. This is what makes the case a **routing** assertion rather
+than a warning-shape one, and it closes review round-2 finding 1: a mutant that reroutes the three
+non-assignable canonicals into `venue.address` corrupted 4517 cases while passing every
+warning-shape assertion. Measured today: **0** non-assignable cases place the sentinel anywhere, and
+**0** assignable cases place it in a field other than the target. The assertion therefore cannot
+pass with the parser doing nothing, with the anchor shadowing, or with a correction routed to the
+wrong field.
 
 The assignable/non-assignable split is **derived**, not hardcoded: map `resolveAlias(alias)` through
 a canonical→output-field table that mirrors `parseVenue`'s assignment sites, and treat a canonical
@@ -282,9 +288,24 @@ recording the measured runtime and the absent global override. Do **not** raise 
   `venue.google_link`, `venue.notes`). Deriving from the canonical→field table rather than naming
   four aliases means dropping `hotel address` or `venue notes` from `FIELD_ALIASES` is caught too —
   the review round-1 gap in an earlier draft of this spec.
-- **Non-vacuity.** Assert every enumerated alias contributes ≥1 generated case and the total is > 0.
-  Catches a `_typoGenerator.ts` regression returning `[]` that would turn the loop into a silent
-  no-op.
+- **Per-alias volume floor.** Assert each alias contributes at least `alias.length * 10` generated
+  cases. Derived from the alias, not hardcoded. Measured ratios of unambiguous-neighbours to alias
+  length run **53.8 to 56.6** across all eleven aliases, so the floor has ~5x headroom against a
+  legitimate vocabulary change while redding any re-introduction of sampling: review round 2 showed
+  a `unambiguousTypos(...).slice(0, 1)` mutant keeps every alias and canonical represented, passes a
+  bare "≥1 case per alias" check, and silently drops 8442 of 8453 cases. A ratio of 0.09 fails this
+  floor; so does the original `.slice(0, 6)`.
+- **Non-vacuity.** Assert the total case count is > 0 and every alias contributes ≥1 case. Catches a
+  `_typoGenerator.ts` regression returning `[]`. Subsumed by the volume floor for realistic
+  regressions; kept because it produces the clearer failure message for a total collapse.
+
+**Accepted limit of the coverage floor.** The floor is per-*canonical*, so deleting one alias of a
+multi-alias canonical does not red it — `venue.address` has two aliases (`venue address`,
+`hotel address`) and `venue.contact_info` has three. That case is guarded elsewhere and
+deliberately not duplicated here: the `Hotel Address` alias is asserted by the corpus fixture case
+at `tests/parser/blocks/venue.test.ts:105`, which reds on its deletion. Making the floor
+alias-level would mean either naming aliases (the round-1 F5 defect) or pinning a count (a
+hardcoded total that blocks legitimate additions).
 
 No hardcoded expected totals. The counts in this document are measurements, never assertions, so a
 legitimate new venue alias raises coverage without a test edit.
@@ -319,7 +340,7 @@ vocabulary const**; venue's derived list is the better source (it cannot drift f
 ### 4.6 Red state (invariant 1) for a test-only deliverable
 
 The rewritten assertions pass against unmodified `main`, so the red state is established by
-mutation rather than by production code that does not yet exist. All three mutations are run, their
+mutation rather than by production code that does not yet exist. All five mutations are run, their
 output recorded in the task commit message, and none is committed:
 
 - **Mutation A — parser does nothing.** Make `parseVenue` return `null` immediately. The **new**
@@ -330,9 +351,21 @@ output recorded in the task commit message, and none is committed:
 - **Mutation B — restore the shadowing anchor.** Use `| VENUE NAME | Four Seasons |` as the anchor
   for every alias. The `venue.name` value assertions must go red, proving the non-colliding anchor
   (§4.2) is load-bearing rather than cosmetic.
-- **Mutation C — coverage shrink.** Delete `"Hotel Address"` from `FIELD_ALIASES`
-  (`lib/parser/aliases.ts:31`). The derived coverage floor (§4.3) must go red. Under the old
-  `.slice(0, 4)` the same edit changes which cases run and stays green.
+- **Mutation C — coverage shrink.** Delete the `venue.notes` alias list from `FIELD_ALIASES`
+  (`lib/parser/aliases.ts:34`). The derived coverage floor (§4.3) must go red. `venue.notes` is
+  chosen deliberately: it is the sole alias entry for its canonical, and no fixture case asserts
+  the `notes` field, so the floor is the **only** thing that reds and the proof is unambiguous.
+  (Review round 2 correctly refuted an earlier draft that used `"Hotel Address"`: `venue.address`
+  keeps its second alias `venue address`, so the canonical stays represented and the floor does not
+  red — see the accepted limit in §4.3.)
+- **Mutation D — mis-routed correction.** Reroute the three non-assignable canonicals
+  (`venue.contact_info`, `venue.in_house_av`, `venue.hotel_reservations`) to `venue.address` inside
+  `parseVenue`. The non-assignable partition's no-stray-value assertion (§4.2) must go red on all
+  4517 applicable cases. This is review round-2 finding 1 executed as a standing proof: without
+  that clause the mutant passes every warning-shape assertion.
+- **Mutation E — resampling.** Reintroduce `.slice(0, 1)` on the generator output. The per-alias
+  volume floor (§4.3) must go red for every alias. Without the floor this mutant keeps all eleven
+  aliases and all five canonicals and passes, while dropping 8442 of 8453 cases.
 
 ---
 

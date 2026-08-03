@@ -2,110 +2,133 @@
 
 **Spec:** `docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md` (canonical; this plan implements it and does not override it).
 **Branch:** `test/parser-determinism-pair` (worktree off `origin/main` @ `09b6c2178`).
-**Preflight:** run and green — `preflight: env ✓ local DB ✓`. (Diff is tests + docs only, but the worktree is fully provisioned.)
+**Preflight:** run and green — `preflight: env ✓ local DB ✓`. Diff is tests plus docs only, but the worktree is fully provisioned.
 
 impeccable-gate: N/A — no UI surface
 
 ## Meta-test inventory
 
-No new guard surface is created. Existing registries touched:
+No new guard surface. Existing registries touched:
 
 - `tests/docs/_metaDeferralLedgerGraduation.test.ts` → two `{ id, provenance }` rows appended to
-  `BACKLOG_GRADUATED` (`:90`). This is the graduation ledger's own registry, required by the
-  existing guard when an id moves to the archive — not a new guard.
+  `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:90`). Required by the
+  existing guard when an id moves to the archive; spec §5.3 records that without them the ledger
+  verification is false-green. Not a new guard.
 
-Not applicable, each with the reason: no Supabase call sites (invariant 9 registry
-`tests/auth/_metaInfraContract.test.ts` — N/A); no mutating routes or `"use server"` actions
+Not applicable, each with its reason: no Supabase call sites (invariant 9 registry
+`tests/auth/_metaInfraContract.test.ts`); no mutating routes and no `"use server"` actions
 (invariant 10 registries `tests/log/_auditableMutations.ts`,
-`tests/log/mutationSurface/exemptions.ts` — N/A); no `pg_advisory*` call path, so the
-single-holder topology at `tests/auth/advisoryLockRpcDeadlock.test.ts` is untouched (invariant 2 —
-N/A); no migration, so no `pnpm gen:schema-manifest` and no validation-project apply; no §12.4
-error-code row edits, so no `pnpm gen:spec-codes` lockstep; no UI surface, so no impeccable pair.
+`tests/log/mutationSurface/exemptions.ts`); no `pg_advisory*` call path, so the single-holder
+topology at `tests/auth/advisoryLockRpcDeadlock.test.ts` is untouched (invariant 2); no migration,
+so no `pnpm gen:schema-manifest` and no validation-project apply; no §12.4 error-code row edits, so
+no `pnpm gen:spec-codes` lockstep; no UI surface, so no impeccable pair.
 
 ## Advisory-lock holder topology
 
-N/A — this diff contains no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and no
-RPC. Nothing acquires or releases a lock.
+N/A — no `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call site and no RPC in this diff.
 
 ---
 
 ## Task 1 — exhaustive venue typo enumeration
 
-**Files:** `tests/parser/blocks/venue.test.ts` (replaces the single `it(...)` at `:311-332`).
+**File:** `tests/parser/blocks/venue.test.ts` (replaces the single `it(...)` at
+`tests/parser/blocks/venue.test.ts:311`).
 
 **Implements:** spec §4.
 
-### 1.1 Red first — prove the NEW assertions are non-vacuous before trusting them
+### 1.1 Red first — five mutations, per spec §4.6
 
-This is a test-only task, so "failing test first" means proving the new case can fail rather than
-writing production code to satisfy it. Both proofs are performed and their output pasted into the
-task's commit message; neither mutation is committed.
+The deliverable is a test, so the red state comes from mutating the tree rather than from
+production code that does not yet exist. Run all five, paste the output into the commit message,
+revert each before the next. **None is committed.**
 
-- **Mutation A (parser does nothing).** Temporarily edit `lib/parser/blocks/venue.ts` so
-  `parseVenue` returns `null` immediately. The new case MUST go red. This is the proof the
-  assertion is not absence-only: today's `:311-332` case, which asserts only that `UNKNOWN_FIELD`
-  is absent, **passes** under this mutation. Record both results (old case green, new case red) —
-  that contrast is the entire justification for the rewrite.
-- **Mutation B (coverage silently shrinks).** Temporarily reorder `FIELD_ALIASES`
-  (`lib/parser/aliases.ts:19`) so a venue field-bearing alias moves, or delete `venue address`
-  from it. The coverage-floor assertion (§1.3) MUST go red. Under today's `.slice(0,4)` the same
-  edit changes which cases run and stays green.
+| Mutation | Edit | Required result |
+| --- | --- | --- |
+| **A** — parser does nothing | `parseVenue` returns `null` immediately (`lib/parser/blocks/venue.ts`) | **new** case RED **and old case at `tests/parser/blocks/venue.test.ts:311` GREEN** — the proof the rewrite removed an absence-only assertion |
+| **B** — shadowing anchor | anchor every case with `\| VENUE NAME \| Four Seasons \|` | `venue.name` value assertions RED — proves the derived non-colliding anchor is load-bearing |
+| **C** — coverage shrink | delete the `venue.notes` alias list from `FIELD_ALIASES` (`lib/parser/aliases.ts:34`) | derived coverage floor RED, and **only** that — `venue.notes` is its canonical's sole alias and no fixture case asserts `notes` |
+| **D** — mis-routed correction | reroute `venue.contact_info` / `venue.in_house_av` / `venue.hotel_reservations` to `venue.address` inside `parseVenue` | non-assignable no-stray-value assertion RED on all 4517 cases |
+| **E** — resampling | reintroduce `.slice(0, 1)` on the generator output | per-alias volume floor RED for every alias |
 
-Revert both mutations before implementing.
+Mutations A, D, E are the load-bearing ones: today's case passes under A, and D and E are the two
+mutants cross-model review used to refute weaker drafts of this design. Capture each result
+verbatim.
+
+Do **not** use `"Hotel Address"` for mutation C: `venue.address` keeps its second alias
+`venue address`, so the canonical stays represented and the floor does not red (review round 2).
 
 ### 1.2 Implementation
 
-Replace the sampled loop. Enumerate **every** alias from `inScopeAliases("venue.")` with
-`length >= 5`, and for each, **every** member of
-`unambiguousTypos(alias.toUpperCase(), ALL, { minLen: 5 })` where `ALL = inScopeAliases("")`
-uppercased — the same vocabulary the current case passes (`:313`), unchanged, because it is what
-drops a neighbor colliding with another block's exact alias (`tests/parser/_typoGenerator.ts:32`).
+Enumerate **every** alias from `inScopeAliases("venue.")` with `length >= 5`, and for each,
+**every** member of `unambiguousTypos(alias.toUpperCase(), ALL, { minLen: 5 })` where
+`ALL = inScopeAliases("")` uppercased — unchanged from `tests/parser/blocks/venue.test.ts:313`.
 **No `.slice` anywhere in the case.**
 
-Partition each neighbor on `typo.trim() === alias.toUpperCase()` (spec §4.2):
+**Canonical→field table.** Mirror `parseVenue`'s five assignment sites
+(`lib/parser/blocks/venue.ts:254`, `:265`, `:276`, `:287`, `:298`):
 
-| Partition | Count (measured) | Assert |
-| --- | --- | --- |
-| Trim-equivalent (leading/trailing space) | 22 | value lands in the alias's own venue field; **zero** warnings of any code |
-| Everything else | 8431 | **zero** `UNKNOWN_FIELD`; **exactly one** `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }` |
-
-The markdown fixture per case stays the current two-row shape (`:322`) so the change is the
-enumeration and the assertions, not the input:
-
-```
-| VENUE NAME | Four Seasons |
-| <typo> | some value |
+```ts
+const VENUE_OUTPUT_FIELD: Record<string, string> = {
+  "venue.name": "name",
+  "venue.address": "address",
+  "venue.loading_dock": "loadingDock",
+  "venue.google_link": "googleLink",
+  "venue.notes": "notes",
+};
 ```
 
-Every failure message names both the alias and the typo, as `:328` does today.
+A canonical absent from this table is non-assignable (`venue.contact_info`, `venue.in_house_av`,
+`venue.hotel_reservations` — owned by `contacts.ts` / `hotels.ts`, spec §2.2). Derive each alias's
+canonical with `resolveAlias(alias)`; never hardcode a per-alias list.
 
-**Timeout (mandatory, spec §4.5):** pass `30_000` as `it()`'s third argument, with an inline
-comment recording the measured 3.58s and the fact that vitest's default is 5000 ms with no
-override in `vitest.config.ts` / `vitest.projects.ts` / `vitest.sequencer.ts` / `package.json`.
-Do NOT raise the global `testTimeout`; every other test stays on the 5s default.
+**Anchor, derived.** One anchor row per case, whose canonical differs from the alias under test:
+`| VENUE NAME | Four Seasons |` normally, and a different venue row (e.g.
+`| LOADING DOCK | dock ref |`) when `resolveAlias(alias) === "venue.name"`. The anchor is required —
+a lone typo row does not open the block (spec §2.3).
+
+**Three-way partition and assertions** (spec §4.2):
+
+| Partition | Assert |
+| --- | --- |
+| Trim-equivalent (`typo.trim() === alias.toUpperCase()`) | no `UNKNOWN_FIELD`; no `FIELD_LABEL_AUTOCORRECTED`; `TYPO_NORMALIZED` present **iff** the alias is in `TYPO_ALIASES` (`lib/parser/aliases.ts:142`) |
+| Non-trim, assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` with `severity === "warn"` and `blockRef` matching `{ kind: "venue" }`; the typo's value reaches `VENUE_OUTPUT_FIELD[canonical]`; **and no other output field carries it** |
+| Non-trim, non-assignable alias | no `UNKNOWN_FIELD`; exactly one `FIELD_LABEL_AUTOCORRECTED` of the same shape; **and no output field carries the typo's value at all** |
+
+Use a distinctive sentinel as the typo row's value and scan the whole result object, not one field —
+that is what makes this a routing assertion and what kills mutation D.
+
+Failure messages name both alias and typo, as `tests/parser/blocks/venue.test.ts:328` does today.
+
+**Timeout:** `30_000` as `it()`'s third argument, with an inline comment recording the measured
+3.58s and that no `testTimeout` override exists in `vitest.config.ts`, `vitest.projects.ts`,
+`vitest.sequencer.ts`, or `package.json` (so the default is 5000 ms). Do **not** raise the global.
 
 ### 1.3 Guard assertions (anti-tautology)
 
-- **Coverage floor.** Assert the enumerated alias set contains `venue name`, `venue address`,
-  `loading dock`, `google link` **by name**, not by count. Concrete failure caught: a
-  `FIELD_ALIASES` edit drops or renames a field-bearing alias and coverage silently shrinks. A
-  count assertion would pass if one alias were swapped for another; the name assertion would not.
-- **Non-vacuity.** Assert every enumerated alias contributes ≥1 generated case, and that the total
-  case count is > 0. Concrete failure caught: a `_typoGenerator.ts` regression returning `[]`
-  turns the whole loop into a silent no-op that reports green.
+- **Derived coverage floor.** Assert the enumerated alias set covers **every** key of
+  `VENUE_OUTPUT_FIELD` — all five assignable canonicals. Derived, not a four-name list, so dropping
+  `hotel address` or `venue notes` from `FIELD_ALIASES` is caught (spec §4.3; this was review
+  round-1 finding F5).
+- **Per-alias volume floor.** Assert each alias contributes ≥ `alias.length * 10` cases. Derived,
+  not hardcoded; measured ratios run 53.8–56.6, so ~5x headroom. Reds mutation E (`.slice(0, 1)`,
+  ratio 0.09) and the original `.slice(0, 6)`.
+- **Non-vacuity.** Assert every enumerated alias contributes ≥1 case and the total is > 0. Catches
+  a `_typoGenerator.ts` regression returning `[]` that would make the loop a silent no-op.
 
-No hardcoded expected totals (`8453` / `8431` / `22` appear in comments and in this plan as
-measurements, never as assertions) — a legitimate new venue alias must raise the count without
-editing the test.
+**Accepted limit (spec §4.3):** the floor is per-canonical, so deleting one alias of a multi-alias
+canonical does not red it. `Hotel Address` is guarded instead by the corpus fixture case at
+`tests/parser/blocks/venue.test.ts:105`.
+
+No hardcoded totals: `8453` / `3926` / `4527` / `22` may appear in comments as measurements, never
+in assertions, so a legitimate new venue alias raises coverage without a test edit.
 
 ### 1.4 Verify
 
 ```
-pnpm exec vitest run tests/parser/blocks/venue.test.ts        # green
+pnpm exec vitest run tests/parser/blocks/venue.test.ts     # green, x5, identical pass counts
 ```
-Run it **5 times**; pass counts must be byte-identical across runs (spec §6). Record the runtime.
 
-**Commit:** `test(parser): enumerate the venue typo space exhaustively instead of sampling`
+**Commit:** `test(parser): enumerate the venue typo space exhaustively and assert value assignment`
 
 ---
 
@@ -117,11 +140,9 @@ Run it **5 times**; pass counts must be byte-identical across runs (spec §6). R
 
 ### 2.1 Red first
 
-Append the two `BACKLOG_GRADUATED` rows (`:90`) **before** moving the entries. The guard's
-"every graduated id is archive-only" case (`:348`) must go RED, proving the registry row is load
-bearing and the guard actually reads it. Then perform the move and watch it go green.
-
-Rows (`provenance` is the string the archived section must contain):
+Append the two `BACKLOG_GRADUATED` rows **before** moving the entries. The guard's "every graduated
+id is archive-only" case must go RED — proving the registry row is load-bearing and the guard reads
+it. Then perform the move and watch it go green.
 
 ```ts
 { id: "BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE", provenance: "test/parser-determinism-pair" },
@@ -129,41 +150,31 @@ Rows (`provenance` is the string the archived section must contain):
 ```
 
 Each row is preceded by a comment recording the corrected finding, matching the file's existing
-comment convention (`:90-113`).
+convention.
 
 ### 2.2 The move
 
-Remove both `## BL-…` sections from `BACKLOG.md` **completely** — no stub row, no "see archive"
-placeholder. The graduation guard asserts no id is both active and archived (`:338`) and that no
-active entry carries a terminal status (`:389`, `:415`), so a leftover heading fails.
+Remove both `## BL-…` sections from `BACKLOG.md` **completely** — no stub, no "see archive" line.
+The guard asserts no id is both active and archived, and that no active entry carries a terminal
+status, so a leftover heading fails.
 
-Add both to `BACKLOG-archive.md` using the established heading form seen at
-`BACKLOG-archive.md:11`:
+Add both to `BACKLOG-archive.md` in the established form (`BACKLOG-archive.md:11`):
 
 ```
 ## BL-X — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 ```
 
-followed by the resolution text, then the original entry body preserved beneath it so the history
-survives. Resolution text must record the **corrected** findings from spec §2, not the original
-diagnoses:
-
-- `BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE` — the generator has no RNG (spec §2.1); the defect
-  was order-coupled sampling; exhaustive enumeration of 8453 neighbors across all 11 venue aliases
-  produced **0** `UNKNOWN_FIELD`, so the entry's open question ("is this a genuine
-  `FIELD_LABEL_AUTOCORRECTED` recovery gap?") is answered **no** (spec §2.2); the 22
-  no-autocorrect cases are leading/trailing-space neighbors that `.trim()` resolves exactly, which
-  is correct behavior; the case now carries an explicit 30s timeout because the exhaustive loop
-  measures 3.58s against a 5000 ms default.
-- `BL-KNOWN-SECTIONS-WALKER` — delivered 2026-07-06 by
-  `tests/parser/_metaKnownSectionsWalker.test.ts` (`c6bd73001`); this branch retired the stale
-  entry and the two docstrings that contradicted it. Include the spec §2.4 asked-for/shipped
-  mapping so a future reader does not re-derive it.
+The branch string must appear in the archived section — it is the `provenance` the guard checks.
+Resolution text carries the corrected findings from spec §5.3 (no RNG; order-coupled sampling over
+aliases `parseVenue` never assigns; 0 `UNKNOWN_FIELD` across all 8453 neighbors so the recovery-gap
+question is answered no; the 22 trim-equivalent cases with 2 emitting `TYPO_NORMALIZED`; the
+non-colliding anchor and 30s timeout; and for the walker, delivered 2026-07-06 by `c6bd73001` with
+the §2.6 asked-for/shipped mapping). Original bodies are preserved beneath.
 
 ### 2.3 Verify
 
 ```
-pnpm exec vitest run tests/docs/                              # green
+pnpm exec vitest run tests/docs/      # green
 ```
 
 **Commit:** `docs(backlog): archive the venue typo-generator and known-sections-walker entries`
@@ -172,56 +183,57 @@ pnpm exec vitest run tests/docs/                              # green
 
 ## Task 3 — correct the two stale docstrings
 
-**Files:** `lib/parser/knownSections.ts` (`:12-20`), `tests/parser/_metaKnownSectionsRegistry.test.ts` (`:9-17`).
+**Files:** `lib/parser/knownSections.ts` (`lib/parser/knownSections.ts:15`),
+`tests/parser/_metaKnownSectionsRegistry.test.ts` (`tests/parser/_metaKnownSectionsRegistry.test.ts:9`).
 
-**Implements:** spec §5.1, §5.2. Sequenced after Task 2 so the replacement text can reference the
-archived entry rather than an active one.
+**Implements:** spec §5.1, §5.2. Sequenced after Task 2 so the text can reference the archived
+entry rather than an active one. **Comment-only: no executable line changes.**
 
 ### 3.1 What is false today
 
-Both docstrings assert the parsers have "no shared introspectable constant," that the walker does
-not exist, and that real enforcement "is filed as BL-KNOWN-SECTIONS-WALKER in BACKLOG.md." All
-three clauses are false: `lib/parser/blocks/_sectionHeaderMatch.ts` is the shared factory with 9
-importers under `lib/`, the parsers export `SECTION_HEADER_TOKENS`, and
-`tests/parser/_metaKnownSectionsWalker.test.ts:133-136` reads the directory.
+Both assert the parsers have "no shared introspectable constant," that the walker does not exist,
+and that real enforcement "is filed as BL-KNOWN-SECTIONS-WALKER in BACKLOG.md." All three clauses
+are false: `lib/parser/blocks/_sectionHeaderMatch.ts:31` is the shared factory with 9 importers
+under `lib/`, the parsers export `SECTION_HEADER_TOKENS`, and
+`tests/parser/_metaKnownSectionsWalker.test.ts:133` reads the directory.
 
 ### 3.2 Replacement text must state
 
-- The walker is `tests/parser/_metaKnownSectionsWalker.test.ts` and is the **primary** drift guard:
+- The walker is `tests/parser/_metaKnownSectionsWalker.test.ts`, the **primary** drift guard:
   filesystem-walked, fails-by-default for a new `blocks/*.ts`, exact-subset ⊆ registry.
-- The registry pin is the **secondary** guard, and why it is not redundant (spec §5.2): the
-  walker's subset check catches a registry deletion only while some parser still exports the
-  token; a single edit removing a header from **both** `KNOWN_SECTION_HEADERS` and the owning
-  parser's `SECTION_HEADER_TOKENS` leaves the walker green, and `REQUIRED_HEADERS`
-  (`_metaKnownSectionsRegistry.test.ts:35-59`) is what fails then.
-- Neither docstring may describe `BL-KNOWN-SECTIONS-WALKER` as open work. A provenance-style
-  reference to the now-archived id is fine and stays valid under
-  `tests/docs/_metaLedgerReferentialIntegrity.test.ts`, which resolves citations against the
-  archive ledgers too (`:48-52`).
+- The registry pin is the **secondary** guard and why it is not redundant (spec §5.2): the walker's
+  subset check catches a registry deletion only while some parser still exports the token; a single
+  edit removing a header from **both** `KNOWN_SECTION_HEADERS` and the owning parser's
+  `SECTION_HEADER_TOKENS` leaves the walker green, and `REQUIRED_HEADERS`
+  (`tests/parser/_metaKnownSectionsRegistry.test.ts:35`) is what fails then.
+- Neither may describe `BL-KNOWN-SECTIONS-WALKER` as open work. A provenance reference to the
+  archived id stays valid under `tests/docs/_metaLedgerReferentialIntegrity.test.ts:48`, which
+  resolves citations against the archive ledgers too.
 
 ### 3.3 Verify
 
 ```
 pnpm exec vitest run tests/parser/_metaKnownSectionsWalker.test.ts tests/parser/_metaKnownSectionsRegistry.test.ts   # 35 passed
-pnpm exec vitest run tests/docs/                                                                                     # green
+pnpm exec vitest run tests/docs/
 ```
 
 **Commit:** `docs(parser): correct two docstrings that still claim the known-sections walker is unbuilt`
 
 ---
 
-## Task 4 — full-suite verification and close-out
+## Task 4 — full verification and close-out
 
-No code changes. Run, in the worktree:
+No code changes.
 
 ```
-pnpm exec vitest run tests/parser/    # whole parser suite
-pnpm exec vitest run tests/docs/      # ledger guards
+pnpm exec vitest run tests/parser/
+pnpm exec vitest run tests/docs/
+pnpm spec:lint docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md   # 0 hard
 pnpm lint && pnpm typecheck
 ```
 
-Then the whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY), push, real CI green,
-`gh pr merge --merge`, fast-forward local `main` to `0  0`.
+Then whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY) to APPROVE, push, real CI
+green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
 
 ---
 
@@ -229,11 +241,12 @@ Then the whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY), push, 
 
 impeccable-gate: N/A — no UI surface
 
-Diff touches `tests/parser/blocks/venue.test.ts`, `tests/docs/_metaDeferralLedgerGraduation.test.ts`,
-`lib/parser/knownSections.ts` (comment only), `tests/parser/_metaKnownSectionsRegistry.test.ts`
-(comment only), `BACKLOG.md`, `BACKLOG-archive.md`, and the spec/plan documents. No file under
-`app/` (excluding `app/api/**`), `components/`, `app/globals.css`, `tailwind.config.*`, or
-`DESIGN.md` is touched, so the invariant-8 impeccable critique/audit pair does not apply.
+The diff touches `tests/parser/blocks/venue.test.ts`,
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`, `lib/parser/knownSections.ts` (comment only),
+`tests/parser/_metaKnownSectionsRegistry.test.ts` (comment only), `BACKLOG.md`,
+`BACKLOG-archive.md`, and the spec/plan documents. No file under `app/` (excluding `app/api/**`),
+`components/`, `app/globals.css`, `tailwind.config.*`, or `DESIGN.md` is touched, so the
+invariant-8 impeccable critique/audit pair does not apply.
 
-Findings and dispositions from the spec review, the plan review, and the whole-diff review are
+Findings and dispositions from the spec reviews, the plan review, and the whole-diff review are
 recorded in the PR body.
