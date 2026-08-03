@@ -26,7 +26,9 @@ export default function GlobalError({
     captureBoundaryError(error, "root");
   }, [error]);
   return (
-    <html className={inter.variable}>
+    // `lang` matches app/layout.tsx:58. This root replaces that one, so without
+    // it the crash screen ships with no declared language (WCAG 3.1.1, Level A).
+    <html lang="en" className={inter.variable}>
       <body>
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
           <p className="text-base text-text">{getRequiredCrewFacing("PAGE_RENDER_FAILED")}</p>

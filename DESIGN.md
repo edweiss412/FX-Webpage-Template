@@ -130,7 +130,7 @@ The token rows are in §1.1 and the computed AA contrast figures (both modes, WC
 
 ### 2.1 Family commitment
 
-**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/layout.tsx` (a future task wires this up; this file only defines tokens).
+**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/fonts.ts`, whose single exported instance both Next roots import: `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error. One loader call, two roots — a second call would emit a duplicate `@font-face` set under the same family name. (Until 2026-08-03 this line read "a future task wires this up"; the task was `BL-HEADER-FONT-FALLBACK-WRAP`, and until it landed only the crew route tree rendered Inter while admin, auth, help and the crash screen fell through to the host system font.)
 
 Why Inter: PRODUCT.md explicitly lists Inter as one of three acceptable starting points and says "pick one and commit." Inter is the most reliable tabular-figure-strong sans on the web — `font-feature-settings: 'tnum'` is fully implemented in every modern browser, all of weights 400/500/600/700 ship with even spacing, and it has explicit display-vs-text optical sizing built in. Geist (next pick) lacks the same `tnum` reliability across iOS Safari versions; General Sans is licensed.
 

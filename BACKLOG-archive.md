@@ -8,6 +8,26 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-HEADER-FONT-FALLBACK-WRAP — RESOLVED (2026-08-03, `feat/font-binding-modal-freshness-cue`)
+
+**Resolution.** The browser check the entry asked for was run first, and it changed the shape of the finding.
+
+*What the probe found.* Next 16's `next/font/google` registers the face under the **literal** family name `Inter`, not a hashed one — so the crew layout's import DID bind, and the entry's stated doubt ("`next/font`'s hashed `@font-face` family name does not obviously satisfy") is empirically refuted for this Next version. Measured on a real crew page: inherited width 192.38px, forced `"Inter"` 192.38px, generic `sans-serif` 182.61px. But on every non-crew route the same string measured 187.28px against Inter's 168.91px — the host system font, not Inter.
+
+*So the real finding was wider than the entry knew.* The product rendered **two type families across its trees** — Inter on crew pages, the host sans on admin, auth, help and the crash screen — while `DESIGN.md` §2.1 commits to one, and named `app/layout.tsx` as the place to load it. That wiring had never been done. Admin numerics also silently lost the `cv11`/`tnum` treatment §2.4 specifies, since those alternates exist only in Inter.
+
+*What shipped.* The loader lives in `app/fonts.ts`, whose single exported instance both Next roots import — `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error, so the crash screen was otherwise the one tree left behind. `--font-sans` reads `var(--font-inter, "Inter", "Inter Fallback"), …`: naming the literal skipped next/font's generated metric-matched fallback face, so the `display: "swap"` window reflowed ~10% on every route until the impeccable critique measured it.
+
+*Scope, stated plainly.* This closes the DejaVu fallback for **every Next-rendered surface** — which is every surface a crew member or admin ever sees. It does NOT reach the 31 standalone test harnesses that compile `app/globals.css` with no Next runtime; those keep measuring the ambient host font by construction. That residual costs nothing today (CI is green, and the one font-sensitive measurement carries a deliberate Arial / Liberation Sans pin) and is filed forward as `BL-HARNESS-FONT-FIDELITY`.
+
+*The tolerance in `tests/e2e/section-header-layout.layout.spec.ts` was NOT widened*, per this entry's own instruction.
+
+*Guards.* `tests/e2e/font-binding.spec.ts` measures rendered text width on `/admin`, `/auth/sign-in` and a seeded crew route — width, not `document.fonts.check()`, which returned `true` on a tree with no Inter face registered at all. It also asserts exactly one font family and no duplicate `@font-face` tuple, which is the runtime closure over "is there a second loader?" after three review rounds each produced new syntactic escapes from a source-parsing check. `tests/assets/singleFontLoader.test.ts` is the millisecond tripwire, pinning the loader's PATH (a count cannot tell "one loader, at the root" from "one loader, in the wrong layout" — exactly this bug). Wired into `crew-e2e.yml`, which builds and starts the production artifact.
+
+Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md`
+
+---
+
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access

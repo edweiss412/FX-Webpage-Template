@@ -219,8 +219,30 @@ Corrected: **T1 is one task** — every test for this change, plus the implement
 
 ## 12. Invariant-8 close-out
 
-Filled in at T4. Findings and dispositions recorded here.
+Both halves ran on the diff (`git diff 7aab6dae9..HEAD -- app/ DESIGN.md`), with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md), then the product register reference (this is app UI — admin dashboard plus crew page — not a brand surface). Critique ran as two isolated parallel sub-agents per the skill's hard invariant, so it is NOT a degraded run.
 
-The marker line is written here at T4, once both halves have actually run. It is deliberately absent until then: the grammar admits only RAN or RAN-DEGRADED, so a placeholder would be both a false claim and a malformed line.
+### Critique — 31/40 (Good)
 
-**Known transient consequence, stated so it is not read as an oversight:** while the marker is absent, `tests/docs/_metaInvariant8Closeout.test.ts` §4.1.1 fails locally on this file, because the plan declares the dual gate without yet carrying its marker. That is the guard working as designed. It goes green at T4, which runs before the branch is pushed, so CI never observes the intermediate state. A `PRE_GUARD_DEBT` row is NOT the right escape here: that mechanism is for pre-guard history, not for a live plan mid-flight.
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| **P1** | `--font-sans` named the literal `"Inter"`, so next/font's generated metric-matched `Inter Fallback` face was never in the cascade. The `display: "swap"` window painted a system font at native metrics and then snapped ~10% (187.28px → 168.91px on a real string) on every route — worst at 390px, where a label can unwrap from two lines to one and shift everything below it mid-glance. | **FIXED** (`84fe79369`). `--font-sans` now reads `var(--font-inter, "Inter", "Inter Fallback"), …`; the `var()` fallback list keeps the declaration valid at computed-value time on surfaces without the generated class. `DESIGN.md` §2.1's pinned stack updated in lockstep (invariant 7). Pinned by a new e2e assertion that the resolved cascade contains the fallback face. This finding also retired spec decision R2 as originally written — see spec §2.5. |
+| **P2** | `app/global-error.tsx` renders its own `<html>` and replaces the root layout, so the crash screen was the one tree still rendering the system font. | **FIXED** (`84fe79369`). The loader moved to `app/fonts.ts` and both roots import the one instance. Codex review R4 found this independently and also called it BLOCKING. |
+| **P3** | Numerals are not disambiguated (`zero`/`cv05`) where crew read room numbers and confirmation numbers in direct sun. | **DEFERRED** — genuine, but a type-feature decision about `DESIGN.md` §2.4's tabular rule, not part of binding the family. Filed as `BL-INTER-NUMERAL-DISAMBIGUATION`. |
+| **P3** | The `app/layout.tsx` comment carried a claim ("nothing consumes `--font-inter`") that the P1 fix falsifies. | **FIXED** — the loader and its commentary moved to `app/fonts.ts` and the claim is gone. |
+
+### Audit — 19/20 (Excellent), anti-patterns PASS
+
+`detect.mjs` returned `[]`, exit 0, on the changed files. **Zero P0, zero P1.**
+
+| Severity | Finding | Disposition |
+| --- | --- | --- |
+| **P2** | `app/global-error.tsx`'s `<html>` carried no `lang` (WCAG 3.1.1, Level A). Pre-existing, but this diff edits that exact element and its sibling root has `lang="en"`. | **FIXED** — `lang="en"` added. |
+| **P2** | `DESIGN.md` §2.1 still read "a future task wires this up" and named `app/layout.tsx` as the load site. Both halves false after this change, and `app/fonts.ts` quotes that sentence as its own justification. | **FIXED** — rewritten to name `app/fonts.ts` and the two-root reason, with the history noted. |
+| **P3** | The crash screen has no no-FOUC theme bootstrap, so an explicit `data-theme` choice is lost there. | **NOT FIXED — out of scope.** Pre-existing and unrelated to fonts; fixing it means moving theme bootstrap into a second root, which is its own change. Recorded here so it is not re-derived. |
+| **P3** | `font-feature-settings: "tnum" 1, "cv11" 1` was host-font-dependent outside the crew tree and now deterministically activates Inter's alternates on admin/auth/help for the first time. | **ACCEPTED** — this is the intended consequence of the change, not a defect. 35 admin/component files use `tabular-nums`; their figure alignment was silently host-dependent before. |
+
+Three audit claims were verified as **false positives** and are recorded so a later reviewer does not re-derive them: `subsets: ["latin"]` does not drop glyphs (Next emits all seven `unicode-range` slices; `subsets` scopes only the preload); `@theme` vs `@theme inline` is correct as written, since `--font-inter` lands on `<html>` = `:root`, the same element `--font-sans` is declared on; and the two `font_google_inter_*` chunks in `.next/dev` are build staleness, not two loaders.
+
+**Empirical confirmation the change reaches its target:** `.next/dev/server/next-font-manifest.json` lists the woff2 for `app/admin/page` and `app/auth/sign-in/page` as well as the crew page, with `appUsingSizeAdjust: true`. Admin and auth appearing at all is direct evidence the binding now reaches trees that previously loaded no font.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
