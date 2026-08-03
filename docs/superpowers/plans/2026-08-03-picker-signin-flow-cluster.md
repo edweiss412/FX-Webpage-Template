@@ -295,12 +295,24 @@ assertion dependent on content — R5 finding 3.
 **Two invariants in the §5 checklist are NOT killed by height/name-edge/containment alone, and
 need their own assertions:**
 
-- `items-center`: assert the spinner's vertical centre equals the row's vertical centre within
-  0.5px. Deleting `items-center` leaves row height, name edge, chip containment and chip
-  `white-space` all unchanged.
+- `items-center` on the ROW: assert the pending **chip's** measured height is strictly less than
+  the row's height. Do NOT assert spinner-centre-equals-row-centre — that does not discriminate:
+  the extracted subtree keeps its own nested `items-center` on the left group
+  (`_PickerInterstitial.tsx:210`), so deleting the row's `items-center` lets that group stretch to
+  the full cross-axis and re-centre the spinner inside itself, leaving both centres equal while the
+  right-hand chip stretches vertically — a broken layout the centre check cannot see (R6).
+  A stretched chip is exactly what the height comparison catches.
 - `size-4` on the spinner: assert its measured box is 16×16 within 0.5px. Deleting `size-4` lets
   Lucide fall back to 24×24 (lucide-react ships a 24x24 default in its `defaultAttributes` module),
   which is still under the 44px row floor, so a row-height comparison cannot see it.
+
+- `truncate` on the name span: assert its computed `textOverflow` is `ellipsis` **and** its
+  computed `overflow` is `hidden`. Geometry alone does not discriminate: Tailwind compiles
+  `truncate` to `overflow:hidden; text-overflow:ellipsis; white-space:nowrap`, and with it deleted
+  the retained parent `min-w-0` still shrinks while the `shrink-0` chip stays inside the row, so
+  row height, name-edge, chip containment, chip `white-space` and spinner geometry all stay green
+  while the name paints past its allocation (R6). Additionally assert the name span's right edge
+  does not exceed its parent's content-box right edge.
 
 **A short-name fixture cannot prove the layout classes.** Height plus name-edge both survive
 deleting `truncate`, `min-w-0`, `shrink-0`, or `whitespace-nowrap` when the content is short, so

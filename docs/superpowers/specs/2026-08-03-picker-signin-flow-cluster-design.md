@@ -274,7 +274,7 @@ here**, and the row names the environment that can actually settle it.
 | P9 | `aria-disabled` retains focus AND the focus ring | **UNSETTLED in jsdom** — jsdom reports `stillFocused=true` for the native-`disabled` case too (P4), so it discriminates nothing here. Playwright only, and the ring half needs the computed **`boxShadow`** oracle, not `document.activeElement`: `focus-visible:ring-2` paints a box-shadow while Chromium draws its own default outline on any focused element, so an outline check (or a bare activeElement check) stays green with every ring class deleted. Precedent + rationale: `tests/e2e/agendaScheduleLayout.spec.ts:542-555` | Playwright only |
 | P10 | A screen reader announces the `aria-disabled` row usefully while busy | **NOT MEASURED — accepted as unproven.** No automated harness in this repo can settle AT announcement text. The design does not depend on it: the chip text swap and the disabled-looking styling carry the state visually, and `aria-busy` is the standard signal. Recorded here rather than asserted | none — documented limit |
 | P11 | A native GET submit tears down the component, so local pending state cannot leak | TRUE by navigation semantics; the observable consequence (row not stuck) is asserted in Playwright, and the bfcache exception is the reason `pageshow` exists (§9) | Playwright |
-| P12 | `truncate` + `min-w-0` + `shrink-0` + `whitespace-nowrap` produce the claimed row layout | **Only partly settled by a short-name fixture.** Height and name-edge alone survive deleting any of those four classes when the content is short. §8.2 4a therefore adds a LONG-name, narrow-viewport fixture and asserts the chip stays inside the row box and the pending chip's computed `white-space` is `nowrap`. Without that oracle this row would be mislabelled settled | Playwright only |
+| P12 | `truncate` + `min-w-0` + `shrink-0` + `whitespace-nowrap` + row `items-center` produce the claimed row layout | **Geometry alone settles none of them.** Height and name-edge survive deleting any of these classes; even a long-name fixture leaves `truncate`'s deletion invisible, and a spinner-centre check cannot see `items-center`'s deletion because the left group re-centres within a stretched row. §8.2 therefore pairs each class with a **computed-style or stretch** oracle chosen to kill exactly that mutation | Playwright only |
 
 A claim may legitimately end up as **unproven** (P10) — what R9 forbids is an unproven claim that
 is not *labelled* as such, or one the design silently depends on. P10 is load-bearing for nothing;
@@ -453,6 +453,21 @@ does not apply to a native GET form (§3.4).
   which is the configuration most likely to change the row's height. A single role-bearing fixture
   would prove the easy substitution case and never exercise the addition that R4 introduces.
   jsdom cannot compute layout; this runs in Playwright.
+- Real-browser layout oracles that geometry alone cannot supply. Each is paired with the mutation
+  it kills, because the obvious geometric version of each does NOT discriminate:
+  - `truncate` → assert the name span's computed `textOverflow` is `ellipsis` and computed
+    `overflow` is `hidden`, plus its right edge within its parent's content box. Deleting
+    `truncate` leaves height, name-edge, chip containment, chip `white-space` and spinner
+    geometry all green while the name paints past its allocation.
+  - `items-center` on the row → assert the pending chip's height is strictly less than the row's.
+    A spinner-centre-vs-row-centre check does not discriminate: the left group carries its own
+    `items-center` (`_PickerInterstitial.tsx:210`) and re-centres the spinner within a stretched
+    group while the chip stretches unnoticed.
+  - `size-4` on the spinner → assert a 16×16 box within 0.5px. Without it lucide-react falls back
+    to 24×24, still under the 44px row floor, so a row-height comparison cannot see it.
+  - `whitespace-nowrap` on the pending chip → assert its computed `white-space` is `nowrap`.
+  Fixture for all of these: a 120-character single-token name at a 360px viewport, so `truncate`
+  is the only thing that can contain it and there is no wrapping opportunity.
 - Real-browser pending-vs-hover precedence: with the pointer over the row, assert the computed
   background while pending is the pending background, not `hover:bg-surface` (§6 row 1).
 - Real-browser focus retention AND ring: focus the row, drive it to pending, assert both that
