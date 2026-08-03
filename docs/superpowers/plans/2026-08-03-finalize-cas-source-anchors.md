@@ -58,7 +58,10 @@ Every case asserts `ok: true` explicitly, so a fail-closed implementation fails 
 pnpm vitest run tests/onboarding/shadowPayload.test.ts
 ```
 
-Expected: FAIL — `sourceAnchors` does not exist on `ParsedShadowPayloadForApply`, so the file does not even typecheck under `vitest`'s transform, and the assertions fail on `undefined`. Record the failure. Do not proceed until it is red for that reason.
+Expected: FAIL at runtime — `parsed.sourceAnchors` is `undefined`, so every assertion misses.
+Vitest does not typecheck (`vitest.config.ts` sets no `typecheck` block; `tsc` is the separate
+`pnpm typecheck` at `package.json:29`), so the missing type field surfaces there, not here. Record
+the runtime failure. Do not proceed until it is red for that reason.
 
 ### 1.2 GREEN
 
@@ -84,7 +87,13 @@ try {
 
 4. Return `sourceAnchors` in the `ok: true` object.
 
-**Verify before committing** that `coerceJsonbObject` maps `undefined`, `null`, and an array to `{}` rather than throwing or returning them — read `lib/db/coerceJsonbObject.ts:61` and make the RED cases the proof. If it returns an array as-is for the array case, normalize with an explicit `Array.isArray` guard rather than trusting the helper.
+`coerceJsonbObject` is fail-closed by design: it returns a non-array object as-is
+(`lib/db/coerceJsonbObject.ts:65`), decodes a JSON-string-of-object
+(`lib/db/coerceJsonbObject.ts:68`), and THROWS `JsonbCoercionError` for everything else — `null`,
+`undefined`, arrays, scalars, unparseable strings (`lib/db/coerceJsonbObject.ts:80`). The
+`try`/`catch` above is therefore the whole totalizing mechanism, not a belt-and-suspenders wrapper
+around a helper that already returns `{}`. No `Array.isArray` pre-guard is needed, and the shared
+helper must NOT be changed to be tolerant — three other call sites depend on it throwing.
 
 ### 1.3 Verify
 
@@ -189,11 +198,26 @@ Commit: `feat(onboarding): apply staged source anchors on the finalize-cas shado
 
 ## Task 4 — close-out
 
-1. Full suite: `pnpm test`. Any failure triaged against the merge-base before it is treated as this branch's.
-2. `pnpm spec:lint` on the spec; re-run the numeric and self-consistency sweeps over both spec and plan after every repair round.
+Order matters here, and one step is easy to get wrong: **the ledger marker comes off BEFORE the
+merge, not after.** Invariant 12's guard requires an in-progress entry's branch to exist on
+`origin` (`tests/docs/_metaLedgerInProgress.test.ts`), and the merge deletes that branch — so a
+marker that rides into `main` fails the guard on `main` and cannot be removed by any commit on a
+branch that no longer exists. It has to be in the PR's own diff.
+
+1. Full suite: `pnpm test`. Any failure triaged against the merge-base before it is treated as this
+   branch's.
+2. `pnpm spec:lint` on both spec and plan; re-run the numeric and self-consistency sweeps over both
+   after every repair round.
 3. Whole-diff cross-model adversarial review to APPROVE.
-4. Push, real CI green, `gh pr merge --merge`, fast-forward local `main`, verify `git rev-list --left-right --count main...origin/main` reports `0  0`.
-5. Clear the `BL-ONBOARDING-CAS-SOURCE-ANCHORS` IN PROGRESS marker (invariant 12) — in the same PR, so no marker outlives its branch. The entry graduates to `BACKLOG-archive.md` per the open-queue-only rule.
+4. **Final commit on the branch, before push:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the
+   whole entry moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the
+   open-queue-only rule at `BACKLOG.md:5`. The `**Status:** IN PROGRESS · **Branch:** …` line goes
+   away with it, which is what satisfies invariant 12 and its guard. Verify with
+   `pnpm vitest run tests/docs` before pushing.
+5. Push, real CI green, `gh pr merge --merge`.
+6. Fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` reports
+   `0  0`. Then clear the pane and agent labels and the pipeline marker — the only Stage-4.4 work
+   left, since the ledger edit already merged.
 
 ## Regression budget
 
