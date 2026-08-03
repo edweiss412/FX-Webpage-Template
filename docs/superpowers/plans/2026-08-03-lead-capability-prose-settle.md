@@ -94,7 +94,7 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M8 | The block emptied or truncated so the documented set no longer equals the gated set | parity guard, set-equality assertion | the documented names differ from the reflected non-exempt exports; the message names the difference |
 | M9 | A documented line rewritten with an unsupported operator (`&&`, `!`, nesting) | parity guard, shape assertion | expression fails the `token (\|\| token)*` shape |
 | M10 | A documented token that is neither a `RoleFlag` nor `isAdmin` (typo) | parity guard, vocabulary assertion | token ∉ `ALL_ROLE_FLAGS ∪ {isAdmin}` |
-| M11 | The `isAdmin` arm dropped from `financialsVisible`, or claimed for a predicate that takes no `isAdmin` argument | parity guard, `isAdmin` arm assertion | `fn([], true)` disagrees with `tokens.includes("isAdmin")` |
+| M11 | The `isAdmin` arm dropped from `financialsVisible`, or claimed for a predicate that ignores it | parity guard, unconditional both-values sweep | `fn([], true)` disagrees with the documented expression |
 | M12 | A `RoleFlag` added to the union without extending the guard's universe | **compile time** — `Exclude<RoleFlag, …> extends never` | `pnpm typecheck` fails |
 | M13 | A predicate added to `CAPABILITY_PREDICATES` without the matrix growing | matrix guard, derived pair-set | expected `C(n,2)` pairs, matrix has fewer; message names each missing pair |
 | M14 | A matrix entry deleted | matrix guard, pair-set equality | names the missing pair |
@@ -106,7 +106,8 @@ This enumeration **is the closure set the review converges against.** A reviewer
 | M21 | The sole exempt export deleted, leaving a stale exemption — **added at R5 with a live escaping mutant** | parity guard, dangling-exemption assertion | a `NOT_FLAG_GATED` key names no reflected export |
 | M22 | `is_admin()` gutted to `select false` while retaining `app_metadata`/`admin_emails` as dead strings — **added at R7 with a live escaping mutant against a containment-only assertion** | DB contract test, behavioral arms | the admin-claims case returns false |
 | M23 | A later migration redefines `is_admin()` to consult `role_flags` | DB contract test, resolved-definition assertion | `pg_get_functiondef` returns the NEW definition, which matches `/role_flags/i` |
-| M19 | A documented line claiming `isAdmin` for a predicate whose arity cannot receive it — **added at R2 with a probe: three predicates were never evaluated at `isAdmin = true`** | parity guard, arity-derived `adminGrants` assertion | `expect(adminGrants).toBe(false)` fails before the sweep runs |
+| M24 | An `isAdmin` arm added via a DEFAULT parameter, which `Function.length` does not count — **added at R9 with a live escaping mutant** | parity guard, unconditional both-values sweep | `fn([], true)` disagrees with the documented expression, which carries no `isAdmin` token |
+| M19 | A documented line claiming `isAdmin` for a predicate that ignores it — **added at R2** | parity guard, unconditional both-values sweep | the predicate answers identically for both values while the documented expression predicts a difference |
 
 M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each.
 
@@ -292,9 +293,21 @@ const REFLECTED: ReadonlyArray<readonly [string, FlagPredicate]> = Object.entrie
 
 const GATED = REFLECTED.filter(([name]) => !(name in NOT_FLAG_GATED));
 
-/** Arity decides the call shape, NOT a hand-written set. (R2 finding 3) */
+/**
+ * ALWAYS passes both arguments and ALWAYS sweeps both isAdmin values.
+ *
+ * R2 replaced a hand-written TAKES_IS_ADMIN set with `fn.length >= 2`; R9
+ * then refuted that too, because default parameters do not contribute to
+ * Function.length — `(flags, isAdmin = false) => isAdmin || …` reports
+ * length 1, so the guard never tried isAdmin=true and a mutant granting
+ * everything to admins passed clean. There is no reliable runtime signal for
+ * "does this take isAdmin", so the guard stops asking: it passes the second
+ * argument unconditionally. A predicate that genuinely ignores it returns the
+ * same answer either way, which is exactly what the documented expression
+ * (carrying no isAdmin token) predicts.
+ */
 function callPredicate(fn: FlagPredicate, flags: RoleFlag[], isAdmin: boolean): boolean {
-  return fn.length >= 2 ? fn(flags, isAdmin) : fn(flags);
+  return fn(flags, isAdmin);
 }
 ```
 
@@ -350,11 +363,7 @@ describe("documented predicate lines match live scopeTiles behavior", () => {
       expect(entry).toBeDefined();
       const fn = entry![1];
 
-      const takesIsAdmin = fn.length >= 2;
       const adminGrants = doc.tokens.includes("isAdmin");
-      // An arity-1 predicate cannot be granted by isAdmin, so a documented
-      // line claiming it is false regardless of any flag input. (R2 finding 3)
-      if (!takesIsAdmin) expect(adminGrants).toBe(false);
 
       let tokenMask = 0;
       ALL_ROLE_FLAGS.forEach((flag, i) => {
@@ -363,7 +372,7 @@ describe("documented predicate lines match live scopeTiles behavior", () => {
 
       const mismatches: string[] = [];
       const total = 1 << ALL_ROLE_FLAGS.length; // 2**20 = 1_048_576
-      for (const isAdmin of takesIsAdmin ? [false, true] : [false]) {
+      for (const isAdmin of [false, true]) {
         for (let mask = 0; mask < total; mask++) {
           const subset: RoleFlag[] = [];
           for (let i = 0; i < ALL_ROLE_FLAGS.length; i++) {
