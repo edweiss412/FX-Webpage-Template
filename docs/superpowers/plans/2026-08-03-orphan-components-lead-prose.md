@@ -6,8 +6,24 @@ every decision below is settled there, with citations). **Branch:**
 Claude Code (`components/` is Opus-owned by the AGENTS.md routing hard rule). **Reviewer:** Codex,
 adversarially, never as implementer.
 
-Twelve tasks, one commit each (invariant 6). Every task is TDD (invariant 1): the guard or test
-that fails without the change lands first, then the change.
+Twelve tasks, one commit each (invariant 6). **Every commit leaves the tree GREEN** — plan R1
+BLOCKING-2 caught a draft that knowingly committed a red guard and left it red for nine tasks.
+
+**TDD posture, stated precisely (plan R1 BLOCKING-1).** Invariant 1 wants the test that exercises a
+change to precede it. Most of this branch REMOVES code rather than adding behavior, so "write a
+failing test for a deletion" has two honest forms and one dishonest one:
+
+- **Contract-first (Tasks 2, 8, 9, 10):** the assertion is new and fails against current content.
+  Ordinary RED → GREEN. Task 10's assertion fails against the existing observational reason string.
+- **Mutation-proof (Tasks 3, 4):** the code under test is already correct, so a RED cannot come from
+  the test alone. The proof of non-vacuity is a MUTATION: break the live behavior, watch the
+  retargeted suite fail, revert, record both outputs in the commit message. This is stronger than a
+  RED-by-missing-selector, which proves only that a selector was stale.
+- **Rejected as dishonest:** calling a stale-selector failure a RED (draft Task 1), or a
+  guard-fails-because-the-repo-is-dirty state a RED (draft Task 0). Neither exercises the contract.
+
+A deletion task's own protection is the guard from Task 2 plus the existing suites; where a task
+adds no new assertion, it says so plainly instead of inventing one.
 
 ---
 
@@ -23,6 +39,9 @@ that fails without the change lands first, then the change.
 | `admin/ops` census | `rg -n "admin/ops" --glob '!node_modules' .` | 12 files, dispositioned in spec §4.2 |
 | The invariant-8 marker grammar | read `tests/docs/_invariant8Closeout.ts:45-49` | exactly `impeccable-gate: N/A — no UI surface` or the RAN form; no free-text reason on the marker line |
 | `spec:lint` on the spec | `pnpm spec:lint <spec>` | 0 hard, 33 advisory |
+| Ledger referential integrity | `pnpm vitest run tests/docs/_metaLedgerReferentialIntegrity.test.ts` | RED before Task 1 (two cited `BL-` ids defined nowhere), GREEN after. Plan R1 BLOCKING-3 |
+| Invariant-8 marker placement | `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` | A template placeholder fails `§4.1.2`; a declaring unit with no marker fails `§4.1.1`. Therefore the marker lands in the sibling closeout file in the SAME commit as the gate run (§12) |
+| Recovery-suite assertion count | `rg -n "expect\(" tests/components/RightNowCardRecovery.test.tsx \| rg "detail\(\)"` | **9** assertions, two of them negative — not 3 as the draft said. Plan R1 MEDIUM |
 | `spec:lint` on THIS plan | `pnpm spec:lint <plan>` | 0 hard once the citations to files this plan CREATES are discounted — `CITATION_FILE_MISSING` is a git-tracked-path check (`lib/specLint/citations.ts:128`), so a plan naming a file it has not written yet always trips it. Four genuine malformed-citation findings were repaired; the residue is exactly the three new test files named in §0.1. `spec:lint` is not a CI gate (no workflow invokes it) |
 
 ## 0.1 Meta-test inventory (mandatory declaration)
@@ -57,7 +76,22 @@ assertions, fixtures, boot mechanism, and hydration gates are untouched.
 
 ---
 
-## Task 0 — the retired-identifier guard (ships FIRST, before any deletion)
+## Task 1 — file the two backlog entries the spec and plan already cite (DONE — `28f974539`)
+
+**Failure mode it catches:** a doc promising a ledger entry that does not exist.
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` fails on any cited `BL-` id defined in no
+ledger, and the spec/plan commits cited `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` and
+`BL-BELLPANEL-DISMISS-COMMENT-DRIFT` before either existed — a red baseline, caught by plan R1
+BLOCKING-3.
+
+Both entries are filed in `BACKLOG.md` with the probes that established them. `tests/docs`: 9 files,
+207 tests, green. Task 11 still owns GRADUATION (moving `BL-LEAD-CAPABILITY-PROSE-STALE` to the
+archive and amending the other two entries); this task only makes the citations resolve.
+
+**Verify:** `pnpm test -- tests/docs`
+**Commit:** `docs(backlog): file the two entries the spec and plan already cite`
+
+## Task 2 — the retired-identifier guard (ships GREEN, before any deletion)
 
 **Failure mode it catches:** the one this branch kept re-learning. Three adversarial rounds each
 found references a hand-curated census missed, every time because a different `--glob` scoping
@@ -74,23 +108,33 @@ structural-defense calibration, the guard ships instead of a fourth curated list
      file is a dated record, and it carries the reason inline so a reviewer can check it.
    - Discovery is a walk of `git ls-files` (never a curated file list), excluding the guard's own
      ledger. Any hit in a file with no matching row FAILS, naming file, line, and identifier.
-2. **RED first, and the RED output is the work-list.** Seed `RETIRED_IDENTIFIER_HISTORY` EMPTY and
-   run it: the failure enumerates every live reference in the tree. Paste that output into the
-   commit message — it is the census, mechanically derived, and it replaces the spec §5 table as
-   the authority.
-3. Add ONLY the genuine-history rows now (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
-   `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records under
-   `docs/superpowers/specs/**` and `docs/superpowers/plans/**`, this plan, and the spec). Leave
-   every live reference RED — Tasks 3 through 6 turn them green by repairing them.
-4. **Anti-tautology:** assert the guard is non-vacuous — that it walks >100 files and that a
-   synthetic file containing a retired identifier with no allowlist row FAILS. A guard that passes
-   because its walk found nothing is the failure mode this whole task exists to prevent.
+2. **Derive the census mechanically, then commit GREEN.** Run the walker once with an empty
+   allowlist and capture its output: that list IS the census, and it goes in the commit message as
+   the mechanically-derived replacement for the spec §5 table. Then seed the allowlist so the guard
+   is GREEN at commit time (plan R1 BLOCKING-2 — a knowingly-red commit is mid-sequence breakage,
+   not TDD). Every row is one of two kinds, and the KIND is a field, not a comment:
+   - `{ kind: "history", reason }` — a dated record (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
+     `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records, this plan, the spec).
+   - `{ kind: "pending", repairedBy: "Task N", reason }` — a LIVE reference, owned by the task that
+     repairs it. Tasks 4-7 delete their `pending` rows as they repair the references.
+3. **Assert that `pending` is a transient state:** the guard fails if any `pending` row names a task
+   number that no longer exists in this plan, and Task 12 asserts **zero** `pending` rows remain.
+   Without that, "pending" would be an unbounded mute button — the exact failure the allowlist is
+   supposed to prevent.
+4. **RED first, against synthetic input (the honest form here).** Before the real ledger exists,
+   write the two family proofs against a temp fixture directory, mirroring how
+   `tests/components/_metaOrphanedComponents.test.ts` proves families (a)-(d) synthetically:
+   (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a `history`
+   row PASSES. Both must fail before the walker is written. This proves the contract regardless of
+   what the real tree happens to contain.
+5. **Anti-vacuity:** assert the walk covers >100 tracked files and that every configured identifier
+   was actually searched for (a typo'd identifier that matches nothing must fail, not pass).
 
-**Verify:** `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts` (expected RED, listing
-the live references), then `pnpm typecheck`
+**Verify:** `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts` (GREEN), then
+`pnpm typecheck`
 **Commit:** `test(docs): walk the tree for retired-identifier references instead of curating a census`
 
-## Task 1 — retarget the stale-tint recovery suite onto `RightNowHero`
+## Task 3 — retarget the stale-tint recovery suite onto `RightNowHero`
 
 **Failure mode it catches:** the Codex round-9 HIGH regressing in the LIVE component — stale tint
 pinned on `lastGood` after `unknown → show_day_n` recovery, so a crew member whose sync error
@@ -108,9 +152,21 @@ is pinned only against a component nothing renders.
    `right-now-detail` has NO hero counterpart in `show_day_n`: the hero sets `detail: null` and
    routes the call time into a `Show` stat (`components/crew/RightNowHero.tsx:158-178`) rendered as
    `data-stat="Show"` inside `data-testid="right-now-stats"`
-   (`components/crew/RightNowHero.tsx:571-585`). The three `Call: <t>` assertions read
-   `[data-stat="Show"] dd` instead. **Scope the extraction to that node**, never the whole hero, so
-   the lead line cannot satisfy the assertion by accident.
+   (`components/crew/RightNowHero.tsx:571-585`).
+
+   **Exact inventory — NINE assertions, not three** (plan R1 MEDIUM; counted with
+   `rg -n "expect\(" tests/components/RightNowCardRecovery.test.tsx | rg "detail\(\)"`):
+   lines `150`, `172`, `203`, `204`, `231`, `252`, `253`, `272`, `283`. Two of them are NEGATIVE
+   (`204`, `253`) and both are load-bearing — they are what makes reusing `lastGood` unable to pass.
+   Each `detail()` helper becomes `showStat()` = `container.querySelector('[data-stat="Show"] dd')`.
+
+   **The `Call: ` prefix does not survive the move.** The card rendered `Call: 14:00` as detail
+   text; the hero's stat splits label from value, so the `dd` contains `14:00` alone. Every
+   expectation drops the prefix, and the label is asserted SEPARATELY once per test
+   (`[data-stat="Show"] dt` has text `Show`) so dropping the prefix does not weaken what is
+   checked — the label assertion replaces the information the prefix carried.
+   **Scope every extraction to the stat node**, never the whole hero, so the lead line
+   ("Today: Show day 1 of 2") cannot satisfy a time assertion by accident.
 4. Update the header block: keep the spec context, the driving strategy, and **all four
    anti-tautology guarantees**, changing the component name and the detail-vs-stat carrier. The
    guarantee that the recovery assertion uses a callTime absent from `lastGood` (15:30 vs 14:00) is
@@ -119,11 +175,16 @@ is pinned only against a component nothing renders.
    (`components/crew/RightNowHero.tsx:158-161`), so the two values still render as different
    strings and a render-`lastGood` bug still cannot produce `15:30`. Note that fact in the header
    so the next reader does not "simplify" the fixture and silently defeat the pin.
-5. Run RED first, in two steps. (a) Point the suite at the hero with ONLY the root testid changed
-   and run it: it must fail on the missing `right-now-detail` node — that failure is the proof the
-   carrier really moved, and it is recorded in the closeout. (b) Apply the stat-carrier retarget
-   and watch it go green. A suite that is green at step (a) means the retarget was not exercised
-   and the assertion is tautological; strengthen it before proceeding.
+5. **Prove non-vacuity by MUTATION, not by a stale selector** (plan R1 BLOCKING-1). The hero's
+   unwind behavior is already correct, so no honest RED comes from the test alone. After the suite
+   is green:
+   (a) mutate `components/crew/RightNowHero.tsx` so the `morph-to-last-good` treatment is applied
+       symmetrically — i.e. reintroduce the round-9 bug — and run the suite. It MUST fail, and the
+       failing assertion must be one of the recovery ones (`203`/`204`'s successors), not a
+       structural one.
+   (b) `git checkout` the mutation and confirm green again.
+   Both outputs go in the commit message. If the mutation does not turn the suite red, the retarget
+   lost the regression and the task is not done — that is the ONLY acceptance criterion here.
 
 **Divergence rule:** if a hero copy or markup difference makes an assertion inapplicable, do NOT
 drop the assertion. Record the divergence in the closeout (§12) as a finding and adapt the
@@ -133,7 +194,7 @@ from the production render helper.
 **Verify:** `pnpm test -- tests/components/crew/rightNowHeroRecovery.test.tsx`
 **Commit:** `test(crew): retarget the stale-tint unwind pins onto the live RightNowHero`
 
-## Task 2 — retarget the reduced-motion-at-mount suite onto `RightNowHero`
+## Task 4 — retarget the reduced-motion-at-mount suite onto `RightNowHero`
 
 **Failure mode it catches:** the Codex round-19 MEDIUM regressing in the live component — a
 regression to an event-only read of the motion preference, where `data-prefers-reduced-motion`
@@ -146,15 +207,21 @@ client-only `render()`. It proves nothing about SSR or hydration, and it cannot:
 (`lib/a11y/usePrefersReducedMotion.ts:16-21`), and the hero treats `null` as "animate at full
 duration" (`components/crew/RightNowHero.tsx:337`). Write the header to say what it proves.
 
-Same procedure as Task 1 against `tests/components/RightNowCardReducedMotionInitial.test.tsx` →
+Same procedure as Task 3 against `tests/components/RightNowCardReducedMotionInitial.test.tsx` →
 `tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx`. The assertion reads
 `data-prefers-reduced-motion` on the root, which the hero carries at
-`components/crew/RightNowHero.tsx:470`.
+`components/crew/RightNowHero.tsx:470`, so the retarget here IS mechanically a root-testid swap
+(unlike Task 3).
+
+**That is exactly why it needs the mutation proof** (plan R1 BLOCKING-1 correctly observed this
+task had no reachable RED): mutate `components/crew/RightNowHero.tsx` to read the preference from
+an event-only source instead of the mount-time hook, run the suite, require RED; revert, require
+green. Record both. Without that step this task proves only that two hooks have the same name.
 
 **Verify:** `pnpm test -- tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx`
 **Commit:** `test(crew): retarget the reduced-motion-at-mount pin onto the live RightNowHero`
 
-## Task 3 — retire `RightNowCard`
+## Task 5 — retire `RightNowCard`
 
 **Failure mode it catches:** dead code that reads as live. Its comments are cited by six live files
 as though the card were the shipped hero, which is how a future reader ends up editing the wrong
@@ -200,7 +267,7 @@ component.
 then `pnpm typecheck`
 **Commit:** `chore(crew-page): retire RightNowCard, superseded by RightNowHero`
 
-## Task 4 — retire `PerShowCrewSection`
+## Task 6 — retire `PerShowCrewSection`
 
 **Failure mode it catches:** a guard (`no-load-show-crew-with-auth`) that keeps two of its three
 rows pointed at files nobody ships, so its green says less each release.
@@ -220,7 +287,7 @@ rows pointed at files nobody ships, so its green says less each release.
 **Verify:** `pnpm test -- tests/cross-cutting tests/help tests/components/_metaOrphanedComponents.test.ts`
 **Commit:** `chore(admin): retire PerShowCrewSection, superseded by the modal's CrewBreakdown`
 
-## Task 5 — retire `ResolveAlertButton`
+## Task 7 — retire `ResolveAlertButton`
 
 **Failure mode it catches:** the destructive-confirm registry
 (`tests/styles/_metaDestructiveConfirm.test.ts`) pinning the confirm styling of a button no user
@@ -248,7 +315,7 @@ can reach, while five live files cite it as the pattern to copy.
 **Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
 **Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's resolve control`
 
-## Task 6 — retire `RunFinalCASButton`
+## Task 8 — retire `RunFinalCASButton`
 
 **Failure mode it catches:** three test files exercising a finalize path no operator can trigger,
 which reads as finalize coverage and is not.
@@ -275,7 +342,7 @@ which reads as finalize coverage and is not.
 **Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts`
 **Commit:** `chore(admin): retire RunFinalCASButton, superseded by FinalizeButton's finish mode`
 
-## Task 7 — amend the `WrappedTile` allowlist row to its decided terminal state
+## Task 9 — amend the `WrappedTile` allowlist row to its decided terminal state
 
 **Failure mode it catches:** the next sweep reading a one-row ledger as unfinished work and
 deleting a file three ratified contracts retain — which would orphan `TileErrorBoundary` and
@@ -288,17 +355,24 @@ deleting a file three ratified contracts retain — which would orphan `TileErro
    `docs/superpowers/specs/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md:657` and
    pinned by `tests/crew/_metaTileProducerTopology.test.ts:169`; deletion cascades to two more
    files. Keep the `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` backlog id — the entry stays open.
-2. Assert the ledger is now exactly one row, and that the row is `WrappedTile`, in
-   `tests/components/_metaOrphanedComponents.test.ts`. **Failure mode:** a future deletion silently
-   re-growing the ledger instead of emptying it, or this row being dropped without the cascade
-   being handled.
+2. **Assert the REASON, not just the row count** (plan R1 BLOCKING-1: a bare one-row assertion is
+   already true after Tasks 5-8 and exercises nothing). In
+   `tests/components/_metaOrphanedComponents.test.ts`, assert that the sole surviving row is
+   `components/shared/WrappedTile.tsx` AND that its `reason` names all three things a future sweep
+   needs in order not to delete it: the ratified KEEP document, and both cascade dependents
+   (`TileErrorBoundary`, `TileServerFallback`). Run it RED against the current observational reason
+   ("Referenced only in sibling comments; also the sole hit of an all-importers probe"), which
+   names none of them, then rewrite the reason to satisfy it.
+
+   **Failure mode it catches:** the reason decaying back into an observation, so the next sweep
+   reads a one-row ledger as unfinished work and deletes a file three ratified contracts retain.
 3. Confirm the retention guards are still green:
    `tests/crew/_metaTileProducerTopology.test.ts`, `tests/migration/crew-redesign-cleanup.test.ts`.
 
 **Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/crew/_metaTileProducerTopology.test.ts tests/migration/crew-redesign-cleanup.test.ts`
 **Commit:** `chore(components): record WrappedTile's retention as a decided terminal state`
 
-## Task 8 — correct the `capabilityTransitions` predicate quote + ship the anti-drift guard
+## Task 10 — correct the `capabilityTransitions` predicate quote + ship the anti-drift guard
 
 **Failure mode it catches:** a comment block labelled "verbatim branch logic"
 (`lib/visibility/capabilityTransitions.ts:118`) quoting a predicate that gained a branch at
@@ -309,7 +383,14 @@ that has been three-branch since 2026-07-16.
    predicate lines out of the `capabilityTransitions.ts` header block, reads the corresponding
    function bodies out of `lib/visibility/scopeTiles.ts`, and asserts the FLAG SET named in each
    quote equals the flag set the function references (plus `isAdmin` where the function takes it).
-   It must FAIL on `financialsVisible` before the fix. **Anti-tautology:** the expected set is
+   It must FAIL on `financialsVisible` before the fix.
+
+   **Anti-vacuity, mandatory** (plan R1 HIGH-1): assert that **exactly four** quote/function pairs
+   were discovered (`audioScopeVisible`, `videoScopeVisible`, `lightingScopeVisible`,
+   `financialsVisible`) and that BOTH extractions returned non-empty text for each. Set equality
+   alone passes vacuously if a quote line is later deleted or the header block is renamed — zero
+   comparisons is a pass under `toEqual`. Add a synthetic proof that a header with a REMOVED quote
+   line fails, so the guard cannot be silenced by deletion. **Anti-tautology:** the expected set is
    extracted from `scopeTiles.ts` source, never hardcoded in the test, so the test cannot pass by
    agreeing with a stale constant; and it asserts set EQUALITY, so a quote that omits a branch
    fails as loudly as one that invents a branch.
@@ -321,7 +402,7 @@ that has been three-branch since 2026-07-16.
 **Verify:** `pnpm test -- tests/visibility` and `pnpm typecheck`
 **Commit:** `fix(visibility): the header's verbatim predicate quote drifted; pin it against the source`
 
-## Task 9 — correct master spec MI-9 + ship the capability-claim guard
+## Task 11 — correct master spec MI-9 + ship the capability-claim guard
 
 **Failure mode it catches:** a contract table asserting a capability the code does not grant. A
 reader planning auth work from MI-9 would believe a sheet edit can confer admin access; it cannot
@@ -333,6 +414,23 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
    `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2865` (history, deliberately preserved)
    does not make it fail. **Anti-tautology:** the test must fail on the CURRENT text before the
    edit — run it RED and record the output.
+
+   **Anti-vacuity, mandatory** (plan R1 HIGH-2): assert that **exactly one** MI-9 row was located
+   and that its extracted text is non-empty and longer than 200 characters. If the row is ever
+   deleted or its heading drifts, extraction returns empty and a naive ban passes on nothing.
+
+   **Recognizer shape, specified rather than left to implementation** (plan R1 HIGH-2 again). The
+   corrected row deliberately CONTAINS the words "admin" and "grants" — it says neither capability
+   flag grants admin access and names `is_admin()`. So a raw admin/grant ban cannot go green. The
+   recognizer is a POSITIVE-claim matcher: it fails on a sentence where a capability subject
+   (`LEAD`, `FINANCIALS`, `role_flags`, "capability role") is the grammatical subject of a granting
+   verb (`grants`, `unlocks`, `confers`, `gives access to`) whose object names an admin/ops surface
+   (`admin`, `admin/ops`, `ops surface`, `admin surface`) — with a NEGATION guard so "neither … grants
+   … admin access" and "never grants" do not match. Fixture-test the recognizer against four
+   strings in the test file itself: the pre-edit MI-9 text (must match), the post-edit MI-9 text
+   (must not), "LEAD additionally grants the admin/ops surface" (must match), and
+   "LEAD does not grant admin access" (must not). Those four fixtures are what make the recognizer
+   reviewable instead of a regex nobody can audit.
 2. Correct the clause: state that LEAD additionally unlocks the audio/video/lighting scope tiles
    (`lib/visibility/scopeTiles.ts:86`, `lib/visibility/scopeTiles.ts:97`,
    `lib/visibility/scopeTiles.ts:114`) and renders the crew-page "Lead" chip
@@ -357,7 +455,7 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
 `pnpm spec:lint docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`
 **Commit:** `docs(spec): MI-9 no longer claims LEAD grants an admin surface`
 
-## Task 10 — backlog graduation
+## Task 12 — backlog graduation
 
 **Failure mode it catches:** a queue that silently becomes a changelog (`BACKLOG.md:5`), and a
 settled decision that reads as open work.
@@ -390,14 +488,24 @@ settled decision that reads as open work.
 **Verify:** `pnpm test -- tests/docs/backlogClusterArchival.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts`
 **Commit:** `docs(backlog): graduate the LEAD-prose entry, amend the orphan entry, file the matrix gap`
 
-## Task 11 — closeout + whole-diff adversarial review
+## Task 13 — closeout, UI gate, and whole-diff adversarial review
 
-1. Write §12 below with the invariant-8 marker, the impeccable disposition, and the findings
-   ledger from every round.
-2. Full local gate: `pnpm typecheck && pnpm lint && pnpm test`.
-3. Whole-diff Codex review (fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list from spec §1)
+1. **Assert the ledger has no `pending` rows left.** Extend
+   `tests/docs/retiredIdentifierReferences.test.ts` (Task 2 step 3) with the terminal assertion:
+   zero rows of `kind: "pending"`. Run it RED before Tasks 5-8 land their repairs if you want the
+   proof; at this point it must be GREEN, and its greenness is the mechanical statement that the
+   census reached zero live references.
+2. **Run BOTH halves of the invariant-8 UI gate** on the finished diff, with the canonical v3 setup
+   gates (`context.mjs` context load of `PRODUCT.md` + `DESIGN.md`, then the register reference
+   read). This branch DOES touch UI surfaces by the letter of `AGENTS.md` invariant 8 — see §12.
+   P0/P1 findings are fixed, or deferred with a `DEFERRED.md` entry.
+3. Write §12's findings ledger: one row per adversarial finding across the spec rounds (R1-R4), the
+   plan rounds, and the whole-diff round, each with its disposition. Refuted diff-only claims are
+   recorded too, per the AGENTS.md rule.
+4. Full local gate: `pnpm typecheck && pnpm lint && pnpm test`.
+5. Whole-diff Codex review (fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list from spec §1)
    to APPROVE.
-4. Push, real CI green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
+6. Push, real CI green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
 
 **Commit:** `docs(plan): close out the orphan-components + LEAD-prose cluster`
 
@@ -405,14 +513,29 @@ settled decision that reads as open work.
 
 ## 12. Close-out
 
-impeccable-gate: N/A — no UI surface
+**Where the marker lives.** The machine-checkable marker line is written into a stem-named sibling
+closeout file, `docs/superpowers/plans/2026-08-03-orphan-components-lead-prose-closeout.md`, created
+by Task 13 **in the same commit as the gate run** — the style `AGENTS.md` invariant 8 allows for flat
+plans. It is deliberately NOT in this file today: `tests/docs/_metaInvariant8Closeout.test.ts` accepts
+only a filled `RAN` form or the `N/A` form, and both would be false right now. A marker is a claim,
+and the claim becomes true the moment the gate runs, not before. (Verified empirically: a template
+placeholder here fails `§4.1.2 no malformed marker line`, and a declaring unit with no marker fails
+`§4.1.1` — so the marker and the gate run must land together, which is the point of the rule.)
 
-**Reason (prose, because the marker grammar admits none):** every task is a deletion, a comment
-repair, a test retarget, or markdown. Four components are deleted and nothing replaces them in any
-tree; no mount is wired (spec §1 item 4); no rendered surface is added, removed, or restyled; no
-`@theme` token block, `DESIGN.md`, or Tailwind config is touched. `/impeccable critique` and
-`/impeccable audit` have no surface to evaluate. Had any of the five been remounted, the dual gate
-would be mandatory and this disposition would not apply.
+**The disposition is RAN, not `N/A`.** The draft claimed
+`N/A — no UI surface` and, three lines later, that `DESIGN.md` is not touched. Plan R1 BLOCKING-4
+caught both halves: Task 5 edits `DESIGN.md:216` and several files under `components/**`, and
+`AGENTS.md` invariant 8 defines EITHER as a UI surface. The contradiction was mine, introduced when
+spec R1 added `DESIGN.md` to the collateral inventory, and the honest resolution is to run the gate
+rather than to argue the definition.
+
+**What the gate will find, stated in advance so the run is a check and not a discovery:** no
+rendered output changes on this branch. Every edit inside a UI-surface file is a comment or prose
+line, except whole-file deletions of components with no call site. Task 13 records that claim
+MECHANICALLY — `git diff origin/main -- 'app/**' 'components/**' DESIGN.md app/globals.css` filtered
+to non-comment, non-deleted-file lines must be empty — and the gate's own findings go in the ledger
+below either way. If the gate surfaces a P0/P1 anyway, it is fixed or deferred with a `DEFERRED.md`
+entry; "we expected nothing" is not a disposition.
 
 **Findings ledger:** filled in at close-out — one row per adversarial-review finding across the
 spec, plan, and whole-diff rounds, each with its disposition (fixed / deferred with a `DEFERRED.md`
