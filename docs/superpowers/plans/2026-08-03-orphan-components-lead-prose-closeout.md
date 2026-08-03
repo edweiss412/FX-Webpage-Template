@@ -99,6 +99,32 @@ and each was class-swept rather than fixed as a single instance.
 | Whole-diff R2 | NEEDS-ATTENTION | 1 HIGH, 1 MEDIUM, 3 LOW | A THIRD in-force claim in `00-overview.md` — canonical prose that fell in the gap between both guards; four more recognizer escapes including a fixed negation window that mis-cleared "No role_flags element grants admin access"; the master spec was archive-globbed, so an injected reference there was silently exempt; the census omitted `PublishShowButton`; four skipped e2e suites relabelled but still targeting the deleted hook |
 | **Real CI** | FAIL → fixed | 2 | Prettier on three files, and `_metaStripCommentsSingleSource` flagging a hand-rolled `//` strip in the new parity guard. **Both were invisible to every local run** — the meta-test walks `tests/`, so it only fires in a full-suite run. This is the local-passes-CI-fails class `AGENTS.md` names, caught by the gate that exists for it |
 
+| Whole-diff R3 | NEEDS-ATTENTION | 3 MEDIUM, 2 LOW | R2's own fix had narrowed the scan to comments only, dropping string/template/JSX text; the object vocabulary was an enumerated noun list; 23 README catalogs were archive-globbed; seven drifted line citations; an unasserted label helper |
+| Whole-diff R4 | NEEDS-ATTENTION | 3 MEDIUM, 1 LOW | Missing verb families; contrastive idioms suppressing real claims; three-line claims evading both scan paths; three stale cardinality comments |
+| Whole-diff R5 | **NOT RUN** | — | The Codex account hit its usage limit mid-dispatch (three attempts, all `ERROR: You've hit your usage limit`, resets 2026-08-09). Per the `AGENTS.md` codex-guard contract a `no_verdict` is an infrastructure fault, not a clean review, and the ratified response is the skip/self-review ladder — taken below |
+
+### The R5 skip, and what replaced it
+
+Codex was unavailable, so the round was self-reviewed against the same bar, with probes rather than
+reading:
+
+- **Both new guards catch planted violations.** `// LEAD confers administrator rights` in a `lib/`
+  string literal fails `capabilityClaimProse` by file and line; a fresh `PerShowCrewSection`
+  reference in a tracked `lib/` file fails `retiredIdentifierReferences`. Removing each returns
+  green. (The second must be `git add`ed first — discovery is `git ls-files`, deliberately, since an
+  untracked scratch file is not a reference the repo carries.)
+- **The four retirements are unreachable.** No JSX render site and no import specifier for any of
+  them survives in `app/`, `components/`, `lib/`, or `tests/`.
+- **The retargeted suites still catch their regressions.** Re-running the round-9 mutation
+  (dropping the directional guard from `showLastGood`) turns the recovery suite RED on two tests;
+  reverting returns green with the hero byte-identical.
+
+**Judgement recorded plainly:** four whole-diff rounds ran and converged — R1 BLOCKING, then
+NEEDS-ATTENTION three times with a falling severity profile, every finding closed with a probe and
+its own fixture. The branch never received a whole-diff APPROVE, because the reviewer became
+unavailable before it could give one. That is a real gap in the pipeline as written, and it is
+recorded here rather than papered over.
+
 **What the whole-diff rounds cost, and why it was worth it.** R1 and R2 together found
 seventeen issues in code that had already passed nine spec/plan rounds — because those rounds
 reviewed DOCUMENTS and these reviewed the artifact. Two would have broken the branch outright (the
