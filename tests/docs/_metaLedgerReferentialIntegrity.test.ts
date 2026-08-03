@@ -90,42 +90,16 @@ const NOT_CITATIONS = new Set([
  * stale, and a row nobody cites any more fails as dead.
  */
 const KNOWN_DANGLING: Record<string, string> = {
-  "BL-ADMIN-EYEBROW-FAINT-CONTRAST":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-ATTENTION-PILL-FOCUS-UNWIRED":
     "cited in docs/superpowers/plans/2026-07-24-attention-index.md — no entry as of 2026-08-02",
-  "BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-BLOCKRES-DISABLED-WIRING":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-BLOCKRES-ESCALATED-HELP":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-BLOCKRES-HELP-GATING":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-CI-P3-FILE-GRANULAR-SERIAL":
     "cited in docs/superpowers/specs/ci/2026-07-20-ci-overlap-boot-with-setup.md — no entry as of 2026-08-02",
   "BL-CI-UNIT-SUITE-PHASE2":
     "cited in docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md — no entry as of 2026-08-02",
-  "BL-DATAQUALITY-BADGE-SEGMENT-GLYPH":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-DATAQUALITY-BADGE-TOUCH-DETAIL":
-    "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
   "BL-DESTRUCT-FORK-FOCUS-TRANSFER":
     "cited in docs/superpowers/plans/admin/2026-07-25-destruct-thumb-order-drift-guard.md +1 more — no entry as of 2026-08-02",
   "BL-E2E-REPORT-MODAL-UNRUNNABLE":
     "cited in docs/superpowers/plans/2026-07-26-ci-dark-descoped-closeout/plan.md — no entry as of 2026-08-02",
-  "BL-FLOW4":
-    "cited in docs/superpowers/plans/step3-onboarding/2026-07-16-mobile-autoapplied-parity.md +1 more — no entry as of 2026-08-02",
-  "BL-FLOW4-BULK-UNDO-ERROR-SURFACE":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-FLOW4-CONFIRM-DANGER-STYLE":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY":
-    "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
-  "BL-HERO-SEGMENT-VIBRANCY":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-MOBILEPARITY-STRIP-HEADING-SIZE":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-MUTATION-COLUMN-SHIFT":
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-MUTATION-MERGED-CELL":
@@ -138,10 +112,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-NEEDS-ATTENTION-HOLDS-ROLLUP":
     "cited in docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md — no entry as of 2026-08-02",
-  "BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-OVERRIDE-ORPHAN-SALIENCE":
-    "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-PARSER-ADDRESS-SPLIT-AMBIGUITY":
     "cited in docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md +3 more — no entry as of 2026-08-02",
   "BL-PARSER-HOTEL-INLINE-AMBIGUITY":
@@ -168,8 +138,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-UNPUBLISH-TO-HELD":
     "cited in docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md — no entry as of 2026-08-02",
-  "BL-VENUE-DEGRADED-TILE-LABEL":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-VERSION-AMBIGUOUS-V1-OVERRIDE":
     "cited in docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md — no entry as of 2026-08-02",
 };

@@ -8,6 +8,74 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## Impeccable-gate deferrals whose backlog row was never opened (filed retroactively 2026-08-02)
+
+Fifteen ids named by a `Backlog: BL-…` line at the end of a `DEFERRED.md` gate deferral, where the row that line promises was never created in `BACKLOG.md`. Each deferral has since closed — resolved by a later pass, or made moot when its surface was removed — so the promised row never had an open life to have; but the ids stay cited from specs, plans, and `DEFERRED-archive.md`, and this file's contract is that every such reference resolves to something readable (see the preamble above).
+
+Filed here at their already-terminal state rather than as open work, because none of them is open. Each row names the deferral id it came from, so the full finding, its deferral rationale, and its resolution stay in `DEFERRED-archive.md` rather than being duplicated. Three of these say in as many words that no row was ever filed (`BL-VENUE-DEGRADED-TILE-LABEL`, `BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL`, and `BL-COLLAPSEPANEL-REGION-OPTOUT`, which has its own section below); the pattern generalizes to all fifteen.
+
+### BL-ADMIN-EYEBROW-FAINT-CONTRAST — RESOLVED (2026-07-16, accent-contrast token pass)
+
+From `VCR-1` (venue-card-redesign impeccable critique, P1). The shared Stage-3 eyebrow token `--color-text-faint` rendered 10px uppercase labels at roughly 3.0-3.75:1, under the 4.5:1 AA floor, on every Stage-3 card rather than just the venue one — which is why the auditor asked for a token-level disposition instead of a per-card patch. Closed by the accent-contrast token pass: `CELL_EYEBROW_CLASS`, the hard-coded venue and dock eyebrows, and the map badge all re-pointed to `text-subtle`, with a wizard 10px-faint scan pinning the class.
+
+### BL-AUTOAPPLIED-KINDDOT-NONCOLOR-TELL — RESOLVED (2026-07-17, `fix/autoapplied-kinddot-tell`)
+
+From `KINDDOT-1`. `KindDotCluster` distinguished `crew_removed` (warn `#b26a16`) from `crew_renamed` (review `#a87716`) by hue alone, which a color-vision-limited operator on a sunlit floor cannot rely on. Ratified as not a WCAG 1.4.1 violation (dots are `aria-hidden` with a cluster `aria-label` naming every kind, and every disposition control lives behind the expand), so it was deferred as polish. Closed when the shows-glance-legibility pass fired: the destructive marker became a shape-distinct centered minus-bar, non-removed kinds stay filled discs, and every marker gained a shape-independent `data-testid`.
+
+### BL-BLOCKRES-ESCALATED-HELP — RESOLVED (2026-07-17)
+
+From `BLOCKRES-1` (P2). `BlockedRowResolver`'s escalated state carried no `HelpAffordance`, so Doug lost the "What does this mean?" context every other error branch offers while a developer clears the block. The original deferral rationale — that it conflicts with the no-clickable-trigger contract — was itself wrong: the Task 11 test pins no `<button>` and no `[role="button"]`, and a disclosure `<summary>`/`<a>` is neither, while the invariant-5 escalation test already strips the `help-affordance` subtree. Closed by rendering `<HelpAffordance code={code}>` on the escalated branch.
+
+### BL-BLOCKRES-HELP-GATING — RESOLVED (2026-07-17)
+
+From `BLOCKRES-2` (P2). `errorCopy: string | null` became a discriminated `{ kind: "coded"; copy; code } | { kind: "plain"; copy } | null`, so `HelpAffordance` renders only on coded branches (`needs_attention`, `busy`), keyed to the RESPONSE `body.code` — the same code the dougFacing copy comes from. This matches `RescanSheetButton`'s info-vs-coded split and fixed a latent mismatch where help used the row `code` while copy came from `body.code`. Code-less statuses now render a plain line with no disclosure.
+
+### BL-BLOCKRES-DISABLED-WIRING — CLOSED AS DESIGNED (2026-07-17)
+
+From `BLOCKRES-4` (P3). `BlockedRowResolver`'s `disabled` prop (freeze during an active publish or finalize run) stays implemented and tested but is deliberately not wired from either call site. Both panels render the resolver only in `cas_per_row` state, which is mutually exclusive with `running`; the auto-retry flips state to `running` and unmounts the whole panel. So `disabled={isRunning}` would always be `false` where the resolver renders — dead wiring, and a weaker freeze than the unmount it would duplicate. The prop is retained for the standalone contract and for a future architecture where the panel stays mounted during retry.
+
+### BL-DATAQUALITY-BADGE-TOUCH-DETAIL — RESOLVED (2026-07-17, `feat/badge-affordance-a11y`)
+
+From `FLOW4-2`. The roster/gap breakdown reached sighted users only through a `title` tooltip on a non-focusable `<span>`, invisible on touch and keyboard. `DataQualityBadge` now renders the signal type and count as visible chips (glyph plus `tabular-nums` count), dissolving the `title`-only dependency; the full class-level breakdown stays in the byte-preserved `aria-label`/`title` as progressive enhancement, and the component stays hook-free and presentational.
+
+### BL-DATAQUALITY-BADGE-SEGMENT-GLYPH — RESOLVED (2026-07-17, `feat/badge-affordance-a11y`)
+
+From `FLOW4-3`. One amber `TriangleAlert` conflated parse gaps with roster shift, so a glance could not tell them apart. The badge now renders up to two chips — `Users` for roster changed, `TriangleAlert` for parse gaps, roster first — each with a visible count. Distinction is carried by glyph shape and count, never hue: both stay `text-status-warn-text`, upholding the DESIGN §1 color-blind floor. The split is recorded as a DESIGN.md §1.3 decision.
+
+### BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY — RESOLVED (2026-07-16)
+
+From `FLOW4-1`. `RecentAutoAppliedStrip` mounted only inside the desktop inbox column, so an operator under 720px saw the amber roster-shift badge in `ShowsTable` with no path to review, count, Accept, or Undo. Closed by mounting the strip on `/admin/needs-attention` (the mobile full-list route the summary card already links to, at `headingLevel=2`) plus a mobile summary-card signal.
+
+### BL-FLOW4-BULK-UNDO-ERROR-SURFACE — RESOLVED (2026-07-16, destructive-confirm pass)
+
+From `FLOW4-4`. `confirmUndoAll` awaited `undoFromDashboardAction` per id and discarded each result, closing the confirm panel regardless, so a partial failure such as `UNDO_SUPERSEDED` produced no explicit message — only the implicit tell that the failed row stayed visible after revalidation. Closed by an aggregate `role="alert"` ("Couldn't undo N of M…") shipped in the destructive-confirm pass, with thrown actions counted as failures.
+
+### BL-FLOW4-CONFIRM-DANGER-STYLE — RESOLVED (2026-07-16)
+
+From `FLOW4-5` and `FLOW4-6`, which named the same row. `FLOW4-5`: the Undo-all confirm rendered "Keep changes" and "Undo all N" as near-identical neutral buttons, a mis-tap risk on a phone. `FLOW4-6`: `confirmUndoAll` unmounted the confirm panel while focus could sit on the confirm-go button, dropping focus to `<body>`. Closed by the inverted-amber destructive recipe (`bg-warning-text`/`text-warning-bg`) shipped project-wide and pinned by `tests/styles/_metaDestructiveConfirm.test.ts`, plus a guarded focus restore to the disclosure toggle (ejection-aware, capture-at-click) on both the cancel and completion paths.
+
+### BL-HERO-SEGMENT-VIBRANCY — RESOLVED (2026-07-17, `feat/hero-segment-vibrancy`)
+
+From `ACCENT-PASS-1` (P2). The hero's active show-day segment had been changed `bg-accent` to `bg-accent-on-bg` to clear WCAG 1.4.11, costing brand vibrancy on the one surface PRODUCT.md reserves for expressive orange. Closed by `border border-accent-edge bg-accent`: the vibrant fill is restored and the 3:1 boundary is carried by the edge stroke, the same recipe the toggles and the wizard active pill already use. The edge clears 3:1 on every surface the segment can render on, including the stale-tint morph path; the inactive `bg-border` track is unchanged under its pre-existing ratified contract.
+
+### BL-MOBILEPARITY-STRIP-HEADING-SIZE — RESOLVED (2026-07-17, `fix/mobileparity-heading-fixes`)
+
+From `MOBILEPARITY-1`. `RecentAutoAppliedStrip` kept `text-sm` on its section heading at both `headingLevel` values, so on `/admin/needs-attention` a semantic `<h2>` rendered at 14px, visually subordinate to the group cards under it. Bumped to `text-base` at BOTH mounts rather than forked by level, preserving §D3's identical-classes-across-contexts invariant; 16px stays below both parents at both mounts, so no hierarchy inverts. Class equality across mounts is now pinned by test, which promotes §D3 from prose to an executable invariant.
+
+### BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER — MOOT (2026-07-16, surface removed in PR #382)
+
+From `OVR-5`. The reused `OverrideableField` paused branch rendered "Re-point"/"Discard" with no field qualifier, so a screen-reader user tabbing orphan rows heard the same pair repeatedly, and the visible `ORPHAN_FIELD_LABEL` span was not linked by `aria-labelledby`. Deferred because it was an inherited pattern shared by every override surface and belonged at the shared-component level. Never filed, and moot before it could be: PR #382 removed the orphan-block surface. Recorded rather than dropped, because the underlying shared-`OverrideableField` shape would return with any future override surface.
+
+### BL-OVERRIDE-ORPHAN-SALIENCE — MOOT (2026-07-16, surface removed in PR #382)
+
+From `OVR-6`. The "Paused overrides" section used the same calm neutral tokens as the non-actionable Show-details and Hotels blocks, so nothing signalled that it needed action, and "Re-point" is jargon for a non-technical operator. Deferred as an enhancement rather than a correctness gap, since the durable needs-attention stream already draws Doug to the item and this block is the deep-link target, not the primary alert. Moot with the same PR #382 removal.
+
+### BL-VENUE-DEGRADED-TILE-LABEL — RESOLVED (2026-07-17, `venue-degraded-tile-glyph`)
+
+From `VCR-4` (P3). On the permanently link-only degraded tile (empty geocode query plus a valid `mapHref`), the always-painted stripe base still carried the `map` mono label, visually identical to the transient loading state, so nothing distinguished "map coming" from "no map, ever". Closed by rendering a centered `MapPin` "no preview" glyph empty state on the terminal tile while the standard and loading tiles keep `map`. `VCR-4`'s own trigger line sanctioned that label divergence in advance.
+
+---
+
 ## BL-TRANSPORT-VIEWER-NAME-MATCH — RESOLVED (2026-06-26, `c0165ad05`)
 
 **Filed:** retroactively 2026-08-02 · **Resolved:** 2026-06-26, `c0165ad05` `fix(crew-page): name-aware transport-tile viewer match (namesRefer)` · **Class:** crew-page visibility correctness · **Effort:** S
