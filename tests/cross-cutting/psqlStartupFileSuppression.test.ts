@@ -1087,6 +1087,83 @@ describe("R13 escaping mutants — bash dynamic-FD redirections", () => {
   });
 });
 
+describe("R14 escaping mutants", () => {
+  // `{ shell: true }` makes node join argv with spaces and hand it to the
+  // shell, which removes redirections and re-splits. The literal reading saw a
+  // standalone `-X`; the real argv is `-F -X mydb`, where `-X` is the field
+  // separator. Certified is a FALSE SAFE.
+  test.each(["execFileSync", "execFile", "spawnSync", "spawn"])(
+    "%s argv that only suppresses under a LITERAL reading is not certified",
+    (callee) => {
+      const source = `${callee}("psql", ["-F", "2>/dev/null", "-X", "mydb"], { shell: true });`;
+      const sites = scanSource(source, "x.mjs");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    },
+  );
+
+  test.each([
+    ['{ "shell": true }', `{ "shell": true }`],
+    ["{ [`shell`]: true }", "{ ['shell']: true }"],
+    ["{ shell }", "{ shell }"],
+    ["an external identifier", "options"],
+    ["no options object at all", undefined],
+  ])("the same holds with %s — the options object is never read", (_name, options) => {
+    const tail = options === undefined ? "" : `, ${options}`;
+    const source = `execFileSync("psql", ["-F", "2>/dev/null", "-X", "mydb"]${tail});`;
+    expect(scanSource(source, "x.mjs")[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("an ordinary options-first argv is still certified", () => {
+    // Precision: the dual reading must not cost the 75 real call sites.
+    const source = `execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", dsn]);`;
+    expect(scanSource(source, "x.mjs")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("a quoted -c value with a space is still certified", () => {
+    const source = `execFileSync("psql", ["-X", "-c", "select 1", dsn]);`;
+    expect(scanSource(source, "x.mjs")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // Ordinary command-STRING consumers beyond the shells and `eval`.
+  test.each([
+    ["env -S", 'env -S "psql -qAt mydb"'],
+    ["env -S attached", 'env -S"psql -qAt mydb"'],
+    ["ssh with a quoted remote command", 'ssh database "psql -qAt mydb"'],
+    ["su -c", 'su - postgres -c "psql -qAt mydb"'],
+    ["runuser -c", 'runuser -u postgres -c "psql -qAt mydb"'],
+    ["watch", 'watch "psql -qAt mydb"'],
+  ])("%s is a site", (_name, command) => {
+    const sites = sitesIn(`${command}\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test.each([
+    ["a JS shell string", `execSync('su - postgres -c "psql -qAt mydb"');`, "x.mjs"],
+    [
+      "a workflow run block",
+      'jobs:\n  a:\n    steps:\n      - run: |\n          ssh db "psql -qAt mydb"\n',
+      ".github/workflows/x.yml",
+    ],
+  ])("%s reaches the same consumers", (_name, source, file) => {
+    const sites = scanSource(source, file);
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a protected command inside a consumer still counts", () => {
+    expect(sitesIn('ssh database "psql -X -qAt mydb"\n', "x.sh")[0]!.suppressesStartupFiles).toBe(
+      true,
+    );
+  });
+
+  test("a bare ssh host word is not mistaken for a script", () => {
+    // Precision: only a word carrying whitespace is a candidate command string.
+    expect(sitesIn("ssh database uptime\n", "x.sh")).toHaveLength(0);
+  });
+});
+
 // ── shell scripts ───────────────────────────────────────────────────────
 
 describe("scanSource — shell", () => {

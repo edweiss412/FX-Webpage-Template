@@ -926,21 +926,48 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
   if (command.length > 0) commands.push(command);
 
   for (const argv of commands) {
-    // `bash -c "psql …"`, `sh -lc "…"`, `docker exec … sh -c "…"`, `eval "…"`.
-    // The quoted script EXECUTES; scanning it is not optional.
+    // `bash -c "psql …"`, `sh -lc "…"`, `docker exec … sh -c "…"`, `eval "…"`,
+    // and the other ordinary command-STRING consumers: `su - postgres -c "…"`,
+    // `runuser -u postgres -c "…"`, `env -S "…"`, `ssh host "…"`, `watch "…"`.
+    // The quoted script EXECUTES; scanning it is not optional. This list is an
+    // ALLOWLIST by necessity — knowing WHICH argument is a script requires
+    // knowing the program — and is therefore inherently incomplete; the
+    // indirection tripwire is the backstop on the JS side.
     for (const [position, word] of argv.entries()) {
       const name = basename(word.text);
-      const isInterpreter = SHELL_BINARIES.has(name);
+      const isInterpreter = SHELL_BINARIES.has(name) || DASH_C_CONSUMERS.has(name);
       const isEval = name === "eval";
-      if (!isInterpreter && !isEval) continue;
+      const isDashS = name === "env";
+      // `ssh host "psql …"` and `watch "psql …"` name no flag: the script is
+      // simply a later word that is itself a command line.
+      const isTrailing = TRAILING_SCRIPT_CONSUMERS.has(name);
+      if (!isInterpreter && !isEval && !isDashS && !isTrailing) continue;
+      if (isTrailing) {
+        for (let i = position + 1; i < argv.length; i++) {
+          const candidate = argv[i]!;
+          if (!/\s/.test(candidate.text)) continue; // a bare word is a host/option
+          for (const site of scanShellText(candidate.text, file, lineOffset + candidate.line))
+            sites.push({ ...site, offset: candidate.offsets[site.offset] ?? candidate.offset });
+          break;
+        }
+        continue;
+      }
       for (let i = position + 1; i < argv.length; i++) {
         const candidate = argv[i]!;
         // `sh -ce`, `-cu`, `-cv`, `-cx` all execute the next word; requiring `c`
         // to be LAST missed every cluster with an option after it.
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
+        if (isDashS && !/^-[a-zA-Z]*S/.test(candidate.text)) continue;
         // `bash -c -- 'psql …'` is valid: `--` ends option parsing and the
         // script is the NEXT word. Taking `--` as the script scanned nothing.
         let scriptIndex = isEval ? i : i + 1;
+        // `env -S'psql …'` attaches the script to the flag itself.
+        if (isDashS && candidate.text.length > 2 && /^-[a-zA-Z]*S./.test(candidate.text)) {
+          const attached = candidate.text.slice(candidate.text.indexOf("S") + 1);
+          for (const site of scanShellText(attached, file, lineOffset + candidate.line))
+            sites.push({ ...site, offset: candidate.offset });
+          break;
+        }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
         const script = argv[scriptIndex];
         if (script === undefined) break;
@@ -1324,6 +1351,13 @@ function looksLikePsqlCommandLine(text: string): boolean {
 
 const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
 
+/** Programs whose `-c` argument is a command STRING the shell then runs. */
+const DASH_C_CONSUMERS = new Set(["su", "runuser", "chroot", "doas"]);
+
+/** Programs whose command string is simply a later word (`ssh host "psql …"`,
+ * `watch "psql …"`), with no flag naming it. */
+const TRAILING_SCRIPT_CONSUMERS = new Set(["ssh", "watch"]);
+
 /** argv[0] is a shell, so its argv carries a command LINE rather than psql. */
 function isShellBinary(text: string): boolean {
   return SHELL_BINARIES.has(text.slice(text.lastIndexOf("/") + 1));
@@ -1344,6 +1378,28 @@ function parseJs(source: string, file: string): ts.SourceFile {
 
 function lineOf(sourceFile: ts.SourceFile, pos: number): number {
   return sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+}
+
+/**
+ * Suppression that holds under BOTH readings of a spawn-family argv: as literal
+ * argv, and as the command line the shell would re-parse under `{ shell: true }`.
+ *
+ * Node joins argv with spaces when `shell` is truthy, so the shell then removes
+ * redirections and re-splits words. `execFileSync("psql", ["-F", "2>/dev/null",
+ * "-X", "mydb"], { shell: true })` really runs `psql -F -X mydb`, where `-X` is
+ * the field separator and suppresses nothing — while a literal reading saw a
+ * standalone `-X` and certified it. Requiring BOTH readings avoids inspecting
+ * the options object at all, which is deliberate: a reader that recognized only
+ * an unquoted `shell:` key missed `{ "shell": true }`, `{ ["shell"]: true }`,
+ * `{ shell }` shorthand and an external identifier.
+ */
+function argvSuppressesUnderBothReadings(tokens: readonly string[]): boolean {
+  if (!argvSuppressesStartupFiles(tokens)) return false;
+  // `<dynamic>` carries `<` and `>`, which the shell would read as redirections;
+  // stand it in with the same opaque word the lexer uses elsewhere.
+  const asCommand = ["psql", ...tokens.map((t) => (t === DYNAMIC_TOKEN ? "${}" : t))].join(" ");
+  const reparsed = scanShellText(asCommand, "<argv>", 0)[0];
+  return reparsed === undefined || argvSuppressesStartupFiles(reparsed.tokens);
 }
 
 export function scanJsSource(source: string, file: string): PsqlSite[] {
@@ -1390,7 +1446,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           nested: false,
           nestedInBacktick: false,
           hasDynamicTokens,
-          suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
+          suppressesStartupFiles: argvSuppressesUnderBothReadings(tokens),
           exemptReason: exemptionOnLines(lines, line, commentAt),
         });
       }
