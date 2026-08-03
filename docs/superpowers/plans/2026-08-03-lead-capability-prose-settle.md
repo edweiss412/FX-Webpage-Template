@@ -558,11 +558,17 @@ Constraints: the row is a single markdown table cell, so the replacement must co
  * so a later migration that redefines it is caught. A lexical scan of one
  * historical migration file is not equivalent and was refuted by probe (R6).
  */
-import type { Sql } from "postgres";
+import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
-import { sqlClient } from "./_b2Helpers";
 
-const sql: Sql = sqlClient;
+// Its OWN short-lived connection, deliberately NOT the shared `sqlClient`
+// exported by ./_b2Helpers: ending a shared client in afterAll would close it
+// out from under every other db test in the run.
+const DB_URL =
+  process.env.TEST_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const sql: Sql = postgres(DB_URL, { max: 1, prepare: false });
 
 describe("public.is_admin() resolves admin identity without role_flags", () => {
   afterAll(async () => {
@@ -584,6 +590,32 @@ describe("public.is_admin() resolves admin identity without role_flags", () => {
   });
 });
 ```
+
+Probed against the live local schema before this plan was finalized, so the snippet is measured rather than asserted:
+
+```
+$ node <probe: pg_get_functiondef('public.is_admin()'::regprocedure)>
+resolved: true
+has app_metadata: true
+has admin_emails: true
+has role_flags: false
+
+CREATE OR REPLACE FUNCTION public.is_admin()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  select coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false)
+      or exists (
+           select 1 from public.admin_emails ae
+            where ae.email = public.auth_email_canonical()
+              and ae.revoked_at is null
+         );
+$function$
+```
+
+That output is also the empirical settlement of instance B: the resolved definition, not a file, and it consults no role flag.
 
 This is green on the current schema, so it is a **contract pin, not the RED for this task** — and it is worth having for exactly the reason MI-9 was wrong: if admin is ever routed through a role flag, this fails and forces MI-9 back open. The MI-9 edit itself is a documentation correction with no failing test, on the same reasoning as Task 3.
 
