@@ -150,7 +150,11 @@ describe("standalone WebKit a11y leg wiring", () => {
     const installSegments = (subcommand: "install" | "install-deps"): string[][] =>
       activatedRunScalars(readFileSync(join(ROOT, ".github/workflows/standalone-e2e.yml"), "utf8"))
         .map((c) => stripYaml(c))
-        .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
+        // One un-chained command per scalar (R9): `playwright install … || true` keeps the head
+        // intact while swallowing the failure, so an install that errors on a cold runner still
+        // reports success. Same fail-closed rule as the crew guard.
+        .filter((c) => !/&&|\|\||;|\|/.test(c))
+        .map((c) => c.trim())
         .map((seg) => seg.trim().split(/\s+/))
         .filter((t) => {
           const i = t.indexOf("playwright");

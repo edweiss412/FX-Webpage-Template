@@ -110,6 +110,12 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF21 — failure swallowing by chain (whole-diff review R9 live mutant):** MF7 closed
+  `true || playwright test …` by counting only the head segment; R9 came back through the other
+  end — `playwright test … || true` keeps the head intact and swallows every failure, so CI reports
+  success on a red suite (`; true` is the same shape). Closed by requiring the run scalar to be ONE
+  un-chained command: any shell operator in a scalar whose head is the guarded invocation
+  disqualifies it. Fail-closed, and neither workflow chains today.
 - **MF20 — config-level engine override + trigger narrowing (whole-diff review R8 live mutants):**
   a TOP-LEVEL `use: { browserName: "chromium" }` in `standalone.config.ts` beats the project's
   device default while a `project.use`-only read still answered "webkit"; and on the trigger side,

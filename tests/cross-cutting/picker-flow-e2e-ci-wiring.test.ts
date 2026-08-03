@@ -101,19 +101,27 @@ function playwrightTestSegments(yaml: string): string[][] {
   // `--list` collects only, `--ui` is the interactive mode, and `--help`/`-h` print usage — a
   // segment carrying any of them is wiring-shaped and proves zero execution.
   const NON_EXECUTING = new Set(["--list", "--ui", "--help", "-h"]);
-  return activatedRunScalars(yaml)
-    .map((c) => stripYamlComments(c))
-    .map((c) => c.split(/&&|\|\||;|\|/)[0]!)
-    .map((seg) => seg.trim().split(/\s+/))
-    .filter((t) => {
-      const i = t.indexOf("playwright");
-      return (
-        i !== -1 &&
-        t[i + 1] === "test" &&
-        t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
-        !t.some((w) => NON_EXECUTING.has(w))
-      );
-    });
+  return (
+    activatedRunScalars(yaml)
+      .map((c) => stripYamlComments(c))
+      // The scalar must be ONE un-chained command. Taking the head segment closed MF7's
+      // `true || playwright test …`, but R9 came back through the other end: `playwright test … ||
+      // true` keeps the head intact and swallows every failure, so CI reports success on a red
+      // suite. A shell operator anywhere in a scalar whose head is our invocation is therefore
+      // disqualifying, not something to parse around — fail-closed, and neither workflow chains.
+      .filter((c) => !/&&|\|\||;|\|/.test(c))
+      .map((c) => c.trim())
+      .map((seg) => seg.trim().split(/\s+/))
+      .filter((t) => {
+        const i = t.indexOf("playwright");
+        return (
+          i !== -1 &&
+          t[i + 1] === "test" &&
+          t.slice(0, i).every((w) => RUNNER_PREFIX.has(w)) &&
+          !t.some((w) => NON_EXECUTING.has(w))
+        );
+      })
+  );
 }
 
 /** Token-exact containment — `--project=mobile-safari-shadow` must NOT satisfy a
