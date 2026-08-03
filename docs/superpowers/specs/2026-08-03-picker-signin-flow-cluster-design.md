@@ -28,6 +28,7 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
 | R7 | No DB, migration, RPC, or advisory-lock surface is touched. Invariant 2 and the migration→validation parity checklist are N/A for this diff. | This spec, §7. |
 | R8 | Pending comes from **local client state**, NOT `useFormStatus`. The backlog entry's proposed `useFormStatus` fix is wrong for this form and was refuted by probe before drafting. Do not propose reverting to `useFormStatus`; do not cite the admin "no local flag" rule against it without first reading §3.4. | This spec, §3.4, with the probe output inline. |
 | R9 | Every behavioral claim about DOM, CSS, or framework semantics in this spec is settled by a recorded probe in §3.6, not by argument — and each is labelled with the environment that can settle it. R1 and R2 both found false asserted-behavior claims; §3.6 is the structural defense against a third round of the same vector. | This spec, §3.6. Project rule: `docs/agents/writing-plans.md:20` (ship the structural defense in the repair commit, do not wait for recurrence). |
+| R10 | Pending self-clears after 8s. This AMENDS §9's original rejection of a timeout, which missed that re-tapping was the crew member's only recovery from a hung hop — raised as a P0 by the invariant-8 gate. The residual risk (an idempotent duplicate navigation after 8s) is stated in §9. Do not re-argue the original wording; it is struck. | Invariant-8 impeccable critique P0, 2026-08-03; amendment recorded in §9 and the plan §12. |
 
 ### 1.2 Out of scope
 
@@ -499,13 +500,29 @@ against a route unit test. If it fails, R1 did not actually ship.
   A future section id must be added to `BASE_SECTION_IDS` to survive bootstrap; that is the
   existing contract, not a new limit, and it fails closed (the param is dropped, the user lands on
   the show).
-- **Cancelled navigation leaves the row in pending.** Local pending state (§3.4) is cleared by
-  navigating away or by `pageshow`. If the user taps and then stops the navigation before it
-  commits (browser stop button, or a `/auth/sign-in` that hangs without ever completing), the row
-  stays in pending until the page is reloaded. Accepted rather than mitigated with a timeout: a
-  timeout that re-enables the row while the OAuth hop is genuinely still in flight would restore
-  the exact double-tap defect this change closes, and the cancel path requires deliberate user
-  action. The `pageshow` listener covers the common recovery (back-navigation).
+- **Cancelled or hung navigation — SUPERSEDED 2026-08-03, see below.** This section originally
+  accepted a permanently-pending row and explicitly rejected a timeout, on the reasoning that
+  re-enabling the row while the OAuth hop was still in flight would restore the double-tap defect.
+  **That reasoning was wrong in one respect and is amended here** rather than left to disagree
+  with the code (invariant 7: the spec is canonical).
+
+  What it missed: **re-tapping WAS the recovery** for a sign-in that never lands, and the pending
+  guard is exactly what removes it. Accepting a permanently-pending row therefore does not
+  preserve the status quo — it takes away the only escape the crew member had, on the surface
+  where the original defect (bad venue wifi) is most likely. Surfaced as a **P0** by the
+  invariant-8 impeccable critique; dispositions recorded in the plan's §12.
+
+  **Amended behavior:** pending self-clears after `PENDING_TIMEOUT_MS` (8s,
+  `_ClaimedRowButton.tsx`), and the timer is cleared on unmount, on `pageshow`, and on
+  re-activation so a stale callback can never clear a later pending.
+
+  **Residual risk, stated rather than hidden.** If the hop is genuinely still in flight at 8s, the
+  row becomes tappable again and a second tap issues a second GET to `/auth/sign-in`. That is a
+  navigation, not a mutation — it is idempotent, and the second one simply supersedes the first.
+  The original concern was real but priced the wrong side: an idempotent duplicate navigation
+  after eight seconds is cheaper than an inert row with no recovery at all.
+
+  The `pageshow` listener still covers the common back-navigation recovery.
 - The bfcache reset path is specified from the `pageshow` contract and is covered by a component
   test firing a synthetic `pageshow` (§8.2). A synthetic event proves the listener is wired; it
   does not prove a real browser's bfcache restores this page at all (Chrome declines bfcache for
