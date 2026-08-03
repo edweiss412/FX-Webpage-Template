@@ -213,7 +213,7 @@ Every claim about current code, verified at this branch point (`e2121ff8a`).
 | Em-dash / error-code / "budget" scans on the crew loading tree | `tests/components/crew/loading.test.tsx:57-69` |
 | `signInAs` uses `page.request.post`, not browser JS | `tests/e2e/helpers/signInAs.ts:60-66` |
 | `desktop-chromium` project `testMatch` and baseURL | `playwright.config.ts:77-86` |
-| Tokens exist for both themes | `app/globals.css:292-313` (light `:root`) and the `prefers-color-scheme: dark` block opening at `app/globals.css:341` |
+| Tokens exist for both themes | `app/globals.css:292-313` (the light-mode root block) and the `prefers-color-scheme: dark` block opening at `app/globals.css:341` |
 | `rounded-lg` has precedent in `components/` | `components/admin/BellPanel.tsx`, `components/admin/FinalizeButton.tsx` |
 | No lint or meta-test bans `dangerouslySetInnerHTML`, `<style>`, or `<noscript>` in components | `rg` over `tests/`, `eslint.config.mjs` → 0 prohibitions; `tests/styles/_metaNewTabAnnouncement.test.ts:236` treats `noscript` as a known intrinsic tag |
 | Backlog entry text | `BACKLOG.md:1261-1263` |
