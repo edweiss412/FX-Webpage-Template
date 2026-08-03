@@ -34,7 +34,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
+import { bodyDefinedIds, extractEntries, ledgerIds, type ExtractOpts } from "./_ledgerMdast";
 
 const ROOT = join(__dirname, "..", "..");
 
@@ -93,25 +93,14 @@ const NOT_CITATIONS = new Set([
  * stale, and a row nobody cites any more fails as dead.
  */
 const KNOWN_DANGLING: Record<string, string> = {
-  "BL-MUTATION-COLUMN-SHIFT":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-MERGED-CELL":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-REF-SUB":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-SECTION-ORDER":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-UNICODE":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-1":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-2":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-3":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
 };
+// Eight rows were deleted on 2026-08-03, not resolved by filing: the five
+// `BL-MUTATION-*` operator classes and the three `BL-SYNCFEED-UI-*` findings
+// are DEFINED by their parents' body bullets, which the guard could not see.
+// It can now (see definedIds), so they resolve on their own and the stale-row
+// ratchet below is what keeps them from drifting back onto this list.
 
 type Cited = { id: string; files: string[] };
 
@@ -124,11 +113,22 @@ function trackedFiles(): string[] {
   return out.split("\0").filter((f) => f !== "" && !NOT_CITATIONS.has(f));
 }
 
+/**
+ * Heading ids UNION the ids a parent entry defines in its BODY bullets
+ * (BL-LEDGER-GUARD-BODY-DEFINED-IDS). Body definitions are minted only from
+ * the files in LEDGERS, never from a plan or spec — that containment is what
+ * keeps a typo in some other document from defining itself. The grammar and
+ * its evidence live on `bodyDefinedIds` in the walker.
+ */
 function definedIds(): Set<string> {
   const ids = new Set<string>();
   for (const rel of LEDGERS) {
-    for (const id of ledgerIds(readFileSync(join(ROOT, rel), "utf8"), BACKLOG_OPTS)) {
-      ids.add(id);
+    const text = readFileSync(join(ROOT, rel), "utf8");
+    for (const id of ledgerIds(text, BACKLOG_OPTS)) ids.add(id);
+    for (const entry of extractEntries(text, BACKLOG_OPTS)) {
+      for (const id of bodyDefinedIds(entry)) {
+        if (id.startsWith("BL-")) ids.add(id);
+      }
     }
   }
   return ids;
@@ -204,6 +204,22 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-P5": "probe row P5's synthetic heading, `## BL-P5 — DONE-state gallery polish`",
     "BL-CLOSED-LOOP-FIX": "probe row P7's control token for the ratified dash-separator fix",
     "BL-DRIVE-RESOLVED": "probe row P6's hyphenated-id token, showing `-RESOLVED:` is not a field claim",
+  },
+  "docs/superpowers/specs/2026-08-03-ledger-body-defined-ids-and-enum-scan-widen-design.md": {
+    // §A.6's plants table. The same neighbour-trips-the-guard shape as the
+    // mdast-rewrite spec above: a spec about the id grammar has to quote
+    // id-shaped tokens to show what the grammar accepts and rejects.
+    "BL-A": "plant 1 — the strong>inlineCode definition shape",
+    "BL-B": "plant 2 — the strong>text definition shape",
+    "BL-C": "plant 3 — enumeration bullet, no strong wrapper, mints nothing",
+    "BL-D": "plant 3's second token in the same enumeration bullet",
+    "BL-E": "plant 4 — a strong id that is not the bullet lead",
+    "BL-F": "plant 5 — first of two ids inside one strong run",
+    "BL-G": "plant 5's second id",
+    "BL-H": "plant 6 — no em-dash separator, so a mention not a definition",
+    "BL-J": "plant 10 — a bullet nested inside another list",
+    "BL-FOO": "§A.3's `**BL-FOO** is discussed above` mention counterexample",
+    "BL-X": "§A.3 quotes headingId's code-provenance rejection, ``## `BL-X` ``",
   },
   "docs/superpowers/handoffs/2026-07-25-newtab-announcement-handoff.md": {
     "BL-REAL-ID": "worked example of heading -> id extraction (`\"### BL-REAL-ID — text\"`)",
@@ -357,6 +373,40 @@ describe("BL- referential integrity", () => {
       stale,
       `These ids are defined now — delete their NOT_A_CITATION rows: ${stale.join(", ")}`,
     ).toEqual([]);
+  });
+
+  // --- Body-defined ids (BL-LEDGER-GUARD-BODY-DEFINED-IDS) ----------------
+  //
+  // Eight ids are defined by BODY bullets of a parent entry rather than by
+  // their own heading, ratified 2026-08-02: promoting them would give each a
+  // heading whose content is one bullet and would break the parent's ratchet
+  // or gate semantics. They used to sit in KNOWN_DANGLING, indistinguishable
+  // from untracked work. Naming them here is safe — this file is in
+  // NOT_CITATIONS, so its own tokens are never scanned as citations.
+  const BODY_DEFINED = [
+    "BL-MUTATION-COLUMN-SHIFT",
+    "BL-MUTATION-MERGED-CELL",
+    "BL-MUTATION-REF-SUB",
+    "BL-MUTATION-SECTION-ORDER",
+    "BL-MUTATION-UNICODE",
+    "BL-SYNCFEED-UI-1",
+    "BL-SYNCFEED-UI-2",
+    "BL-SYNCFEED-UI-3",
+  ];
+
+  it("resolves every id defined by a parent entry's body bullets", () => {
+    expect(BODY_DEFINED.filter((id) => !defined.has(id))).toEqual([]);
+  });
+
+  it("mints EXACTLY that set from BACKLOG.md — no more, no less", () => {
+    // Two-sided on purpose. Under-minting re-opens the dangling citations this
+    // change closed; over-minting is the worse direction, because a bullet that
+    // accidentally defines an id makes a typo resolve and retires the thought
+    // the guard exists to keep alive.
+    const minted = extractEntries(readFileSync(join(ROOT, "BACKLOG.md"), "utf8"), BACKLOG_OPTS)
+      .flatMap((e) => bodyDefinedIds(e))
+      .filter((id) => id.startsWith("BL-"));
+    expect([...new Set(minted)].sort()).toEqual([...BODY_DEFINED].sort());
   });
 
   it("the ledger set actually yields ids (guards a silent parse regression)", () => {
