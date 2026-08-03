@@ -20,7 +20,7 @@ Only one branch uses it:
 - **First-seen (Flow A)** spreads it into the apply core — `app/api/admin/onboarding/finalize/route.ts:1280`.
 - **Existing-show (Flow B)** drops it. `stageExistingShowShadow` (`app/api/admin/onboarding/finalize/route.ts:602`) writes a shadow payload that carries `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices`, `triggered_review_items`, `base_modified_time`, `pull_sheet_override`, `pull_sheet_override_applied`, and `use_raw_decisions` — but not the anchors. `deleteApprovedPending` (`app/api/admin/onboarding/finalize/route.ts:689`) then consumes the `pending_syncs` row in the same Phase-B transaction, so by Phase D the value no longer exists anywhere. `applyShadow` (`app/api/admin/onboarding/finalize-cas/route.ts:410`) builds its `applyStagedCore` args (`app/api/admin/onboarding/finalize-cas/route.ts:546`) with no `sourceAnchors` key.
 
-Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded: a show that never had anchors links safely at `#gid=0`, and the cron path is the other writer that can refresh them — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1; this change makes it rarer and does not claim to eliminate it, and §4.1 is explicit that no recovery bound exists.
+Consequence: a re-onboarded existing show keeps whatever anchors the last cron sync left, even when the operator just re-scanned the sheet and the wizard holds fresher ones. Impact is bounded: a show that never had anchors links safely at `#gid=0`, and the shared per-file sync pipeline (§5) is the other writer that can refresh them — which is why this was filed as backlog rather than deferred. A show that HAS older anchors is the stale-range case in §4.1; this change makes it rarer and does not claim to eliminate it, and §4.1 is explicit that no recovery bound exists.
 
 ### 1.1 Resolved scope — do not relitigate
 
@@ -131,14 +131,17 @@ anchor is still structurally valid — allowlisted title, numeric gid — so
 `lib/sheet-links/buildSheetDeepLink.ts:22` accepts it and the "In sheet" link opens the old range
 rather than falling back to `#gid=0`.
 
-**There is no recovery bound, and this spec does not claim one.** Recovery requires a later scan of
-that sheet that produces a NON-EMPTY map — not merely a later edit. An edit is necessary but not
-sufficient: below the watermark the cron path skips the file entirely
-(`lib/sync/perFileProcessor.ts:337`), and above it the same four causes can recur. The bottom two
-rows are the ones with no self-limiting behavior: a workbook whose recognized regions were renamed
-or removed scans cleanly to `{}` on every subsequent pass, so its R1 anchors persist indefinitely.
-Wherever an earlier draft of this spec said stale anchors are "repopulated on the next sheet edit"
-or "covered by the cron refresh," this paragraph is what it should have said.
+**There is no recovery bound, and this spec does not claim one.** Recovery requires a later run of
+some anchor writer (§5) that produces a NON-EMPTY map. Which runs happen is not a function of edits
+alone: an automatic pass at or below the watermark skips (`lib/sync/perFileProcessor.ts:337`), while
+a manual re-sync bypasses the watermark check entirely (`lib/sync/perFileProcessor.ts:276`) and the
+recovery and role-vocab-drift branches proceed at or below it (`lib/sync/perFileProcessor.ts:322`,
+`lib/sync/perFileProcessor.ts:341`). So an edit is neither necessary nor sufficient, and no run is
+guaranteed. The bottom two rows of the table above have no self-limiting behavior at all: a workbook
+whose recognized regions were renamed or removed extracts cleanly to `{}` on every subsequent pass,
+so its older anchors persist until the sheet's structure is fixed. Wherever an earlier draft of this
+spec said stale anchors are "repopulated on the next sheet edit" or "covered by the cron refresh,"
+this paragraph is what it should have said.
 
 This is the shipped system's ratified posture, not something this change introduces. The cron path
 deliberately emits `undefined` rather than `{}` on a genuine sheets-list failure precisely so the
@@ -175,12 +178,35 @@ anchors, which is filed as `BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH` and 
 
 | Path | Writes `shows.source_anchors`? | Status after this change |
 | --- | --- | --- |
-| Cron scheduled sync (`lib/sync/runScheduledCronSync.ts:1499` and `lib/sync/runScheduledCronSync.ts:1527`) | Yes (INSERT + UPDATE arms) | Unchanged |
+| The shared per-file sync pipeline — `processOneFile` (`lib/sync/runScheduledCronSync.ts:2691`), computing at `lib/sync/runScheduledCronSync.ts:3073`, forwarding at `lib/sync/runScheduledCronSync.ts:3598`, persisting at `lib/sync/runScheduledCronSync.ts:1499` and `lib/sync/runScheduledCronSync.ts:1527`. ONE path, five invocation modes: cron (`lib/sync/runScheduledCronSync.ts:3778`), push (`lib/sync/runPushSyncForShow.ts:294`), manual (`lib/sync/runManualSyncForShow.ts:304`), plus the recovery and drift-rescue branches | Yes (INSERT + UPDATE arms) | Unchanged |
 | Wizard first-seen finalize, Flow A (`app/api/admin/onboarding/finalize/route.ts:1280`) | Yes | Unchanged |
 | Wizard existing-show re-onboard, Flow B (`app/api/admin/onboarding/finalize-cas/route.ts:546`) | No | **Yes — this spec** |
 | Wizard existing-show UNCHECKED (spec §7.4 D10 no-op, `app/api/admin/onboarding/finalize/route.ts:1178`) | No | Unchanged — no shadow is staged, the live show is deliberately untouched |
 | Live dashboard staged-apply (`lib/sync/applyStaged.ts`) | No | Unchanged — out of scope; that path never carried anchors, and the cron path remains its only writer (§4.1 bounds what that does and does not guarantee) |
 | Validation backfill script (`scripts/backfill-validation-source-anchors.ts:77`) | Yes, under its own `pg_advisory_xact_lock` (`scripts/backfill-validation-source-anchors.ts:75`) | Unchanged — an operator-run one-shot, not a request path; it skips writing when extraction produces zero anchors, so it cannot wipe either |
+
+### 5.1 How that matrix was derived
+
+Run, not described (the sweep discipline in `docs/agents/writing-plans.md`). Every writer was taken
+from the output rather than from recall, after three review rounds in which recalled inventories
+were wrong:
+
+```
+$ grep -rn "source_anchors" --include='*.ts' app lib scripts | grep -v pending_syncs
+```
+
+Writing hits, in full: `lib/sync/runScheduledCronSync.ts:1499` and `lib/sync/runScheduledCronSync.ts:1527` (UPDATE arms),
+`lib/sync/runScheduledCronSync.ts:1565` (first-seen INSERT), and
+`scripts/backfill-validation-source-anchors.ts:78`. The remaining hits are readers or fixtures:
+`app/api/admin/onboarding/finalize/route.ts:972`, `app/api/admin/onboarding/finalize/route.ts:985` and `app/api/admin/onboarding/finalize/route.ts:1043` (the Phase-B read this spec threads),
+`lib/sync/runOnboardingScan.ts:547` and `lib/sync/runOnboardingScan.ts:576` (the `pending_syncs` staging write, a different column),
+`lib/data/getShowForViewer.ts:861` (the crew-page reader), and `lib/dev/publishedModalFixture.ts:93`
+(a dev fixture).
+
+The three cron-sync writing hits are all inside `PostgresPipelineTx.applyShowSnapshot`
+(`lib/sync/runScheduledCronSync.ts:1353`), whose only caller is `runPhase2`
+(`lib/sync/phase2.ts:424`) — which is why the matrix has one pipeline row with five invocation modes
+rather than five rows.
 
 ## 6. Layer completeness matrix
 
@@ -240,13 +266,13 @@ Each task is failing test → minimal implementation → passing test → commit
 | `$14` | the 14th bind parameter of `stageExistingShowShadow`, which binds 13 today (`app/api/admin/onboarding/finalize/route.ts:671-685`) |
 | `$18` | the `source_anchors` bind in the `applyShowSnapshot` UPDATE arm (`lib/sync/runScheduledCronSync.ts:1527`) |
 | 8 guard rows | §4 enumerates every representable payload state: populated, empty, corrupt-upstream, absent, null, array-or-scalar, legacy string, malformed entry |
-| 6 write paths | §5 — cron, Flow A, Flow B, D10 no-op, live staged-apply, validation backfill script |
+| 6 matrix rows, 4 of which write | §5 — the shared sync pipeline (one path, five invocation modes), Flow A, Flow B, and the validation backfill script write; the D10 no-op and the live dashboard staged-apply do not. Derived from the sweep below, not from recall |
 
 ---
 
 ## 10. Out of scope
 
 - **Backfilling existing shows.** No backfill job. A stale show is refreshed only by a later scan of its sheet that produces a non-empty map, which §4.1 is explicit is not guaranteed to happen.
-- **The live dashboard staged-apply path** (`lib/sync/applyStaged.ts`). It has never carried anchors; adding them there is a separate change with its own review. Those shows keep the cron path as their only anchor writer, subject to §4.1.
+- **The live dashboard staged-apply path** (`lib/sync/applyStaged.ts`). It has never carried anchors; adding them there is a separate change with its own review. Those shows keep the shared sync pipeline as their only anchor writer, subject to §4.1.
 - **Per-entry anchor validation** anywhere in the system (§1.1).
 - **The `#gid=0` fallback behavior** (`lib/sheet-links/buildSheetDeepLink.ts:22`) — unchanged. It is what makes a show with NO anchors link safely; it is not what makes a stale or malformed anchor safe, and §4.1 says so.
