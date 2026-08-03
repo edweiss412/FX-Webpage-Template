@@ -3855,7 +3855,10 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
     ["env", "env:\n  PG: PSQL.EXE\n"],
     ["a path-valued binding", "env:\n  PG: C:/pg/bin/PSQL.EXE\n"],
     ["matrix", "jobs:\n  x:\n    strategy:\n      matrix:\n        bin: [Psql]\n"],
-    ["inputs", "on:\n  workflow_call:\n    inputs:\n      bin:\n        default: PSQL.EXE\n        type: string\n"],
+    [
+      "inputs",
+      "on:\n  workflow_call:\n    inputs:\n      bin:\n        default: PSQL.EXE\n        type: string\n",
+    ],
   ])("a %s binding spelled for Windows is reported", (_label, source) => {
     expect(scanWorkflowIndirection(source, WF).length).toBeGreaterThan(0);
   });
@@ -3864,24 +3867,32 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
   // the platform even when it contains the word "linux". Present-but-unreadable
   // must fail closed, which is different from absent.
   test.each([
-    ["a labels map", "jobs:\n  x:\n    runs-on:\n      labels: windows-latest\n    steps:\n      - run: psql -F @opts -X mydb\n"],
-    ["a group map", "jobs:\n  x:\n    runs-on:\n      group: my-group\n    steps:\n      - run: psql -F @opts -X mydb\n"],
-    ["a self-hosted label", "jobs:\n  x:\n    runs-on: custom-linux-runner\n    steps:\n      - run: psql -F @opts -X mydb\n"],
+    [
+      "a labels map",
+      "jobs:\n  x:\n    runs-on:\n      labels: windows-latest\n    steps:\n      - run: psql -F @opts -X mydb\n",
+    ],
+    [
+      "a group map",
+      "jobs:\n  x:\n    runs-on:\n      group: my-group\n    steps:\n      - run: psql -F @opts -X mydb\n",
+    ],
+    [
+      "a self-hosted label",
+      "jobs:\n  x:\n    runs-on: custom-linux-runner\n    steps:\n      - run: psql -F @opts -X mydb\n",
+    ],
   ])("an unset shell on %s is not certified", (_label, source) => {
     const sites = sitesIn(source, WF);
     expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
   });
 
-  test.each([
-    ["ubuntu-latest"],
-    ["ubuntu-22.04"],
-    ["macos-14"],
-  ])("a known-good runner `%s` still certifies", (runner) => {
-    const source = `jobs:\n  x:\n    runs-on: ${runner}\n    steps:\n      - run: psql -X -qAt mydb\n`;
-    const sites = sitesIn(source, WF);
-    expect(sites).toHaveLength(1);
-    expect(sites[0]!.suppressesStartupFiles).toBe(true);
-  });
+  test.each([["ubuntu-latest"], ["ubuntu-22.04"], ["macos-14"]])(
+    "a known-good runner `%s` still certifies",
+    (runner) => {
+      const source = `jobs:\n  x:\n    runs-on: ${runner}\n    steps:\n      - run: psql -X -qAt mydb\n`;
+      const sites = sitesIn(source, WF);
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(true);
+    },
+  );
 
   test(
     "the R40 recall additions leave the tree certified",
