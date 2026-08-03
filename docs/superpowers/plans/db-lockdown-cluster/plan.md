@@ -136,9 +136,24 @@ Scope the assertion against `ADMIN_TABLES`, never against `RPC_GATED_TABLES` its
 | `app_settings` | SELECT / UPDATE / DELETE | behavioral, **never degrades** — the singleton row always exists |
 | `app_settings` | INSERT | **structurally unavailable** (singleton `id = 'default'` CHECK). Assert the reason is recorded; do not probe |
 
-**Degradation must be loud (R2 finding 3).** A `EXPECTED_DEGRADATION: Set<string>` pins which cells are permitted to report `unavailable — no rows` (initially empty — populate from the first real run). The test asserts the observed degradation set **equals** it, so an *unexpected* degradation fails and a *disappearing* one fails too. Without this, a table silently emptying turns a real assertion into a no-op and the run still passes.
+**Degradation must be loud, but NOT frozen (R2 finding 3, corrected by R3 finding 2).** A frozen `EXPECTED_DEGRADATION` set is unusable: which tables hold rows is *data*, not schema, and it differs by environment. `sync_log` has 4073 rows locally but a fresh CI database boots from migrations and seeds none of the affected tables (the only seeding insert anywhere is `app_settings`, `supabase/migrations/20260501001000_internal_and_admin.sql:248`). Freezing the local set fails in CI; freezing the CI set fails locally.
+
+The environment-independent invariant is per-table conditional plus one global floor:
+
+1. **Per table** — read `count(*)` first. If `> 0`, the paired witness must hold (`admin_count > 0 AND nonadmin_count = 0`). If `0`, record the cell `unavailable — no rows`. The branch is decided by observed data in the same run, never by a stored snapshot.
+2. **Global floor** — assert `degraded.length < ADMIN_TABLES.length`, i.e. **at least one** table exercised the real paired witness. This is what stops a wholesale-empty database from turning the entire matrix into a silent no-op, which was R2 finding 3's actual concern.
+3. **Observable** — the test prints the degraded list, so a run that degrades more than expected is visible in CI output even though it does not fail.
+
+This keeps the assertion honest in both environments: it can never pass vacuously across the board, and it never fails merely because a table happens to be empty here and not there.
 
 **Green:** populate `RLS_POSTURE` (18 `admin_only`, `email_deliveries` `deny_all`) and the allowlist (`ignored_warnings`, `admin_emails`). Delete the old test and baseline.
+
+**Citation reconciliation — same commit as the deletion (R3 finding 1).** `spec:lint` hard-fails on a backticked path that is no longer tracked, so deleting the old test without rewriting its citations makes Task 8's mandatory lint impossible. Rewrite every backticked reference to `tests/db/admin-rls-runtime.test.ts` and its baseline into bold-or-prose form, in this commit, at exactly these sites:
+
+- plan: lines 21, 39, 122 of this document
+- spec: lines 20, 101, 124, 297, 324, 342, 370, 397 of `docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md`
+
+Verify with `pnpm spec:lint` on **both** documents before committing — 0 hard is the gate. (The historical claims those citations support stay accurate; only the citation *form* changes, because the file they point at is intentionally gone.)
 
 **Mutant coverage:** disable RLS on one table → posture assertion fails; add a second permissive policy → policy-count fails; force a table empty → the cell reports `unavailable`, and the test asserts that string is present rather than passing silently.
 
