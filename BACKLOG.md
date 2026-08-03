@@ -99,7 +99,7 @@ The `tier1.ts` comment attributes the miss to the content regex alone. Verified 
 
 **Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** fix/parse-warning-code-recognizer
 
 ---
 
