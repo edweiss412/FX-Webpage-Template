@@ -846,6 +846,8 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — Compute source_anchors on the existing-show finalize-cas apply
 
+**Status:** IN PROGRESS · **Branch:** fix/onboarding-cas-source-anchors
+
 **Origin:** PR #179 (2026-06-28) wired `source_anchors` computation into the FIRST-SEEN onboarding materialization (`handleOnboardingFinalize` → `processApprovedRow` → `applyStagedCore`) so freshly-onboarded shows get correct "In sheet" deep-link anchors immediately, matching the cron path. The EXISTING-SHOW re-onboard path (`finalize-cas` shadow apply → `applyShadow` → `applyStagedCore`) has the same gap: it never computes/threads `source_anchors`, so a re-onboarded existing show is not refreshed at apply time.
 
 **Effort:** S
