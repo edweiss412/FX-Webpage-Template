@@ -179,6 +179,8 @@ Each assertion carries its **own** planted violation. Round 2's finding was a wi
 - [ ] The three `KNOWN_DANGLING` rows **stay**; refresh their reason strings to name the archive (spec §9.4).
 - [ ] `BL-LEDGER-GUARD-BODY-DEFINED-IDS` keeps all **eight** ids; add only the parenthetical noting the parent archived.
 - [ ] File `BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS` with the spec's evidence.
+- [ ] **Strip the `**Status:** IN PROGRESS · **Branch:** …` line from the entry as part of archiving it.** `tests/docs/_metaLedgerInProgress.test.ts:149` fails any in-flight marker found in an archive file, so carrying the marker across would break the build. This is not a conflict with invariant 12's "clear the marker at Stage 4.4": AGENTS.md states an entry graduating to an archive takes its marker with it by construction. The consequence to remember is that **Stage 4.4 will have no marker left to clear for this entry**, which is correct rather than a missed step.
+- [ ] Update the `Last reconciled:` line at `BACKLOG.md:7` with this branch's graduation, following the existing prose convention there.
 - [ ] Run `pnpm exec vitest run tests/docs/` — the ledger guards are the acceptance test.
 - [ ] Commit `docs(backlog): close BL-SYNC-FEED-UI-POLISH and file the swept class`.
 
