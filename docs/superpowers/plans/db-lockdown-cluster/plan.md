@@ -97,7 +97,7 @@ Merged from the earlier draft's Tasks 2 and 3: `tests/db/postgrest-dml-lockdown.
 
 **Green:** write the migration — `revoke insert, update, delete … from anon, authenticated;` plus `grant all privileges … to service_role;` for the 8, shaped exactly like `supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql`, header comment naming the registry rows and the Layer 4 lockstep. Apply locally. All layers pass.
 
-**Verify:** re-run the spec §2.3 probe — the admin-session INSERT/UPDATE/DELETE that succeeded before must now raise `42501`.
+**Verify:** re-run the §2.3 probe shape against a **revoked** table (e.g. `sync_audit`) — the admin-session INSERT/UPDATE/DELETE that succeeded before must now raise `42501`. Do **not** re-run it against `admin_alerts`: that is the table §2.3 originally used, but it is class (c) and deliberately still permits the write, so expecting a denial there would fail for the right reason and confuse the record.
 
 **Commit:** `feat(db): revoke PostgREST DML on eight admin-only tables` — migration and rows together.
 

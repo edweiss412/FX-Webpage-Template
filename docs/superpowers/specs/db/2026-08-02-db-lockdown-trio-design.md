@@ -129,7 +129,9 @@ admin_only policy, not in ADMIN_TABLES: ignored_warnings
 
 ## 3. Threat model and what lockdown buys
 
-| Actor | Today | After lockdown |
+**Scope: the eight tables in §4.1 rows 1-8 only.** `app_settings` and `admin_alerts` are class (c) and keep their `authenticated` DML, so the "after" column does NOT describe them — on those two the admin-session bypass stays open by decision (§4.1, §9.1, §11). The §2.3 probe was demonstrated on `admin_alerts` because it is the sharpest illustration of the class; that particular probe is unchanged by this cluster.
+
+| Actor | Today | After lockdown, **on the eight revoked tables** |
 | --- | --- | --- |
 | `anon` (no session) | statement permitted, RLS denies rows | statement denied (`42501`) |
 | crew `authenticated` (non-admin) | statement permitted, RLS denies rows | statement denied (`42501`) |
