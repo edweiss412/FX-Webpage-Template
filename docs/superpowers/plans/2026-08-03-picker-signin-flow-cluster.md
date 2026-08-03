@@ -130,46 +130,80 @@ any fails, Task 2 is wrong.
 
 ### Task 4 — stale cleanup redirects (RED)
 
-Unit test on `cleanupStaleEntryCoreImpl`: assert the `PICKER_STALE_ENTRY_CLEANED` emit is recorded
-**before** the redirect throw, using a sink spy that records call order.
+Three unit assertions, all written against the **public** `cleanupStaleEntry` action, never against
+`cleanupStaleEntryCoreImpl`. Spec §3.3 and §8.2 are the contract.
 
-Failure mode caught: placing `redirect()` above the emit. `redirect()` throws a control-flow
-exception, so the emit would silently never run — invariant 10 violated with every test still green
-if the assertion only checked "both happened."
+1. **Sentinel escape.** Calling `cleanupStaleEntry(formData)` THROWS a `NEXT_REDIRECT` sentinel
+   whose digest carries the expected destination. Failure mode caught: a redirect placed inside
+   `cleanupStaleEntryCoreImpl`, which `cleanupStaleEntryCore:56-61`'s bare `catch` converts into
+   `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` — no navigation, and the action reports
+   an infra fault. **An assertion scoped to the impl passes in exactly that broken world**, which
+   is precisely why this one is at the public boundary. This was the R1 BLOCKING finding.
+2. **Emit survival.** `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws —
+   catch the sentinel, then assert the sink spy. Failure mode: reordering that puts the throw above
+   the emit, silently dropping invariant-10 telemetry.
+3. **Destination carries `gate`.** The thrown sentinel's path includes `gate=skip` when the form
+   supplied it. Failure mode caught: the bare-canonical redirect, which re-resolves as
+   `no_auth: first_contact`, fails `allowGateSkip` (`app/show/[slug]/[shareToken]/page.tsx:324`),
+   and renders `<SignInOrSkipGate>` instead of the picker.
 
-### Task 5 — stale cleanup: guard-then-redirect (GREEN)
+### Task 5 — stale cleanup: redirect from the public action (GREEN)
 
-`lib/auth/picker/cleanupStaleEntry.ts`, after the existing emit:
+The redirect goes in `cleanupStaleEntry` (`lib/auth/picker/cleanupStaleEntry.ts:30-51`), AFTER
+`cleanupStaleEntryCore` returns and OUTSIDE its swallowing try/catch:
 
 ```ts
-if (!isValidShowPathPair({ slug: input.slug, shareToken: input.shareToken })) {
-  return { ok: true, action: "cleaned" };
-}
-redirect(buildShowReturnUrl(input.slug, input.shareToken, {}));
+const result = await cleanupStaleEntryCore({
+  slug,
+  shareToken,
+  showId,
+  expectedEpoch,
+  expectedCrewMemberId,
+});
+if (!result.ok) return result;
+if (!isValidShowPathPair({ slug, shareToken })) return result;
+redirect(buildShowReturnUrl(slug, shareToken, { s, gate }));
 ```
 
-Mirrors `_PickerInterstitial.tsx:113-114`. `revalidatePath` at `cleanupStaleEntry.ts:107` is KEPT —
-it invalidates the cache entry; the redirect moves the browser. Different jobs.
+`revalidatePath` at `cleanupStaleEntry.ts:107` is KEPT — it invalidates the cache entry; the
+redirect moves the browser. Different jobs.
 
-**No `s` is passed, and that is verified, not assumed.** `CleanupStaleEntryInput`
-(`lib/auth/picker/cleanupStaleEntry.ts:18-24`) carries exactly `slug`, `shareToken`, `showId`,
-`expectedEpoch`, `expectedCrewMemberId` — no section field. The redirect therefore targets the bare
-canonical URL, which is correct: the screen after a stale-entry cleanup is the picker, not a
-section. Do not add an `s` field to the input type to "improve" this.
+**The destination must carry `gate`.** Verified, not assumed: `page.tsx:190` sets
+`gateSkip = gate === "skip"`, `page.tsx:324` computes
+`allowGateSkip = gateSkip && result.reason === "first_contact"`, and `page.tsx:325` falls through to
+`<SignInOrSkipGate>` when that is false. A bare-canonical redirect therefore lands the user on the
+Welcome gate rather than the picker — the opposite of the intended outcome.
 
-Note the early return keeps the existing success contract (`{ ok: true, action: "cleaned" }`) on
-the guard-fail path rather than falling through to the redirect — the cleanup itself already
-succeeded by that point.
+Companion edits this requires:
+
+- `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) gains optional `gate` and `s`.
+- `_StaleCleanupAutoSubmit.tsx` gains two hidden inputs supplying them. **Only the hidden inputs** —
+  its `useEffect`, its empty dependency array, and its auto-submit mechanics are untouched, which
+  is what spec §1.2 protects.
+- Both values are re-validated against the same allow-lists `validateNextParam` uses before
+  reaching `buildShowReturnUrl`. An absent or non-allow-listed value is dropped and the redirect
+  degrades to the bare canonical URL rather than failing.
+
+The `!result.ok` early return preserves the existing failure contract; the `isValidShowPathPair`
+early return returns the successful result rather than redirecting, because the cleanup itself
+already succeeded by that point.
 
 ### Task 6 — claimed-row client boundary + pending state (RED→GREEN)
 
 New `_ClaimedRowButton` (in the same directory as `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`), `"use client"`. Props per spec §3.4.
-Local `useState` for pending, flipped on click, reset on `pageshow`.
+Local `useState` for pending, flipped in `onClick`, reset on `pageshow`.
+
+**Busy signalling is `aria-disabled`, NOT the `disabled` attribute** (spec §3.5, R1 finding 3). A
+natively disabled button is removed from the focusable set, so a keyboard user loses their place
+the moment the row goes busy. `aria-disabled` keeps it focusable; the `onClick` early-return is
+what actually blocks the second activation, and is therefore load-bearing rather than decorative.
+Pending background is set via an `aria-disabled:` variant declared after the hover rule —
+`disabled:` variants do not apply and hover is NOT suppressed for free.
 
 Tests in `tests/show/pickerAffordance.test.tsx` (existing harness), roster fixture containing BOTH
 a claimed and an unclaimed row:
 
-1. Pending renders `picker-row-spinner`, drops `picker-row-lock`, sets `disabled` +
+1. Pending renders `picker-row-spinner`, drops `picker-row-lock`, sets `aria-disabled="true"` +
    `aria-busy="true"`, and puts `Signing in…` in the claimed row's `picker-role-chip`. **Scope the
    chip query to the claimed row's subtree** — unclaimed rows render `picker-role-chip` too, and an
    unscoped query passes on the wrong node.
@@ -179,16 +213,26 @@ a claimed and an unclaimed row:
 3. `role={null}` → no chip idle, `Signing in…` chip pending (spec R4).
 4. Unclaimed row never renders `picker-row-spinner` (spec R5).
 5. `pageshow` with `persisted: true` after pending → back to idle.
+6. **Double-activation guard.** Fire two clicks; assert only one submit is issued. Failure mode
+   caught: relying on `aria-disabled` to block activation (it does not) and omitting the
+   `onClick` early return — the row would look busy and still double-submit, which is the entire
+   defect.
 
 Also: add `whitespace-nowrap` to `chipBase` (`_PickerInterstitial.tsx:182`) — `Signing in…` is
 wider than most role strings and the chip must not wrap (spec §5).
 
-### Task 7 — layout dimensions, real browser
+### Task 7 — layout + disabled-state proof, real browser
 
-Extend `tests/e2e/crew-layout-dimensions.spec.ts`. Measure the claimed row's
-`getBoundingClientRect().height` in idle and in pending, assert equal within 0.5px.
+Extend `tests/e2e/crew-layout-dimensions.spec.ts`. Three assertions, all requiring a real browser.
 
-Spec §5 invariant list, verbatim, is the task body's checklist:
+**7a — height invariance over TWO fixtures.** Measure the claimed row's
+`getBoundingClientRect().height` idle vs pending, equal within 0.5px, for a row WITH a role and a
+row with `role={null}`. The null-role case is the one that matters: with a role present pending
+merely swaps chip text, but with `role={null}` pending ADDS a chip idle does not have. A
+role-bearing fixture alone proves the easy substitution and never exercises R4's addition (R1
+finding 4).
+
+Spec §5 invariant list, verbatim, is this task's checklist:
 
 - row → left group: vertically centered, single line (`items-center`)
 - row → spinner: 16px box, does not raise row height above the 44px floor (`size-4`)
@@ -196,7 +240,16 @@ Spec §5 invariant list, verbatim, is the task body's checklist:
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
 
-jsdom cannot compute layout; this runs in Playwright. Detach safety per §0.2.
+**7b — hover precedence.** With the pointer over the row, assert the computed background while
+pending is the pending background, not the hover background. Failure mode caught: assuming the
+busy state suppresses hover. It does not — Tailwind emits the hover variant with no not-disabled
+guard, and CSS hover matches by pointer position regardless.
+
+**7c — focus retention.** Focus the row, drive it to pending, assert `document.activeElement` is
+still the row. Failure mode caught: shipping `disabled`, which drops focus to `<body>`.
+
+jsdom cannot compute layout or resolve computed styles this way; all three run in Playwright.
+Detach safety per §0.2.
 
 ### Task 8 — transition audit
 
@@ -208,9 +261,14 @@ deliberately instant, against spec §6:
 | idle → pending | instant; spinner rotation is the motion |
 | pending → idle | instant, via `pageshow` |
 
-Compounds: pointer-over-row during pending (hover suppressed by `disabled`); keyboard focus during
-pending (ring persists); pending arriving mid-hover-transition (120ms completes, no flash); two
-different rows tapped (each owns its own state — two pending rows is accepted, not a bug).
+Compounds — note the first three are **asserted in Task 7, not inferred here**, because R1 found
+the original prose claims were false:
+
+- pointer-over-row during pending → pending background wins (Task 7b)
+- keyboard focus during pending → ring persists, focus retained (Task 7c)
+- pending arriving mid-hover-transition → the 120ms `transition-colors` completes into the pending
+  background, not the hover background (Task 7b covers the end state)
+- two different rows tapped → each owns its own state; two pending rows is accepted, not a bug
 
 ### Task 9 — retire the e2e workaround (the proof)
 
@@ -225,9 +283,15 @@ fails, Task 2 did not actually ship.
 ### Task 10 — stale-cleanup e2e
 
 Extend `tests/e2e/picker-flow.spec.ts`. Seed a show, seed a picker cookie whose `epoch` mismatches
-`shows.picker_epoch` (→ `epoch_stale`), drive the picker at `?gate=skip`, assert the browser lands
-on the canonical URL with the stale hint gone. Derive the expected URL from the fixture's
-slug/token — never hardcode.
+`shows.picker_epoch` (→ `epoch_stale`), drive the picker at `?gate=skip`, and assert the browser
+lands **on the picker**: `picker-interstitial-root` visible, plus the stale hint gone.
+
+**Assert the rendered screen, not just the URL.** A URL-and-hint-only assertion passes on
+`<SignInOrSkipGate>`, which is exactly the wrong-screen bug R1 finding 2 identified — the redirect
+can be correct about the address and wrong about the page. Derive the expected URL from the
+fixture's slug/token; never hardcode.
+
+Coverage is 1 of the 4 stale kinds (`epoch_stale`), by the documented-limits rationale in spec §9.
 
 No workflow wiring change: the file is already run by `.github/workflows/crew-e2e.yml:151`.
 
@@ -249,10 +313,10 @@ No workflow wiring change: the file is already run by `.github/workflows/crew-e2
 - [ ] Task 1 — bootstrap four-shape matrix (RED)
 - [ ] Task 2 — `parseNextPath` splits query (GREEN)
 - [ ] Task 3 — bootstrap negative guards
-- [ ] Task 4 — stale-cleanup emit-order test (RED)
-- [ ] Task 5 — stale-cleanup guard-then-redirect (GREEN)
+- [ ] Task 4 — stale-cleanup public-boundary sentinel/emit/destination tests (RED)
+- [ ] Task 5 — stale-cleanup redirect from the public action (GREEN)
 - [ ] Task 6 — `_ClaimedRowButton` + pending tests
-- [ ] Task 7 — layout dimensions (real browser)
+- [ ] Task 7 — layout + hover precedence + focus retention (real browser)
 - [ ] Task 8 — transition audit
 - [ ] Task 9 — retire the e2e workaround
 - [ ] Task 10 — stale-cleanup e2e
