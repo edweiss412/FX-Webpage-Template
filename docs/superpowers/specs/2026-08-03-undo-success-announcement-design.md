@@ -75,7 +75,7 @@ Under `role="status"` the second undo would be silent. Under `role="log"` both a
 7. **`components/admin/ChangeFeedEntry.tsx`**, **`components/admin/RecentAutoAppliedStrip.tsx`** — one `announceLabel` prop threaded to each of the two `UndoChangeButton` call sites. Neither provides context nor renders a region; neither holds announcement state.
 8. **`components/admin/review/ShowReviewSurface.tsx`** — retrofitted onto the extracted module (R6), DOM output unchanged.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-9. **`tests/styles/_metaUndoAnnounceProvider.test.ts`** (new) — the two-assertion structural guard of §5.
+9. **`tests/styles/_metaUndoAnnounceProvider.test.ts`** (new) — the four-assertion structural guard of §5.
 10. **`BACKLOG.md`** — the four ledger dispositions plus three filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`); **`DESIGN.md`** — the announcement contract paragraph.
 
 `components/admin/ChangesFeed.tsx` is deliberately absent: under §3.5 it needs no change at all.
@@ -191,7 +191,7 @@ The announcement happens **inside the action's async flow**, before React can pr
 |---|---|---|
 | `announceLabel` | `undefined` | Announcement is `"Change undone."` — the bare sentence, no dangling colon. |
 | `announceLabel` | `""` / whitespace-only | Same as `undefined`. Treated identically by `undoneAnnouncement`. |
-| `announceLabel` | non-blank | `"Change undone: <label>"`. |
+| `announceLabel` | non-blank | `"Change undone: <label>."` — the function supplies the terminal period (§4.1). |
 | context | no provider above | `announce` is the no-op; nothing announced, nothing thrown. Guarded structurally (§5). |
 | `undoAction` | resolves `{ok:false}` | No success announcement. Failure card announces via (b). |
 | `undoAction` | throws | No announcement of either kind. `useActionState` surfaces the rejection; unchanged from today. |
@@ -231,16 +231,27 @@ return <AdminAnnounceProvider>{branchContent}</AdminAnnounceProvider>;
 
 ```tsx
 // components/admin/AdminAnnounceProvider.tsx ("use client")
-export function AdminAnnounceProvider({ children }: { children: ReactNode }) {
+export function AdminAnnounceProvider({
+  children,
+  testId,
+  label,
+}: {
+  children: ReactNode;
+  testId: string;
+  label: string;
+}) {
   const { announce, entries } = useAnnounceLog();
   const ctx = useMemo(() => ({ announce }), [announce]);
   return (
     <UndoAnnounceContext.Provider value={ctx}>
-      <AnnounceLogRegion entries={entries} label="Undo updates" testId="admin-undo-status" />
+      <AnnounceLogRegion entries={entries} label={label} testId={testId} />
       {children}
     </UndoAnnounceContext.Provider>
   );
 }
+
+// Layout:  <AdminAnnounceProvider testId="admin-undo-status"  label="Undo updates">
+// Dialog:  <AdminAnnounceProvider testId="dialog-undo-status" label="Undo updates in this dialog">
 ```
 
 Two properties make this immune rather than merely further away:
@@ -292,9 +303,19 @@ Nesting is the mechanism, and it needs no coordination: React context resolves t
 
 There is a reachability argument that this cannot bite: the flip runs in the first post-mount effect, and an undo requires a React form action, which requires hydration to have completed — so no undo can be initiated before the flip. **That argument is not ratified here, and deliberately so.** Region placement has now absorbed four adversarial rounds, each one refuting the previous round's prose with a new interaction of this codebase's modal machinery. `docs/agents/spec-self-review.md:22` is explicit that a design-correctness vector surviving three rounds is not to be patched a fourth time: build the probe, descope, or mark it unratified pending a spike.
 
-This spec marks it unratified and defines the spike. The plan's first implementation task builds the two channels and then runs a **cold-load probe** before any further work depends on it: deep-link the modal open (`/admin?show=`), let the portal flip occur, undo, and assert the announcement is in the live region. If the probe fails, the dialog channel is not viable in its current form and the design changes before anything is built on top of it — which is the point of spiking rather than arguing.
+This spec marks it unratified and defines the spike, in two parts, because review established that one of them alone proves less than it appears to.
 
-**If the probe fails, the redesign is already scoped.** The fallback is the pattern this codebase already uses for the identical problem on the identical flip: `useDialogFocus` accepts a `reattachKey` and re-runs its effect when the container node changes (`lib/a11y/dialogFocus.ts:60`, `dialogFocus.ts:117-122`), which is exactly how the focus trap survives the portal recreation. The announcement analogue keeps the channel's *state* in a provider mounted outside `tree` (so no flip can discard it) and attaches the region *node* to the current dialog element under the same reattach key, so the node always lives inside the `aria-modal` subtree and is re-established whenever React recreates that subtree. It is more machinery than the current design, which is why it is the fallback rather than the proposal — but it resolves both constraints simultaneously, and it is not novel here.
+**Part 1 — post-flip steady state.** Deep-link the modal open (`/admin?show=`), let the portal flip occur, undo, assert the announcement lands. This is necessary but **not sufficient**: by letting the flip finish first it only exercises the settled tree, which is exactly the case nobody disputes.
+
+**Part 2 — across the flip.** Drive an undo whose action is initiated or resolves while the flip is in progress, and assert the announcement is not lost. This is the disputed sequence and the only one that can ratify or refute the claim.
+
+**Part 2 is expected to be unconstructible, and that is itself the finding.** `useHasMounted` is `useSyncExternalStore(emptySubscribe, () => true, () => false)` (`lib/a11y/useHasMounted.ts:22-26`), so its client snapshot is `true` on the FIRST client render: the flip is part of hydration, not a later effect. An undo requires a React form action, which requires hydration to have completed. If the spike cannot construct an interaction that spans the flip, that is evidence the sequence is unreachable — and the task records that outcome explicitly rather than silently passing Part 1 and calling the vector closed.
+
+If either part fails, or if Part 2 turns out to be constructible after all, the dialog channel is not viable in its current form and the design changes before anything is built on it.
+
+**If the probe fails, the redesign is already scoped.** The fallback is the pattern this codebase already uses for the identical problem on the identical flip: `useDialogFocus` accepts a `reattachKey` and re-runs its effect when the container node changes (`lib/a11y/dialogFocus.ts:60`, `dialogFocus.ts:117-122`), which is exactly how the focus trap survives the portal recreation. The announcement analogue keeps the channel's *state* in a provider mounted outside `tree` (so no flip can discard it) and attaches the region *node* to the current dialog element under the same reattach key, so the node always lives inside the `aria-modal` subtree and is re-established whenever React recreates that subtree. It is more machinery than the current design, which is why it is the fallback rather than the proposal.
+
+**What that citation does and does not establish.** `useDialogFocus` rebinds an event listener to a replacement node; it does not preserve a live-region node, and review was right to say so. It is cited as precedent for the *shape* — this codebase already re-establishes a11y machinery against the post-flip node under a reattach key — not as evidence that a live region survives. A live region re-attached this way is a NEW node, so the fallback additionally requires that the announcement be re-appended after re-attachment rather than assumed to have survived, which is the part that makes it more machinery than it first appears.
 
 **The other unratified part, stated as such.** Whether a specific screen reader would have announced the layout region from inside the modal is not settled by this spec, and does not need to be — the dialog channel makes the question moot rather than answering it. What §11's real-browser assertion checks is mechanical and therefore trustworthy: the region that receives a feed undo is inside the dialog subtree, is not `aria-hidden`, and is not `inert`. No claim is made here about specific AT behavior, and none is relied upon.
 
@@ -320,7 +341,7 @@ That is the entire change to both surfaces. The existing bulk region and its `bu
 
 Three independent properties, each checkable rather than argued:
 
-1. **The region's node is never replaced.** It is the first child of a component whose position is invariant under every branch below and above it (§3.5).
+1. **The region's node is never replaced after hydration.** Each region is the first child of a component whose position is invariant under every branch below and above it (§3.5). The qualifier is load-bearing and was added in review: the dialog region **is** replaced once, by the `useHasMounted` portal flip (§3.5.2), so an unqualified "never replaced" contradicted this spec's own §3.5.2. Post-hydration it holds; that is the whole claim.
 2. **The state owner outlives every surface that can announce.** `AdminAnnounceProvider` is mounted by the layout for the lifetime of the admin segment.
 3. **The async continuation does not depend on its caller surviving.** `announce` is called after `await undoAction(...)` inside the wrapped action; that continuation runs whether or not `UndoChangeButton` has since unmounted, because it closes over the provider's `announce`, not over its own component instance.
 
@@ -365,7 +386,7 @@ Moving the channel to the layout (§3.5) changes what a guard can usefully asser
 | **A1 — every value `AdminLayout` returns is wrapped.** Every `return` **belonging to the `AdminLayout` function itself** yields a tree wrapped in `AdminAnnounceProvider`. Returns inside nested helpers or callbacks in the same file are out of scope, so the check is stated over the component's own returns rather than the file's — an earlier draft said "every `return` in the file", which a future local helper would have broken for no reason. | The layout has three such returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | The layout source with the wrapper removed from one branch's path; and separately a nested helper with its own unwrapped `return`, which must NOT fail. |
 | **A3 — the region is never inside an inert root.** `AdminAnnounceProvider` is not rendered as a descendant of any element carrying `data-inert-root` (§3.5.1). | Structural, and the difference between a working feature and a silently dead one. | The layout source with the provider nested inside the `data-inert-root` div instead of wrapping it. |
 | **A2 — the channel is mounted at exactly the two sanctioned positions.** `AdminAnnounceProvider` is rendered in exactly two files: `app/admin/layout.tsx` and `components/admin/review/ReviewModalShell.tsx`. No file other than the provider module references `UndoAnnounceContext.Provider` directly. | A third provider on some intermediate surface would shadow both channels with a shorter-lived one, which is the original defect wearing a new hat. An earlier draft of A2 said "nothing else provides", which the dialog channel now legitimately violates. | A third file rendering `<AdminAnnounceProvider>`; and separately a file rendering `<UndoAnnounceContext.Provider>` directly. |
-| **A4 — no announcing surface outside the admin tree.** Every file rendering `<UndoChangeButton`, **or rendering a component that renders one** (currently `<ChangeFeedEntry` and `<AutoAppliedRow`), lives under `app/admin/` or `components/admin/`. The wrapper list is maintained by hand and named in the test. | A future non-admin call site silently consumes `NOOP_UNDO_ANNOUNCE` and announces nothing, with no behavioral test to notice. | A file outside those trees rendering `<UndoChangeButton`; and one rendering `<ChangeFeedEntry`. |
+| **A4 — no DIRECT announcing surface outside the admin tree.** Every file rendering `<UndoChangeButton` lives under `app/admin/` or `components/admin/`. | A future non-admin call site rendering the button directly silently consumes `NOOP_UNDO_ANNOUNCE` and announces nothing. | A file outside those trees rendering `<UndoChangeButton`. |
 
 A1 and A3 are checked against `app/admin/layout.tsx` from comment-stripped source; A2 and A4 by a walk over `components/` and `app/` (excluding `app/api/**`). All four use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each assertion carries its own planted violation** — an earlier round's finding was that a widened guard shipped a mutant for only one branch, so a guard silently ignoring another would still pass.
 
@@ -373,7 +394,9 @@ A1 and A3 are deliberately shallow string-and-nesting checks over one known file
 
 No file needs an exemption comment, because no surface component provides anything any more. `ChangeFeedEntry` and `RecentAutoAppliedStrip` simply consume a context their layout guarantees.
 
-**A4 is a path heuristic, and both of its error directions are real.** A non-admin page rendering `<ChangeFeedEntry` rather than the button directly would pass a version that scans only for `<UndoChangeButton` — which is why the wrapper list exists — but the list is hand-maintained, so a *new* wrapper reintroduces the hole. In the other direction, an admin-only wrapper legitimately placed under `components/shared/` would fail on its path alone despite having a valid provider ancestor at runtime. Neither direction is fixable by a filesystem rule: ancestry is a runtime property and the guard reads source. A4 is worth keeping as a cheap tripwire for the common case, and is explicitly not a proof.
+**A4 covers the direct case only, and the transitive case is explicitly NOT guarded.** An earlier draft tried to close the transitive hole with a hand-listed set of wrappers. That list was wrong on its first outing: it named `AutoAppliedRow`, which is a TypeScript type (`lib/admin/loadRecentAutoApplied.ts:36`) and not a rendered component, while the real immediate wrapper is `StripRow` (`components/admin/RecentAutoAppliedStrip.tsx:258`), and it omitted the exported transitive wrappers `<ChangesFeed>` (`components/admin/ChangesFeed.tsx:85`) and `<RecentAutoAppliedStrip>` (`RecentAutoAppliedStrip.tsx:561`) entirely. A hand-maintained inventory that is already incomplete on the day it ships is worse than no inventory, because it reads as coverage.
+
+So A4 claims only what a filesystem scan can actually support. Ancestry is a runtime property; the guard reads source. The transitive risk — a non-admin file rendering `<ChangesFeed>` or `<RecentAutoAppliedStrip>` and getting the no-op channel — is real, unguarded, and recorded here rather than papered over. What bounds it today: both components are admin-surface by construction and neither is exported for general use, so reaching that state requires deliberately mounting an admin feed outside the admin tree. If that ever becomes plausible, the fix is a real import-graph check, not a longer list.
 
 **What the guard does not cover, stated plainly.** It cannot prove the provider is an *ancestor* of a given button at runtime — that is what the behavioral tests in §11 are for, each rendering a surface inside `AdminAnnounceProvider` and asserting the announcement lands in the region. Guard for the structural regression, tests for the wiring; neither is claimed to be sufficient alone.
 
@@ -609,8 +632,8 @@ Each names a branch a previous round proved could replace a per-surface region. 
 **Real-browser assertion (mandatory, and the only proof of §3.5.1).** jsdom enforces neither `inert` nor `aria-hidden` (`components/admin/review/ReviewModalShell.tsx:176`), and Testing Library ignores `aria-hidden` when querying, so every test above stays green even if the region is hidden from assistive technology. A Playwright spec must:
 
 1. Open the published review modal on a seeded show whose feed has an undoable row.
-2. Assert the region resolves and is **not** `aria-hidden` while the modal is open — `expect(page.getByTestId("admin-undo-status")).toBeAttached()` plus an explicit check that no ancestor carries `aria-hidden="true"` or `inert`.
-3. Click Undo and assert the announcement text lands in that region.
+2. Assert **`dialog-undo-status`** resolves and is not `aria-hidden` while the modal is open — `expect(page.getByTestId("dialog-undo-status")).toBeAttached()` plus an explicit check that no ancestor carries `aria-hidden="true"` or `inert`. Target the dialog id, not the layout one: under nearest-provider resolution a modal undo writes only to the dialog channel, so asserting on `admin-undo-status` would assert on a region that correctly stays empty.
+3. Click Undo and assert the announcement text lands in `dialog-undo-status`, **and** that `admin-undo-status` is still empty. The second half is what proves the nearest-provider wiring rather than merely that something announced somewhere.
 
 Without step 2 the feature can ship completely dead with a green unit suite. This obligation is why the plan's e2e-readiness section is not N/A.
 
