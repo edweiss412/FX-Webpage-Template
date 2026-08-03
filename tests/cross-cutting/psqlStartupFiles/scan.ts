@@ -15,8 +15,12 @@
  *    argv[0] is `"psql"` or a path ending `/psql`. Parsed with the TypeScript
  *    AST, so prettier's multi-line opener (`execFileSync(\n  "psql",`) and
  *    interleaved comments cost nothing — no regex to outrun.
- * 2. JS/TS literal shell strings — `execSync("psql …")` / `exec("psql …")`,
- *    including `sh -c "psql …"` argument strings.
+ * 2. JS/TS literal shell strings — `execSync("psql …")` / `exec("psql …")`, and
+ *    the spawn family when argv[0] is a SHELL rather than psql
+ *    (`spawnSync("sh", ["-c", "psql …"])`, `/bin/bash`, …), where every literal
+ *    argv element is read as shell text. The command word may be quoted
+ *    (`"psql" "$DSN" …`) — a probe during cross-model review found all three of
+ *    these returning zero sites against the first cut of this scanner.
  * 3. `.sh` scripts — a bare `psql` word, after joining backslash line
  *    continuations and dropping quote-aware `#` comments. Recognition is a
  *    DENYLIST on the preceding word, not an allowlist of command-position
@@ -28,8 +32,9 @@
  *    CI availability check, ~14 occurrences in `.github/workflows/` — plus
  *    `which`, `type`, `hash`, `whereis`, `install`, `apt-get`, `echo`, …).
  * 4. Workflow YAML — the raw source slice of every `run:` scalar, scanned with
- *    the same shell reader. A step `name:` that merely mentions psql is not a
- *    call site.
+ *    the same shell reader. Both spellings: a `run: |` block and a quoted
+ *    single-line `run: "psql …"`. A step `name:` that merely mentions psql is
+ *    not a call site.
  *
  * The file list is a FILESYSTEM WALK from the repo root (see IGNORED_DIRS), not
  * a hardcoded roster: a psql site added in a brand-new directory fails by
@@ -181,7 +186,7 @@ function exemptionOnLines(lines: readonly string[], lineNumber: number): string 
  * unless the preceding word says otherwise, so the failure mode is a LOUD false
  * positive a human reads, not a silent hole in a security guard.
  */
-const SHELL_BARE_PSQL = /(?:^|[\s;&|()<>])psql(?=[\s;&|()<>]|$)/g;
+const SHELL_BARE_PSQL = /(?:^|[\s;&|()<>"'])["']?psql["']?(?=[\s;&|()<>"']|$)/g;
 
 /** Preceding words that make `psql` an argument rather than the command:
  * availability probes and package tooling. */
@@ -264,7 +269,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
     while ((m = SHELL_BARE_PSQL.exec(logical.text))) {
       const wordAt = m.index + m[0].indexOf("psql");
       const before = logical.text.slice(0, wordAt).trimEnd();
-      const previousWord = before.slice(before.lastIndexOf(" ") + 1);
+      const previousWord = before.slice(before.lastIndexOf(" ") + 1).replace(/^["']|["']$/g, "");
       if (NOT_AN_INVOCATION.has(previousWord)) continue;
       const after = logical.text.slice(wordAt + "psql".length);
       const tokens = shellTokens(after);
@@ -323,6 +328,13 @@ function isPsqlBinary(text: string): boolean {
   return text === "psql" || text.endsWith("/psql");
 }
 
+const SHELL_BINARIES = new Set(["sh", "bash", "zsh", "dash", "ash", "ksh"]);
+
+/** argv[0] is a shell, so its argv carries a command LINE rather than psql. */
+function isShellBinary(text: string): boolean {
+  return SHELL_BINARIES.has(text.slice(text.lastIndexOf("/") + 1));
+}
+
 function parseJs(source: string, file: string): ts.SourceFile {
   return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 }
@@ -372,14 +384,33 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
         });
       }
 
-      // Literal shell strings: execSync("psql …"), exec("psql …"), and any
-      // string argument of a `sh -c` style call.
+      // Literal shell strings handed to execSync("psql …") / exec("psql …").
       if (callee && SHELL_CALLEES.has(callee)) {
         for (const argument of node.arguments) {
           const text = literalText(argument);
           if (text === null) continue;
           const line = lineOf(sourceFile, argument.getStart(sourceFile));
           sites.push(...shellStringSites(text, file, line, lines));
+        }
+      }
+
+      // A shell binary run through the spawn family — spawnSync("sh", ["-c",
+      // "psql …"]). argv[0] is not psql, so the branch above never sees it;
+      // every literal element of the argv array is read as shell text instead.
+      if (
+        callee &&
+        SPAWN_CALLEES.has(callee as PsqlSiteForm) &&
+        firstText &&
+        isShellBinary(firstText)
+      ) {
+        const argv = node.arguments[1];
+        if (argv && ts.isArrayLiteralExpression(argv)) {
+          for (const element of argv.elements) {
+            const text = literalText(element);
+            if (text === null) continue;
+            const line = lineOf(sourceFile, element.getStart(sourceFile));
+            sites.push(...shellStringSites(text, file, line, lines));
+          }
         }
       }
     }

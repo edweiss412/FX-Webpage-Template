@@ -162,6 +162,28 @@ describe("scanSource — JS/TS spawn family", () => {
     expect(sitesIn(source, "tests/x.test.ts")).toHaveLength(0);
   });
 
+  // Three shapes the first cut of the scanner missed. Each was surfaced by a
+  // runtime probe during cross-model review, and each returned zero sites.
+  test('a shell binary in argv[0] — spawnSync("sh", ["-c", "psql …"])', () => {
+    const sites = sitesIn(
+      `execFileSync("sh", ["-c", "psql $DSN -qAt -c select"]);`,
+      "scripts/x.mjs",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe("shell");
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(
+      sitesIn(`spawnSync("/bin/bash", ["-c", "psql -X $DSN -qAt"]);`, "scripts/x.mjs")[0]!
+        .suppressesStartupFiles,
+    ).toBe(true);
+  });
+
+  test("a QUOTED command word inside a shell string", () => {
+    const sites = sitesIn(`execSync("\\"psql\\" $DSN -qAt -c select");`, "scripts/x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
   test("a literal shell string invoking psql is recognized", () => {
     const sites = sitesIn(`execSync("psql -U postgres -c 'select 1'");`, "scripts/x.mjs");
     expect(sites).toHaveLength(1);
@@ -246,6 +268,16 @@ describe("scanSource — workflow YAML", () => {
     const sites = sitesIn(source, ".github/workflows/x.yml");
     expect(sites).toHaveLength(1);
     expect(sites[0]!.line).toBe(6);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a QUOTED single-line run: scalar is a site, not just a `run: |` block", () => {
+    const source = ["jobs:", "  x:", "    steps:", '      - run: "psql -qAt -c select 1"', ""].join(
+      "\n",
+    );
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(4);
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
