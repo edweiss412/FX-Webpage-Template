@@ -88,6 +88,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/onboarding-cas-source-anchors (2026-08-03): the existing-show re-onboard now threads the
+  // scan's source_anchors through the shadow payload to the Phase-D apply. Archived with the
+  // shipped mechanism, not the stale pre-lock-compute one the entry was filed with.
+  {
+    id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS",
+    provenance: "fix/onboarding-cas-source-anchors",
+  },
   // test/parser-determinism-pair (2026-08-02): the venue typo-generator case. The entry's
   // recorded diagnosis was wrong — the generator has no RNG. The defect was order-coupled
   // sampling, and exhaustive enumeration of all 8453 neighbours found ZERO recovery gaps, so

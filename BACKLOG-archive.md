@@ -8,6 +8,38 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
+
+### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
+
+**Filed:** 2026-06-28 (cross-model review of PR #179) · **Class:** data fidelity · **Effort:** S · **Resolved:** 2026-08-03
+
+**The gap.** PR #179 threaded `source_anchors` into the FIRST-SEEN onboarding materialization so a
+freshly-onboarded show got correct "In sheet" deep links immediately. The EXISTING-SHOW re-onboard
+path had the same gap and kept it: `stageExistingShowShadow` staged a shadow payload without the
+anchors, `deleteApprovedPending` consumed the `pending_syncs` row in the same transaction, and by
+Phase D the value the scan computed no longer existed anywhere. A re-onboarded show kept whatever
+anchors the last sync-pipeline pass left.
+
+**What shipped, and why it is not what this entry originally prescribed.** The entry called for
+computing anchors pre-lock in `finalize-cas`'s apply path. That was right for PR #179's era and
+stale by the time it was picked up: the 2026-07-01 persist-at-scan rewrite made Phase D SQL-only, so
+an XLSX export there is no longer an option. The anchors ride the shadow payload instead — the same
+channel `use_raw_decisions` already uses, for the same reason. Three edits: a `source_anchors` key in
+`stageExistingShowShadow`'s `jsonb_build_object`, a tolerant `sourceAnchors` field on
+`parseShadowPayloadForApply` (anything unusable degrades to `{}` rather than refusing a shadow over
+a cosmetic deep link), and a never-pass-`{}` spread at the Phase-D `applyStagedCore` call. No
+migration, no new §12.4 code, no UI surface.
+
+**The limit it does NOT close.** Flow B preserves the stored map on ANY empty scan, where the sync
+pipeline would clear on some of them — `pending_syncs.source_anchors` flattens a transient Drive
+failure and a workbook with no recognized regions into the same `{}`, so clearing on that value
+would wipe good anchors on every hiccup during a re-onboard. The consequence is that a preserved map
+can predate the applied revision and still produce a structurally valid deep link to a stale range.
+Documented in full at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md`
+§4.1, with the revision-stamp fix that would detect it filed as
+`BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH`.
+
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
@@ -2452,6 +2484,33 @@ Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cro
 
 ---
 
+## BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — RESOLVED (2026-08-03, `fix/db-test-timeout-flake`)
+
+**Resolution:** the entry named two files; the flake was a class of 242. Both halves of the diagnosis were right and neither was sufficient alone.
+
+The default-timeout half is fixed at the ROOT of `vitest.config.ts` (`testTimeout`/`hookTimeout` at 30_000), which both projects inherit via `extends: true`, rather than per-file as the entry proposed — a sweep found 242 test files reaching a real database, nearly none setting their own budget, so per-file would have fixed the two that happened to flake first and left the shape everywhere else. Files needing more still raise their own (`vi.setConfig` wins over the config file), so the already-bumped 90s doc-scan in `tests/scripts/validation-report-fixtures.test.ts` is unaffected. That alone closes `tests/db/show_share_tokens.test.ts`, whose exposure was purely the 5s default across three synchronous psql spawns.
+
+The entry's second suggestion — an explicit barrier instead of wall-clock `vi.waitFor` — turned out to be load-bearing rather than optional, because **`vi.waitFor`'s own timeout defaults to 1000ms and is not derived from `testTimeout`**: raising the test budget to 30s would have left the poll one second to cover a DB round-trip, and `concurrentRetry` would have kept flaking. `tests/reports/_createIssueBarrier.ts` gives the mock a deferred it resolves when `createIssue` is ENTERED; `awaitCreateIssueEntered` races that against every in-flight submit settling, so the "nobody ever entered createIssue" case throws one descriptive line instead of hanging to the timeout. It waits on ALL submits deliberately — in the first-submit race the loser legitimately 409s before the winner enters `createIssue`, so a single-promise race would fail healthy runs. A class sweep found the same shape in `tests/reports/firstSubmitRace.test.ts`, which the entry did not name; both were converted.
+
+The third suggestion, a scoped `retry: 1`, was NOT taken: retries mask nondeterminism in DB tests, and with the two real causes removed there is nothing left for it to paper over.
+
+Pinned by `tests/cross-cutting/db-test-timeout-floor.test.ts` — the floor against both the authored and the RESOLVED runtime config (so a CLI override cannot pass on the strength of the file alone), plus a filesystem-walked ban on `vi.waitFor` in DB-touching files, which fails by default for a newly added one. `vi.waitFor` in `tests/components/**` and `tests/admin/**` is deliberately untouched: those poll an in-process React state flush with no I/O in it.
+
+### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+
+**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
+
+**Effort:** S
+
+A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
+
+- `tests/reports/concurrentRetry.test.ts` — "only one retry claims the expired lease while the other sees in-flight contention": fires concurrent `submitReport` DB calls racing for an expired processing lease + `await vi.waitFor(() => createIssue called once)`, with an `afterEach` `cleanupReportFixtures` DB call. It uses Vitest's **default** 5s test / 10s hook timeouts (no `vi.setConfig`), so it exceeds them when the local Supabase is momentarily slow.
+- `tests/db/show_share_tokens.test.ts` — "new show insert auto-creates a 64-character lowercase hex token" (trigger-driven) — same default-timeout exposure.
+
+**When picked up:** bump per-file timeouts (`vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })`, mirroring the already-bumped `tests/scripts/validation-report-fixtures.test.ts` at 90s) and/or make the contention test deterministic (gate the second submit on an explicit barrier rather than wall-clock `vi.waitFor`); optionally scope a Vitest `retry: 1` to the DB-concurrency files only. Technical home: the two test files (± `vitest.config.ts`). Cheap to do; low value until the flake rate is annoying enough (a leg re-run currently clears it). Related class: `BL-NEEDS-ATTENTION-DARK-CAPTURE-FLAKE` (CI nondeterminism).
+
+---
+
 ## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 
 **Resolution:** the entry's recorded diagnosis was wrong in both halves, and the corrected work is test-only. **There is no RNG.** `singleEditNeighbors` / `unambiguousTypos` (`tests/parser/_typoGenerator.ts`) are pure, `REVERSE_MAP` is built once at module load and never mutated, `lib/parser/` reads no env and holds no module-level mutable state, and vitest isolates modules per file — cross-model review confirmed it independently, with five separate processes producing the identical 8453-case SHA-256. So "the input set varies per run" is disproven; what varied was coverage per _edit_, because the case sampled `.slice(0, 4)` aliases x `.slice(0, 6)` typos off a list ordered by `FIELD_ALIASES` insertion order. Worse, that window covered only the five aliases whose canonicals `parseVenue` never assigns (`venue.contact_info`, `venue.in_house_av`, `venue.hotel_reservations` — owned by `contacts.ts` / `hotels.ts`), so not one of the 24 sampled cases could ever prove a value reached a venue field.
@@ -2697,3 +2756,23 @@ four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links 
 an ordinary first-contact path. The two-step workaround in
 `tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
 fix reds them, which is the end-to-end proof.
+
+## BL-LEAD-CAPABILITY-PROSE-STALE — two prose claims that LEAD grants an admin/ops surface
+
+**RESOLVED 2026-08-03** (`chore/orphan-components-lead-prose`). Both claims settled by reading the contract each belonged to; both turned out to be stale rather than intentional.
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, spec review R1 finding 1) · **Class:** docs/copy + contract · **Severity:** low · **Effort:** S each, but each needs a contract read
+
+Probed while fixing `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: **no role flag grants admin access.** `is_admin()` (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`) reads the JWT `app_metadata.role` claim and the `admin_emails` table, and never consults `role_flags`; the admin tree gates on admin identity. Sweeping every production use of the LEAD flag finds financials entitlement (`lib/visibility/scopeTiles.ts`, `lib/data/getShowForViewer.ts`), the audio/video/lighting scope-tile predicates, and a "Lead" chip. No admin path exists.
+
+The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContext, its `longExplanation`, and the explainer mirror). Two prose claims were deliberately NOT edited, because each is a statement about what a capability confers rather than a copy string, and changing one is a ratification act:
+
+1. **`lib/visibility/capabilityTransitions.ts`** — its module-header predicate list carries `financialsVisible = isAdmin || LEAD (LEAD-or-admin)`, while the live predicate is `isAdmin || LEAD || FINANCIALS`. Whether the line is wrong or is an accurate description of a flip matrix that deliberately models `hasLead` only cannot be settled without reading the matrix contract.
+2. **Master spec MI-9** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — "LEAD additionally grants the admin/ops surface". Contradicted by the probe above. May encode intent rather than a stale description.
+
+**How it was settled.**
+
+1. **`lib/visibility/capabilityTransitions.ts` — WRONG, of the stale-verbatim-quote kind.** The block the line sits in is labelled "Tile-visibility rules from `lib/visibility/scopeTiles.ts` (verbatim branch logic)", and `financialsVisible` gained its third branch at `e348c81ca` (2026-07-16) without the quote following. It was NOT "an accurate description of a matrix that deliberately models `hasLead` only" — though the matrix genuinely does not model `FINANCIALS`, which is now stated as an explicit modeling boundary and filed as `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE`. `tests/visibility/capabilityHeaderParity.test.ts` extracts the expected flag set from `scopeTiles.ts` SOURCE and compares sets, so the block cannot drift that way again.
+2. **Master spec MI-9 — a STALE DESCRIPTION, not encoded intent.** "admin/ops" was always copy: its oldest instances are the §12.4 strings ratified at `9700c447b` (2026-05-09), MI-9's earlier wording carried the same claim, and `aaab97102` rewrote the clause around it. Every other instance had since been retired or corrected, leaving this one. The clause now states what LEAD actually confers beyond FINANCIALS — the audio/video/lighting scope tiles and the crew-page "Lead" chip — and that neither flag grants admin access, naming `is_admin()`'s two arms.
+
+**A third instance the literal sweep could not see:** `lib/sync/phase2.ts` said a capability flag "would grant ops/financial access silently" — the same claim in production source, in a semantic variant. Corrected in the same commit. `tests/docs/capabilityClaimProse.test.ts` now scans the MI-9 rows AND every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` with a positive-claim recognizer (a raw admin/grant ban could never go green, since the corrected prose itself says neither flag grants admin access), pinned by six fixtures including `lib/parser/typoVocabRegistry.ts`'s unrelated "ops/financials field-alias" as the hardest negative.

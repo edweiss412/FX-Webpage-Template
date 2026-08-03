@@ -288,7 +288,8 @@ function capabilityRoleChangesForNotice(
     if (!priorMember) {
       // Arm (b) — new crew member: the crew_added change-log image is only {name,email} (no
       // role_flags), so a brand-new crew member WHOSE APPLIED role_flags include a CAPABILITY flag
-      // (LEAD or FINANCIALS) would grant ops/financial access silently. Emit a notice entry
+      // (LEAD or FINANCIALS) would gain internal-financials access silently — no admin or ops
+      // access is involved; `is_admin()` never reads role_flags. Emit a notice entry
       // (prior_flags: []) for that case; scope-tile-only new crew stay covered by crew_added alone.
       if (nextMember.role_flags.some(isCapabilityFlag)) {
         changes.push({

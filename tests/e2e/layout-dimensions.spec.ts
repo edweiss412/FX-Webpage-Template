@@ -13,7 +13,7 @@
  * Spec §8.4 dimensional invariants — each one MUST have ≥ 1 assertion:
  *
  *   1. Right Now card full-width across all breakpoints (390 / 1024 / 1200).
- *      `[data-testid=right-now-card]`'s `getBoundingClientRect.width` equals
+ *      `[data-testid=right-now-hero]`'s `getBoundingClientRect.width` equals
  *      the parent container's content-box width within 0.5px.
  *
  *   2. Tile grid columns: 2 cols < 640px, 3 cols 640–1024px, 4 cols > 1024px.
@@ -222,10 +222,10 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     });
 
     const containerW = await pageContainerContentWidth(page);
-    const rn = await box(page, "right-now-card");
+    const rn = await box(page, "right-now-hero");
     expect(
       Math.abs(rn.width - containerW),
-      `right-now-card width (${rn.width}) must equal page-container content-box width (${containerW}) within ${PIXEL_TOLERANCE}px`,
+      `right-now-hero width (${rn.width}) must equal page-container content-box width (${containerW}) within ${PIXEL_TOLERANCE}px`,
     ).toBeLessThan(PIXEL_TOLERANCE);
   });
 
@@ -235,10 +235,10 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     });
 
     const containerW = await pageContainerContentWidth(page);
-    const rn = await box(page, "right-now-card");
+    const rn = await box(page, "right-now-hero");
     expect(
       Math.abs(rn.width - containerW),
-      `right-now-card width (${rn.width}) must equal page-container content-box width (${containerW}) at 1024px within ${PIXEL_TOLERANCE}px`,
+      `right-now-hero width (${rn.width}) must equal page-container content-box width (${containerW}) at 1024px within ${PIXEL_TOLERANCE}px`,
     ).toBeLessThan(PIXEL_TOLERANCE);
   });
 
@@ -248,10 +248,10 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     });
 
     const containerW = await pageContainerContentWidth(page);
-    const rn = await box(page, "right-now-card");
+    const rn = await box(page, "right-now-hero");
     expect(
       Math.abs(rn.width - containerW),
-      `right-now-card width (${rn.width}) must equal page-container content-box width (${containerW}) at 1200px within ${PIXEL_TOLERANCE}px`,
+      `right-now-hero width (${rn.width}) must equal page-container content-box width (${containerW}) at 1200px within ${PIXEL_TOLERANCE}px`,
     ).toBeLessThan(PIXEL_TOLERANCE);
   });
 

@@ -80,14 +80,14 @@ When picking up a deferred item:
   - `tests/e2e/pack-list.spec.ts:219` — visibility (3 schedule phases) + cardinality cap + overflow. Subagent audit claimed `tests/visibility/packList.test.ts` covers all three; the cardinality/overflow assertions are rendering behavior and should be re-verified during port.
 
 - **FULL-MIGRATE to jsdom + RTL** (10 suites — no equivalent component-test coverage exists; estimated ~34h):
-  - `tests/e2e/right-now.spec.ts:128` (Task 4.11 RightNowCard; partial gap on `RightNowCardRecovery.test.tsx`, ~2h)
+  - `tests/e2e/right-now.spec.ts:128` (Task 4.11 Today hero; partial gap on `tests/components/crew/rightNowHeroRecovery.test.tsx`, ~2h)
   - `tests/e2e/right-now-transitions.spec.ts:152` (§8.2 66-pair pairwise transition audit, ~8h)
   - `tests/e2e/right-now-transitions.spec.ts:289` (§8.2 6 compound transition audits, ~3h)
   - `tests/e2e/theme-toggle.spec.ts:57` (data-theme flip + localStorage + no-FOUC, ~3h)
   - `tests/e2e/status-financials.spec.ts:72` ShowStatusTile (COI status rendering, ~2h)
   - `tests/e2e/crew-page.spec.ts:559` LodgingTile (~2h)
   - `tests/e2e/crew-page.spec.ts:596` VenueTile (~2h)
-  - `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; existing `PerShowCrewSection.test.tsx` is admin-side, not equivalent)
+  - `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; no equivalent component coverage — the admin-side suite that was cited here was retired with its component on 2026-08-03, which strengthens rather than weakens this deferral)
   - `tests/e2e/crew-page.spec.ts:652` ContactsTile (~2h)
   - `tests/e2e/schedule-tile.spec.ts:123` ScheduleTile (date_restriction.kind branches, ~3h)
   - `tests/e2e/notes-tile.spec.ts:144` NotesTile (4-source aggregation + truncation + cardinality, ~4h)
@@ -633,7 +633,7 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 **Noted, not fixed (MEDIUMs from the same critique):** (a) outdated rows (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) self-heal on the next finalize click, but the per-row panel gives no "click publish again" hint; (b) the per-row panel uses the raw `drive_file_id` as the row identifier rather than a human-readable sheet/show name. Fold both into whatever milestone picks this entry up.
 
-**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).
+**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/FinalizeButton.tsx`, the surviving finalize-cas UI, per-row panels).
 
 ## ONBOARDING-FIXUPS-DEF-3 — Reject-discarded shadows lack completion provenance for the legacy preflight
 

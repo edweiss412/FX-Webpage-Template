@@ -615,6 +615,13 @@ async function stageExistingShowShadow(
   // re-read them from pending_syncs — without this, an existing show publishes the parsed value
   // despite the admin's toggle (Codex whole-diff review).
   useRawDecisions: UseRawDecision[],
+  // BL-ONBOARDING-CAS-SOURCE-ANCHORS: the deep-link anchors the scan persisted on the
+  // pending_syncs row. Same reason use_raw_decisions rides the payload — deleteApprovedPending
+  // consumes that row in this same transaction, so a value not baked in here does not exist by
+  // Phase D. REQUIRED, not optional: an omitted argument IS the bug this closes. May legitimately
+  // be {} (the scan computed none); the Phase-D call site is where that case is handled, by
+  // OMITTING the core arg so applyShowSnapshot's coalesce preserves the stored anchors.
+  sourceAnchors: Record<string, SourceAnchor>,
 ): Promise<void> {
   // F1 Task 1.4: deleteApprovedPending consumes the pending_syncs row right after this INSERT,
   // so triggered_review_items + base_modified_time exist ONLY in this payload by Phase D —
@@ -654,7 +661,11 @@ async function stageExistingShowShadow(
                -- Feature-B F1: staged use-raw decisions travel with the shadow (raw array →
                -- $::jsonb; postgres.js serializes). Consumed at Phase-D by finalize-cas applyShadow
                -- (parseShadowPayloadForApply → parsed.useRawDecisions → the runPhase2 overlay).
-               'use_raw_decisions', $13::jsonb
+               'use_raw_decisions', $13::jsonb,
+               -- Deep-link region anchors persisted at scan (raw object → $::jsonb; postgres.js
+               -- serializes, never JSON.stringify). Consumed at Phase-D by finalize-cas
+               -- applyShadow → parsed.sourceAnchors → the applyStagedCore arg.
+               'source_anchors', $14::jsonb
              ),
              $7, $10::timestamptz
         from public.shows s
@@ -682,6 +693,7 @@ async function stageExistingShowShadow(
       pullSheetOverride,
       pullSheetOverrideApplied,
       useRawDecisions,
+      sourceAnchors,
     ],
   );
 }
@@ -1145,6 +1157,7 @@ async function processApprovedRow(input: {
         pullSheetOverride,
         pullSheetOverrideApplied,
         normalizeUseRawDecisions(locked.use_raw_decisions),
+        sourceAnchors,
       );
       await stampManifestPublishIntent(tx, wizardSessionId, row.drive_file_id, true);
       await deleteApprovedPending(tx, wizardSessionId, row);
