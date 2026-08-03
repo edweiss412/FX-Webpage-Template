@@ -37,6 +37,8 @@ type FontReport = {
   faces: { family: string; status: string; style: string; weight: string; unicodeRange: string }[];
   htmlFontFamily: string;
   fontInterToken: string;
+  /** The family `--font-inter` names first — what the loader actually generated. */
+  loaderFamily: string;
 };
 
 /**
@@ -49,6 +51,13 @@ type FontReport = {
 async function measureFonts(page: Page): Promise<FontReport> {
   await page.evaluate(() => document.fonts.ready);
   return page.evaluate((text: string) => {
+    // First entry of `--font-inter`, unquoted — the family next/font generated.
+    const loaderFamily =
+      (getComputedStyle(document.documentElement).getPropertyValue("--font-inter") || "")
+        .split(",")[0]
+        ?.trim()
+        .replace(/^["']|["']$/g, "") ?? "";
+
     const measure = (fontFamily: string | null): number => {
       const el = document.createElement("span");
       el.textContent = text;
@@ -64,7 +73,13 @@ async function measureFonts(page: Page): Promise<FontReport> {
     return {
       // `null` = inherit the page's real cascade. This is the value under test.
       inherited: measure(null),
-      forcedInter: measure('"Inter"'),
+      // The family the LOADER exposes, read from `--font-inter` rather than
+      // hardcoded. `--font-sans` consumes that token, so this is the family the
+      // app is contracted to render — whatever next/font decides to call it.
+      // Hardcoding `"Inter"` made the suite fail on a future Next that hashes
+      // the generated family name, even though the app would still be correctly
+      // bound through the same token indirection (review R15).
+      forcedInter: measure(loaderFamily ? `"${loaderFamily}"` : '"Inter"'),
       forcedSansSerif: measure("sans-serif"),
       faces: Array.from(document.fonts).map((f) => ({
         family: f.family,
@@ -81,6 +96,7 @@ async function measureFonts(page: Page): Promise<FontReport> {
       fontInterToken: getComputedStyle(document.documentElement)
         .getPropertyValue("--font-inter")
         .trim(),
+      loaderFamily,
     };
   }, PROBE_TEXT);
 }
@@ -120,7 +136,9 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //     the host. This is what catches a future Next release reverting to
   //     hashed `@font-face` family names: the width checks would still pass on a
   //     developer machine with Inter installed, this one would not.
-  const loadedInter = report.faces.filter((f) => f.family === "Inter" && f.status === "loaded");
+  const loadedInter = report.faces.filter(
+    (f) => f.family === report.loaderFamily && f.status === "loaded",
+  );
   expect(
     loadedInter.length,
     `${surface}: the document loaded an Inter face (registered families: ` +
@@ -143,12 +161,13 @@ function assertRendersInter(report: FontReport, surface: string): void {
   const appFaces = report.faces.filter(
     (f) => !f.family.startsWith("__nextjs-") && !f.family.endsWith(" Fallback"),
   );
+  expect(report.loaderFamily, `${surface}: --font-inter names a family`).toBeTruthy();
   const appFamilies = new Set(appFaces.map((f) => f.family));
   expect(
     [...appFamilies].sort(),
     `${surface}: the document registers exactly one font family — a second ` +
       `next/font loader for a DIFFERENT family would add one, in any call syntax`,
-  ).toEqual(["Inter"]);
+  ).toEqual([report.loaderFamily]);
 
   // (5) NO DUPLICATE FACES. Review R4 showed (4) alone cannot see the case the
   //     whole guard exists to prevent: a second loader for the SAME family adds
