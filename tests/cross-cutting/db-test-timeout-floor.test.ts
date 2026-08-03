@@ -47,6 +47,12 @@ import vitestConfig from "@/vitest.config";
 // Cost of the floor, stated plainly: a genuinely hung DB test now burns 30s
 // before failing instead of 5s. That is the right trade for a gate whose other
 // failure mode is going red on healthy code.
+//
+// Known limit, recorded so nobody reads the ban as total: the vi.waitFor scan is
+// textual, so an ALIASED waitFor (`const wf = vi.waitFor`) escapes it. There are
+// zero such aliases across the corpus's 1,742 imports, and closing it would mean
+// resolving arbitrary re-bindings of a member expression for a spelling nobody
+// writes. The budget assertion below is the AST-based one; this scan is not.
 
 const ROOT = process.cwd();
 const TIMEOUT_FLOOR_MS = 30_000;
