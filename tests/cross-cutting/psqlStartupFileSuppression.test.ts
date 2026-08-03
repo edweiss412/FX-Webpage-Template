@@ -61,10 +61,23 @@ function sitesIn(source: string, file: string) {
   return scanSource(source, file);
 }
 
-/** ONE full-tree walk for the whole file. It reads ~2950 files, so doing it
- * twice doubled this file's cost inside the serial project, where a neighbour
- * with a 5s per-test timeout has to share the CPU. */
-const LIVE_USAGE = collectPsqlUsage(REPO_ROOT);
+/**
+ * ONE full-tree walk for the whole file, computed LAZILY.
+ *
+ * It reads ~2950 files and takes seconds. Doing it at MODULE level ran it
+ * during collection, before any test had started, which blocked the serial
+ * vitest project's single thread — and `picker-flow-e2e-ci-wiring`, which
+ * shares shard 1 and carries a 5s per-test timeout, timed out twice on CI as a
+ * result. Deferring it into the tests that need it keeps the cost inside a
+ * timeout this file owns.
+ */
+let liveUsage: ReturnType<typeof collectPsqlUsage> | null = null;
+function liveTreeUsage(): ReturnType<typeof collectPsqlUsage> {
+  liveUsage ??= collectPsqlUsage(REPO_ROOT);
+  return liveUsage;
+}
+/** Generous, because the walk is the point of these tests. */
+const WALK_TIMEOUT_MS = 60_000;
 
 // ── flag-cluster parsing (the -qAtX trap) ───────────────────────────────
 
@@ -1535,54 +1548,77 @@ describe("scanBinaryIndirection", () => {
 // ── LIVE: the whole tree ────────────────────────────────────────────────
 
 describe("live tree scan", () => {
-  const usage = LIVE_USAGE;
+  test(
+    "the walk is not vacuous — it finds the known psql surface",
+    () => {
+      const usage = liveTreeUsage();
+      expect(usage.filesScanned).toBeGreaterThan(500);
+      expect(usage.sites.length).toBeGreaterThanOrEqual(60);
+      for (const prefix of ["scripts/", "supabase/", "tests/db/", "lib/"]) {
+        expect(
+          usage.sites.some((s) => s.file.startsWith(prefix)),
+          `expected at least one psql site under ${prefix}`,
+        ).toBe(true);
+      }
+      expect(usage.sites.some((s) => s.form === "shell")).toBe(true);
+      expect(usage.sites.some((s) => s.form === "spawn")).toBe(true);
+      expect(usage.sites.some((s) => s.form === "spawnSync")).toBe(true);
+    },
+    WALK_TIMEOUT_MS,
+  );
 
-  test("the walk is not vacuous — it finds the known psql surface", () => {
-    expect(usage.filesScanned).toBeGreaterThan(500);
-    expect(usage.sites.length).toBeGreaterThanOrEqual(60);
-    for (const prefix of ["scripts/", "supabase/", "tests/db/", "lib/"]) {
+  test(
+    "every psql invocation suppresses startup files (or is explicitly exempt)",
+    () => {
+      const usage = liveTreeUsage();
+      const unprotected = usage.sites
+        .filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)
+        .map((s) => `${s.file}:${s.line} [${s.form}] ${s.tokens.join(" ")}`);
       expect(
-        usage.sites.some((s) => s.file.startsWith(prefix)),
-        `expected at least one psql site under ${prefix}`,
-      ).toBe(true);
-    }
-    expect(usage.sites.some((s) => s.form === "shell")).toBe(true);
-    expect(usage.sites.some((s) => s.form === "spawn")).toBe(true);
-    expect(usage.sites.some((s) => s.form === "spawnSync")).toBe(true);
-  });
+        unprotected,
+        `psql call sites that read startup files (add "-X", or an inline\n` +
+          `\`${EXEMPTION_MARKER} <reason>\` comment):\n  ${unprotected.join("\n  ")}`,
+      ).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
 
-  test("every psql invocation suppresses startup files (or is explicitly exempt)", () => {
-    const unprotected = usage.sites
-      .filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)
-      .map((s) => `${s.file}:${s.line} [${s.form}] ${s.tokens.join(" ")}`);
-    expect(
-      unprotected,
-      `psql call sites that read startup files (add "-X", or an inline\n` +
-        `\`${EXEMPTION_MARKER} <reason>\` comment):\n  ${unprotected.join("\n  ")}`,
-    ).toEqual([]);
-  });
+  test(
+    "no call site hides the binary name behind an identifier",
+    () => {
+      const usage = liveTreeUsage();
+      const hits = usage.indirections.map((h) => `${h.file}:${h.line} ${h.text}`);
+      expect(
+        hits,
+        `psql must be passed as a literal argv[0] so this guard can see the flags:\n  ${hits.join("\n  ")}`,
+      ).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
 
-  test("no call site hides the binary name behind an identifier", () => {
-    const hits = usage.indirections.map((h) => `${h.file}:${h.line} ${h.text}`);
-    expect(
-      hits,
-      `psql must be passed as a literal argv[0] so this guard can see the flags:\n  ${hits.join("\n  ")}`,
-    ).toEqual([]);
-  });
+  test(
+    "the walk read every directory — an unreadable path is an incomplete census",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.unreadable,
+        `the psql census is INCOMPLETE — these paths could not be read, so any call site under ` +
+          `them was silently omitted:\n  ${usage.unreadable.join("\n  ")}`,
+      ).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
 
-  test("the walk read every directory — an unreadable path is an incomplete census", () => {
-    expect(
-      usage.unreadable,
-      `the psql census is INCOMPLETE — these paths could not be read, so any call site under ` +
-        `them was silently omitted:\n  ${usage.unreadable.join("\n  ")}`,
-    ).toEqual([]);
-  });
-
-  test("every exemption carries a reason", () => {
-    for (const site of usage.sites.filter((s) => s.exemptReason !== null)) {
-      expect(site.exemptReason!.length, `${site.file}:${site.line}`).toBeGreaterThan(10);
-    }
-  });
+  test(
+    "every exemption carries a reason",
+    () => {
+      const usage = liveTreeUsage();
+      for (const site of usage.sites.filter((s) => s.exemptReason !== null)) {
+        expect(site.exemptReason!.length, `${site.file}:${site.line}`).toBeGreaterThan(10);
+      }
+    },
+    WALK_TIMEOUT_MS,
+  );
 });
 
 // ── the unreadable-directory mutant (review R1) ─────────────────────────
@@ -1941,7 +1977,6 @@ describe("R20 escaping mutants", () => {
 describe("R21 escaping mutants", () => {
   // `__generated__` is TRACKED source here: lib/admin/__generated__ is imported
   // at runtime. Skipping it contradicted the fail-by-default contract.
-  const generatedUsage = LIVE_USAGE;
 
   test.each(["lib/admin/__generated__", "lib/messages/__generated__", "supabase/__generated__"])(
     "an unprotected call under %s is a violation",
@@ -1957,7 +1992,7 @@ describe("R21 escaping mutants", () => {
     // its directory the census would silently shrink.
     expect(existsSync(join(REPO_ROOT, "lib/admin/__generated__/devPanelPresent.ts"))).toBe(true);
     expect(collectPsqlUsage(join(REPO_ROOT, "lib", "admin", "__generated__")).filesScanned).toBe(1);
-    expect(generatedUsage.filesScanned).toBeGreaterThan(2946);
+    expect(liveTreeUsage().filesScanned).toBeGreaterThan(2946);
   });
 
   // A joined consumer's command may span physical lines. The site must report
