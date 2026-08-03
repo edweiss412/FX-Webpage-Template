@@ -121,10 +121,15 @@ export function ClaimedRowButton({
               <Loader2
                 aria-hidden="true"
                 data-testid="picker-row-spinner"
-                // motion-reduce HIDES rather than freezing: a stalled spinner
-                // mid-arc reads as stuck, which inverts the signal. The chip
-                // text carries the state when motion is suppressed.
-                className="size-4 animate-spin motion-reduce:hidden"
+                // Stops spinning under prefers-reduced-motion, rather than
+                // hiding. The critique flagged a frozen arc as reading "stuck";
+                // hiding it is worse here, because the chip text is then the
+                // ONLY signal and the crew-e2e suite runs its whole context
+                // under reduce, so a hidden spinner also blinds every geometry
+                // oracle. The chip already carries the words, so the frozen
+                // glyph is a second signal, not the only one. Disposition
+                // recorded in the plan §12.
+                className="size-4 animate-spin motion-reduce:animate-none"
               />
             ) : (
               <>

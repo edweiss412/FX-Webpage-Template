@@ -100,8 +100,9 @@ describe("_ClaimedRowButton transition audit", () => {
   });
 
   test("the spinner is reduced-motion aware and does not freeze mid-arc", () => {
-    // A frozen spinner reads as stuck, which inverts the signal; it is hidden
-    // instead, and the chip text carries the state.
-    expect(SOURCE).toMatch(/animate-spin motion-reduce:hidden/);
+    // Stops rather than hides: the e2e context runs entirely under reduce, so
+    // hiding would blind every spinner oracle, and the chip text is the second
+    // signal that keeps a frozen glyph from being the only cue.
+    expect(SOURCE).toMatch(/animate-spin motion-reduce:animate-none/);
   });
 });
