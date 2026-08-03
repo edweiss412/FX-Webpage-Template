@@ -38,8 +38,13 @@ import { Loader2 } from "lucide-react";
  * Re-tapping WAS the recovery for a sign-in that never lands; suppressing the
  * second tap removes it, so without this a hung hop leaves the row permanently
  * inert (impeccable critique P0). A navigation that is actually going to
- * happen has replaced this document long before 8s, so clearing here cannot
- * re-open the double-submit window it exists to close.
+ * happen has replaced this document long before 8s.
+ *
+ * It does NOT make a duplicate submit impossible, and spec §9 says so
+ * outright: if the hop really is still in flight at 8s, a second tap issues
+ * a second GET to /auth/sign-in. That is an idempotent navigation which
+ * supersedes the first, and it is the accepted price of not stranding the
+ * row. Ratified as R10.
  */
 const PENDING_TIMEOUT_MS = 8_000;
 

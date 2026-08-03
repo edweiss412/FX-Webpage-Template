@@ -134,11 +134,17 @@ describe("claimed-row pending affordance", () => {
       // Re-tapping WAS the recovery for a sign-in that never lands, and the
       // pending guard removes it. Without this timeout a hung hop leaves the
       // row permanently inert (impeccable critique P0).
+      // Pinned from BOTH sides: advancing only to 8s would let a 1s-7s
+      // timeout mutant pass, since it also ends idle.
       act(() => {
-        vi.advanceTimersByTime(8_000);
+        vi.advanceTimersByTime(7_900);
       });
+      expect(row.getAttribute("aria-busy"), "still pending just before 8s").toBe("true");
 
-      expect(row.getAttribute("aria-busy")).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(row.getAttribute("aria-busy"), "idle just after 8s").toBeNull();
       expect(row.querySelector(String.raw`[data-testid="picker-row-lock"]`)).not.toBeNull();
     } finally {
       vi.useRealTimers();

@@ -366,7 +366,8 @@ The claimed row has two states, so one pair, plus compounds.
 | From → To | Treatment |
 |---|---|
 | idle → pending | Lock unmounts, spinner mounts in the same slot; chip text swaps. **Instant — no animation**, deliberately: the spinner's own rotation is the motion, and a fade would delay the one signal the user is waiting for. Row background keeps its existing `transition-colors duration-fast` (120ms, `app/globals.css:223`), which is a hover treatment and is unrelated. |
-| pending → idle | Does not occur in the normal flow — the pending state ends by navigating away. It **does** occur on a bfcache back-navigation, where the page is restored with its DOM (and React state) intact rather than remounted; the `pageshow` listener from §3.4 is what returns the row to idle. Instant, no exit animation. Without that listener the restored page would show a row stuck in pending. |
+| pending → idle (timeout) | Occurs 8s after activation when the navigation has not committed (R10, §9). Instant, no exit animation — the spinner unmounts, the chip returns to the role, and the row is tappable again. This is the recovery path, so it must be visible immediately rather than eased in. |
+| pending → idle (bfcache) | Does not occur in the normal flow — the pending state ends by navigating away. It **does** occur on a bfcache back-navigation, where the page is restored with its DOM (and React state) intact rather than remounted; the `pageshow` listener from §3.4 is what returns the row to idle. Instant, no exit animation. Without that listener the restored page would show a row stuck in pending. |
 
 Compound transitions:
 

@@ -387,7 +387,8 @@ deliberately instant, against spec §6:
 | From → To | Expected |
 |---|---|
 | idle → pending | instant; spinner rotation is the motion |
-| pending → idle | instant, via `pageshow` |
+| pending → idle (timeout) | instant, 8s after activation (R10) |
+| pending → idle (bfcache) | instant, via `pageshow` |
 
 The compound rows are **asserted in Task 4, not enumerated here** — R1 showed the original prose
 claims about them were false, and a static conditional scan proves no browser behavior:
@@ -465,7 +466,7 @@ surface is app UI serving the product, not a brand surface.
 
 | Sev | Finding | Disposition |
 |---|---|---|
-| P0 | Pending never exited. Re-tapping was the recovery for a sign-in that never lands, and the double-submit guard removed it, so a hung hop left the row permanently inert. | **Fixed** — pending self-clears after `PENDING_TIMEOUT_MS` (8s), covered by a fake-timer test. A real navigation replaces the document long before 8s, so this cannot re-open the double-submit window. |
+| P0 | Pending never exited. Re-tapping was the recovery for a sign-in that never lands, and the double-submit guard removed it, so a hung hop left the row permanently inert. | **Fixed** — pending self-clears after `PENDING_TIMEOUT_MS` (8s), covered by a fake-timer test that pins the duration from both sides. It does NOT make a duplicate submit impossible: spec §9 (ratified R10) states the residual risk plainly — a second tap after 8s issues a second, idempotent GET, which is the accepted price of not stranding the row. |
 | P1 | No live region; the flip was silent to assistive tech. `aria-busy` is weakly supported (WCAG 2.2 SC 4.1.3 Status Messages). | **Fixed** — `sr-only role="status" aria-live="polite"` announcing the transition, with a test. |
 | P1 | Pending chip had no container: `bg-surface-sunken` chip on a `bg-surface-sunken` row is **1.00:1**, and it is the load-bearing signal. | **Fixed** — own fill plus a boundary. Text 4.91:1 (light) / 8.03:1 (dark); border 5.02:1 / 8.21:1 against the row. Computed, not estimated. |
 | P1 | `aria-label` on a span with an implicit `generic` role is dropped by AT (ARIA 1.2), so the lock hint reached nobody. | **Fixed** — glyph is `aria-hidden`, hint moved to an `sr-only` sibling. |
