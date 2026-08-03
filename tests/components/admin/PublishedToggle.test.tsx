@@ -298,7 +298,10 @@ describe("PublishedToggle — inline variant", () => {
       "break-words",
       // The banner is a capped SCROLL REGION now (spec §4.3): useFitWithinClip
       // writes its max-height, so the overflow has to be scrollable rather than
-      // clipped away.
+      // clipped away. The x axis is pinned explicitly because `overflow-y: auto`
+      // forces the other axis's `visible` to compute to `auto`, which would give
+      // the banner a horizontal scroll range it never asked for.
+      "overflow-x-hidden",
       "overflow-y-auto",
       "rounded-sm",
       "p-2",
@@ -573,6 +576,10 @@ describe("PublishedToggle — refusal banner clip fit (§4.3)", () => {
     expect(banner.getAttribute("role")).toBe("group");
     expect(banner.tabIndex).toBe(0);
     expect(banner.className).toContain("overflow-y-auto");
+    // `overflow-y: auto` forces the other axis's `visible` to compute to
+    // `auto`, so the banner silently gains a horizontal scroll range it never
+    // wanted. Pin the axis explicitly.
+    expect(banner.className).toContain("overflow-x-hidden");
     expect(
       banner.getAttribute("aria-label"),
       "a static author name on the region can shadow the error copy",

@@ -642,6 +642,18 @@ describe("ArchiveShowButton — armed confirm names the show (§5.2)", () => {
     return { confirm, prose, group };
   }
 
+  it("the named prose can break inside a long unbroken title", () => {
+    const view = renderNamed("Spring Gala");
+    const { prose } = armAndRead(view);
+
+    // The prose comment promises it "wraps, never truncates", but wrapping only
+    // happens at break OPPORTUNITIES: a long title with no space (a URL, a
+    // slug, a run-on) offers none, so the line overflows instead. Measured in
+    // ShareHub's 308px panel, an unbroken title drove scrollWidth 306 -> 412
+    // with overflow-x auto — scrolling a DESTRUCTIVE confirm sideways.
+    expect(prose.className).toContain("break-words");
+  });
+
   it("with a showName: prose and group label name the show, button label unchanged", () => {
     const view = renderNamed("Spring Gala");
     const { confirm, prose, group } = armAndRead(view);
