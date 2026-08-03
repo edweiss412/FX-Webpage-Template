@@ -40,8 +40,8 @@ and the ratified `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-de
   `tests/dev/attentionScenariosWarnings.test.ts:33-40` deleted, AC-A4 replaces it;
   `generatedWarningCodes()` (`tests/dev/attentionScenariosWarnings.test.ts:19-23`) changes filter.
 - `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — eight `KNOWN_DANGLING` rows deleted
-  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:92`), `definedIds()`
-  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:124`) unions in body-defined ids.
+  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:95`), `definedIds()`
+  (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:127`) unions in body-defined ids.
 - `tests/docs/_ledgerMdast.walker.test.ts` — plants P1–P8.
 
 **Declared not applicable:** Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) — no
@@ -111,11 +111,11 @@ provenance with `.toBe(...)`; left alone, confirmed still passing in Task 1's gr
 
 ```
 $ rg -n 'BL-MUTATION-…|BL-SYNCFEED-UI-[123]' tests/docs/_metaLedgerReferentialIntegrity.test.ts
-93, 95, 97, 99, 101   the five BL-MUTATION-* rows
-105, 107, 109         the three BL-SYNCFEED-UI-* rows
+96, 98, 100, 102, 104   the five BL-MUTATION-* rows
+108, 110, 112           the three BL-SYNCFEED-UI-* rows
 ```
 
-`BL-RESOLVED` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:103`) stays — spec §1.
+`BL-RESOLVED` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`) stays — spec §1.
 
 **Sweep 4 — every consumer of the generator or its artifact.** Authored guessing "two hits"; the
 run returned thirteen, which is why it is recorded rather than described.
@@ -202,14 +202,14 @@ suite. `gen:internal-code-enums` also runs inside `test:audit:x2-no-raw-codes` (
 **RED.** Extend `tests/docs/_ledgerMdast.walker.test.ts` with plants P1–P8 (spec §4.2) against
 synthetic ledgers. Failure modes caught, per the anti-tautology rule:
 
-- **P3** — a code-span-lead rule would let `BACKLOG.md:91` define the five ids it merely
+- **P3** — a code-span-lead rule would let `BACKLOG.md:79` define the five ids it merely
   enumerates, from the wrong parent.
 - **P4** — a whole-bullet scan would let an entry define any sibling id it discusses.
 - **P5** — applying the rule outside `LEDGERS` would let a typo in a plan define itself.
 - **P6** — walking list items without keying them to a resolving entry.
 - **P7/P8** — the R1 mutant: bullets after an intervening **non-id** heading belong to that
   section, not to the entry whose body span swallows them. P8 uses the real
-  `BACKLOG-archive.md:1082-1084` shape with its headings removed in-memory.
+  `BACKLOG-archive.md:1094-1096` shape with its headings removed in-memory.
 
 **GREEN.** Implement `bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts` per spec §4.1
 (ledger-only, first-child-of-first-paragraph, stop at first heading), built on `extractEntries`
@@ -229,7 +229,7 @@ Move both entries to `BACKLOG-archive.md`; add a new leading segment to `BACKLOG
 ids to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
 
 **Ordering that matters:** `BL-LEDGER-GUARD-BODY-DEFINED-IDS`'s body contains the
-`BACKLOG.md:91-92` bullets enumerating the eight ids as code spans, not strong — so under Task 2's
+`BACKLOG.md:79` bullets enumerating the eight ids as code spans, not strong — so under Task 2's
 rule that entry defines nothing and the move changes no definition. Task 2 lands first so the
 property is pinned independently of the entry's location.
 

@@ -25,9 +25,9 @@ One branch, two commits (TDD per task, invariant 1), one review.
 
 | Decision | Status | Ratification |
 | --- | --- | --- |
-| The eight body-defined ids **stay body-defined**; promoting them to headings is off the table | Ratified 2026-08-02 | `BACKLOG.md:91`, `BACKLOG.md:92` — the parent owns the shrink-only ratchet that gives the sub-items meaning |
+| The eight body-defined ids **stay body-defined**; promoting them to headings is off the table | Ratified 2026-08-02 | `BACKLOG.md:79`, `BACKLOG.md:79` — the parent owns the shrink-only ratchet that gives the sub-items meaning |
 | No `WARNING_CARD_COPY_CODES` rows for the recovered codes | Out of scope | `tests/messages/warningCardCopyRegistry.ts:1-4` — hand-listed and byte-frozen against a different spec's §4.2 table, not derived from the generated enum; no test couples them (probed §2.7) |
-| `BL-RESOLVED` stays in `KNOWN_DANGLING` | Out of scope | `tests/docs/_metaLedgerReferentialIntegrity.test.ts:103` — prose in an audit doc, not a body-defined id |
+| `BL-RESOLVED` stays in `KNOWN_DANGLING` | Out of scope | `tests/docs/_metaLedgerReferentialIntegrity.test.ts:106` — prose in an audit doc, not a body-defined id |
 | `stripLogEmissionCalls` behavior is unchanged | Correct as-is | `lib/messages/__internal__/stripLogEmissionCalls.ts:1-13` — `app_events.code` is forensic and deliberately not §12.4-gated |
 | Mechanism is a **type-aware** ts-morph scan, not a regex/syntactic one | Ratified R1 (§7) | Direct repo precedent: `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md:59` made the identical syntax→type transition for the redirect guard |
 | Single compiler world — ts-morph's vendored `ts` only, never the standalone `typescript` package | Ratified | `docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md:218` — nominal type mixing breaks under strict tsc |
@@ -173,16 +173,16 @@ eight, plus three that are **mis-parented**.
 
 | Location | Shape | `extractEntries` owner | Should define? |
 | --- | --- | --- | --- |
-| `BACKLOG.md:597-601` | `- **` + backticked id + `** — …` | `BACKLOG.md:591` `### BL-MUTATION-HARNESS-OPEN-HOLES` | **yes** |
-| `BACKLOG.md:1079-1081` | `- **BL-SYNCFEED-UI-1** — …` (no backticks) | `BACKLOG.md:1075` `### BL-SYNC-FEED-UI-POLISH` | **yes** |
-| `BACKLOG.md:91-92` | backticked ids, comma-separated, **no strong** | `BACKLOG.md:83` `## BL-LEDGER-GUARD-BODY-DEFINED-IDS` | **no** — trap 1 |
-| `BACKLOG-archive.md:1082-1084` | `- **BL-PICKER-BOOTSTRAP-HOST-FLIP** — …` | `BL-CREWPAGE-ROTATE-FOCUS-MGMT` | **no** — trap 2 |
+| `BACKLOG.md:591-595` | `- **` + backticked id + `** — …` | `BACKLOG.md:585` `### BL-MUTATION-HARNESS-OPEN-HOLES` | **yes** |
+| `BACKLOG.md:1097-1099` | `- **BL-SYNCFEED-UI-1** — …` (no backticks) | `BACKLOG.md:1093` `### BL-SYNC-FEED-UI-POLISH` | **yes** |
+| `BACKLOG.md:79` | backticked ids, comma-separated, **no strong** | `BACKLOG.md:71` `## BL-LEDGER-GUARD-BODY-DEFINED-IDS` | **no** — trap 1 |
+| `BACKLOG-archive.md:1094-1096` | `- **BL-PICKER-BOOTSTRAP-HOST-FLIP** — …` | `BL-CREWPAGE-ROTATE-FOCUS-MGMT` | **no** — trap 2 |
 
-**Trap 1** — `BACKLOG.md:91` sits inside the backlog entry for this very work and leads a bullet
+**Trap 1** — `BACKLOG.md:79` sits inside the backlog entry for this very work and leads a bullet
 with the same five ids as inline code spans. A "bullet lead with a code span" rule would let that
 entry define the five ids it merely enumerates. The **strong** requirement rejects it.
 
-**Trap 2** — the three picker bullets sit under `BACKLOG-archive.md:1076`
+**Trap 2** — the three picker bullets sit under `BACKLOG-archive.md:1088`
 `## Picker-flow app bugs (3) — RESOLVED …`, a **non-id heading**. `extractEntries`
 (`tests/docs/_ledgerMdast.ts:302`) opens entries only at `BL-`-prefixed headings, so that whole
 section falls inside the *preceding* entry's body span and the three ids would be defined by an
@@ -324,7 +324,7 @@ that made them relevant no longer exists.)
 
 ### 4.1 The rule
 
-`definedIds()` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:124`) becomes headings **∪**
+`definedIds()` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:127`) becomes headings **∪**
 body-defined ids. A new exported `bodyDefinedIds(text, opts)` in `tests/docs/_ledgerMdast.ts`, built
 on `extractEntries` (`tests/docs/_ledgerMdast.ts:302`, which returns `body: RootContent[]` per
 `tests/docs/_ledgerMdast.ts:95-99`):
@@ -355,11 +355,11 @@ Measured: conditions 1–2 alone yield 11 ids (3 wrong); all three yield exactly
 | P5 — the P1 bullet in a NON-ledger file | defines nothing |
 | P6 — the P1 bullet under a heading whose own id does not resolve | defines nothing |
 | **P7 — the P1 bullet after an intervening non-id heading** | **does NOT define (trap 2)** |
-| **P8 — the real `BACKLOG-archive.md:1082-1084` shape, with the picker headings removed in-memory** | **does NOT define** — the R1 mutant, pinned |
+| **P8 — the real `BACKLOG-archive.md:1094-1096` shape, with the picker headings removed in-memory** | **does NOT define** — the R1 mutant, pinned |
 
 ### 4.3 Residue deletion
 
-Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:92`).
+Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:95`).
 `BL-RESOLVED` stays (§1). The guard's existing stale-row ratchet makes this self-enforcing.
 
 ---
@@ -420,7 +420,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | --- | --- | --- |
 | 1 | BLOCKING — R1/R2/R3 miss four live codes via two indirect-return-type factories | **Accepted.** Verified at `lib/sync/applyStaged.ts:1017` and `lib/sync/phase2.ts:337`. Closed structurally: the whole syntactic mechanism is replaced by type-aware recognition (§3.1), not patched with a third spelling. |
 | 2 | HIGH — G2 has a silent escaping shape (`severity` via typed const); AC-A6's `mkWarn` plant is auto-discovered and proves nothing | **Accepted, both halves.** The escape is closed by §3.1 site recognition; AC-A6 is **replaced** by a non-literal-severity mutant, and AC-A5 added for the indirect-return-type shape. |
-| 3 | HIGH — the body rule mis-parents three archive bullets under a non-id heading | **Accepted.** Verified: `BACKLOG-archive.md:1076` is a non-id heading and `extractEntries` assigns `BACKLOG-archive.md:1082-1084` to `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Closed by the stop-at-first-heading condition (§4.1); measured 11 → 8. Plants P7 and P8 pin it. |
+| 3 | HIGH — the body rule mis-parents three archive bullets under a non-id heading | **Accepted.** Verified: `BACKLOG-archive.md:1088` is a non-id heading and `extractEntries` assigns `BACKLOG-archive.md:1094-1096` to `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Closed by the stop-at-first-heading condition (§4.1); measured 11 → 8. Plants P7 and P8 pin it. |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
 The R1 reviewer's own probe predicted "the probed universe is at least 58"; the type-aware
