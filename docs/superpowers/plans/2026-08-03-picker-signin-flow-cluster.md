@@ -286,6 +286,9 @@ Spec §5 invariant list, verbatim, is this task's checklist:
 - row → pending chip: single line, no wrap (`shrink-0` + `whitespace-nowrap`)
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
+- right column reserves width (`min-w-24`) so the name does not reflow — pinned in the COMPONENT
+  test, not here: 4a measures height and the name's left edge, and neither moves when the
+  reservation is deleted (whole-diff R7)
 
 **Fixture is deterministic, not 'a long name'.** Use a 120-character single-token name (no spaces,
 so there is no wrapping opportunity and `truncate` is the only thing that can contain it) at a

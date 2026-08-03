@@ -207,7 +207,8 @@ Props (all required unless noted):
 | `role` | `string` | Empty string → no chip in idle (the live `c.role &&` guard is an empty-string check; `role` is non-nullable — R4). In pending the chip renders regardless. |
 | `crewMemberId` | `string` | Passed through to `data-crew-member-id`. |
 | `lockHint` | `string` | Rendered in an `sr-only` SIBLING of the glyph, never as an `aria-label` on it: `aria-label` on a span with an implicit `generic` role is dropped by assistive tech (ARIA 1.2), so the hint would reach nobody — raised as a P1 by the invariant-8 gate. The glyph itself is `aria-hidden`. Falls back to `"Sign in to use this identity"`, matching the existing fallback at `_PickerInterstitial.tsx:212`. |
-| `chipClassName` | `string` | Computed server-side and passed in, so the client component holds no role-flag logic. |
+| `chipClassName` | `string` | The IDLE chip's classes, fill included. Computed server-side and passed in, so the client component holds no role-flag logic. |
+| `chipBaseClassName` | `string` | The chip's SHAPE only — no fill, no text colour. The pending chip composes from this, never from `chipClassName`: that string carries `bg-surface-sunken text-text-subtle`, and generated Tailwind order makes them win wherever they sit in the class attribute, so the pending fill would not render at all. Measured as a P1 in whole-diff review. |
 | `rowClassName` | `string` | Same, for the row's class string. |
 
 ### 3.5 Pending treatment (R3)
@@ -348,9 +349,10 @@ existing `items-center` is explicit and must stay.
 |---|---|---|
 | row → left group | vertically centered, single line | `items-center` on the row (`_PickerInterstitial.tsx:174`) |
 | row → spinner | 16px box, does not raise row height above the 44px floor | `size-4` on `Loader2`; the row's `min-h-tap-min` is a floor and a 16px glyph sits under it. The row carries only `px-4` (`_PickerInterstitial.tsx:174`) — there is **no** vertical padding class, so do not cite one |
-| lock slot → spinner slot | **equal WIDTH**, so the name does not shift horizontally | Not equal by construction: the lock is a bare Unicode glyph in a span with no width class (`_PickerInterstitial.tsx:210-224`) while the spinner is `size-4`. The swap needs an explicit fixed-width slot wrapping BOTH. A height-only assertion cannot see this, so §8.2 additionally asserts the name span's left edge is unchanged across the swap (R2 finding 7) |
+| lock slot → spinner slot | **equal WIDTH**, so the name does not shift horizontally | The two are not equal by construction — a bare Unicode glyph versus a `size-4` icon — so both are wrapped in one explicit `size-4` slot (`_ClaimedRowButton.tsx`, the `flex size-4 shrink-0 items-center justify-center` span). A height-only assertion cannot see a horizontal shift, so §8.2 asserts the name span's left edge is unchanged across the swap; deleting the slot moves it 3.92px, measured |
 | row → pending chip | single line, no wrap | `shrink-0` + `whitespace-nowrap` applied to the **pending chip only**, NOT to the shared `chipBase` at `_PickerInterstitial.tsx:182`. `chipBase` feeds both the claimed and the unclaimed chip (`_PickerInterstitial.tsx:253-257`); adding no-wrap there would change unclaimed-row overflow behavior for arbitrary `role` text, which R5 puts out of scope |
 | row → name span | truncates rather than wrapping | existing `truncate` + `min-w-0` on the left group |
+| right column → reserved width | the name does not gain then lose width when the chip swaps in | `min-w-24` on the right-column span. The gate measured a 94px reflow on a roleless row at 360px without it. **The browser oracle cannot see this**: it measures row height and the name span's LEFT edge, and neither moves when the reservation is deleted — so the class is pinned in the component test instead, where deleting it fails |
 | row height, idle → pending | **unchanged** | the two states differ only in a 16px-for-16px glyph swap and chip text; neither adds a line |
 
 The plan carries a real-browser Playwright assertion for the last row: measure the claimed row's

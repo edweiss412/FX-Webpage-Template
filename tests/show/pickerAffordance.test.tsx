@@ -69,8 +69,17 @@ describe("claimed-row pending affordance", () => {
     const { container } = render(<PickerInterstitial {...base} roster={claimedRoster} />);
     const row = claimedRowIn(container);
 
-    expect(row.querySelector('[data-testid="picker-row-lock"]')).not.toBeNull();
+    const lock = row.querySelector('[data-testid="picker-row-lock"]');
+    expect(lock).not.toBeNull();
     expect(row.querySelector('[data-testid="picker-row-spinner"]')).toBeNull();
+
+    // The glyph must be decorative and the hint must ride a SIBLING: aria-label
+    // on a span with an implicit generic role is dropped by AT (ARIA 1.2).
+    // Asserting only that the glyph exists leaves both halves of that P1 free
+    // to regress.
+    expect(lock?.getAttribute("aria-hidden")).toBe("true");
+    expect(lock?.getAttribute("aria-label")).toBeNull();
+    expect(row.querySelector(".sr-only")?.textContent ?? "").not.toBe("");
 
     fireEvent.click(row);
 
@@ -215,6 +224,15 @@ describe("claimed-row pending affordance", () => {
     expect(cls).toContain("bg-accent-tint");
     expect(cls).not.toContain("bg-surface-sunken");
     expect(cls).not.toContain("text-text-subtle");
+    // The fill alone is 1.02:1 against the row — the boundary is what makes
+    // the chip a container, and the P1 disposition names both.
+    expect(cls).toContain("border-accent-on-bg");
+
+    // The right column reserves width so the name does not gain then lose
+    // 94px at 360px when the chip swaps in. The browser oracle measures
+    // height and the name's LEFT edge, neither of which moves when this is
+    // deleted, so the reservation is pinned here.
+    expect(chip?.parentElement?.className ?? "").toContain("min-w-24");
   });
 
   test("two pointer activations issue exactly one submit", () => {
