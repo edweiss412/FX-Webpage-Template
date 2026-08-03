@@ -401,16 +401,6 @@ Three review rounds tried to close this with an `app_settings` predicate inside 
 
 ---
 
-## BL-PICKER-CLAIMED-ROW-PENDING-STATE — no pending affordance on the claimed-row sign-in control
-
-**Status:** OPEN · **Severity:** low-medium (re-tap risk on venue wifi) · **Surfaced:** impeccable critique of `fix/picker-flow-app-bugs` (2026-07-25), P2
-
-Tapping a claimed roster row (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`) is a full GET to `/auth/sign-in` and then on to Google — three or more hops with the row visually inert the whole time. On ballroom wifi a crew member will tap it again. Every other mutating control in the admin surfaces uses `useFormStatus` for this (10+ components), and master spec §16.6 ratifies the "Confirming…" pending idiom.
-
-Not a regression: the control had no pending state before the hidden-input fix either. Deferred rather than folded into that branch because the row is currently rendered by a Server Component, so a pending state needs a new client boundary — a real change to the picker's component topology, not a class tweak. **Fix (when prioritized):** extract the claimed-row control into a client component using `useFormStatus`, matching the disabled + label-swap recipe the admin surfaces already use. Trigger: next crew-page UX pass, or a report of double-tap sign-in loops.
-
----
-
 ## BL-E2E-COVERAGE-SCANNER-EXCLUSION-FILTERS — audit other workflows now that paths-ignore counts as a filter
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** `fix/picker-flow-app-bugs` review round 5 (2026-07-25)
@@ -432,6 +422,37 @@ Not a regression: the control had no pending state before the hidden-input fix e
 ---
 
 ## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
+
+> **PREMISE REFUTED — 2026-08-03.** This entry's stated cause is wrong, and the correction is the
+> most important thing on it. Probed against the installed Next 16.2.10 during review of
+> `fix/picker-signin-flow-cluster`:
+>
+> ```text
+> getImplicitTags(page, pathname) → ["_N_T_/show/demo/<token>"]
+> revalidatePath(originalPath)    → "_N_T_" + removeTrailingSlash(originalPath)
+> ```
+>
+> Both the tag written at render and the tag `revalidatePath` invalidates are **pathname-only**.
+> The query is not a separate cache tag, so there is no `?gate=skip` variant being "missed". The
+> prose below reasons from a mechanism that does not exist; do not act on it as written.
+>
+> **Descoped from that branch by the owner**, after the item generated three consecutive rounds of
+> review findings while the two shipped fixes converged. Obstacles found and worth knowing before
+> a second attempt:
+>
+> - The redirect cannot live in `cleanupStaleEntryCoreImpl`: `cleanupStaleEntryCore`'s bare `catch`
+>   converts Next's `NEXT_REDIRECT` sentinel into `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`,
+>   so no navigation ever reaches the browser.
+> - A bare-canonical redirect lands on the WRONG SCREEN. `page.tsx` gates `allowGateSkip` on
+>   `gate === "skip"`, so without it the cleanup re-resolves as `no_auth: first_contact` and renders
+>   `<SignInOrSkipGate>`, not the picker. Carrying `gate` needs a seven-hop threading path that does
+>   not exist today.
+> - Its e2e needs a `shows.picker_epoch` mutation, which would be an **unlocked write in violation
+>   of plan-wide invariant 2**, and trips the frozen-DML guard pinning `picker-flow.spec.ts`.
+>
+> **Any future attempt starts by MEASURING what screen actually renders after a stale cleanup**,
+> rather than reasoning from cache-tag behaviour. Full rationale:
+> `docs/superpowers/specs/2026-08-03-picker-signin-flow-cluster-design.md` §1.3.
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25)
 
@@ -503,29 +524,6 @@ trailing. What remains is prose that names a day without any of those tokens.
 
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
-
-### BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED — a `next` carrying a query string fails the bootstrap
-
-**Status:** OPEN — measured on `test/agenda-fold-seeded-e2e` (2026-08-02) · **Severity:** low · **Class:** AUTH UX
-
-A Google session that matches a crew row with no picker-cookie entry yet resolves to
-`needs_picker_bootstrap` and redirects through `/api/auth/picker-bootstrap`. When the `next` it
-carries has a query string — e.g. the deep link `/show/<slug>/<token>?s=schedule`, which is exactly
-what a crew member gets from a section link — the handler does not land back on the show and renders
-"Sign-in unavailable / Sign-in landed somewhere we don't recognize." Measured on BOTH engines
-(Chromium and WebKit), so it is not a cookie-storage artifact: the bare URL bootstraps fine and the
-same URL with `?s=schedule` does not.
-
-**Blast radius today.** First contact only, and only on a deep link: once the cookie exists the
-query rides along normally. A crew member who hits it can recover by opening the bare show link, so
-the effect is a confusing dead end rather than lost access.
-
-**Worked around, not fixed, in e2e.** `stage-restricted-crew-schedule.spec.ts` bootstraps on the
-bare URL and re-navigates with `?s=schedule`. That documents the limit; it does not close it.
-
-**Fix (when prioritized):** decide whether the bootstrap should preserve the `next` query (probably)
-or strip it and redirect to the canonical show URL, then pin the chosen behavior with a route test
-covering a query-bearing `next`.
 
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
 
