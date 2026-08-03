@@ -8,17 +8,19 @@
  * too, and a second `Inter()` call there would emit a second `@font-face` set
  * under the same family name. Both roots import one shared instance.
  *
- * Two things break the single-family commitment silently, and neither shows up
- * in any behavioral test:
+ * Two things break the single-family commitment silently. Neither is fully
+ * visible to a behavioral test, and how much each IS visible differs:
  *
  *   1. **A second loader.** Two loader calls emit two independent `@font-face`
- *      sets. When both are the same family they land under the SAME family name,
- *      so nothing visibly changes. A real crew page was measured registering
- *      seven `Inter` faces from a single loader (2026-08-03 probe); a second
- *      loader compounds that. The browser suite DOES see most of this
- *      (`tests/e2e/font-binding.spec.ts` checks family count, duplicate face
- *      tuples, and one weight+style descriptor pair) — what it cannot see is a
- *      byte-identical second call, which registers indistinguishable faces.
+ *      sets. When both are the same family they land under the SAME family
+ *      name, so nothing visibly changes. A real crew page was measured
+ *      registering seven `Inter` faces from a single loader (2026-08-03 probe);
+ *      a second loader compounds that. `tests/e2e/font-binding.spec.ts` DOES
+ *      catch most variants — it checks family count, duplicate face tuples, and
+ *      one weight+style descriptor pair — so this is not invisible to
+ *      behavioral testing, only partly so. What escapes it: a byte-identical
+ *      second call (indistinguishable faces) and any module reached only by a
+ *      route that suite does not visit.
  *   2. **A loader in the wrong layout.** Loading from a route layout instead of
  *      the root binds the font for that subtree only — exactly the state
  *      `BL-HEADER-FONT-FALLBACK-WRAP` was filed against, where crew pages
@@ -121,8 +123,10 @@ const REPO_ROOT = join(__dirname, "..", "..");
  * then found root-level modules and arbitrary shared directories missing from
  * the three-directory replacement, because `tsconfig.json`'s `@/*` maps across
  * the WHOLE repo root, so any directory at all can be imported by a route. An
- * allowlist fails OPEN on the case it did not think of; a denylist fails
- * CLOSED, which is the property this guard needs.
+ * allowlist fails open on the tree nobody named, which is how four rounds of
+ * review each found a fresh one. A denylist fails closed WITHIN the tree it
+ * walks — it does not make the walk exhaustive, and the header above is the
+ * authority on that.
  *
  * `.mdx` is included because this project enables MDX (`next.config.ts`), and
  * R9's SWC probe showed a loader declared in MDX gets the same `target.css`
@@ -206,8 +210,9 @@ function mdxMentionsFontModule(source: string): boolean {
  *  two roots, and `app/global-error.tsx` replaces the root layout entirely, so
  *  both need the font. They import ONE shared instance from here rather than
  *  each calling `Inter()`, which would emit two @font-face sets under one
- *  family name. DESIGN.md:133 names app/layout.tsx as the load site; this module
- *  is that load site, hoisted so the second root can share it. */
+ *  family name. DESIGN.md:133 named app/layout.tsx and was amended in lockstep to
+ *  name this module — the same load site, hoisted so the second root can
+ *  share it. */
 const CANONICAL_LOADER = "app/fonts.ts";
 
 /** Matches the MODULE, not a font name, so switching family — or to a local
@@ -410,7 +415,7 @@ describe("single next/font loader — live tree", () => {
     expect(rel).toContain(CANONICAL_LOADER);
   });
 
-  it("exactly one shipped file imports a font loader, and it is the shared module", () => {
+  it("exactly one censused file imports a font loader, and it is the shared module", () => {
     // Keyed on the IMPORT, not on a successful invocation count — see
     // hasFontImport. This is the assertion that actually cannot be evaded by
     // call syntax.
@@ -429,11 +434,11 @@ describe("single next/font loader — live tree", () => {
     expect(
       loaders,
       `only ${CANONICAL_LOADER} may load a font (DESIGN.md:133 — one family, ` +
-        `loaded at the root so every tree inherits it)`,
+        `loaded from one shared module so both Next roots inherit it)`,
     ).toEqual([CANONICAL_LOADER]);
   });
 
-  it("the shipped trees invoke a font loader exactly once", () => {
+  it("the censused files invoke a font loader exactly once", () => {
     const total = appFiles.reduce(
       (sum, file) =>
         sum +
@@ -444,7 +449,7 @@ describe("single next/font loader — live tree", () => {
     );
     expect(
       total,
-      "one loader invocation across every shipped tree — a second emits a duplicate @font-face " +
+      "one loader invocation across the census — a second emits a duplicate @font-face " +
         "set under the same family name, invisibly",
     ).toBe(1);
   });
