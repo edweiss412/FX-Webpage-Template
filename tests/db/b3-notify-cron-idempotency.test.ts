@@ -34,7 +34,7 @@ function sqlLiteral(value: string): string {
 
 function runPsql(sql: string): string {
   if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for this test");
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     cwd: process.cwd(),
     input: sql,
     encoding: "utf8",
@@ -43,7 +43,7 @@ function runPsql(sql: string): string {
 
 function applyMigration(): void {
   if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for this test");
-  execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-q", "-f", migrationPath], {
+  execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-q", "-f", migrationPath, databaseUrl], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -52,7 +52,7 @@ function applyMigration(): void {
 const livePsqlReachable = ((): boolean => {
   if (!databaseUrl) return false;
   try {
-    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
+    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-c", "select 1", databaseUrl], {
       cwd: process.cwd(),
       stdio: ["ignore", "ignore", "ignore"],
       timeout: 3000,

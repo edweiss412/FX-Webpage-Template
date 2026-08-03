@@ -332,7 +332,7 @@ function walkerSeedSql(): string {
 
 function main(): void {
   // Same psql application pattern as supabase/seed.ts:186.
-  execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+  execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {
     input: walkerSeedSql(),
     encoding: "utf8",
   });
