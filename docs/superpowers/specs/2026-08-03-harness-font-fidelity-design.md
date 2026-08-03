@@ -201,8 +201,9 @@ Sibling precedent: `tests/styles/design-figure-parity.test.ts` and `tests/styles
 | The `Inter Fallback` face declares `src: local("Arial")` and the four §3.1 override values. | Repointing the fallback at another local family leaves the overrides correct for a face they no longer describe — worse than no fallback, since they would scale the wrong glyphs. |
 | `app/globals.css` defines `--font-sans` consuming `var(--font-inter, …)`, and contains **no** `@font-face` rule. | Regression of #676's binding; and `@font-face` migrating into the file every harness compiles, which would emit `url()`s into 31 harnesses relative to the wrong directory. |
 | Both `app/layout.tsx` and `app/global-error.tsx` import the fonts stylesheet. | The crash screen silently reverting to a fallback face — the exact gap #676 had to fix once already, and no route-level test exercises it. |
-| Neither root, nor any file under `app/`, imports `next/font`. | Re-introduction of the retired mechanism alongside the self-hosted one, which is the two-sources-drift failure this spec exists to avoid. |
+| **No file in the repo-wide source census** imports `next/font` — the same census `tests/assets/singleFontLoader.test.ts` walks today: every directory including `components/`, `lib/`, `scripts/` and root-level modules, across `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` (`tests/assets/singleFontLoader.test.ts:163`) plus text-scanned `.mdx` (`tests/assets/singleFontLoader.test.ts:164`). | Re-introduction of the retired mechanism alongside the self-hosted one — the two-sources-drift failure this spec exists to prevent. **Scope corrected in round 2:** an earlier draft scoped this to `app/`, which is strictly narrower than the guard it replaces. A loader placed at, say, components/help/LocalFace.tsx and imported by `app/help/layout.tsx` has no `next/font` import under `app/` at all, and the existing browser guard visits admin, auth and crew but not help, so it would evade runtime corroboration too. That file's own comments record an earlier app-only walk failing this exact way. |
 | `DESIGN.md`'s mechanism sentence and fallback-stack sentence match the live `app/globals.css` value. | G5 regressing silently. Nothing previously held these together (`design-figure-parity.test.ts` is contrast-only). |
+| The `@font-face` block `compileEntryCss` emits is equal to the one in the fonts stylesheet. | **The fifth escaping mutant:** emitting a face that declares `font-family: "Inter"` but sources `local("Arial")`. Nothing else in this table looks at what the harness toolchain emits — every other row inspects the app stylesheet, which the mutant leaves untouched. Without this row the harnesses can render any face under the committed name. |
 | The fonts stylesheet defines `--font-inter` with the exact value `"Inter", "Inter Fallback"`. | **The third escaping mutant, found in round 1:** defining `--font-inter: "Inter"` alone. Every other row passes — the fallback face still exists, and `app/globals.css` still carries the inline `var()` fallback pair — so the metric-matched face becomes unreachable through the token while G4's stated static guarantee reads as satisfied. Pinning the face is not enough; the value that reaches it is what matters. |
 | `app/layout.tsx` renders a `<link rel="preload">` for the latin subset, with `as="font"`, `type="font/woff2"` and `crossOrigin`. | **The fourth escaping mutant:** omitting the preload entirely. Every row passes, and `tests/e2e/font-binding.spec.ts` passes too because it awaits `document.fonts.ready` and therefore cannot observe discovery latency. The mechanism would silently stop matching `next/font`'s behavior — which preloads by default — lengthening the fallback interval with no gate the wiser. |
 | The license file `public/fonts` OFL.txt exists and is non-empty. | License file lost in a cleanup. |
@@ -218,9 +219,28 @@ What is missing is the harness half, and it is the point of this spec. A new cas
 1. builds a minimal entry CSS through `compileEntryCss`,
 2. serves the output directory the way callers do,
 3. renders a fixed string, and
-4. asserts `[...document.fonts].some(f => f.family === "Inter" && f.status === "loaded")` after `document.fonts.ready`.
+4. proves the harness renders **the committed Inter**, by two assertions that together are not satisfiable by an impostor.
 
-`document.fonts` enumerates only `@font-face`-declared faces, never system-installed ones, so this is decisive on a developer Mac (no Inter installed) and a bare-Linux runner alike. `document.fonts.check()` is deliberately not used — it returns true for a system-installed family.
+**A loaded-face check alone is NOT sufficient, and round 2 proved it with the fifth escaping mutant:**
+
+```css
+@font-face {
+  font-family: "Inter";       /* the author-declared alias, not the bytes */
+  src: local("Arial");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF;
+}
+```
+
+Emit that from `compileEntryCss` and every §4.1 row still passes (the app stylesheet and its seven hashed files are untouched), `tests/e2e/font-binding.spec.ts` still passes (real routes still use the correct stylesheet), and a `some(f => f.family === "Inter" && f.status === "loaded")` predicate returns true — because `FontFace.family` is whatever the author wrote, and identifies nothing about the source. Every harness would render Arial under the name Inter, geometry baselines would be regenerated around the wrong face, and the suite would be green. That defeats G1 outright.
+
+So the case asserts both:
+
+- **Source equality.** The `@font-face` block `compileEntryCss` emits is equal to the block in the fonts stylesheet — same families, same `src` filenames, same ranges, same descriptors. This is what ties the harness face to the seven hash-pinned files rather than to a name.
+- **Rendered metric.** A fixed string measures to Inter's width, the posture `tests/e2e/font-binding.spec.ts` already uses on the app side (loaded-face presence combined with a width check), so a face that merely claims the name fails.
+
+`document.fonts` enumerates only `@font-face`-declared faces, never system-installed ones, which is why the presence half is still worth having on a machine with no Inter installed. `document.fonts.check()` is deliberately not used — it returns true for a system-installed family.
 
 **Anti-tautology:** the case must fail on the pre-change tree, where `compileEntryCss` emits no `@font-face` at all. The implementation verifies that before the fix lands.
 
@@ -230,8 +250,8 @@ What is missing is the harness half, and it is the point of this spec. A new cas
 
 - **File** — `tests/e2e/harness-font-face.spec.ts`. A Playwright spec, not a Vitest test, because it needs a real font-loading engine.
 - **Config** — add `harness-font-face` to the `testMatch` alternation in `tests/e2e/standalone.config.ts:85-86`. It belongs on the standalone project for the same reason its 31 siblings do: it serves its own directory and needs no Next server.
-- **Registration baseline** — `tests/ci/_metaSpecRegistration.test.ts` walks every test-shaped e2e file and rejects any resolved by no Playwright config, and it pins standalone membership by observation (`tests/ci/_metaSpecRegistration.test.ts:6-10`, via `_standaloneConfigProbe`). Adding a spec changes that membership, so the committed baseline is updated in the same commit.
-- **CI** — the standalone project's existing workflow invocation gains the filename, so the guard runs in real CI rather than only locally.
+- **Registration baseline** — regenerate `tests/e2e/standalone-baseline.json`, the committed membership data, in the same commit. `tests/ci/_metaSpecRegistration.test.ts` walks every test-shaped e2e file, rejects any resolved by no Playwright config, and pins standalone membership by observation via `_standaloneConfigProbe` (`tests/ci/_metaSpecRegistration.test.ts:6-10`). The meta-test is the checker; the baseline JSON is the artifact that changes.
+- **CI — add nothing.** `.github/workflows/standalone-e2e.yml` runs the WHOLE standalone config unfiltered on every PR (`.github/workflows/standalone-e2e.yml:3`), and both that workflow and `_metaSpecRegistration` require the command to stay exactly `pnpm exec playwright test --config tests/e2e/standalone.config.ts`. **Naming a spec in it would narrow execution and break the coverage detector and the baseline comparator.** Round 2 caught an earlier draft instructing exactly that. Config membership is the whole wiring; CI picks the spec up for free.
 
 Without all four the guard is red locally and absent from CI, which is the failure mode it exists to prevent.
 
