@@ -201,9 +201,17 @@ useEffect(() => {
     });
     setAnnounced((a) => (a?.batch === b ? null : a));
   }, SECTION_FRESHNESS_FLASH_MS);
+  // Replace this batch's own timer if one already exists. Under a double-
+  // invoked effect the naive `set` would overwrite the first handle and leak
+  // it, since only the surviving handle is ever cleared. Clearing the prior
+  // handle for THIS batch is safe in a way a blanket cleanup is not: it
+  // touches no other batch.
+  const prior = timersRef.current.get(b);
+  if (prior !== undefined) clearTimeout(prior);
   timersRef.current.set(b, t);
-  // No cleanup here ON PURPOSE. A cleanup keyed on `batch` would cancel batch
-  // N when batch N+1 armed, and batch N's sections would stay lit forever.
+  // No cleanup returned ON PURPOSE. A cleanup keyed on `batch` would cancel
+  // batch N when batch N+1 armed, and batch N's sections would stay lit
+  // forever. The per-batch replacement above is what makes that safe.
 }, [batch]);
 
 useEffect(() => {
@@ -544,7 +552,7 @@ jsdom, on the existing harness at `tests/components/admin/showpage/__fixtures__/
 | S7 | four or more changed sections arm no attribute anywhere, and the announcement reads the surface sentence |
 | S8 | exactly three changed sections DO arm, all three (the boundary in the other direction) |
 | S9 | no card remounts across arming or expiry: a ref captured on the panel card before the change is the same node after |
-| S10 | unmounting mid-flash leaves no pending timer (`vi.getTimerCount()`), including with two batches outstanding |
+| S10 | unmounting mid-flash leaves no pending timer (`vi.getTimerCount()`), including with two batches outstanding, and a double-invoked expiry effect for ONE batch leaves exactly one timer rather than two |
 | S11 | the announcement REGION is present in the tree at all times, with a stable key, including when there is no cue |
 | S12 | announcement copy for one, two, three and over-cap cases matches the §4.6 table verbatim, and contains no em dash and no apostrophe |
 | S13 | a Diagrams sub-block never carries the attribute while its parent Rooms card does |

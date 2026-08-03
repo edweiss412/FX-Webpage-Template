@@ -200,7 +200,7 @@ Implements spec §4.2 verbatim: the memoised signature, the FOUR-branch render-p
 
 Three details are easy to get subtly wrong and each has a test aimed at it:
 
-- The per-batch expiry effect must NOT return a cleanup, or arming batch N+1 cancels batch N and batch N's cards stay lit forever. The unmount-only effect is what clears them (S10).
+- The per-batch expiry effect must NOT return a cleanup, or arming batch N+1 cancels batch N and batch N's cards stay lit forever. What makes that safe rather than leaky is the per-batch replacement: the effect clears any handle already registered for ITS OWN batch before registering the new one, so a double-invoked effect leaves one timer, not two. The unmount-only effect clears whatever is left (S10, which asserts both halves).
 - The attribute value flips PER SECTION, read out of that section's own arming entry, not from a global parity counter that would flip a section nobody re-armed (S5, S14).
 - The announcement's inner node is keyed by batch, not by text. Reconciling an identical string onto the same node is not a DOM mutation and is silent to a screen reader (S16).
 
