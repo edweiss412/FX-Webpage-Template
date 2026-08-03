@@ -8,7 +8,6 @@ import {
   buildForbiddenCodeIndex,
   formatRawCodeViolation,
 } from "@/tests/cross-cutting/no-raw-codes-audit";
-import { extractInternalCodeEnums } from "@/scripts/extract-internal-code-enums";
 
 const FIXTURE_ROOT = "tests/cross-cutting/fixtures/no-raw-codes";
 
@@ -21,17 +20,23 @@ function audit(paths: string[]) {
 }
 
 describe("AC-X.2 internal code enum manifest", () => {
-  test("committed manifest is generated from parser, sync-status, pending-ingestion, and admin-alert sources", () => {
-    const extracted = extractInternalCodeEnums();
-    expect(extracted.UNKNOWN_FIELD?.source).toContain("parse_warnings.code");
-    expect(extracted.UNKNOWN_ROLE_TOKEN?.source).toContain("parse_warnings.code");
-    expect(extracted.pending_review?.source).toContain("shows.last_sync_status");
-    expect(extracted.sheet_unavailable?.source).toContain("shows.last_sync_status");
-    expect(extracted["MI-1_VERSION_DETECTION_FAILED"]?.source).toContain(
+  test("committed manifest carries provenance from parser, sync-status, pending-ingestion, and admin-alert sources", () => {
+    // Reads the COMMITTED manifest, not a fresh extraction. Since the
+    // type-aware parse-warning pass landed, extracting costs a ts-morph project
+    // load (~39s), and the suite deliberately performs exactly ONE extraction —
+    // in tests/messages/_metaParseWarningSiteCoverage.test.ts, which also asserts
+    // the manifest equals a fresh extraction. So these spot-checks are equivalent
+    // and free; doing them here against a fresh extract would make this a second
+    // extractor (spec §3.5).
+    const manifest = INTERNAL_CODE_ENUMS as Record<string, { source: string }>;
+    expect(manifest.UNKNOWN_FIELD?.source).toContain("parse_warnings.code");
+    expect(manifest.UNKNOWN_ROLE_TOKEN?.source).toContain("parse_warnings.code");
+    expect(manifest.pending_review?.source).toContain("shows.last_sync_status");
+    expect(manifest.sheet_unavailable?.source).toContain("shows.last_sync_status");
+    expect(manifest["MI-1_VERSION_DETECTION_FAILED"]?.source).toContain(
       "pending_ingestions.last_error_code",
     );
-    expect(extracted.WIZARD_ISOLATION_INDEXES_MISSING?.source).toContain("admin_alerts.code");
-    expect(INTERNAL_CODE_ENUMS).toEqual(extracted);
+    expect(manifest.WIZARD_ISOLATION_INDEXES_MISSING?.source).toContain("admin_alerts.code");
   });
 
   test("forbidden set dedupes catalog, retired, and internal provenance", () => {

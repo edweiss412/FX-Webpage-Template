@@ -88,6 +88,17 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // chore/scanner-precision-cluster (2026-08-03): one bug shape, two entries — a
+  // static scanner opening too small a set of files while a hand-maintained
+  // residue covers the gap and rots invisibly. Both residues had already rotted.
+  {
+    id: "BL-INTERNAL-CODE-ENUM-SCAN-WIDEN",
+    provenance: "chore/scanner-precision-cluster",
+  },
+  {
+    id: "BL-LEDGER-GUARD-BODY-DEFINED-IDS",
+    provenance: "chore/scanner-precision-cluster",
+  },
   // chore/close-mutation-autocorrect-drift (2026-08-03): a stale entry, not new work. The
   // re-bless it asked for shipped the same day it was filed (c5847a9f4, PR #548 — 2452 pure
   // fingerprint drifts, 0 new holes, 0 fixed holes) and nobody closed the entry. Provenance is
@@ -1016,5 +1027,29 @@ describe("plants corpus — walker verdicts (M1–M9)", () => {
     expect(entryHit("**Status:** OPEN, raised by adversarial review of PR #517 (finding 2).")).toBe(false);
     expect(headingHit("## BL-M10K — re-run the closed-port protocol across the parallel project")).toBe(false);
     expect(headingHit('## BL-M10L — two alerts render "Mark resolved" where "Confirm" is correct')).toBe(false);
+  });
+});
+
+describe("graduated entries carry no in-flight marker", () => {
+  // AC-B5a. Deliberately NOT delegated to _metaLedgerInProgress.test.ts: that
+  // guard scans only body lines 1-12 of an entry, and one of these two entries
+  // carried its status at body line 13, so a missed transition passed both real
+  // guards silently. This reads the archive directly.
+  it("no archived entry is still marked IN PROGRESS", () => {
+    const archive = read("BACKLOG-archive.md");
+    expect(archive, "an in-flight marker survived graduation").not.toContain("IN PROGRESS");
+  });
+
+  it("each graduated entry's archived section still names the branch that resolved it", () => {
+    // The marker was the section's only mention of the branch, so the transition
+    // has to REPLACE it rather than delete it — deleting breaks provenance.
+    const archive = read("BACKLOG-archive.md");
+    for (const { id, provenance } of BACKLOG_GRADUATED) {
+      const start = archive.indexOf(`## ${id}`);
+      expect(start, `${id} missing from the archive`).toBeGreaterThan(-1);
+      const next = archive.indexOf("\n## ", start + 1);
+      const section = archive.slice(start, next === -1 ? undefined : next);
+      expect(section, `${id}'s section does not name ${provenance}`).toContain(provenance);
+    }
   });
 });

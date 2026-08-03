@@ -4,7 +4,6 @@ import {
   warningCodes,
   buildWarning,
   tier1WarningScenarios,
-  EXTRA_WARNING_CODES,
   scenarioIdForCode,
 } from "@/lib/dev/attentionScenarios/tier1";
 import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
@@ -18,7 +17,7 @@ import { validateScenario } from "@/lib/dev/attentionScenarios/validate";
  */
 function generatedWarningCodes(): string[] {
   return Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => (v as { source: string }).source === "parse_warnings.code")
+    .filter(([, v]) => (v as { source: string }).source.split(",").includes("parse_warnings.code"))
     .map(([k]) => k);
 }
 
@@ -30,12 +29,54 @@ describe("tier 1 warning scenarios", () => {
     }
   });
 
-  test("includes the residue the generator's scan heuristic misses", () => {
-    // Each of these is emitted from a file the generator does not scan; without
-    // the explicit list the gallery would silently omit them.
-    expect(EXTRA_WARNING_CODES.length).toBeGreaterThan(0);
-    for (const code of EXTRA_WARNING_CODES) {
+  test("includes every former residue code, from the generator alone", () => {
+    // These four were hand-listed in EXTRA_WARNING_CODES because the old scan
+    // missed them. The type-aware producer reaches every one, so the residue is
+    // gone; this asserts the generator carries them rather than a side list.
+    for (const code of [
+      "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+      "AGENDA_SCHEDULE_TIME_ADJUSTED",
+      "PULL_SHEET_ON_ARCHIVED_TAB",
+      "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+    ]) {
+      expect(generatedWarningCodes(), code).toContain(code);
       expect(warningCodes(), code).toContain(code);
+    }
+  });
+
+  test("includes the codes that were dark before the type-aware scan", () => {
+    // Emitted by factories whose return type never spells ParseWarning
+    // (lib/sync/applyStaged.ts, lib/sync/phase2.ts) or by `warning()` helpers the
+    // old name-keyed rule could not see. Each is a real §12.4 catalog row.
+    for (const code of [
+      "DIAGRAMS_TAB_MISSING",
+      "DIAGRAMS_EMBEDDED_NONE_FOUND",
+      "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+      "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+      "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+      "EMBEDDED_ASSET_DRIFTED",
+      "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+      "REEL_DRIFTED",
+      "OPENING_REEL_PERMISSION_DENIED",
+      "OPENING_REEL_NOT_VIDEO",
+    ]) {
+      expect(warningCodes(), code).toContain(code);
+    }
+  });
+
+  test("admits no admin-alert or hard-error code", () => {
+    // Naive root-widening mis-attributed these; recognition by TYPE excludes the
+    // whole class by construction rather than by an exclusion list.
+    for (const code of [
+      "DRIVE_FETCH_FAILED",
+      "ROLE_FLAGS_NOTICE",
+      "SHOW_FIRST_PUBLISHED",
+      "RESYNC_SHRINK_HELD",
+      "IDEMPOTENCY_IN_FLIGHT",
+      "REPORT_HORIZON_EXPIRED",
+    ]) {
+      expect(warningCodes(), code).not.toContain(code);
     }
   });
 

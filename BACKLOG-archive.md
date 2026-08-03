@@ -8,6 +8,71 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
+
+**Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
+
+`extractInternalCodeEnums` (`scripts/extract-internal-code-enums.ts:70-71`) collects `parse_warnings.code` literals from `readFiles(["lib/parser"])`, then filters those files by `/\bParseWarning\b|\bwarnings\b|hardErrors/`. Because no runtime module enumerates the parse-warning universe, the attention-scenario gallery has to union the generated enum with a hand-maintained residue, `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`): `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, `PULL_SHEET_ON_ARCHIVED_TAB`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`.
+
+The `tier1.ts` comment attributes the miss to the content regex alone. Verified 2026-08-02, that is only the second filter: all four emitters live in `lib/agenda/extractAgendaSchedule.ts`, `lib/sync/enrichAgenda.ts`, and `lib/sync/pullSheetOverride.ts` — outside the `["lib/parser"]` root the scan ever opens, so the regex never runs on them. Widening the content heuristic without widening the directory list would change nothing.
+
+**Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
+
+**Status:** RESOLVED on branch `chore/scanner-precision-cluster` (2026-08-03)
+
+---
+
+**How it was resolved.** The scan is no longer syntactic. Every syntactic mechanism was built and
+refuted by probe — widening the roots mis-attributes 10-13 admin-alert codes, stripping type
+declarations misses value positions, and matching factories by their WRITTEN return type is the
+same bug one level up, since `warning(): Phase2Args["parseResult"]["warnings"][number]` never
+spells `ParseWarning`. Recognition is now by TYPE, fail-closed (the default is SIGNAL), with four
+capture-linked classifications validated in a second pass against what was actually captured.
+
+The entry's premise was also partly wrong, and worse than it thought: `PULL_SHEET_ON_ARCHIVED_TAB`
+was already absorbed, so one of the four residue rows was long dead, and **eleven** real §12.4
+codes were dark that the residue never listed. `warningCodes()` de-duplicates, so under-coverage
+had no symptom at all — which is exactly why the entry asked for a guard.
+
+Measured: 58 codes, 0 unresolved, 44 capture-linked skips, zero admin-alert leakage.
+`EXTRA_WARNING_CODES` is gone and the consumer filter moved from exact equality to provenance
+membership, which alone had been dropping three genuine warnings.
+
+**Documented limit, not a defect:** a code whose provenance passes through `any`/`unknown` or that
+reaches its factory only by higher-order application is neither captured nor signalled — tracing
+that is undecidable, and no type-based recognizer survives `const w: ParseWarning = someAny`. Zero
+such constructions exist today. The real closure is an enumerated catalog, filed as
+`BL-CATALOG-PARTITION-WARNING-CLASS`.
+
+## BL-LEDGER-GUARD-BODY-DEFINED-IDS — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
+
+**Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
+
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
+
+**Decision (2026-08-02): they stay body-defined.** Promoting them would give each a heading whose content is one bullet, and would break the thing that makes them meaningful — the parent's ratchet or gate semantics. The eight below are the full current set:
+
+- `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, `BL-MUTATION-COLUMN-SHIFT`, `BL-MUTATION-MERGED-CELL`, `BL-MUTATION-SECTION-ORDER` — the five operator classes enumerated by `BL-MUTATION-HARNESS-OPEN-HOLES` above, which states outright that "each is tracked as a backlog sub-item below". They are also the `finding` tags on thousands of rows in `tests/parser/mutation/knownHoles.ts`, where they identify a hole CLASS, not an item. The parent owns the shrink-only ratchet that gives them their meaning: hardening a class turns its holes into `staleRows` and fails the nightly harness until they are removed. Split across five headings, that ratchet has no single home.
+- `BL-SYNCFEED-UI-1`, `BL-SYNCFEED-UI-2`, `BL-SYNCFEED-UI-3` — the three LOW / no-user-harm findings enumerated by `BL-SYNC-FEED-UI-POLISH` above, each a one-sentence "only act if" note from one impeccable dual-gate that PASSED. Their shared provenance and shared "no concrete trigger" disposition is the entry; individually they are not items.
+
+**Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
+
+**Status:** RESOLVED on branch `chore/scanner-precision-cluster` (2026-08-03)
+
+---
+
+**How it was resolved.** `bodyDefinedIds` teaches the guard that a parent entry may DEFINE a
+sub-item id as a body bullet. Three conditions, each forced by a measurement against the real
+corpus: the id must lead the bullet inside a **strong** span (a code-span lead is enumeration —
+this entry's own body led a bullet with the same five ids and would otherwise have defined them);
+it must be the first child of the item's first paragraph; and the walk stops at the first heading,
+because `extractEntries` opens entries only at prefixed headings, so a plain `##` section falls
+inside the preceding entry's span. Across the four ledgers those conditions are the difference
+between 11 ids and the 8 that are really body-defined. `definedIds` is exported with injectable
+`(ledgers, read)` and six plants pin the file-scoping property, including one asserting its body
+performs no read outside the injected reader. The eight `KNOWN_DANGLING` rows are removed, not
+exempted — the guard's stale-row ratchet is what proves the removal was required.
+
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
