@@ -185,6 +185,102 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?key=eq.validation_seed",
   },
   {
+    table: "sync_log",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "reports",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "sync_audit",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "drive_watch_channels",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "lockdown-probe" },
+    rowFilter: "?id=eq.lockdown-probe",
+  },
+  {
+    table: "report_rate_limits",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { kind: "admin", identity: "lockdown-probe" },
+    rowFilter: "?kind=eq.admin&identity=eq.lockdown-probe",
+  },
+  {
+    table: "pending_snapshot_uploads",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    table: "revision_race_cooldowns",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { drive_file_id: "lockdown-probe", raced_head_revision_id: "lockdown-probe" },
+    rowFilter: "?drive_file_id=eq.lockdown-probe",
+  },
+  {
+    table: "recovery_drift_cooldowns",
+    closed_at: "supabase/migrations/20260803000000_lockdown_admin_only_tables.sql",
+    // SELECT is retained (spec §4.2): this migration revokes only the three DML
+    // verbs, and the original blanket grant in 20260501002000_rls_policies.sql
+    // covered BOTH anon and authenticated. admin_only RLS returns zero rows to
+    // either, so the retained SELECT is harmless.
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: { show_id: "00000000-0000-0000-0000-000000000000", preview_revision_id: "00000000-0000-0000-0000-000000000000" },
+    rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
     table: "show_share_tokens",
     closed_at: "supabase/migrations/20260523000002_show_share_tokens.sql:43",
     selectAnon: false,
