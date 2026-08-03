@@ -170,6 +170,16 @@ describe("AttentionMenu", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  test("the panel uses the canonical popover shadow token, not a raw Tailwind shadow", () => {
+    renderMenu();
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    // `shadow-lg` is a fixed rgba with no dark-mode runtime, so the panel kept a
+    // light-theme shadow in dark. `--shadow-popover` carries both runtimes
+    // (app/globals.css) and is the canonical utility for popover surfaces.
+    expect(panel.className).toContain("shadow-(--shadow-popover)");
+    expect(panel.className).not.toContain("shadow-lg");
+  });
+
   test("motion classes: origin-top-right + duration-fast ease-out-quart + motion-reduce off", () => {
     renderMenu();
     const panel = screen.getByTestId("published-show-review-attention-menu");
@@ -315,7 +325,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
 
   test("the scroller is an accessible, tabbable scrollable region", () => {
     renderMenu();
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     expect(scroller.tabIndex).toBe(0);
     expect(scroller.className).toContain("max-h-96");
     expect(scroller.className).toContain("overflow-y-auto");
@@ -326,7 +336,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   test("the scroller is capped against the clip ancestor, not just by the CSS cap", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     expect(scroller.style.maxHeight).toBe(expectedFitted());
     expect(scroller.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
       `${CAP_PX}px`,
@@ -336,7 +346,7 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   test("an observer callback re-applies the fit even before the entrance settles", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
-    const scroller = screen.getByRole("group", { name: "Show issues" });
+    const scroller = screen.getByRole("group", { name: "Attention items" });
     const first = scroller.style.maxHeight;
 
     // A React rerender cannot fire a ResizeObserver in jsdom, so the captured

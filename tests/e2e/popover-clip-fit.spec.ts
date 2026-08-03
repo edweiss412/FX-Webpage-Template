@@ -121,7 +121,7 @@ const HUB_POPOVER = '[data-testid="share-hub-popover"]';
 const TOGGLE_BANNER = '[data-testid="published-toggle-popover"]';
 const TOGGLE_CLIP = '[data-testid="toggle-clip-panel"]';
 /** The scroller inside the menu panel — the node this cluster gives a role. */
-const SCROLLER = 'div[role="group"][aria-label="Show issues"]';
+const SCROLLER = 'div[role="group"][aria-label="Attention items"]';
 
 /** The fit gutter, mirroring DEFAULT_CLIP_GUTTER (lib/layout/fitWithinClip.ts). */
 const GUTTER = 8;
