@@ -47,9 +47,11 @@ const ATOM_FILE = "components/shared/AccentButton.tsx";
 // the Step-3 consolidation retired it — spec §4.5. ResolveAlertButton and
 // RunFinalCASButton left the same way on 2026-08-03: both were retired as
 // zero-production-importer components, and a migrated-files row for a deleted file
-// hard-fails sub-scan 2. The atom contract is unweakened — sub-scan 1 still forbids
-// hand-rolled accent compositions repo-wide, and the bg-accent inventory still
-// covers every file.)
+// hard-fails sub-scan 2. What the list loses is NOT coverage of a live surface —
+// both files are gone. Note the scope honestly: sub-scan 1 walks MIGRATED_FILES,
+// not the repo, so it forbids re-inlining the composition in the files that were
+// migrated. Repo-wide coverage of `bg-accent` usage is _metaBgAccentInventory's
+// job, and it still enumerates every occurrence in the tree.)
 //
 // DE-MIGRATED: "ReSyncButton.tsx". modal-header-reconciliation §6.7 moved the
 // Re-sync trigger into the control strip and DEMOTED it from accent to ghost —

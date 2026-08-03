@@ -124,6 +124,34 @@ describe("retired-identifier guard — synthetic family proofs", () => {
     expect(isArchivePath("docs/superpowers/plans/some/future/DEFERRED.md")).toBe(false);
   });
 
+  it("(f) a SECOND identical line is not covered by the first line's row", () => {
+    // Whole-diff review finding 5: set-based matching let one historical
+    // exemption silently cover a newly duplicated live reference. Matching is
+    // occurrence-counted, so the duplicate surfaces.
+    const fx = fixtureRoot({
+      "docs/live.md": "- resolved: RightNowCard shipped\n- resolved: RightNowCard shipped\n",
+    });
+    const hits = scanFiles(fx.files, fx.root);
+    expect(hits).toHaveLength(2);
+    const oneRow: ExemptionRow[] = [
+      { kind: "line", file: "docs/live.md", text: "- resolved: RightNowCard shipped", reason: "one" },
+    ];
+    expect(unexemptedHits(hits, oneRow)).toHaveLength(1);
+    // Two rows cover both, and neither row is stale.
+    const twoRows = [...oneRow, { ...oneRow[0]! }];
+    expect(unexemptedHits(hits, twoRows)).toEqual([]);
+    expect(unmatchedRows(hits, twoRows)).toEqual([]);
+  });
+
+  it("(g) a row whose text names several retired identifiers is ONE row, not N", () => {
+    const fx = fixtureRoot({
+      "lib/x.ts": "// ResolveAlertButton and RunFinalCASButton were retired\n",
+    });
+    const hits = scanFiles(fx.files, fx.root);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.identifier).toBe("ResolveAlertButton+RunFinalCASButton");
+  });
+
   it("(e) the terminal zero-`pending` assertion FAILS against a ledger holding one", () => {
     const withPending: ExemptionRow[] = [
       {
@@ -183,6 +211,19 @@ describe("retired-identifier guard — live tree", () => {
   // forbids. Its CONTRACT was proven from the start by synthetic family (e),
   // where it could still fail — proven before use, rather than asserted before
   // it could hold.
+  it("every exemption row carries a non-empty reason (not a mute button)", () => {
+    // Whole-diff review finding 4: `reason` was structurally required but never
+    // validated, so `reason: ""` passed. An exemption is a CLAIM; a claim with no
+    // stated reason is exactly the silent allowlist this guard replaced.
+    const thin = RETIRED_IDENTIFIER_EXEMPTIONS.filter((r) => r.reason.trim().length < 20).map(
+      (r) => `${r.file} :: ${r.text.slice(0, 60)}`,
+    );
+    expect(
+      thin,
+      "Exemption rows need a reason a reviewer can check, not a placeholder.",
+    ).toEqual([]);
+  });
+
   it("no `pending` row survives close-out", () => {
     const pending = RETIRED_IDENTIFIER_EXEMPTIONS.filter((r) => r.kind === "pending");
     expect(

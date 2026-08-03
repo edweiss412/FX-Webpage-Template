@@ -13,7 +13,7 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 // behavior now lives in the unified Step-3 footer (see
 // Step3ReviewWithFinalizeFooter.test.tsx, step3InfraFooter.test.tsx) and
 // useFinalizeRun's mode contract (FinalizeRunModes.test.tsx). The still-live
-// The CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton
+// CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton
 // describe left with its component on 2026-08-03 (retired, zero production
 // importers); the live finalize-cas path is FinalizeButton's "finish" mode, covered
 // by tests/components/admin/FinalizeButton.test.tsx.

@@ -115,7 +115,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** three of those eight call sites have since been retired — ResumeFinalizeButton at the Step-3 consolidation, ResolveAlertButton and RunFinalCASButton as zero-production-importer components — so five of the original migrations remain. The migrated-files list in `tests/styles/accent-button-atom.test.ts` shrank with them; the atom contract is unweakened, since its no-hand-rolled-composition scan is repo-wide. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)",
+      "**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** three of those eight call sites have since been retired — ResumeFinalizeButton at the Step-3 consolidation, ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)",
     reason:
       "BL-ACCENT-BUTTON-ATOM-SWEEP's description records which call sites M5-D7 migrated. The retired names ARE the census, and the note says they are retired.",
   },
@@ -307,7 +307,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "tests/components/admin/FinalizeReentry.test.tsx",
     text:
-      "// The CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton",
+      "// CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton",
     reason:
       "Explains what left this file and where the live coverage moved; naming it is the pointer a reader needs.",
   },
@@ -349,7 +349,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text:
       "// RunFinalCASButton left the same way on 2026-08-03: both were retired as",
     reason:
-      "Second half of the de-migration justification; the names are what make the row removals checkable.",
+      "Second half of the same de-migration note.",
   },
   {
     kind: "line",
@@ -357,7 +357,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text:
       "// the Step-3 consolidation retired it — spec §4.5. ResolveAlertButton and",
     reason:
-      "Explains why two rows left the migrated-files list; naming them is the justification a reviewer checks.",
+      "Explains why two rows left the migrated-files list; naming what left is the justification a reviewer checks.",
   },
 ];
 
@@ -387,8 +387,14 @@ export function scanFiles(files: readonly string[], root: string = ROOT): Hit[] 
     if (!RETIRED_IDENTIFIERS.some((id) => source.includes(id))) continue;
     const lines = source.split("\n");
     for (const [i, raw] of lines.entries()) {
-      for (const identifier of RETIRED_IDENTIFIERS) {
-        if (raw.includes(identifier)) out.push({ file, line: i + 1, identifier, text: raw.trim() });
+      // ONE hit per LINE, not per identifier. A line naming several retired
+      // components is one reference to repair, so it takes one exemption row;
+      // counting per identifier would demand N rows for one sentence. The
+      // occurrence counting that matters is across DUPLICATE LINES, which this
+      // preserves.
+      const named = RETIRED_IDENTIFIERS.filter((id) => raw.includes(id));
+      if (named.length > 0) {
+        out.push({ file, line: i + 1, identifier: named.join("+"), text: raw.trim() });
       }
     }
   }
@@ -396,17 +402,35 @@ export function scanFiles(files: readonly string[], root: string = ROOT): Hit[] 
 }
 
 /** The hits no exemption covers, sorted for a stable failure message. */
+const key = (file: string, text: string): string => `${file}\u0000${text}`;
+
+/**
+ * The hits no exemption covers.
+ *
+ * Matching is OCCURRENCE-COUNTED, not set-based (whole-diff review finding 5): a
+ * row exempts ONE occurrence of its text, so if a file gains a second identical
+ * line, the duplicate surfaces. A set-based match would let one historical
+ * exemption silently cover a newly duplicated live reference — the same
+ * "one claim, unbounded coverage" failure that made the file-keyed design wrong.
+ */
 export function unexemptedHits(hits: readonly Hit[], rows: readonly ExemptionRow[]): Hit[] {
-  const byFile = new Map<string, Set<string>>();
+  const budget = new Map<string, number>();
   for (const row of rows) {
-    const set = byFile.get(row.file) ?? new Set<string>();
-    set.add(row.text);
-    byFile.set(row.file, set);
+    const k = key(row.file, row.text);
+    budget.set(k, (budget.get(k) ?? 0) + 1);
   }
-  return hits
-    .filter((h) => !isArchivePath(h.file))
-    .filter((h) => !(byFile.get(h.file)?.has(h.text) ?? false))
-    .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  const out: Hit[] = [];
+  for (const h of hits) {
+    if (isArchivePath(h.file)) continue;
+    const k = key(h.file, h.text);
+    const left = budget.get(k) ?? 0;
+    if (left > 0) {
+      budget.set(k, left - 1);
+      continue;
+    }
+    out.push(h);
+  }
+  return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
 /** Exemption rows that no longer match any line — stale claims, and a failure. */
@@ -414,6 +438,19 @@ export function unmatchedRows(
   hits: readonly Hit[],
   rows: readonly ExemptionRow[],
 ): ExemptionRow[] {
-  const present = new Set(hits.map((h) => `${h.file} ${h.text}`));
-  return rows.filter((row) => !present.has(`${row.file} ${row.text}`));
+  // Counted the same way: two rows for a line that occurs once leaves one row
+  // matching nothing, which is a stale claim even though the text still exists.
+  const available = new Map<string, number>();
+  for (const h of hits) {
+    const k = key(h.file, h.text);
+    available.set(k, (available.get(k) ?? 0) + 1);
+  }
+  const out: ExemptionRow[] = [];
+  for (const row of rows) {
+    const k = key(row.file, row.text);
+    const left = available.get(k) ?? 0;
+    if (left > 0) available.set(k, left - 1);
+    else out.push(row);
+  }
+  return out;
 }

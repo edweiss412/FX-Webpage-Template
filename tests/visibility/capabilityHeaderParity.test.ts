@@ -11,10 +11,17 @@
 // entitlement rule the code had stopped implementing. That is the whole class
 // this guard closes: a comment asserting parity with a source it cannot see.
 //
-// The expected flag set is EXTRACTED FROM `scopeTiles.ts` source, never
-// hardcoded here — a hardcoded expectation would just be a second copy of the
-// same claim, drifting in parallel. Set equality, so a quote that OMITS a branch
-// fails as loudly as one that invents a branch.
+// The expectation is EXTRACTED FROM `scopeTiles.ts` source, never hardcoded here
+// — a hardcoded expectation would just be a second copy of the same claim,
+// drifting in parallel.
+//
+// It compares a normalized EXPRESSION, not a flag set. Whole-diff review finding
+// 2: a set comparison ignores operators, so rewriting `isAdmin || LEAD ||
+// FINANCIALS` as `isAdmin && LEAD && FINANCIALS` left both sets equal and the
+// guard green — while inverting the entitlement rule the comment claims to quote.
+// Normalization strips `flags.includes(...)` wrapping and whitespace so a quote
+// may say `LEAD` where the source says `flags.includes("LEAD")`, but it keeps
+// every operator, negation, and parenthesis.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -61,6 +68,20 @@ function terms(text: string): Set<string> {
   return out;
 }
 
+/**
+ * The predicate as a comparable expression: operators and grouping preserved,
+ * `flags.includes("X")` reduced to `X`, `return`/`;`/whitespace dropped.
+ */
+export function normalizeExpression(text: string): string {
+  return text
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/\breturn\b/g, " ")
+    .replace(/flags\s*\.\s*includes\s*\(\s*["'`]([A-Z0-9]+)["'`]\s*\)/g, "$1")
+    .replace(/[;{}]/g, " ")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 describe("capabilityTransitions header quotes scopeTiles verbatim", () => {
   it("discovers exactly the four quote/function pairs (never zero — a vacuous pass)", () => {
     const found = QUOTED_PREDICATES.filter(
@@ -81,6 +102,28 @@ describe("capabilityTransitions header quotes scopeTiles verbatim", () => {
       `The header claims this quote is verbatim branch logic from scopeTiles.ts. ` +
         `Quoted: {${[...quoted].sort().join(", ")}}. Source reads: {${[...actual].sort().join(", ")}}.`,
     ).toEqual([...actual].sort());
+  });
+
+  it.each([...QUOTED_PREDICATES])("%s: the quoted OPERATORS match the source too", (name) => {
+    const quoted = normalizeExpression(quotedRhs(name) ?? "");
+    const actual = normalizeExpression(sourceBody(name) ?? "");
+    expect(
+      quoted,
+      `Same flags, different logic. Quoted: \`${quoted}\`. Source: \`${actual}\`. A set ` +
+        `comparison would pass this; "verbatim branch logic" has to mean the operators too.`,
+    ).toBe(actual);
+  });
+
+  it("an operator swap in the source is caught (|| -> &&)", () => {
+    // Executable proof of the escape the whole-diff review demonstrated.
+    const quoted = normalizeExpression("isAdmin || LEAD || FINANCIALS");
+    const mutated = normalizeExpression(
+      'return isAdmin && flags.includes("LEAD") && flags.includes("FINANCIALS");',
+    );
+    expect(terms("isAdmin || LEAD || FINANCIALS")).toEqual(
+      terms('isAdmin && flags.includes("LEAD") && flags.includes("FINANCIALS")'),
+    );
+    expect(quoted).not.toBe(mutated);
   });
 
   it("a header with a REMOVED quote line fails rather than silently passing", () => {

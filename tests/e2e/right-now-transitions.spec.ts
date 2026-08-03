@@ -15,7 +15,7 @@
  *
  * Test strategy:
  *
- *   1. The card is a `'use client'` island (`components/right-now/
+ *   1. The hero is a `'use client'` island (`components/crew/
  *      RightNowHero.tsx`); `selectRightNowState` re-derives on every
  *      60-second tick from `now`. Playwright's `page.clock.install` is
  *      used to deterministically advance time.
