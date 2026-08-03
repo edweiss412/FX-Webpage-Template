@@ -1,10 +1,36 @@
 // @vitest-environment jsdom
 /**
- * tests/components/RightNowCardRecovery.test.tsx
+ * tests/components/crew/rightNowHeroRecovery.test.tsx
  *
  * Pins the §8.2 stale-tint UNWIND contract on degradation → recovery
- * sequences. Codex round-9 fresh-eyes M4 review (2026-05-04) caught
- * that `RightNowCard.tsx:467-471` evaluated `treatment ===
+ * sequences, against the LIVE component.
+ *
+ * RETARGET (2026-08-03): this suite pinned `RightNowCard`, which the
+ * M11.5-era hero reskin superseded (`b327d5eb0`) and which is retired
+ * on this branch. `RightNowHero` carries the same `lastGood` /
+ * morph-to-last-good machinery VERBATIM, so the regression below is
+ * live in the hero and this file follows it there rather than dying
+ * with the dead component.
+ *
+ * The retarget is NOT a testid swap. In `show_day_n` the hero sets
+ * `detail: null` and routes the call time into a `Show` STAT
+ * (`components/crew/RightNowHero.tsx:158-178`), rendered as
+ * `data-stat="Show"` inside `right-now-stats` — so the card's
+ * `right-now-detail` node does not exist here. Every `Call: <t>`
+ * assertion reads `[data-stat="Show"] dd` instead, and the `Call: `
+ * prefix does not survive: the hero splits label from value, so the
+ * `dd` holds the bare time. The LABEL is asserted separately, once
+ * per test, so dropping the prefix loses nothing.
+ *
+ * The anti-`lastGood` guarantee survives the move intact: `makeContext`
+ * sets `showAnchors: []`, which is exactly the hero's legacy fallback
+ * to `ctx.callTime` (`components/crew/RightNowHero.tsx:158-161`), so
+ * 14:00 and 15:30 still render as DIFFERENT values in the Show stat and
+ * a render-`lastGood` bug still cannot produce 15:30. Do not
+ * "simplify" the fixture by adding per-day anchors: that would route
+ * the value through a different branch and silently defeat the pin. Codex round-9 fresh-eyes M4 review (2026-05-04) caught
+ * that the card's treatment branch (now carried verbatim by
+ * `components/crew/RightNowHero.tsx`) evaluated `treatment ===
  * "morph-to-last-good"` symmetrically — both `show_day_n → unknown`
  * (degradation) AND `unknown → show_day_n` (recovery) followed the
  * "render lastGood + apply stale tint" branch, leaving the card stuck
@@ -37,7 +63,7 @@
  * Anti-tautology guarantees:
  *   - The recovery assertion checks a callTime DIFFERENT from the
  *     pre-degradation render (15:30 vs 14:00). A buggy implementation
- *     cannot satisfy "Call: 15:30" by reusing lastGood — that string
+ *     cannot satisfy the recovered 15:30 by reusing lastGood — that value
  *     only exists in the recovered render's body.
  *   - Expected strings derive from fixture inputs (callTime values),
  *     not from importing the production renderBody function.
@@ -46,7 +72,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { RightNowCard } from "@/components/right-now/RightNowCard";
+import { RightNowHero } from "@/components/crew/RightNowHero";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 
 /** Build a complete RightNowContext from just the bits a test cares about. */
@@ -130,24 +156,30 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)", () => {
+describe("RightNowHero — stale-tint UNWINDS on recovery (Codex round-9 HIGH)", () => {
   test("show_day_n → unknown → show_day_n: stale clears, NEW body renders", () => {
     // ── Step 1: mount in a good state (show_day_n with callTime 14:00). ──
     const ctxA = makeContext({
       dates: validDates(),
       callTime: "14:00",
     });
-    const { container, rerender } = render(<RightNowCard context={ctxA} />);
-    const card = () => container.querySelector('[data-testid="right-now-card"]')!;
+    const { container, rerender } = render(<RightNowHero context={ctxA} />);
+    const hero = () => container.querySelector('[data-testid="right-now-hero"]')!;
     const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
+    // Scoped to the Show stat's VALUE node, never the whole hero: the lead line
+    // ("Today: Show day 1 of 2") must not be able to satisfy a time assertion.
+    const showStat = () => container.querySelector('[data-stat="Show"] dd');
+    const showStatLabel = () => container.querySelector('[data-stat="Show"] dt');
 
     // Sanity: initial render resolved to show_day_n with the v1 callTime.
     // Catches: a fixture or pinned-clock regression that would invalidate
     // every later assertion silently.
     expect(stateMarker().getAttribute("data-state")).toBe("show_day_n");
-    expect(card().getAttribute("data-stale")).toBe("false");
-    expect(detail()?.textContent).toContain("Call: 14:00");
+    expect(hero().getAttribute("data-stale")).toBe("false");
+    expect(showStat()?.textContent).toContain("14:00");
+    // The stat CARRIES its label: the card rendered "Call: <t>" as one string, the
+    // hero splits label from value, so the label is what the prefix used to say.
+    expect(showStatLabel()?.textContent).toBe("Show");
 
     // ── Step 2: degrade — partial dates trigger the `unknown` branch. ──
     // The §8.2 contract says the card should KEEP showing the lastGood
@@ -159,7 +191,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
       dates: partialDates(),
       callTime: null, // unknown body wouldn't read callTime anyway
     });
-    rerender(<RightNowCard context={ctxDegraded} />);
+    rerender(<RightNowHero context={ctxDegraded} />);
 
     // Authoritative state machine resolved to `unknown`, but the
     // RENDERED body is still lastGood (Call: 14:00) with stale tint.
@@ -168,8 +200,11 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // says we should NOT do that).
     expect(stateMarker().getAttribute("data-state")).toBe("unknown");
     expect(stateMarker().getAttribute("data-rendered-state")).toBe("show_day_n");
-    expect(card().getAttribute("data-stale")).toBe("true");
-    expect(detail()?.textContent).toContain("Call: 14:00");
+    expect(hero().getAttribute("data-stale")).toBe("true");
+    expect(showStat()?.textContent).toContain("14:00");
+    // The stat CARRIES its label: the card rendered "Call: <t>" as one string, the
+    // hero splits label from value, so the label is what the prefix used to say.
+    expect(showStatLabel()?.textContent).toBe("Show");
 
     // ── Step 3: RECOVER — valid dates restored, with a DIFFERENT call
     // time (15:30) so the test can distinguish "recovered body" from
@@ -180,7 +215,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
       dates: validDates(),
       callTime: "15:30",
     });
-    rerender(<RightNowCard context={ctxRecovered} />);
+    rerender(<RightNowHero context={ctxRecovered} />);
 
     // The bug-pinning assertions. Each names the concrete failure mode
     // a regression would produce.
@@ -192,7 +227,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // (b) Stale tint CLEARED. The §8.2 unwind contract.
     // Catches: the round-9 bug — the card sitting permanently in
     // stale-tint after a sync error recovers.
-    expect(card().getAttribute("data-stale")).toBe("false");
+    expect(hero().getAttribute("data-stale")).toBe("false");
 
     // (c) The RENDERED body reflects the recovered (NEW) callTime, not
     // the pre-degradation one. This is the strictest anti-tautology
@@ -200,8 +235,8 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // because "Call: 15:30" never existed before this rerender.
     // Catches: the round-9 bug's user-visible regression — crew seeing
     // an outdated call time after Realtime refresh restores valid data.
-    expect(detail()?.textContent).toContain("Call: 15:30");
-    expect(detail()?.textContent).not.toContain("Call: 14:00");
+    expect(showStat()?.textContent).toContain("15:30");
+    expect(showStat()?.textContent).not.toContain("14:00");
 
     // (d) data-rendered-state is the recovered state, not the lastGood
     // state. Belt-and-braces — if (c) passes by accident through some
@@ -221,36 +256,42 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
       dates: validDates(),
       callTime: "09:00",
     });
-    const { container, rerender } = render(<RightNowCard context={ctxA} />);
-    const card = () => container.querySelector('[data-testid="right-now-card"]')!;
+    const { container, rerender } = render(<RightNowHero context={ctxA} />);
+    const hero = () => container.querySelector('[data-testid="right-now-hero"]')!;
     const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
+    // Scoped to the Show stat's VALUE node, never the whole hero: the lead line
+    // ("Today: Show day 1 of 2") must not be able to satisfy a time assertion.
+    const showStat = () => container.querySelector('[data-stat="Show"] dd');
+    const showStatLabel = () => container.querySelector('[data-stat="Show"] dt');
 
     expect(stateMarker().getAttribute("data-state")).toBe("show_day_n");
-    expect(card().getAttribute("data-stale")).toBe("false");
-    expect(detail()?.textContent).toContain("Call: 09:00");
+    expect(hero().getAttribute("data-stale")).toBe("false");
+    expect(showStat()?.textContent).toContain("09:00");
+    // The stat CARRIES its label: the card rendered "Call: <t>" as one string, the
+    // hero splits label from value, so the label is what the prefix used to say.
+    expect(showStatLabel()?.textContent).toBe("Show");
 
     // Degrade to dateless (total date loss).
     const ctxDateless = makeContext({
       dates: noDates(),
       callTime: null,
     });
-    rerender(<RightNowCard context={ctxDateless} />);
+    rerender(<RightNowHero context={ctxDateless} />);
     expect(stateMarker().getAttribute("data-state")).toBe("dateless");
-    expect(card().getAttribute("data-stale")).toBe("true");
+    expect(hero().getAttribute("data-stale")).toBe("true");
 
     // Recover with new callTime.
     const ctxRecovered = makeContext({
       dates: validDates(),
       callTime: "10:45",
     });
-    rerender(<RightNowCard context={ctxRecovered} />);
+    rerender(<RightNowHero context={ctxRecovered} />);
 
     // Same three pinning assertions as the unknown variant.
     expect(stateMarker().getAttribute("data-state")).toBe("show_day_n");
-    expect(card().getAttribute("data-stale")).toBe("false");
-    expect(detail()?.textContent).toContain("Call: 10:45");
-    expect(detail()?.textContent).not.toContain("Call: 09:00");
+    expect(hero().getAttribute("data-stale")).toBe("false");
+    expect(showStat()?.textContent).toContain("10:45");
+    expect(showStat()?.textContent).not.toContain("09:00");
   });
 
   test("show_day_n → unknown: stale tint APPLIED, lastGood body preserved (degradation control)", () => {
@@ -264,35 +305,39 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
       dates: validDates(),
       callTime: "11:11",
     });
-    const { container, rerender } = render(<RightNowCard context={ctxA} />);
-    const card = () => container.querySelector('[data-testid="right-now-card"]')!;
+    const { container, rerender } = render(<RightNowHero context={ctxA} />);
+    const hero = () => container.querySelector('[data-testid="right-now-hero"]')!;
     const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
+    // Scoped to the Show stat's VALUE node, never the whole hero: the lead line
+    // ("Today: Show day 1 of 2") must not be able to satisfy a time assertion.
+    const showStat = () => container.querySelector('[data-stat="Show"] dd');
+    const showStatLabel = () => container.querySelector('[data-stat="Show"] dt');
 
-    expect(detail()?.textContent).toContain("Call: 11:11");
+    expect(showStat()?.textContent).toContain("11:11");
 
     // Degrade.
     const ctxDegraded = makeContext({ dates: partialDates() });
-    rerender(<RightNowCard context={ctxDegraded} />);
+    rerender(<RightNowHero context={ctxDegraded} />);
 
     // Authoritative state is unknown; rendered state is the lastGood
     // (show_day_n); stale tint applied; OLD body still on screen.
     expect(stateMarker().getAttribute("data-state")).toBe("unknown");
     expect(stateMarker().getAttribute("data-rendered-state")).toBe("show_day_n");
-    expect(card().getAttribute("data-stale")).toBe("true");
-    expect(detail()?.textContent).toContain("Call: 11:11");
+    expect(hero().getAttribute("data-stale")).toBe("true");
+    expect(showStat()?.textContent).toContain("11:11");
   });
 });
 
 // ── Codex round-19 — prefers-reduced-motion wiring ────────────────────
 //
-// 2026-06-11 bug-audit: RightNowCard no longer uses framer-motion's
+// 2026-06-11 bug-audit: the hero (like the card it was reskinned from) does
+// not use framer-motion's
 // `useReducedMotion` (it missed the INITIAL matchMedia value); it reads
 // the shared matchMedia-on-mount hook at lib/a11y/usePrefersReducedMotion.
 // We mock that module per-test — the hook is ours, so the module-scope
 // mock is reliable regardless of framer-motion's internals. The REAL
 // hook-to-matchMedia path is pinned separately in
-// tests/components/RightNowCardReducedMotionInitial.test.tsx.
+// tests/components/crew/rightNowHeroReducedMotionInitial.test.tsx.
 
 const reducedMotionMock = { value: false as boolean };
 
@@ -300,7 +345,7 @@ vi.mock("@/lib/a11y/usePrefersReducedMotion", () => ({
   usePrefersReducedMotion: () => reducedMotionMock.value,
 }));
 
-describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () => {
+describe("RightNowHero — prefers-reduced-motion (Codex round-19 MEDIUM)", () => {
   test("data-prefers-reduced-motion='true' when useReducedMotion returns true", () => {
     reducedMotionMock.value = true;
     const ctx = {
@@ -323,12 +368,12 @@ describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () =
       showAnchors: [] as import("@/lib/crew/resolveKeyTimes").ShowAnchor[],
       timezone: "America/New_York",
     };
-    const { container } = render(<RightNowCard context={ctx} />);
-    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    const { container } = render(<RightNowHero context={ctx} />);
+    const root = container.querySelector('[data-testid="right-now-hero"]')!;
     // Catches the round-19 bug: pre-fix, useReducedMotion was never
     // called, so the attribute defaulted (or was missing) regardless
     // of the user preference.
-    expect(card.getAttribute("data-prefers-reduced-motion")).toBe("true");
+    expect(root.getAttribute("data-prefers-reduced-motion")).toBe("true");
   });
 
   test("data-prefers-reduced-motion='false' when useReducedMotion returns false", () => {
@@ -353,10 +398,10 @@ describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () =
       showAnchors: [] as import("@/lib/crew/resolveKeyTimes").ShowAnchor[],
       timezone: "America/New_York",
     };
-    const { container } = render(<RightNowCard context={ctx} />);
-    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    const { container } = render(<RightNowHero context={ctx} />);
+    const root = container.querySelector('[data-testid="right-now-hero"]')!;
     // Anti-tautology: confirm the attribute is NOT always "true" or
     // "unknown" — it correctly reflects the user opt-out.
-    expect(card.getAttribute("data-prefers-reduced-motion")).toBe("false");
+    expect(root.getAttribute("data-prefers-reduced-motion")).toBe("false");
   });
 });

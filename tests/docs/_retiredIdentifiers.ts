@@ -112,6 +112,14 @@ export type ExemptionRow =
  */
 export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   {
+    kind: "line",
+    file: "tests/components/crew/rightNowHeroRecovery.test.tsx",
+    text:
+      "* RETARGET (2026-08-03): this suite pinned `RightNowCard`, which the",
+    reason:
+      "Provenance for the retarget: the sentence exists to say which component this suite used to pin. Naming the retired component IS the content.",
+  },
+  {
     kind: "pending",
     file: "BACKLOG.md",
     text:
@@ -797,102 +805,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     text:
       "* The pending state is load-bearing: unlike ResolveAlertButton there is no",
     repairedBy: "Task 7",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "* tests/components/RightNowCardRecovery.test.tsx",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "* that `RightNowCard.tsx:467-471` evaluated `treatment ===",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "// 2026-06-11 bug-audit: RightNowCard no longer uses framer-motion's",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "// tests/components/RightNowCardReducedMotionInitial.test.tsx.",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "const { container } = render(<RightNowCard context={ctx} />);",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "const { container, rerender } = render(<RightNowCard context={ctxA} />);",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "describe(\"RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)\", () => {",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "describe(\"RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)\", () => {",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "import { RightNowCard } from \"@/components/right-now/RightNowCard\";",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "rerender(<RightNowCard context={ctxDateless} />);",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "rerender(<RightNowCard context={ctxDegraded} />);",
-    repairedBy: "Task 3",
-    reason: "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/RightNowCardRecovery.test.tsx",
-    text:
-      "rerender(<RightNowCard context={ctxRecovered} />);",
-    repairedBy: "Task 3",
     reason: "Live reference to a retired identifier; repaired by the named task.",
   },
   {
