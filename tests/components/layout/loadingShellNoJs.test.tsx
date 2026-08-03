@@ -23,8 +23,7 @@ import { LoadingShell } from "@/components/layout/Skeleton";
 const HIDE_RULE = "[data-loading-shell-content]{display:none}";
 const NOTICE = '[data-testid="loading-nojs-notice"]';
 const TITLE = "JavaScript is required";
-const BODY =
-  "This page needs JavaScript to load. Turn it on in your browser settings, then reload.";
+const BODY = "This page needs JavaScript to load. Turn it on, then reload.";
 
 function renderShell(): { html: string; noscriptInner: Document; outer: Document } {
   const html = renderToStaticMarkup(
@@ -106,10 +105,20 @@ describe("LoadingShell no-JavaScript notice", () => {
     expect(text).not.toMatch(/[A-Z]{2,}_[A-Z0-9_]+/);
   });
 
+  it("gives the notice its own gutter and width cap (page padding is inside the hidden half)", () => {
+    const { noscriptInner } = renderShell();
+    const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
+    const gutter = notice.parentElement;
+    expect(gutter, "the notice has no wrapping gutter element").not.toBeNull();
+    for (const cls of ["mx-auto", "max-w-2xl", "px-4"]) {
+      expect((gutter as Element).classList.contains(cls), `gutter is missing ${cls}`).toBe(true);
+    }
+  });
+
   it("keeps the card's token classes (a classless card passes every other check)", () => {
     const { noscriptInner } = renderShell();
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
-    for (const cls of ["rounded-lg", "border", "border-border", "bg-surface", "p-4"]) {
+    for (const cls of ["rounded-md", "border", "border-border", "bg-surface", "p-tile-pad"]) {
       expect(notice.classList.contains(cls), `notice is missing ${cls}`).toBe(true);
     }
   });

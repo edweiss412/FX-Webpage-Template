@@ -58,14 +58,23 @@ export function LoadingShell({
     <div data-testid={testId}>
       <noscript>
         <style dangerouslySetInnerHTML={{ __html: "[data-loading-shell-content]{display:none}" }} />
-        <div
-          data-testid="loading-nojs-notice"
-          className="rounded-lg border border-border bg-surface p-4"
-        >
-          <h1 className="text-base font-semibold text-text-strong">JavaScript is required</h1>
-          <p className="mt-1 text-sm text-text-subtle">
-            This page needs JavaScript to load. Turn it on in your browser settings, then reload.
-          </p>
+        {/*
+         * The notice carries its OWN gutter and width cap. It cannot inherit the
+         * page's: every loading.tsx puts its layout padding on a child of
+         * `data-loading-shell-content`, which the rule above hides. Without this
+         * the card runs flush to both edges of a 390px phone on the crew route
+         * and stretches past 1500px on a wide admin viewport.
+         */}
+        <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-8">
+          <div
+            data-testid="loading-nojs-notice"
+            className="rounded-md border border-border bg-surface p-tile-pad"
+          >
+            <h1 className="text-base font-semibold text-text-strong">JavaScript is required</h1>
+            <p className="mt-1 text-sm text-text-subtle">
+              This page needs JavaScript to load. Turn it on, then reload.
+            </p>
+          </div>
         </div>
       </noscript>
       <div data-loading-shell-content="">

@@ -75,14 +75,16 @@ export function LoadingShell({
         <style
           dangerouslySetInnerHTML={{ __html: "[data-loading-shell-content]{display:none}" }}
         />
-        <div
-          data-testid="loading-nojs-notice"
-          className="rounded-lg border border-border bg-surface p-4"
-        >
-          <h1 className="text-base font-semibold text-text-strong">JavaScript is required</h1>
-          <p className="mt-1 text-sm text-text-subtle">
-            This page needs JavaScript to load. Turn it on in your browser settings, then reload.
-          </p>
+        <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-8">
+          <div
+            data-testid="loading-nojs-notice"
+            className="rounded-md border border-border bg-surface p-tile-pad"
+          >
+            <h1 className="text-base font-semibold text-text-strong">JavaScript is required</h1>
+            <p className="mt-1 text-sm text-text-subtle">
+              This page needs JavaScript to load. Turn it on, then reload.
+            </p>
+          </div>
         </div>
       </noscript>
       <div data-loading-shell-content="">
@@ -103,6 +105,8 @@ export function LoadingShell({
 - `data-loading-shell-content=""` with an explicit empty string, not the bare JSX attribute. Bare `<div data-loading-shell-content>` is `={true}` in JSX and serializes to `data-loading-shell-content="true"`, which the attribute selector still matches, but the empty-string form keeps the rendered HTML and the test's expected markup identical and free of a meaningless value.
 - The selector is the attribute `[data-loading-shell-content]`, unique to this component, so the rule cannot reach any other element. It is inside `<noscript>`, so it exists only when JS is off.
 - `data-testid="loading-nojs-notice"` is the handle for both the component test and the e2e probe.
+- **The notice carries its own gutter and width cap** (`mx-auto w-full max-w-2xl px-4 py-8 sm:px-8`), which is not optional polish. Every `loading.tsx` puts its layout padding on a child of `data-loading-shell-content` — the half the rule hides — so the notice inherits no page padding at all. Without the gutter the card runs flush to both edges of a 390px phone on the crew route (`app/show/[slug]/layout.tsx:47` adds none) and stretches past 1500px on a wide admin viewport. Surfaced as the impeccable critique's only P1.
+- `rounded-md` and `p-tile-pad` rather than `rounded-lg`/`p-4`: DESIGN.md §4 reserves the 16px radius for modal and dialog surfaces, and on `border-border` cards this repo runs `rounded-md` roughly 129 times to `rounded-lg`'s 9 (of which 9 of 10 are popovers). `p-tile-pad` (20px) is the house card padding, 64 uses. Structural twin: `components/admin/RecentAutoAppliedStrip.tsx:676`.
 - The title is an `<h1>`, not a styled `<p>`. For a no-JS visitor the routed content never renders (§1.0), so within the route segment this notice is all there is, and a screen-reader user navigating by heading reaches a landmark that says what state the page is in. It is not always the document's *only* heading — a persistent layout outside the suspense boundary still renders, and `app/help/layout.tsx` keeps a sidebar whose links are `<h3>` elements (`app/help/_components/Sidebar.tsx:56`). An `<h1>` above those is a correct hierarchy, not a collision. `text-base` holds the visual size at the paragraph scale the mockup showed, so the semantic upgrade costs nothing visually. (The earlier draft used a `<p>` and justified it as "should not invite interaction"; heading semantics do not imply interactivity, and the two undifferentiated paragraphs that produced were a real a11y defect.)
 - Tokens only: `border-border`, `bg-surface`, `text-text-strong`, `text-text-subtle` — all four are existing `@theme` tokens spanning light and dark (`app/globals.css`), so the notice inherits theme correctly with no new token and no new contrast row in `DESIGN.md` §1.2.
 
@@ -125,9 +129,11 @@ No hoisting, no dedupe, no drop. Independently corroborated by the round-1 cross
 | Element | Text |
 |---|---|
 | Title | `JavaScript is required` |
-| Body | `This page needs JavaScript to load. Turn it on in your browser settings, then reload.` |
+| Body | `This page needs JavaScript to load. Turn it on, then reload.` |
 
 Constraints met: no em-dash (U+2014), no `SCREAMING_SNAKE` token, no occurrence of the word budget, no apostrophes (so no straight-vs-curly question arises). States the fix, not only the fault.
+
+The body deliberately does **not** name where the setting lives. An earlier draft said "Turn it on in your browser settings", which is wrong on the primary persona's device: on iOS, JavaScript is under Settings → Apps → Safari → Advanced, not in Safari itself. Naming no location is correct everywhere; naming one is wrong on the platform most of this app's crew actually use.
 
 Those first three mirror the scans at `tests/components/crew/loading.test.tsx:60`, `tests/components/crew/loading.test.tsx:67` and `tests/components/crew/loading.test.tsx:69`, but note that those scans do **not** reach this string: under jsdom the notice never enters the rendered tree at all (§7.0). The copy constraints are therefore enforced by the new SSR component test in §7.1, not inherited from the crew route's scans.
 

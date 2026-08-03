@@ -8,6 +8,24 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
+
+### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+
+Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
+
+**Resolved 2026-08-03 (`fix/nojs-loading-shell-notice`).** Two halves, only one of which was still live.
+
+*The named symptom was already gone.* `tests/e2e/admin-banner.spec.ts` was deleted wholesale in `67ce6d082` ("feat(admin): mount bell in both chromes; retire AlertBanner"), together with `components/admin/AlertBanner.tsx` and the `<details>`-based no-JS contract that test asserted. At pickup, `rg noscript app components` returned zero hits: no no-JS contract survived anywhere in the app.
+
+*The structural half was real, and is fixed.* A probe against a throwaway `force-dynamic` route confirmed the mechanism exactly as this entry described it — the fallback renders inline, the real content ships inside `<div hidden id="S:1">`, and only an inline `$RC()` call reveals it. Of the three options this entry listed, the first is moot (the test is gone) and the second is not implementable (the server cannot know whether the client will run the script). The third shipped, in the strongest available form: `LoadingShell` now carries a `<noscript>` block with a "JavaScript is required" notice plus a `<noscript>`-scoped `<style>` that hides the shell content, so a no-JS visitor gets one clear message instead of an eternal shimmer. One insertion point covers all nine `loading.tsx` routes — crew as well as admin, which is broader than this entry's admin-only framing.
+
+*One claim in this entry was stale and should not be carried forward.* "No CI workflow runs Playwright" was true when filed; ten workflows run it today. That sentence is precisely the reasoning that would justify skipping CI registration, so the replacement e2e (`tests/e2e/nojs-loading-notice.spec.ts`) is named explicitly in `.github/workflows/admin-layout-e2e.yml` as well as in `playwright.config.ts`. Registering only the latter would have left it dark — every Playwright workflow in this repo passes an explicit spec-file list — which is how the predecessor test sat failing on `main` from M12.11 until it was deleted.
+
+Spec: `docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md`. Plan: `docs/superpowers/plans/2026-08-03-nojs-loading-shell-notice.md`.
+
+---
+
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
