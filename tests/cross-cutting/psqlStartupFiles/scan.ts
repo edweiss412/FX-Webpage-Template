@@ -87,10 +87,15 @@
  *   with psql; `scanShellIndirection` on shell/YAML, which reports a
  *   variable assigned `psql`, an `alias psql=`, and a shell function named
  *   psql; and `scanWorkflowIndirection` on YAML, which reports the bindings
- *   only a workflow can spell — `env:` at the workflow, job, or step level, and
- *   a `matrix` value — since those are `NAME: value`, not the `NAME=value` the
- *   shell reader looks for. All are TRIPWIRES — they fail loudly rather than
- *   resolving anything.
+ *   only a workflow can spell — `env:` at the workflow, job, or step level, a
+ *   `matrix` value, and an `inputs.<name>.default`, each also through a YAML
+ *   ALIAS — since those are `NAME: value`, not the `NAME=value` the shell
+ *   reader looks for. A binding written through `$GITHUB_ENV` or
+ *   `$GITHUB_OUTPUT` (the documented way one step hands a value to a later
+ *   one) is read by the shell tripwire, which would otherwise miss it for
+ *   sitting inside a quoted `echo` argument. All are TRIPWIRES — they fail
+ *   loudly rather than resolving anything, and a binding needs NO flag to be
+ *   reported: `env: {DB: "psql mydb"}` is the ordinary spelling.
  *   This file previously named the JS one as the backstop for both surfaces
  *   while it ran only on JS files, so `PG=psql; "$PG" …` was invisible and
  *   `alias psql="psql -F"` could turn a certified `-X` into `-F`'s value; and
@@ -1945,7 +1950,19 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
       )
         ? quotedValue
         : null;
-    const hit = assigned ?? boundCommand ?? aliased ?? functionDef;
+    // `$GITHUB_ENV` and `$GITHUB_OUTPUT` are THE documented way one step hands
+    // a value to a later one, so `echo "PSQL=psql" >> "$GITHUB_ENV"` binds a
+    // command name exactly as `PSQL=psql` does — and was invisible, because the
+    // assignment sits INSIDE a quoted argument where the assignment rule (which
+    // requires whitespace or line start before the name) cannot see it. Gated
+    // on the destination file so relaxing the boundary costs no precision
+    // anywhere else: a line that writes neither is read exactly as before.
+    const githubEnvWrite =
+      /\$\{?GITHUB_(?:ENV|OUTPUT)\}?/.test(code) &&
+      /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(code)
+        ? ["", ""]
+        : null;
+    const hit = assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;
@@ -2051,6 +2068,25 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
       // summary string — and scanning all of it would report prose.
       if (!key || !EXECUTABLE_WORKFLOW_KEYS.has(key.value as string)) return;
       const isShellKey = key.value === "shell";
+      // An action's `runs.args` is documented as an ARRAY passed to the
+      // container entrypoint, so the executable text is the ITEMS, not a
+      // scalar: `entrypoint: sh` + `args: ["-c", "psql -qAt mydb"]` runs an
+      // unprotected psql, and a reader that required a scalar returned
+      // immediately on every one of them. Each item is scanned on its own —
+      // `-c`'s operand is a whole command line, and a bare argv item is a word
+      // of one — which is the conservative reading either way.
+      const seqItems = (node.value as { items?: unknown[] } | undefined)?.items;
+      if (Array.isArray(seqItems)) {
+        for (const item of seqItems) {
+          if (!isScalar(item as YamlNode as never)) continue;
+          const itemText = (item as { value?: unknown }).value;
+          if (typeof itemText !== "string") continue;
+          const itemRange = (item as { range?: [number, number, number] }).range;
+          const itemOffset = itemRange ? lineStartOf(itemRange[0]) : 0;
+          sites.push(...scanShellText(itemText, file, itemOffset));
+        }
+        return;
+      }
       // A `run: *cmd` ALIAS is not a scalar node. Anchors/aliases are
       // documented GitHub Actions reuse, so resolving is required, not
       // generous.
@@ -2155,39 +2191,76 @@ export function scanWorkflowIndirection(source: string, file: string): Indirecti
   const lineStartOf = (offset: number): number => source.slice(0, offset).split("\n").length - 1;
 
   /** A scalar that BINDS the command name: one word that is psql or a path to
-   * it (`psql`, `/usr/bin/psql`), or a multiword value that lexes to a psql
-   * invocation WITH a flag. The flag requirement is what keeps prose out —
-   * `NOTE: "psql failed to connect; retry"` is five ordinary words and binds
-   * nothing, which is the same bound `scanShellIndirection` uses. */
+   * it (`psql`, `/usr/bin/psql`), or a multiword value that LEXES to a psql
+   * invocation. It deliberately does NOT require a flag: psql needs none —
+   * `env: {DB: "psql mydb"}` is the ordinary spelling, and requiring one made
+   * every binding context silent for it while the header promised a loud
+   * backstop. Ordinary values stay quiet because they contain no psql at all
+   * (`postgres://…`, `pg_dump mydb`, a retry sentence). A psql-shaped SENTENCE
+   * under a binding key is reported, which is the fail-loud direction this file
+   * takes everywhere else: a human reads one message. */
   const bindsPsql = (text: string): boolean => {
     if (!/\bpsql\b/.test(text)) return false;
     if (!/\s/.test(text.trim())) return true;
-    return scanShellText(text, file, 0).some((site) =>
-      site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
-    );
+    return scanShellText(text, file, 0).length > 0;
   };
 
-  visit(document, {
-    Scalar(key: unknown, node: unknown, path: readonly unknown[]) {
-      // A KEY is a name, never a value: `psql: …` names a step, it binds
-      // nothing. Only the value side of a pair, or a sequence item, can.
-      if (key === "key") return;
-      const value = (node as { value?: unknown }).value;
-      if (typeof value !== "string" || !bindsPsql(value)) return;
-      const underBindingKey = path.some((ancestor) => {
-        if (!isPair(ancestor as YamlNode as never)) return false;
-        const ancestorKey = (ancestor as { key?: { value?: unknown } }).key;
-        return BINDING_WORKFLOW_KEYS.has(ancestorKey?.value as string);
-      });
-      if (!underBindingKey) return;
-      const range = (node as { range?: [number, number, number] }).range;
-      hits.push({
-        file,
-        line: range ? lineStartOf(range[0]) + 1 : 1,
-        text: value.trim(),
-      });
-    },
-  });
+  /**
+   * Walked by hand rather than through `visit`, because an ALIAS is not a
+   * Scalar and `visit` never resolves one. `PSQL: *bin`, `env: *db-env`, a
+   * matrix alias and an input-default alias are all documented configuration
+   * REUSE — GitHub resolves them before the workflow runs — and every one of
+   * them was silent while the site path had resolved aliases since R11.
+   *
+   * `followed` bounds a self-referential anchor; YAML permits the cycle and a
+   * naive resolver would not return. It tracks ALIASES ONLY. Tracking every
+   * visited node instead made the anchor's DEFINITION — visited first, usually
+   * under a key that binds nothing — poison its own alias: the alias resolved
+   * to an already-seen node and returned before the binding check ran, so all
+   * four alias spellings still reported nothing.
+   */
+  const followed = new Set<unknown>();
+  const walkNode = (node: unknown, underBinding: boolean, aliasRange?: number): void => {
+    if (node === null || node === undefined) return;
+    const asAlias = node as { resolve?: unknown; range?: [number, number, number] };
+    if (typeof asAlias.resolve === "function") {
+      if (followed.has(node)) return;
+      followed.add(node);
+      // Report at the alias's USE, not at the anchor's definition: the use is
+      // where the binding takes effect, and the definition may sit under a key
+      // that binds nothing.
+      walkNode(
+        (asAlias as { resolve: (d: unknown) => unknown }).resolve(document),
+        underBinding,
+        asAlias.range?.[0] ?? aliasRange,
+      );
+      return;
+    }
+    const items = (node as { items?: unknown[] }).items;
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (isPair(item as YamlNode as never)) {
+          const pair = item as { key?: { value?: unknown }; value?: unknown };
+          const childBinds = underBinding || BINDING_WORKFLOW_KEYS.has(pair.key?.value as string);
+          walkNode(pair.value, childBinds, aliasRange);
+          continue;
+        }
+        // A sequence item — `matrix: {bin: [psql]}`.
+        walkNode(item, underBinding, aliasRange);
+      }
+      return;
+    }
+    if (!underBinding) return;
+    const value = (node as { value?: unknown }).value;
+    if (typeof value !== "string" || !bindsPsql(value)) return;
+    const at = aliasRange ?? (node as { range?: [number, number, number] }).range?.[0];
+    hits.push({
+      file,
+      line: at === undefined ? 1 : lineStartOf(at) + 1,
+      text: value.trim(),
+    });
+  };
+  walkNode(document.contents, false);
   return hits;
 }
 

@@ -2438,8 +2438,8 @@ describe("R28 escaping mutants — the workflow surface beyond `run:`", () => {
   test.each([
     ["a connection URL", "env:\n  DATABASE_URL: postgres://postgres@127.0.0.1:54322/postgres\n"],
     ["a password", "env:\n  PGPASSWORD: postgres\n"],
-    ["prose mentioning psql", 'env:\n  NOTE: "psql failed to connect; retry"\n'],
     ["a non-psql binary", "env:\n  BIN: pg_dump\n"],
+    ["an unrelated sentence", 'env:\n  NOTE: "the migration runner retries on failure"\n'],
   ])("%s is not reported", (_label, source) => {
     expect(scanWorkflowIndirection(source, ".github/workflows/x.yml")).toEqual([]);
   });
@@ -2574,6 +2574,123 @@ describe("R28 escaping mutants — the workflow surface beyond `run:`", () => {
   // the mutants by also finding the repo's own prose is not a fix.
   test(
     "the widened workflow + consumer reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
+
+describe("R29 escaping mutants — the binding surface YAML can spell", () => {
+  const WORKFLOW = ".github/workflows/x.yml";
+  /** Both YAML tripwires, the way the walk runs them. A binding may surface
+   * through either, so a probe that reads only one can call an escape a pass. */
+  function yamlHits(source: string, file = WORKFLOW) {
+    return [...scanWorkflowIndirection(source, file), ...scanShellIndirection(source, file)];
+  }
+
+  // An action's `runs.args` is documented as an ARRAY passed to the container
+  // entrypoint, so `entrypoint: sh` + `args: [-c, "psql …"]` executes an
+  // unprotected invocation. The reader bailed on anything that was not a
+  // scalar, which is every one of them.
+  test.each([
+    ["a joined `sh -c` argv", 'runs:\n  entrypoint: sh\n  args: ["-c", "psql -qAt mydb"]\n'],
+    ["a bare argv", 'runs:\n  entrypoint: psql\n  args: ["-qAt", "mydb"]\n'],
+    ["a block sequence", "runs:\n  args:\n    - psql\n    - -qAt\n    - mydb\n"],
+  ])("an action's `args` sequence — %s — is an unprotected site", (_label, source) => {
+    const sites = sitesIn(source, "action.yml");
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => !s.suppressesStartupFiles)).toBe(true);
+  });
+
+  test("an action's `args` sequence certifies when it suppresses", () => {
+    const sites = sitesIn(
+      'runs:\n  entrypoint: sh\n  args: ["-c", "psql -X -qAt mydb"]\n',
+      "action.yml",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // A FLAGLESS multiword binding is the ordinary spelling — `psql mydb` needs
+  // no flags at all — and requiring one made every binding context silent for
+  // it while the header claimed a loud backstop.
+  test.each([
+    ["env", 'env:\n  DB: "psql mydb"\n'],
+    ["matrix", 'jobs:\n  x:\n    strategy:\n      matrix:\n        db: ["psql mydb"]\n'],
+    [
+      "inputs default",
+      'on:\n  workflow_call:\n    inputs:\n      db:\n        default: "psql mydb"\n        type: string\n',
+    ],
+  ])("a flagless multiword binding under %s is reported", (_label, source) => {
+    expect(yamlHits(source).length).toBeGreaterThan(0);
+  });
+
+  // A binding spelled as an ALIAS is documented configuration reuse. The SITE
+  // path already resolves aliases; the binding path never did, so every one of
+  // these was silent.
+  test.each([
+    ["a scalar alias", "x: &bin psql\nenv:\n  PSQL: *bin\n"],
+    ["an aliased env MAPPING", "x: &db-env\n  PSQL: psql\nenv: *db-env\n"],
+    [
+      "a matrix alias",
+      "x: &bin psql\njobs:\n  y:\n    strategy:\n      matrix:\n        bin: [*bin]\n",
+    ],
+    [
+      "an inputs default alias",
+      "x: &bin psql\non:\n  workflow_call:\n    inputs:\n      bin:\n        default: *bin\n        type: string\n",
+    ],
+  ])("a binding through %s is reported", (_label, source) => {
+    expect(yamlHits(source).length).toBeGreaterThan(0);
+  });
+
+  // `$GITHUB_ENV` and `$GITHUB_OUTPUT` are THE documented way a step hands a
+  // value to a later step, so a binding written through one is as ordinary as
+  // `PSQL=psql` in a shell script — and was just as invisible, because the
+  // assignment sits inside a quoted echo argument.
+  test.each([
+    ["GITHUB_ENV", 'jobs:\n  x:\n    steps:\n      - run: echo "PSQL=psql" >> "$GITHUB_ENV"\n'],
+    [
+      "GITHUB_OUTPUT",
+      'jobs:\n  x:\n    steps:\n      - id: pick\n        run: echo "bin=psql" >> "$GITHUB_OUTPUT"\n',
+    ],
+    [
+      "a single-quoted payload",
+      "jobs:\n  x:\n    steps:\n      - run: echo 'PSQL=psql' >> $GITHUB_ENV\n",
+    ],
+  ])("a binding written through %s is reported", (_label, source) => {
+    expect(yamlHits(source).length).toBeGreaterThan(0);
+  });
+
+  // PRECISION for the widened binding rules. Each of these is a real shape.
+  test.each([
+    ["an unrelated alias", "x: &ref main\nenv:\n  REF: *ref\n"],
+    [
+      "a psql-free env write",
+      'jobs:\n  x:\n    steps:\n      - run: echo "REF=main" >> "$GITHUB_ENV"\n',
+    ],
+    ["an args sequence with no psql", 'runs:\n  entrypoint: sh\n  args: ["-c", "pg_dump mydb"]\n'],
+    ["an ordinary numeric input", 'env:\n  RETRIES: "3"\n'],
+  ])("%s is not reported", (_label, source) => {
+    const file = source.startsWith("runs:") ? "action.yml" : WORKFLOW;
+    expect(yamlHits(source, file)).toEqual([]);
+    expect(sitesIn(source, file)).toEqual([]);
+  });
+
+  // A self-referential anchor is legal YAML. The alias walker must bound it
+  // rather than recurse forever — a guard that hangs is a guard that gets
+  // deleted.
+  test("a self-referential anchor terminates", () => {
+    const source = "env: &loop\n  PSQL: psql\n  more: *loop\n";
+    expect(scanWorkflowIndirection(source, WORKFLOW).length).toBeGreaterThan(0);
+  });
+
+  test(
+    "the widened binding reading leaves the tree certified",
     () => {
       const usage = liveTreeUsage();
       expect(
