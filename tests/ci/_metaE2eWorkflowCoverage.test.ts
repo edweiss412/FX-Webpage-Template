@@ -2230,6 +2230,82 @@ describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
     ).toEqual([]);
   });
 
+  it("action-scoped governance keeps EVERY value and skips guarded steps (S8, R6)", () => {
+    // Two sub-holes in the action-scoped credit added at R5: a Map collapsed
+    // two action-scoped VALUES of one key so only the last was credited
+    // (R6 F1), and a step provably not running still conferred governance
+    // (R6 F2).
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    const POISON_REASON_S8 =
+      "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
+    const gv = (wf: string, allowlist: EnvKeyAllowlist, actions: Record<string, string> = {}) =>
+      envPairGovernance({ "w.yml": wf }, {}, {}, allowlist, actions);
+    // F1: two invocations handed DIFFERENT values of one key — both govern.
+    const twoValues = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: required\n      - uses: ./.github/actions/a\n        env:\n          K: inert\n      - ${CLAIM}\n`;
+    const bothDeclared: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: X },
+          { text: "inert", governs: X },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        bothDeclared,
+        gv(twoValues, bothDeclared, { "./.github/actions/a": cleanBody }),
+      ),
+      "both action-scoped values govern",
+    ).toEqual([]);
+    // …and a row crediting only the LAST value must red, so a collapsing
+    // derivation cannot be satisfied by a correspondingly collapsed row.
+    const lastOnly: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: [] },
+          { text: "inert", governs: X },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(lastOnly, gv(twoValues, lastOnly, { "./.github/actions/a": cleanBody })),
+      "last-value-only row",
+    ).toHaveLength(1);
+    // F2: a GUARDED invocation confers nothing — it provably may not run.
+    const guardedInvocation = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        if: false\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    const bare: EnvKeyAllowlist = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
+    expect(
+      governanceViolations(bare, gv(guardedInvocation, bare, { "./.github/actions/a": cleanBody })),
+      "guarded invocation confers nothing",
+    ).toEqual([]);
+    // A guarded COMPOSITE step needs no governance rule at all, and the
+    // stronger fact is pinned here instead of a vacuous governance
+    // assertion: `if:` on a composite step fails manifest validation, so the
+    // invocation POISONS and the later claim is REJECTED outright. (Probed
+    // while repairing R6 F2 — an earlier draft of this test asserted
+    // "confers no governance" for these trees, which passed only because the
+    // claim was never covered: a tautology, not a check.)
+    const use = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n`;
+    const guardedCompositeStep = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      if: false\n      env:\n        K: v\n",
+    };
+    const r = scanWorkflowCoverage({
+      workflows: { "w.yml": use },
+      packageScripts: {},
+      localActions: guardedCompositeStep,
+      envKeyAllowlist: bare,
+    });
+    expect(r.covered.has("tests/e2e/x.spec.ts"), "guarded composite step poisons").toBe(false);
+    expect(r.rejected[0]!.reason, "guarded composite step poisons").toBe(POISON_REASON_S8);
+    expect([...r.governance], "no governance from a rejected claim").toEqual([]);
+  });
+
   it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
     // Each doctored allowlist must red through the SAME checker the live
     // gate invokes — deleting a live assertion cannot leave this twin green.

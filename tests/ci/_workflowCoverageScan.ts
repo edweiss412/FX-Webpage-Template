@@ -1058,6 +1058,12 @@ export function compositeEnvPairs(
   if (steps === null) return [];
   const next = new Set(seen).add(ref);
   const out: Array<[string, string]> = [];
+  // NOTE (R6 F2, probed): no `if:` skip is needed for composite STEPS. A
+  // composite step carrying `if:` fails `validatedCompositeSteps`, so
+  // `usesValuePoisons` poisons the whole invocation and every later claim in
+  // the job is REJECTED — such a pair can never reach a covered claim, and a
+  // skip here would be unreachable code. Qualification IS applied, at the
+  // invocation step, where a guarded `uses:` is real and reachable.
   for (const s of steps) {
     const env = (s as { env?: unknown }).env;
     if (env !== null && typeof env === "object" && !Array.isArray(env))
@@ -1538,7 +1544,7 @@ export function scanWorkflowCoverage({
       // still used for the text-level gates that need raw source.
       // Action-scoped env pairs seen so far in THIS job (R5 F2). Reset per
       // job: an action invoked in job A configures nothing in job B.
-      const jobActionEnvPairs = new Map<string, string>();
+      const jobActionEnvPairs: Array<[string, string]> = [];
       const parsedSteps: Array<Record<string, unknown>> =
         parsedJob !== undefined && Array.isArray((parsedJob as { steps?: unknown }).steps)
           ? ((parsedJob as { steps: unknown[] }).steps as Array<Record<string, unknown>>)
@@ -1678,14 +1684,18 @@ export function scanWorkflowCoverage({
               // context from that step onward — an action gated on it can
               // decide whether the later spec does anything. Never shadows a
               // directly-scoped value; forward-only, like poison.
-              for (const [k, text] of jobActionEnvPairs)
-                if (!effective.has(k)) effective.set(k, text);
-              for (const [k, text] of effective) {
+              const credit = (k: string, text: string) => {
                 const pair = govKey(k, text);
                 const set = governance.get(pair) ?? new Set<string>();
                 set.add(spec);
                 governance.set(pair, set);
-              }
+              };
+              for (const [k, text] of effective) credit(k, text);
+              // EVERY distinct action-scoped value, not just the last one:
+              // two actions can each be handed a different value of one key
+              // and each affect the later spec independently (R6 F1). A
+              // directly-scoped value still wins outright for its key.
+              for (const [k, text] of jobActionEnvPairs) if (!effective.has(k)) credit(k, text);
             }
           }
         }
@@ -1709,10 +1719,14 @@ export function scanWorkflowCoverage({
         // Accumulate action-scoped pairs for LATER claims in this job (R5 F2):
         // the invocation's own env plus every env pair inside the composite it
         // resolves, at any depth.
-        if ("uses" in parsedStep) {
-          for (const [k, text] of envPairsOf(parsedStep.env)) jobActionEnvPairs.set(k, text);
+        // A guarded invocation provably may not run, so it configures
+        // nothing (R6 F2) — same qualification the claim site already
+        // applies. A Map here would also collapse two action-scoped VALUES
+        // of one key and credit only the last (R6 F1), so this is a LIST.
+        if ("uses" in parsedStep && !("if" in parsedStep)) {
+          for (const [k, text] of envPairsOf(parsedStep.env)) jobActionEnvPairs.push([k, text]);
           for (const [k, text] of compositeEnvPairs(parsedStep.uses, localActions, new Set()))
-            jobActionEnvPairs.set(k, text);
+            jobActionEnvPairs.push([k, text]);
         }
       }
     }
