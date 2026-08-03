@@ -34,7 +34,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
+import { bodyDefinedIds, ledgerIds, type ExtractOpts } from "./_ledgerMdast";
 
 const ROOT = join(__dirname, "..", "..");
 
@@ -93,24 +93,12 @@ const NOT_CITATIONS = new Set([
  * stale, and a row nobody cites any more fails as dead.
  */
 const KNOWN_DANGLING: Record<string, string> = {
-  "BL-MUTATION-COLUMN-SHIFT":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-MERGED-CELL":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-REF-SUB":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-SECTION-ORDER":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
-  "BL-MUTATION-UNICODE":
-    "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
+  // The eight BL-MUTATION-* / BL-SYNCFEED-UI-* rows that used to live here were
+  // never debt: they are sub-items their parent entry defines as body bullets,
+  // which the guard could not see until bodyDefinedIds landed. They are removed,
+  // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-1":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-2":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-SYNCFEED-UI-3":
-    "cited in BACKLOG.md — no entry as of 2026-08-02",
 };
 
 type Cited = { id: string; files: string[] };
@@ -124,12 +112,24 @@ function trackedFiles(): string[] {
   return out.split("\0").filter((f) => f !== "" && !NOT_CITATIONS.has(f));
 }
 
-function definedIds(): Set<string> {
+/**
+ * Definition side: heading ids UNION ids a parent entry defines in its body.
+ *
+ * `ledgers` and `read` are parameters, not constants, for the same reason
+ * `citedIds` takes an injectable `read` — the "only ledger files define" property
+ * is otherwise untestable, since `bodyDefinedIds(text, opts)` sees markdown and
+ * cannot tell a ledger from a plan. The defaults ARE the production values, and
+ * the plants below pin both the defaults and the live call.
+ */
+export function definedIds(
+  ledgers: readonly string[] = LEDGERS,
+  read: (rel: string) => string = (rel) => readFileSync(join(ROOT, rel), "utf8"),
+): Set<string> {
   const ids = new Set<string>();
-  for (const rel of LEDGERS) {
-    for (const id of ledgerIds(readFileSync(join(ROOT, rel), "utf8"), BACKLOG_OPTS)) {
-      ids.add(id);
-    }
+  for (const rel of ledgers) {
+    const text = read(rel);
+    for (const id of ledgerIds(text, BACKLOG_OPTS)) ids.add(id);
+    for (const id of bodyDefinedIds(text, BACKLOG_OPTS)) ids.add(id);
   }
   return ids;
 }
@@ -483,5 +483,90 @@ describe("BL- referential integrity", () => {
     );
     expect(bad.map((b) => b.id)).toEqual(["BL-BRAND-NEW-DANGLER"]);
     expect(bad[0]?.files).toEqual(["docs/c.md"]);
+  });
+});
+
+// ── File-scoping plants ─────────────────────────────────────────────────────
+//
+// "Only ledger files define" is a property of WHICH FILES are read, not of
+// markdown, so none of it is testable through `bodyDefinedIds(text, opts)`. Each
+// plant below exists because a review round produced a mutant that survived every
+// earlier assertion:
+//   P5       — the parameter is respected at all.
+//   P5-live  — the DEFAULT list is exactly the four ledgers. A default widened
+//              with any currently-harmless plan path passed P5, the per-entry
+//              shape check, and the four-ledger count, because every BL-looking
+//              heading in the plan corpus is a fenced example defining nothing.
+//   P5-sole  — nothing ELSE calls bodyDefinedIds with its own file list.
+//   P5-noio  — the helper cannot read a file behind the seam's back.
+//   P5-trace — the caller cannot append a shadow list to the one it was given.
+describe("bodyDefinedIds is scoped to ledger files", () => {
+  const BULLET = "## BL-SCOPE-PARENT — parent\n\n- **`BL-SCOPE-CHILD`** — a sub-item\n";
+
+  it("P5: the same markdown defines in a ledger and NOT in a non-ledger file", () => {
+    const read = (): string => BULLET;
+    // Control: supplied as a ledger, the id resolves.
+    expect([...definedIds(["BACKLOG.md"], read)]).toContain("BL-SCOPE-CHILD");
+    // Subject: a file that is not in the list is never read at all.
+    expect([...definedIds([], read)]).not.toContain("BL-SCOPE-CHILD");
+  });
+
+  it("P5-live: the live call uses the default, and the default is EXACTLY the four ledgers", { timeout: 60_000 }, () => {
+    expect([...LEDGERS].sort()).toEqual([
+      "BACKLOG-archive.md",
+      "BACKLOG.md",
+      "DEFERRED-archive.md",
+      "DEFERRED.md",
+    ]);
+    // The no-argument call — the one the live assertion makes — equals the
+    // explicit call over that same list.
+    expect([...definedIds()].sort()).toEqual([...definedIds(LEDGERS)].sort());
+    // And the list is load-bearing: adding a file changes the answer.
+    const withPlan = definedIds([...LEDGERS, "plan.md"], (rel) =>
+      rel === "plan.md" ? BULLET : readFileSync(join(ROOT, rel), "utf8"),
+    );
+    expect([...withPlan]).toContain("BL-SCOPE-CHILD");
+  });
+
+  it("P5-trace: the reader is called with EXACTLY the supplied list, in order", () => {
+    // Defeats a caller that iterates `[...ledgers, ...SHADOW]`: the shadow reads
+    // would show up here even when the extra files define nothing today.
+    const seen: string[] = [];
+    const read = (rel: string): string => {
+      seen.push(rel);
+      return BULLET;
+    };
+    definedIds(["BACKLOG.md", "DEFERRED.md"], read);
+    expect(seen).toEqual(["BACKLOG.md", "DEFERRED.md"]);
+  });
+
+  it("P5-sole: nothing but definedIds calls bodyDefinedIds", { timeout: 60_000 }, () => {
+    // A second production caller with its own file list would pass every plant
+    // above while scanning whatever it liked.
+    const files = trackedFiles().filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"));
+    const callers = files.filter((rel) => {
+      if (rel === "tests/docs/_ledgerMdast.ts") return false; // the definition
+      if (rel === "tests/docs/_ledgerMdast.walker.test.ts") return false; // its own tests
+      if (rel === "tests/docs/_metaLedgerReferentialIntegrity.test.ts") return false; // this file
+      let text: string;
+      try {
+        text = readFileSync(join(ROOT, rel), "utf8");
+      } catch {
+        return false;
+      }
+      return text.includes("bodyDefinedIds");
+    });
+    expect(callers, "bodyDefinedIds gained a caller that scopes its own files").toEqual([]);
+  });
+
+  it("P5-noio: the walker helper cannot read the filesystem", () => {
+    // Structural, not behavioural: if `_ledgerMdast.ts` can open a file, the
+    // (text, opts) signature stops being a real boundary and P5 proves nothing.
+    const helper = readFileSync(join(ROOT, "tests/docs/_ledgerMdast.ts"), "utf8");
+    for (const banned of ["node:fs", "node:path", 'from "fs"', 'from "path"', "require("]) {
+      expect(helper, `_ledgerMdast.ts must not reach the filesystem (${banned})`).not.toContain(
+        banned,
+      );
+    }
   });
 });

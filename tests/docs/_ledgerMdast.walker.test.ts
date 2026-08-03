@@ -6,7 +6,7 @@
 // Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md §2.
 import { describe, expect, it } from "vitest";
 
-import { extractEntries, flattenLines, parseLedger } from "./_ledgerMdast";
+import { bodyDefinedIds, extractEntries, flattenLines, parseLedger } from "./_ledgerMdast";
 
 const BL = { requirePrefix: "BL-", levels: [2, 3] } as const;
 const DEF = { requirePrefix: null, levels: [3] } as const;
@@ -182,5 +182,83 @@ describe("flattenLines — §2 disposition table", () => {
 
   it("excludes autolinked URLs (GFM literal links become link nodes)", () => {
     expect(flat("see https://x.test/CLOSED-thing now")[0]!.text).toBe("see  now");
+  });
+});
+
+// ── bodyDefinedIds — sub-item ids a parent entry defines in its BODY ─────────
+//
+// Spec: docs/superpowers/specs/2026-08-03-scanner-precision-cluster-design.md §4.1.
+// Eight ids are deliberately defined as bullets inside a parent entry rather than
+// as headings of their own, because splitting them would break the parent's
+// shrink-only ratchet. The guard resolved headings only, so they read as dangling.
+//
+// The three conditions below are each here because a rule missing it was measured
+// to be wrong against the REAL corpus, not because it seemed prudent.
+describe("bodyDefinedIds — a parent entry defines sub-items in its body", () => {
+  const parent = (body: string): string => `## BL-PARENT — a parent entry\n\n${body}\n`;
+  const defined = (md: string): string[] => [...bodyDefinedIds(md, BL)].sort();
+
+  it("P1: a strong-wrapping-code bullet DEFINES", () => {
+    // The BL-MUTATION-* shape: `- **`BL-X`** — prose`.
+    expect(defined(parent("- **`BL-PLANT-CODE`** — a sub-item\n"))).toEqual(["BL-PLANT-CODE"]);
+  });
+
+  it("P2: a strong-PLAIN bullet DEFINES", () => {
+    // The BL-SYNCFEED-UI-* shape, with no backticks. A rule written only for P1
+    // covers five of the eight real ids and silently drops the other three.
+    expect(defined(parent("- **BL-PLANT-PLAIN** — a sub-item\n"))).toEqual(["BL-PLANT-PLAIN"]);
+  });
+
+  it("P3: a CODE-SPAN lead with no strong defines NOTHING", () => {
+    // The live trap: BACKLOG.md's own BL-LEDGER-GUARD-BODY-DEFINED-IDS entry leads
+    // a bullet with the same five ids as plain code spans while merely ENUMERATING
+    // them. A "bullet lead with a code span" rule lets that entry define ids it
+    // only discusses — from the wrong parent.
+    expect(defined(parent("- `BL-PLANT-NAKED`, `BL-PLANT-NAKED2` — merely enumerated\n"))).toEqual(
+      [],
+    );
+  });
+
+  it("P4: a strong id MID-SENTENCE defines nothing", () => {
+    // Definition is the bullet LEAD. Otherwise an entry defines every sibling it
+    // happens to mention in bold.
+    expect(defined(parent("- see also **BL-PLANT-INLINE** for context\n"))).toEqual([]);
+  });
+
+  it("P6: a bullet under a NON-resolving heading defines nothing", () => {
+    const md = "## Not An Id — prose heading\n\n- **`BL-PLANT-ORPHAN`** — x\n";
+    expect([...bodyDefinedIds(md, BL)]).toEqual([]);
+  });
+
+  it("P7: a bullet after an INTERVENING non-id heading defines nothing", () => {
+    // extractEntries opens entries only at BL- headings, so a plain `##` section
+    // falls inside the PRECEDING entry's body span. Without this condition that
+    // entry adopts the section's bullets.
+    const md = parent("- **`BL-PLANT-OWN`** — mine\n\n## A Later Section\n\n- **`BL-PLANT-FOREIGN`** — not mine\n");
+    expect(defined(md)).toEqual(["BL-PLANT-OWN"]);
+  });
+
+  it("P8: the real archive shape — picker bullets are NOT adopted by the preceding entry", () => {
+    // Verbatim structure of BACKLOG-archive.md: a resolved entry, then a non-id
+    // `## Picker-flow app bugs` heading whose three strong-leading bullets would
+    // otherwise be defined by BL-CREWPAGE-ROTATE-FOCUS-MGMT.
+    const md = [
+      "## BL-CREWPAGE-ROTATE-FOCUS-MGMT — resolved",
+      "",
+      "body prose",
+      "",
+      "## Picker-flow app bugs (3) — RESOLVED on branch `fix/picker-flow-app-bugs`",
+      "",
+      "- **BL-PICKER-BOOTSTRAP-HOST-FLIP** was swept as a class.",
+      "- **BL-PICKER-GATE-SKIP-MISMATCH** was rejected as insufficient.",
+      "- **BL-PICKER-CLAIMED-ROW-NEXT-DROP** shipped as proposed.",
+      "",
+    ].join("\n");
+    expect([...bodyDefinedIds(md, BL)]).toEqual([]);
+  });
+
+  it("only TOP-LEVEL bullets of the entry body define", () => {
+    const md = parent("- outer\n  - **`BL-PLANT-NESTED`** — nested one level\n");
+    expect(defined(md)).toEqual([]);
   });
 });
