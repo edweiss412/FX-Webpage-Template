@@ -549,7 +549,8 @@ describe("identity_hold card", () => {
     const summaries = ["s one", "s two", "s three"];
     render(<NeedsAttentionInbox items={[holdItem({ summaries, copy: "3 held changes waiting" })]} overflowCount={0} now={NOW} />);
     const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
-    expect(within(card).getByText("3 held changes waiting")).toBeTruthy();
+    const countLine = within(card).getByText("3 held changes waiting");
+    expect(countLine.className).toContain("tabular-nums"); // DESIGN.md count mandate (spec R5-J2)
     const toggle = within(card).getByTestId("identity-hold-toggle-sX");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-controls")).toBe("identity-hold-panel-sX");
@@ -568,7 +569,8 @@ describe("identity_hold card", () => {
     render(<NeedsAttentionInbox items={[holdItem({ summaries, copy: "13 held changes waiting" })]} overflowCount={0} now={NOW} />);
     fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
     const panel = document.getElementById("identity-hold-panel-sX") as HTMLElement;
-    expect(within(panel).getByText(`and ${summaries.length - 10} more`)).toBeTruthy();
+    const more = within(panel).getByText(`and ${summaries.length - 10} more`);
+    expect(more.className).toContain("tabular-nums"); // DESIGN.md count mandate (spec R5-J2)
     expect(within(panel).queryByText("summary 10")).toBeNull();
   });
 
@@ -632,7 +634,7 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
 }
 ```
 
-Inbox branch (in `ItemCard`, before the `existing_staged` fallthrough; single/multi fork on `item.summaries.length === 1`; reuse the sync-problem card's tile classes and `CardHeader status="warn"`; label `Held change`/`Held changes`; footer `Link` `Review →` with truthy-title aria fork; multi mode renders the island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines plus the `and N more` line when `item.summaries.length > HOLD_SUMMARIES_RENDER_CAP`).
+Inbox branch (in `ItemCard`, before the `existing_staged` fallthrough; single/multi fork on `item.summaries.length === 1`; reuse the sync-problem card's tile classes and `CardHeader status="warn"`; label `Held change`/`Held changes`; footer `Link` `Review →` with truthy-title aria fork; multi mode renders the island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines plus the `and N more` line when `item.summaries.length > HOLD_SUMMARIES_RENDER_CAP`; the multi-mode count copy line AND the `and N more` line both carry `tabular-nums` per DESIGN.md's every-count mandate, spec R5-J2).
 
 - [ ] **Step 4: Run tests + tsc — PASS.**
 - [ ] **Step 5: Commit** `feat(admin): identity-hold inbox card with disclosure island`
@@ -715,9 +717,9 @@ Thread `identityHolds`, `totalCounts: { ..., identityHolds: identityHolds.length
 
 - Modify: `app/help/admin/dashboard/page.mdx:35-43` (inventory list gains a held-changes bullet) and `page.mdx:51-53` (live-change description mentions holds clearing on approve/reject), `app/help/admin/review-queues/page.mdx:5-12` + `page.mdx:50-60` (overview + live-change guidance), `app/help/daily-rhythm/page.mdx:12-14` (inbox description), `app/help/admin/settings/page.mdx:33-38` (digest description mentions held identity changes).
 
-- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). EIGHT passage-anchored assertions (spec §9.14a): one each for `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`; for `app/help/admin/dashboard/page.mdx` slice at the "Changes and review" heading and assert the phrase in BOTH slices (card-inventory list above, live-change paragraph below); for `app/help/admin/review-queues/page.mdx` slice at the "Live-show changes" heading and assert in BOTH slices (queues table above, identity bullet below). Phrase: /held.{0,30}(identity|crew).{0,30}change/i, markdown-bold normalized. Run: FAIL on all eight. _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
+- [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk). EIGHT passage-anchored assertions (spec §9.14a): one each for `components/admin/Dashboard.tsx`, `app/admin/needs-attention/page.tsx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`; for `app/help/admin/dashboard/page.mdx` slice at the "Changes and review" heading and assert the phrase in BOTH slices (card-inventory list above, live-change paragraph below); for `app/help/admin/review-queues/page.mdx` slice at the "Live-show changes" heading and assert in BOTH slices (queues table above, identity bullet below). Phrase: /held.{0,30}(identity|crew).{0,30}change/i, markdown-bold normalized. PLUS two dashboard-inventory assertions: the inventory slice matches /Five kinds of cards/ and /[Ss]ync problem/, and does NOT contain "Nothing here clears itself." Run: FAIL (eight phrase assertions + the inventory assertions). _Failure mode: any of the eight passages omitted or later reworded away (spec §9.14a)._
 - [ ] **Step 1:** Exact edits (each in the file's existing voice; no em-dashes):
-  1. `app/help/admin/dashboard/page.mdx:37` — change "Three kinds of cards show up here:" to "Four kinds of cards show up here:" and append a fourth bullet: `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`
+  1. `app/help/admin/dashboard/page.mdx:37-43` — repair the inventory passage in FULL (spec R5-J1; it is pre-existing-stale): change "Three kinds of cards show up here:" to "Five kinds of cards show up here:"; append a sync-problem bullet: `- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.`; append a held-change bullet: `- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.`; and replace the closing sentence "A card stays in the inbox until you act on it. Nothing here clears itself." with "Sheets and held changes stay in the inbox until you act on them; sync problem cards clear on their own when the problem is fixed."
   2. `app/help/admin/dashboard/page.mdx:51-53` ("Changes and review" paragraph) — after "waits for **Approve** or **Reject** in the show's Sheet changes feed", insert: `That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first.`
   3. `app/help/admin/review-queues/page.mdx:7-10` — add a third table row: `| **Held identity changes** | A crew member's identity change (usually an email) held for your Approve or Reject. It waits in the show's **Sheet changes** feed and also appears as a card in the **Needs attention** inbox. |`
   4. `app/help/admin/review-queues/page.mdx:57-59` (the identity-change bullet) — append: `It also appears in the **Needs attention** inbox until you decide.`
