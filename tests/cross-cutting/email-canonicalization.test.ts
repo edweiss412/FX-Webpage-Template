@@ -23,7 +23,7 @@ function read(path: string): string {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
     cwd: process.cwd(),
     input: sql,
     encoding: "utf8",
@@ -32,7 +32,7 @@ function runPsql(sql: string): string {
 
 const livePsqlReachable = ((): boolean => {
   try {
-    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
+    execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
       cwd: process.cwd(),
       stdio: ["ignore", "ignore", "ignore"],
       timeout: 3000,

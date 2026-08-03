@@ -50,10 +50,14 @@ function assertLoopback(url: string): string {
 }
 
 function psql(sql: string): string {
-  return execFileSync("psql", [assertLoopback(LOOPBACK_DB), "-v", "ON_ERROR_STOP=1", "-qAt"], {
-    input: sql,
-    encoding: "utf8",
-  }).trim();
+  return execFileSync(
+    "psql",
+    [assertLoopback(LOOPBACK_DB), "-X", "-v", "ON_ERROR_STOP=1", "-qAt"],
+    {
+      input: sql,
+      encoding: "utf8",
+    },
+  ).trim();
 }
 
 /** True when a local Supabase is actually up; the suite skips rather than fails otherwise. */

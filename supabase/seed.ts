@@ -183,7 +183,7 @@ function loadExistingNonSeedSlugs(): string[] {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
     input: sql,
     encoding: "utf8",
   }).trim();

@@ -158,6 +158,16 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
     reason: "E5: YAML # line filter",
   },
   {
+    file: "tests/cross-cutting/psqlStartupFiles/scan.ts",
+    family: "name-family",
+    marker: "stripShellComment",
+    reason:
+      "shell/YAML # grammar, which tests/_shared/stripComments does not model (it covers TS, " +
+      "MDX, SQL, CSS) — same scanner-local class as the tests/ci/_workflowCoverageScan.ts " +
+      "stripCommentLines row: a pure psql-invocation scanner whose only reason to drop # lines " +
+      "is that they never EXECUTE",
+  },
+  {
     file: "tests/db/_localDbUrl.ts",
     family: "line-replace-idiom",
     marker: "//",

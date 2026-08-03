@@ -1,0 +1,396 @@
+/**
+ * tests/cross-cutting/psqlStartupFileSuppression.test.ts
+ *
+ * Structural meta-test for PSQL-STARTUP-FILE-NO-X-CLASSWIDE.
+ *
+ * THE VECTOR (proved against the installed binary, whole-diff review R3 on
+ * `test/step3-live-render-cluster`, 2026-08-02): psql reads `$PSQLRC`, then
+ * `$HOME/.psqlrc`, then the compiled-in system psqlrc BEFORE it executes
+ * anything arriving on stdin or `-c`. A startup file containing
+ *
+ *     \connect postgresql://…@192.0.2.3:5432/postgres
+ *
+ * silently replaces a validated-local connection, so every statement the caller
+ * believed it was running against 127.0.0.1:54322 runs remotely instead. Every
+ * loopback assertion in this repo (`assertLoopback`, the observe CLI `--env`
+ * guardrail, `db-reset-pool.mjs`'s non-loopback refusal) validates a URL STRING
+ * and is therefore blind to it. `psql -X` suppresses all three startup files and
+ * is the documented contract.
+ *
+ * This file pins the class closed. The scan is a FILESYSTEM WALK (see
+ * `psqlStartupFiles/scan.ts`), not a hardcoded file list, so a NEW psql call
+ * site fails by default.
+ *
+ * Pure — no DB, no network.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+
+import {
+  EXEMPTION_MARKER,
+  collectPsqlUsage,
+  scanBinaryIndirection,
+  scanSource,
+  tokenSuppressesStartupFiles,
+} from "./psqlStartupFiles/scan";
+
+const REPO_ROOT = join(__dirname, "..", "..");
+
+/** Real files used as live probes. Both are load-bearing: the first is a
+ * separate-`"-X"` site, the second is the combined-cluster spelling that a naive
+ * `args.includes("-X")` guard reports as unprotected. */
+const SEPARATE_X_SITE = "tests/db/show_share_tokens.test.ts";
+const COMBINED_CLUSTER_SITE = "tests/db/crew-rpc-lifecycle-guard-meta.test.ts";
+
+function sitesIn(source: string, file: string) {
+  return scanSource(source, file);
+}
+
+// ── flag-cluster parsing (the -qAtX trap) ───────────────────────────────
+
+describe("tokenSuppressesStartupFiles", () => {
+  test.each([
+    ["-X", true],
+    ["-qAtX", true],
+    ["-XqAt", true],
+    ["-qXAt", true],
+    ["--no-psqlrc", true],
+    ["-qAt", false],
+    ["-At", false],
+    ["-c", false],
+    ["-qAtc", false],
+    ["-v", false],
+    ["-F\t", false],
+    ["ON_ERROR_STOP=1", false],
+    ["-x", false], // lowercase -x is expanded output, NOT startup-file suppression
+    ["--expanded", false],
+    ["", false],
+  ])("%j -> %s", (token, expected) => {
+    expect(tokenSuppressesStartupFiles(token)).toBe(expected);
+  });
+
+  test("a long option that merely contains X is not accepted", () => {
+    expect(tokenSuppressesStartupFiles("--set=XYZ")).toBe(false);
+  });
+
+  test("a bare value that contains X is not accepted", () => {
+    expect(tokenSuppressesStartupFiles("SELECT 'X'")).toBe(false);
+  });
+});
+
+// ── JS/TS call-site recognition, every spelling in the tree ─────────────
+
+describe("scanSource — JS/TS spawn family", () => {
+  test("single-line execFileSync without -X is a violation", () => {
+    const sites = sitesIn(
+      `execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], { input: sql });`,
+      "tests/x.test.ts",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe("execFileSync");
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("prettier's multi-line opener — `psql` on the line AFTER the paren", () => {
+    const sites = sitesIn(
+      [
+        "return execFileSync(",
+        '  "psql",',
+        '  [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt", "-f", MIGRATION_PATH],',
+        "  { encoding: 'utf8' },",
+        ").trim();",
+      ].join("\n"),
+      "tests/x.test.ts",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.line).toBe(2);
+  });
+
+  test('a separate "-X" argument satisfies the contract', () => {
+    const sites = sitesIn(
+      `execFileSync("psql", [dsn, "-X", "-v", "ON_ERROR_STOP=1", "-At"]);`,
+      "tests/x.test.ts",
+    );
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("the combined -qAtX cluster satisfies the contract (naive includes() trap)", () => {
+    const source = `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAtX"]);`;
+    expect(source.includes('"-X"')).toBe(false); // the naive check would fail here
+    expect(sitesIn(source, "tests/x.test.ts")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test.each(["spawnSync", "spawn", "execFile"])("%s is recognized", (callee) => {
+    const sites = sitesIn(`const p = ${callee}("psql", [url, "-qAt"]);`, "tests/x.test.ts");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe(callee);
+  });
+
+  test("a member-expression callee (child_process.spawnSync) is recognized", () => {
+    const sites = sitesIn(`child_process.spawnSync("psql", [url, "-qAt"]);`, "tests/x.test.ts");
+    expect(sites).toHaveLength(1);
+  });
+
+  test("an absolute binary path ending in /psql is recognized", () => {
+    const sites = sitesIn(`execFileSync("/usr/bin/psql", [url, "-qAt"]);`, "scripts/x.mjs");
+    expect(sites).toHaveLength(1);
+  });
+
+  test("a spread arg list is scanned for the literal -X and marked dynamic", () => {
+    const withX = sitesIn(
+      `execFileSync("psql", [dbUrl, "-X", "-v", "ON_ERROR_STOP=1", ...args]);`,
+      "tests/x.ts",
+    );
+    expect(withX[0]!.suppressesStartupFiles).toBe(true);
+    expect(withX[0]!.hasDynamicTokens).toBe(true);
+
+    const withoutX = sitesIn(
+      `execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", ...args]);`,
+      "tests/x.ts",
+    );
+    expect(withoutX[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("`psql` inside a comment or an unrelated string is not a call site", () => {
+    const source = [
+      '// so `pexec("psql", …, { input: sql })` leaves psql blocking on stdin',
+      "const msg = `psql failed: command psql ${DSN} -qAt exited 2`;",
+      'expect(src).not.toMatch(/execFileSync\\(\\s*"psql"/);',
+    ].join("\n");
+    expect(sitesIn(source, "tests/x.test.ts")).toHaveLength(0);
+  });
+
+  test("a literal shell string invoking psql is recognized", () => {
+    const sites = sitesIn(`execSync("psql -U postgres -c 'select 1'");`, "scripts/x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe("shell");
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(
+      sitesIn(`execSync("psql -X -U postgres");`, "scripts/x.mjs")[0]!.suppressesStartupFiles,
+    ).toBe(true);
+  });
+});
+
+// ── shell scripts ───────────────────────────────────────────────────────
+
+describe("scanSource — shell", () => {
+  test("a bare psql command in a .sh file is a site", () => {
+    const sites = sitesIn('psql -U supabase_admin -d postgres -c "select 1"\n', "scripts/x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.form).toBe("shell");
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("backslash line continuations are joined before the flags are read", () => {
+    const sites = sitesIn(
+      ['docker exec "$DB" \\', "  psql -U supabase_admin \\", '  -X -c "select 1"'].join("\n"),
+      "scripts/x.sh",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+    expect(sites[0]!.line).toBe(2);
+  });
+
+  test("an UNQUOTED wrapper argument still leaves psql visible", () => {
+    // The reason the matcher is a denylist: an allowlist of command-position
+    // prefixes has to enumerate every wrapper, and silently misses this one.
+    const sites = sitesIn('docker exec $DB_CONTAINER psql -U postgres -c "select 1"\n', "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a # inside quotes does not truncate the flag list", () => {
+    const sites = sitesIn(`psql "$DSN" -c "select '# not a comment'" -X\n`, "scripts/x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test("`command -v psql` is a probe, not an invocation", () => {
+    expect(
+      sitesIn("command -v psql >/dev/null || sudo apt-get install -y postgresql-client\n", "x.sh"),
+    ).toHaveLength(0);
+    expect(sitesIn("which psql\ntype psql\nhash psql\n", "x.sh")).toHaveLength(0);
+    expect(sitesIn('echo psql -c "select 1"\n', "x.sh")).toHaveLength(0);
+  });
+
+  test("`command psql` IS an invocation — only `-v` is denied, so the probe stays excluded", () => {
+    expect(sitesIn('command psql -c "select 1"\n', "x.sh")).toHaveLength(1);
+    expect(sitesIn("command -v psql\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("a commented-out psql line is not a site", () => {
+    expect(sitesIn('# psql -c "select 1" would run here\n', "scripts/x.sh")).toHaveLength(0);
+  });
+
+  test("psql after a pipe or && is still command position", () => {
+    expect(sitesIn('true && psql -c "select 1"\n', "scripts/x.sh")).toHaveLength(1);
+    expect(sitesIn('cat f.sql | psql "$DSN"\n', "scripts/x.sh")).toHaveLength(1);
+  });
+});
+
+// ── workflow YAML ───────────────────────────────────────────────────────
+
+describe("scanSource — workflow YAML", () => {
+  test("psql inside a run: block is a site, with the right line", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - name: Seed",
+      "        run: |",
+      '          psql "$DSN" -c "select 1"',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, ".github/workflows/x.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(6);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("psql in a step `name:` or a comment is not a site", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      # bootstrap shells out to psql",
+      "      - name: Install psql (db:seed shells out to psql)",
+      "        run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client",
+      "",
+    ].join("\n");
+    expect(sitesIn(source, ".github/workflows/x.yml")).toHaveLength(0);
+  });
+});
+
+// ── the exemption mechanism ─────────────────────────────────────────────
+
+describe("exemptions", () => {
+  test("an inline marker with a reason exempts the site", () => {
+    const sites = sitesIn(
+      [
+        `// ${EXEMPTION_MARKER} runs in a scratch container with no HOME`,
+        `execFileSync("psql", [dbUrl, "-qAt"]);`,
+      ].join("\n"),
+      "scripts/x.mjs",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("runs in a scratch container with no HOME");
+  });
+
+  test("a trailing marker on the invocation line also counts", () => {
+    const sites = sitesIn(
+      `execFileSync("psql", [dbUrl, "-qAt"]); // ${EXEMPTION_MARKER} deliberate .psqlrc workflow`,
+      "scripts/x.mjs",
+    );
+    expect(sites[0]!.exemptReason).toBe("deliberate .psqlrc workflow");
+  });
+
+  test("a marker with no reason does NOT exempt", () => {
+    const sites = sitesIn(
+      [`// ${EXEMPTION_MARKER}`, `execFileSync("psql", [dbUrl, "-qAt"]);`].join("\n"),
+      "scripts/x.mjs",
+    );
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a shell marker on the preceding comment line counts", () => {
+    const sites = sitesIn(
+      [`# ${EXEMPTION_MARKER} container has no writable HOME`, 'psql -c "select 1"'].join("\n"),
+      "scripts/x.sh",
+    );
+    expect(sites[0]!.exemptReason).toBe("container has no writable HOME");
+  });
+});
+
+// ── the indirection tripwire ────────────────────────────────────────────
+
+describe("scanBinaryIndirection", () => {
+  test("binding the binary name to a variable is refused", () => {
+    const hits = scanBinaryIndirection(
+      `const PSQL = "psql";\nexecFileSync(PSQL, [dbUrl]);`,
+      "x.ts",
+    );
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.line).toBe(1);
+  });
+
+  test("the literal at a recognized call site is not an indirection hit", () => {
+    expect(scanBinaryIndirection(`execFileSync("psql", [dbUrl, "-X"]);`, "x.ts")).toHaveLength(0);
+  });
+});
+
+// ── LIVE: the whole tree ────────────────────────────────────────────────
+
+describe("live tree scan", () => {
+  const usage = collectPsqlUsage(REPO_ROOT);
+
+  test("the walk is not vacuous — it finds the known psql surface", () => {
+    expect(usage.filesScanned).toBeGreaterThan(500);
+    expect(usage.sites.length).toBeGreaterThanOrEqual(60);
+    for (const prefix of ["scripts/", "supabase/", "tests/db/", "lib/"]) {
+      expect(
+        usage.sites.some((s) => s.file.startsWith(prefix)),
+        `expected at least one psql site under ${prefix}`,
+      ).toBe(true);
+    }
+    expect(usage.sites.some((s) => s.form === "shell")).toBe(true);
+    expect(usage.sites.some((s) => s.form === "spawn")).toBe(true);
+    expect(usage.sites.some((s) => s.form === "spawnSync")).toBe(true);
+  });
+
+  test("every psql invocation suppresses startup files (or is explicitly exempt)", () => {
+    const unprotected = usage.sites
+      .filter((s) => !s.suppressesStartupFiles && s.exemptReason === null)
+      .map((s) => `${s.file}:${s.line} [${s.form}] ${s.tokens.join(" ")}`);
+    expect(
+      unprotected,
+      `psql call sites that read startup files (add "-X", or an inline\n` +
+        `\`${EXEMPTION_MARKER} <reason>\` comment):\n  ${unprotected.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  test("no call site hides the binary name behind an identifier", () => {
+    const hits = usage.indirections.map((h) => `${h.file}:${h.line} ${h.text}`);
+    expect(
+      hits,
+      `psql must be passed as a literal argv[0] so this guard can see the flags:\n  ${hits.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  test("every exemption carries a reason", () => {
+    for (const site of usage.sites.filter((s) => s.exemptReason !== null)) {
+      expect(site.exemptReason!.length, `${site.file}:${site.line}`).toBeGreaterThan(10);
+    }
+  });
+});
+
+// ── MUTANT PROBES: prove the guard bites on real files ──────────────────
+
+describe("mutant probes", () => {
+  test(`stripping -X from ${SEPARATE_X_SITE} makes the guard flag it`, () => {
+    const real = readFileSync(join(REPO_ROOT, SEPARATE_X_SITE), "utf8");
+    expect(scanSource(real, SEPARATE_X_SITE).every((s) => s.suppressesStartupFiles)).toBe(true);
+
+    const mutant = real.replace('"-X", ', "");
+    expect(mutant, "the mutation must actually change the file").not.toBe(real);
+
+    const mutantSites = scanSource(mutant, SEPARATE_X_SITE);
+    expect(mutantSites.length).toBeGreaterThan(0);
+    expect(mutantSites.some((s) => !s.suppressesStartupFiles && s.exemptReason === null)).toBe(
+      true,
+    );
+  });
+
+  test(`${COMBINED_CLUSTER_SITE} stays green on its combined -qAtX spelling`, () => {
+    const real = readFileSync(join(REPO_ROOT, COMBINED_CLUSTER_SITE), "utf8");
+    expect(real).toContain('"-qAtX"');
+    expect(
+      real,
+      "this probe is only meaningful while the site uses the COMBINED spelling",
+    ).not.toContain('"-X"');
+    const sites = scanSource(real, COMBINED_CLUSTER_SITE);
+    expect(sites.length).toBeGreaterThan(0);
+    expect(sites.every((s) => s.suppressesStartupFiles)).toBe(true);
+  });
+});

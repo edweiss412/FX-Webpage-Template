@@ -47,7 +47,7 @@ function assertSafeDestructiveTarget(): void {
 }
 
 function runPsqlInternal(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
     input: sql,
     encoding: "utf8",
   }).trim();

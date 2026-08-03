@@ -58,7 +58,7 @@ export async function setDateRestrictionLocked(
   `;
   let stdout: string;
   try {
-    stdout = execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+    stdout = execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
       input: sql,
       encoding: "utf8",
     });

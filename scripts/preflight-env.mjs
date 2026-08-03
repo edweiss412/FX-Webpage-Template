@@ -132,7 +132,7 @@ if (skipDb) {
   process.exit(0);
 }
 
-const psql = spawnSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-At", "-c", "select 1"], {
+const psql = spawnSync("psql", [dbUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-c", "select 1"], {
   encoding: "utf8",
   timeout: 10_000,
 });

@@ -19,7 +19,7 @@ const DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+  return execFileSync("psql", [DATABASE_URL, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
     input: sql,
     encoding: "utf8",
   }).trim();

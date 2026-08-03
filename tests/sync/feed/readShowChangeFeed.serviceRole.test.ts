@@ -25,7 +25,7 @@ const SOURCE_PATH = "lib/sync/feed/readShowChangeFeed.ts";
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const runPsql = (sql: string) =>
-  execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
     input: sql,
     encoding: "utf8",
   }).trim();

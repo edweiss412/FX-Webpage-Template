@@ -41,7 +41,7 @@ export function localManifestDbUrl(): string {
 }
 
 export function introspectPublicSchema(dbUrl: string): string {
-  const stdout = execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  const stdout = execFileSync("psql", [dbUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
     input: INTROSPECT_PUBLIC_COLUMNS_SQL,
     encoding: "utf8",
   });
