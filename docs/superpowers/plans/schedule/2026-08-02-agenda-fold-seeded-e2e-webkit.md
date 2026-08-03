@@ -110,6 +110,16 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF25 — unscoped assertions / partial-dark minimums (whole-diff review R12 live mutants):** two
+  shapes, one root — asserting a POSITION instead of the CLAIM. (a) The fold cases checked row
+  state by index with a page-global marker locator and never asserted the day LABEL, so swapping
+  the Wednesday/Thursday content or rendering the marker as a SIBLING of its row both passed. Now
+  every assertion is scoped to its own `<details>`, the open row is identified by the label taken
+  FROM the fixture, and exactly one marker may exist page-wide. The a11y proof counted groups and
+  headings independently, so moving every heading out of its `<summary>` kept both counts — it now
+  asserts each group CONTAINS its own h3. (b) The oracle's per-spec minimum of 1 let a nested
+  `beforeEach(() => test.skip())` runtime-skip 5 of 6, 5 of 6 and 3 of 4 cases while one cheap case
+  kept the job green; every entry is now the spec's full executable set (6 / 6 / 4 / 6).
 - **MF24 — quarantine via `test.fail()` (whole-diff review R11 live mutant):** a declared
   `test.fail(...)` case RUNS, fails before reaching its real assertions, is reported as outcome
   "expected", and does not fail the run — so a fully quarantined suite looks executed. Two layers,

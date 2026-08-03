@@ -19,12 +19,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Specs the crew-e2e job exists to run, with the minimum each must EXECUTE. */
+// Every count is the spec's FULL executable set, not a floor of 1. Whole-diff review R12 (HIGH):
+// a minimum of 1 let a nested `beforeEach(() => test.skip())` runtime-skip 5 of 6, 5 of 6 and 3 of
+// 4 cases respectively while one cheap case kept the job green — a partially dark suite is the
+// same defect as a wholly dark one, just quieter. picker-flow is 6 because one of its 7 collected
+// cases is the registered static skip (its own comment at picker-flow.spec.ts:354).
 const REQUIRED = {
-  "crew-section-toggle.spec.ts": 1,
-  "picker-flow.spec.ts": 1,
-  "alert-action-links.spec.ts": 1,
-  // The seeded agenda-fold suite is the reason this file exists: 3 SFS-1 cases + 3 fold cases.
-  // Pinned at 6 rather than 1 so a runtime skip of just the fold block is caught too.
+  "crew-section-toggle.spec.ts": 6,
+  "picker-flow.spec.ts": 6,
+  "alert-action-links.spec.ts": 4,
+  // 3 SFS-1 cases + 3 seeded agenda-fold cases.
   "stage-restricted-crew-schedule.spec.ts": 6,
 };
 

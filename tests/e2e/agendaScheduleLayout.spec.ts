@@ -484,6 +484,17 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   const headings = page.getByRole("heading", { level: 3 });
   await expect(headings).toHaveCount(TOTAL_DAYS);
   await expect(headings.first()).toHaveAccessibleName("Tuesday, May 14, 2026");
+  // CONTAINMENT, not two independent counts. Whole-diff review R12 (HIGH): moving every heading
+  // OUT of its <summary> and next to the disclosure preserved both counts and the accessible
+  // name, while the exposure this test exists to prove — the heading living inside the
+  // disclosure — was gone. So assert each group CONTAINS its own h3.
+  const groups = page.getByRole("group");
+  for (let i = 0; i < TOTAL_DAYS; i += 1) {
+    await expect(
+      groups.nth(i).getByRole("heading", { level: 3 }),
+      `day ${i}'s heading must live INSIDE its disclosure, not beside it`,
+    ).toHaveCount(1);
+  }
 
   // 2. Disclosure state is REAL, not a static attribute: read the open state, toggle, re-read.
   //    A bare role assertion would pass on a summary that no longer toggles anything.

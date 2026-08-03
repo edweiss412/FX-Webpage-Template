@@ -427,9 +427,26 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
     }
   });
 
+  // Labels are the FIXTURE's, so the assertion is derived from the seeded payload rather than
+  // restated: FOLD_AGENDA_LINKS[0].extracted.days[i].dayLabel.
+  const DAY_LABELS = FOLD_AGENDA_LINKS[0]!.extracted.days.map((d) => d.dayLabel);
   for (const viewer of [
-    { label: "Fiona (day 1)", key: "fiona" as const, own: 0, other: 1 },
-    { label: "Theo (day 2)", key: "theo" as const, own: 1, other: 0 },
+    {
+      label: "Fiona (day 1)",
+      key: "fiona" as const,
+      own: 0,
+      other: 1,
+      ownLabel: DAY_LABELS[0]!,
+      otherLabel: DAY_LABELS[1]!,
+    },
+    {
+      label: "Theo (day 2)",
+      key: "theo" as const,
+      own: 1,
+      other: 0,
+      ownLabel: DAY_LABELS[1]!,
+      otherLabel: DAY_LABELS[0]!,
+    },
   ]) {
     test(`${viewer.label}: own agenda day open+marked, other day folded`, async ({ browser }) => {
       const seeded = shows[viewer.key]!;
@@ -460,19 +477,36 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
 
         // Spec §3.3 assertions 1-5. `open` is asserted as the DOM property (toHaveJSProperty),
         // not attribute string-matching — <details>.open is the live boolean either way.
+        //
+        // Everything below is SCOPED TO ITS OWN DISCLOSURE and the day is identified by its
+        // LABEL, not by index alone (whole-diff review R12 HIGH). Index-only, page-global
+        // assertions passed against two mutants that break the feature: swapping the
+        // Wednesday/Thursday content (the viewer's open row is then the wrong day) and
+        // rendering `agenda-day-marker-0` as a sibling of its row rather than inside it. Row
+        // index is a position; the label is the claim.
         await expect(page.getByTestId("agenda-schedule")).toBeVisible();
-        await expect(page.getByTestId(`agenda-day-${viewer.own}`)).toHaveJSProperty("open", true);
-        const marker = page.getByTestId(`agenda-day-marker-${viewer.own}`);
+        const ownRow = page.getByTestId(`agenda-day-${viewer.own}`);
+        const otherRow = page.getByTestId(`agenda-day-${viewer.other}`);
+        await expect(ownRow).toHaveJSProperty("open", true);
+        await expect(
+          ownRow.getByRole("heading", { level: 3 }),
+          "the open row must be the viewer's OWN day, by label",
+        ).toHaveText(viewer.ownLabel);
+        await expect(
+          otherRow.getByRole("heading", { level: 3 }),
+          "the folded row must be the OTHER day, by label",
+        ).toHaveText(viewer.otherLabel);
+        const marker = ownRow.getByTestId(`agenda-day-marker-${viewer.own}`);
         await expect(marker).toBeVisible();
         await expect(marker).toHaveText("Your day");
-        await expect(page.getByTestId(`agenda-day-${viewer.other}`)).toHaveJSProperty(
-          "open",
-          false,
-        );
+        await expect(otherRow).toHaveJSProperty("open", false);
         // Folded ≠ hidden: the summary stays visible (fold is de-emphasis, not the day-card
         // privacy boundary).
-        await expect(page.getByTestId(`agenda-day-summary-${viewer.other}`)).toBeVisible();
-        await expect(page.getByTestId(`agenda-day-marker-${viewer.other}`)).toHaveCount(0);
+        await expect(otherRow.getByTestId(`agenda-day-summary-${viewer.other}`)).toBeVisible();
+        await expect(otherRow.getByTestId(`agenda-day-marker-${viewer.other}`)).toHaveCount(0);
+        // Page-global too: exactly ONE marker exists anywhere, and it is the own row's. A
+        // sibling-rendered marker satisfies neither this nor the scoped assertion above.
+        await expect(page.locator('[data-testid^="agenda-day-marker-"]')).toHaveCount(1);
       } finally {
         await ctx.close();
       }
@@ -498,6 +532,12 @@ test.describe("date-restricted agenda fold (BL-AGENDA-FOLD-NO-SEEDED-E2E)", () =
       await expect(page.getByTestId("agenda-schedule")).toBeVisible();
       await expect(page.getByTestId("agenda-day-0")).toHaveJSProperty("open", true);
       await expect(page.getByTestId("agenda-day-1")).toHaveJSProperty("open", true);
+      await expect(page.getByTestId("agenda-day-0").getByRole("heading", { level: 3 })).toHaveText(
+        DAY_LABELS[0]!,
+      );
+      await expect(page.getByTestId("agenda-day-1").getByRole("heading", { level: 3 })).toHaveText(
+        DAY_LABELS[1]!,
+      );
       await expect(page.locator('[data-testid^="agenda-day-marker-"]')).toHaveCount(0);
     } finally {
       await ctx.close();
