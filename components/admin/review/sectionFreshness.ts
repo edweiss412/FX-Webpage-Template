@@ -38,7 +38,10 @@ import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
-import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  EVENT_DETAIL_GROUPS,
+  findUseRawDecision,
+} from "@/components/admin/wizard/step3ReviewSections";
 
 /**
  * One-shot cue duration, paired with the `section-freshness-flash-*` keyframes in
@@ -94,31 +97,128 @@ function hash(value: unknown): string {
  * corresponding panel actually renders from; see the spec's section 4.1 table for
  * the per-row citation into `step3ReviewSections.tsx`.
  */
+/** Pick a fixed key set off a row, so unrendered persistence fields cannot leak in. */
+function pick<T extends object>(row: T | null | undefined, keys: readonly string[]): unknown {
+  if (row === null || row === undefined) return null;
+  const r = row as Record<string, unknown>;
+  return keys.map((k) => r[k] ?? null);
+}
+const pickAll = (rows: readonly unknown[] | undefined, keys: readonly string[]) =>
+  (rows ?? []).map((row) => pick(row as object, keys));
+
+/**
+ * The own-fields projection, section by section, narrowed to what each body
+ * actually RENDERS.
+ *
+ * WHY NARROWED, AND WHY THAT MATTERS MORE THAN IT SOUNDS. The first version hashed
+ * whole persistence objects. That is not a conservative default: it produces FALSE
+ * cues, and this spec's own priority is that a false cue is worse than a missed one
+ * because it teaches the reader the cue means nothing. A sync touching only a
+ * hotel's `confirmation_no` flashed a byte-identical card, and `confirmation_no` is
+ * documented as NEVER rendered (`step3ReviewSections.tsx:2719`). Same for
+ * `role_flags` / `stage_restriction` / `flight_info` on crew, `power` /
+ * `digital_signage` / `notes` on rooms, `notes` on a contact, and `notes` /
+ * `timezone` on the venue: every one is read by the adapter and reaches no DOM.
+ *
+ * Each key list below is the RENDERED set for that body. When a body starts
+ * rendering a field it did not before, its list has to grow in the same commit,
+ * which is the same discipline the section registry already lives under.
+ */
+const VENUE_KEYS = ["name", "address", "city", "loadingDock", "googleLink"] as const;
+const CREW_KEYS = ["name", "role", "date_restriction", "phone", "email"] as const;
+const CONTACT_KEYS = ["kind", "name", "phone", "email"] as const;
+const HOTEL_KEYS = ["hotel_name", "hotel_address", "names", "check_in", "check_out"] as const;
+// The five ROOM_SCOPE rows plus the identity and timing fields the card shows.
+const ROOM_KEYS = [
+  "name",
+  "kind",
+  "floor",
+  "setup",
+  "dimensions",
+  "set_time",
+  "show_time",
+  "strike_time",
+  "audio",
+  "video",
+  "lighting",
+  "scenic",
+  "other",
+] as const;
+
+/** Only the closed event-detail vocabulary renders; any other key is invisible. */
+function renderedEventDetails(d: PublishedSectionData): unknown {
+  const details = (d.eventDetails ?? {}) as Record<string, unknown>;
+  const keys = EVENT_DETAIL_GROUPS.flatMap((g) => g.keys as readonly string[]);
+  return keys.map((k) => details[k] ?? null);
+}
+
+/** Schedule entries render start/title/kind plus the day's own meta. */
+function renderedRunOfShow(d: PublishedSectionData): unknown {
+  const ros = (d.ros ?? {}) as Record<string, unknown>;
+  return Object.keys(ros)
+    .sort()
+    .map((iso) => {
+      const day = (ros[iso] ?? {}) as Record<string, unknown>;
+      const entries = Array.isArray(day.entries) ? day.entries : [];
+      return [
+        iso,
+        day.showStart ?? null,
+        day.window ?? null,
+        day.showEnd ?? null,
+        entries.map((e) => pick(e as object, ["start", "title", "kind"])),
+      ];
+    });
+}
+
+/** A pack case renders its label and each item's qty/item/cat/subCat, never the raw snippet. */
+function renderedPullSheet(d: PublishedSectionData): unknown {
+  return (d.pullSheet ?? []).map((c) => {
+    const row = (c ?? {}) as Record<string, unknown>;
+    const items = Array.isArray(row.items) ? row.items : [];
+    return [
+      row.caseLabel ?? null,
+      items.map((i) =>
+        typeof i === "string" ? i : pick(i as object, ["qty", "item", "cat", "subCat"]),
+      ),
+    ];
+  });
+}
+
 const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData) => unknown> = {
-  venue: (d) => d.venue,
-  event: (d) => d.eventDetails,
-  // `previewRoster` is not decoration: it carries the persisted ids the crew row
-  // actions target, so a row swap that reads identically still changed the card.
-  crew: (d) => [d.crewMembers, d.previewRoster ?? null],
-  contacts: (d) => [d.clientContact, d.contacts],
-  schedule: (d) => [d.ros, d.dates],
+  venue: (d) => pick(d.venue, VENUE_KEYS),
+  event: renderedEventDetails,
+  // `published` / `archived` are RENDERED state here, not lifecycle trivia: they
+  // gate the crew row actions entirely (`step3ReviewSections.tsx:4183`), so a
+  // toggle adds or removes a control on every row. `previewRoster` carries the
+  // persisted ids those actions target.
+  crew: (d) => [
+    pickAll(d.crewMembers, CREW_KEYS),
+    d.crewMembers.length,
+    d.published && !d.archived ? (d.previewRoster ?? null) : null,
+  ],
+  contacts: (d) => [
+    pick(d.clientContact, ["name", "phone", "email", "officePhone", "secondary"]),
+    pickAll(d.contacts, CONTACT_KEYS),
+  ],
+  schedule: (d) => [renderedRunOfShow(d), d.dates],
   agenda: (d) => d.agendaBaseline,
-  hotels: (d) => d.hotels,
+  hotels: (d) => pickAll(d.hotels, HOTEL_KEYS),
   transport: (d) => d.transportation,
-  rooms: (d) => [d.rooms, d.diagrams],
+  rooms: (d) => [pickAll(d.rooms, ROOM_KEYS), d.diagrams],
+  // The archived-tab affordances are gated on the same lifecycle pair
+  // (`step3ReviewSections.tsx:4310`), so they belong to this section's render.
   packlist: (d) => [
-    d.pullSheet,
+    renderedPullSheet(d),
     d.archivedPullSheetTabs,
     d.pullSheetOverride,
     d.pullSheetOverrideWire,
     d.archivedTabOffer ?? null,
+    d.published && !d.archived,
   ],
   billing: (d) => d.billing,
   // NOT the full warning list. The published Sheet-warnings panel renders the
   // warnings routed to IT, and those arrive through `bySection` like every other
-  // section's do. Hashing `d.warnings` wholesale here over-cued: round-2 probes
-  // showed an edit to a CREW-routed warning reported `["crew","warnings"]` while
-  // the rendered warnings panel was byte-identical.
+  // section's do.
   warnings: () => null,
   // A sub-block, never a rail id in its own right; present so the record is total.
   diagrams: (d) => d.diagrams,

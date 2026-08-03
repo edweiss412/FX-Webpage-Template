@@ -444,25 +444,26 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // branch 1 below reachable at all.
   const attentionBySection = useMemo(() => {
     const map = new Map<string, AttentionItem[]>();
-    for (const item of actionable) {
+    for (const item of live) {
       const id = effectiveSectionId(item);
       const list = map.get(id);
       if (list) list.push(item);
       else map.set(id, [item]);
     }
     return map as ReadonlyMap<string, readonly AttentionItem[]>;
-    // Keyed on `actionable`, NOT on the raw `attentionItems` prop. The audit half
-    // of the invariant-8 gate caught the difference: `actionable` also folds in
-    // locally resolved ids, so keying on the prop let a local resolve change the
-    // real grouping without recomputing, and the next unrelated refresh then
-    // reported that stale delta as a change and cued a section whose server
-    // content had not moved.
+    // `live`, NOT `actionable` and NOT the raw prop. Two review findings met here.
+    // The audit half caught that keying on the raw prop ignored local resolves, so
+    // a resolve changed the real grouping without recomputing. The whole-diff
+    // review then caught the opposite error in the fix: cards render every LIVE
+    // item, not only the actionable ones, so grouping `actionable` left eight
+    // non-actionable codes able to appear inside a card with no cue at all. A
+    // parse-failure alert landing in Sheet warnings was the worst of them.
     //
     // `effectiveSectionId` is deliberately NOT a dep: it is a fresh closure every
     // render, so including it recomputed the map on every render, which made the
     // signature a new object every render and consumed the mount baseline on the
     // first one. It reads only `placement`, which is derived from the same props.
-  }, [actionable]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   const signature = useMemo(
     () => buildSectionSignatures({ data, bySection, attentionBySection }),
     [data, bySection, attentionBySection],
@@ -489,7 +490,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const [armed, setArmed] = useState<ReadonlyMap<SectionId, Arming>>(EMPTY_ARMED);
   const [freshBatch, setFreshBatch] = useState(0);
   const [announced, setAnnounced] = useState<{ batch: number; text: string } | null>(null);
-  const [bandFresh, setBandFresh] = useState<"1" | "2" | null>(null);
+  const [bandFresh, setBandFresh] = useState<{ batch: number; value: "1" | "2" } | null>(null);
 
   // Written over VISIBILITY, not over any one cause, the shape ShareHub uses for
   // this same problem. A COMMITTED close unmounts this instance, but an ABORTED
@@ -524,7 +525,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
       // reader learned nothing precisely when the most had moved while a screen
       // reader still heard "Show details updated." One calm whole-surface mark is
       // the honest visual equivalent of that sentence.
-      setBandFresh(overCap ? (b) => (b === "1" ? "2" : "1") : () => null);
+      setBandFresh((prev) =>
+        overCap ? { batch: next, value: prev?.value === "1" ? "2" : "1" } : null,
+      );
       setArmed((prev) => {
         if (overCap) return EMPTY_ARMED;
         const map = new Map(prev);
@@ -559,7 +562,11 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
         return map;
       });
       setAnnounced((prev) => (prev?.batch === b ? null : prev));
-      setBandFresh(null);
+      // Batch-owned, exactly like the cards and the announcement. Clearing it
+      // unconditionally let an OLD batch's timer truncate a NEWER band cue: the
+      // whole-diff review probed a second cue armed at 400ms disappearing at
+      // 1650ms instead of its own 2000ms deadline.
+      setBandFresh((prev) => (prev?.batch === b ? null : prev));
     }, SECTION_FRESHNESS_FLASH_MS);
     // Replace this batch's OWN handle if one exists, so a re-invoked effect
     // leaves one timer rather than leaking the first. Safe in a way a blanket
@@ -1092,7 +1099,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           </span>
           <div
             data-testid={`${TESTID_BASE}-freshness-band`}
-            {...(bandFresh !== null ? { "data-section-freshness-flash": bandFresh } : {})}
+            {...(bandFresh !== null ? { "data-section-freshness-flash": bandFresh.value } : {})}
           >
             <StatusStrip
               attentionMenuOpen={menuEffectivelyOpen}

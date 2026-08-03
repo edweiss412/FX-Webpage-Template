@@ -135,8 +135,68 @@ describe("section freshness detector", () => {
     ).toEqual([]);
   });
 
-  it("D5: toggling published produces zero changed ids", () => {
-    expect(changedBetween((s) => void (showOf(s).published = false))).toEqual([]);
+  it("D5: toggling published changes exactly the sections whose CONTROLS it gates", () => {
+    // This row asserted "zero changed ids" until the whole-diff review falsified
+    // its premise by probe. `published && !archived` gates the crew row actions
+    // (`step3ReviewSections.tsx:4183`) and the pack-list archived-tab affordances
+    // (`:4310`), so an unpublish visibly removes a control from every crew row.
+    // The cue must fire: a card that changed and did not flash is the miss this
+    // whole feature exists to prevent. Every OTHER section stays silent, which is
+    // what keeps the lifecycle flag from leaking in as content.
+    const changed = changedBetween((s) => void (showOf(s).published = false));
+    expect([...changed].sort()).toEqual(["crew", "packlist"]);
+  });
+
+  it("D5b: a field the section never renders produces zero changed ids", () => {
+    // The other half of the same contract, and the reason the projections are
+    // narrowed rather than hashing whole rows. Each of these is read by the
+    // adapter and reaches NO DOM: `confirmation_no` is documented as never
+    // rendered (`step3ReviewSections.tsx:2719`), and the rest have no reader in
+    // the section bodies at all. Hashing them flashed byte-identical cards.
+    expect(
+      changedBetween((s) => {
+        rowOf(s.hotel_reservations, 0).confirmation_no = "ZZZ999";
+        rowOf(s.hotel_reservations, 0).notes = "private note";
+        rowOf(s.crew_members, 0).role_flags = ["LEAD"];
+        rowOf(s.crew_members, 0).flight_info = "AA123";
+        rowOf(s.rooms, 0).power = "3 phase";
+        rowOf(s.rooms, 0).digital_signage = "yes";
+        rowOf(s.rooms, 0).notes = "room note";
+        rowOf(s.contacts, 0).notes = "contact note";
+        (showOf(s).venue as Record<string, unknown>).timezone = "America/New_York";
+        (showOf(s).venue as Record<string, unknown>).notes = "venue note";
+      }),
+    ).toEqual([]);
+  });
+
+  it("D5c: changing ONE rendered field cues exactly its own section, per section", () => {
+    // The systematic partner to D5b. D5b proves unrendered fields stay silent;
+    // without this, narrowing a projection too far would ALSO stay silent and
+    // pass. A surviving mutant is what motivated it: dropping `check_in` from the
+    // hotel key list broke nothing, because no case moved a hotel date.
+    //
+    // One rendered field per section, each asserted EXCLUSIVE, so a projection
+    // that leaked a field into a neighbour fails here too.
+    const cases: Array<[SectionId, (s: ShowReviewSnapshot) => void]> = [
+      ["venue", (s) => void ((showOf(s).venue as Record<string, unknown>).address = "9 Side St")],
+      [
+        "event",
+        (s) => void ((showOf(s).event_details as Record<string, unknown>).dress_code = "black tie"),
+      ],
+      ["crew", (s) => void (rowOf(s.crew_members, 0).role = "A2")],
+      ["contacts", (s) => void (rowOf(s.contacts, 0).phone = "512-555-9999")],
+      ["hotels", (s) => void (rowOf(s.hotel_reservations, 0).check_in = "2026-08-02")],
+      ["hotels", (s) => void (rowOf(s.hotel_reservations, 0).hotel_name = "Westin")],
+      ["transport", (s) => void (rowOf(s.transportation, 0).vehicle = "16ft truck")],
+      ["rooms", (s) => void (rowOf(s.rooms, 0).audio = "d&b")],
+      ["rooms", (s) => void (rowOf(s.rooms, 0).set_time = "07:00")],
+      ["billing", (s) => void (showOf(s).coi_status = "pending")],
+    ];
+    for (const [id, mutate] of cases) {
+      expect(changedBetween(mutate), `${id}: a rendered field must cue its own section`).toEqual([
+        id,
+      ]);
+    }
   });
 
   it("D6: a full re-parse changes every rendered section", () => {
@@ -144,10 +204,13 @@ describe("section freshness detector", () => {
     // single entry would satisfy every "exactly one id" row above.
     const changed = changedBetween((s) => {
       (showOf(s).venue as Record<string, unknown>).city = "Dallas";
-      (showOf(s).event_details as Record<string, unknown>).headcount = "500";
+      // A key from the closed EVENT_DETAIL_GROUPS vocabulary: anything outside it
+      // renders nowhere, so mutating an unknown key would leave Event silent
+      // and this assertion would be measuring the wrong thing.
+      (showOf(s).event_details as Record<string, unknown>).dress_code = "black tie";
       (showOf(s).client_contact as Record<string, unknown>).name = "Sam Client";
       (showOf(s).dates as Record<string, unknown>).travelOut = "2026-08-06";
-      showOf(s).pull_sheet = [{ tab: "Audio", items: ["console"] }];
+      showOf(s).pull_sheet = [{ caseLabel: "Audio", items: [{ qty: 1, item: "console" }] }];
       showOf(s).coi_status = "pending";
       showOf(s).agenda_links = [
         { label: "Revised run of show", fileId: "AGENDA_FILE_2", extracted: { pages: 2 } },
@@ -162,7 +225,9 @@ describe("section freshness detector", () => {
       // hashing the whole list, a venue-routed warn alone would no longer move
       // it, and D6 would be asserting a section it never actually changed.
       internalOf(s).parse_warnings = [routedWarn("venue"), routedWarn("unmapped_block")];
-      internalOf(s).run_of_show = { "2026-08-03": [{ time: "09:00", label: "Doors" }] };
+      internalOf(s).run_of_show = {
+        "2026-08-03": { entries: [{ start: "09:00", title: "Doors", kind: "session" }] },
+      };
     });
     // Derived from the fixture, never hardcoded: a section list that drifted would
     // otherwise silently shrink this assertion.

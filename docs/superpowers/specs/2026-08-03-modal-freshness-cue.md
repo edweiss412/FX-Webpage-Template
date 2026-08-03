@@ -135,6 +135,10 @@ const signature = useMemo(
 
 **A section’s content is not only its own data fields.** Two review rounds established that four other things render inside a section’s card and change independently of those fields, and a projection that omitted them produced a silently missed cue: the warnings ROUTED to that section, the rendered state of the use-raw decision attached to each routed warning, the section’s “In sheet” anchor, and the attention items bucketed under it. Each is part of the section’s signature.
 
+**The projection is narrowed to what each body RENDERS, not to what it stores.** The whole-diff review settled this by static-render probe and it is the sharpest correction in the document. Hashing whole persistence rows is not a conservative default: it produces FALSE cues, and this spec's own priority is that a false cue is worse than a missed one. Every one of these is read by the adapter and reaches no DOM, and each flashed a byte-identical card: `confirmation_no` (documented as never rendered at `components/admin/wizard/step3ReviewSections.tsx:2719`), `ordinal` and `notes` on a hotel, `role_flags` / `stage_restriction` / `flight_info` on crew, `power` / `digital_signage` / `notes` on a room, `notes` on a contact, `notes` and `timezone` on the venue, `rawSnippet` on a pack item, and any `event_details` key outside the closed `EVENT_DETAIL_GROUPS` vocabulary.
+
+**And lifecycle is not always invisible.** `published && !archived` gates the crew row actions (`components/admin/wizard/step3ReviewSections.tsx:4183`) and the pack-list archived-tab affordances (`step3ReviewSections.tsx:4310`), so an unpublish removes a control from every crew row. That IS a rendered change and it must cue; the earlier blanket claim that a lifecycle flip cues nothing was wrong, and the test asserting it was asserting the defect.
+
 **The converse matters as much, and the second review round found it too.** Hashing MORE than a card renders is not a safe default; it is a false cue, which is worse than a missed one because it teaches the reader the cue means nothing. Two over-hashings were removed: the Sheet-warnings section no longer hashes the whole warning list (it renders only what routed to IT, so an edit to a crew-routed warning left its panel byte-identical while cueing it), and a use-raw decision contributes only the fields that reach the control.
 
 | Rail id | Own fields | Feeds |
@@ -245,7 +249,7 @@ useEffect(() => {
 
 The unmount-only effect is what satisfies the no-orphan-timer requirement.
 
-**There IS a closed-but-mounted state, and round 2 refuted the first draft's claim that there is not.** A COMMITTED close unmounts the instance, but an ABORTED close does not: `closing` is local state that hides the shell by passing `open={!closing}`, and the shell's closed arm renders `null` while this component, which owns the freshness state, stays mounted above it (`components/admin/showpage/PublishedReviewModal.tsx:205-210`, `PublishedReviewModal.tsx:686-689`, `components/admin/review/ReviewModalShell.tsx:122-127`). The probe:
+**There IS a closed-but-mounted state, and round 2 refuted the first draft's claim that there is not.** A COMMITTED close unmounts the instance, but an ABORTED close does not: `closing` is local state that hides the shell by passing `open={!closing}`, and the shell's closed arm renders `null` while this component, which owns the freshness state, stays mounted above it (`components/admin/showpage/PublishedReviewModal.tsx:205-210`, `PublishedReviewModal.tsx:858`, `components/admin/review/ReviewModalShell.tsx:122-127`). The probe:
 
 ```text
 {"freshnessOwnerStaysAboveShell":true,"closeOnlySetsShellOpenFalse":true,
@@ -354,7 +358,7 @@ The reduced-motion block resolves `animation-name` to `none` AND pins the outlin
 
 A branch-stable sr-only region, per `DESIGN.md:479`. The REGION element is always mounted with a stable key and is never conditionally rendered and never `display: contents`, because a region that mounts at the same moment its text appears is unreliably announced.
 
-Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:1070`), with `key="freshness-announce"`.
+Placement: the shell's `subHeader` slot, as a key-stable sibling of `StatusStrip` (`components/admin/showpage/PublishedReviewModal.tsx:1077`), with `key="freshness-announce"`.
 
 NOT the body slot, which was the first draft and is wrong. `ReviewModalShell` documents a contract that its `children` mount directly in the panel's flex column with no wrapper, so that the consumer's surface root IS the body element and owns the scroller (`components/admin/review/ReviewModalShell.tsx:20-21`, `ReviewModalShell.tsx:688-696`). `ShowReviewSurface` is that sole child. A second body child would contradict the contract for no gain. The `subHeader` band is inside the same dialog subtree, so the live region is announced identically, and it is where a status readout about this surface already lives.
 
@@ -420,7 +424,7 @@ Every input, and what renders.
 | `chrome.sectionId` | `undefined` (sub-block) | no attribute, matching the existing panel-card testid guard |
 | `prefers-reduced-motion` | `reduce` | no visual cue at all; announcement unchanged |
 | modal | unmounts mid-flash | effect cleanup clears the timer; no orphan |
-| show | archived or unpublished | no cue from the lifecycle flag itself (P6). ONE indirect exception, found by probe in round 2: the loader clears `archivedTabOffer` when a show stops being published-and-unarchived (`app/admin/_showReviewModal.tsx:364-368`), so a show that was showing archived-tab offer cards loses them and Pack list cues. That is a real content change, the cards genuinely disappear, so the cue is correct and the earlier blanket claim was the thing that was wrong |
+| show | archived or unpublished | cues `crew` and `packlist`, whose CONTROLS the pair gates, and nothing else. A third consequence, found by probe in round 2: the loader clears `archivedTabOffer` when a show stops being published-and-unarchived (`app/admin/_showReviewModal.tsx:364-368`), so a show that was showing archived-tab offer cards loses them and Pack list cues. That is a real content change, the cards genuinely disappear, so the cue is correct and the earlier blanket claim was the thing that was wrong |
 | modal | `closing` is true (an aborted close, still mounted) | armed cues and the announcement clear, nothing new arms, and the next transition is a fresh baseline (§4.2) |
 | refresh source | an operator action rather than a broadcast | cues identically; the detector cannot and need not distinguish them (§1) |
 

@@ -115,14 +115,15 @@ const BASE: ShowReviewSnapshot = {
       travelOut: "2026-08-05",
     },
     venue: { name: "Grand Hall", address: "1 Main St", city: "Austin", state: "TX" },
-    event_details: { headcount: "400", dress: "business casual" },
+    // Keys from the closed EVENT_DETAIL_GROUPS vocabulary; anything else renders nowhere.
+    event_details: { dress_code: "business casual", power: "house" },
     client_contact: { name: "Pat Client", email: "pat@example.com", phone: "512-555-0100" },
     diagrams: null,
     // Populated so `includesAgenda` is true and the agenda rail id renders
     // (`components/admin/review/sectionInclusion.ts:27-29`). Without this the
     // fixture would silently drop one of the twelve sections D6 counts.
     agenda_links: [{ label: "Run of show", fileId: "AGENDA_FILE_1", extracted: { pages: 1 } }],
-    pull_sheet: [{ tab: "Audio", items: ["console", "wedge"] }],
+    pull_sheet: [{ caseLabel: "Audio", items: [{ qty: 1, item: "console" }, { qty: 2, item: "wedge" }] }],
     pull_sheet_override: null,
     // Real anchors: D13 moves ONE region and asserts only the sections mapped to
     // it change. Note `schedule` and `agenda` BOTH map to the `schedule` region
@@ -149,7 +150,9 @@ const BASE: ShowReviewSnapshot = {
   },
   internal: {
     show_id: SHOW_ID,
-    run_of_show: { "2026-08-03": [{ time: "08:00", label: "Doors" }] },
+    run_of_show: {
+      "2026-08-03": { entries: [{ start: "08:00", title: "Doors", kind: "session" }] },
+    },
     parse_warnings: [],
     use_raw_decisions: [],
     raw_unrecognized: null,
