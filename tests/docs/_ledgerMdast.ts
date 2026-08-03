@@ -42,6 +42,35 @@ const PARTICLE_WORDS =
 
 const PARTICLES = new Set(PARTICLE_WORDS.split("|"));
 
+/**
+ * Closed-class INTENSIFIER inventory (BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND): words
+ * that strengthen a terminal claim rather than qualify it. `✅ FULLY CLOSED` is a
+ * closure; the heading anchor read `FULLY`, found it non-terminal, and let a shipped
+ * entry sit in the open queue.
+ *
+ * Deliberately a closed class, not "skip any word": `— probably CLOSED` must stay
+ * open. And skipping happens BEFORE the veto test, never instead of it — the veto
+ * window still sees everything to the left, so `NOT FULLY CLOSED` and
+ * `NEVER COMPLETELY SHIPPED` (M3 plants) stay red because NOT/NEVER are not
+ * intensifiers and so are never skipped past.
+ */
+const INTENSIFIER_WORDS = "FULLY|COMPLETELY|ENTIRELY|ALREADY|NOW|SUCCESSFULLY";
+
+/** Bounded run of intensifiers + trailing space at `i`; returns the offset past them. */
+const skipIntensifiers = (text: string, i: number): number => {
+  const re = new RegExp(`^(?:(?:${INTENSIFIER_WORDS})\\s+){1,2}`, "i");
+  const m = re.exec(text.slice(i));
+  return m === null ? i : i + m[0].length;
+};
+
+/**
+ * Status markers that may precede an opening-line terminal claim. The heading
+ * anchor and `SEP_AFTER_LABEL` already allow a leading `✅`; the opening lane did
+ * not, so `**✅ RESOLVED (2026-06-21):**` read as open while `**✅ RESOLVED:**`
+ * closed (the latter via the LABEL lane, whose last token a parenthetical displaces).
+ */
+const OPENING_MARKER = /^[\s✅✔☑]*$/u;
+
 const FIELD_LABELS = /^(status|resolution|filed)$/i;
 
 /**
@@ -443,7 +472,10 @@ export function headingVerdicts(headingLine: FlatLine, id: string): string[] {
   const hits: string[] = [];
   for (let m = anchor.exec(text); m !== null; m = anchor.exec(text)) {
     if (m.index < from) continue;
-    const at = m.index + m[0].length;
+    // Step past a bounded intensifier run before reading the token; `vetoed` is
+    // still evaluated at the terminal word, so a negation to the LEFT of the
+    // intensifier ("NOT FULLY CLOSED") keeps the claim open.
+    const at = skipIntensifiers(text, m.index + m[0].length);
     const tok = tokenAt(text, at);
     if (TERMINAL.test(tok) && !vetoed(text, at)) hits.push(`heading:${tok}`);
   }
@@ -459,7 +491,9 @@ export function openingVerdicts(line: FlatLine | undefined): string[] {
   if (line === undefined) return [];
   const first = lineTokens(line.text)[0];
   if (first === undefined || !TERMINAL.test(first.t)) return [];
-  if (line.text.slice(0, first.i).trim() !== "") return [];
+  // A leading status marker is not "something before the claim" — it IS the claim's
+  // decoration, and both the heading anchor and SEP_AFTER_LABEL already allow it.
+  if (!OPENING_MARKER.test(line.text.slice(0, first.i))) return [];
   // WHOLLY contained, not merely overlapping (whole-diff r6): a token
   // straddling a strong edge (`**Res**olved …`) is not a bold claim.
   const inStrong = line.strongSpans.some(

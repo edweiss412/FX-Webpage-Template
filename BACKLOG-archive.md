@@ -2183,3 +2183,92 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 **ARCHIVED 2026-08-03 — COMPLETE; the candidate fix shipped, and the body below is now WRONG.** Read the correction before the entry: the prose asserts embedded-in-tab diagrams are "unreachable" and that "the linked-folder path remains the only working diagrams source". Both were true when filed and are false now. The XLSX-media route the entry proposes as its candidate shipped per `docs/superpowers/specs/parser/2026-07-02-diagrams-embedded-images.md`: `lib/drive/embeddedObjects.ts` `extractEmbeddedObjects` walks drawing rels to `xl/media/*`, and the live cron path feeds it bytes from the existing Drive export (`runScheduledCronSync.ts:2937` -> `:3040`). `lib/sync/enrichWithDrivePins.ts:180-243` takes that branch FIRST and returns real stubs (`mediaPartName`, `embeddedFingerprint`, `recovery_disposition`), consumed by `defaultSnapshotAssetsForApply.ts:49-55` and `assetRecovery.ts:226-232`. The Sheets adapter still returns `embeddedObjects: []` (`runScheduledCronSync.ts:2118`) but no longer determines the outcome, and `DIAGRAMS_EMBEDDED_NONE_FOUND` now fires only when the tab has neither raster media nor a linked folder (`enrichWithDrivePins.ts:203-212`). Embedded-in-tab diagrams are genuinely reachable.
 
 Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cron adapter's `listSpreadsheetSheets` originally projected `sheets(...,drawings(objectId,imageProperties(...),embeddedObject(...)))` — but the Sheets v4 `Sheet` schema defines **no `drawings` field**, so the live API rejected every `spreadsheets.get` with 400 INVALID_ARGUMENT and every cron full re-parse of a real show failed as `SYNC_FILE_FAILED`. The fix narrowed the mask to `sheets(properties(title))` and the adapter now always returns `embeddedObjects: []`; `extractEmbeddedImages` degrades honestly (`DIAGRAMS_EMBEDDED_NONE_FOUND` warning / linked-folder fallback), and the linked-folder path remains the only working diagrams source. Net: floating images embedded directly in the DIAGRAMS tab are **unreachable** — Sheets v4 cannot enumerate drawings/floating images via any read API. Candidate when picked up: extract images from the XLSX export the sync already fetches (see `synthesizeMarkdownFromXlsx` / `lib/drive/fetch.ts` — xlsx media parts carry embedded images), mapping them into the existing `SpreadsheetEmbeddedObject` contract; alternatives (Drawings API, Apps Script shim) are heavier. Technical home: `lib/sync/runScheduledCronSync.ts` `defaultDriveClient.listSpreadsheetSheets` + `lib/sync/enrichWithDrivePins.ts` `extractEmbeddedImages`; contract pinned by `tests/sync/defaultDriveClientSheetsFieldsMask.test.ts` + the live smoke `tests/sync/realSheetsListSpreadsheetSheetsSmoke.test.ts`. No trigger — the linked-folder fallback covers Doug's workflow today; promote only if embedded-in-tab diagrams become a real operator need.
+
+### BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — RESOLVED (2026-08-03, `fix/ledger-guard-terminal-claim`)
+
+Both spellings fixed in `tests/docs/_ledgerMdast.ts`, pinned by the M10 plant block and
+recorded in the canonical spec at §3.1 of
+`docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md`.
+
+- **Heading lane:** after the anchor, a bounded run of a closed-class intensifier
+  inventory (`FULLY|COMPLETELY|ENTIRELY|ALREADY|NOW|SUCCESSFULLY`) is stepped past before
+  the terminal token is read. The veto is still evaluated AT the terminal word, so
+  `NOT FULLY CLOSED` / `NEVER COMPLETELY SHIPPED` / `PARTIALLY CLOSED` stay open.
+- **Opening lane:** the prefix before the first token may be whitespace and status markers
+  (`✅`/`✔`/`☑`) instead of strictly empty — a consistency repair, since the heading anchor
+  and `SEP_AFTER_LABEL` already allowed `✅`.
+
+Proven load-bearing by mutation rather than asserted: reverting either half reds M10, and a
+mutant widening the intensifier inventory to `[A-Za-z]+` reds five plants — so the corpus
+refuses an over-tightening as firmly as it refuses the blind spot. The nine live
+terminal-word-carrying open entries that must NOT close are pinned in the same block.
+
+Both live instances were already archived when this was filed
+(`BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK`, `BL-LINT-DEBT-PREEXISTING`); re-run against the
+live ledgers after the fix, the only terminal-classified open entry is the pre-existing
+ratified exception `BL-CI-STALE-BRANCH-PROTECTION-COMMENT`.
+
+#### BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard
+
+**Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
+
+`tests/docs/_ledgerMdast.ts` misses two independent spellings of a closure. Both were found by
+reading entries a human would call closed and asking why the guard did not. Probed against the
+shipped walker.
+
+**(1) An intensifier before the terminal word**, in a heading — the word is recognized only in
+leading position, so anything in front of it makes the entry read as OPEN:
+
+| heading suffix                           | guard verdict |
+| ---------------------------------------- | ------------- |
+| `✅ CLOSED`                              | TERMINAL      |
+| `✅ RESOLVED (2026-07-03)`               | TERMINAL      |
+| `**RESOLVED 2026-06-11 (PR #22)**`       | TERMINAL      |
+| `✅ FULLY CLOSED (both instances fixed)` | **open**      |
+| `✅ FULLY RESOLVED`                      | **open**      |
+| `✅ COMPLETELY DONE`                     | **open**      |
+| `✅ ALREADY SHIPPED`                     | **open**      |
+
+**(2) A checkmark AND a parenthetical together**, in a bold opening-line claim. Either alone is
+recognized; the combination is not, for every terminal word:
+
+| opening line                             | guard verdict |
+| ---------------------------------------- | ------------- |
+| `**✅ RESOLVED:** …`                     | TERMINAL      |
+| `**RESOLVED (2026-06-21):** …`           | TERMINAL      |
+| `**RESOLVED (2026-06-21, \`br\`):\*\* …` | TERMINAL      |
+| `**✅ RESOLVED (2026-06-21):** …`        | **open**      |
+| `**✅ SHIPPED (2026-06-21):** …`         | **open**      |
+| `**✅ CLOSED (PR #22):** …`              | **open**      |
+| `**✅ DONE (2026-06-21):** …`            | **open**      |
+
+Spelling (2) is the more dangerous of the pair, because checkmark-plus-date is the most natural
+way a person writes a closure.
+
+The `PARTIALLY CLOSED` and `NOT CLOSED` cases correctly stay open — those are the ratified
+`VETO` negations/qualifiers, and a fix must not weaken them. The gap is that VETO enumerates
+words that _negate_, while nothing enumerates words that merely _intensify_, and an
+unrecognized leading word currently defaults to "not terminal".
+
+**Live corruption this caused:** one entry per spelling, each sitting in the open queue while
+declaring its own closure. `BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK` (`✅ FULLY CLOSED`, spelling 1)
+and `BL-LINT-DEBT-PREEXISTING` (`✅ RESOLVED (2026-06-21, …)`, spelling 2) — both now archived.
+
+Class-swept at filing across the active `BACKLOG.md` and `DEFERRED.md`, twice. The narrow sweep
+(both bad shapes) found exactly those two. A deliberately wider sweep — ANY terminal word in a
+heading or opening line of an entry the guard calls open — returned 11, of which 9 are correct
+refusals the fix must preserve: `PARTIALLY CLOSED` / `Partial closure` (the ratified VETO),
+`Status: OPEN`, and terminal words used as ordinary prose (`the closed-port protocol`, the UI
+string `"Mark resolved"`). So this is a latent hole, not a backlog of mis-filings — and the
+9 correct refusals are the regression set for any fix.
+
+**Why backlog, not a one-line fix:** lane semantics are spec-canonical
+(`docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md`, eleven adversarial
+rounds). Adding an intensifier class touches the same recognizer the VETO negations run
+through, so it needs the plants-corpus treatment (`M1`–`M9` in
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`): a discriminating plant per new spelling,
+plus proof the existing negation plants still red. Doing it inline here would be an unreviewed
+edit to a ratified guard.
+
+**Trigger:** the next change that touches `_ledgerMdast.ts` lane semantics, or a third
+instance of either shape appearing in the ledgers.
