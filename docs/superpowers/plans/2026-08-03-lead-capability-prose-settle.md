@@ -298,7 +298,7 @@ const GATED = REFLECTED.filter(([name]) => !(name in NOT_FLAG_GATED));
  *
  * R2 replaced a hand-written TAKES_IS_ADMIN set with `fn.length >= 2`; R9
  * then refuted that too, because default parameters do not contribute to
- * Function.length — `(flags, isAdmin = false) => isAdmin || …` reports
+ * Function.length: `(flags, isAdmin = false) => isAdmin || ...` reports
  * length 1, so the guard never tried isAdmin=true and a mutant granting
  * everything to admins passed clean. There is no reliable runtime signal for
  * "does this take isAdmin", so the guard stops asking: it passes the second
