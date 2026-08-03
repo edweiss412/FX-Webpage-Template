@@ -66,8 +66,13 @@ selects) plus the 4 residue codes, none of which is among those 43.
 Three syntactic candidates were built and measured. Each is recorded because each was refuted by
 probe, not by argument.
 
-**(a) Widen the roots, keep the file-level content predicate.** Mis-attributes **ten** non-warning
-codes as `parse_warnings.code`:
+**(a) Widen the roots, keep the file-level content predicate.** False-positive count depends on how
+far the roots widen, so both measurements are stated rather than one. Over
+`["lib/parser", "lib/sync"]` it mis-attributes **ten** non-warning codes; over the full
+`["lib", "app"]` it mis-attributes **thirteen** — the same ten plus `IDEMPOTENCY_IN_FLIGHT`,
+`REPORT_HORIZON_EXPIRED`, and `REPORT_LOOKUP_INCONCLUSIVE` from `lib/reports/submit.ts`, whose
+warnings prose passes the content predicate. At the full roots the broad scan only *appears* to
+total 58, because 13 false positives replace 13 genuinely missed warnings. The ten:
 
 ```
 DRIVE_FETCH_FAILED  MI-1_VERSION_DETECTION_FAILED  PARSE_ERROR_LAST_GOOD
@@ -201,39 +206,48 @@ strong-lead + stop-at-first-heading  :  8 ids  (exactly the intended eight)
 
 ### 3.1 The rule: type-aware ParseWarning construction sites
 
-A code is a `parse_warnings.code` producer if and only if it is the `code` property of an
-expression **whose type is assignable to `ParseWarning`**, as resolved by the TypeScript checker.
-No rule keys on a spelling.
+A code is a `parse_warnings.code` producer if and only if it is defined at an expression **whose
+type is assignable to `ParseWarning`**, as resolved by the TypeScript checker. No rule keys on a
+spelling. Six clauses, each forced by a measured escape (R2a):
 
-- **Site recognition.** Every object-literal expression under the roots whose contextual (else
-  intrinsic) type is assignable to `ParseWarning` (`lib/parser/types.ts:67`). This admits
-  `Phase2Args["parseResult"]["warnings"][number]`, `ParseResult["warnings"][number]`, and any
-  future alias, because all resolve to the same type — closing §2.3(c). It also admits
-  `severity: WARN_SEVERITY`, because the object's *type* is unchanged by how severity is spelled.
-- **Code extraction.** The `code` property's **type**, following unions. A string-literal type
-  yields one code; a union of literal types (e.g. `ReelWarningCode`) yields all its members. This
-  handles shorthand `code` — the shorthand's type is the parameter's type — with no separate rule.
-- **Widened `code`.** Where the property type widens to `string` (e.g.
-  `warning(code: string)` at `lib/sync/applyStaged.ts:1017`), the codes live at the enclosing
-  factory's **call sites**: resolve each call's first-argument type and take its literal members.
-- **Unresolvable is SIGNALED, never dropped.** A site whose code type resolves to neither a literal
-  nor a resolvable call-site argument is reported by name and fails the guard. Measured today: zero
-  such sites (§2.5).
+1. **Site kinds.** Object literals, **call expressions, and `new` expressions**. Restricting to
+   object literals missed `Object.assign({severity},{code},{message})` — no single argument is
+   assignable while the call's result is — and class construction entirely.
+2. **Assignability is contextual OR intrinsic.** A "contextual else intrinsic" rule *rejects* a
+   valid warning passed to `sink(x: ParseWarning | Alert)`: the contextual type is the union (not
+   assignable) while the fresh literal type is. Either one assignable makes it a site.
+3. **`any` / `never` / `unknown` are excluded.** All three satisfy the assignability test trivially
+   and selected 13 production object literals that are not warnings.
+4. **The code is read off the node's OWN type**, following unions — never off the contextual type,
+   which reports the *declared* property type `string` and loses every literal. Falls back to the
+   property initializer's type. This handles shorthand `code`, `Object.assign` intersections, and
+   union-typed parameters (`ReelWarningCode`) with no separate rule.
+5. **Copy is not definition.** An object literal with **no own `code` property** (`{...w, message}`)
+   propagates a code rather than defining one, and is skipped. Six such sites exist
+   (`lib/parser/dataGaps.ts`, `lib/parser/blocks/crew.ts`). Without this clause the stated rule
+   reports them as unresolved and fails its own guard.
+6. **Use is not definition.** A call with no literal argument whose callee is declared **inside the
+   scanned tree** is a *use* of a factory whose body is scanned separately and defines the code
+   there. A callee outside the scanned tree, and every `new` expression (a class has no scanned
+   factory body), **signals** instead.
 
-Roots are `["lib", "app"]` minus `lib/dev/**` — the gallery builds *synthetic* ParseWarnings
-(`lib/dev/attentionScenarios/tier1.ts:152`) and would otherwise define its own universe, the same
-self-justification tautology the ledger guard's header warns about
-(`tests/docs/_metaLedgerReferentialIntegrity.test.ts:17-23`).
+Where a site's code still resolves to no literal, it is **reported by name and fails the guard** —
+never dropped (AC-A7).
+
+Roots are `["lib", "app"]` minus `lib/dev/**`, `lib/messages/__generated__/**`, and
+`lib/messages/catalog.ts` — the gallery builds *synthetic* ParseWarnings
+(`lib/dev/attentionScenarios/tier1.ts:152`) and would otherwise define its own universe.
 
 **Mechanism.** ts-morph over `tsconfig.json`, matching `lib/audit/noGlobalCursor.ts` and
 `tests/cross-cutting/no-raw-codes-audit.ts:247`. **Single compiler world**: ts-morph wrappers and
-its exported `ts` namespace only; the standalone `typescript` package is never imported
+its exported `ts` namespace only
 (`docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md:218`).
 
 <!-- spec-lint: ignore — new file introduced by this change; not tracked until implementation -->
-The recognizer lands as `lib/messages/__internal__/parseWarningSites.ts`, beside
-`lib/messages/__internal__/stripLogEmissionCalls.ts` and
-`lib/messages/__internal__/walkSourceFiles.ts`.
+The recognizer lands as `lib/messages/__internal__/parseWarningSites.ts`.
+
+**Measured with all six clauses (2026-08-03):** 58 codes · **0 unresolved** · 0 sites outside the
+roots anywhere in the production tree · 6 copy-sites correctly skipped.
 
 ### 3.2 Consumer change
 
@@ -285,12 +299,19 @@ A narrowed project (`skipAddingFilesFromTsConfig` plus an explicit `lib/**` + `a
 end-to-end — because dependency resolution re-reads the same graph. That option is refuted, not
 merely unchosen.
 
-**Decision.** The recognizer memoizes both the `Project` and the extraction result at module scope,
-so a process pays once. Three surfaces call `extractInternalCodeEnums()` today
-(`tests/cross-cutting/no-raw-codes.test.ts`,
-`tests/cross-cutting/cron-run-summary-scanner-safety.test.ts`, and the `gen:internal-code-enums`
-script), plus the new guard; vitest workers are separate processes, so the worst case is roughly one
-load per worker that touches them.
+**Decision — exactly ONE fresh extraction in the default suite.** Module-scope memoization alone is
+not enough: `vitest.config.ts:109-110` explicitly rejects `isolate: false`, so each test FILE that
+extracts is a separate process and three callers cost 3 x 64.5 s = 193.5 s. Instead:
+
+- The **guard file is the single extractor**, and the artifact-parity assertion currently at
+  `tests/cross-cutting/no-raw-codes.test.ts:34` moves into it, so one process does both.
+- `tests/cross-cutting/cron-run-summary-scanner-safety.test.ts` asserts against the **committed
+  artifact** instead of re-extracting. That is exactly as strong, because the parity assertion pins
+  artifact == fresh extraction; without parity it would be weaker, which is why the two must live
+  together.
+- `gen:internal-code-enums` pays the cost once, as a codegen step should.
+
+Net: one 64.5 s extraction in the suite rather than three.
 
 **This is a real tradeoff, stated rather than hidden.** The parity assertion at
 `tests/cross-cutting/no-raw-codes.test.ts:34` — artifact must equal a fresh extraction — is what
@@ -374,9 +395,9 @@ Eight rows leave `KNOWN_DANGLING` (`tests/docs/_metaLedgerReferentialIntegrity.t
 
 **Item A**
 
-- **AC-A1** The recognizer yields exactly **58** codes; the set is a strict superset of today's
+- **AC-A1** The recognizer yields exactly **58** codes, with **zero unresolved sites** and zero sites outside the roots in the production tree; the set is a strict superset of today's
   47-code gallery universe (zero lost) and the 11 additions are exactly §2.4.
-- **AC-A2** None of the ten non-warning codes of §2.3(a) carries `parse_warnings.code` provenance.
+- **AC-A2** None of the thirteen non-warning codes of §2.3(a) carries `parse_warnings.code` provenance.
 - **AC-A3** `EXTRA_WARNING_CODES` does not exist in the tree.
 - **AC-A4** `warningCodes()` contains all four former residue codes, sourced from the generator
   alone, and remains duplicate-free.
@@ -429,6 +450,11 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | 1 | BLOCKING — R1/R2/R3 miss four live codes via two indirect-return-type factories | **Accepted.** Verified at `lib/sync/applyStaged.ts:1017` and `lib/sync/phase2.ts:337`. Closed structurally: the whole syntactic mechanism is replaced by type-aware recognition (§3.1), not patched with a third spelling. |
 | 2 | HIGH — G2 has a silent escaping shape (`severity` via typed const); AC-A6's `mkWarn` plant is auto-discovered and proves nothing | **Accepted, both halves.** The escape is closed by §3.1 site recognition; AC-A6 is **replaced** by a non-literal-severity mutant, and AC-A5 added for the indirect-return-type shape. |
 | 3 | HIGH — the body rule mis-parents three archive bullets under a non-id heading | **Accepted.** Verified: `BACKLOG-archive.md:1088` is a non-id heading and `extractEntries` assigns `BACKLOG-archive.md:1094-1096` to `BL-CREWPAGE-ROTATE-FOCUS-MGMT`. Closed by the stop-at-first-heading condition (§4.1); measured 11 → 8. Plants P7 and P8 pin it. |
+| A1 | BLOCKING (R2a) — G1 cannot pass over the whole tracked tree: 1415 assignable sites sit outside the roots, 1386 in `tests/**`. | **Accepted.** G1 is scoped to a defined **production tree** with an explicit exclusion list (§3.4). Measured 0 outside-root sites there today, so the arm is meaningful rather than vacuous. |
+| A2 | BLOCKING (R2a) — shared recognizer has silent escape families: `Object.assign`, contextual-union precedence, class construction. | **Accepted, all three.** §3.1 clauses 1-2 add call/`new` site kinds and contextual-OR-intrinsic assignability; clause 6 makes `new` signal. Re-measured: still 58 codes, now 0 unresolved. |
+| A3 | HIGH (R2a) — the stated rule contradicts the zero-unresolved measurement: warning-copy spreads have no own code, and `any`/`never` selected 13 non-warnings. | **Accepted.** §3.1 clause 5 defines copy-vs-definition (6 such sites) and clause 3 excludes `any`/`never`/`unknown`. The earlier zero was partly an artifact of silently skipping those sites; it is now a measured zero under the stated rule. |
+| A4 | MEDIUM (R2a) — false-positive arithmetic wrong under the actual roots. | **Accepted.** §2.3(a) now states both baselines and names the three additional codes. |
+| A5 | MEDIUM (R2a) — the perf fallback removes only one of three project loads; `isolate:false` is rejected. | **Accepted.** §3.5 replaces it: the guard becomes the single extractor and absorbs the parity assertion; the third caller reads the committed artifact. One extraction, not three. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 

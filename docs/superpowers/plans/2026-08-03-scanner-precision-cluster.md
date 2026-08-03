@@ -64,7 +64,11 @@ while PASSING the type-aware one:**
 
 | # | Family | Closed by | AC |
 | --- | --- | --- | --- |
-| A-a | Emitter in a directory outside the generator's roots | G1 root coverage | AC-A1 |
+| A-a | Emitter in a directory outside the generator's roots (production tree only — `tests/**` etc. excluded, or G1 is vacuous) | G1 root coverage | AC-A1 |
+| A-h | `Object.assign({severity},{code},{message})` — no single argument assignable | call-expression site kind | AC-A5 |
+| A-i | Warning passed where the contextual type is a UNION (`ParseWarning \| Alert`) | contextual-OR-intrinsic assignability | AC-A6 |
+| A-j | Class construction (`new WarningClass()`) | `new` site kind; signals, never silent | AC-A7 |
+| A-k | Warning COPY (`{...w, message}`) with no own `code` | copy-vs-definition clause — skipped, not signalled | AC-A1 |
 | A-b | Factory whose return type is spelled indirectly (`Alias["warnings"][number]`) | type-based site recognition | **AC-A5** |
 | A-c | `severity` supplied by a typed const rather than a literal | type-based site recognition | **AC-A6** |
 | A-d | Shorthand `code` whose type is a union of string literals | code extraction reads the *type* | AC-A5 |
@@ -187,11 +191,13 @@ generator's parse-warnings pass (`scripts/extract-internal-code-enums.ts:70-74`)
 AC-A5, AC-A6, AC-A7, AC-A8, AC-A9. Plus the three Sweep-4 bindings.
 
 **Cost, measured (spec §3.5).** Project load 38.7 s; full extraction 64.5 s. A narrowed project is
-worse (77.9 s) and is refuted, not merely unchosen. The recognizer memoizes the `Project` and the
-extraction at module scope so a process pays once. This task **measures the actual suite delta** and
-records it; if it is unacceptable, the named fallback is moving the fresh-extraction parity check
-(`tests/cross-cutting/no-raw-codes.test.ts:34`) into a dedicated CI job rather than the default
-suite. `gen:internal-code-enums` also runs inside `test:audit:x2-no-raw-codes` (`package.json:35`).
+worse (77.9 s) — refuted, not merely unchosen. Memoization alone does NOT fix the suite cost:
+`vitest.config.ts` rejects `isolate: false`, so every extracting test FILE is its own process.
+**This task therefore makes the guard file the single extractor** and moves the artifact-parity
+assertion from `tests/cross-cutting/no-raw-codes.test.ts:34` into it, and rewrites
+`tests/cross-cutting/cron-run-summary-scanner-safety.test.ts` to assert against the committed
+artifact (safe precisely because parity is asserted in the same run). One 64.5 s extraction in the
+suite instead of three. Measure and record the real delta.
 
 **Commit.** `feat(messages): recognize parse-warning sites by type, not spelling`
 
