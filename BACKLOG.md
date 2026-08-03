@@ -8,6 +8,34 @@ Last reconciled: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGEN
 
 ---
 
+## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — the parse-warning enum generator scans one directory, so four live emitters are hand-listed
+
+**Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
+
+`extractInternalCodeEnums` (`scripts/extract-internal-code-enums.ts:70-71`) collects `parse_warnings.code` literals from `readFiles(["lib/parser"])`, then filters those files by `/\bParseWarning\b|\bwarnings\b|hardErrors/`. Because no runtime module enumerates the parse-warning universe, the attention-scenario gallery has to union the generated enum with a hand-maintained residue, `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`): `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, `PULL_SHEET_ON_ARCHIVED_TAB`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`.
+
+The `tier1.ts` comment attributes the miss to the content regex alone. Verified 2026-08-02, that is only the second filter: all four emitters live in `lib/agenda/extractAgendaSchedule.ts`, `lib/sync/enrichAgenda.ts`, and `lib/sync/pullSheetOverride.ts` — outside the `["lib/parser"]` root the scan ever opens, so the regex never runs on them. Widening the content heuristic without widening the directory list would change nothing.
+
+**Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
+
+**Status:** OPEN.
+
+---
+
+## BL-HEADER-REACT-RECONCILE-HARNESS — the section-header layout proof serves static markup, so a JS-driven animation is uncovered
+
+**Filed:** 2026-08-02 (retroactively; cited by `tests/e2e/section-header-layout.layout.spec.ts:1185` as the filing that closes this gap, with no row anywhere). **Class:** test-coverage gap (harness capability). **Effort:** M.
+
+`section-header-layout.layout.spec.ts` Part 2 proves both header heights belong to ONE mounted node, which the height matrix alone cannot do: `key={showId}` remounts only when the SHOW changes, so a `router.refresh()` reconciles a new pill or count under the same key, and the 44px / 72.8px figures are measured on separately-loaded pages that cannot distinguish "two states of one header" from "two headers". The test states its own limit at `:1176-1185` — the harness serves static server-rendered markup, so its toggle is a direct `style.display` mutation, not a prop change reconciled under the same key.
+
+What bounds the gap today: Part 1 reads the computed style of every node in the subtree and would see a transition attached by a `motion.div layout` wrapper or an effect-driven animation. What stays genuinely uncovered is an animation driven entirely in JS, which attaches no CSS transition for Part 1 to find and survives a `style.display` toggle because no React reconciliation ever happens.
+
+**Work:** stand up a hydrated React harness (mount the real header component, drive a prop change under a stable key, measure across the reconciliation) and move or extend the Part 2 assertions onto it. Note the two-mechanism split before touching either: Part 1 catches an attached transition, Part 2 catches a fixed `min-height` where the pill's presence stops driving the height and 72.8px becomes a coincidence — a replacement harness has to keep both, not collapse them.
+
+**Status:** OPEN.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),

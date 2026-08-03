@@ -104,16 +104,10 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-BLOCKRES-HELP-GATING":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
-  "BL-CASP2-POPOVER-PROXIMITY":
-    "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-CI-P3-FILE-GRANULAR-SERIAL":
     "cited in docs/superpowers/specs/ci/2026-07-20-ci-overlap-boot-with-setup.md — no entry as of 2026-08-02",
   "BL-CI-UNIT-SUITE-PHASE2":
     "cited in docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md — no entry as of 2026-08-02",
-  "BL-COLLAPSEPANEL-REGION-OPTOUT":
-    "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
-  "BL-CRON-SYNTHETIC-SHOW-SKIP":
-    "cited in lib/sync/runScheduledCronSync.ts +2 more — no entry as of 2026-08-02",
   "BL-DATAQUALITY-BADGE-SEGMENT-GLYPH":
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-DATAQUALITY-BADGE-TOUCH-DETAIL":
@@ -130,14 +124,8 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
   "BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY":
     "cited in DEFERRED-archive.md +1 more — no entry as of 2026-08-02",
-  "BL-HEADER-REACT-RECONCILE-HARNESS":
-    "cited in tests/e2e/section-header-layout.layout.spec.ts — no entry as of 2026-08-02",
   "BL-HERO-SEGMENT-VIBRANCY":
     "cited in DEFERRED-archive.md +2 more — no entry as of 2026-08-02",
-  "BL-HOTEL-VIEWER-NAME-MATCH":
-    "cited in BACKLOG-archive.md +7 more — no entry as of 2026-08-02",
-  "BL-INTERNAL-CODE-ENUM-SCAN-WIDEN":
-    "cited in docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md +1 more — no entry as of 2026-08-02",
   "BL-MOBILEPARITY-STRIP-HEADING-SIZE":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-MUTATION-COLUMN-SHIFT":
@@ -152,8 +140,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md +1 more — no entry as of 2026-08-02",
   "BL-NEEDS-ATTENTION-HOLDS-ROLLUP":
     "cited in docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md — no entry as of 2026-08-02",
-  "BL-ONBOARDING-SCAN-EXPORT-HANG":
-    "cited in tests/drive/fetch.test.ts — no entry as of 2026-08-02",
   "BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER":
     "cited in DEFERRED-archive.md — no entry as of 2026-08-02",
   "BL-OVERRIDE-ORPHAN-SALIENCE":
@@ -182,8 +168,6 @@ const KNOWN_DANGLING: Record<string, string> = {
     "cited in BACKLOG.md — no entry as of 2026-08-02",
   "BL-SYNCFEED-UI-3":
     "cited in BACKLOG.md — no entry as of 2026-08-02",
-  "BL-TRANSPORT-VIEWER-NAME-MATCH":
-    "cited in lib/data/getShowForViewer.ts +3 more — no entry as of 2026-08-02",
   "BL-UNPUBLISH-TO-HELD":
     "cited in docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md — no entry as of 2026-08-02",
   "BL-VENUE-DEGRADED-TILE-LABEL":

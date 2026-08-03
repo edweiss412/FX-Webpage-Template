@@ -8,6 +8,74 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-TRANSPORT-VIEWER-NAME-MATCH — RESOLVED (2026-06-26, `c0165ad05`)
+
+**Filed:** retroactively 2026-08-02 · **Resolved:** 2026-06-26, `c0165ad05` `fix(crew-page): name-aware transport-tile viewer match (namesRefer)` · **Class:** crew-page visibility correctness · **Effort:** S
+
+Filed retroactively because the id had no ledger row: it is cited from four shipped source sites as the provenance of a decision, never as an open item, so nothing ever graduated. Recorded here so those citations resolve.
+
+`transportTileVisible` matched the viewer against `transportation.driver_name` and `transportation.schedule[*].assigned_names[]` with exact `===`. `driver_name` is FREE-TEXT (`presence(clean(...))` in the transport block parser, not roster-validated), so a sheet's "Driver: Doug" never equalled a roster "Doug Larson" and the driver could not see their own ride card. Replaced by the name-aware `namesRefer` matcher (`lib/data/nameMatch.ts`) — NFD/diacritic fold, `Jr`/`Sr` suffix strip, single-token first/last prefix compatibility, multi-token surname anchoring — the same matcher the hotel filter uses (`BL-HOTEL-VIEWER-NAME-MATCH`). Later widened to the alias-set form `namesReferAny` when the `viewerNameAliases` §3.5 name-override work landed (`6a7eaaa79`, 2026-07-09) and joined by a garble-proof id path (`282cadeb7`, same day), so a viewer whose id is in `transportationOwnerIds` sees the tile even when the sheet garbled the driver name past name matching.
+
+**UX-not-security** per the owner's 2026-05-23 determination (master spec amendment): the filter is presentation, over-match is benign (the tile is re-reachable by re-picking), under-match (hiding a viewer's own ride) is the harm. Live citations: `lib/data/getShowForViewer.ts:243`, `lib/visibility/scopeTiles.ts:162`, `lib/visibility/transportTransitions.ts:9`, `tests/visibility/transportTransitions.test.ts:219` (the transition-matrix test picks old/new placeholder names with distinct surnames precisely because the matcher is surname-aware).
+
+---
+
+## BL-HOTEL-VIEWER-NAME-MATCH — RESOLVED (2026-06-26, autonomous pipeline)
+
+**Filed:** retroactively 2026-08-02 · **Resolved:** 2026-06-26 · **Class:** crew-page visibility correctness · **Effort:** M
+
+Filed retroactively as a heading of its own. The close-out was written into the BODY of the parser-residuals entry ("Hotel `hotel_name` / address split + conf#", item 3 of the exporter-fidelity backlog further down this file), so the id resolved for a human reading that entry but for nothing that greps by heading — including the eight citations across shipped source, spec, and plan.
+
+The per-viewer hotel filter in `getShowForViewer` was `res.names.some(n => guest.includes(viewer))`, a naive substring test broken for roughly five of the seven corpus shows (first names `Carl` ⊉ `Carl Fenton`; nicknames `Douglas`/`Doug`, `Alexandre`/`Alex`, `DJ`/`David`; initials `Eric W`/`Eric Weiss`). Replaced by `hotelVisibleToViewer` (`lib/data/getShowForViewer.ts:113`) over `namesReferAny`, plus a `parseGuestCell` slash-split so future data stores one guest per entry while already-persisted `"David Johnson / Jeffrey Justice"` rows still match at MATCH time (no DB backfill). Pinned by the `namesRefer` unit matrix, an explicit + fixture-derived `hotelVisibleToViewer` suite, a structural source guard against a `.includes` relapse, and three seeded live-DB `getShowForViewer` regressions.
+
+Spec `docs/superpowers/specs/parser/2026-06-26-hotel-viewer-name-match.md`, plan `docs/superpowers/plans/parser/2026-06-26-hotel-viewer-name-match/00-overview.md` (Codex: spec APPROVED in 4 rounds, plan APPROVED in 4). Full narrative, including the per-show breakage table and the round-by-round review history, stays in the parser-residuals entry rather than being duplicated here.
+
+---
+
+## BL-CRON-SYNTHETIC-SHOW-SKIP — RESOLVED (2026-07-17, `542eb098a` + `7e4788301`)
+
+**Filed:** retroactively 2026-08-02 · **Resolved:** 2026-07-17 · **Class:** cron reconciliation soundness · **Effort:** S
+
+Filed retroactively: cited from three shipped sites as the provenance of the guard, never as an open row.
+
+A db/e2e run pointed at a shared remote database can COMMIT a seeded `published=true` show and leave it behind (`sql.begin` commits on success; several seeders do no cleanup). The scheduled cron then listed live shows, found the row absent from the Drive folder listing, and marked it `source_gone`/`SHEET_UNAVAILABLE` on every tick forever — churning the tick to `outcome: partial` and generating alert noise for a row that can never resolve. `lib/sync/syntheticDriveFileId.ts` recognizes the test-seed shapes (`drv-<uuid>`, `drive-<uuid>`, `picker-e2e:*`) and the missing-shows filter in `runScheduledCronSync` skips a row only on the CONJUNCTION of synthetic shape AND `last_seen_modified_time IS NULL`.
+
+The conjunction is the load-bearing part and came from Codex R1 MEDIUM (`7e4788301`): the shape filter alone is strong but not a proof of impossibility, since the Drive id charset admits hyphens and hex, so a real Drive id could in principle land on the hyphenated-UUID shape. Every production show-insert stamps `last_seen_modified_time` in the same statement (the cron first-seen INSERT and the shared `applyStaged` upsert used by onboarding finalize), so a NULL watermark can only come from a non-apply test seeder, and a genuine show that LEFT the folder has synced at least once and is still reconciled. Pinned by `tests/sync/syncRevalidate.test.ts:211` — a synthetic row alongside a real gone show, asserting only the real one enters the loop.
+
+---
+
+## BL-ONBOARDING-SCAN-EXPORT-HANG — RESOLVED (2026-06-26, `d18a15a95`)
+
+**Filed:** retroactively 2026-08-02 · **Resolved:** 2026-06-26, `d18a15a95` `fix(drive): bound the xlsx export with an AbortSignal stall guard` · **Class:** infra liveness · **Effort:** S
+
+Filed retroactively: the id survives only as a `describe` title in the test that pins the fix.
+
+Drive's xlsx export intermittently stalls for heavy sheets, and a reproduced onboarding scan hung on one. A silent socket stall never throws, so `withDriveRetry` — which reacts to thrown 429/5xx — could not see it, and the scan sat forever with no timeout of its own. `lib/drive/fetch.ts` now bounds each export attempt with an `AbortSignal` stall guard and surfaces the abort as a transient 504 (`DriveFetchError`), so `withDriveRetry` retries the stalled export with a fresh budget rather than failing it outright; a PERSISTENTLY stalled sheet now fails the whole scan instead of hanging it. Pinned by `tests/drive/fetch.test.ts:689` with zero-jitter, zero-sleep fake retry so the assertions stay deterministic and fast.
+
+---
+
+## BL-CASP2-POPOVER-PROXIMITY — RESOLVED (2026-07-17, `b60deb33b`)
+
+**Filed:** retroactively 2026-08-02 (CASP2-2, impeccable critique P1) · **Resolved:** 2026-07-17, `b60deb33b` · **Class:** UI polish (error-surface proximity) · **Effort:** S
+
+Filed retroactively as a sibling heading to `BL-CASP2-STRIP-POLISH` (which does have one). The closure was written inside the `CASP-2` entry's body in `DEFERRED-archive.md`, so the id resolved for a reader of that entry but not for the shipped-source citation at `components/admin/PublishedToggle.tsx:49`.
+
+The inline `PublishedToggle` rendered refusals and generic retry copy in a right-anchored `right-0 w-max max-w-60` popover hanging off the sticky `StatusStrip`. When a long show title made the strip flex-wrap, the toggle moved far left while the popover stayed pinned to a phantom right edge, breaking Gestalt proximity between the control and its error. Widening it to a full-strip-width banner (`inset-x-0`, `top-full`) makes its x-position invariant to where the toggle wraps, so it can never disconnect — and a full-width banner is in-viewport BY CONSTRUCTION at 390px, where the rejected toggle-anchored alternative overflowed both extremes. `break-words` caps long `ErrorExplainer`/`HelpAffordance` tokens so copy grows vertically only.
+
+ERROR-ONLY by design: errors are momentary. The longer-lived finalize skin split off to the in-flow `FINALIZE_CHIP` under `BL-CASP2-STRIP-POLISH` so it never overlays the rail content below the strip. Geometry pinned by `tests/e2e/statusStripToggleLayout.spec.ts` §8.10c (banner hugs strip edges, width > 300px, x-position identical short vs long title); class set pinned by the `PublishedToggle.test.tsx` positioning-parity unit test. Impeccable dual-gate on the diff: critique no-slop, detector clean, audit 20/20, contrast AA both themes (6.09:1 light / 6.94:1 dark).
+
+---
+
+## BL-COLLAPSEPANEL-REGION-OPTOUT — RESOLVED (2026-07-17, `4d1980ba9`)
+
+**Filed:** retroactively 2026-08-02 (COLLAPSE-REGION-1) · **Resolved:** 2026-07-17, `4d1980ba9` `fix(admin): CollapsePanel region opt-out; strip groups drop landmark` · **Class:** a11y (landmark proliferation) · **Effort:** S
+
+This id was never opened as a row — `DEFERRED-archive.md`'s COLLAPSE-REGION-1 resolution says so in as many words ("was cited here but was never actually filed in `BACKLOG.md` (no row to close)"). It is nonetheless cited from shipped source as the provenance of the opt-out, so the row is written retroactively at its already-resolved state rather than left dangling; that note in `DEFERRED-archive.md` is updated to point here.
+
+`CollapsePanel` set `role="region"` plus `aria-label` on every disclosed panel. WAI-APG cautions against many region landmarks, and `RecentAutoAppliedStrip` can render up to `STRIP_RENDER_CAP = 50` show groups, so an admin with a busy dashboard could swamp the AT landmark list. `CollapsePanel` now takes `region?: boolean` (default `true`); `region={false}` drops the role and label — a bare `aria-label` is not surfaced on a generic element — while preserving the id/testid (the `aria-controls` target), the overflow-hidden clip, and the inert-when-closed behavior. The strip's per-group panels pass `region={false}`, since the toggle above each already names and controls it (`aria-expanded` + `aria-controls`, show name as its accessible name); the two singleton disclosures (IgnoredSheets, AddAdmin) keep the default. Pinned by `tests/components/admin/CollapsePanel.test.tsx` (region-false drops role and label but keeps id and inert; default keeps the landmark). Live citation: `components/admin/RecentAutoAppliedStrip.tsx:459`.
+
+---
+
 ## BL-CI-STATIC-ENV-INJECTION — RESOLVED (2026-08-02, `test/ci-static-env-injection`)
 
 **Resolution:** both guard layers now refuse static `env:` blocks carrying off-allowlist pairs. One shared registry in the scanner module — `ENV_KEY_ALLOWLIST`, VALUE-PINNED and PAIR-KEYED GOVERNANCE-BOUND rows (`key → { values: [{ text: exact scalar text, governs: [covered spec paths THAT PAIR gates] }], reason }`) seeded from the 35 live keys (38 pairs). Governance hangs off the VALUE, never the key: a key-level list cannot see two live values of one row swap between the claiming site and a parked one, which leaves a value-gated spec self-skipping green — and one shared predicate `offAllowlistEnvKeys` (`Object.hasOwn` membership + pinned-value-text membership; expressions pin as text). Scanner: scope-correct rejection — workflow-root env governs the file, job env its job, a run-step's env its own claims — with reason `env block sets unmodelled key(s): <sorted keys>`; a `uses:`/composite step handed dirty env poisons the job fail-closed through the generalized `envPoisoned` mechanism (reason and census why-string both name the static source now). Census: `runBlocksOf` gained an allowlist parameter and per-scope poison seeding; composite dirt poisons onward, workflow run-step dirt stays block-local. Mutation families pinned per layer, not uniformly in both: S1–S3 and S7 (scope/traversal, fail-open flip, precision twins, value-pin) in BOTH self-suites; S4–S6 and S8 (reason strings, multi-key completeness, allowlist hygiene, governance) in the SCANNER self-suite only, because reasons, the registry and the governance derivation are scanner-side concepts the census does not model (S7 = value-pin deletion, from the R2 live mutant `MODAL_PREFETCH_E2E=0` — a green run with no tests under a key-name-only registry; S8 = governance-binding deletion, from the R3 relocation / R4 prose-laundering / R5 duplicate-substitution live mutants — governance derives from the scan's own covered-claim crediting via `envPairGovernance` + `governanceViolations`); pair-level stale-row + live-completeness (both directions: declared→live and live→declared) + governance-equality + reason hygiene keeps the registry from rotting in either direction. Spec: docs/superpowers/specs/ci/2026-08-02-ci-static-env-injection-design.md (§7 = review record). Original entry below.
