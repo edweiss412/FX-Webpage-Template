@@ -21,18 +21,27 @@ function audit(paths: string[]) {
 }
 
 describe("AC-X.2 internal code enum manifest", () => {
-  test("committed manifest is generated from parser, sync-status, pending-ingestion, and admin-alert sources", () => {
-    const extracted = extractInternalCodeEnums();
-    expect(extracted.UNKNOWN_FIELD?.source).toContain("parse_warnings.code");
-    expect(extracted.UNKNOWN_ROLE_TOKEN?.source).toContain("parse_warnings.code");
-    expect(extracted.pending_review?.source).toContain("shows.last_sync_status");
-    expect(extracted.sheet_unavailable?.source).toContain("shows.last_sync_status");
-    expect(extracted["MI-1_VERSION_DETECTION_FAILED"]?.source).toContain(
-      "pending_ingestions.last_error_code",
-    );
-    expect(extracted.WIZARD_ISOLATION_INDEXES_MISSING?.source).toContain("admin_alerts.code");
-    expect(INTERNAL_CODE_ENUMS).toEqual(extracted);
-  });
+  // extractInternalCodeEnums() now builds a full TypeScript program to resolve
+  // parse-warning codes by type (~19s: ~11.7s construction, ~2.8s checker
+  // warm-up, ~4.5s walk, over 2882 files). That is well inside vitest's 30s
+  // default locally and over it on a CI runner — this test timed out at 34.7s.
+  // Spec: docs/superpowers/specs/2026-08-03-parse-warning-code-recognizer-design.md §5.
+  test(
+    "committed manifest is generated from parser, sync-status, pending-ingestion, and admin-alert sources",
+    { timeout: 180_000 },
+    () => {
+      const extracted = extractInternalCodeEnums();
+      expect(extracted.UNKNOWN_FIELD?.source).toContain("parse_warnings.code");
+      expect(extracted.UNKNOWN_ROLE_TOKEN?.source).toContain("parse_warnings.code");
+      expect(extracted.pending_review?.source).toContain("shows.last_sync_status");
+      expect(extracted.sheet_unavailable?.source).toContain("shows.last_sync_status");
+      expect(extracted["MI-1_VERSION_DETECTION_FAILED"]?.source).toContain(
+        "pending_ingestions.last_error_code",
+      );
+      expect(extracted.WIZARD_ISOLATION_INDEXES_MISSING?.source).toContain("admin_alerts.code");
+      expect(INTERNAL_CODE_ENUMS).toEqual(extracted);
+    },
+  );
 
   test("forbidden set dedupes catalog, retired, and internal provenance", () => {
     const index = buildForbiddenCodeIndex();
