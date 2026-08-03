@@ -4,7 +4,7 @@
 
 **Goal:** Give the sync changes feed a screen-reader announcement when a single row's Undo succeeds, and close the same-class failure-card defect on all three feed action buttons, per the spec `docs/superpowers/specs/2026-08-03-undo-success-announcement-design.md`. Closes `BL-SYNC-FEED-UI-POLISH` and its three children.
 
-**Architecture:** The append-shaped `role="log"` channel already shipped inside `ShowReviewSurface` is extracted into one shared module (`useAnnounceLog` + `AnnounceLogRegion`), the warnings panel is retrofitted onto it, and the two surfaces that render a single-row Undo control adopt it through a context whose default is a no-op. The region is owned by a component that the undo cannot unmount — which for the dashboard strip means moving it above the group loop and turning its `return null` into a return of the bare `sr-only` region.
+**Architecture:** The append-shaped `role="log"` channel already shipped inside `ShowReviewSurface` is extracted into one shared module (`useAnnounceLog` + `AnnounceLogRegion`) and the warnings panel is retrofitted onto it. The channel is then mounted **once, by `app/admin/layout.tsx`**, inside a new `AdminAnnounceProvider` whose region is its always-first child. No surface component owns announcement state: two review rounds established that any owner below a data-dependent branch has its region node replaced on the very success it announces, so the owner sits above every such branch. The feed surfaces only thread an `announceLabel` prop.
 
 **Tech Stack:** Next.js 16 / React 19 (`useActionState`), vitest 4.1.5 + jsdom, Testing Library, Tailwind v4 tokens.
 
@@ -23,7 +23,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — file-walk over `components/` and `app/` asserting any file rendering `<UndoChangeButton` or `<ChangeFeedEntry` references `UndoAnnounceContext.Provider` or carries `// no-undo-announce: <reason>` (Task 9). Proven by a planted violation, not only by passing on the current tree.
+- **CREATES** `tests/styles/_metaUndoAnnounceProvider.test.ts` — two assertions (Task 9): A1, `app/admin/layout.tsx` wraps every `return` in `AdminAnnounceProvider`; A2, no file outside the provider module references `UndoAnnounceContext.Provider`. Each carries its own planted violation.
 - **EXTENDS** none.
 - No advisory-lock topology section: the plan does not touch `pg_advisory*`.
 
@@ -103,55 +103,55 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 
 **`Mi11GateActions.test.tsx:95` is the one that must not be converted mechanically.** Undo and Accept keep independent catalog-copy assertions elsewhere in their files, so their node checks were redundant; MI-11's is the file's only positive evidence that a failure renders at all. It gains a copy assertion or the file is left with zero coverage of its failure path (spec §7).
 
-## Task 6 — `ChangesFeed` provides and renders the region
+## Task 6 — `AdminAnnounceProvider`, mounted by the admin layout
 
-- [ ] Red tests, then add `useAnnounceLog`, the provider, and the region as the last child of the `<section>`; thread `announceLabel={entry.summary}` through `ChangeFeedEntry`.
-- [ ] Commit `feat(admin): announce undo results in the per-show changes feed`.
-
-| Assertion | Failure caught |
-|---|---|
-| `change-feed-undo-status` renders with `role="log"` and empty text on first render, **including with `entries={[]}`** | Gating the region on having rows, which reintroduces the insertion pitfall |
-| Undoing a row appends one child whose text is derived from **that fixture's** `summary`, not a hardcoded string | Announcing the wrong row; and a hardcoded expectation that would pass against any summary |
-| Two rows with **identical** summaries each produce their own appended child | The precise class `role="log"` was chosen for (spec §1.2) |
-| The region node captured before the undo is `toBe` the node after | Remount destroying the announcement |
-
-## Task 7 — `RecentAutoAppliedStrip` owns a strip-wide channel
-
-- [ ] Red tests first, including the two early-return cases.
-- [ ] Move state and region to the strip root; replace `return null` at `RecentAutoAppliedStrip.tsx:685` with a return of the bare region; add the region to the `infra_error` return at `RecentAutoAppliedStrip.tsx:670-681`; thread `announceLabel={row.summary}` to the button at `RecentAutoAppliedStrip.tsx:298`.
-- [ ] Commit `fix(admin): keep the strip undo announcement alive when its group empties`.
+- [ ] Red tests first, then create the provider and mount it.
+<!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
+- [ ] Create `components/admin/AdminAnnounceProvider.tsx` (`"use client"`): holds `useAnnounceLog`, provides `UndoAnnounceContext`, renders `<AnnounceLogRegion … testId="admin-undo-status" label="Undo updates" />` as its **always-first** child, then `{children}`.
+- [ ] Edit `app/admin/layout.tsx` to wrap the branch it selected — one wrapper around the chosen return value, **not** an edit inside each of the three returns (`app/admin/layout.tsx:90`, `layout.tsx:155`, `layout.tsx:177`), and **outside** `PageTransition` (`layout.tsx:171`).
+- [ ] Commit `feat(admin): mount the announce channel on the admin layout`.
 
 | Assertion | Failure caught |
 |---|---|
-| `auto-applied-undo-status` renders at strip level, empty, `role="log"` | Missing channel |
-| A single-row undo appends one child naming that row's summary | Channel not wired |
-| With `groups: []`, the region still renders **and** `recent-auto-applied-strip` does not | The `return null` path dropping the channel; and the fix breaking the "no empty card" intent (`RecentAutoAppliedStrip.tsx:684`) |
-| In the `infra_error` state, the region still renders | The error early-return dropping the channel |
-| `auto-applied-bulk-undo-status-${showId}` still has `role="status"` and its existing behavior | R2 regression — the bulk channel being swept into this refactor |
+| The provider renders `admin-undo-status` as its first child, with `{children}` after it | The region drifting to a position whose index can change |
+| Swapping `children` for an entirely different subtree leaves the region node `toBe` identical | The round-2 defect: node replacement while state survives |
+| A consumer deep inside `children` calling `announce` appends to the region | The context not actually reaching descendants |
 
-## Task 8 — Unmount probes (the executable form of spec §3.7)
+The layout edit is the whole point of the redesign; wrapping each return separately would recreate the branch-replaces-region defect it exists to remove.
 
-- [ ] Three probes per spec §11. Commit `test(admin): prove the undo announcement survives its own success`.
+## Task 7 — Thread `announceLabel` at the two call sites
 
-| Probe | Failure caught |
+- [ ] Red tests, then pass `announceLabel={entry.summary}` at `ChangeFeedEntry.tsx:141` and `announceLabel={row.summary}` at `RecentAutoAppliedStrip.tsx:298`.
+- [ ] Commit `feat(admin): announce undo results from both feed surfaces`.
+
+| Assertion | Failure caught |
 |---|---|
-| Strip with one undoable row in one group; action resolves `{ok:true}`; parent re-renders with `groups: []`; region still holds the announcement | The production sequence exactly — the last undoable row leaves the `applied` set and the strip body disappears |
-| Same, with the re-render interleaved **while the action promise is unresolved**, resolving after | The narrower race: a continuation running after its own component is gone |
-| Feed: re-render with the undone row's `action` flipped to `"none"` mid-action; region still holds the text | The feed's version, where the button unmounts but the section does not |
+| Rendering `ChangesFeed` inside the provider and undoing a row appends one child derived from **that fixture's** summary | Wrong row announced; hardcoded expectation |
+| Two feed rows with identical summaries each append their own child | The class `role="log"` was chosen for (spec §1.2) |
+| Rendering the strip inside the provider and undoing a row appends one child naming that row's summary | Second surface not wired |
+| `auto-applied-bulk-undo-status-${showId}` keeps `role="status"` and its behavior | R2 regression |
+| The strip still renders nothing with `groups: []` | The withdrawn return-a-span proposal creeping back |
 
-If any probe fails, spec §3.7 is false and the design needs an owner further out. Do not weaken the probe to make it pass.
+`ChangesFeed.tsx` is not edited in this task or any other. If a diff to it appears, the redesign was not followed.
+
+## Task 8 — Survival probes (spec §3.7, six branches)
+
+- [ ] Six probes per spec §11. **Every one captures the region node before the action and asserts `toBe` afterwards** — text equality alone passes when the region was destroyed and a populated replacement mounted, which is precisely the round-2 failure mode.
+- [ ] Commit `test(admin): prove the undo announcement survives every branch`.
+
+Branches covered, each one a case a prior review round proved could replace a per-surface region: strip to `groups: []`; the same interleaved with an unresolved action promise; strip to `infra_error`; the provider's `children` swapped wholesale (the `Dashboard.tsx:563` shape); feed row `action` flipped to `"none"`; `ChangesSection` flipped to its `feed === null` rendering (`ChangesSection.tsx:60`).
+
+If any probe fails, the layout-level owner is not immune and the design is wrong again. Do not weaken a probe to make it pass.
 
 ## Task 9 — Structural guard
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
-- [ ] Detection runs on comment-stripped source; the exemption is matched on raw source (spec §5).
-- [ ] Include a matcher self-check and a **planted violation** proving the walk fails a file with no provider and no exemption.
-- [ ] Add `// no-undo-announce: provider lives in ChangesFeed, its only importer` to `ChangeFeedEntry.tsx`.
-- [ ] Commit `test(admin): guard the undo announce provider contract`.
+- [ ] Write `tests/styles/_metaUndoAnnounceProvider.test.ts` with the two assertions of spec §5, using `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`).
+- [ ] **A1** — `app/admin/layout.tsx` references `AdminAnnounceProvider` and every `return` in the file is wrapped in it. Planted violation: a copy of the layout source with one `return` unwrapped.
+- [ ] **A2** — no file outside the provider module references `UndoAnnounceContext.Provider`. Planted violation: a file rendering `<UndoAnnounceContext.Provider>`.
+- [ ] Commit `test(admin): guard the announce channel's single layout-level owner`.
 
-Expected membership after this task: `ChangeFeedEntry.tsx` (exempt), `RecentAutoAppliedStrip.tsx` (provides), `ChangesFeed.tsx` (provides, a member only because the walk also scans `<ChangeFeedEntry`).
-
+Each assertion carries its **own** planted violation. Round 2's finding was a widened guard shipping a mutant for only one branch, so a guard silently ignoring the second would still have passed.
 ## Task 10 — `DESIGN.md` announcement contract
 
 - [ ] Add the paragraph naming the two channel shapes, when each applies, and the always-mounted rule.
@@ -166,7 +166,22 @@ Expected membership after this task: `ChangeFeedEntry.tsx` (exempt), `RecentAuto
 - [ ] Run `pnpm exec vitest run tests/docs/` — the ledger guards are the acceptance test.
 - [ ] Commit `docs(backlog): close BL-SYNC-FEED-UI-POLISH and file the swept class`.
 
-## Task 12 — Invariant-8 dual gate and closeout
+## Task 12 — Transition audit
+
+The spec's §10.2 Transition Inventory has six rows, five of which are invisible (`sr-only` additions and removals) and one of which is the failure card's instant appear/disappear. The audit confirms that inventory describes what shipped.
+
+- [ ] Enumerate every conditional render and `AnimatePresence` in the five touched components; assert each added or modified branch is deliberately instant, with no `transition-*`, `animate-*`, or `AnimatePresence` introduced on the failure wrapper or either region.
+- [ ] Compound case: toggle a failure card while an announcement is mid-delivery; assert the two regions are independent and neither clears the other.
+- [ ] Commit `test(admin): audit the announcement and failure-card transitions`.
+
+Failure caught: an implementer "improving" the error card with a fade, which delays the assistive-technology announcement behind an animation, and which the inventory explicitly forbids.
+
+## Task 13 — Adversarial review (cross-model)
+
+- [ ] Dispatch the whole-diff Codex review per the `AGENTS.md` cross-CLI discipline: fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list drawn from spec §1.1, iterate to APPROVE with no round budget.
+- [ ] Triage findings by deferral discipline: land-now, `DEFERRED.md`, or `BACKLOG.md`.
+
+## Task 14 — Invariant-8 dual gate and closeout
 
 - [ ] `/impeccable critique` and `/impeccable audit` on the diff, both with the canonical v3 setup gates (the context load of PRODUCT.md + DESIGN.md, then the register reference read).
 - [ ] P0 fixed inline; P1+ fixed or deferred with a `DEFERRED.md` entry.
