@@ -78,6 +78,9 @@ const NOT_CITATIONS = new Set([
   "tests/docs/_ledgerMdast.walker.test.ts",
   "tests/docs/_metaDeferralLedgerGraduation.test.ts",
   "tests/docs/_ledgerMdast.ts",
+  // Same reason: its `BL-PLANT*` entries are planted violations used to prove the
+  // in-progress rules catch what they claim to, not references to real work.
+  "tests/docs/_metaLedgerInProgress.test.ts",
 ]);
 
 /**
