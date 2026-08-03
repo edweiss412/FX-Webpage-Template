@@ -48,7 +48,8 @@ const ATOM_FILE = "components/shared/AccentButton.tsx";
 // RunFinalCASButton left the same way on 2026-08-03: both were retired as
 // zero-production-importer components, and a migrated-files row for a deleted file
 // hard-fails sub-scan 2. What the list loses is NOT coverage of a live surface —
-// both files are gone. Note the scope honestly: sub-scan 1 walks MIGRATED_FILES,
+// both files are gone, as are PublishShowButton (deleted at 32fec4fac) and
+// ResumeFinalizeButton before them. Note the scope honestly: sub-scan 1 walks MIGRATED_FILES,
 // not the repo, so it forbids re-inlining the composition in the files that were
 // migrated. Repo-wide coverage of `bg-accent` usage is _metaBgAccentInventory's
 // job, and it still enumerates every occurrence in the tree.)

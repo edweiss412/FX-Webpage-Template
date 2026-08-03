@@ -149,8 +149,11 @@
       on **any** `role_flags` delta for an existing crew member, with the rationale "role gates
       server-side data filtering." Three of the four §6.8 worked examples exercise the LEAD bit
       specifically (LEAD-loss, LEAD-gain, additive non-LEAD); the fourth is a department change
-      (`A1` → `V1`). LEAD toggles are auth-sensitive: LEAD grants access to the internal ops
-      surface and `shows_internal` financials. Department-designation changes (`A1` ↔ `V1`,
+      (`A1` → `V1`). LEAD toggles are capability-sensitive: LEAD unlocks `shows_internal`
+      financials and the audio/video/lighting scope tiles. (Corrected 2026-08-03 with MI-9 and
+      `lib/sync/phase2.ts`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`: the earlier wording tied
+      LEAD to an internal ops surface, which `is_admin()` refutes — it reads the JWT
+      `app_metadata.role` claim and the `admin_emails` table, never `role_flags`.) Department-designation changes (`A1` ↔ `V1`,
       `L1` ↔ `L2`, additive `BO`/`SHOP`/etc.) only change which scope tile the crew member sees
       on their own page — a self-visible UI tweak, not a capability or auth event. Staging both
       classes uniformly produces operator friction on routine department reassignments without a

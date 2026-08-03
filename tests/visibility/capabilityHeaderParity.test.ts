@@ -94,15 +94,18 @@ describe("capabilityTransitions header quotes scopeTiles verbatim", () => {
     ).toEqual([...QUOTED_PREDICATES]);
   });
 
-  it.each([...QUOTED_PREDICATES])("%s: the quoted flags equal the flags the source reads", (name) => {
-    const quoted = terms(quotedRhs(name) ?? "");
-    const actual = terms(sourceBody(name) ?? "");
-    expect(
-      [...quoted].sort(),
-      `The header claims this quote is verbatim branch logic from scopeTiles.ts. ` +
-        `Quoted: {${[...quoted].sort().join(", ")}}. Source reads: {${[...actual].sort().join(", ")}}.`,
-    ).toEqual([...actual].sort());
-  });
+  it.each([...QUOTED_PREDICATES])(
+    "%s: the quoted flags equal the flags the source reads",
+    (name) => {
+      const quoted = terms(quotedRhs(name) ?? "");
+      const actual = terms(sourceBody(name) ?? "");
+      expect(
+        [...quoted].sort(),
+        `The header claims this quote is verbatim branch logic from scopeTiles.ts. ` +
+          `Quoted: {${[...quoted].sort().join(", ")}}. Source reads: {${[...actual].sort().join(", ")}}.`,
+      ).toEqual([...actual].sort());
+    },
+  );
 
   it.each([...QUOTED_PREDICATES])("%s: the quoted OPERATORS match the source too", (name) => {
     const quoted = normalizeExpression(quotedRhs(name) ?? "");
@@ -132,7 +135,10 @@ describe("capabilityTransitions header quotes scopeTiles verbatim", () => {
     const re = /^\s*\*\s+financialsVisible\s*=/;
     const mutated = HEADER.split("\n").filter((l) => !re.test(l));
     const line = mutated.find((l) => re.test(l));
-    expect(line, "deleting the quote line must leave nothing to compare, which the pair-count " +
-      "assertion above reports as a failure").toBeUndefined();
+    expect(
+      line,
+      "deleting the quote line must leave nothing to compare, which the pair-count " +
+        "assertion above reports as a failure",
+    ).toBeUndefined();
   });
 });

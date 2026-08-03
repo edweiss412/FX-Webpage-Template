@@ -72,6 +72,10 @@ export const ARCHIVE_FILES = ["BACKLOG-archive.md", "DEFERRED-archive.md"] as co
  */
 export const CURRENT_STATE_CARVE_OUTS = [
   "BACKLOG.md",
+  // The master spec is the canonical contract (AGENTS.md invariant 7), not a dated
+  // record. It sits inside the specs glob, so without this row an injected stale
+  // reference in it would be silently exempt — whole-diff R2 proved exactly that.
+  "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/ROUTING.md",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md",
@@ -115,7 +119,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** three of those eight call sites have since been retired — ResumeFinalizeButton at the Step-3 consolidation, ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)",
+      "**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** four of those eight call sites have since been deleted — PublishShowButton at `32fec4fac` (with `/admin/unpublished`), ResumeFinalizeButton at the Step-3 consolidation, and ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)",
     reason:
       "BL-ACCENT-BUTTON-ATOM-SWEEP's description records which call sites M5-D7 migrated. The retired names ARE the census, and the note says they are retired.",
   },
@@ -123,7 +127,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "| `components/admin/PerShowCrewSection.tsx` | RETIRED. Mount removed at `d70761005`; the route is now a 307 into the dashboard modal, where `CrewBreakdown` renders the roster. |",
+      "| `components/admin/PerShowCrewSection.tsx` | RETIRED. Mount removed at `d70761005`; the route is now a 307 into the dashboard modal, where `CrewBreakdown` renders the roster.                                 |",
     reason:
       "Disposition table in the worked orphan entry: each row records what was retired and what superseded it.",
   },
@@ -131,7 +135,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "| `components/admin/ResolveAlertButton.tsx` | RETIRED. Superseded at `67ce6d082` by the bell panel's resolve control (labelled `Confirm` / `Mark resolved`, never \"Dismiss\"). |",
+      "| `components/admin/ResolveAlertButton.tsx` | RETIRED. Superseded at `67ce6d082` by the bell panel's resolve control (labelled `Confirm` / `Mark resolved`, never \"Dismiss\").                                   |",
     reason:
       "Disposition table in the worked orphan entry.",
   },
@@ -139,7 +143,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "| `components/admin/RunFinalCASButton.tsx` | RETIRED. Superseded at `bd214c04b`; `FinalizeButton`'s `\"finish\"` mode is the live finalize-cas path. |",
+      "| `components/admin/RunFinalCASButton.tsx`  | RETIRED. Superseded at `bd214c04b`; `FinalizeButton`'s `\"finish\"` mode is the live finalize-cas path.                                                             |",
     reason:
       "Disposition table in the worked orphan entry.",
   },
@@ -147,7 +151,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "BACKLOG.md",
     text:
-      "| `components/right-now/RightNowCard.tsx` | RETIRED. Superseded at `b327d5eb0` by `RightNowHero`; its two regression suites were RETARGETED onto the hero first, each proven by mutation rather than assumed. |",
+      "| `components/right-now/RightNowCard.tsx`   | RETIRED. Superseded at `b327d5eb0` by `RightNowHero`; its two regression suites were RETARGETED onto the hero first, each proven by mutation rather than assumed. |",
     reason:
       "Disposition table in the worked orphan entry.",
   },
@@ -195,7 +199,7 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "components/shared/AccentButton.tsx",
     text:
-      "* Step-3 consolidation, ResolveAlertButton and RunFinalCASButton retired",
+      "* consolidation, ResolveAlertButton and RunFinalCASButton retired 2026-08-03,",
     reason:
       "Retirement provenance: the atom's drift history is the point of the sentence, and naming what left keeps the census honest.",
   },
@@ -315,9 +319,17 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "tests/components/atoms/AccentButton.test.tsx",
     text:
-      "* ResolveAlertButton and RunFinalCASButton, all since retired).",
+      "* atom — plus PublishShowButton, ResumeFinalizeButton, ResolveAlertButton and",
     reason:
-      "Retirement provenance for the atom's drift history.",
+      "Retirement provenance for the atom's drift history; naming what left keeps the eight-site census checkable.",
+  },
+  {
+    kind: "line",
+    file: "tests/components/atoms/AccentButton.test.tsx",
+    text:
+      "* RunFinalCASButton, all since deleted, and ReSyncButton, de-migrated).",
+    reason:
+      "Second half of the same census sentence.",
   },
   {
     kind: "line",

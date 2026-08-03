@@ -65,7 +65,7 @@ THIS BRANCH. All six are fixed; none deferred.
 | # | Sev | Finding | Disposition |
 | --- | --- | --- | --- |
 | 1 | P1 | `components/admin/PendingPanelDiscardButtons.tsx:59` cited `ReSyncButton "Re-sync anyway"` — a label no surface renders (`ReSyncButton` says `Re-sync` / `Syncing…`, and its confirm-go is `Apply reduced version`) | FIXED — cites `RevokeRowButton "Confirm revoke"`, which is real and registry-pinned |
-| 2 | P2 | `components/shared/AccentButton.tsx:7-10` census listed `PublishShowButton` (no such file) and `ReSyncButton` (de-migrated to ghost at §6.7) as live call sites | FIXED — three live call sites named, matching `MIGRATED_FILES`; the rest moved into the retired/de-migrated clause |
+| 2 | P2 | `components/shared/AccentButton.tsx:7-10` census listed `PublishShowButton` (no such file) and `ReSyncButton` (de-migrated to ghost at §6.7) as live call sites | FIXED — three live call sites named, matching `MIGRATED_FILES`; all five departures accounted for (whole-diff R2 caught that the first fix still omitted `PublishShowButton`, deleted at `32fec4fac`) |
 | 3 | P2 | `components/admin/ArchiveShowButton.tsx:9` and `app/admin/settings/admins/RevokeRowButton.tsx:7` claimed the meta-test "pins" the two-tap idiom; `DESIGN.md:460` says it pins the confirm-go recipe, and the shape is a review convention | FIXED — both now say what the registry actually pins |
 | 4 | P3 | `components/crew/RightNowHero.tsx` used present tense ("requires today") about a deleted file | FIXED |
 | 5 | P3 | `app/help/_components/Callout.tsx:26` conflated the `data-stale` attribute with the `bg-stale-tint` class | FIXED — names both and their relationship |

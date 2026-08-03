@@ -6,10 +6,11 @@
  * The primary-action "accent fill" button chrome had drifted across ~8
  * admin call sites at the time. Three still carry the atom
  * (PendingPanelRetryButton, FinalizeButton, StagedReviewCard — the current
- * MIGRATED_FILES list); the rest have left it: ResumeFinalizeButton at the
- * Step-3 consolidation, ResolveAlertButton and RunFinalCASButton retired
- * 2026-08-03, and ReSyncButton DE-MIGRATED to a ghost trigger by the
- * modal-header reconciliation (§6.7). Each had
+ * MIGRATED_FILES list); all five others have left it: PublishShowButton deleted
+ * at `32fec4fac` with /admin/unpublished, ResumeFinalizeButton at the Step-3
+ * consolidation, ResolveAlertButton and RunFinalCASButton retired 2026-08-03,
+ * and ReSyncButton DE-MIGRATED to a ghost trigger by the modal-header
+ * reconciliation (§6.7). Each had
  * hand-copied the same `bg-accent`/`text-accent-text`/`hover:bg-accent-hover`/
  * focus-ring stack with small, accreted differences (padding, font
  * weight, ring-offset color, inline-flex vs block, shadow). The 4th-

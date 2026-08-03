@@ -19,7 +19,7 @@
 // could never go green. So the matcher requires a capability SUBJECT, a granting
 // VERB, and an admin OBJECT in one sentence, with a negation guard. Six fixtures
 // below make that reviewable instead of a regex nobody can audit.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -29,10 +29,26 @@ import { walkPlansTree } from "@/tests/docs/_invariant8Closeout";
 const ROOT = process.cwd();
 const MASTER_SPEC = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
 
+/**
+ * CURRENT-STATE documents: prose a reader consults to learn how things ARE.
+ * Whole-diff R2 found a third in-force claim in `00-overview.md` — canonical per
+ * AGENTS.md invariant 7 — which neither the MI-9 scan nor the production-source
+ * scan could see. Dated records (handoffs, closed milestone plans) are deliberately
+ * NOT here: they say what was true when written.
+ */
+const CURRENT_STATE_DOCS = [
+  MASTER_SPEC,
+  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md",
+  "AGENTS.md",
+  "PRODUCT.md",
+  "DESIGN.md",
+] as const;
+
 const SUBJECT = /\b(LEAD|FINANCIALS|role_flags|capability (?:role|flag))\b/i;
 const VERB =
   /\b(grants?|granting|unlocks?|unlocking|confers?|conferring|provides?|providing|gives? access to|enables? access to|opens? up)\b/i;
-const OBJECT = /\b(admin\/ops|ops surface|admin surface|admin access|admin\/financials|ops\/financial)\b/i;
+const OBJECT =
+  /\b(admin\/ops|ops surface|admin surface|admin access|administrator access|admin\/financials|ops\/financial|(?:the\s+)?(?:internal\s+)?ops\b|access to admin|admin tools|admin panel|admin surfaces?)\b/i;
 // Negation counts only when it sits ADJACENT to the granting verb. Whole-diff
 // review finding 3: a sentence-wide negation test let an unrelated "not" suppress
 // a real claim ("LEAD grants admin access, not just financials access"), which is
@@ -41,9 +57,11 @@ const NEGATOR = String.raw`(?:no|not|never|neither|nor|cannot|can't|doesn't|don'
 
 /**
  * True when a sentence positively claims a capability flag confers an admin or
- * ops surface. Negation anywhere in the sentence disqualifies it — the corrected
- * prose says so explicitly, and a guard that fired on the correction would be
- * unusable.
+ * ops surface. A negator in the SAME CLAUSE as the granting verb disqualifies it
+ * — the corrected prose says "neither grants admin access" explicitly, and a guard
+ * that fired on the correction would be unusable. Scoping to the clause rather
+ * than the whole sentence is what keeps an unrelated "not" elsewhere from
+ * suppressing a real claim (whole-diff R1 finding 3).
  */
 export function claimsAdminGrant(sentence: string): boolean {
   if (!SUBJECT.test(sentence) || !OBJECT.test(sentence)) return false;
@@ -54,12 +72,42 @@ export function claimsAdminGrant(sentence: string): boolean {
   // sentence.
   return verbs.some((m) => {
     const at = m.index ?? 0;
-    const before = sentence.slice(Math.max(0, at - 24), at);
+    // Whole-diff R2: a FIXED 12-character window let "No role_flags element grants
+    // admin access" through as a positive claim, because the negator sits 22
+    // characters back. The window is the whole clause before the verb instead —
+    // a negator anywhere between the clause boundary and the verb negates it.
+    const clauseStart = Math.max(
+      sentence.lastIndexOf(".", at - 1) + 1,
+      sentence.lastIndexOf(";", at - 1) + 1,
+      sentence.lastIndexOf(",", at - 1) + 1,
+      0,
+    );
+    const before = sentence.slice(clauseStart, at);
     // A hyphenated compound ("capability-granting elements") is a CATEGORY label,
     // not an assertion that something grants an admin surface. The corrected MI-9
     // row opens with exactly that phrase.
     if (sentence[at - 1] === "-") return false;
-    return !new RegExp(`\\b${NEGATOR}\\b[^.;]{0,12}$`, "i").test(before);
+    return !new RegExp(`\\b${NEGATOR}\\b`, "i").test(before);
+  });
+}
+
+/**
+ * Sentences with a capability SUBJECT carried forward.
+ *
+ * Whole-diff R2: "LEAD is a capability flag. It grants admin access." escaped,
+ * because the second sentence's subject is a pronoun. Within one block, once a
+ * capability subject has been named, later subject-less sentences inherit it —
+ * which is how a reader parses them too.
+ */
+export function withCarriedSubject(parts: readonly string[]): string[] {
+  let carried: string | null = null;
+  return parts.map((s) => {
+    const m = SUBJECT.exec(s);
+    if (m !== null) {
+      carried = m[0];
+      return s;
+    }
+    return carried === null ? s : `${carried} ${s}`;
   });
 }
 
@@ -109,6 +157,11 @@ describe("capability-claim recognizer", () => {
     ["LEAD additionally provides the admin surface", true],
     ["LEAD grants admin access, not just financials access", true],
     ["Neither LEAD nor FINANCIALS grants admin access", false],
+    // Whole-diff R2's probe strings:
+    ["LEAD grants administrator access", true],
+    ["FINANCIALS grants access to admin tools", true],
+    ["LEAD grants access to the internal ops surface", true],
+    ["No role_flags element grants admin access", false],
   ])("%s → %s", (sentence, expected) => {
     expect(claimsAdminGrant(sentence as string)).toBe(expected);
   });
@@ -135,6 +188,34 @@ describe("no in-force prose claims a role flag grants admin access", () => {
     expect(productionFiles().length).toBeGreaterThan(100);
   });
 
+  it("every current-state document exists (a rename must not silently drop it)", () => {
+    const gone = CURRENT_STATE_DOCS.filter((f) => !existsSync(join(ROOT, f)));
+    expect(gone).toEqual([]);
+  });
+
+  it("no CURRENT-STATE document makes the claim", () => {
+    const offending: string[] = [];
+    for (const file of CURRENT_STATE_DOCS) {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      if (!SUBJECT.test(text) || !OBJECT.test(text)) continue;
+      const docLines = text.split("\n");
+      for (const [i, line] of docLines.entries()) {
+        // Prose wraps; pair each line with the next so a claim split across a
+        // wrap is still one sentence to the recognizer. Split ONCE — re-splitting
+        // per line is quadratic and times out on the master spec.
+        const window = `${line} ${docLines[i + 1] ?? ""}`.replace(/\s+/g, " ");
+        for (const s of withCarriedSubject(sentences(window))) {
+          if (claimsAdminGrant(s)) offending.push(`${file}:${i + 1} ${s.slice(0, 140)}`);
+        }
+      }
+    }
+    expect(
+      [...new Set(offending)],
+      "A current-state document asserting a capability flag grants admin/ops access. These are read " +
+        "as contracts, not as records of what was once true.",
+    ).toEqual([]);
+  });
+
   it("no production source comment makes the claim either", () => {
     const offending: string[] = [];
     for (const file of productionFiles()) {
@@ -149,7 +230,7 @@ describe("no in-force prose claims a role flag grants admin access", () => {
       const flush = (): void => {
         if (block.length === 0) return;
         const joined = block.join(" ").replace(/\s+/g, " ").trim();
-        for (const s of sentences(joined)) {
+        for (const s of withCarriedSubject(sentences(joined))) {
           if (claimsAdminGrant(s)) offending.push(`${file}:${blockStart + 1} ${s}`);
         }
         block = [];

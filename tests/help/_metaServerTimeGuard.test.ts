@@ -127,10 +127,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // 'use client' directive over from the retired RightNowCard verbatim, so the
     // classifier's contract — it separates a directive-carrying island from a
     // server component — is unchanged by the swap.
-    const rightSrc = readFileSync(
-      join(process.cwd(), "components/crew/RightNowHero.tsx"),
-      "utf8",
-    );
+    const rightSrc = readFileSync(join(process.cwd(), "components/crew/RightNowHero.tsx"), "utf8");
     const reportSrc = readFileSync(
       join(process.cwd(), "components/shared/ReportModal.tsx"),
       "utf8",

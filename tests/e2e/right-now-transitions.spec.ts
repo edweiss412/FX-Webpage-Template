@@ -116,7 +116,7 @@ async function readCardAttrs(
   page: Page,
   expectedState?: string,
 ): Promise<{ state: string | null; treatment: string | null; stale: string | null }> {
-  const card = page.getByTestId("right-now-card");
+  const card = page.getByTestId("right-now-hero");
   await expect(card).toBeVisible();
   if (expectedState) {
     // Wait for hydration to settle on the expected state before
@@ -140,8 +140,8 @@ async function readCardAttrs(
  * within ±0.5px of the pre-transition height during a crossfade.
  */
 async function cardHeight(page: Page): Promise<number> {
-  const box = await page.getByTestId("right-now-card").boundingBox();
-  if (!box) throw new Error("right-now-card not visible");
+  const box = await page.getByTestId("right-now-hero").boundingBox();
+  if (!box) throw new Error("right-now-hero not visible");
   return box.height;
 }
 

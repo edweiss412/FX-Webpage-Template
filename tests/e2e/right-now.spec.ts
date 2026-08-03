@@ -150,7 +150,7 @@ test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
     const r = await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     expect(r?.status()).toBe(200);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     const stateMarker = card.getByTestId("right-now-state");
     await expect(stateMarker).toHaveAttribute("data-state", "show_day_n");
@@ -170,7 +170,7 @@ test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",
@@ -191,7 +191,7 @@ test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",
@@ -216,7 +216,7 @@ test.describe.skip("crew page — Today hero (Task 4.11, AC-4.3)", () => {
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
 
-    const card = page.getByTestId("right-now-card");
+    const card = page.getByTestId("right-now-hero");
     await expect(card).toBeVisible();
     await expect(card.getByTestId("right-now-state")).toHaveAttribute(
       "data-state",
