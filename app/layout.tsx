@@ -1,6 +1,39 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
+
+/*
+ * The app's single type family, per DESIGN.md §2.1: "single contemporary sans
+ * for all UI. One family, no display/body pairing. Loaded via `next/font/google`
+ * in `app/layout.tsx`." This is that wiring.
+ *
+ * It lives at the ROOT because the font must reach every tree. It previously
+ * lived in `app/show/[slug]/layout.tsx`, which bound Inter for the crew subtree
+ * only — admin, auth and help rendered the system fallback, measured on real
+ * routes at 187.28px against Inter's 168.91px for the same string. On a client
+ * with none of the six named stack entries (a bare Linux install, which is what
+ * a CI runner is) that fallback goes all the way to DejaVu Sans, which is wide
+ * enough to wrap labels that fit under Inter. See BL-HEADER-FONT-FALLBACK-WRAP.
+ *
+ * WHAT BINDS IT: not the `variable` class below, which only defines the
+ * `--font-inter` token. Binding happens because next/font registers the face
+ * under the LITERAL family name `Inter` (verified against the generated CSS —
+ * Next 16 does not hash it), and `app/globals.css` names that literal first in
+ * `--font-sans`, applied at `html`. `tests/e2e/font-binding.spec.ts` pins the
+ * result by measuring rendered text, so a future Next release that starts
+ * hashing the family name fails loudly instead of silently degrading.
+ *
+ * `--font-inter` is exposed here rather than lower down because `<html>` is the
+ * widest scope available: the token should not be narrower than the font it
+ * names. Nothing consumes it today; it stays for inline use, and is pinned by
+ * the same spec so it cannot vanish unnoticed.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "FXAV Crew Pages",
@@ -54,7 +87,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
         <GlobalErrorListener />

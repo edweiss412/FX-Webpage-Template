@@ -4,7 +4,13 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 # mobile-safari, plus three under desktop-chromium — the crew picker flow
 # (tests/e2e/picker-flow.spec.ts), alert-action-links.spec.ts, and the seeded
 # stage-restricted crew schedule suite that carries the per-viewer agenda day fold
-# (tests/e2e/stage-restricted-crew-schedule.spec.ts). The last one is on chromium
+# (tests/e2e/stage-restricted-crew-schedule.spec.ts), and the font-binding oracle
+# (tests/e2e/font-binding.spec.ts), which measures rendered text width on /admin,
+# /auth/sign-in and a seeded crew route to prove the app renders the family
+# DESIGN.md 2.1 commits to. It runs HERE, on the job that builds and starts the
+# production artifact, because the binding rests on next/font registering the
+# literal family name "Inter" -- a dev-server-only run would leave that unproved
+# against the build CI actually ships. The stage-restricted suite is on chromium
 # for the same reason picker-flow is: WebKit cannot store the Secure `__Host-`
 # picker cookie over plain http, so every non-admin viewer in it goes dark there
 # (measured on this workflow's first run, 2026-08-02). The rest of the
@@ -145,10 +151,10 @@ jobs:
       # `__Host-`-prefixed Secure picker envelope, so the first-contact bootstrap
       # and every real selection fail to persist there and a correct
       # implementation reads as broken; Chromium's localhost exemption stores it.
-      - name: Run crew section-toggle + picker-flow + alert-action-links + stage-restricted e2e (:3000 only)
+      - name: Run crew section-toggle + picker-flow + alert-action-links + stage-restricted + font-binding e2e (:3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/crew-e2e-report.json
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts --reporter=list,json
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts --reporter=list,json
       # Collected is not executed. A `beforeEach` calling test.skip() skips every case at RUNTIME
       # while --list still counts them, so the wiring guard, its skip registry and this job's exit
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads
