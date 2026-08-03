@@ -308,15 +308,16 @@ strings were fixed, not an intent the code has yet to implement.
 **"admin/ops surface" denoted nothing LEAD actually confers.** What LEAD confers beyond FINANCIALS
 is scope-tile breadth, not admin access.
 
-**Class sweep, run 2026-08-03** (`rg -n "admin/ops" --glob '!node_modules' .`, 12 files). Every
-instance outside this spec and its plan, dispositioned:
+**Class sweep, re-run at R3** (`rg -l "admin/ops" --glob '!node_modules' . | wc -l` → **13 files**;
+the draft said 12, counted before this spec existed). Every instance outside this spec and its plan,
+dispositioned:
 
 | Site | Disposition |
 | --- | --- |
 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` MI-9 | **CORRECTED here** — the only claim still in force |
 | `BACKLOG.md` (4 lines: the `BL-LEAD-CAPABILITY-PROSE-STALE` entry) | Moves to `BACKLOG-archive.md` with the entry; quoting the defect IS the filing |
 | `BACKLOG-archive.md` (the archived `BL-ROLEFLAGS-…` entry) | History; already archived at its terminal state |
-| `docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md` (5), `docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md`, `docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md`, `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md` | History — shipped design records quoting the copy as it stood. Left alone on the same reasoning `2026-08-02-copy-deadcode-sweep-design.md` §1.1 item 13 applied to them |
+| `docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md` (5), `docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md`, `docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md`, `docs/superpowers/specs/alerts/2026-07-17-role-flags-notice-lead-only-doug.md`, `docs/superpowers/plans/2026-08-02-copy-deadcode-sweep.md`, `docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md`, `docs/superpowers/specs/2026-07-18-alert-copy-full-sweep-design.md` (2), `docs/superpowers/specs/step3-onboarding/2026-07-17-mi9-lead-autoapply-fyi.md` | History — shipped design records quoting the copy as it stood. Left alone on the same reasoning `2026-08-02-copy-deadcode-sweep-design.md` §1.1 item 13 applied to them. The last four were added at R3; the draft's list was assembled by eye and was short |
 
 `rg -n "admin/ops" lib app components tests` returns **zero** hits: no production code, no rendered
 copy, and no test carries the claim. That is the post-condition this branch preserves.
@@ -328,9 +329,12 @@ contradicted claim in a semantic variant the `admin/ops` string could not see, a
 PRODUCTION source rather than a spec table. It is corrected in the same commit as MI-9: the
 sentence's real justification is that the `crew_added` change-log image carries no `role_flags`, so
 a capability grant would otherwise land unlogged; "ops" is the only wrong word in it, and the
-financials half is true. Widened sweep, run 2026-08-03:
-`rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib` returns exactly this
-one hit outside `docs/`.
+financials half is true. Widened sweep, corrected at R3: `rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib`
+returns **two** hits, not one. The second, `lib/parser/typoVocabRegistry.ts:55`
+("ops/financials field-alias fuzzy fallback"), is unrelated parser-vocabulary prose that predates
+this class and asserts nothing about entitlement — it is NOT corrected, and the post-condition after
+Task 9 is therefore "the `phase2.ts` hit is gone and `typoVocabRegistry.ts:55` is the only remaining
+match", never "zero matches". The draft demanded zero, which no correct edit could have produced.
 
 **Fix:** correct the clause in place to state what LEAD additionally does (unlocks the
 audio/video/lighting scope tiles per `lib/visibility/scopeTiles.ts:86`,
@@ -353,6 +357,51 @@ any §12.4 prose drift, the three-way lockstep applies in one commit
 Every reference below is a comment or registry naming a file this branch deletes. A deleted file's
 citations are stale by construction; leaving them is the same defect class the orphan guard exists
 to catch.
+
+### 5.0 The census is a GUARD, not a table (R3 structural landing)
+
+Three consecutive rounds found omissions in this inventory — R1 (two executable), R2 (a
+`test.describe` title and a still-open backlog entry), R3 (three live `DEFERRED.md` tracking rows
+and four historical files). Each round I re-curated the table by hand from a differently-scoped
+grep, and each round a different scoping decision hid a different class. Per the AGENTS.md
+same-vector rule and the writing-plans structural-defense calibration, the third round is where
+prose patching stops and a guard ships.
+
+**A new retired-identifier-reference guard under `tests/docs/`** (created by the plan's Task 0,
+BEFORE any deletion): it walks every git-tracked file, greps for each retired identifier, and fails on any hit
+whose file is not in an explicit `RETIRED_IDENTIFIER_HISTORY` allowlist carrying a per-file reason.
+
+Why this ends the vector rather than deferring it:
+
+- **Discovery is a walk, not a curated list**, so a reference I did not think of fails by default —
+  the same property that makes `tests/components/_metaOrphanedComponents.test.ts` trustworthy.
+- **The initial RED run IS the work-list.** Seeded with an empty allowlist, its failure output
+  enumerates every live reference in the tree. No hand census can be short, because no hand census
+  is consulted.
+- **"History" becomes a claim with a reason attached**, reviewable per row, instead of an
+  unstated scoping decision buried in a `--glob`. R3's finding is precisely that `DEFERRED.md`
+  ACTIVE tracking rows had been silently treated as history; an allowlist row for that file would
+  have had to state a reason, and no honest reason exists.
+- It **survives this branch**: the next retirement adds its identifier and gets the same guarantee.
+
+The table below stays as the EXPLANATION of what each hit is and what to do with it. The guard is
+what makes the set complete.
+
+### 5.1 Live tracking rows that must be updated, not archived (R3)
+
+`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` is an ACTIVE ledger, so its rows
+are commitments, not history:
+
+| Row | Today | Action |
+| --- | --- | --- |
+| `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:83` | an e2e coverage gap naming `RightNowCard` and the suite this branch renames | Repoint to `RightNowHero` and the renamed suite; the GAP is unchanged, only its coordinates |
+| `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:90` | cites `PerShowCrewSection.test.tsx` as the non-equivalent admin-side coverage | Reword: the admin-side suite no longer exists, which strengthens rather than weakens the deferral |
+| `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:636` | names `components/admin/RunFinalCASButton.tsx` as a reopen TRIGGER | Repoint the trigger to `components/admin/FinalizeButton.tsx`, the surviving finalize-cas UI |
+
+Every other `docs/` hit (`docs/audits/pr-38-217-bug-audit-2026-07-02.md`, the user-facing-docs
+`DEFERRED.md`, `docs/superpowers/artifacts/2026-08-02-docs-hygiene-baseline-lint.txt`, and the
+historical design records) is a record of what was true when it was written and is allowlisted with
+that reason. An audit and a lint artifact are dated snapshots; rewriting them would falsify them.
 
 **Spec R1 rebuilt this table.** The draft's inventory was incomplete, and two of the omissions were
 EXECUTABLE rather than cosmetic — following the draft literally would have left the tree red:

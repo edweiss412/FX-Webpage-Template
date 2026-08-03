@@ -6,7 +6,7 @@ every decision below is settled there, with citations). **Branch:**
 Claude Code (`components/` is Opus-owned by the AGENTS.md routing hard rule). **Reviewer:** Codex,
 adversarially, never as implementer.
 
-Eleven tasks, one commit each (invariant 6). Every task is TDD (invariant 1): the guard or test
+Twelve tasks, one commit each (invariant 6). Every task is TDD (invariant 1): the guard or test
 that fails without the change lands first, then the change.
 
 ---
@@ -29,6 +29,9 @@ that fails without the change lands first, then the change.
 
 - **EXTENDS** `tests/components/_metaOrphanedComponents.test.ts` — via its ledger
   (`tests/components/_orphanedComponents.ts`): five rows to one. No change to the guard's logic.
+- **CREATES** `tests/docs/retiredIdentifierReferences.test.ts` (+ ledger `tests/docs/_retiredIdentifiers.ts`)
+  — the R3 structural landing for the census/sweep-completeness vector (spec §5.0). Discovery is a
+  `git ls-files` walk, so a reference nobody thought of fails by default.
 - **CREATES** `tests/visibility/capabilityHeaderParity.test.ts` — the structural defense for the
   class spec §4.1 names: a comment block labelled "verbatim branch logic" drifting from the
   function it quotes. Ships in the SAME commit as the prose fix, per the writing-plans
@@ -53,6 +56,39 @@ that fails without the change lands first, then the change.
 assertions, fixtures, boot mechanism, and hydration gates are untouched.
 
 ---
+
+## Task 0 — the retired-identifier guard (ships FIRST, before any deletion)
+
+**Failure mode it catches:** the one this branch kept re-learning. Three adversarial rounds each
+found references a hand-curated census missed, every time because a different `--glob` scoping
+decision silently reclassified a live reference as history: R1 missed two files that name a path as
+a STRING inside a test helper; R2 missed a `test.describe` TITLE and a still-open backlog entry; R3
+missed three ACTIVE `DEFERRED.md` tracking rows. Per the AGENTS.md same-vector rule and the
+structural-defense calibration, the guard ships instead of a fourth curated list.
+
+1. Create `tests/docs/retiredIdentifierReferences.test.ts` plus its ledger
+   `tests/docs/_retiredIdentifiers.ts`:
+   - `RETIRED_IDENTIFIERS`: `RightNowCard`, `PerShowCrewSection`, `PerShowCrewRow`,
+     `ResolveAlertButton`, `RunFinalCASButton`.
+   - `RETIRED_IDENTIFIER_HISTORY`: `{ file, identifier, reason }` rows. A row is a CLAIM that the
+     file is a dated record, and it carries the reason inline so a reviewer can check it.
+   - Discovery is a walk of `git ls-files` (never a curated file list), excluding the guard's own
+     ledger. Any hit in a file with no matching row FAILS, naming file, line, and identifier.
+2. **RED first, and the RED output is the work-list.** Seed `RETIRED_IDENTIFIER_HISTORY` EMPTY and
+   run it: the failure enumerates every live reference in the tree. Paste that output into the
+   commit message — it is the census, mechanically derived, and it replaces the spec §5 table as
+   the authority.
+3. Add ONLY the genuine-history rows now (`BACKLOG-archive.md`, `DEFERRED-archive.md`,
+   `docs/audits/**`, `docs/superpowers/artifacts/**`, closed design records under
+   `docs/superpowers/specs/**` and `docs/superpowers/plans/**`, this plan, and the spec). Leave
+   every live reference RED — Tasks 3 through 6 turn them green by repairing them.
+4. **Anti-tautology:** assert the guard is non-vacuous — that it walks >100 files and that a
+   synthetic file containing a retired identifier with no allowlist row FAILS. A guard that passes
+   because its walk found nothing is the failure mode this whole task exists to prevent.
+
+**Verify:** `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts` (expected RED, listing
+the live references), then `pnpm typecheck`
+**Commit:** `test(docs): walk the tree for retired-identifier references instead of curating a census`
 
 ## Task 1 — retarget the stale-tint recovery suite onto `RightNowHero`
 
@@ -151,10 +187,13 @@ component.
    `components/layout/PageTransition.tsx:8`; the header prose of `tests/e2e/right-now.spec.ts` and
    `tests/e2e/right-now-transitions.spec.ts` (prose only — the specs drive the real page and their
    assertions are untouched).
-5. **Class sweep before finishing, UNSCOPED:**
-   `rg -n "RightNowCard" --glob '!node_modules' --glob '!.next' .` must return only this plan, the
-   spec, and historical records under `docs/`. Scoping the sweep to `app components lib tests` is
-   what hid the two executable hits from the draft (spec §5's sweep lesson). Every code/test hit is repaired in THIS
+5. **Live tracking rows (spec §5.1) — these are commitments, not history:**
+   `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:83` names the card and the
+   suite Task 1 renames (repoint both; the coverage GAP is unchanged, only its coordinates).
+6. **Sweep is now the guard, not a grep:** re-run
+   `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`. Every remaining `RightNowCard`
+   hit must be either repaired or an allowlist row with a stated reason. Do not add an allowlist row
+   for a file you simply did not want to edit — that is the exact move that cost three rounds. Every code/test hit is repaired in THIS
    commit, not one per review round.
 
 **Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/components/crew`
@@ -173,7 +212,10 @@ rows pointed at files nobody ships, so its green says less each release.
    non-vacuous; state that in a comment so a later reader does not read the shrink as erosion.
 4. `tests/help/forbidden-prose-registry.test.ts:80` — reword the reason to name the live surface.
    The registry's assertion is unchanged.
-5. Class sweep: `rg -n "PerShowCrewSection\|PerShowCrewRow" app components lib tests` must be empty.
+5. `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:90` cites the deleted test as
+   the non-equivalent admin-side coverage — reword (its absence STRENGTHENS the deferral).
+6. Re-run the Task 0 guard; every `PerShowCrewSection` / `PerShowCrewRow` hit repaired or
+   allowlisted with a reason.
 
 **Verify:** `pnpm test -- tests/cross-cutting tests/help tests/components/_metaOrphanedComponents.test.ts`
 **Commit:** `chore(admin): retire PerShowCrewSection, superseded by the modal's CrewBreakdown`
@@ -201,7 +243,7 @@ can reach, while five live files cite it as the pattern to copy.
    **Do NOT write "BellPanel's Dismiss"** (spec R1 LOW): that label does not exist, and writing it
    would ship fresh stale prose while repairing stale prose. A comment citing a deleted file is the
    same defect class the orphan guard exists to catch.
-5. Class sweep: `rg -n "ResolveAlertButton" app components lib tests` must be empty.
+5. Re-run the Task 0 guard; every `ResolveAlertButton` hit repaired or allowlisted with a reason.
 
 **Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
 **Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's resolve control`
@@ -223,10 +265,11 @@ which reads as finalize coverage and is not.
 4. Comments: `components/shared/AccentButton.tsx:8`, `tests/onboarding/finalize-cas.test.ts:513`,
    `tests/components/atoms/AccentButton.test.tsx:7` — each repoints to `FinalizeButton`, the live
    renderer of the per-row block (`components/admin/FinalizeButton.tsx:827`).
-5. Class sweep, unscoped: `rg -n "RunFinalCASButton" --glob '!node_modules' --glob '!.next' .`
-   must return only this plan, the spec, the two `BACKLOG.md` entries Task 10 handles (the one that
-   graduates and `BL-ACCENT-BUTTON-ATOM-SWEEP`, which is amended and stays open), and
-   `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
+5. `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:636` names the component as a
+   reopen TRIGGER — repoint the trigger to `components/admin/FinalizeButton.tsx`, the surviving
+   finalize-cas UI.
+6. Re-run the Task 0 guard; every `RunFinalCASButton` hit repaired or allowlisted. The two
+   `BACKLOG.md` entries Task 10 handles and `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
    alone.
 
 **Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts`
@@ -301,8 +344,10 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
    ops/financial access silently". Drop the "ops" half — the financials half is true and the
    sentence's real justification (the `crew_added` change-log image carries no `role_flags`, so the
    grant would otherwise land unlogged) is unaffected. Widened sweep, re-run before the commit:
-   `rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib` must return zero
-   hits afterwards.
+   `rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib` must afterwards
+   return exactly ONE hit — `lib/parser/typoVocabRegistry.ts:55`, unrelated parser-vocabulary prose
+   that asserts nothing about entitlement and is deliberately untouched (spec §4.2, corrected at
+   R3). "Zero hits" is the wrong post-condition and no correct edit can reach it.
 4. **§12.4 lockstep check (must be performed, expected to be a no-op):** confirm the edit touches
    §6.8 only. If any §12.4 prose changed, `pnpm gen:spec-codes` + the matching `lib/messages/catalog.ts`
    row land in THIS commit (`tests/cross-cutting/codes.test.ts` blocks merge otherwise). Expected:
