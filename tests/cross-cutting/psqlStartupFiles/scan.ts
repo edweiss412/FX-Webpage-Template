@@ -2001,6 +2001,18 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     for (let k = index; /\\$/.test(logical) && k + 1 < lines.length; k++) {
       logical = `${logical.replace(/\\$/, " ")}${lines[k + 1] ?? ""}`;
     }
+    // The shell REMOVES a backslash-newline outright — no space in its place —
+    // so `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
+    // `/opt/postgresql/17/bin/psql`. `logical` joins with a SPACE, which is
+    // right for separating WORDS but splits the very word the shell is gluing
+    // together, so every binding rule read two halves and neither contained a
+    // psql-shaped value. `spliced` is the shell's own reading; the binding
+    // rules use it, while the rules that care about word boundaries keep
+    // `logical`.
+    let spliced = rawCode;
+    for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
+      spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
+    }
     // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
     // Any assignment whose VALUE is a single word mentioning psql binds the
     // command name: `PG=psql`, `PSQL="/usr/bin/psql"`, and the parameter-default
@@ -2023,9 +2035,9 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // weakening for six seconds. The patterns are compiled once at module
     // scope, which is where the real cost was.
     const assigned =
-      ASSIGNED_VALUE_QUOTED.exec(code) ??
-      ASSIGNED_WHOLE_QUOTED.exec(code) ??
-      READ_HERE_STRING.exec(code);
+      ASSIGNED_VALUE_QUOTED.exec(spliced) ??
+      ASSIGNED_WHOLE_QUOTED.exec(spliced) ??
+      READ_HERE_STRING.exec(spliced);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
@@ -2056,8 +2068,8 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // spells it `$env:GITHUB_ENV`, where the `$` sits before `env:` and a
     // `\$\{?GITHUB_` pattern matches nothing.
     const githubEnvWrite =
-      /\bGITHUB_(?:ENV|OUTPUT)\b/.test(code) &&
-      /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(code)
+      /\bGITHUB_(?:ENV|OUTPUT)\b/.test(spliced) &&
+      /(?:^|[\s"'])[A-Za-z_]\w*=["']?[^\s"';|&]*\bpsql\b/.test(spliced)
         ? ["", ""]
         : null;
     // Tested against the LOGICAL line, not the physical one. A backslash-

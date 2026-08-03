@@ -3080,3 +3080,90 @@ describe("R33 escaping mutants — a logical command is not a physical line", ()
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R34 escaping mutants — a spliced word is one word", () => {
+  const WRAPPED_PATH = 'PSQL="/opt/postgresql/17/bin/\\\npsql"\n"$PSQL" -qAt mydb\n';
+
+  // The shell REMOVES a backslash-newline outright — no space — so
+  // `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
+  // `/opt/postgresql/17/bin/psql`. The binding rules read PHYSICAL lines, so
+  // neither half contained a psql-shaped value and the wrapped path bound the
+  // command name invisibly. Joining with a SPACE, which the continuation rule
+  // already did for other purposes, does not help: it splits the very word the
+  // shell is gluing together.
+  test.each([["x.sh"], ["x.bash"]])("a wrapped assignment path is reported in %s", (file) => {
+    expect(scanShellIndirection(WRAPPED_PATH, file).length).toBeGreaterThan(0);
+  });
+
+  test("a wrapped assignment path inside a workflow run block is reported", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      '          PSQL="/opt/postgresql/17/bin/\\',
+      '          psql"',
+      '          "$PSQL" -qAt mydb',
+      "",
+    ].join("\n");
+    const hits = [
+      ...scanShellIndirection(source, ".github/workflows/x.yml"),
+      ...scanWorkflowIndirection(source, ".github/workflows/x.yml"),
+    ];
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  test("a wrapped assignment path inside a JS shell string is reported", () => {
+    const source = `execSync(\`${WRAPPED_PATH}\`);\n`;
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // The same splice through every other binding spelling the reader knows.
+  test.each([
+    ["whole-argument export", 'export "PSQL=/opt/pg/bin/\\\npsql"\n"$PSQL" -qAt mydb\n'],
+    ["whole-argument readonly", 'readonly "PSQL=/opt/pg/bin/\\\npsql"\n"$PSQL" -qAt mydb\n'],
+    ["a here-string read", 'read -r PSQL <<< /opt/pg/bin/\\\npsql\n"$PSQL" -qAt mydb\n'],
+    ["an indexed element", 'PG[0]="/opt/pg/bin/\\\npsql"\n"${PG[0]}" -qAt mydb\n'],
+  ])("a wrapped %s is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("a wrapped GITHUB_ENV write is reported", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      '          echo "PSQL=/opt/pg/bin/\\',
+      '          psql" >> "$GITHUB_ENV"',
+      "",
+    ].join("\n");
+    const hits = [
+      ...scanShellIndirection(source, ".github/workflows/x.yml"),
+      ...scanWorkflowIndirection(source, ".github/workflows/x.yml"),
+    ];
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  // PRECISION: a wrapped value that binds nothing stays quiet, and so does a
+  // wrapped line whose two halves only LOOK like they splice into psql.
+  test.each([
+    ["a wrapped unrelated path", 'REF="/opt/pg/bin/\\\npg_dump"\n'],
+    ["a wrapped prose value", 'MSG="the migration runner \\\nretries on failure"\n'],
+    ["two unrelated adjacent lines", 'REF="/opt/pg/bin/"\nPSQLDOC="see the docs"\n'],
+  ])("%s is not reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toEqual([]);
+  });
+
+  test(
+    "the spliced-line reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});
