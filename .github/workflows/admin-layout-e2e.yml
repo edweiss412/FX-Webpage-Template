@@ -110,7 +110,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run admin layout e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
