@@ -110,6 +110,15 @@ against the shipped guard (AGENTS.md round-economy contract):
   exactly one project, so they only ever created the silent-pass class), and the guard bans any
   read of `project.name` in these specs — every project-based gate must read that property to
   exist. A `testMatch` move now makes the cases RUN and FAIL loudly on the wrong engine.
+- **MF27 — oracle-calibration sabotage (whole-diff review R14 live mutant; a genuinely new class,
+  not a respelling):** the guard pinned that the checker RUNS, never what it DEMANDS. Lowering
+  `stage-restricted-crew-schedule.spec.ts` from 6 to 3 let the three SFS-1 cases pass while all
+  three agenda-fold cases runtime-skipped, with CI green — the oracle calibrated to the very
+  degradation it exists to catch. Closed by making `REQUIRED` an export (the script runs only when
+  invoked directly) and asserting BOTH halves against independent sources: every threshold must
+  equal what Playwright actually resolves for that spec under the workflow's own projects, and the
+  key set must equal exactly the spec files the workflow names. The second half was added after a
+  values-only parity loop let a DELETED row escape.
 - **MF26 — repeat-inflated counts + non-command-position check (whole-diff review R13 live
   mutants):** a config-level `grep` selecting half the cases plus `repeatEach: 2` preserved every
   count on both sides while half the unique coverage — Theo and the unrestricted admin control

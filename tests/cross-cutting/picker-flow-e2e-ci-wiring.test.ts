@@ -453,6 +453,51 @@ describe("picker-flow e2e CI wiring", () => {
     ).toBe(true);
   });
 
+  it("the executed-count oracle's thresholds match live Playwright resolution", async () => {
+    // R14 (HIGH), a genuinely new class: the guard pinned that the checker RUNS, never what it
+    // demands. Lowering `stage-restricted-crew-schedule.spec.ts` from 6 to 3 let the three SFS-1
+    // cases pass while all three agenda-fold cases runtime-skipped, and CI stayed green — the
+    // oracle calibrated to the degradation it exists to catch. So the thresholds are not trusted
+    // as literals: each one must equal what Playwright ACTUALLY resolves for that spec under the
+    // workflow's own projects, which also keeps them correct as specs gain cases.
+    const { REQUIRED } = (await import("../../scripts/check-crew-e2e-executed.mjs")) as {
+      REQUIRED: Record<string, number>;
+    };
+    const segments = playwrightTestSegments(read("crew-e2e.yml"));
+    const projects = [
+      ...new Set(
+        segments.flatMap((t) =>
+          t.filter((w) => w.startsWith("--project=")).map((w) => w.slice("--project=".length)),
+        ),
+      ),
+    ];
+    // The KEY SET is pinned to the workflow's own file list, not just the values: deleting a row
+    // outright escaped a values-only parity loop (measured while closing R14). Every spec the job
+    // runs must have a threshold, and no threshold may name a spec the job does not run.
+    const named = [
+      ...new Set(
+        segments.flatMap((t) =>
+          t.filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!),
+        ),
+      ),
+    ].sort();
+    expect(
+      Object.keys(REQUIRED).sort(),
+      "the oracle's REQUIRED table does not cover exactly the specs crew-e2e.yml runs. A missing " +
+        "row means that spec may go dark unnoticed; an extra row means the oracle guards a spec " +
+        "this job never runs.",
+    ).toEqual(named);
+    for (const [base, threshold] of Object.entries(REQUIRED)) {
+      const spec = `tests/e2e/${base}`;
+      expect(
+        threshold,
+        `${base}: the oracle demands ${threshold} executed, but Playwright resolves a different ` +
+          "number of unique non-skipped tests for it. A threshold below the real count is an " +
+          "oracle calibrated to a partially dark run.",
+      ).toBe(definedResolution(spec, projects).count);
+    }
+  });
+
   it("crew-e2e.yml's pull_request trigger narrows on NOTHING but paths-ignore", () => {
     // R8 (HIGH) escaping mutant: `types: [closed]` left every other trigger predicate green while
     // the job stopped running on open/synchronize/reopen — i.e. on every PR event that matters.
