@@ -229,7 +229,9 @@ Three reconciliations, run against `information_schema` / `pg_class` / `pg_polic
 
 - **A — forward.** Every `ADMIN_TABLES` entry is classified `admin_only` or `deny_all`, and exists as a live relation. Catches a generator over-read and a retired table.
 - **B — reverse.** Every table classified `admin_only` or `deny_all` is in `ADMIN_TABLES`. Catches the generator silently dropping a §4.3 table — the entire R1-R4 family, regardless of which grammar defeated the parser.
-- **C — total.** Every live public base table appears in the registry. **This is the fail-by-default property.** A new table is caught because it is a *new table*, not because it has RLS, a REVOKE, a particular policy name, or a particular prose spelling. Nothing about its shape can hide it.
+- **C — total.** Every live relation in `public` that can carry or expose rows appears in the registry. **This is the fail-by-default property.** A new table is caught because it is a *new relation*, not because it has RLS, a REVOKE, a particular policy name, or a particular prose spelling. Nothing about its shape can hide it.
+
+  **Enumerate by `pg_class.relkind IN ('r','p','v','m','f')`, not by `information_schema.tables … BASE TABLE`.** Today `public` holds exactly 41 ordinary tables (`relkind='r'`) and nothing else — zero views, zero materialized views, zero foreign tables, zero partitioned parents (probe, 2026-08-02). A `BASE TABLE` filter is therefore indistinguishable from the `relkind` filter *right now*, and would silently stop covering the schema the day someone adds a view. That matters here specifically: PostgREST exposes views, and a simple view over an admin table is **auto-updatable**, so it would accept INSERT/UPDATE/DELETE and route around both the table's REVOKE and its classification. Partitioned parents and foreign tables have the same property. Covering all five relkinds costs one predicate and closes the class before it exists.
 
 Direction C is what the previous four attempts were all reaching for. It does not read the spec, the migrations, or any DDL; it reads the list of relations that exist.
 
