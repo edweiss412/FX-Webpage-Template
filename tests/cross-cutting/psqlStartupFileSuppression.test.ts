@@ -2125,3 +2125,43 @@ describe("R23 escaping mutants — line advance is PER CHARACTER", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 });
+
+describe("R24 escaping mutants — a parameter DEFAULT can supply the command", () => {
+  const OPERATORS = [":-", "-", ":=", "=", ":+", "+"];
+
+  // `PSQL="${PSQL:-psql}"` binds the command name at runtime. The lexer
+  // replaces the expansion with an opaque word, so no site exists; the
+  // assignment tripwire must be what fires.
+  test.each(OPERATORS)("an assignment using `${PSQL%spsql}` is an indirection", (operator) => {
+    const source = `PSQL="\${PSQL${operator}psql}"\n"$PSQL" -qAt mydb\n`;
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("the same assignment inside a JS shell string is reported", () => {
+    const source = 'PSQL="${PSQL:-psql}"; "$PSQL" -qAt mydb';
+    expect(scanShellIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Used DIRECTLY as the command word, it IS the command word.
+  test.each(OPERATORS)("`${PSQL%spsql}` used directly is a site", (operator) => {
+    const sites = sitesIn(`"\${PSQL${operator}psql}" -qAt mydb\n`, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("the direct form WITH -X still certifies", () => {
+    expect(sitesIn('"${PSQL:-psql}" -X -qAt mydb\n', "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  test.each([
+    ["prose in an assignment", 'MSG="psql failed to connect"\n'],
+    ["a word merely containing psql", "PG=notpsql\n"],
+    ["an unrelated assignment", "DSN=postgres://x\n"],
+  ])("%s is NOT an indirection", (_name, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  test("an unrelated expansion is not a command word", () => {
+    expect(sitesIn('pg_dump "${DSN}" > out.sql\n', "x.sh")).toHaveLength(0);
+  });
+});

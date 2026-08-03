@@ -941,7 +941,11 @@ function basename(word: string): string {
  */
 function isPsqlCommandWord(word: string): boolean {
   if (basename(word) === "psql") return true;
-  return word.includes("$") && /(?:\}|\))psql$/.test(word);
+  // `"${PSQL_DIR}psql"` — an expansion carrying the directory.
+  if (word.includes("$") && /(?:\}|\))psql$/.test(word)) return true;
+  // `"${PSQL:-psql}"` used DIRECTLY as the command word: the whole word is one
+  // expansion whose default supplies the command name.
+  return /^\$\{[^}]*\bpsql\b[^}]*\}$/.test(word);
 }
 
 /** argv[0] values whose FLAGS may also deny (`command -v psql`). */
@@ -1806,8 +1810,14 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     const comment = commentAt[index]?.[0]?.[0];
     const code = comment === undefined ? line : line.slice(0, comment);
     // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
+    // Any assignment whose VALUE is a single word mentioning psql binds the
+    // command name: `PG=psql`, `PSQL="/usr/bin/psql"`, and the parameter-default
+    // forms `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
+    // replaces the whole expansion with an opaque word and the command name
+    // only exists at runtime. Requiring the value to be ONE word keeps prose
+    // like `MSG="psql failed"` out; `\bpsql\b` keeps `notpsql` out.
     const assigned =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=["']?([^\s"';|&]*\/)?psql["']?(?:[\s;|&)]|$)/.exec(
+      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+)?[A-Za-z_]\w*=(["']?)(?!\$\(|`)[^\s"';|&]*\bpsql\b[^\s"';|&]*\1(?:[\s;|&)]|$)/.exec(
         code,
       );
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
