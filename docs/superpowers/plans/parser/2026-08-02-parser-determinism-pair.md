@@ -205,14 +205,24 @@ new case appended to `tests/parser/_metaKnownSectionsWalker.test.ts`:
 
 - Read the source of `lib/parser/knownSections.ts` and
   `tests/parser/_metaKnownSectionsRegistry.test.ts`.
-- Assert neither contains any stale-absence claim. Pin the exact phrases present today —
-  `no shared introspectable constant`, `does NOT walk`, `not cheaply achievable` — as a small
-  named list, so the assertion names what it forbids rather than pattern-guessing.
-- Assert both name `_metaKnownSectionsWalker` (the correct pointer), so the guard cannot be
-  satisfied by deleting the paragraph and saying nothing.
+- Assert **neither file contains any** phrase from a small named stale-absence list. The phrases
+  are distributed, not duplicated — measured on the unmodified tree:
 
-This case MUST go RED on the unmodified tree — the three phrases are present in both files right
-now — and green after §3.2. Capture the red output for the commit message.
+  | Phrase | `lib/parser/knownSections.ts` | `tests/parser/_metaKnownSectionsRegistry.test.ts` |
+  | --- | --- | --- |
+  | `no shared introspectable constant` | 1 | 0 |
+  | `does NOT walk` | 1 | 0 |
+  | `not cheaply achievable` | 0 | 1 |
+  | `_metaKnownSectionsWalker` | 0 | 0 |
+
+  So the assertion is "no file contains any listed phrase," **not** "each file contains each
+  phrase" — an implementer writing the latter would get a test that is red for the wrong reason.
+- Assert both files name `_metaKnownSectionsWalker` (the correct pointer), so the guard cannot be
+  satisfied by deleting the paragraph and saying nothing. Neither names it today.
+
+This case MUST go RED on the unmodified tree on **both** counts — each file carries at least one
+listed phrase, and neither carries the pointer — and green after §3.3. Capture the red output for
+the commit message.
 
 **Admissibility.** This is a new guard, so it needs a probe of the corruption it prevents rather
 than a hypothetical: both docstrings asserted the walker did not exist for the ~4 weeks after it
