@@ -28,7 +28,7 @@
 | `tests/cross-cutting/**` is serial; `unit-suite-db` boots Postgres for it | `.github/workflows/unit-suite.yml:101`, `.github/workflows/unit-suite.yml:133` |
 | 41 public relations, all `relkind='r'`; 39 RLS-enabled; 0 views/matviews/foreign/partitioned | live catalog probe, 2026-08-02 |
 | 19 canonical-email CHECKs live; 16 name-visible, 3 not | live `pg_constraint` probe |
-| Only two cluster entries are open; `BL-X5-INTROSPECTION-GAP` is **already archived** | `BACKLOG.md`, `BACKLOG-archive.md:2078` |
+| Only two cluster entries are open; `BL-X5-INTROSPECTION-GAP` is **already archived** | `BACKLOG.md`, the `BL-X5-INTROSPECTION-GAP` archive entry |
 
 ## 1. Meta-test inventory
 
@@ -188,7 +188,7 @@ Per spec §10's evidence table, which supersedes the generic checklist.
 
 **Files:** create **tests/docs/backlogClusterArchival.test.ts**; edit `BACKLOG.md`, `BACKLOG-archive.md`.
 
-Corpus reality (plan-R1 finding 8, verified): only **two** cluster entries are open — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING`. `BL-X5-INTROSPECTION-GAP` is already at `BACKLOG-archive.md:2078` and must not be duplicated. `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY`, filed by this cluster, **stays open**.
+Corpus reality (plan-R1 finding 8, verified): only **two** cluster entries are open — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING`. `BL-X5-INTROSPECTION-GAP` is already at the `BL-X5-INTROSPECTION-GAP` archive entry and must not be duplicated. `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY`, filed by this cluster, **stays open**.
 
 **Red:** add **tests/docs/backlogClusterArchival.test.ts** asserting the post-cluster corpus state — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING` each appear in `BACKLOG-archive.md` and **not** in `BACKLOG.md`; `BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY` appears in `BACKLOG.md` and **not** in the archive; `BL-X5-INTROSPECTION-GAP` appears exactly **once** across both files. Run: fails on the first two (still open) — a genuine red. `tests/docs/` already hosts this shape of guard (`tests/docs/_metaInvariant8Closeout.test.ts`).
 

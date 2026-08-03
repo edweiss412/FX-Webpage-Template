@@ -5,7 +5,14 @@
 -- bypassing every SECURITY DEFINER RPC gate -- its advisory locks, its
 -- atomicity, and its audit emission. Non-admin crew were already blocked at
 -- the row level by admin_only RLS; this closes the admin-session bypass on the
--- eight tables listed below, so the RPC is the only door FOR THOSE EIGHT.
+-- eight tables listed below.
+--
+-- Precisely what this buys: the RPC becomes the only PostgREST door for
+-- anon/authenticated. Service-role and direct-postgres writes are UNAFFECTED
+-- and remain the normal production path (lib/sync/*, lib/reports/*, lib/drive/*
+-- all write that way) -- the grants below preserve service_role deliberately.
+-- So this is not "nothing can bypass the RPC"; it is "a browser session
+-- cannot".
 --
 -- The §2.3 probe was demonstrated on admin_alerts (forging resolved_by), but
 -- admin_alerts is deliberately NOT revoked here -- see the class-(c) note

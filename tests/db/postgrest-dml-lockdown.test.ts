@@ -940,7 +940,7 @@ interface AdminDmlExemption {
  *
  * Both rows are admin-session write paths whose own comments name RLS as the
  * AUTHORITATIVE gate -- revoking would invert a deliberate trust boundary
- * rather than reinforce one. BACKLOG.md:556 records the admin_alerts posture as
+ * rather than reinforce one. the BL-HEALTH-RESOLVE-DB-LOCKDOWN backlog entry records the admin_alerts posture as
  * explicitly accepted. Spec §11 carries the promotion path if that changes.
  *
  * A bare exemption is not a licence: each row must cite the write path that
@@ -959,7 +959,7 @@ const ADMIN_DML_EXEMPTIONS: readonly AdminDmlExemption[] = [
     reason:
       "resolveAdminAlertFormAction and resolveHealthAlertFormAction UPDATE through the user " +
       "session; app/admin/actions.ts:139 documents the RLS-gated UPDATE as the mechanism. " +
-      "BACKLOG.md:556 accepts this posture; closing it is the whole-resolve-path change " +
+      "the BL-HEALTH-RESOLVE-DB-LOCKDOWN backlog entry accepts this posture; closing it is the whole-resolve-path change " +
       "tracked by BL-HEALTH-RESOLVE-DB-LOCKDOWN.",
   },
 ];

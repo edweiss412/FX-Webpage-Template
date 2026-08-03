@@ -34,13 +34,13 @@ Shipped in this cluster:
 
 | Decision | Ratification |
 | --- | --- |
-| `app_settings` and `admin_alerts` are **NOT** locked down in this cluster. RLS is their *documented authoritative* write gate, not an accident. | `app/admin/settings/_actions/setAutoPublish.ts:47-48` ("The authoritative write gate is the app_settings admin_only RLS"); `app/admin/actions.ts:139-143`; `BACKLOG.md:556` records the `admin_alerts` posture as explicitly ACCEPTED. See §4.1 class (c) and §9. |
+| `app_settings` and `admin_alerts` are **NOT** locked down in this cluster. RLS is their *documented authoritative* write gate, not an accident. | `app/admin/settings/_actions/setAutoPublish.ts:47-48` ("The authoritative write gate is the app_settings admin_only RLS"); `app/admin/actions.ts:139-143`; the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` backlog entry records the `admin_alerts` posture as explicitly ACCEPTED. See §4.1 class (c) and §9. |
 | No 9th required GitHub status check is added. | Adding one requires a manual branch-protection admin step by Eric and risks the documented fork-PR deadlock (master spec §17.2.1). The new assertions run in the existing PR-blocking `unit-suite` serial project. See §6.4. |
-| `BL-X5-INTROSPECTION-GAP`'s archived COMPLETE claim **holds** for its stated scope. This cluster does not redo it; it closes only the residual aperture defect found while verifying it. | `BACKLOG-archive.md:2080`; verification transcript §5.1. |
+| `BL-X5-INTROSPECTION-GAP`'s archived COMPLETE claim **holds** for its stated scope. This cluster does not redo it; it closes only the residual aperture defect found while verifying it. | the `BL-X5-INTROSPECTION-GAP` archive entry; verification transcript §5.1. |
 | The 4 M11.5-dropped tables (`crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces`) are out of scope — their relations do not exist. | `supabase/migrations/20260523000099_cutover_drop_m9_5.sql:23-26`; `scripts/generate-admin-tables.ts:31-34` `removedByPickerPivot`. |
 | `admin_field_overrides.created_by`'s canonical CHECK is **not** a gap. The table was dropped; only stale migration text remains. | `supabase/migrations/20260710000000_remove_admin_field_overrides.sql`; live `to_regclass('public.admin_field_overrides')` returns NULL (§5.1 probe). |
 | Prose §4.3 count is **23**; live `ADMIN_TABLES.length` is **19**. Both are correct; the delta is the 4 dropped tables. | master spec footnote `[^admintables-22]` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`. |
-| Statement-level lockdown does **not** replace RLS. It is the statement-level half of a two-half contract; RLS remains the row-level half. | `BACKLOG.md:918`. |
+| Statement-level lockdown does **not** replace RLS. It is the statement-level half of a two-half contract; RLS remains the row-level half. | the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` archive entry. |
 | The catalog assertion gets its **own** registry, not `expectedBoundaryChecks`. The two police different contracts, and merging them would drag in the AC-X.5 manifest coupling. | R1 finding 2; `tests/cross-cutting/_canonicalEmailCheckContract.test.ts:202`; `scripts/extract-email-boundaries.ts:87`. See §5.3. |
 | `email_deliveries` having **zero** RLS policies is correct, not a coverage hole — zero policies under enabled RLS is deny-all, stronger than `admin_only`. | §2.4 probe; `supabase/migrations/20260602000004_b3_email_deliveries.sql:21`. |
 | Registering `role_token_mappings.decided_by` in the AC-X.5 manifest is a **separate** cycle, not part of this cluster. Its write paths already canonicalize correctly. | `app/admin/show/[slug]/_actions/roleToken.ts:57`; §5.3 follow-up. |
@@ -92,7 +92,7 @@ admin_session_direct_INSERT_rows=1     -- forged alert row, bypassing upsert_adm
 admin_session_direct_DELETE_rows=2
 ```
 
-An **admin-authenticated session** can INSERT/UPDATE/DELETE these tables directly through PostgREST, bypassing every SECURITY DEFINER RPC gate — its advisory locks, its atomicity, and its audit emission. On `admin_alerts` specifically this bypasses `upsert_admin_alert` and forges `resolved_by`, which is the precise exposure `BACKLOG.md:556` describes.
+An **admin-authenticated session** can INSERT/UPDATE/DELETE these tables directly through PostgREST, bypassing every SECURITY DEFINER RPC gate — its advisory locks, its atomicity, and its audit emission. On `admin_alerts` specifically this bypasses `upsert_admin_alert` and forges `resolved_by`, which is the precise exposure the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` backlog entry describes.
 
 Statement-level baseline for all 10 (`delete ... where false` as `authenticated`): **`STATEMENT_PERMITTED` on every one.** This is the "before" fixture the new Layer 1 rows invert.
 
@@ -138,7 +138,9 @@ admin_only policy, not in ADMIN_TABLES: ignored_warnings
 | **admin `authenticated`** | **full direct DML, RPC gates bypassed** | statement denied; must go through the RPC |
 | `service_role` / raw SQL (`postgres`) | unaffected | unaffected |
 
-The value is not "stop an attacker" — Doug is the trusted business owner, and that framing was already rejected at `BACKLOG.md:910`. The value is that **the RPC becomes the only door**, so its advisory locks (invariant 2), its atomicity, and its audit emissions (invariant 10) cannot be routed around by a refactor, a console session, or a future admin UI that reaches for the table builder because it is one line shorter.
+The value is not "stop an attacker" — Doug is the trusted business owner, and that framing was already rejected in the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` backlog entry. The value is that **the RPC becomes the only PostgREST door for `anon`/`authenticated`**, so its advisory locks (invariant 2), its atomicity, and its audit emissions (invariant 10) cannot be routed around by a future admin UI that reaches for the table builder because it is one line shorter.
+
+**What it explicitly does NOT buy.** Service-role and direct-`postgres` writes are unaffected by design, and they are the normal production writers for these tables — `lib/sync/syncLog.ts`, `lib/reports/rateLimit.ts`, `lib/drive/watch.ts`, `lib/sync/assetRecovery.ts` and peers all write that way, and §4.2 preserves `service_role` deliberately. A raw-SQL refactor can still bypass an RPC's locks and telemetry. Saying "the RPC is the only door" without that qualifier would mislead exactly the future security review this cluster exists to serve.
 
 ---
 
@@ -146,7 +148,7 @@ The value is not "stop an attacker" — Doug is the trusted business owner, and 
 
 ### 4.1 Classification matrix (all 19; audited at 2026-08-02, not from the backlog snapshot)
 
-Class per `BACKLOG.md:906`: **(a)** SECURITY DEFINER RPC is the intended mutation gate; **(b)** admin-only RLS, no non-service writer — lockdown as defense-in-depth; **(c)** intentionally writable by a non-service role — NOT a candidate, reason documented.
+Class per the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` archive entry: **(a)** SECURITY DEFINER RPC is the intended mutation gate; **(b)** admin-only RLS, no non-service writer — lockdown as defense-in-depth; **(c)** intentionally writable by a non-service role — NOT a candidate, reason documented.
 
 | # | Table | Class | Non-service-role writers | Action |
 | --- | --- | --- | --- | --- |
@@ -249,7 +251,7 @@ The two extractors therefore serve **different contracts** — one tracks the li
 
 ### 5.1 Verification of the archived claim
 
-`BACKLOG-archive.md:2080` claims `BL-X5-INTROSPECTION-GAP` COMPLETE. Verified sub-claim by sub-claim:
+the `BL-X5-INTROSPECTION-GAP` archive entry claims `BL-X5-INTROSPECTION-GAP` COMPLETE. Verified sub-claim by sub-claim:
 
 | Sub-claim | Verdict |
 | --- | --- |
@@ -300,7 +302,7 @@ Probe confirms **zero** non-email canonical-shaped CHECKs exist (19 live, all em
 
 ### 6.2 Fix — re-derive from §4.3
 
-Relocate to a new RLS-coverage test under `tests/cross-cutting/` (the placement `BACKLOG.md:862` asks for) and invert the derivation: iterate `ADMIN_TABLES` rather than `pg_policies`.
+Relocate to a new RLS-coverage test under `tests/cross-cutting/` (the placement the `BL-RLS-COVERAGE-CROSSCUTTING` archive entry asks for) and invert the derivation: iterate `ADMIN_TABLES` rather than `pg_policies`.
 
 **Per-table posture assertion.** For every `ADMIN_TABLES` member assert `pg_class.relrowsecurity = true`, AND exactly one of two declared postures:
 
@@ -391,7 +393,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 ## 8. Meta-test inventory
 
-**Extends** (never parallels — `BACKLOG.md:912`):
+**Extends** (never parallels — the `BL-ADMIN-POSTGREST-DML-LOCKDOWN` archive entry):
 
 - `tests/db/postgrest-dml-lockdown.test.ts` — 8 registry rows + new spec-derived Layer 5 + `ADMIN_DML_EXEMPTIONS`.
 - `tests/cross-cutting/_canonicalEmailCheckContract.test.ts` — live-catalog completeness assertion + 3 registry rows.
@@ -406,7 +408,7 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 ## 9. Documented limits and the promotion path
 
-1. **`app_settings` + `admin_alerts` remain admin-session-writable.** Closing them requires choosing a replacement gate — service-role-after-`requireAdmin`, or a SECURITY DEFINER RPC per write — and either inverts the documented "RLS is authoritative" contract at `setAutoPublish.ts:47-48` and `actions.ts:139-143`. For `admin_alerts` the RPC path additionally has to encode the HEALTH-code developer-gate (`actions.ts:114-131`) in SQL, which is the "materially larger, whole-resolve-path change" already scoped at `BACKLOG.md:556`. Both stay class (c) with `ADMIN_DML_EXEMPTIONS` rows; §11 names the decision Eric owns.
+1. **`app_settings` + `admin_alerts` remain admin-session-writable.** Closing them requires choosing a replacement gate — service-role-after-`requireAdmin`, or a SECURITY DEFINER RPC per write — and either inverts the documented "RLS is authoritative" contract at `setAutoPublish.ts:47-48` and `actions.ts:139-143`. For `admin_alerts` the RPC path additionally has to encode the HEALTH-code developer-gate (`actions.ts:114-131`) in SQL, which is the "materially larger, whole-resolve-path change" already scoped at the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` backlog entry. Both stay class (c) with `ADMIN_DML_EXEMPTIONS` rows; §11 names the decision Eric owns.
 2. **The DDL-spelling class survives in three migration-parsing sites, and the catalog assertion is its backstop.** A repo-wide sweep found exactly two §4.3 *spec* extractors (both unified in §4.5). Three further files run `create table` regexes over `supabase/migrations/` for table attribution: `lib/audit/emailCanonicalization.ts`, `tests/cross-cutting/_canonicalEmailCheckContract.test.ts` (its `tableAtOffset`, which attributes a parsed CHECK to a table), and `tests/db/schema.test.ts`. A migration written `create table public."foo"` could mis-attribute in the first two. This is not fixed here — but §5.3's live-catalog assertion is exactly the backstop for it: `pg_constraint` carries the true `conrelid`, so a mis-attributed or missed CHECK in the static walk surfaces as a catalog/registry mismatch. The residual is that the static walk's per-column body assertion could be attributed to the wrong table while the catalog assertion still balances; no live migration uses a quoted or qualified CREATE TABLE today.
 3. **Body-structure of canonical CHECKs is still unverified** (§5.1). The three substring regexes accept a wrong boolean grouping. Widening to a full predicate parse is a separate, larger change; filed rather than smuggled in.
 4. **`role_token_mappings.decided_by` stays outside the AC-X.5 manifest** until its own amendment cycle (§5.3). Its canonicalization is correct today but unpoliced by the `x5-email-canonicalization` gate; this cluster pins only that the CHECK exists.
