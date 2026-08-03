@@ -3,8 +3,11 @@
 **Spec:** `docs/superpowers/specs/2026-08-03-picker-signin-flow-cluster-design.md` (canonical; its
 §1.1 table is the do-not-relitigate set)
 **Branch:** `fix/picker-signin-flow-cluster`
-**Backlog:** `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`,
-`BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`
+**Backlog:** `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`
+
+**Descoped 2026-08-03 (owner):** `BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT` — its founding premise
+was refuted in spec review R3. Rationale and the correction it must carry back to the ledger are in
+spec §1.3. Do not re-add the redirect, the `gate`/`s` threading, or the stale-cleanup e2e.
 
 TDD per task: failing test → minimal implementation → passing test → commit. One commit per task,
 conventional-commits style.
@@ -28,7 +31,6 @@ written.
 | `--duration-fast: 120ms` | `app/globals.css:223` |
 | 3 `TWO-STEP navigation` workaround sites | `tests/e2e/stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`, `stage-restricted-crew-schedule.spec.ts:461` |
 | component-test harness for the picker | `tests/show/pickerAffordance.test.tsx:1-26` (jsdom + testing-library, renders `PickerInterstitial` with a roster fixture) |
-| stale-entry staging for e2e | **NOT** `seedPickerCookie` — `tests/e2e/picker-flow.spec.ts:11-16` records that Chromium CDP rejects `__Host-` cookie injection and the suite now stages by DRIVING the picker. Task 8 follows that. |
 | e2e seed helper returns `pickerEpoch` | `tests/e2e/helpers/seedShowWithCrew.ts:85-92` |
 | layout-measurement pattern | `locator.evaluate((el) => el.getBoundingClientRect().height)` per `tests/e2e/collapse-panel-morph.spec.ts:99-101`. NOT hosted in `crew-layout-dimensions.spec.ts` — that file is `PATH_GATED` debt (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and CI runs only its `T-NOPHANTOM-CREW` grep (`.github/workflows/phantom-gap-e2e.yml:175`). Task 5 hosts them in `picker-flow.spec.ts`. |
 | e2e workflow already runs picker-flow on desktop-chromium | `.github/workflows/crew-e2e.yml:151` |
@@ -54,10 +56,8 @@ Checked and ruled out, explicitly:
   not touch anything it asserts.
 - `tests/auth/_metaInfraContract.test.ts` (invariant 9) — no new Supabase client call site.
 - `tests/auth/advisoryLockRpcDeadlock.test.ts` (invariant 2) — no `pg_advisory*` surface.
-- `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10) — `cleanupStaleEntry` is an
-  existing registered surface; no new mutation surface is added. Tasks 4 and 5 must keep its
-  `PICKER_STALE_ENTRY_CLEANED` emit reachable above the redirect throw, which is what that
-  meta-test protects.
+- `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10) — no mutation surface is
+  added or modified. `cleanupStaleEntry` is untouched now that spec §1.3 is descoped.
 
 ## 0.2 e2e harness readiness
 
@@ -66,7 +66,7 @@ Checked and ruled out, explicitly:
 - **Readiness gate:** an explicit locator assertion (`expect(page.getByTestId(...)).toBeVisible()`)
   after every `goto`. `networkidle` alone is not a gate — the existing spec pairs `waitUntil:
   "networkidle"` with a visibility assertion, and new tests must do the same.
-- **Detach safety:** the layout probe in Task 5 reads `getBoundingClientRect` on a row whose native
+- **Detach safety:** the layout probe in Task 4 reads `getBoundingClientRect` on a row whose native
   GET would navigate away mid-measure. **Chosen strategy: Playwright route interception** —
   `page.route("**/auth/sign-in*", (route) => route.abort())`, registered BEFORE the click, with an
   attachment check before each measurement. Not `preventDefault`: interception leaves the real
@@ -76,7 +76,7 @@ Checked and ruled out, explicitly:
 ## 0.3 Closeout marker — deferred to close-out, deliberately
 
 This plan touches UI surface, so invariant 8 applies and its marker line is required. **The marker
-is written at close-out (Task 9), not here, and the gate half-names are spelled out there too.**
+is written at close-out (Task 7), not here, and the gate half-names are spelled out there too.**
 
 Reason, verified against the guard rather than assumed: `tests/docs/_invariant8Closeout.ts:127-164`
 accepts exactly two marker forms outside registered template files — the RAN form with real counts,
@@ -104,12 +104,12 @@ carries only its final RAN line.
 
 Tasks come in two kinds, and R2 was right that calling all of them "TDD" was false.
 
-**Implementation tasks** (1, 3, 4) are strict TDD cycles: failing test → minimal implementation →
+**Implementation tasks** (1, 3) are strict TDD cycles: failing test → minimal implementation →
 passing test → one commit (AGENTS.md invariants 1 and 6). Never RED-only or GREEN-only — splitting
 those would commit a red suite, which the one-commit-per-task rule turns into a broken HEAD (plan
 R1 finding 1).
 
-**Proof tasks** (2, 5, 6, 7, 8) add or change tests for behavior an earlier task already
+**Proof tasks** (2, 4, 5, 6) add or change tests for behavior an earlier task already
 implemented. They cannot have a natural red phase, and pretending otherwise is how a tautological
 test ships. Instead each carries a **falsification requirement**: the task is done only when the
 implementer has demonstrated a concrete mutation that makes the new assertion FAIL, and recorded
@@ -117,7 +117,7 @@ that mutant and its output in the commit message. A proof task whose mutant cann
 not proving anything and must be strengthened or dropped. The specific mutant is named in each
 task body.
 
-**Task 9 is process**, not a test task, and is labelled as such.
+**Task 7 is process**, not a test task, and is labelled as such.
 
 This division is the honest form of invariant 1 for a plan that closes three defects with layered
 unit, component, and browser evidence. R2 finding 3.
@@ -186,55 +186,7 @@ Two route-level guards stay, because they pin different seams:
   not `evil`. Pins that the handler still trusts `validateNextParamDetailed` output rather than the
   raw query.
 
-### Task 3 — stale cleanup redirects from the public action
-
-**RED.** Three assertions, all against the **public** `cleanupStaleEntry`, never against
-`cleanupStaleEntryCoreImpl` (spec §3.3, §8.2):
-
-1. **Sentinel escape.** `cleanupStaleEntry(formData)` THROWS a `NEXT_REDIRECT` sentinel whose
-   digest carries the expected destination. Failure mode: a redirect inside
-   `cleanupStaleEntryCoreImpl`, which `cleanupStaleEntry.ts:56-61`'s bare `catch` turns into
-   `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` — no navigation at all. **An
-   impl-scoped assertion passes in exactly that broken world**, which is why this one sits at the
-   public boundary.
-2. **Emit survival.** `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws —
-   catch the sentinel, then assert the sink spy. Failure mode: reordering that puts the throw above
-   the emit, dropping invariant-10 telemetry.
-3. **Destination carries `gate`.** The sentinel's path includes `gate=skip` when the form supplied
-   it. Failure mode: the bare-canonical redirect, which re-resolves as `no_auth: first_contact`,
-   fails `allowGateSkip` (`app/show/[slug]/[shareToken]/page.tsx:324`), and renders
-   `<SignInOrSkipGate>` instead of the picker.
-
-**GREEN.** The redirect goes in `cleanupStaleEntry` (`lib/auth/picker/cleanupStaleEntry.ts:30-51`),
-after `cleanupStaleEntryCore` returns and OUTSIDE its swallowing try/catch:
-
-```ts
-const result = await cleanupStaleEntryCore({
-  slug,
-  shareToken,
-  showId,
-  expectedEpoch,
-  expectedCrewMemberId,
-});
-if (!result.ok) return result;
-if (!isValidShowPathPair({ slug, shareToken })) return result;
-redirect(buildShowReturnUrl(slug, shareToken, { s, gate }));
-```
-
-`revalidatePath` at `cleanupStaleEntry.ts:107` is KEPT — it invalidates the cache entry; the
-redirect moves the browser.
-
-Companion edits:
-
-- `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) gains optional `gate` and `s`.
-- `_StaleCleanupAutoSubmit.tsx` gains two hidden inputs supplying them. **Only the hidden inputs** —
-  its `useEffect`, empty dependency array, and auto-submit mechanics are untouched, which is what
-  spec §1.2 protects.
-- Both values are re-validated against the same allow-lists `validateNextParam` uses before
-  reaching `buildShowReturnUrl`; absent or non-allow-listed values are dropped and the redirect
-  degrades to the bare canonical URL rather than failing.
-
-### Task 4 — claimed-row client boundary + pending state
+### Task 3 — claimed-row client boundary + pending state
 
 **RED first, and one of the red tests is a static one that does not involve the component at all.**
 
@@ -281,7 +233,7 @@ a claimed and an unclaimed row:
 Also add `whitespace-nowrap` to `chipBase` (`_PickerInterstitial.tsx:182`) — `Signing in…` is wider
 than most role strings and the chip must not wrap (spec §5).
 
-### Task 5 — real-browser proof, in a file CI actually runs
+### Task 4 — real-browser proof, in a file CI actually runs
 
 **Do not extend `tests/e2e/crew-layout-dimensions.spec.ts`.** It is registered as `PATH_GATED` debt
 (`tests/ci/_metaE2eWorkflowCoverage.test.ts:130`) and its only workflow invocation filters to
@@ -301,11 +253,11 @@ route.abort())`) so the navigation never commits and the element cannot detach. 
 intact, so the test still exercises the production code path rather than a neutered one. Register
 the interception BEFORE the click, and assert the row is still attached before each measurement.
 
-**Falsification requirement (proof task):** revert the fixed-width lock/spinner slot and show 5a's
-name-edge assertion failing; revert the `aria-disabled:` background precedence and show 5b failing;
-swap `aria-disabled` for `disabled` and show 5c failing. Record all three in the commit message.
+**Falsification requirement (proof task):** revert the fixed-width lock/spinner slot and show 4a's
+name-edge assertion failing; revert the `aria-disabled:` background precedence and show 4b failing;
+swap `aria-disabled` for `disabled` and show 4c failing. Record all three in the commit message.
 
-**5a — height invariance over two fixtures.** Claimed row `getBoundingClientRect().height` idle vs
+**4a — height invariance over two fixtures.** Claimed row `getBoundingClientRect().height` idle vs
 pending, equal within 0.5px, PLUS the name span's left edge unchanged within 0.5px (the
 lock-vs-spinner width invariant, spec §5), for a row WITH a role and a row with `role=""`. The
 roleless case is the one that matters: with a role present pending swaps chip text, but with
@@ -320,19 +272,19 @@ Spec §5 invariant list, verbatim, is this task's checklist:
 - row → name span: truncates rather than wrapping (`truncate` + `min-w-0`)
 - row height idle → pending: unchanged
 
-**5b — hover precedence.** Pointer over the row, pending active: computed background is the pending
+**4b — hover precedence.** Pointer over the row, pending active: computed background is the pending
 background, not the hover background. Failure mode: assuming busy suppresses hover. It does not —
 Tailwind emits the hover variant with no not-disabled guard, and CSS hover matches by pointer
 position regardless.
 
-**5c — focus retention.** Focus the row, drive to pending, assert `document.activeElement` is still
+**4c — focus retention.** Focus the row, drive to pending, assert `document.activeElement` is still
 the row. Failure mode: shipping `disabled`, which drops focus to `<body>`.
 
-**5d — reduced motion.** Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
+**4d — reduced motion.** Under `emulateMedia({ reducedMotion: "reduce" })` the spinner renders and
 `motion-reduce:animate-none` suppresses its animation, while the chip text swap and
 `aria-disabled` still convey pending. Spec §4.3 requires motion never be the sole signal.
 
-### Task 6 — transition audit
+### Task 5 — transition audit
 
 **Falsification requirement (proof task):** add a fourth conditional branch to `_ClaimedRowButton`
 with no declared treatment and show the audit failing on it. If the audit passes with an
@@ -346,15 +298,15 @@ deliberately instant, against spec §6:
 | idle → pending | instant; spinner rotation is the motion |
 | pending → idle | instant, via `pageshow` |
 
-The compound rows are **asserted in Task 5, not enumerated here** — R1 showed the original prose
+The compound rows are **asserted in Task 4, not enumerated here** — R1 showed the original prose
 claims about them were false, and a static conditional scan proves no browser behavior:
 
 - pointer-over-row during pending → Task 5b
 - keyboard focus during pending → Task 5c
-- pending arriving mid-hover-transition → Task 5b covers the end state
+- pending arriving mid-hover-transition → Task 4b covers the end state
 - two different rows tapped → each owns its own state; two pending rows is accepted, not a bug
 
-### Task 7 — retire the e2e workaround (the proof)
+### Task 6 — retire the e2e workaround (the proof)
 
 `tests/e2e/stage-restricted-crew-schedule.spec.ts`: collapse all three TWO-STEP sites
 (`stage-restricted-crew-schedule.spec.ts:162`, `stage-restricted-crew-schedule.spec.ts:251`,
@@ -368,35 +320,7 @@ end-to-end against a real browser and a real Google session rather than a route 
 change and the direct navigation 403s. Record that run. If it does NOT fail with Task 1 reverted,
 the two-step workaround was never load-bearing and this task proves nothing.
 
-### Task 8 — stale-cleanup e2e
-
-Extend `tests/e2e/picker-flow.spec.ts`.
-
-**Staging: drive the picker; do NOT call `seedPickerCookie`.** That helper injects a signed
-`__Host-fxav_picker` envelope via `context.addCookies`, and `picker-flow.spec.ts:11-16` records the
-measured result — Chromium's CDP rejects it outright ("Invalid cookie fields"), and WebKit accepts
-it but then will not let the server overwrite. The suite stages selections by driving the picker so
-the server mints the envelope itself, and there are no live `seedPickerCookie` call sites left in
-the tree. The §0 pre-draft table's citation of it was wrong; plan R1 finding 4.
-
-Sequence:
-
-1. Seed a show with crew, drive the picker at `?gate=skip`, tap a row → server mints the envelope.
-2. Bump `shows.picker_epoch` via the admin client so the minted entry is now stale (`epoch_stale`).
-3. Reload at `?gate=skip`; the stale-cleanup auto-submit fires.
-4. Assert the browser lands **on the picker**: `picker-interstitial-root` visible, stale hint gone.
-
-**Assert the rendered screen, not just the URL.** A URL-and-hint-only assertion passes on
-`<SignInOrSkipGate>` — the wrong-screen bug from spec R1 finding 2 — because that gate has no stale
-hint either. Derive the expected URL from the fixture's slug/token; never hardcode.
-
-**Falsification requirement (proof task):** drop `gate` from the redirect in Task 3 and show this
-e2e failing on `picker-interstitial-root` (it should land on the sign-in gate). That is the
-assertion's whole reason for existing — a URL-only assertion would stay green.
-
-Coverage is 1 of the 4 stale kinds (`epoch_stale`), per the documented-limits rationale in spec §9.
-
-### Task 9 — close-out
+### Task 7 — close-out
 
 1. **Invariant-8 dual gate.** Run BOTH halves named in `AGENTS.md` invariant 8, with their
    canonical setup gates first: the skill's context-load step (PRODUCT.md + DESIGN.md), then its
@@ -422,12 +346,10 @@ Coverage is 1 of the 4 stale kinds (`epoch_stale`), per the documented-limits ra
 
 - [ ] Task 1 — bootstrap accepts a query-bearing `next` (test + impl)
 - [ ] Task 2 — `parseNextPath` unit grammar pin, with the recorded mutant
-- [ ] Task 3 — stale cleanup redirects from the public action (test + impl)
-- [ ] Task 4 — `_ClaimedRowButton` + pending state + `SANCTIONED` allowlist entry
-- [ ] Task 5 — real-browser proof in `picker-flow.spec.ts` (5a–5d)
-- [ ] Task 6 — transition audit
-- [ ] Task 7 — retire the e2e workaround
-- [ ] Task 8 — stale-cleanup e2e (driven staging, not `seedPickerCookie`)
+- [ ] Task 3 — `_ClaimedRowButton` + pending state + `SANCTIONED` allowlist entry
+- [ ] Task 4 — real-browser proof in `picker-flow.spec.ts` (4a–4d)
+- [ ] Task 5 — transition audit
+- [ ] Task 6 — retire the e2e workaround
 - [ ] Self-review
 - [ ] Adversarial review (cross-model)
-- [ ] Task 9 — close-out (impeccable dual gate, backlog graduation, whole-diff review, merge)
+- [ ] Task 7 — close-out (invariant-8 dual gate, whole-diff review, ledger commit, merge)

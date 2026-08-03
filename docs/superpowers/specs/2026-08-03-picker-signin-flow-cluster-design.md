@@ -2,9 +2,11 @@
 
 **Date:** 2026-08-03
 **Branch:** `fix/picker-signin-flow-cluster`
-**Backlog items closed:** `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`, `BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`
+**Backlog items closed:** `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`
 
-Three defects on the crew first-contact sign-in path, shipped as one PR because they share one
+**Descoped 2026-08-03 (owner):** `BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT` — see §1.3.
+
+Two defects on the crew first-contact sign-in path, shipped as one PR because they share one
 surface (the picker interstitial and the route that returns to it) and one review.
 
 ---
@@ -18,7 +20,7 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
 | # | Decision | Ratified by |
 |---|---|---|
 | R1 | The bootstrap handler **preserves** the allow-listed `next` query rather than stripping to the canonical bare URL. | Owner, 2026-08-03, this branch's brainstorming gate. Rationale: `lib/auth/validateNextParam.ts:77` has already reduced the query to an allow-list before the handler sees it, and the handler already redirects to that same query-carrying string at `app/api/auth/picker-bootstrap/route.ts:189` and `app/api/auth/picker-bootstrap/route.ts:211`. |
-| R2 | `cleanupStaleEntry` gains the validate-then-redirect its sibling already has, **and** a new prod-build e2e lands in the same PR. Not e2e-only, not won't-fix. | Owner, 2026-08-03, brainstorming gate. The entry's own precondition ("write a prod-build e2e first so the change is provable") is satisfied by shipping both together. |
+| R2 | ~~`cleanupStaleEntry` gains the validate-then-redirect + e2e.~~ **SUPERSEDED and descoped** by the owner on 2026-08-03 after spec review R3 refuted its founding premise. See §1.3. Do not re-add this item to the diff. | Owner, 2026-08-03, after R3. |
 | R3 | The claimed-row pending affordance is **spinner in place of the lock + role chip text swapped to `Signing in…`** (mockup option C). Not a bare fade, not a spinner alone, not a second line under the name. | Owner, 2026-08-03, brainstorming gate, chosen against a rendered four-option mockup. |
 | R4 | When a claimed row has no **displayable** role, the pending chip **still renders** (it is the only right-side signal) and unmounts on completion. **Premise corrected in R2:** originally written as `role=""`, which is unrealizable — `role` is non-nullable at `_PickerInterstitial.tsx:50`, `app/show/[slug]/[shareToken]/page.tsx:59`, and in the schema (`supabase/migrations/20260501000000_initial_public_schema.sql:37`, `role text not null`). The `c.role &&` guard at `_PickerInterstitial.tsx:227` is an **empty-string** check. The owner's decision stands; only the triggering input is corrected to `role: ""`. | Owner, 2026-08-03; premise corrected against live code in spec review R2. |
 | R5 | **Unclaimed** rows are out of scope and get no pending state. Their form posts a local Server Action, not a three-hop OAuth journey. | This spec, §4.2 mode boundary. The backlog item is scoped to the claimed row (`BACKLOG.md`, `BL-PICKER-CLAIMED-ROW-PENDING-STATE`). |
@@ -36,6 +38,43 @@ Every row below is ratified. Verify the citation; do not re-derive the decision.
   (`_PickerInterstitial.tsx:113-114`).
 - `_StaleCleanupAutoSubmit.tsx`'s auto-submit mechanics. Its empty dependency array is deliberate
   and load-bearing (it is what prevents a resubmit loop); this spec does not touch it.
+
+### 1.3 Descoped: the stale-cleanup redirect, and why
+
+`BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT` was in this cluster through spec review R3 and was
+removed by the owner on 2026-08-03. It returns to `BACKLOG.md` — **with a correction**, because the
+reason it was filed does not hold.
+
+**The founding premise is refuted.** The entry, and this spec's earlier §2.2, asserted that
+`revalidatePath` "takes a path and ignores the query", so a picker reached at `?gate=skip` kept
+serving a cached entry. Probed against the installed Next 16.2.10 during R3:
+
+```text
+getImplicitTags(page, pathname) → ["_N_T_/show/demo/<token>"]
+revalidatePath(originalPath)    → "_N_T_" + removeTrailingSlash(originalPath)
+```
+
+Both the tag written at render and the tag invalidated by `revalidatePath` are **pathname-only**.
+The query is not a separate cache tag, so there is no `?gate=skip` variant being "missed". Whatever
+the observable defect is, that is not its mechanism.
+
+**Why it was split rather than fixed here.** Its diff pulled in surface none of the remaining work
+touches, and each review round found a new structural obstacle in it: a seven-hop `gate`/`s`
+threading path (two of whose rows this spec stated incorrectly), an e2e requiring a
+`shows.picker_epoch` mutation that would be an **unlocked write in violation of invariant 2**, a
+frozen-DML guard pinning `picker-flow.spec.ts` to one mutation, and an executed-count registry
+pinned at six cases. Three consecutive rounds on one vector is the documented stop condition
+(`docs/agents/spec-self-review.md:22`), and descope is one of its three sanctioned exits.
+
+**What the backlog entry must say when re-filed** (close-out task, since another session owns the
+ledger): the premise correction above, the invariant-2 obstacle, and the note that any future
+attempt should FIRST measure what screen actually renders after a stale cleanup, rather than
+reasoning from cache-tag behavior.
+
+**Not relitigable in this PR.** Do not propose re-adding the redirect, the `gate`/`s` threading, or
+the stale-cleanup e2e.
+
+---
 
 ---
 
@@ -74,24 +113,6 @@ first-contact path, not a deep link.
 **The fix is smaller than the entry implies.** The handler already redirects to the
 query-carrying `nextOutcome.path` at both exit points (`route.ts:189` for the `continue` case, `route.ts:211` for
 the claim case). Only the *parse* rejects it. Nothing downstream needs to learn about queries.
-
-### 2.2 Stale cleanup revalidates a path, not a URL
-
-`lib/auth/picker/cleanupStaleEntry.ts:107` calls
-`revalidatePath(\`/show/${input.slug}/${input.shareToken}\`)` and the file contains no `redirect`.
-`revalidatePath` takes a path and ignores the query, so a picker reached at `?gate=skip` keeps
-serving its cached entry and the cleared stale hint lingers until the next navigation.
-
-This is the same defect already fixed one file over, in the sibling select-identity action
-(`_PickerInterstitial.tsx:113-114`):
-
-```ts
-if (!isValidShowPathPair({ slug, shareToken })) return;
-redirect(buildShowReturnUrl(slug, shareToken, { s: typeof s === "string" ? s : undefined }));
-```
-
-Severity stays low: the intended screen after cleanup **is** the picker, so the user is already
-looking at the right thing. The observable defect is a stale hint, not lost access.
 
 ### 2.3 The claimed row is visually inert for the whole OAuth journey
 
@@ -133,77 +154,6 @@ after `validateNextParamDetailed` (`route.ts:147`) has (a) confirmed the path is
 tokenized-crew-shaped and (b) rebuilt the query from an allow-list, discarding every unrecognized
 param (`validateNextParam.ts:77`). No caller-supplied string reaches the `Location` header
 un-allow-listed. The change widens what the handler *accepts*; it does not widen what it *emits*.
-
-### 3.3 Stale cleanup: mirror the ratified sibling
-
-`revalidatePath` at `cleanupStaleEntry.ts:107` is kept, not replaced — it invalidates the cache
-entry; the redirect moves the browser. They do different jobs.
-
-**The redirect cannot live where the fix naively belongs.** `cleanupStaleEntryCore`
-(`cleanupStaleEntry.ts:56-61`) wraps the impl in a bare `catch` that converts every thrown value
-into `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`. Next's `redirect()` signals by
-throwing a `NEXT_REDIRECT` sentinel, so a redirect placed inside `cleanupStaleEntryCoreImpl` is
-swallowed by that catch and never reaches the browser — the action would report an infra failure
-instead of navigating. Measured:
-
-```json
-{ "caught": true, "message": "NEXT_REDIRECT", "digest": "NEXT_REDIRECT;replace;/show/example;307;" }
-```
-
-So the redirect goes in the **public** action `cleanupStaleEntry` (`cleanupStaleEntry.ts:30-51`),
-*after* `cleanupStaleEntryCore` returns and *outside* the swallowing try/catch:
-
-```ts
-const result = await cleanupStaleEntryCore({ slug, shareToken, showId, expectedEpoch, expectedCrewMemberId });
-if (!result.ok) return result;
-if (!isValidShowPathPair({ slug, shareToken })) return result;
-redirect(buildShowReturnUrl(slug, shareToken, { s, gate }));
-```
-
-This also preserves invariant 10 for free: the `PICKER_STALE_ENTRY_CLEANED` emit
-(`cleanupStaleEntry.ts:124-130`) and the best-effort `PICKER_SELECTION_RACE` alert both run to
-completion inside the impl before the public action throws.
-
-**The destination must carry `gate`, and may carry `s`.** A bare canonical redirect lands on the
-wrong screen. `page.tsx:190` sets `gateSkip = gate === "skip"`; `page.tsx:324` computes
-`allowGateSkip = gateSkip && result.reason === "first_contact"`; `page.tsx:325` falls through to
-`<SignInOrSkipGate>` when that is false. So a post-cleanup redirect to `/show/<slug>/<token>` with
-no `gate` re-resolves as `no_auth: first_contact`, fails the `allowGateSkip` test, and renders the
-Welcome gate — not the picker that §2.2 promises. Dropping `s` would additionally discard a section
-deep link.
-
-**`gate` is REQUIRED whenever the picker was reached with it; it is not a nice-to-have.** An
-earlier draft called it optional and said an absent value degrades to the bare canonical URL —
-that is self-contradictory, because the bare canonical URL is precisely the broken destination
-this section exists to avoid. Corrected: when the cleanup form supplies `gate=skip`, the redirect
-MUST carry it. When the picker genuinely was not reached with a gate, the bare redirect is correct
-for that case and no contradiction arises.
-
-**Threading matrix — every hop `gate` and `s` must survive.** The values originate in the page
-and must reach a hidden input. R2 found the middle three hops do not exist today; all five rows are
-in scope for this diff.
-
-| # | Hop | Today | Required |
-|---|---|---|---|
-| 1 | `page.tsx:189-195` reads `gate` and `allowlistedS` from search params | both present | unchanged |
-| 2 | `page.tsx:94-104` `renderPickerRepick` args | carries `s`, **no `gate`** | add `gate` |
-| 3 | `page.tsx:367-377` call site of `renderPickerRepick` | passes neither | pass `gate` (and keep `s`) |
-| 4 | `_PickerInterstitial.tsx:60-78` props | exposes `s`, **no `gate`** | add `gate` |
-| 5 | `_PickerInterstitial.tsx:274-281` `<StaleCleanupAutoSubmit>` mount | passes **neither** `s` nor `gate` | pass both |
-| 6 | `_StaleCleanupAutoSubmit.tsx` hidden inputs | five fields | seven — add `gate`, `s` |
-| 7 | `CleanupStaleEntryInput` (`cleanupStaleEntry.ts:18-24`) | five fields | seven — add optional `gate`, `s` |
-
-Any single missing hop silently reproduces the wrong-screen bug, which is why the matrix is
-enumerated rather than described. Both values are re-validated against the same allow-lists
-`validateNextParam` uses before reaching `buildShowReturnUrl`; a non-allow-listed value is dropped.
-
-**A second merge-gating test must move in lockstep.** `tests/components/StaleCleanupAutoSubmit.test.tsx:32`
-is literally named "renders a form carrying all five hidden inputs" and asserts that count. Row 6
-above breaks it. Updating that test to seven is part of this work, not a surprise at CI.
-
-This is a deliberate, minimal widening of §1.2's "`_StaleCleanupAutoSubmit` is out of scope": two
-hidden inputs are added to its form. Its `useEffect`, its empty dependency array, and its
-auto-submit mechanics are untouched — those are what §1.2 protects.
 
 ### 3.4 Claimed row: one new client boundary
 
@@ -325,7 +275,7 @@ here**, and the row names the environment that can actually settle it.
   return alone leaves the defect exactly as it was, while making the row *look* fixed. This is the
   R2 BLOCKING finding.
 - P4 → the focus-retention claim in §6 is **not** provable by the jsdom component test. It is
-  asserted only in Playwright (§8.3), and no jsdom test may be cited as evidence for it. A green
+  asserted only in Playwright (§8.2), and no jsdom test may be cited as evidence for it. A green
   jsdom suite says nothing about this behavior in either direction.
 - P5 → pending background must win by explicit CSS precedence, never by assumed suppression.
 
@@ -364,7 +314,7 @@ The unclaimed branch (`_PickerInterstitial.tsx:240-260`) is untouched by this di
   and returns because `pending` is already true, so no second submit is issued. Both halves are
   required: `aria-disabled` does not stop activation (§3.6 P2) and an early return alone does not
   cancel the default action (§3.6 P1). The `preventDefault` is the load-bearing part and is pinned
-  by a submit-count assertion (§8.3), never assumed. Closing this double-submit is the defect.
+  by a submit-count assertion (§8.2), never assumed. Closing this double-submit is the defect.
 
 ### 4.4 Cap / truncation
 
@@ -385,7 +335,7 @@ existing `items-center` is explicit and must stay.
 |---|---|---|
 | row → left group | vertically centered, single line | `items-center` on the row (`_PickerInterstitial.tsx:174`) |
 | row → spinner | 16px box, does not raise row height above the 44px floor | `size-4` on `Loader2`; the row's `min-h-tap-min` is a floor and a 16px glyph sits under it. The row carries only `px-4` (`_PickerInterstitial.tsx:174`) — there is **no** vertical padding class, so do not cite one |
-| lock slot → spinner slot | **equal WIDTH**, so the name does not shift horizontally | Not equal by construction: the lock is a bare Unicode glyph in a span with no width class (`_PickerInterstitial.tsx:210-224`) while the spinner is `size-4`. The swap needs an explicit fixed-width slot wrapping BOTH. A height-only assertion cannot see this, so §8.3 additionally asserts the name span's left edge is unchanged across the swap (R2 finding 7) |
+| lock slot → spinner slot | **equal WIDTH**, so the name does not shift horizontally | Not equal by construction: the lock is a bare Unicode glyph in a span with no width class (`_PickerInterstitial.tsx:210-224`) while the spinner is `size-4`. The swap needs an explicit fixed-width slot wrapping BOTH. A height-only assertion cannot see this, so §8.2 additionally asserts the name span's left edge is unchanged across the swap (R2 finding 7) |
 | row → pending chip | single line, no wrap | `shrink-0` + `whitespace-nowrap` applied to the **pending chip only**, NOT to the shared `chipBase` at `_PickerInterstitial.tsx:182`. `chipBase` feeds both the claimed and the unclaimed chip (`_PickerInterstitial.tsx:253-257`); adding no-wrap there would change unclaimed-row overflow behavior for arbitrary `role` text, which R5 puts out of scope |
 | row → name span | truncates rather than wrapping | existing `truncate` + `min-w-0` on the left group |
 | row height, idle → pending | **unchanged** | the two states differ only in a 16px-for-16px glyph swap and chip text; neither adds a line |
@@ -426,7 +376,7 @@ Compound transitions:
 | Migration → validation parity | N/A — no `supabase/migrations/**` file |
 | §12.4 catalog | N/A — no new or edited error code. `OAUTH_REDIRECT_INVALID` keeps its row and its copy; this diff makes it fire *less often*, not differently |
 | Invariant 9 (Supabase call boundary) | N/A — no new Supabase client call site |
-| Invariant 10 (mutation surface telemetry) | `cleanupStaleEntry` is an existing registered surface and keeps its `PICKER_STALE_ENTRY_CLEANED` emit; §3.3 pins the emit above the redirect throw so it still runs |
+| Invariant 10 (mutation surface telemetry) | N/A — no mutation surface is added or modified. `cleanupStaleEntry` is untouched now that §1.3 is descoped |
 | Invariant 8 (impeccable dual gate) | **APPLIES** — `_ClaimedRowButton` and `_PickerInterstitial.tsx` are UI surface |
 
 ---
@@ -452,36 +402,7 @@ would pass for an unrelated reason.
   emitted `Location` must contain `s=schedule` and must not contain `evil`. Guards the §3.2 safety
   argument at the seam where it actually matters.
 
-### 8.2 Stale cleanup
-
-- **Unit, sentinel escape (the assertion that matters).** Call the PUBLIC `cleanupStaleEntry`
-  action and assert it **throws** a `NEXT_REDIRECT` sentinel carrying the expected destination —
-  not that some inner function attempted a redirect. Concrete failure mode caught: placing the
-  redirect inside `cleanupStaleEntryCoreImpl`, where `cleanupStaleEntryCore:56-61`'s bare catch
-  converts it to `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` and no navigation ever
-  happens. An assertion scoped to the impl passes in exactly that broken world, which is why the
-  test is written at the public boundary.
-- Unit, emit survival: `PICKER_STALE_ENTRY_CLEANED` is recorded even though the action throws.
-  Assert on the sink spy after catching the sentinel. Failure mode: reordering that puts the throw
-  above the emit and silently drops invariant-10 telemetry.
-- Unit, destination — `gate`: the thrown sentinel's path carries `gate=skip` when the form supplied it.
-- Unit, destination — `s`: the sentinel's path carries `s=schedule` when the form supplied it.
-  Without this, an implementation that threads `gate` correctly and drops `s` at any of the seven
-  hops passes every other stale-cleanup assertion while silently losing the deep link (R2
-  finding 3).
-- Unit, hidden-input count: `_StaleCleanupAutoSubmit` renders SEVEN hidden inputs. This is the
-  existing assertion at `StaleCleanupAutoSubmit.test.tsx:32` updated from five; it is the only
-  test that pins the middle of the threading matrix.
-  Failure mode caught: the bare-canonical redirect, which re-resolves as `no_auth: first_contact`,
-  fails `allowGateSkip` (`page.tsx:324`), and renders `<SignInOrSkipGate>` instead of the picker.
-- Prod-build e2e: one stale kind (`epoch_stale`), driven at `?gate=skip`, asserting the browser
-  lands on the picker. **Assert `picker-interstitial-root` is visible** — not merely that the URL
-  is canonical and the hint is gone. A URL-and-hint-only assertion passes on the Welcome gate,
-  which is the exact wrong-screen bug above. Extends `tests/e2e/picker-flow.spec.ts`, which already
-  runs prod-build on `desktop-chromium` in `.github/workflows/crew-e2e.yml`. Derive the expected
-  URL from the fixture's slug/token, never a hardcoded string.
-
-### 8.3 Claimed row
+### 8.2 Claimed row
 
 Harness: jsdom + `@testing-library/react`, rendering `PickerInterstitial` with a roster fixture —
 the shape already used by `tests/show/pickerAffordance.test.tsx:20-26`. Pending is driven by
@@ -528,7 +449,7 @@ does not apply to a native GET form (§3.4).
 - Transition audit: enumerate every conditional branch in `_ClaimedRowButton` against the §6 table
   and assert each is either animated as stated or deliberately instant.
 
-### 8.4 Regression — retire the e2e workaround
+### 8.3 Regression — retire the e2e workaround
 
 `tests/e2e/stage-restricted-crew-schedule.spec.ts` currently bootstraps on the bare URL and
 re-navigates with `?s=schedule`, at three sites, each carrying the same comment beginning
@@ -545,14 +466,6 @@ against a route unit test. If it fails, R1 did not actually ship.
   A future section id must be added to `BASE_SECTION_IDS` to survive bootstrap; that is the
   existing contract, not a new limit, and it fails closed (the param is dropped, the user lands on
   the show).
-- The stale-cleanup redirect is proved for one of the **four** stale kinds (`epoch_stale`). The
-  other three — `removed_from_roster`, `selection_reset`, `identity_invalidated`
-  (`app/show/[slug]/[shareToken]/staleBanner.ts:9-13`, mirroring the resolver kinds at
-  `lib/auth/picker/resolveShowPageAccess.ts:20-34`) — share the same code path below the branch
-  that classifies them, so the coverage is representative rather than exhaustive. Note
-  `selection_reset` deliberately renders the SAME crew-facing copy as `epoch_stale`
-  (`staleBanner.ts:17-19`), so the pair is genuinely indistinguishable downstream of
-  classification; the remaining two differ only in banner code, not in cleanup behavior.
 - **Cancelled navigation leaves the row in pending.** Local pending state (§3.4) is cleared by
   navigating away or by `pageshow`. If the user taps and then stops the navigation before it
   commits (browser stop button, or a `/auth/sign-in` that hangs without ever completing), the row
@@ -561,7 +474,7 @@ against a route unit test. If it fails, R1 did not actually ship.
   the exact double-tap defect this change closes, and the cancel path requires deliberate user
   action. The `pageshow` listener covers the common recovery (back-navigation).
 - The bfcache reset path is specified from the `pageshow` contract and is covered by a component
-  test firing a synthetic `pageshow` (§8.3). A synthetic event proves the listener is wired; it
+  test firing a synthetic `pageshow` (§8.2). A synthetic event proves the listener is wired; it
   does not prove a real browser's bfcache restores this page at all (Chrome declines bfcache for
   pages with certain headers). The worst case if it never fires is the cancelled-navigation limit
   above, which is already documented.
@@ -573,27 +486,32 @@ against a route unit test. If it fails, R1 did not actually ship.
 | File | Change |
 |---|---|
 | `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` splits the query before matching (§3.2) |
-| `lib/auth/picker/cleanupStaleEntry.ts` | redirect from the PUBLIC action outside the swallowing catch; input gains `gate`, `s` (§3.3 rows 7) |
-| `app/show/[slug]/[shareToken]/page.tsx` | `renderPickerRepick` gains `gate`; call site passes it (§3.3 threading rows 2-3) |
-| `app/show/[slug]/[shareToken]/_StaleCleanupAutoSubmit.tsx` | two new hidden inputs, `gate` and `s`. Mechanics untouched (§3.3 row 6) |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | claimed `<button>` subtree extracted; `gate` prop added and forwarded to the auto-submit mount (§3.3 threading rows 4-5). `whitespace-nowrap` goes on the PENDING chip only, not shared `chipBase` (§5) |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | claimed `<button>` subtree extracted; `whitespace-nowrap` goes on the PENDING chip only, not shared `chipBase` (§5) |
 | `_ClaimedRowButton` | **new**, `"use client"` (§3.4) |
-| `tests/components/StaleCleanupAutoSubmit.test.tsx` | `SANCTIONED` gains `_ClaimedRowButton` (else the client-island guard at `StaleCleanupAutoSubmit.test.tsx:61-79` fails); the five-hidden-inputs assertion at `StaleCleanupAutoSubmit.test.tsx:32` becomes seven |
+| `tests/components/StaleCleanupAutoSubmit.test.tsx` | `SANCTIONED` gains `_ClaimedRowButton`, else the client-island guard at `StaleCleanupAutoSubmit.test.tsx:61-79` fails. This is the ONLY change to that file — the five-hidden-input assertion stays five, since §1.3 is descoped |
 | `tests/auth/picker-bootstrap.test.ts` | §8.1 cases |
-| `tests/e2e/picker-flow.spec.ts` | §8.2 stale-cleanup e2e |
-| `tests/e2e/stage-restricted-crew-schedule.spec.ts` | §8.4 workaround retired at three sites |
+| `tests/e2e/picker-flow.spec.ts` | §8.2 real-browser claimed-row assertions (this file, not `crew-layout-dimensions.spec.ts`, because CI runs it) |
+| `tests/e2e/stage-restricted-crew-schedule.spec.ts` | §8.3 workaround retired at three sites |
+| `app/api/auth/picker-bootstrap/route.ts` | `parseNextPath` exported for direct unit testing |
 | new component + layout + transition tests | §8.3 |
 | `BACKLOG.md` | three entries graduated to `BACKLOG-archive.md` (last commit; see §11) |
 
 ## 11. Ledger contention
 
-Three sessions are live on this repo and one of them owns the ledger files. The `BACKLOG.md`
-graduation is the **last** commit before the PR opens; if a ledger-owning branch is still unmerged
-at that point, rebase onto it rather than racing it. Same rule for the dangling `§16.6` citation
-noted below.
+Several sessions are live on this repo and one of them owns the ledger files. All `BACKLOG.md`
+edits are the **last** commit authored before the PR opens; if a ledger-owning branch is still
+unmerged at that point, rebase onto it rather than racing it.
 
-**Adjacent defect, not fixed here:** `BL-PICKER-CLAIMED-ROW-PENDING-STATE` cites `master spec §16.6` for the
-`Confirming…` pending idiom. `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`
-§16 contains only §16.1 and §16.2 — that citation is dangling. The real ratification is
-`docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`. The correction rides the
-graduation commit, since it edits the same entry being archived.
+That commit does three things:
+
+1. **Graduate two entries** to `BACKLOG-archive.md` — `BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED`
+   and `BL-PICKER-CLAIMED-ROW-PENDING-STATE`.
+2. **Amend, not graduate, `BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT`.** It stays OPEN. Add the
+   §1.3 premise refutation (the cache-tag probe), the invariant-2 obstacle its e2e hits, and the
+   instruction that any future attempt measures the rendered post-cleanup screen first rather than
+   reasoning from cache-tag behavior. Leaving the entry as-is would re-file a known-false cause.
+3. **Correct a dangling citation.** `BL-PICKER-CLAIMED-ROW-PENDING-STATE` cites `master spec §16.6`
+   for the `Confirming…` pending idiom, but
+   `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §16 contains only §16.1 and §16.2. The
+   real ratification is `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175`.
+   This rides the same commit because it edits an entry being archived.
