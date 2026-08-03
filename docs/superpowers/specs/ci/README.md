@@ -19,3 +19,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-26-ci-dark-descoped-closeout-design.md`](./2026-07-26-ci-dark-descoped-closeout-design.md) | 2026-07-26 |
 | [`2026-08-01-ci-cross-step-env-guard-design.md`](./2026-08-01-ci-cross-step-env-guard-design.md) | 2026-08-01 |
 | [`2026-08-01-pg-cron-mechanism-sabotage-probe-design.md`](./2026-08-01-pg-cron-mechanism-sabotage-probe-design.md) | 2026-08-01 |
+| [`2026-08-02-ci-static-env-injection-design.md`](./2026-08-02-ci-static-env-injection-design.md) | 2026-08-02 |

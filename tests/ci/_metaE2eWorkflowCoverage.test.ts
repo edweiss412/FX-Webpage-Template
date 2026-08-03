@@ -19,11 +19,82 @@
  * the procedural enforcement. Measurement: spec
  * docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §2.5.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scanWorkflowCoverage } from "./_workflowCoverageScan";
+import { parse } from "yaml";
+import {
+  ENV_KEY_ALLOWLIST,
+  envAllowlistHygieneProblems,
+  envPairGovernance,
+  governanceViolations,
+  unreviewedLivePairs,
+  scanWorkflowCoverage,
+  type EnvKeyAllowlist,
+} from "./_workflowCoverageScan";
 import { listedSpecFiles } from "./_standaloneConfigProbe";
+
+/** ONE loader for live local-action manifests, shared by the scan call, the
+ *  env-pair census, and the governance gate (plan-R3 F1: a shallow sibling
+ *  walk in any one consumer silently drops NESTED manifests the scanner
+ *  discovers, re-opening the unreviewed-pair class at exactly that depth).
+ *  Recursive; GitHub manifest preference (action.yml over action.yaml under
+ *  one directory key); keys in the `./.github/actions/<relpath>` ref form. */
+function localActionTextsUnder(actionsDir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!existsSync(actionsDir)) return out;
+  const manifestByDir = new Map<string, string>();
+  for (const f of readdirSync(actionsDir, { recursive: true }) as string[]) {
+    if (!/(^|[\\/])action\.ya?ml$/.test(f)) continue;
+    const dir = `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`;
+    const prev = manifestByDir.get(dir);
+    if (prev === undefined || f.endsWith("action.yml")) manifestByDir.set(dir, f);
+  }
+  for (const [dir, f] of manifestByDir) out[dir] = readFileSync(join(actionsDir, f), "utf8");
+  return out;
+}
+const liveLocalActions = () => localActionTextsUnder(join(process.cwd(), ".github/actions"));
+
+/** Every env: (key, value-text) pair a live workflow or local action
+ *  manifest carries, read from the PARSED documents (spec §2.3 — a grep
+ *  would count comments/prose as live usage, laundering stale rows). */
+function liveEnvPairs(): Map<string, Set<string>> {
+  const pairs = new Map<string, Set<string>>();
+  const collect = (env: unknown) => {
+    if (env !== null && typeof env === "object" && !Array.isArray(env))
+      for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+        const set = pairs.get(k) ?? new Set<string>();
+        set.add(typeof v === "string" ? v : String(v));
+        pairs.set(k, set);
+      }
+  };
+  const wfDir = join(process.cwd(), ".github/workflows");
+  for (const f of readdirSync(wfDir).filter((n) => /\.ya?ml$/.test(n))) {
+    const doc = parse(readFileSync(join(wfDir, f), "utf8")) as {
+      env?: unknown;
+      jobs?: Record<string, { env?: unknown; steps?: Array<{ env?: unknown }> }>;
+    } | null;
+    collect(doc?.env);
+    for (const j of Object.values(doc?.jobs ?? {})) {
+      collect(j?.env);
+      for (const s of Array.isArray(j?.steps) ? j.steps : []) collect(s?.env);
+    }
+  }
+  for (const text of Object.values(liveLocalActions())) {
+    const doc = parse(text) as { runs?: { steps?: Array<{ env?: unknown }> } } | null;
+    for (const s of Array.isArray(doc?.runs?.steps) ? doc.runs.steps : []) collect(s?.env);
+  }
+  return pairs;
+}
 
 const ROOT = process.cwd();
 
@@ -145,19 +216,7 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   // must be complete for the live tree. ONLY GitHub-recognized manifests key
   // the map, action.yml preferred over action.yaml (spec R2: a supplemental
   // YAML must never overwrite the manifest under the same directory key).
-  const localActions: Record<string, string> = {};
-  {
-    const manifestByDir = new Map<string, string>();
-    for (const f of readdirSync(join(ROOT, ".github/actions"), { recursive: true }) as string[]) {
-      if (!/(^|[\\/])action\.ya?ml$/.test(f)) continue;
-      const dir = `./.github/actions/${f.split(/[\\/]/).slice(0, -1).join("/")}`;
-      const prev = manifestByDir.get(dir);
-      if (prev === undefined || f.endsWith("action.yml")) manifestByDir.set(dir, f);
-    }
-    for (const [dir, f] of manifestByDir) {
-      localActions[dir] = readFileSync(join(ROOT, ".github/actions", f), "utf8");
-    }
-  }
+  const localActions = liveLocalActions();
 
   const { covered } = scanWorkflowCoverage({
     workflows,
@@ -401,7 +460,8 @@ describe("the scanner itself (self-tests - a guard that matches nothing is worse
 
 describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec §2.2)", () => {
   const spec = "tests/e2e/foo.spec.ts";
-  const REASON = "earlier same-job step writes GITHUB_ENV/GITHUB_PATH";
+  const REASON =
+    "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
   const INVOKE = `run: pnpm exec playwright test ${spec}`;
   const two = (first: string, second = INVOKE) =>
     `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${first}\n      - ${second}\n`;
@@ -612,7 +672,9 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
       expect(r.rejected[0]!.reason, body).toBe("unmodelled YAML spelling");
     }
     // …and a well-formed steps job with typed optional keys still counts.
-    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      A: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
+    // env key CREW_E2E_ONLY: allowlisted live pair ('1') — this fixture pins TYPED-value
+    // acceptance, not key modeling (the static-env suite owns key fixtures).
+    const ok = `    name: probe\n    runs-on: ubuntu-latest\n    env:\n      CREW_E2E_ONLY: '1'\n    steps:\n      - name: run\n        id: r1\n        run: pnpm exec playwright test ${spec}\n`;
     expect(S(wf(ok)).covered.has(spec)).toBe(true);
   });
 
@@ -1161,7 +1223,7 @@ describe("cross-step GITHUB_ENV/GITHUB_PATH poisoning (cross-step-env-guard spec
     // On-profile optional keys stay CLEAN — the profile is narrow, not empty.
     const rich = S(two("uses: ./.github/actions/rich"), {
       "./.github/actions/rich":
-        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        A: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
+        "runs:\n  using: composite\n  steps:\n    - name: build\n      id: b1\n      if: always()\n      run: echo hi\n      shell: bash\n      working-directory: sub\n      continue-on-error: false\n      env:\n        CREW_E2E_ONLY: '1'\n    - name: checkout\n      uses: actions/checkout@v4\n      with:\n        fetch-depth: 0\n",
     });
     expect(rich.covered.has(spec)).toBe(true);
   });
@@ -1538,5 +1600,800 @@ describe("the whole-config rule (spec §4.1)", () => {
     const r = S(cmd, "  workflow_dispatch:");
     expect(r.rejected.map((x) => x.spec).sort()).toEqual([...members].sort());
     expect(new Set(r.rejected.map((x) => x.reason))).toEqual(new Set(["no pull_request trigger"]));
+  });
+});
+
+describe("static env-block key allowlist (static-env spec §2.1)", () => {
+  const spec = "tests/e2e/foo.spec.ts";
+  const INVOKE = `run: pnpm exec playwright test ${spec}`;
+  const ENV_REASON = (keys: string[]) => `env block sets unmodelled key(s): ${keys.join(", ")}`;
+  const POISON_REASON =
+    "earlier same-job step writes GITHUB_ENV/GITHUB_PATH or carries an unmodelled static env: key";
+  // Fixture-local allowlist: fixtures must not couple to live seed rows.
+  const ALLOW = {
+    GOOD_KEY: { values: [{ text: "v", governs: [] }], reason: "fixture-reviewed test pair" },
+  };
+  const S = (w: string, localActions: Record<string, string> = {}) =>
+    scanWorkflowCoverage({
+      workflows: { "w.yml": w },
+      packageScripts: {},
+      localActions,
+      envKeyAllowlist: ALLOW,
+    });
+  const job = (jobExtra: string, stepExtra = "") =>
+    `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n${jobExtra}    steps:\n      - ${INVOKE}\n${stepExtra}`;
+
+  it("workflow-root env with an off-list key rejects every claim in the file (S1)", () => {
+    const w = `env:\n  PATH: fixtures/fake\nname: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+  });
+
+  it("job env with an off-list key rejects that job's claims; other jobs stay covered (S1/S3)", () => {
+    const dirty = S(job("    env:\n      PATH: fixtures/fake\n"));
+    expect(dirty.covered.has(spec)).toBe(false);
+    expect(dirty.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+    const crossJob = `name: x\non:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo hi\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    expect(S(crossJob).covered.has(spec)).toBe(true);
+  });
+
+  it("step env scoping is per-step: own step rejects, sibling dirt does not leak (S1/S3)", () => {
+    const own = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n        env:\n          PATH: fixtures/fake\n`;
+    const r = S(own);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["PATH"]));
+    const sibling = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    expect(S(sibling).covered.has(spec)).toBe(true);
+  });
+
+  it("a uses: step handed an off-list env key poisons the job fail-closed (S1, LS3)", () => {
+    const w = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    const r = S(w);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(POISON_REASON);
+  });
+
+  it("a LOCAL uses: invocation handed an off-list env key poisons fail-closed (S1, kind-narrowing)", () => {
+    // The shipped matrix pinned the INVOCATION cell only with a REMOTE ref,
+    // so `usesKind(step.uses) !== "local"` added to the dirty-env condition
+    // escaped every fixture (final review (a) finding 1, probe-backed). Each
+    // cell below keeps the resolved manifest CLEAN, so the refusal can only
+    // come from the invoking step's own env — a fixture that poisoned via
+    // the manifest would pass for the wrong reason.
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    const clean = { "./.github/actions/a": cleanBody };
+    const invoke = (envBlock: string) =>
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n${envBlock}      - ${INVOKE}\n`;
+    const r = S(invoke("        env:\n          PATH: fixtures/fake\n"), clean);
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(POISON_REASON);
+    // Precision twin (S3): an allowlisted pair on the same local invocation
+    // stays covered, so the cell cannot be satisfied by darking local refs.
+    expect(S(invoke("        env:\n          GOOD_KEY: v\n"), clean).covered.has(spec)).toBe(true);
+    // Class-sweep of the same shape INSIDE a manifest: a composite step that
+    // invokes a LOCAL action while carrying dirty env, at direct AND nested
+    // depth. The shipped composite cells pinned only remote refs there.
+    const use = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${INVOKE}\n`;
+    const directLocalUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n      env:\n        PATH: fixtures/fake\n",
+      "./.github/actions/b": cleanBody,
+    };
+    const nestedLocalUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/c\n      env:\n        PATH: fixtures/fake\n",
+      "./.github/actions/c": cleanBody,
+    };
+    for (const [label, actions] of [
+      ["composite-direct-local-uses", directLocalUses],
+      ["composite-nested-local-uses", nestedLocalUses],
+    ] as const) {
+      const c = S(use, actions);
+      expect(c.covered.has(spec), label).toBe(false);
+      expect(c.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+  });
+
+  it("composite dirt in a LATER sibling still poisons (S1, sibling-position narrowing)", () => {
+    // Every other composite cell puts the dirty step FIRST or alone, so a
+    // regression that inspects only the first sibling — or recurses only into
+    // the first `uses:` — passed all of them while a late-dirty action went
+    // uncaught (final review (a) R3, probe-backed). Each fixture below has a
+    // CLEAN first sibling, so only genuine traversal past it can refuse.
+    const use = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${INVOKE}\n`;
+    const lateRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo dirty\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const lateUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: actions/cache@v4\n      env:\n        PATH: fixtures/fake\n",
+    };
+    // Dirt behind the SECOND `uses:`, one level down: kills first-use-only
+    // recursion, which the direct cells cannot see.
+    const lateNestedLocal = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    for (const [label, actions] of [
+      ["late-run-sibling", lateRun],
+      ["late-uses-sibling", lateUses],
+      ["late-nested-local-uses", lateNestedLocal],
+    ] as const) {
+      const r = S(use, actions);
+      expect(r.covered.has(spec), label).toBe(false);
+      expect(r.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+    // Precision twin: a clean LATER sibling must not poison — the cell cannot
+    // be satisfied by refusing every multi-step composite.
+    const allClean = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo clean\n      shell: bash\n    - run: echo also-clean\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    };
+    expect(S(use, allClean).covered.has(spec), "clean-late-sibling").toBe(true);
+  });
+
+  it("composite matrix: direct/nested x run/uses step env dirt all poison (S1, R1 F1)", () => {
+    const use = (ref: string) =>
+      `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${ref}\n      - ${INVOKE}\n`;
+    const directRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const directUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
+    };
+    const nested = (childSteps: string) => ({
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b": `runs:\n  using: composite\n  steps:\n${childSteps}`,
+    });
+    const nestedRun = nested(
+      "    - run: echo hi\n      shell: bash\n      env:\n        PATH: fixtures/fake\n",
+    );
+    const nestedUses = nested(
+      "    - uses: actions/checkout@v4\n      env:\n        PATH: fixtures/fake\n",
+    );
+    for (const [label, actions] of [
+      ["direct-run", directRun],
+      ["direct-uses", directUses],
+      ["nested-run", nestedRun],
+      ["nested-uses", nestedUses],
+    ] as const) {
+      const r = S(use("./.github/actions/a"), actions);
+      expect(r.covered.has(spec), label).toBe(false);
+      expect(r.rejected[0]!.reason, label).toBe(POISON_REASON);
+    }
+    // Precision twins (S3): the same composites with an ALLOWLISTED key stay
+    // covered — every matrix cell, not one representative (plan-R1 F1).
+    const cleanDirectRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    };
+    const cleanDirectUses = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        GOOD_KEY: v\n",
+    };
+    const cleanNestedRun = nested(
+      "    - run: echo hi\n      shell: bash\n      env:\n        GOOD_KEY: v\n",
+    );
+    const cleanNestedUses = nested(
+      "    - uses: actions/checkout@v4\n      env:\n        GOOD_KEY: v\n",
+    );
+    for (const [label, actions] of [
+      ["clean-direct-run", cleanDirectRun],
+      ["clean-direct-uses", cleanDirectUses],
+      ["clean-nested-run", cleanNestedRun],
+      ["clean-nested-uses", cleanNestedUses],
+    ] as const) {
+      expect(S(use("./.github/actions/a"), actions).covered.has(spec), label).toBe(true);
+    }
+  });
+
+  it("dirt is found in a LATER file and a LATER job step (S1, remaining traversal dimensions)", () => {
+    // Implementer class-sweep of the traversal-narrowing family the last
+    // three rounds walked one dimension at a time (ref kind, then sibling
+    // position): the two iteration axes with no positive cell were the
+    // workflow-FILE loop and the job's STEP loop. Both get one here so a
+    // first-file-only or first-step-only narrowing cannot escape either.
+    const clean = `name: c\non:\n  pull_request:\njobs:\n  c:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`;
+    const dirty = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - ${INVOKE}\n`;
+    const twoFiles = scanWorkflowCoverage({
+      workflows: { "a-clean.yml": clean, "z-dirty.yml": dirty },
+      packageScripts: {},
+      localActions: {},
+      envKeyAllowlist: ALLOW,
+    });
+    expect(twoFiles.covered.has(spec), "dirty second file").toBe(false);
+    expect(twoFiles.rejected[0]!.reason, "dirty second file").toBe(ENV_REASON(["PATH"]));
+    // Claiming step is the THIRD step of a job whose env is dirty.
+    const lateStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - run: echo one\n      - run: echo two\n      - ${INVOKE}\n`;
+    const r = S(lateStep);
+    expect(r.covered.has(spec), "claim at a later job step").toBe(false);
+    expect(r.rejected[0]!.reason, "claim at a later job step").toBe(ENV_REASON(["PATH"]));
+  });
+
+  it("dirt is found at a LATER job and a LATER workflow step, per source kind (S1 position matrix)", () => {
+    // Completing the position matrix rather than adding one more cell: the
+    // refusal path iterates FILES, JOBS, and STEPS, and dirt can sit at job
+    // scope, run-step scope, or uses-step scope. Rounds 1-3 pinned the file
+    // axis and the composite-sibling axis but left every JOB and every
+    // workflow-STEP source at position 0, so first-position-only checks
+    // escaped (final review (a) R4 F1). One later-position positive per
+    // (iterated thing x source kind) cell.
+    // Dirty SECOND job — the first job is clean and non-claiming.
+    const secondJob = `name: x\non:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n  z:\n    runs-on: ubuntu-latest\n    env:\n      PATH: fixtures/fake\n    steps:\n      - ${INVOKE}\n`;
+    const j = S(secondJob);
+    expect(j.covered.has(spec), "dirty second job").toBe(false);
+    expect(j.rejected[0]!.reason, "dirty second job").toBe(ENV_REASON(["PATH"]));
+    // Dirty SECOND run-step: the claiming step is itself the later step and
+    // carries the dirt, behind a clean first step.
+    const secondRun = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      - ${INVOKE}\n        env:\n          PATH: fixtures/fake\n`;
+    const r = S(secondRun);
+    expect(r.covered.has(spec), "dirty second run-step").toBe(false);
+    expect(r.rejected[0]!.reason, "dirty second run-step").toBe(ENV_REASON(["PATH"]));
+    // Dirty SECOND uses-step, behind a clean first uses-step, poisoning the
+    // later claim.
+    const secondUses = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/cache@v4\n        env:\n          PATH: fixtures/fake\n      - ${INVOKE}\n`;
+    const u = S(secondUses);
+    expect(u.covered.has(spec), "dirty second uses-step").toBe(false);
+    expect(u.rejected[0]!.reason, "dirty second uses-step").toBe(POISON_REASON);
+  });
+
+  it("allowlisted pairs stay covered at every direct scope (S3 clean cells)", () => {
+    // Workflow-root, run-step, and uses:-step clean twins — the job-scope
+    // twin lives in the S2 block. A scope whose clean cell is missing lets
+    // an allowlist-ignoring coarsening mutant escape at exactly that scope.
+    const root = `env:\n  GOOD_KEY: v\nname: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n`;
+    expect(S(root).covered.has(spec), "workflow-root").toBe(true);
+    const ownStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${INVOKE}\n        env:\n          GOOD_KEY: v\n`;
+    expect(S(ownStep).covered.has(spec), "run-step").toBe(true);
+    const usesStep = `name: x\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        env:\n          GOOD_KEY: v\n      - ${INVOKE}\n`;
+    expect(S(usesStep).covered.has(spec), "uses-step").toBe(true);
+  });
+
+  it("unknown keys fail closed including prototype-named ones; allowlisted stay covered (S2)", () => {
+    for (const key of ["PATH", "TOTALLY_NOVEL_KEY", "constructor"]) {
+      const r = S(job(`    env:\n      ${key}: v\n`));
+      expect(r.covered.has(spec), key).toBe(false);
+      expect(r.rejected[0]!.reason, key).toBe(ENV_REASON([key]));
+    }
+    expect(S(job("    env:\n      GOOD_KEY: v\n")).covered.has(spec)).toBe(true);
+  });
+
+  it("the reason lists ALL off-list keys, sorted (S4/S5)", () => {
+    const r = S(job("    env:\n      ZZ_B: v\n      AA_A: v\n"));
+    expect(r.covered.has(spec)).toBe(false);
+    expect(r.rejected[0]!.reason).toBe(ENV_REASON(["AA_A", "ZZ_B"]));
+  });
+
+  it("value pinning: an allowlisted key with a NOVEL value fails closed (S7, spec §7 R2)", () => {
+    // The R2 live mutant: MODAL_PREFETCH_E2E=0 gated test.skip into a green
+    // run with no tests while a key-name-only registry stayed clean. A row
+    // pins exact value TEXTS; anything else is off-list like a novel key.
+    const novel = S(job("    env:\n      GOOD_KEY: other\n"));
+    expect(novel.covered.has(spec)).toBe(false);
+    expect(novel.rejected[0]!.reason).toBe(ENV_REASON(["GOOD_KEY"]));
+    expect(S(job("    env:\n      GOOD_KEY: v\n")).covered.has(spec)).toBe(true);
+  });
+});
+
+describe("ENV_KEY_ALLOWLIST hygiene (static-env spec §2.3)", () => {
+  it("every allowlist row pins live (key, value) pairs only, with a non-empty reason (S6)", () => {
+    // Through the pure checker, so the doctored twin below exercises the SAME
+    // assertion logic this live gate runs — not a parallel re-implementation.
+    expect(envAllowlistHygieneProblems(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
+  });
+
+  it("the action-manifest loader discovers NESTED manifests and prefers action.yml (plan-R3)", () => {
+    // Shallow-walk mutant: a nested action's env pair escapes the live
+    // completeness census while the scanner (which resolves any uses: path)
+    // still executes it. One shared loader + this fixture pins the depth.
+    const base = mkdtempSync(join(tmpdir(), "actions-depth-"));
+    try {
+      mkdirSync(join(base, "group/nested"), { recursive: true });
+      writeFileSync(
+        join(base, "group/nested/action.yml"),
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        NESTED_KEY: x\n",
+      );
+      writeFileSync(join(base, "group/nested/action.yaml"), "runs:\n  using: composite\n");
+      const found = localActionTextsUnder(base);
+      expect(Object.keys(found)).toEqual(["./.github/actions/group/nested"]);
+      expect(found["./.github/actions/group/nested"]).toContain("NESTED_KEY");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("every LIVE env pair has a reviewed row — the seed cannot drift over-tight (plan-R2)", () => {
+    // The inverse direction of the stale-row check: hygiene that only asserts
+    // declared→live lets a NEW live pair sit unreviewed forever (the plan-R2
+    // probe: GH_APP_TOKEN landed in x-audits.yml with no row, every gate
+    // green). Live→declared closes the drift class, not the one instance.
+    expect(unreviewedLivePairs(ENV_KEY_ALLOWLIST, liveEnvPairs())).toEqual([]);
+  });
+
+  it("every row's governs equals the live derivation — relocation reds (S8, spec §7 R3)", () => {
+    const wfDir = join(process.cwd(), ".github/workflows");
+    const workflows = Object.fromEntries(
+      readdirSync(wfDir)
+        .filter((n) => /\.ya?ml$/.test(n))
+        .map((f) => [f, readFileSync(join(wfDir, f), "utf8")]),
+    );
+    // Same recognizer inputs as the live scan (§7 R4): alias resolution and
+    // the whole-config literal both confer governance; prose does not.
+    const packageScripts = (
+      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    const configSpecs = {
+      "tests/e2e/standalone.config.ts": listedSpecFiles().map((f) => `tests/e2e/${f}`),
+    };
+    const localActions = liveLocalActions();
+    expect(
+      governanceViolations(
+        ENV_KEY_ALLOWLIST,
+        envPairGovernance(workflows, packageScripts, configSpecs, ENV_KEY_ALLOWLIST, localActions),
+      ),
+    ).toEqual([]);
+  });
+
+  it("the governance checker reds a relocated pair and a silently-gained one (S8 doctored twins)", () => {
+    const claiming = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`;
+    const relocated = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
+    const row = { K: { values: [{ text: "v", governs: ["tests/e2e/x.spec.ts"] }], reason: "r" } };
+    const gv = (
+      workflows: Record<string, string>,
+      packageScripts: Record<string, string> = {},
+      allowlist: EnvKeyAllowlist = row,
+    ) => envPairGovernance(workflows, packageScripts, {}, allowlist);
+    // The R3 mutant: pair parked at a non-claiming site — pair-level presence
+    // still holds, governance does not.
+    expect(governanceViolations(row, gv({ "w.yml": claiming }))).toEqual([]);
+    expect(governanceViolations(row, gv({ "w.yml": relocated }))).toHaveLength(1);
+    // The inverse drift: a pair silently GAINING governance must also red.
+    const bare = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
+    expect(governanceViolations(bare, gv({ "w.yml": claiming }, {}, bare))).toHaveLength(1);
+    // R4 launder twin: prose is not a claim. A pair parked on an echo step
+    // that PRINTS the spec path confers no governance — the declared row
+    // reds instead of being laundered through non-command-position text.
+    const parked = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n  park:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo tests/e2e/x.spec.ts\n`;
+    expect(governanceViolations(row, gv({ "w.yml": parked }))).toHaveLength(1);
+    // …and alias-resolved claims DO confer it (same recognizer as the scan).
+    const aliased = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm run e2e:x\n`;
+    expect(
+      governanceViolations(
+        row,
+        gv({ "w.yml": aliased }, { "e2e:x": "playwright test tests/e2e/x.spec.ts" }),
+      ),
+    ).toEqual([]);
+    // R5 duplicate-substitution twin: governance is credited ONLY at the
+    // scan's covered.add site, so a DISQUALIFIED duplicate of the real
+    // invocation (path-gated here) carrying the pair confers nothing — the
+    // declaring row reds while pair presence and recognition both hold.
+    const substituted = {
+      "real.yml": `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`,
+      "gated.yml": `on:\n  pull_request:\n    paths:\n      - docs/**\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test tests/e2e/x.spec.ts\n`,
+    };
+    expect(governanceViolations(row, gv(substituted))).toHaveLength(1);
+  });
+
+  it("a VALUE swap between a claiming and a parked site reds (S8 pair-keyed governance)", () => {
+    // Key-keyed governance could not see this: a row pinning two live values
+    // keeps one `governs` list, so swapping which value sits at the claiming
+    // site leaves pair presence, completeness, and equality all green while a
+    // value-gated spec self-skips (final review (a) R2 probe, live-
+    // representable — SUPABASE_URL, SUPABASE_SECRET_KEY and TEST_AUTH_SECRET
+    // each pin multiple live values). Governance is keyed by (key, value).
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const tree = (claimingValue: string, parkedValue: string) => ({
+      "w.yml": `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${claimingValue}\n    steps:\n      - ${CLAIM}\n  other:\n    runs-on: ubuntu-latest\n    env:\n      K: ${parkedValue}\n    steps:\n      - run: echo parked\n`,
+    });
+    // Declared: "required" gates the spec, "inert" gates nothing.
+    const row: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: ["tests/e2e/x.spec.ts"] },
+          { text: "inert", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    const gv = (workflows: Record<string, string>) => envPairGovernance(workflows, {}, {}, row);
+    // Faithful tree: the claiming job carries the gating value.
+    expect(governanceViolations(row, gv(tree("required", "inert"))), "faithful").toEqual([]);
+    // Swapped: BOTH values are still live and still allowlisted, and a
+    // key-keyed derivation is byte-identical here — only the pair-keyed one
+    // sees that "required" no longer governs and "inert" now does.
+    const swapped = governanceViolations(row, gv(tree("inert", "required")));
+    expect(swapped, "swapped").toHaveLength(2);
+    expect(swapped.join("\n")).toMatch(/K=required/);
+    expect(swapped.join("\n")).toMatch(/K=inert/);
+    // Pair-level hygiene stays green across the swap — it is exactly the
+    // check that cannot catch this, which is why governance must be keyed by
+    // the pair rather than the key.
+    const live = new Map([["K", new Set(["required", "inert"])]]);
+    expect(envAllowlistHygieneProblems(row, live), "stale hygiene blind").toEqual([]);
+    expect(unreviewedLivePairs(row, live), "completeness blind").toEqual([]);
+  });
+
+  it("governance is credited at workflow-root, run-step, and whole-config sites (S8 scope cells)", () => {
+    // Every shipped governance positive used JOB-level env and passed no
+    // configSpecs, so deleting the workflow-root credit, deleting the
+    // run-step credit, or dropping configSpecs from the wrapper each escaped
+    // all of them (final review (a) finding 2, probe-backed). A regressed
+    // credit makes a mechanically derived row declare `governs: []`, and a
+    // relocation of that pair then passes both hygiene directions.
+    const CFG = "tests/e2e/standalone.config.ts";
+    const row = { K: { values: [{ text: "v", governs: ["tests/e2e/x.spec.ts"] }], reason: "r" } };
+    const bare = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
+    const gv = (
+      workflows: Record<string, string>,
+      configSpecs: Record<string, string[]> = {},
+      allowlist: EnvKeyAllowlist = row,
+    ) => envPairGovernance(workflows, {}, configSpecs, allowlist);
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    // Workflow-root env governs the claims below it.
+    const root = `env:\n  K: v\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n`;
+    expect(governanceViolations(row, gv({ "w.yml": root })), "root credit").toEqual([]);
+    expect(governanceViolations(bare, gv({ "w.yml": root }, {}, bare)), "root gain").toHaveLength(
+      1,
+    );
+    // Run-step env on the claiming step itself governs that step's claims.
+    const step = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n        env:\n          K: v\n`;
+    expect(governanceViolations(row, gv({ "w.yml": step })), "step credit").toEqual([]);
+    expect(governanceViolations(bare, gv({ "w.yml": step }, {}, bare)), "step gain").toHaveLength(
+      1,
+    );
+    // Whole-config recognition: the config's MEMBERS are the governed claims,
+    // so a wrapper that drops configSpecs derives nothing at this site.
+    const cfg = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test --config ${CFG}\n`;
+    const members = { [CFG]: ["tests/e2e/x.spec.ts"] };
+    expect(governanceViolations(row, gv({ "w.yml": cfg }, members)), "config credit").toEqual([]);
+    expect(
+      governanceViolations(bare, gv({ "w.yml": cfg }, members, bare)),
+      "config gain",
+    ).toHaveLength(1);
+  });
+
+  it("governance is credited at LATER positions and accumulates over ALL claims (S8 position/cardinality)", () => {
+    // The credit-site fixtures pinned WHICH scopes confer governance but put
+    // every positive at position 0 with exactly one governed spec, so a
+    // derivation truncated to the first job, first step, first configSpecs
+    // member, or first accumulated claim passed all of them — and a
+    // correspondingly truncated row then satisfied governanceViolations,
+    // re-opening relocation/value-swap for every omitted claim (final review
+    // (a) R4 F2). Position AND cardinality, per iterated thing.
+    const CFG = "tests/e2e/standalone.config.ts";
+    const gv = (
+      workflows: Record<string, string>,
+      allowlist: EnvKeyAllowlist,
+      configSpecs: Record<string, string[]> = {},
+    ) => envPairGovernance(workflows, {}, configSpecs, allowlist);
+    const rowFor = (governs: string[]): EnvKeyAllowlist => ({
+      K: { values: [{ text: "v", governs }], reason: "r" },
+    });
+    const claimOf = (s: string) => `run: pnpm exec playwright test ${s}`;
+    // LATER JOB: the first job is clean and claiming; the pair sits in job two.
+    const laterJob = `on:\n  pull_request:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n  z:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - ${claimOf("tests/e2e/z.spec.ts")}\n`;
+    const jobRow = rowFor(["tests/e2e/z.spec.ts"]);
+    expect(governanceViolations(jobRow, gv({ "w.yml": laterJob }, jobRow)), "later job").toEqual(
+      [],
+    );
+    // LATER STEP: step-scope pair on the SECOND step of a job.
+    const laterStep = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n      - ${claimOf("tests/e2e/z.spec.ts")}\n        env:\n          K: v\n`;
+    const stepRow = rowFor(["tests/e2e/z.spec.ts"]);
+    expect(
+      governanceViolations(stepRow, gv({ "w.yml": laterStep }, stepRow)),
+      "later step",
+    ).toEqual([]);
+    // CARDINALITY, whole-config: a config with TWO members governs BOTH.
+    const cfgWf = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: pnpm exec playwright test --config ${CFG}\n`;
+    const members = { [CFG]: ["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"] };
+    const bothCfg = rowFor(["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"]);
+    expect(
+      governanceViolations(bothCfg, gv({ "w.yml": cfgWf }, bothCfg, members)),
+      "both config members",
+    ).toEqual([]);
+    // …and a row naming only the FIRST member must RED, so a truncated
+    // derivation cannot be satisfied by a matching truncated row.
+    const firstCfgOnly = rowFor(["tests/e2e/a.spec.ts"]);
+    expect(
+      governanceViolations(firstCfgOnly, gv({ "w.yml": cfgWf }, firstCfgOnly, members)),
+      "truncated config row",
+    ).toHaveLength(1);
+    // CARDINALITY, accumulation: two claiming steps under one governing scope.
+    const twoClaims = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - ${claimOf("tests/e2e/a.spec.ts")}\n      - ${claimOf("tests/e2e/b.spec.ts")}\n`;
+    const bothClaims = rowFor(["tests/e2e/a.spec.ts", "tests/e2e/b.spec.ts"]);
+    expect(
+      governanceViolations(bothClaims, gv({ "w.yml": twoClaims }, bothClaims)),
+      "both accumulated claims",
+    ).toEqual([]);
+    const firstClaimOnly = rowFor(["tests/e2e/a.spec.ts"]);
+    expect(
+      governanceViolations(firstClaimOnly, gv({ "w.yml": twoClaims }, firstClaimOnly)),
+      "truncated accumulation row",
+    ).toHaveLength(1);
+  });
+
+  it("governance credits the EFFECTIVE value after scope precedence (S8 shadowing)", () => {
+    // GitHub precedence is step > job > workflow. Crediting every
+    // syntactically in-scope pair let a SHADOWED value keep the governance of
+    // the value that actually reaches the runner, so swapping the two left
+    // governance byte-identical while the effective value flipped from the
+    // one that runs the spec to the one that self-skips it (final review (a)
+    // R5 F1). All three precedence pairs are pinned.
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const declared: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: X },
+          { text: "inert", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    const gv = (wf: string) => envPairGovernance({ "w.yml": wf }, {}, {}, declared);
+    const rootJob = (root: string, job: string) =>
+      `env:\n  K: ${root}\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${job}\n    steps:\n      - ${CLAIM}\n`;
+    const rootStep = (root: string, step: string) =>
+      `env:\n  K: ${root}\non:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - ${CLAIM}\n        env:\n          K: ${step}\n`;
+    const jobStep = (job: string, step: string) =>
+      `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: ${job}\n    steps:\n      - ${CLAIM}\n        env:\n          K: ${step}\n`;
+    for (const [label, wf] of [
+      ["root<job", rootJob],
+      ["root<step", rootStep],
+      ["job<step", jobStep],
+    ] as const) {
+      // Effective value is `required`; the shadowed `inert` governs nothing.
+      expect(governanceViolations(declared, gv(wf("inert", "required"))), label).toEqual([]);
+      // Swapped: effective value is now `inert`, so the SAME row must red —
+      // the assertion a scope-blind derivation cannot make.
+      expect(
+        governanceViolations(declared, gv(wf("required", "inert"))),
+        `${label} swapped`,
+      ).not.toEqual([]);
+    }
+  });
+
+  it("action-scoped env pairs govern later claims in the job (S8, R5 F2)", () => {
+    // A pair handed to a `uses:` invocation, or carried by a step of the
+    // composite it resolves, is part of the job's execution context: an
+    // action gated on it can decide whether the later spec does anything.
+    // Crediting nothing there left relocation of such a pair invisible.
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const declared: EnvKeyAllowlist = { K: { values: [{ text: "v", governs: X }], reason: "r" } };
+    const gv = (wf: string, actions: Record<string, string> = {}) =>
+      envPairGovernance({ "w.yml": wf }, {}, {}, declared, actions);
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    // (a) env on the local `uses:` INVOCATION itself.
+    const invocation = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    expect(
+      governanceViolations(declared, gv(invocation, { "./.github/actions/a": cleanBody })),
+      "uses-invocation env",
+    ).toEqual([]);
+    // (b) composite RUN-step env and (c) NESTED composite step env.
+    const use = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n`;
+    const compositeRun = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    const nested = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    for (const [label, actions] of [
+      ["composite-run env", compositeRun],
+      ["nested-composite env", nested],
+    ] as const) {
+      expect(governanceViolations(declared, gv(use, actions)), label).toEqual([]);
+    }
+    // Relocation twin: park the pair on a NON-claiming job and the declaring
+    // row reds — the whole point of crediting these sites.
+    const parked = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n  park:\n    runs-on: ubuntu-latest\n    env:\n      K: v\n    steps:\n      - run: echo parked\n`;
+    expect(
+      governanceViolations(declared, gv(parked, { "./.github/actions/a": cleanBody })),
+      "relocated away from the action site",
+    ).toHaveLength(1);
+    // Action-scoped credit is ADDITIVE, never suppressed by a same-key
+    // direct value (R7 F1). Precedence resolves what ONE step sees; an
+    // earlier action saw its own value regardless of what the claiming step
+    // later sets, so BOTH pairs govern. An earlier draft asserted the
+    // opposite ("direct scope wins"), which let `K=required` at an action be
+    // relocated freely whenever the claiming step carried `K=inert`.
+    const bothScopes = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      K: direct\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    const twoValues: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "direct", governs: X },
+          { text: "v", governs: X },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        twoValues,
+        envPairGovernance({ "w.yml": bothScopes }, {}, {}, twoValues, {
+          "./.github/actions/a": cleanBody,
+        }),
+      ),
+      "action-scoped and direct values BOTH govern",
+    ).toEqual([]);
+    // …and a row crediting only the direct value reds, so a suppressing
+    // derivation cannot be satisfied by a correspondingly narrowed row.
+    const directOnly: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "direct", governs: X },
+          { text: "v", governs: [] },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        directOnly,
+        envPairGovernance({ "w.yml": bothScopes }, {}, {}, directOnly, {
+          "./.github/actions/a": cleanBody,
+        }),
+      ),
+      "direct-only row must red",
+    ).toHaveLength(1);
+    // Composite `uses:`-step env governs too, at direct AND nested depth
+    // (R7 (b) F2 — the S8 positives covered run-step env only).
+    const usesEnvDirect = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        K: v\n",
+    };
+    const usesEnvNested = {
+      "./.github/actions/a":
+        "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n",
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      env:\n        K: v\n",
+    };
+    for (const [label, actions] of [
+      ["composite uses-step env", usesEnvDirect],
+      ["nested composite uses-step env", usesEnvNested],
+    ] as const) {
+      expect(governanceViolations(declared, gv(use, actions)), label).toEqual([]);
+    }
+  });
+
+  it("action-scoped governance keeps EVERY value and skips guarded steps (S8, R6)", () => {
+    // Two sub-holes in the action-scoped credit added at R5: a Map collapsed
+    // two action-scoped VALUES of one key so only the last was credited
+    // (R6 F1), and a step provably not running still conferred governance
+    // (R6 F2).
+    const CLAIM = "run: pnpm exec playwright test tests/e2e/x.spec.ts";
+    const X = ["tests/e2e/x.spec.ts"];
+    const cleanBody =
+      "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n";
+    const gv = (wf: string, allowlist: EnvKeyAllowlist, actions: Record<string, string> = {}) =>
+      envPairGovernance({ "w.yml": wf }, {}, {}, allowlist, actions);
+    // F1: two invocations handed DIFFERENT values of one key — both govern.
+    const twoValues = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        env:\n          K: required\n      - uses: ./.github/actions/a\n        env:\n          K: inert\n      - ${CLAIM}\n`;
+    const bothDeclared: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: X },
+          { text: "inert", governs: X },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(
+        bothDeclared,
+        gv(twoValues, bothDeclared, { "./.github/actions/a": cleanBody }),
+      ),
+      "both action-scoped values govern",
+    ).toEqual([]);
+    // …and a row crediting only the LAST value must red, so a collapsing
+    // derivation cannot be satisfied by a correspondingly collapsed row.
+    const lastOnly: EnvKeyAllowlist = {
+      K: {
+        values: [
+          { text: "required", governs: [] },
+          { text: "inert", governs: X },
+        ],
+        reason: "r",
+      },
+    };
+    expect(
+      governanceViolations(lastOnly, gv(twoValues, lastOnly, { "./.github/actions/a": cleanBody })),
+      "last-value-only row",
+    ).toHaveLength(1);
+    // F2: a GUARDED invocation confers nothing — it provably may not run.
+    const guardedInvocation = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n        if: false\n        env:\n          K: v\n      - ${CLAIM}\n`;
+    const bare: EnvKeyAllowlist = { K: { values: [{ text: "v", governs: [] }], reason: "r" } };
+    expect(
+      governanceViolations(bare, gv(guardedInvocation, bare, { "./.github/actions/a": cleanBody })),
+      "guarded invocation confers nothing",
+    ).toEqual([]);
+    // A guarded COMPOSITE step confers nothing. The condition must be a
+    // STRING: `validatedCompositeSteps` accepts `if:` on composite steps but
+    // rejects a YAML BOOLEAN on type, and an earlier draft used `if: false`
+    // and so proved nothing — the claim was never covered, making the
+    // assertion vacuous, and it led to a wrong "this is unreachable"
+    // conclusion (corrected at R7). With a string condition the claim stays
+    // COVERED, so the assertion below is about governance, as intended.
+    const use = `on:\n  pull_request:\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/a\n      - ${CLAIM}\n`;
+    const guardedCompositeStep = {
+      "./.github/actions/a":
+        'runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      if: "${{ false }}"\n      env:\n        K: v\n',
+    };
+    const r = scanWorkflowCoverage({
+      workflows: { "w.yml": use },
+      packageScripts: {},
+      localActions: guardedCompositeStep,
+      envKeyAllowlist: bare,
+    });
+    expect(r.covered.has("tests/e2e/x.spec.ts"), "guarded composite step stays covered").toBe(true);
+    expect(
+      governanceViolations(bare, gv(use, bare, guardedCompositeStep)),
+      "guarded composite step confers nothing",
+    ).toEqual([]);
+    // Guarded PARENT hides its whole subtree.
+    const guardedParent = {
+      "./.github/actions/a":
+        'runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/b\n      if: "${{ false }}"\n',
+      "./.github/actions/b":
+        "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n      env:\n        K: v\n",
+    };
+    expect(
+      governanceViolations(bare, gv(use, bare, guardedParent)),
+      "guarded parent hides nested pair",
+    ).toEqual([]);
+  });
+
+  it("the stale-row detector actually reads its inputs (S6 doctored twin)", () => {
+    // Each doctored allowlist must red through the SAME checker the live
+    // gate invokes — deleting a live assertion cannot leave this twin green.
+    const live = new Map([["K", new Set(["v"])]]);
+    const row = (over: Partial<EnvKeyAllowlist[string]>): EnvKeyAllowlist => ({
+      K: { values: [{ text: "v", governs: [] }], reason: "r", ...over },
+    });
+    expect(envAllowlistHygieneProblems(row({}), live)).toEqual([]);
+    const ghost = {
+      GHOST_KEY_NEVER_LIVE: { values: [{ text: "v", governs: [] }], reason: "r" },
+    };
+    expect(envAllowlistHygieneProblems(ghost, live)).toHaveLength(1);
+    expect(envAllowlistHygieneProblems(ghost, live)[0]).toMatch(/stale env-key row/);
+    expect(envAllowlistHygieneProblems(row({ values: [] }), live)[0]).toMatch(/value-less/);
+    expect(
+      envAllowlistHygieneProblems(
+        row({
+          values: [
+            { text: "v", governs: [] },
+            { text: "__NEVER_LIVE__", governs: [] },
+          ],
+        }),
+        live,
+      )[0],
+    ).toMatch(/stale pinned value/);
+    expect(envAllowlistHygieneProblems(row({ reason: "  " }), live)[0]).toMatch(/reason-less/);
+    // Completeness twin (plan-R2): a live pair with no row, and a live VALUE
+    // outside its row's pins, each red through the same live→declared checker.
+    expect(unreviewedLivePairs(row({}), live)).toEqual([]);
+    const extraKey = new Map([...live, ["NEW_LIVE_KEY", new Set(["x"])]]);
+    expect(unreviewedLivePairs(row({}), extraKey)).toHaveLength(1);
+    expect(unreviewedLivePairs(row({}), extraKey)[0]).toMatch(/unreviewed live env pair/);
+    const extraValue = new Map([["K", new Set(["v", "v2"])]]);
+    expect(unreviewedLivePairs(row({}), extraValue)).toHaveLength(1);
+    expect(unreviewedLivePairs(row({}), extraValue)[0]).toMatch(/NEW_LIVE|K=v2/);
   });
 });

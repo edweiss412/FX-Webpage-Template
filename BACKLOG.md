@@ -8,6 +8,57 @@ Last reconciled: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGEN
 
 ---
 
+## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
+across three rounds of probes against the shipped guard.
+
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` pins that each consumer
+imports the shared helper, CALLS it (resolved through the TypeScript type checker, not by
+name), declares no local copy by name or by shape, and — for coalescer rows — cancels the
+instance it schedules. Rules (i)-(viii) are nonetheless **reachability-blind by
+construction**: none of them connects the imported helper's RESULT to live behaviour. Two
+evasion families were demonstrated, the second surviving a round of tightening:
+
+1. **Executed decoy.** `createRafCoalescer(() => {}).cancel()` on a throwaway instance,
+   while a private class handles every real `schedule()`/`cancel()`:
+
+   ```text
+   MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
+   schedule/cancel behavior uses PrivateCoalescer
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+2. **Discarded result.** Call `useFitWithinClip(...)`, drop the returned ref, attach a
+   private callback to the node instead:
+
+   ```text
+   MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+Affects all five consumers: `ShareHub`, `HoverHelp`, `PublishedToggle`, `AttentionMenu`,
+`ReSyncButton`.
+
+**Accepted, not open.** Closing this statically means dataflow/reachability analysis, which
+is not what a meta-test should carry, and two rounds of rule-tightening each invited a new
+shape (the per-instance whack-a-mole the class-sweep discipline warns about). The guard's
+header states the limit and names the per-consumer BEHAVIOURAL tests that do catch a fork —
+`ReSyncButton.test.tsx` "overlay is capped to the room left inside a clipping ancestor",
+`PublishedToggle.test.tsx` "the banner is capped against the clip ancestor",
+`attentionMenu.test.tsx`'s capped-scroller case, the two HoverHelp suites, and
+shareHubVisualViewport's T-S8/T-S9. The wiring layer and the behaviour layer are meant to be
+read together; neither is sufficient alone.
+
+**Filed here because a code comment is not a ledger.** The limit was documented at the guard
+(discoverable once you are already reading it) but not where someone greps for known
+weaknesses. Its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` went to this
+file; this one should have too.
+
+**Only act on this if** a consumer is found to have behaviourally forked despite a green
+guard, or the behavioural backstops above are removed or narrowed — the latter is the real
+risk, since deleting one silently converts this accepted limit into an uncovered gap.
+
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
@@ -112,16 +163,6 @@ the `quality` context". Measured live 2026-07-26: `main` requires **twelve** con
 `postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
 third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
 check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
-
-## BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec
-
-**Filed:** 2026-08-01 (R1 adversarial review of the cross-step-env-guard spec, `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` §5 L3). **Class:** CI guard soundness. **Effort:** S–M.
-
-Static env injection is a FAIL-OPEN residual of `tests/ci/_workflowCoverageScan.ts`: a job-level `env:\n  PATH: fixtures/fake:/usr/bin:/bin` followed by a textually clean `pnpm exec playwright test …` step yields `covered` containing the spec and `rejected: []` (R1 probe, 2026-08-01). Unlike the cross-step `GITHUB_ENV`/`GITHUB_PATH` class (closed by that spec), there is no step ordering to thread — the vector is a static key the scanner simply does not model. Existing partial mitigations: `standalone-e2e.yml` pins no-`env:` at every level (workflow, job, step) for the reporter-path surface, and the `PLAYWRIGHT_*` raw-text sweep covers that env-var family; the general scanner and the census have no such pin. Zero live workflows carry an `env:` PATH override today.
-
-**Work:** decide the modeling posture (reject-on-`env:`-anywhere is the scanner's `UNMODELLED_RE` pattern and probably right; an allowlist of known-benign env keys is the alternative), apply it to both guard layers, and pin with synthetic fixtures per the finding-admissibility contract.
-
-**Status:** OPEN.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
