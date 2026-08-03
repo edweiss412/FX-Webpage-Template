@@ -1198,6 +1198,26 @@ test.describe("freshness cue geometry — /admin?show=<slug> (real browser)", ()
       });
     const scrollHeight = async () => pane.evaluate((el) => el.scrollHeight);
 
+    // LAYOUT MUST BE SETTLED BEFORE THE BASELINE, and this is not belt-and-braces.
+    // Real CI failed this case on `armed: top moved` while the outline was doing
+    // nothing at all: the modal is Suspense-streamed, so sections above the crew
+    // card were still arriving between the two measurements and moving it. A
+    // readiness gate that stops at "one section is attached" does not imply the
+    // column has stopped growing. Poll until the card's own top AND the pane's
+    // scrollHeight are unchanged across consecutive samples, so the only thing
+    // that can move the rect afterwards is the attribute under test.
+    await expect
+      .poll(
+        async () => {
+          const a = { top: (await measure()).top, h: await scrollHeight() };
+          await page.waitForTimeout(120);
+          const b = { top: (await measure()).top, h: await scrollHeight() };
+          return Math.abs(a.top - b.top) < 0.5 && a.h === b.h;
+        },
+        { timeout: 30_000, message: "modal layout stopped moving before the baseline" },
+      )
+      .toBe(true);
+
     const before = await measure();
     const scrollBefore = await scrollHeight();
 
