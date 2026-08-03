@@ -14,6 +14,39 @@ import { describe, expect, it } from "vitest";
  * than matching identifier text: a same-named local const, a same-named function
  * PARAMETER shadowing the import, or a same-named export from a decoy module all
  * read identically to a text scan and all fail here.
+ *
+ * ## What this guard does NOT prove (documented limit, not an oversight)
+ *
+ * It does not prove LIVE-PATH adoption. Cross-model review demonstrated two
+ * families of evasion with working probes, and the second survived a round of
+ * tightening:
+ *
+ *   1. an executed decoy — `createRafCoalescer(() => {}).cancel()` on a
+ *      throwaway instance, while a private class handles every real
+ *      `schedule()`/`cancel()`;
+ *   2. a discarded result — calling `useFitWithinClip(...)` and then attaching
+ *      a private ref callback to the node instead of the returned one.
+ *
+ * Rules (i)-(viii) are reachability-blind by construction, so closing this
+ * statically means dataflow analysis, which is not what a meta-test should be.
+ * The rules here raise the cost of an accidental fork and catch every shape
+ * short of a deliberate one.
+ *
+ * BEHAVIOURAL adoption is carried by executable tests, which a fork cannot pass
+ * because they assert observable behaviour rather than structure:
+ *
+ *   - ShareHub coalescer      -> shareHubVisualViewport.test.tsx T-S8 (a burst
+ *                                collapses to ONE frame and cancels none) and
+ *                                T-S9 (unmount cancels the pending frame id).
+ *   - HoverHelp coalescer     -> hoverHelpVisualViewport.test.tsx (open/closed
+ *                                scheduling) and hoverHelpLifecycle.test.tsx
+ *                                (close/unmount cancels the pending frame).
+ *   - useFitWithinClip        -> useFitWithinClip.test.tsx cases (a)-(f), plus
+ *                                the real fitted geometry asserted per consumer
+ *                                in tests/e2e/popover-clip-fit.spec.ts.
+ *
+ * Read the two layers together: this file pins the WIRING, those pin the
+ * BEHAVIOUR. Neither is sufficient alone, and that is deliberate.
  */
 
 const ROOT = process.cwd();
@@ -259,10 +292,15 @@ function constantFalseBranches(source: ts.SourceFile): string[] {
 function localCoalescerShapes(source: ts.SourceFile): string[] {
   const hits: string[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isObjectLiteralExpression(node)) {
+    if (
+      ts.isObjectLiteralExpression(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node)
+    ) {
+      const members = ts.isObjectLiteralExpression(node) ? node.properties : node.members;
       const names = new Set(
-        node.properties
-          .map((prop) => (prop.name && ts.isIdentifier(prop.name) ? prop.name.text : null))
+        members
+          .map((m) => (m.name && ts.isIdentifier(m.name) ? m.name.text : null))
           .filter((n): n is string => n !== null),
       );
       if (names.has("schedule") && names.has("cancel")) {

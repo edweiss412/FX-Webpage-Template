@@ -168,22 +168,28 @@ async function openMenu(page: Page, a: number, n: number, s: number) {
  * O2 -> O1 flip cases). Callers poll this until it converges.
  */
 /**
- * Two samples separated by a frame, agreeing.
+ * Two samples that agree on the NUMBERS, not merely on two verdicts.
  *
- * `expect.poll` resolves on the FIRST satisfying sample, so a correct
- * intermediate fit that a later observer callback then breaks would satisfy the
- * assertion and return before the regression appeared. Requiring the same
- * verdict twice makes the assertion about a state that PERSISTED, which is what
- * §9's "settled" means.
+ * `expect.poll` resolves on the first satisfying sample, so a correct
+ * intermediate fit that a later observer callback broke would satisfy the
+ * assertion and return before the regression appeared. Comparing the measured
+ * height and available room across samples — rather than the booleans derived
+ * from them — makes a moving box fail instead of passing twice on the way past.
+ *
+ * The callers pair this with reduced-motion emulation, which is what actually
+ * removes the mid-transition window: sampling alone cannot prove a transition
+ * has finished, it can only notice that two samples disagree. The ANIMATED
+ * settle has its own dedicated case, which awaits `transitionend` explicitly.
  */
 async function settledGeometry(page: Page) {
   const first = await fittedGeometry(page);
-  await page.waitForTimeout(50);
+  await page.waitForTimeout(80);
   const second = await fittedGeometry(page);
   if (first === null || second === null) return null;
+  const stable = first.height === second.height && first.available === second.available;
   return {
-    contained: first.contained && second.contained,
-    fitted: first.fitted && second.fitted,
+    contained: stable && first.contained && second.contained,
+    fitted: stable && first.fitted && second.fitted,
   };
 }
 
@@ -201,6 +207,8 @@ async function fittedGeometry(page: Page) {
       return {
         contained: m.bottom <= p.bottom + 0.5,
         fitted: Math.abs(sc.height - available) <= 0.5,
+        height: sc.height,
+        available,
       };
     },
     [PANEL, MENU, SCROLLER, GUTTER] as const,
@@ -368,6 +376,9 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
   });
 
   test("held-open O2 -> O1 flip re-fits and stays contained", async ({ page }) => {
+    // Reduced motion collapses the entrance to instant, so a settled assertion
+    // cannot land mid-transition. The animated path is covered by its own case.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 560 });
     await openMenu(page, 0, 0, 10); // monitoring only (O2)
     await setItems(page, 10, 10, 10); // needs-you heading mounts (O1)
