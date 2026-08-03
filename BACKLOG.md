@@ -8,12 +8,16 @@ Last reconciled: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-
 
 ---
 
-## BL-LEDGER-GUARD-INTENSIFIER-BLIND — an intensifier hides a terminal status from the graduation guard
+## BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard
 
 **Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
 
-`tests/docs/_ledgerMdast.ts` recognizes a terminal word only in leading position, so any
-intensifier in front of it makes a closed entry read as OPEN. Probed against the shipped walker:
+`tests/docs/_ledgerMdast.ts` misses two independent spellings of a closure. Both were found by
+reading entries a human would call closed and asking why the guard did not. Probed against the
+shipped walker.
+
+**(1) An intensifier before the terminal word**, in a heading — the word is recognized only in
+leading position, so anything in front of it makes the entry read as OPEN:
 
 | heading suffix                           | guard verdict |
 | ---------------------------------------- | ------------- |
@@ -25,15 +29,38 @@ intensifier in front of it makes a closed entry read as OPEN. Probed against the
 | `✅ COMPLETELY DONE`                     | **open**      |
 | `✅ ALREADY SHIPPED`                     | **open**      |
 
+**(2) A checkmark AND a parenthetical together**, in a bold opening-line claim. Either alone is
+recognized; the combination is not, for every terminal word:
+
+| opening line                             | guard verdict |
+| ---------------------------------------- | ------------- |
+| `**✅ RESOLVED:** …`                     | TERMINAL      |
+| `**RESOLVED (2026-06-21):** …`           | TERMINAL      |
+| `**RESOLVED (2026-06-21, \`br\`):\*\* …` | TERMINAL      |
+| `**✅ RESOLVED (2026-06-21):** …`        | **open**      |
+| `**✅ SHIPPED (2026-06-21):** …`         | **open**      |
+| `**✅ CLOSED (PR #22):** …`              | **open**      |
+| `**✅ DONE (2026-06-21):** …`            | **open**      |
+
+Spelling (2) is the more dangerous of the pair, because checkmark-plus-date is the most natural
+way a person writes a closure.
+
 The `PARTIALLY CLOSED` and `NOT CLOSED` cases correctly stay open — those are the ratified
 `VETO` negations/qualifiers, and a fix must not weaken them. The gap is that VETO enumerates
 words that _negate_, while nothing enumerates words that merely _intensify_, and an
 unrecognized leading word currently defaults to "not terminal".
 
-**Live corruption this caused:** `BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK` shipped, was annotated
-`✅ FULLY CLOSED` in place, and sat in the open queue undetected. Class-swept at filing time:
-exactly one instance across the active `BACKLOG.md` (84 entries) and `DEFERRED.md` (15) —
-now archived — so this is a latent hole, not a backlog of mis-filings.
+**Live corruption this caused:** one entry per spelling, each sitting in the open queue while
+declaring its own closure. `BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK` (`✅ FULLY CLOSED`, spelling 1)
+and `BL-LINT-DEBT-PREEXISTING` (`✅ RESOLVED (2026-06-21, …)`, spelling 2) — both now archived.
+
+Class-swept at filing across the active `BACKLOG.md` and `DEFERRED.md`, twice. The narrow sweep
+(both bad shapes) found exactly those two. A deliberately wider sweep — ANY terminal word in a
+heading or opening line of an entry the guard calls open — returned 11, of which 9 are correct
+refusals the fix must preserve: `PARTIALLY CLOSED` / `Partial closure` (the ratified VETO),
+`Status: OPEN`, and terminal words used as ordinary prose (`the closed-port protocol`, the UI
+string `"Mark resolved"`). So this is a latent hole, not a backlog of mis-filings — and the
+9 correct refusals are the regression set for any fix.
 
 **Why backlog, not a one-line fix:** lane semantics are spec-canonical
 (`docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md`, eleven adversarial
@@ -43,8 +70,8 @@ through, so it needs the plants-corpus treatment (`M1`–`M9` in
 plus proof the existing negation plants still red. Doing it inline here would be an unreviewed
 edit to a ratified guard.
 
-**Trigger:** the next change that touches `_ledgerMdast.ts` lane semantics, or a second
-instance of this shape appearing in either ledger.
+**Trigger:** the next change that touches `_ledgerMdast.ts` lane semantics, or a third
+instance of either shape appearing in the ledgers.
 
 ---
 

@@ -2031,7 +2031,7 @@ This is **pre-existing and project-wide**: `--color-accent-on-bg` is the link/em
 Moved out of the open queue 2026-08-02. Its own heading said `✅ FULLY CLOSED`, but the
 graduation guard reads a terminal word only in leading position, so `FULLY CLOSED` /
 `FULLY RESOLVED` / `ALREADY SHIPPED` all classify as OPEN while reading as closed to a
-human. Filed as BL-LEDGER-GUARD-INTENSIFIER-BLIND. Entry preserved verbatim below.
+human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below.
 
 #### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)
 
