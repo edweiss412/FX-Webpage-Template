@@ -26,7 +26,7 @@ Shipped in this cluster:
 
 1. `REVOKE INSERT, UPDATE, DELETE` on **8** admin-only tables + registry rows (§4).
 2. A spec-derived completeness assertion so an unclassified §4.3 table fails CI (§4.4).
-3. **Hardening `ADMIN_TABLES`' generator so a §4.3 table can never drop out silently** (§4.5) — the prerequisite the other two rest on.
+3. **One shared, DDL-free §4.3 parser so a table can never drop out silently** (§4.5) — the prerequisite the other two rest on.
 4. The RLS probe re-derived from §4.3, relocated cross-cutting, with `relrowsecurity`, policy-count, and non-vacuous behavioral assertions (§6).
 5. A live-catalog completeness assertion for canonical-email CHECKs, closing 3 name-invisible ones (§5).
 
@@ -47,6 +47,8 @@ Shipped in this cluster:
 | The 8 new registry rows are `selectAnon: true` / `selectAuthenticated: true`. SELECT is retained by design and the original grant covered both roles. | R2 finding 1; §4.2; the `true`/`true` posture of every comparable REVOKE-only row in `tests/db/postgrest-dml-lockdown.test.ts:147-511`. |
 | The generator fails loud via a **declared-count tripwire**, NOT via "throw on any unresolved name". The latter fails on today's corpus because 4 backticked prose identifiers in §4.3 are not tables. | R2 finding 2 probe; §4.5. |
 | AC-2.5's four-verb contract is satisfied by the UNION of the RLS test and the lockdown test; `42501` is literally AC-2.5's stated pass condition for the write verbs. No spec amendment needed. | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3792` ("permission-denied / zero-affected-rows"); §6.3. |
+| The §4.3 parser reads NO DDL. The DDL-spelling mutation families from R1/R3 are retired as unreachable, not patched. | R3 finding 1 probe (3 further legal spellings defeat any regex); §4.5. |
+| Both §4.3 extractors collapse into ONE shared module. `generate-traceability.ts` held a second defective copy. | R3 finding 2; `scripts/generate-traceability.ts:182`. |
 | `__test_singleton_rls_probe` is unimplemented prose that cannot be built usefully either way it is specified. Not a deliverable here. | `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:417` (DEFINER) vs the spec's INVOKER; §6.3(c). |
 
 ---
@@ -195,37 +197,35 @@ for each table in ADMIN_TABLES (generated from spec §4.3):
 
 Anti-tautology: the assertion is scoped against `ADMIN_TABLES` (the spec-derived registry), never against `RPC_GATED_TABLES` itself — asserting a registry against itself is the failure mode this whole spec is about.
 
-### 4.5 Hardening the generator — the load-bearing prerequisite
+### 4.5 Hardening the §4.3 parser — the load-bearing prerequisite
 
-Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. R1 finding 1 established, by probe, that it is not. `scripts/generate-admin-tables.ts:29-30` intersects the §4.3 bullet names with
+Both Layer 5 and §6.2 rest on `ADMIN_TABLES` being a faithful projection of §4.3. R1 and R2 established it is not; R3 then defeated the regex repair itself. The final design **stops parsing DDL entirely**, which dissolves that whole mutation space rather than widening a pattern against it.
 
-```js
-Array.from(spec.matchAll(/create table ([a-z][a-z0-9_]*)/g), (m) => m[1])
-```
-
-then `.filter((name) => tableDefinitions.has(name) && …)`. The regex is case-sensitive, requires an unqualified name, and does not accept `if not exists`. Three valid CREATE TABLE spellings each drop the table **silently** — no throw, no diff, so regeneration stays clean and the X.3 freshness check passes:
+**Why the regex approach was abandoned.** R1 showed `scripts/generate-admin-tables.ts:29-30` silently drops a table whose CREATE TABLE block is `public.`-qualified, uppercase, or `if not exists`. R2 killed the "throw on unresolved name" repair (four backticked §4.3 identifiers are prose, not tables). R3 then defeated the widened regex with three further legal DDL spellings — quoted schema identifiers, whitespace around the qualification dot, and a comment between keywords:
 
 ```
-create table public.future_admin (id uuid);        => generated=19, future_admin absent
-CREATE TABLE future_admin (id uuid);               => generated=19, future_admin absent
-create table if not exists future_admin (id uuid); => generated=19, future_admin absent
+"create table \"public\".\"future_admin\" (…)"  => "public"      (wrong capture)
+"create table public . future_admin (…)"       => "public"      (wrong capture)
+"create /*guard-gap*/ table public.future_admin" => null         (no match)
 ```
 
-A §4.3 table written any of those ways is invisible to Layer 5, to the RLS test, and to `PROTECTED_TABLES` in `lib/audit/authPrimitives.ts:92` — i.e. the generator's silent intersection-drop is the same defect class the cluster exists to close, sitting upstream of all of it.
+Each leaves `resolved=19` while a real §4.3 table goes missing. The DDL-spelling space is open-ended; a guard that enumerates it is never done.
 
-Three changes. R2 finding 2 killed an earlier draft of this section — see the note below for why the obvious fix does not work.
+**The design: no DDL intersection.** The parser's only job is to separate table names from prose identifiers in the §4.3 bullet, and DDL was always an indirect proxy for that. Replace it with an explicit denylist:
 
-1. **Widen the regex** to `/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z][a-z0-9_]*)/gi`.
-2. **Read the whole bullet, not its first line.** `scripts/generate-admin-tables.ts:20` finds the bullet with `.startsWith("- **Admin-only tables")` and uses that single line. §4.3's bullet happens to be one physical line today, so a table listed on a Markdown continuation line is silently omitted — output stays byte-identical, so freshness checks and Layer 5 both stay green (R2 probe: `wrapped=… future_absent=true output_unchanged=true`). Extract from the bullet's first line through the line before the next top-level `- ` bullet or blank line.
-3. **Declared-count tripwire** — this is the fail-loud mechanism. §4.3 declares its own counts in two machine-readable places: `(**23 tables**[^admintables-22]` in the bullet (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641`) and ``Live `ADMIN_TABLES.length = 19 = 23 − 4 dropped` `` in the footnote (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`). The generator parses both and asserts `resolved.length === declaredLive` and `declaredLive + droppedCount === declaredProse`, throwing with a named diff otherwise.
+1. **Read the whole bullet, continuation-line aware** — from the `- **Admin-only tables` line through the line before the next top-level `- ` bullet or a blank line. (R2's continuation-line mutant; `scripts/generate-admin-tables.ts:20` reads one physical line today.)
+2. **Take every backticked lowercase identifier**, then subtract three declared sets: `PROSE_IDENTIFIERS` (today exactly `mint_validation_fixture_atomic`, `validation_finalize_all_atomic`, `drive_file_id`, `wizard_session_id`), `removedByPickerPivot` (the 4 dropped tables), and `shows`. Prepend `shows_internal` from the adjacent bullet.
+3. **Declared-count tripwire.** §4.3 declares its counts in two machine-readable places — `(**23 tables**` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:641` and ``Live `ADMIN_TABLES.length = 19 = 23 − 4 dropped` `` at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:643`. Assert `resolved.length === declaredLive` and `declaredLive + dropped === declaredProse`; throw with a named diff otherwise.
 
-**Why not simply "throw on any unresolved name".** That was the R1 repair and it is unshippable: the §4.3 bullet's backticked-identifier extractor legitimately picks up prose identifiers that are not tables. On the current spec exactly four do — `mint_validation_fixture_atomic`, `validation_finalize_all_atomic`, `drive_file_id`, `wizard_session_id` — so a throw-on-unresolved generator fails immediately on today's corpus. Distinguishing table names from prose identifiers by shape is not reliably possible; the declared-count tripwire sidesteps the classification problem entirely. Unresolved prose identifiers stay harmlessly unresolved, while a table that *should* have resolved and did not drops `resolved.length` below `declaredLive` and fails the build.
+Verified byte-identical to today's output: bullet yields 27 backticked names, minus `shows`, minus 4 dropped, minus 4 prose = 18, plus `shows_internal` = **19**, and the same 19 names in the same order.
 
-The tripwire is also bidirectional: adding a 24th table to §4.3 without updating the counts fails (resolved 20 ≠ declared 19), and updating the counts without a resolvable CREATE TABLE block fails (resolved 19 ≠ declared 20).
+The failure direction inverts, which is the point. A new §4.3 table is now **included by default**; only a new *prose* identifier needs a denylist row, and it announces itself by breaking the count. Adding a table without updating the counts throws (`resolved` 20 ≠ `declaredLive` 19); updating counts without adding a table throws. No DDL spelling can hide anything, because no DDL is read.
 
-Pinned by a test importing the already-exported `extractAdminTablesFromSpec` (`scripts/generate-admin-tables.ts:18`) and running it against synthetic §4.3 mutants. **Mutation-family closure set:** (i) `public.`-qualified CREATE TABLE, (ii) uppercase `CREATE TABLE`, (iii) `if not exists`, (iv) table listed on a continuation line, (v) listed table with no CREATE TABLE block at all (expect throw), (vi) count declarations disagreeing with the resolved set in each direction (expect throw), (vii) the current real spec (expect exactly 19, no throw — the regression guard against the R1 draft). A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+**One shared parser, not two.** R3 finding 2: `scripts/generate-traceability.ts:182-192` holds a **second, independent copy** of `extractAdminTablesFromSpec` carrying both original defects — and it does not even apply `removedByPickerPivot`. A continuation-line table would enter `ADMIN_TABLES` and get its Layer 5 classification while staying invisible to traceability, whose stale 23-entry `ADMIN_BOOTSTRAP_NAMES` comparison would still report no drift. Both call sites move to one shared module; the duplication is deleted, not patched twice.
 
----
+**Live-relation cross-check moves to the test.** The generator must stay DB-free (it feeds `lib/audit/authPrimitives.ts:92`, consumed by the database-free `x3-trust-domain` job). So the "declared name actually exists" half is asserted in the cross-cutting test, which has a live DB: every `ADMIN_TABLES` entry must appear in `information_schema.tables`. That catches a denylist row that wrongly shadows a real table, and a §4.3 name that names nothing — without any DDL parsing.
+
+**Mutation-family closure set** for the shared parser, pinned by a test importing it directly: (i) table on a continuation line; (ii) new table without a count update (expect throw); (iii) count update without a new table (expect throw); (iv) new prose identifier without a denylist row (expect throw); (v) denylist row shadowing a real table (expect the live-relation check to fail); (vi) the current real spec (expect exactly 19, no throw); (vii) both call sites agree on the same input. The DDL-spelling families from R1/R3 are **retired, not fixed** — they are unreachable once no DDL is parsed. A new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 ## 5. Item 2 — canonical-email aperture
 
@@ -365,7 +365,11 @@ No 9th required status check (§1.1). The honest accounting: relocation buys spe
 
 **Creates:** a generator-extraction test pinning `scripts/generate-admin-tables.ts` against the §4.5 mutant set (three CREATE TABLE spellings + an unresolvable name expecting a throw).
 
-**Advisory-lock topology:** N/A — this cluster acquires no `pg_advisory*` lock and adds no SECURITY DEFINER function. Grants and test assertions only. (Invariant 2 unaffected: locks live inside the RPCs, which the REVOKE makes *more* authoritative, not less.)
+**Advisory-lock topology:** NOT N/A — corrected in R3. §6.2's sentinel seeding inserts into every `ADMIN_TABLES` member, and two of them — `pending_syncs` and `pending_ingestions` — are named in invariant 2's mutation list. A test-only transaction that rolls back is still a mutation path, and invariant 2 admits no test exemption.
+
+Holder enumeration for the `show:<drive_file_id>` hashkey touched by the seed: the existing holders are the JS-side cron wrapper and the in-RPC acquisitions in `_archive_show_core` / `_unarchive_show_apply` / `unarchive_show` / `reset_validation_data`. The new code's holder is **the test's own seed transaction**, taking `pg_advisory_xact_lock(hashtext('show:' || <fixture drive_file_id>))` before the INSERT and releasing at transaction end. Single-holder rule preserved: the seed calls no RPC, so no nested acquisition occurs, and the fixture `drive_file_id` is test-scoped so it never contends with a live cron holder. `tests/auth/advisoryLockRpcDeadlock.test.ts` gains a row pinning this topology.
+
+No SECURITY DEFINER function is added. The REVOKE itself acquires no lock (grants are catalog-level), and it makes the existing RPC holders *more* authoritative, not less.
 
 **Invariant 10 (mutation-surface observability):** N/A — no new route handler and no new `"use server"` action. The 8 REVOKEd tables have no non-service-role mutation surface to instrument.
 
