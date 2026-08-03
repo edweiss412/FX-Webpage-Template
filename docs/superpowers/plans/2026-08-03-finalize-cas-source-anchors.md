@@ -1,7 +1,7 @@
 # Plan — carry source anchors through the existing-show shadow
 
 **Spec:** `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` (canonical; this plan implements it and does not override it).
-**Backlog:** `BL-ONBOARDING-CAS-SOURCE-ANCHORS` (`BACKLOG.md:847`), marked IN PROGRESS on this branch per invariant 12.
+**Backlog:** `BL-ONBOARDING-CAS-SOURCE-ANCHORS`. Marked IN PROGRESS in `BACKLOG.md` at Stage 0 per invariant 12; Task 4 graduates the entry to `BACKLOG-archive.md` before the merge, so on `main` it lives in the archive and carries no marker.
 **Branch:** `fix/onboarding-cas-source-anchors` (worktree off `origin/main` at `67074d4dc`).
 **Preflight:** RUN, not skipped. `pnpm install` + `pnpm worktree:link-env` + `pnpm preflight` all green at Stage 0 (`preflight: env ✓ local DB ✓`). This branch touches app code and tests, so the docs-only skip does not apply.
 
@@ -19,7 +19,16 @@ No file under `app/` outside `app/api/**`, none under `components/`, no `@theme`
 - Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — N/A, and see the topology enumeration below: no acquisition is added, so there is no new holder for the guard to pin.
 - Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`) — N/A. No route handler, no `"use server"` action, no mutation surface is added or removed. Both routes already carry their registered emits and neither route's exported surface changes.
 - Admin-alert catalog (`tests/messages/_metaAdminAlertCatalog.test.ts`) and the §12.4 catalog (`tests/cross-cutting/codes.test.ts`) — N/A. No new code; the anchors path has no user-visible error state.
-- Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`) — **activated, not edited.** The Stage-0 marker on `BL-ONBOARDING-CAS-SOURCE-ANCHORS` opts that entry into the guard, which then requires the branch to exist on `origin` (it does, pushed at Stage 0) and requires the marker to come off in the PR's OWN diff — see Task 4, which explains why after-the-merge is unfixable.
+- Deferral-ledger graduation (`tests/docs/_metaDeferralLedgerGraduation.test.ts`) — **EXTENDS.** Task 4
+  moves `BL-ONBOARDING-CAS-SOURCE-ANCHORS` to the archive, and that guard protects archive-only
+  placement and provenance ONLY for ids registered in its `BACKLOG_GRADUATED` array
+  (`tests/docs/_metaDeferralLedgerGraduation.test.ts:90`, asserted at
+  `tests/docs/_metaDeferralLedgerGraduation.test.ts:384` and
+  `tests/docs/_metaDeferralLedgerGraduation.test.ts:393`). Without the row the graduation is
+  unprotected and `pnpm vitest run tests/docs` passes vacuously. The row is
+  `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }`, and
+  the archived section must contain that branch name for the provenance assertion to hold.
+- Ledger in-progress (`tests/docs/_metaLedgerInProgress.test.ts`) — **activated, not edited.** The Stage-0 marker opts `BL-ONBOARDING-CAS-SOURCE-ANCHORS` into the guard for the life of the branch, which is why the branch was pushed at Stage 0 — the guard rejects an in-progress entry whose branch is not on `origin`. Task 4's graduation removes the entry and its marker together in the PR's own diff, which is what closes the guard out; see Task 4 for why after-the-merge is unfixable.
 
 **Test-file wiring.** The one new test file lands under `tests/onboarding/`, matched by `BASE_INCLUDE` (`vitest.projects.ts:34`) and absent from `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`), so it joins the **serial** project by glob — no config edit, and CI runs it in `unit-suite-db` (`.github/workflows/unit-suite.yml:101`), which boots Supabase. It is not added to `ENV_BOUND_EXCLUDES` (`vitest.projects.ts:69`); it self-skips when Postgres is unreachable, matching every sibling `*.db.test.ts`.
 
@@ -112,7 +121,7 @@ Commit: `feat(onboarding): surface staged source anchors on the shadow payload p
 
 ### 2.1 RED
 
-New file `tests/onboarding/` + `finalizeCasSourceAnchors` + the repo's real-DB suffix, modeled on `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts` (which already drives Phase B via `handleOnboardingFinalize` and Phase D via `handleOnboardingFinalizeCas` against a live show) and on `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts` (which pins the Drive-free posture by `vi.mock`ing the export functions to throw).
+New file, at the exact path the verification commands below run (it does not exist yet, so it is named there rather than cited here), modeled on `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts` (which already drives Phase B via `handleOnboardingFinalize` and Phase D via `handleOnboardingFinalizeCas` against a live show) and on `tests/onboarding/finalizeReadsSourceAnchors.db.test.ts` (which pins the Drive-free posture by `vi.mock`ing the export functions to throw).
 
 This task adds only the Phase-B case:
 
@@ -123,7 +132,7 @@ This task adds only the Phase-B case:
 `FRESH` is defined once as a fixture constant and the expectation is derived from it — never a hand-written literal repeated in the assertion (anti-tautology rule).
 
 ```
-pnpm vitest run tests/onboarding/<new file>
+pnpm vitest run tests/onboarding/finalizeCasSourceAnchors.db.test.ts
 ```
 
 Expected: FAIL — the payload has no `source_anchors` key, so the read is `null`.
@@ -141,7 +150,7 @@ In `app/api/admin/onboarding/finalize/route.ts`:
 ### 2.3 Verify
 
 ```
-pnpm vitest run tests/onboarding/<new file> tests/onboarding/finalize.test.ts tests/onboarding/finalizeCasReonboardBaseline.db.test.ts
+pnpm vitest run tests/onboarding/finalizeCasSourceAnchors.db.test.ts tests/onboarding/finalize.test.ts tests/onboarding/finalizeCasReonboardBaseline.db.test.ts
 pnpm typecheck
 ```
 
@@ -187,7 +196,7 @@ In `app/api/admin/onboarding/finalize-cas/route.ts`, in the `applyStagedCore` ar
 ### 3.3 Verify
 
 ```
-pnpm vitest run tests/onboarding/<new file>
+pnpm vitest run tests/onboarding/finalizeCasSourceAnchors.db.test.ts
 pnpm vitest run tests/onboarding tests/sync
 pnpm typecheck && pnpm lint && pnpm format:check
 ```
@@ -211,7 +220,11 @@ branch that no longer exists. It has to be in the PR's own diff.
 3. **Final commit on the branch:** graduate `BL-ONBOARDING-CAS-SOURCE-ANCHORS` — the whole entry
    moves from `BACKLOG.md` to `BACKLOG-archive.md` with its provenance, per the open-queue-only rule
    at `BACKLOG.md:5`. The `**Status:** IN PROGRESS · **Branch:** …` line goes away with it, which is
-   what satisfies invariant 12 and its guard. Verify with `pnpm vitest run tests/docs`.
+   what satisfies invariant 12 and its guard. In the SAME commit, add the row
+   `{ id: "BL-ONBOARDING-CAS-SOURCE-ANCHORS", provenance: "fix/onboarding-cas-source-anchors" }` to
+   `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and make sure the
+   archived section names that branch — without the row the graduation guard covers nothing. Verify
+   with `pnpm vitest run tests/docs`.
 4. Whole-diff cross-model adversarial review to APPROVE — AFTER step 3, so the reviewed diff is the
    diff that merges. A review that runs before the graduation commit does not cover it.
 5. Push, real CI green, `gh pr merge --merge`.
