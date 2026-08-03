@@ -1,7 +1,9 @@
 # CI wall-clock + flake pair — implement the boot/install overlap, and de-flake T-REGROW
 
 **Date:** 2026-08-02
-**Status:** SPEC — implementation-only. Two independent items shipped together because both are CI-surface changes with no product code between them.
+**Status:** SHIPPED WITH ITEM 1 REVERTED. Item 1 (the boot/install overlap) was implemented and measured on real CI in PR #670, MISSED its §7.3 accept gate, and was reverted under that gate's pre-ratified rule: leg-median fixed overhead 102s with the overlap against a 96s main baseline, eight green legs each — a 6s regression where the gate required an 8s reduction. Item 2 (the T-REGROW settle contract) shipped. The measurement, the likely cause and what survives are recorded in `BACKLOG.md` under `BL-CI-OVERLAP-BOOT-WITH-SETUP`. Everything below is retained as written: §3's write-surface audit is empirical and still true, §7.1's measurement procedure is validated and reusable, and §5's meta-test inventory is the design a future attempt would restore.
+
+**Original status:** SPEC — implementation-only. Two independent items shipped together because both are CI-surface changes with no product code between them.
 
 **Design authority for item 1 is [`2026-07-20-ci-overlap-boot-with-setup.md`](./2026-07-20-ci-overlap-boot-with-setup.md).** Eight adversarial rounds are sunk into that document. Its §1.1 resolved-scope table, its §3 single-shell design, and its §5 accept gate are RATIFIED and are not reopened here. This spec exists to do the three things that document says must happen before it ships, and nothing else:
 

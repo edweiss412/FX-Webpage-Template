@@ -207,11 +207,22 @@ Not fixed in the cluster that surfaced it: closing it means re-keying an existin
 registry and re-dispositioning seven files, which is its own change with its own
 review surface.
 
-## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (implemented; accept/revert pending its CI measurement)
+## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (built, MEASURED, and reverted — it does not pay)
 
-**Status:** OPEN — IMPLEMENTED on `chore/ci-boot-overlap-and-popover-flake`, accept/revert decision pending that PR's real-CI measurement.
+**Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
 
-**Update 2026-08-03.** The two preconditions this entry recorded as blocking are discharged. (1) The write-surface audit was redone against the real five-key `allowBuilds` inventory, and empirically rather than by inference: a host `pnpm rebuild`, then a FRESH `pnpm install --frozen-lockfile` on x86_64 Linux from a clean tree with a 126-file sha256 manifest diffed before and after (identical), then the same install under a recursive `inotifywait` that recorded ZERO filesystem events of any kind under `supabase/`. (2) The design was reconciled against the `unit-suite-db` / `unit-suite-nodb` split that landed after the original spec was written. Implementation spec: `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` (APPROVE at adversarial round 18). The row stays OPEN until the PR's own run is measured against the ≥8s leg-median gate — the baseline is 96s over 8 legs on main run 30783618781, so the accept figure is ≤88s. It graduates on accept; on a miss the overlap is reverted and this row records the measurement that forced it.
+**Update 2026-08-03 (PR #670, branch `chore/ci-boot-overlap-and-popover-flake`).** The overlap was implemented, measured against real CI, missed its accept gate, and was reverted in the same PR under the gate's pre-ratified rule. The measurement, both figures per spec §7.4:
+
+| | leg-median fixed overhead | max leg | run |
+| --- | --- | --- | --- |
+| main baseline | **96s** | 255s | 30783618781 |
+| with the overlap | **102s** | 324s | 30796409070 |
+
+Eight legs each, all green, `(job wall) − (vitest step)` per leg. The overlap did not save the install's ~16s; it **cost 6s of median**. Per-leg with the overlap: 92, 98, 101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. The distributions overlap heavily and the median moved the wrong way, so this is not "a gain too small to see" — there is no gain. The accept threshold was ≥8s of REDUCTION (≤88s), chosen at half the theoretical 16s precisely so runner noise could not manufacture a result.
+
+**The likely reason, and why it was not predicted.** The design assumed the two operations contend for nothing because they are "network-bound" and "registry-bound". On a 4-core GitHub-hosted runner they contend for the same cores, the same NIC and the same disk: the boot's `docker pull` decompresses layers while pnpm unpacks a `node_modules` tree, and the spec's own §3 anticipated contention "possibly less" than 16s of gain without considering that contention could exceed it. The 136s outlier leg is consistent with that.
+
+**What is preserved from the attempt, and is worth keeping:** the write-surface audit is now empirical rather than inferred (three probes, including a fresh x86_64-Linux install under a recursive `inotifywait` that recorded zero events under `supabase/`), and the implementation spec at `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it along with a reusable, validated measurement procedure (`legfix` / `legwall`, §7.1). **If revisited:** this is now a measured-negative lever, not an unexplored one. The remaining wall-clock lever the spec names is a pre-baked Postgres image, which removes the ~14s schema+migration phase outright rather than trying to hide the install behind the pull.
 
 Original status: OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
 
