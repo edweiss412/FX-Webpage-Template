@@ -6,21 +6,23 @@ every decision below is settled there, with citations). **Branch:**
 Claude Code (`components/` is Opus-owned by the AGENTS.md routing hard rule). **Reviewer:** Codex,
 adversarially, never as implementer.
 
-Twelve tasks, one commit each (invariant 6). **Every commit leaves the tree GREEN** — plan R1
+Thirteen tasks, one commit each (invariant 6). **Every commit leaves the tree GREEN** — plan R1
 BLOCKING-2 caught a draft that knowingly committed a red guard and left it red for nine tasks.
 
 **TDD posture, stated precisely (plan R1 BLOCKING-1).** Invariant 1 wants the test that exercises a
 change to precede it. Most of this branch REMOVES code rather than adding behavior, so "write a
 failing test for a deletion" has two honest forms and one dishonest one:
 
-- **Contract-first (Tasks 2, 8, 9, 10):** the assertion is new and fails against current content.
-  Ordinary RED → GREEN. Task 10's assertion fails against the existing observational reason string.
+- **Contract-first (Tasks 2, 9, 10, 11):** the assertion is new and fails against current content.
+  Ordinary RED → GREEN. Task 9's assertion fails against the existing observational reason string.
 - **Mutation-proof (Tasks 3, 4):** the code under test is already correct, so a RED cannot come from
   the test alone. The proof of non-vacuity is a MUTATION: break the live behavior, watch the
   retargeted suite fail, revert, record both outputs in the commit message. This is stronger than a
   RED-by-missing-selector, which proves only that a selector was stale.
-- **Rejected as dishonest:** calling a stale-selector failure a RED (draft Task 1), or a
-  guard-fails-because-the-repo-is-dirty state a RED (draft Task 0). Neither exercises the contract.
+- **Rejected as dishonest:** calling a stale-selector failure a RED (the draft's Task 1, now
+  Task 3), or a
+  guard-fails-because-the-repo-is-dirty state a RED (the draft's Task 0, now Task 2). Neither
+  exercises the contract.
 
 A deletion task's own protection is the guard from Task 2 plus the existing suites; where a task
 adds no new assertion, it says so plainly instead of inventing one.
@@ -71,7 +73,7 @@ adds no new assertion, it says so plainly instead of inventing one.
 ## 0.3 e2e harness readiness
 
 **N/A.** No task attaches a Playwright spec. `tests/e2e/right-now.spec.ts` and
-`tests/e2e/right-now-transitions.spec.ts` are edited in their HEADER PROSE only (Task 3); their
+`tests/e2e/right-now-transitions.spec.ts` are edited in their HEADER PROSE only (Task 5); their
 assertions, fixtures, boot mechanism, and hydration gates are untouched.
 
 ---
@@ -85,7 +87,7 @@ ledger, and the spec/plan commits cited `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICA
 BLOCKING-3.
 
 Both entries are filed in `BACKLOG.md` with the probes that established them. `tests/docs`: 9 files,
-207 tests, green. Task 11 still owns GRADUATION (moving `BL-LEAD-CAPABILITY-PROSE-STALE` to the
+207 tests, green. Task 12 still owns GRADUATION (moving `BL-LEAD-CAPABILITY-PROSE-STALE` to the
 archive and amending the other two entries); this task only makes the citations resolve.
 
 **Verify:** `pnpm test -- tests/docs`
@@ -123,7 +125,7 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    - `pending` — a live reference, keyed the same way, owned by `repairedBy: "Task N"`.
      Tasks 5-8 delete their `pending` rows as they repair the references.
 3. **Assert that `pending` is a transient state:** the guard fails if any `pending` row names a task
-   number that no longer exists in this plan, and Task 12 asserts **zero** `pending` rows remain.
+   number that no longer exists in this plan, and Task 13 asserts **zero** `pending` rows remain.
    Without that, "pending" would be an unbounded mute button — the exact failure the allowlist is
    supposed to prevent.
    **And assert every `line`/`pending` row still MATCHES something:** a row whose text matches no
@@ -134,7 +136,11 @@ structural-defense calibration, the guard ships instead of a fourth curated list
    `tests/components/_metaOrphanedComponents.test.ts` proves families (a)-(d) synthetically:
    (a) a file containing a retired identifier with NO row FAILS; (b) the same file with a matching
    `line` row PASSES; (c) a file with TWO occurrences where only one carries a `line` row still
-   FAILS — the case a file-keyed allowlist cannot express, and the reason this design exists. Both must fail before the walker is written. This proves the contract regardless of
+   FAILS — the case a file-keyed allowlist cannot express, and the reason this design exists;
+   (d) a `line` row whose text matches nothing FAILS (the fail-safe direction); (e) **the terminal
+   zero-`pending` assertion FAILS against a fixture ledger holding one `pending` row.** (e) is
+   written HERE, where it can still fail, not at Task 13 where the real ledger is already empty —
+   plan R2 BLOCKING-3. Both must fail before the walker is written. This proves the contract regardless of
    what the real tree happens to contain.
 5. **Anti-vacuity:** assert the walk covers >100 tracked files and that every configured identifier
    was actually searched for (a typo'd identifier that matches nothing must fail, not pass).
@@ -265,7 +271,7 @@ component.
    assertions are untouched).
 5. **Live tracking rows (spec §5.1) — these are commitments, not history:**
    `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:83` names the card and the
-   suite Task 1 renames (repoint both; the coverage GAP is unchanged, only its coordinates).
+   suite Task 3 renames (repoint both; the coverage GAP is unchanged, only its coordinates).
 6. **Sweep is now the guard, not a grep:** re-run
    `pnpm test -- tests/docs/retiredIdentifierReferences.test.ts`. Every remaining `RightNowCard`
    hit must be either repaired or an allowlist row with a stated reason. Do not add an allowlist row
@@ -290,7 +296,7 @@ rows pointed at files nobody ships, so its green says less each release.
    The registry's assertion is unchanged.
 5. `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:90` cites the deleted test as
    the non-equivalent admin-side coverage — reword (its absence STRENGTHENS the deferral).
-6. Re-run the Task 0 guard; every `PerShowCrewSection` / `PerShowCrewRow` hit repaired or
+6. Re-run the Task 2 guard; every `PerShowCrewSection` / `PerShowCrewRow` hit repaired or
    allowlisted with a reason.
 
 **Verify:** `pnpm test -- tests/cross-cutting tests/help tests/components/_metaOrphanedComponents.test.ts`
@@ -319,7 +325,7 @@ can reach, while five live files cite it as the pattern to copy.
    **Do NOT write "BellPanel's Dismiss"** (spec R1 LOW): that label does not exist, and writing it
    would ship fresh stale prose while repairing stale prose. A comment citing a deleted file is the
    same defect class the orphan guard exists to catch.
-5. Re-run the Task 0 guard; every `ResolveAlertButton` hit repaired or allowlisted with a reason.
+5. Re-run the Task 2 guard; every `ResolveAlertButton` hit repaired or allowlisted with a reason.
 
 **Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
 **Commit:** `chore(admin): retire ResolveAlertButton, superseded by the bell panel's resolve control`
@@ -336,7 +342,7 @@ which reads as finalize coverage and is not.
    contracts in that file stay) and the now-unused import in
    `tests/components/admin/RescanSheetButton.test.tsx`.
 3. Registries: delete `"RunFinalCASButton.tsx"` from `MIGRATED_FILES`
-   (`tests/styles/accent-button-atom.test.ts:62`), covered by the same de-migration note Task 5
+   (`tests/styles/accent-button-atom.test.ts:62`), covered by the same de-migration note Task 7
    extends.
 4. Comments: `components/shared/AccentButton.tsx:8`, `tests/onboarding/finalize-cas.test.ts:513`,
    `tests/components/atoms/AccentButton.test.tsx:7` — each repoints to `FinalizeButton`, the live
@@ -344,8 +350,8 @@ which reads as finalize coverage and is not.
 5. `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:636` names the component as a
    reopen TRIGGER — repoint the trigger to `components/admin/FinalizeButton.tsx`, the surviving
    finalize-cas UI.
-6. Re-run the Task 0 guard; every `RunFinalCASButton` hit repaired or allowlisted. The two
-   `BACKLOG.md` entries Task 10 handles and `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
+6. Re-run the Task 2 guard; every `RunFinalCASButton` hit repaired or allowlisted. The two
+   `BACKLOG.md` entries Task 12 handles and `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
    alone.
 
 **Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts`
@@ -406,7 +412,9 @@ that has been three-branch since 2026-07-16.
 2. Correct the quote to `isAdmin || LEAD || FINANCIALS` and add the modeling-boundary sentence: the
    recorded deltas are definitive with respect to the five MODELED predicates
    (`lib/visibility/capabilityTransitions.ts:53`) only, and `FINANCIALS` is unmodeled.
-3. Do NOT expand `CAPABILITY_TRANSITION_MATRIX` (spec §1 item 1). The gap is filed in Task 10.
+3. Do NOT expand `CAPABILITY_TRANSITION_MATRIX` (spec §1 item 1). The gap is already filed as
+   `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` (Task 1); Task 12 only amends it if this task changes
+   what it says.
 
 **Verify:** `pnpm test -- tests/visibility` and `pnpm typecheck`
 **Commit:** `fix(visibility): the header's verbatim predicate quote drifted; pin it against the source`
@@ -469,25 +477,26 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
 **Failure mode it catches:** a queue that silently becomes a changelog (`BACKLOG.md:5`), and a
 settled decision that reads as open work.
 
+0. **Clear both entries' `Status: IN PROGRESS · Branch:` flight fields** (invariant 12). The
+   graduating entry takes its marker to the archive by construction; the amended entry must have
+   the field REMOVED, or `tests/docs/_metaLedgerInProgress.test.ts` will claim work is in flight on
+   a merged branch.
 1. `BL-LEAD-CAPABILITY-PROSE-STALE` — move the whole entry to `BACKLOG-archive.md` at its terminal
    state, with both settlements recorded (which of the two possibilities each claim turned out to
    be, and the probe that established it).
 2. `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` — AMEND in place: table reduced to the single
    retained row, the four dispositions recorded with their superseding commits, and an explicit
    "the remaining row is DECIDED, not undecided" note so a future sweep does not re-litigate it.
-3. File `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` — the unmodeled `hasFinancials` predicate
-   (spec §4.1). Documentary only (no production consumer:
-   `CAPABILITY_TRANSITION_MATRIX`'s sole reader is `tests/visibility/capabilityTransitions.test.ts`),
-   effort M (10 → 15 rows plus tests), trigger = the next milestone touching scope-tile visibility.
+3. **`BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` is ALREADY FILED (Task 1) — do not re-file it**
+   (plan R2 HIGH-1 caught the duplicate). Verify only that its text still matches what Tasks 10 and
+   11 shipped; amend it if the header-parity guard changed what the entry can assume.
 4. **Amend `BL-ACCENT-BUTTON-ATOM-SWEEP` (`BACKLOG.md:1120`) — it does NOT graduate here.** Its
    description names `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call
    sites; two of those are retired by Tasks 5 and 6. Record that in the entry so its census stays
    true, and leave the entry open (spec R2). This is the one `BACKLOG.md` hit the sweep must NOT
    treat as graduating with this branch.
-5. File `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` — six comment lines in `components/admin/BellPanel.tsx`
-   (from `components/admin/BellPanel.tsx:224`) call the trailing ghost control "Dismiss"; it renders
-   `Confirm` / `Mark resolved`. Same class as this branch's subject, different shape, so filed
-   rather than swept (spec §7). Effort S, no product question.
+5. **`BL-BELLPANEL-DISMISS-COMMENT-DRIFT` is ALSO ALREADY FILED (Task 1) — do not re-file it.**
+   Same R2 HIGH-1 duplicate. Verify its text only.
 6. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
    dispositions.
 7. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
@@ -495,26 +504,37 @@ settled decision that reads as open work.
    the reconciliation line concatenates. Do not drop a sibling's segment.
 
 **Verify:** `pnpm test -- tests/docs/backlogClusterArchival.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts`
-**Commit:** `docs(backlog): graduate the LEAD-prose entry, amend the orphan entry, file the matrix gap`
+**Commit:** `docs(backlog): graduate the LEAD-prose entry, amend the orphan and accent-sweep entries`
 
 ## Task 13 — closeout, UI gate, and whole-diff adversarial review
 
-1. **Assert the ledger has no `pending` rows left.** Extend
-   `tests/docs/retiredIdentifierReferences.test.ts` (Task 2 step 3) with the terminal assertion:
-   zero rows of `kind: "pending"`. Run it RED before Tasks 5-8 land their repairs if you want the
-   proof; at this point it must be GREEN, and its greenness is the mechanical statement that the
-   census reached zero live references.
-2. **Run BOTH halves of the invariant-8 UI gate** on the finished diff, with the canonical v3 setup
+1. **The zero-`pending` assertion is written in Task 2 and PROVEN there, not here** (plan R2
+   BLOCKING-3: an assertion first written at closeout, after Tasks 5-8 already emptied the ledger,
+   starts green and exercises nothing). Task 2 ships it with a synthetic proof — a fixture ledger
+   containing one `pending` row must FAIL the terminal assertion — so its contract is established
+   while it can still fail. Here it is only RUN, against the real ledger, and its green is the
+   mechanical statement that the census reached zero live references.
+2. **Run both halves of the invariant-8 UI gate** on the finished diff, with the canonical v3 setup
    gates (`context.mjs` context load of `PRODUCT.md` + `DESIGN.md`, then the register reference
    read). This branch DOES touch UI surfaces by the letter of `AGENTS.md` invariant 8 — see §12.
    P0/P1 findings are fixed, or deferred with a `DEFERRED.md` entry.
-3. Write §12's findings ledger: one row per adversarial finding across the spec rounds (R1-R4), the
-   plan rounds, and the whole-diff round, each with its disposition. Refuted diff-only claims are
+3. Write the closeout file's findings ledger: one row per adversarial finding across EVERY round
+   this branch ran (spec R1-R4 and the joint spec R5 / plan R2 round, the plan rounds, and the
+   whole-diff round — the count is whatever it ends at, not a frozen list), each with its disposition. Refuted diff-only claims are
    recorded too, per the AGENTS.md rule.
 4. Full local gate: `pnpm typecheck && pnpm lint && pnpm test`.
 5. Whole-diff Codex review (fresh-eyes posture, REVIEWER ONLY, do-not-relitigate list from spec §1)
    to APPROVE.
-6. Push, real CI green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
+6. **Re-arm the mechanical requirement, and verify it** (plan R2 BLOCKING-1). Writing "both halves"
+   instead of the literal command names made this plan a NON-declaring unit, so nothing forced the
+   marker to exist — the reviewer probed `declaresGate()` and got `false`. The closeout file created
+   in step 3 therefore carries BOTH literal command names AND the filled marker, and
+   `partitionUnits` folds a stem-matching `-closeout.md` into its plan's unit
+   (`tests/docs/_invariant8Closeout.ts:67-85`), so the unit then declares AND conforms. Verify both
+   mechanically before committing: `declaresGate(unit)` is `true` and the unit's verdict is
+   `conforms`. A green that comes from not declaring is the vacuous pass this branch has now been
+   charged with twice.
+7. Push, real CI green, `gh pr merge --merge`, fast-forward local `main` to `0  0`.
 
 **Commit:** `docs(plan): close out the orphan-components + LEAD-prose cluster`
 

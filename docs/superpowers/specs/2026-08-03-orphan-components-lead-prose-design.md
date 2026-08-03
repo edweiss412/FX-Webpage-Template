@@ -278,8 +278,8 @@ the union.
 
 **Fix:** correct the quoted predicate to `isAdmin || LEAD || FINANCIALS`, and state the modeling
 boundary explicitly — the recorded deltas are definitive with respect to the five MODELED
-predicates only, and `FINANCIALS` is unmodeled. File the matrix gap as a new backlog entry
-(`BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE`) rather than expanding the matrix in a prose PR.
+predicates only, and `FINANCIALS` is unmodeled. The matrix gap is filed as `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` rather than expanded in a
+prose PR.
 `CAPABILITY_TRANSITION_MATRIX` has no production consumer — its only reader is
 `tests/visibility/capabilityTransitions.test.ts` — so the gap is documentary, which is why a
 backlog row is the proportionate response.
@@ -333,7 +333,7 @@ financials half is true. Widened sweep, corrected at R3: `rg -n "ops access|ops/
 returns **two** hits, not one. The second, `lib/parser/typoVocabRegistry.ts:55`
 ("ops/financials field-alias fuzzy fallback"), is unrelated parser-vocabulary prose that predates
 this class and asserts nothing about entitlement — it is NOT corrected, and the post-condition after
-Task 9 is therefore "the `phase2.ts` hit is gone and `typoVocabRegistry.ts:55` is the only remaining
+Task 11 is therefore "the `phase2.ts` hit is gone and `typoVocabRegistry.ts:55` is the only remaining
 match", never "zero matches". The draft demanded zero, which no correct edit could have produced.
 
 **Fix:** correct the clause in place to state what LEAD additionally does (unlocks the
@@ -456,7 +456,7 @@ The full table, from a bare-string sweep of all four retired identifiers run 202
 | `tests/components/crew/rightNowHero.test.tsx:5`, `tests/components/crew/rightNowHero.test.tsx:7` | provenance prose | Rewrite as retirement-aware provenance |
 | `tests/e2e/right-now-transitions.spec.ts` (3 hits) | header prose names the card | Prose only; assertions untouched |
 | `tests/e2e/right-now.spec.ts:128` | a skipped `test.describe` whose TITLE names the card, not header prose | Rename the describe title to the hero. Found at spec R2; the draft authorized "header prose" only, which would have left the identifier live in a test name |
-| `BACKLOG.md:1120` (`BL-ACCENT-BUTTON-ATOM-SWEEP`) | a DIFFERENT active entry naming `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call sites | **Does NOT graduate with this branch.** Amend that entry in Task 10 to record that two of the eight named call sites have since been retired, so its census stays true |
+| `BACKLOG.md:1120` (`BL-ACCENT-BUTTON-ATOM-SWEEP`) | a DIFFERENT active entry naming `ResolveAlertButton ×2` and `RunFinalCASButton` among the 8 migrated call sites | **Does NOT graduate with this branch.** Amend that entry in Task 12 to record that two of the eight named call sites have since been retired, so its census stays true |
 | `components/admin/ArchiveShowButton.tsx:9` | cites `ResolveAlertButton` as a pattern exemplar | Repoint to a live exemplar |
 | `tests/components/atoms/AccentButton.test.tsx:7` | lists both retired buttons | Repoint to live call sites |
 | `DEFERRED-archive.md` (3 hits, `RunFinalCASButton`) | archived deferrals naming the button | **History — left alone.** An archive records what was true when it closed |
@@ -473,7 +473,7 @@ The full table, from a bare-string sweep of all four retired identifiers run 202
 | `tests/onboarding/finalize-cas.test.ts:513` | "RunFinalCASButton renders per-row codes via messageFor()" | Repoint to `FinalizeButton` |
 | `tests/components/atoms/AccentButton.test.tsx:7` | lists `RunFinalCASButton` | Repoint |
 | `lib/data/getShowForViewer.ts:213` and `lib/data/getShowForViewer.ts:441` | "the page passes this map to each `<WrappedTile>`'s `load`" | Repoint to the live consumer; the DATA contract is unchanged |
-| `components/crew/RightNowHero.tsx` header + eight in-body comments (`components/crew/RightNowHero.tsx:4-15`, `components/crew/RightNowHero.tsx:58`, `components/crew/RightNowHero.tsx:98`, `components/crew/RightNowHero.tsx:332`, `components/crew/RightNowHero.tsx:342`, `components/crew/RightNowHero.tsx:364`, `components/crew/RightNowHero.tsx:416`, `components/crew/RightNowHero.tsx:513`) | provenance comments citing `RightNowCard`, one carrying a line range into the deleted file | Rewrite as retirement-aware provenance (name the commit, drop line ranges that can no longer be checked) |
+| `components/crew/RightNowHero.tsx` header + seven in-body comments (`components/crew/RightNowHero.tsx:4-15`, `components/crew/RightNowHero.tsx:58`, `components/crew/RightNowHero.tsx:98`, `components/crew/RightNowHero.tsx:332`, `components/crew/RightNowHero.tsx:342`, `components/crew/RightNowHero.tsx:364`, `components/crew/RightNowHero.tsx:416`, `components/crew/RightNowHero.tsx:513`) | provenance comments citing `RightNowCard`, one carrying a line range into the deleted file | Rewrite as retirement-aware provenance (name the commit, drop line ranges that can no longer be checked) |
 | `components/right-now/buildRightNowContext.ts:4` and `components/right-now/buildRightNowContext.ts:8` | describes the card as its consumer | Repoint to `RightNowHero` |
 | `app/help/_components/Callout.tsx:26-27` | cites `components/right-now/RightNowCard.tsx:520` for the `stale-tint` token semantic | Repoint to the hero's equivalent site |
 | `components/layout/Header.tsx:4`, `components/layout/Header.tsx:8`, `components/layout/PageTransition.tsx:8` | cite the card as the live hero | Repoint |
@@ -554,7 +554,7 @@ fixture inputs; neither imports the production render helper.
 | 5 — no raw error codes in UI | N/A — no user-visible copy changes. |
 | 6 — commit per task | `chore(components):` / `test(components):` / `docs(spec):` per unit. |
 | 7 — spec is canonical | §3.5 is this rule applied: the ratified KEEP outranks the sweep's observation. |
-| 8 — UI gate | Deletion-only; no rendered surface is added or changed, and no mount is wired (§1 item 4). Marker: `impeccable-gate: N/A — no UI surface`. |
+| 8 — UI gate | **RUNS** — corrected at plan R1 BLOCKING-4, re-checked at R5. The branch edits `DESIGN.md`, `app/globals.css`, files under `app/`, and files under `components/`, each of which `AGENTS.md` invariant 8 defines as a UI surface; `N/A` would be false however little rendered output changes. Both halves run at the plan's Task 13, and the marker lands in the stem-named sibling closeout file in the same commit as the run. |
 | 9 — Supabase call-boundary | N/A — no Supabase call site added or moved. |
 | 10 — mutation-surface observability | N/A — no mutating route or `"use server"` action added or removed. |
 | 11 — worktree only | Branch `chore/orphan-components-lead-prose` at `../FX-worktrees/orphan-components-lead-prose`, created off `origin/main` before the first edit; `pnpm install`, `pnpm worktree:link-env`, `pnpm preflight` all run. |
