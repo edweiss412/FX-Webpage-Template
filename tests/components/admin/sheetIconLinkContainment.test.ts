@@ -1085,6 +1085,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "lib/drive/showDayTimeAnchors.ts": 1,
         "lib/drive/sourceAnchors.ts": 1,
         "lib/drive/unknownFieldAnchors.ts": 2,
+        // Type-only `SourceAnchor` import on the Phase-D shadow-payload parse boundary,
+        // which surfaces the staged anchors the finalize-cas apply forwards (2026-08-03).
+        "lib/onboarding/shadowPayload.ts": 1,
         "lib/parser/sectionHeaderNormalize.ts": 1,
         "lib/parser/types.ts": 2,
         "lib/sheet-links/buildSheetDeepLink.ts": 1,

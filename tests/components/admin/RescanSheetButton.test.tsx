@@ -26,7 +26,6 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
-import { RunFinalCASButton } from "@/components/admin/RunFinalCASButton";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import type { ParseResult } from "@/lib/parser/types";
 
@@ -442,29 +441,6 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
 
 describe("RescanSheetButton — final-publish blocker mount (OUTDATED rows only)", () => {
   const SESSION = "22222222-2222-2222-2222-222222222222";
-
-  test("RunFinalCASButton: renders for an OUTDATED row, NOT for a corrupt row", async () => {
-    fetchMock.mockResolvedValueOnce(
-      mockJsonResponse(
-        {
-          ok: false,
-          code: OUTDATED,
-          per_row: [
-            { drive_file_id: "cas-outdated", code: OUTDATED },
-            { drive_file_id: "cas-corrupt", code: "STAGED_PARSE_RESULT_CORRUPT" },
-          ],
-        },
-        { status: 409 },
-      ),
-    );
-    const { getByTestId, queryByTestId } = render(<RunFinalCASButton sessionId={SESSION} />);
-    await act(async () => {
-      fireEvent.click(getByTestId("run-final-cas-button"));
-    });
-    await waitFor(() => expect(queryByTestId("run-final-cas-per-row")).not.toBeNull());
-    expect(getByTestId("rescan-sheet-button-cas-outdated")).not.toBeNull();
-    expect(queryByTestId("rescan-sheet-button-cas-corrupt")).toBeNull();
-  });
 
   test("FinalizeButton: renders for an OUTDATED row, NOT for a corrupt row", async () => {
     fetchMock

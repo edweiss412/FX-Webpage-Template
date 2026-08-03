@@ -2,8 +2,9 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
-import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
+import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 
@@ -73,6 +74,14 @@ export type ParsedShadowPayloadForApply =
       // longer re-read them from pending_syncs — they must travel with the shadow or an existing show
       // publishes the parsed value despite the toggle. Tolerant: absent/malformed → [] (overlay no-op).
       useRawDecisions: UseRawDecision[];
+      // Deep-link region anchors staged at Phase B, so the Phase-D apply can refresh
+      // shows.source_anchors on an existing-show re-onboard (spec §3.2). The ONE tolerant
+      // field on this otherwise fail-closed boundary: anchors are cosmetic deep links, so
+      // anything unusable becomes `{}` rather than a refusal — a corrupt anchor map must
+      // not block an otherwise-valid publish. `{}` is meaningful downstream: the call site
+      // OMITS the core arg for it, so applyShowSnapshot's coalesce preserves whatever
+      // shows.source_anchors already holds instead of wiping it.
+      sourceAnchors: Record<string, SourceAnchor>;
     }
   | { ok: false; code: ShadowPayloadRefusalCode; reason?: CorruptionReason };
 
@@ -258,6 +267,17 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     return refuse("STAGED_PARSE_RESULT_CORRUPT", "override_snapshot_malformed");
   }
 
+  // Tolerant by contract (see the field's declaration above). coerceJsonbObject is
+  // fail-closed — it THROWS for null/undefined/arrays/scalars/unparseable strings
+  // (lib/db/coerceJsonbObject.ts) — so this catch is the whole totalizing mechanism, and
+  // it keeps this parser's never-throw contract intact.
+  let sourceAnchors: Record<string, SourceAnchor> = {};
+  try {
+    sourceAnchors = coerceJsonbObject<Record<string, SourceAnchor>>(obj.source_anchors);
+  } catch {
+    sourceAnchors = {};
+  }
+
   return {
     ok: true,
     parseResult,
@@ -272,5 +292,6 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     // Tolerant normalizer (the single JSONB boundary): absent key / null / malformed → [] (overlay
     // no-op), never a refusal — a corrupt decision list must not block an otherwise-valid publish.
     useRawDecisions: normalizeUseRawDecisions(obj.use_raw_decisions ?? null),
+    sourceAnchors,
   };
 }

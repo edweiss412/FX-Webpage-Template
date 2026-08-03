@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { awaitCreateIssueEntered, deferred } from "@/tests/reports/_createIssueBarrier";
 import {
   cleanupReportFixtures,
   quotaCount,
@@ -8,14 +9,6 @@ import {
 } from "@/tests/reports/_dbHelpers";
 
 type IssueInput = { title: string; body: string; labels: string[] };
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
 
 const githubMock = vi.hoisted(() => ({
   calls: [] as IssueInput[],
@@ -26,8 +19,12 @@ const githubMock = vi.hoisted(() => ({
       labels: string[];
     }>
   >,
+  // Resolved the moment createIssue is ENTERED, so the test resumes on an
+  // observed event rather than by polling the clock.
+  entered: null as null | ReturnType<typeof deferred<void>>,
   createIssue: vi.fn(async (input: IssueInput) => {
     githubMock.calls.push(input);
+    githubMock.entered?.resolve();
     if (githubMock.gate) return await githubMock.gate.promise;
     return {
       htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/race",
@@ -60,6 +57,7 @@ describe("first-submit idempotency race", () => {
   beforeEach(() => {
     githubMock.calls = [];
     githubMock.gate = deferred();
+    githubMock.entered = deferred();
     githubMock.createIssue.mockClear();
     seedShow(showId, "m8-first-submit-race");
   });
@@ -67,6 +65,7 @@ describe("first-submit idempotency race", () => {
   afterEach(() => {
     cleanupReportFixtures(showId, [crewMemberId]);
     githubMock.gate = null;
+    githubMock.entered = null;
   });
 
   test("same brand-new idempotency key creates one row and one GitHub issue", async () => {
@@ -79,7 +78,10 @@ describe("first-submit idempotency race", () => {
       requestBody,
     );
 
-    await vi.waitFor(() => expect(githubMock.createIssue).toHaveBeenCalledTimes(1));
+    // Either submit may win; the loser returns 409 as soon as it sees the
+    // in-flight row, which can land BEFORE the winner enters createIssue. So
+    // the barrier waits on both settling, not on whichever finishes first.
+    await awaitCreateIssueEntered(githubMock.entered!.promise, [first, second]);
     githubMock.gate?.resolve({
       htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/race",
       issueNumber: 44,

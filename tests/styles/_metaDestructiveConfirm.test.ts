@@ -82,7 +82,6 @@ const REGISTRY: Row[] = [
     "cleanup-abandoned-finalize-confirm-yes",
   ),
   R("components/admin/ReapStaleSessionsButton.tsx", 0, "panel", "reap-stale-sessions-confirm-yes"),
-  R("components/admin/ResolveAlertButton.tsx", 0, "panel", "admin-alert-confirm-resolve-button"),
   R("components/admin/ReSyncButton.tsx", 0, "panel", "admin-resync-accept"),
   R(
     "components/admin/PreviewBanner.tsx",

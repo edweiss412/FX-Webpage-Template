@@ -215,7 +215,7 @@ Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 
 | `--spacing-panel-max`        | 480px | Shared max extent for wide secondary "panel"-class surfaces: the dashboard Needs-Attention inbox column (`min-[1400px]:w-panel-max`), the report modal (`max-w-panel-max`), and the notification panel's desktop scroll container (`sm:max-h-panel-max`). One value → one token (the `--spacing-*` namespace generates `w-*`/`max-w-*`/`max-h-*` alike). |
 | `--spacing-panel-max-mobile` | 70vh  | Notification panel (`BellPanel`) scroll-container max-height on mobile — a bottom-sheet capped to 70vh so the drag handle + header stay on-screen. Bell-specific; consumed via `max-h-panel-max-mobile`. |
 
-> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/right-now/RightNowCard.tsx`).
+> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/crew/RightNowHero.tsx`).
 
 ### 3.1 Spacing rhythm
 

@@ -151,7 +151,7 @@
    * (0.12 / 0.14 / 0.18 / 0.22) used as small differences across
    * eyebrow surfaces; consolidated to two values per DESIGN.md §2.
    *   --tracking-eyebrow         standard eyebrow tracking
-   *   --tracking-eyebrow-strong  emphasis eyebrow (RightNowCard,
+   *   --tracking-eyebrow-strong  emphasis eyebrow (RightNowHero,
    *                              Footer wordmark, Header crew tag)
    */
   --tracking-eyebrow: 0.12em;

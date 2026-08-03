@@ -2,7 +2,7 @@
  * Playwright audit suite for the §8.2 RightNow 12-state transition
  * matrix (M4 Task 4.12 Batch 2).
  *
- * Wired in Batch 2: framer-motion is installed, RightNowCard renders
+ * Wired in Batch 2: framer-motion is installed, the Today hero renders
  * via AnimatePresence + matrix-driven motion props, and this suite
  * asserts the implementation conforms to the matrix.
  *
@@ -15,8 +15,8 @@
  *
  * Test strategy:
  *
- *   1. The card is a `'use client'` island (`components/right-now/
- *      RightNowCard.tsx`); `selectRightNowState` re-derives on every
+ *   1. The hero is a `'use client'` island (`components/crew/
+ *      RightNowHero.tsx`); `selectRightNowState` re-derives on every
  *      60-second tick from `now`. Playwright's `page.clock.install` is
  *      used to deterministically advance time.
  *
@@ -116,7 +116,7 @@ async function readCardAttrs(
   page: Page,
   expectedState?: string,
 ): Promise<{ state: string | null; treatment: string | null; stale: string | null }> {
-  const card = page.getByTestId("right-now-card");
+  const card = page.getByTestId("right-now-hero");
   await expect(card).toBeVisible();
   if (expectedState) {
     // Wait for hydration to settle on the expected state before
@@ -140,8 +140,8 @@ async function readCardAttrs(
  * within ±0.5px of the pre-transition height during a crossfade.
  */
 async function cardHeight(page: Page): Promise<number> {
-  const box = await page.getByTestId("right-now-card").boundingBox();
-  if (!box) throw new Error("right-now-card not visible");
+  const box = await page.getByTestId("right-now-hero").boundingBox();
+  if (!box) throw new Error("right-now-hero not visible");
   return box.height;
 }
 
@@ -511,7 +511,7 @@ test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3
    * crossfade-body transition completes (contract pin so a future
    * "fix" cannot reintroduce the timer race).
    *
-   * The §8.2 contract (RightNowCard.tsx file header `data-testid`
+   * The §8.2 contract (RightNowHero.tsx file header `data-testid`
    * block) says `data-treatment` carries the treatment of the MOST-
    * RECENT kind transition, NOT a "currently animating" flag. A
    * previous attempt to make the attribute eventually-honest via a
