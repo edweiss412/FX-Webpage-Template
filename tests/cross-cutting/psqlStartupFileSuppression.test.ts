@@ -2327,3 +2327,57 @@ describe("R26 escaping mutants", () => {
     expect(scanSource(`execSync("if psql mydb; then echo ok; fi");`, "x.mjs")).toHaveLength(1);
   });
 });
+
+describe("R27 escaping mutants", () => {
+  // JS `.` does not match a newline, so an attached `env -S` value that begins
+  // on the next physical line was invisible.
+  test('`env -S"` with the value starting on the next line is a site', () => {
+    const sites = sitesIn('env -S"\npsql -qAt mydb"\n', "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Every consumer branch used to stamp the site with the consumer ARGUMENT's
+  // opening offset, so a multiline JS string mapped psql to the wrong physical
+  // line and could inherit a marker written above the outer call.
+  const CONSUMERS: Array<[string, string]> = [
+    ["env -S attached", 'env -S" \\\npsql -qAt mydb"'],
+    ["su --command separate", 'su - postgres --command " \\\npsql -qAt mydb"'],
+    ["su --session-command=", 'su - postgres --session-command=" \\\npsql -qAt mydb"'],
+    ["bash -c", 'bash -c " \\\npsql -qAt mydb"'],
+  ];
+
+  test.each(
+    ["spawnSync", "execFileSync", "execFile", "spawn"].flatMap((api) =>
+      CONSUMERS.map(([label, command]) => [api, label, command] as const),
+    ),
+  )("%s + %s reports the psql line, not the marker's", (api, _label, command) => {
+    const source = [
+      `const n = 1; // ${EXEMPTION_MARKER} unrelated adjacent operation`,
+      "${API}(`${COMMAND}`, { shell: true });"
+        .replace("${API}", api)
+        .replace("${COMMAND}", command),
+      "",
+    ].join("\n");
+    const sites = scanSource(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(3);
+    expect(sites[0]!.exemptReason).toBeNull();
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test("a TRANSLATED value cannot inherit an exemption at all", () => {
+    // env's `\\_` rewrite means lengths no longer line up, so the mapping is
+    // inexact by construction — it must fail closed rather than guess a line.
+    const source = [
+      `# ${EXEMPTION_MARKER} unrelated adjacent operation`,
+      `env -S 'psql -F\\_ -X mydb'`,
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+});

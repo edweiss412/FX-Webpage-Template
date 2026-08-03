@@ -1001,6 +1001,26 @@ const NOT_AN_INVOCATION = new Set([
  * lexed the way the shell lexes it, split into commands on operators, and each
  * command's argv is what psql would actually receive.
  */
+/**
+ * Re-anchor a site found inside part of a WORD back to that word's coordinates.
+ *
+ * `sliceStart` is where the scanned text begins within `word.text`. When the
+ * scanned text is a faithful SLICE, the per-character maps the lexer recorded
+ * give an exact offset and line. When it was TRANSLATED — env's split-string
+ * grammar rewrites `\_` to a space, so lengths no longer line up — the mapping
+ * cannot be exact: the site keeps the word's own start and LOSES its exemption,
+ * because an inexact line must never inherit a marker written for a neighbour.
+ */
+function reanchor(site: PsqlSite, word: ShellWord, sliceStart: number, exact: boolean): PsqlSite {
+  if (!exact) return { ...site, offset: word.offset, line: word.line + 1, exemptReason: null };
+  const at = sliceStart + site.offset;
+  return {
+    ...site,
+    offset: word.offsets[at] ?? word.offset,
+    line: (word.lines[at] ?? word.line) + 1,
+  };
+}
+
 function scanShellText(text: string, file: string, lineOffset: number): PsqlSite[] {
   const rawLines = text.split("\n");
   const commentAt = commentIndexPerLine(text, "hash");
@@ -1165,19 +1185,19 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         if (longScript) {
           const translate = name === "env" ? envSplitStringToShell : (t: string) => t;
           if (longScript[1] === "=") {
-            const attached = candidate.text.slice(candidate.text.indexOf("=") + 1);
-            for (const site of scanShellText(
-              translate(attached),
-              file,
-              lineOffset + candidate.line,
-            ))
-              sites.push({ ...site, offset: candidate.offset });
+            const sliceStart = candidate.text.indexOf("=") + 1;
+            const attached = candidate.text.slice(sliceStart);
+            const translated = translate(attached);
+            for (const site of scanShellText(translated, file, lineOffset))
+              sites.push(reanchor(site, candidate, sliceStart, translated === attached));
             break;
           }
           const next = argv[i + 1];
-          if (next !== undefined)
-            for (const site of scanShellText(translate(next.text), file, lineOffset + next.line))
-              sites.push({ ...site, offset: next.offset });
+          if (next !== undefined) {
+            const translatedNext = translate(next.text);
+            for (const site of scanShellText(translatedNext, file, lineOffset))
+              sites.push(reanchor(site, next, 0, translatedNext === next.text));
+          }
           break;
         }
         if (isInterpreter && !/^-[a-z]*c[a-z]*$/.test(candidate.text)) continue;
@@ -1186,30 +1206,22 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         // script is the NEXT word. Taking `--` as the script scanned nothing.
         let scriptIndex = isEval ? i : i + 1;
         // `env -S'psql …'` attaches the script to the flag itself.
-        if (isDashS && candidate.text.length > 2 && /^-[a-zA-Z]*S./.test(candidate.text)) {
-          const attached = candidate.text.slice(candidate.text.indexOf("S") + 1);
-          for (const site of scanShellText(
-            envSplitStringToShell(attached),
-            file,
-            lineOffset + candidate.line,
-          ))
-            sites.push({ ...site, offset: candidate.offset });
+        if (isDashS && candidate.text.length > 2 && /^-[a-zA-Z]*S[\s\S]/.test(candidate.text)) {
+          const sliceStart = candidate.text.indexOf("S") + 1;
+          const attached = candidate.text.slice(sliceStart);
+          const translated = envSplitStringToShell(attached);
+          for (const site of scanShellText(translated, file, lineOffset))
+            sites.push(reanchor(site, candidate, sliceStart, translated === attached));
           break;
         }
         if (argv[scriptIndex]?.text === "--") scriptIndex++;
         const script = argv[scriptIndex];
         if (script === undefined) break;
+        // The script word was QUOTE-STRIPPED, so its characters are not
+        // contiguous with its start; the per-character maps re-anchor it.
         const scriptText = isDashS ? envSplitStringToShell(script.text) : script.text;
-        for (const site of scanShellText(scriptText, file, lineOffset + script.line))
-          sites.push({
-            // The script word was QUOTE-STRIPPED, so its characters are not
-            // contiguous with its start. Map through the per-character index
-            // the lexer recorded; adding a stripped-text offset to the opening
-            // quote's index undercounts every delimiter and landed psql on the
-            // preceding physical line.
-            ...site,
-            offset: (isDashS ? script.offset : script.offsets[site.offset]) ?? script.offset,
-          });
+        for (const site of scanShellText(scriptText, file, lineOffset))
+          sites.push(reanchor(site, script, 0, scriptText === script.text));
         break;
       }
     }
