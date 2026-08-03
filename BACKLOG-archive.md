@@ -2613,3 +2613,55 @@ Reconciliation history moved out of `BACKLOG.md`'s header line on 2026-08-02. Th
 **Why backlog, not deferred:** The M9 C9 probe works today; behaviorally there's no coverage gap. Promotion is polish work (move from per-domain test to cross-cutting meta-test for discoverability + CI gate naming consistency). Promotion requires (a) a spec amendment decision about AC placement, (b) a ROUTING.md decision about whether the new AC gets a check name, (c) a brainstorming session to confirm the promotion is worth the spec churn vs leaving the probe in `tests/db/`.
 
 **Promotion prerequisite:** spec amendment defining the new AC, OR a decision to reframe AC-X.5/X.6 to absorb RLS coverage. Either path is a real spec-amendment cycle with adversarial review, not a casual edit.
+
+---
+
+## BL-PICKER-CLAIMED-ROW-PENDING-STATE — RESOLVED (2026-08-03, `fix/picker-signin-flow-cluster`) — no pending affordance on the claimed-row sign-in control
+
+**Status:** OPEN · **Severity:** low-medium (re-tap risk on venue wifi) · **Surfaced:** impeccable critique of `fix/picker-flow-app-bugs` (2026-07-25), P2
+
+Tapping a claimed roster row (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`) is a full GET to `/auth/sign-in` and then on to Google — three or more hops with the row visually inert the whole time. On ballroom wifi a crew member will tap it again. Every other mutating control in the admin surfaces uses `useFormStatus` for this (10+ components), and the `"Confirming…"` pending idiom is ratified in `docs/superpowers/specs/2026-07-20-show-scoped-alert-copy-design.md:175` (this entry previously cited "master spec §16.6", which does not exist — §16 has only §16.1 and §16.2).
+
+Not a regression: the control had no pending state before the hidden-input fix either. Deferred rather than folded into that branch because the row is currently rendered by a Server Component, so a pending state needs a new client boundary — a real change to the picker's component topology, not a class tweak. **Fix (when prioritized):** extract the claimed-row control into a client component using `useFormStatus`, matching the disabled + label-swap recipe the admin surfaces already use. Trigger: next crew-page UX pass, or a report of double-tap sign-in loops.
+
+**Resolved.** The claimed row's button became a `"use client"` island with local pending state:
+the lock swaps to a spinner in a shared fixed-width slot, the role chip reads `Signing in…`, and
+the row reports `aria-disabled` + `aria-busy`. Three mechanism choices were forced by measurement,
+not preference — `useFormStatus` does NOT fire for this form (it is a native GET, measured
+`NATIVE_GET=false` / `FUNCTION_ACTION=true`), `aria-disabled` rather than the native `disabled`
+attribute keeps keyboard focus, and the `onClick` must call `preventDefault` because neither
+`aria-disabled` nor an early return cancels a submit's default action (measured `submits=2`).
+The entry's own proposed fix — "use `useFormStatus`, matching the admin surfaces" — was therefore
+wrong, and would have shipped an affordance that never appeared.
+
+---
+
+### BL-PICKER-BOOTSTRAP-NEXT-QUERY-REJECTED — RESOLVED (2026-08-03, `fix/picker-signin-flow-cluster`) — a `next` carrying a query string fails the bootstrap
+
+**Status:** OPEN — measured on `test/agenda-fold-seeded-e2e` (2026-08-02) · **Severity:** low · **Class:** AUTH UX
+
+A Google session that matches a crew row with no picker-cookie entry yet resolves to
+`needs_picker_bootstrap` and redirects through `/api/auth/picker-bootstrap`. When the `next` it
+carries has a query string — e.g. the deep link `/show/<slug>/<token>?s=schedule`, which is exactly
+what a crew member gets from a section link — the handler does not land back on the show and renders
+"Sign-in unavailable / Sign-in landed somewhere we don't recognize." Measured on BOTH engines
+(Chromium and WebKit), so it is not a cookie-storage artifact: the bare URL bootstraps fine and the
+same URL with `?s=schedule` does not.
+
+**Blast radius today.** First contact only, and only on a deep link: once the cookie exists the
+query rides along normally. A crew member who hits it can recover by opening the bare show link, so
+the effect is a confusing dead end rather than lost access.
+
+**Worked around, not fixed, in e2e.** `stage-restricted-crew-schedule.spec.ts` bootstraps on the
+bare URL and re-navigates with `?s=schedule`. That documents the limit; it does not close it.
+
+**Fix (when prioritized):** decide whether the bootstrap should preserve the `next` query (probably)
+or strip it and redirect to the canonical show URL, then pin the chosen behavior with a route test
+covering a query-bearing `next`.
+
+**Resolved.** `parseNextPath` now splits the query off before matching `SHOW_NEXT_RE`, which keeps
+its `$` anchor on the path portion. Blast radius was wider than this entry recorded: three of the
+four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links — `?gate=skip` is
+an ordinary first-contact path. The two-step workaround in
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
+fix reds them, which is the end-to-end proof.
