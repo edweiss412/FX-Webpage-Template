@@ -100,7 +100,24 @@ import { describe, expect, it } from "vitest";
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 const REPO_ROOT = join(__dirname, "..", "..");
-const APP_DIR = join(REPO_ROOT, "app");
+
+/**
+ * Every shipped source tree, not just `app/`.
+ *
+ * Review R8 probed Next 16's own SWC transform and showed a loader call is
+ * rewritten — i.e. really loads a font — from `lib/`, `components/`, and from
+ * `.js` / `.jsx` files, none of which an `app/`-only, `.ts`/`.tsx`-only census
+ * could see. An app route can then import that module transitively, and if the
+ * second call is byte-identical the runtime checks cannot separate it either.
+ * So the census walks every tree a route can import from, at every extension
+ * the bundler will transform.
+ *
+ * `tests/` is deliberately absent: nothing there ships, and the setup file's
+ * `vi.mock("next/font/google", …)` is a string argument rather than an import
+ * declaration, so it would not match anyway.
+ */
+const SHIPPED_DIRS = ["app", "components", "lib"].map((d) => join(REPO_ROOT, d));
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 /** The one file allowed to CALL a font loader. Not `app/layout.tsx`: Next 16 has
  *  two roots, and `app/global-error.tsx` replaces the root layout entirely, so
@@ -286,16 +303,25 @@ function toRepoRelative(absolute: string): string {
 }
 
 describe("single next/font loader — live tree", () => {
-  const appFiles = walkSourceFiles([APP_DIR]);
+  const appFiles = walkSourceFiles(SHIPPED_DIRS, { extensions: SOURCE_EXTENSIONS });
 
-  it("the walk actually reached the app tree", () => {
-    // Anti-vacuity: an empty walk satisfies every assertion below trivially,
-    // and the guard would silently protect nothing.
-    expect(appFiles.length, "walkSourceFiles found source files under app/").toBeGreaterThan(20);
-    expect(appFiles.map(toRepoRelative)).toContain(CANONICAL_LOADER);
+  it("the walk actually reached every shipped tree", () => {
+    // Anti-vacuity: an empty or narrow walk satisfies every assertion below
+    // trivially, and the guard would silently protect nothing. Each tree is
+    // asserted SEPARATELY — a total count alone stays green if one tree drops
+    // out, which is exactly how the app-only census went unnoticed until R8.
+    const rel = appFiles.map(toRepoRelative);
+    expect(rel.length, "the census found source files").toBeGreaterThan(100);
+    for (const tree of ["app/", "components/", "lib/"]) {
+      expect(
+        rel.some((f) => f.startsWith(tree)),
+        `the census covers ${tree} — a loader there loads a font just as much as one in app/`,
+      ).toBe(true);
+    }
+    expect(rel).toContain(CANONICAL_LOADER);
   });
 
-  it("exactly one file under app/ calls a font loader, and it is the shared module", () => {
+  it("exactly one shipped file imports a font loader, and it is the shared module", () => {
     // Keyed on the IMPORT, not on a successful invocation count — see
     // hasFontImport. This is the assertion that actually cannot be evaded by
     // call syntax.
@@ -313,14 +339,14 @@ describe("single next/font loader — live tree", () => {
     ).toEqual([CANONICAL_LOADER]);
   });
 
-  it("the whole app tree invokes a font loader exactly once", () => {
+  it("the shipped trees invoke a font loader exactly once", () => {
     const total = appFiles.reduce(
       (sum, file) => sum + countLoaderInvocations(readFileSync(file, "utf8"), file),
       0,
     );
     expect(
       total,
-      "one loader invocation across app/ — a second emits a duplicate @font-face " +
+      "one loader invocation across every shipped tree — a second emits a duplicate @font-face " +
         "set under the same family name, invisibly",
     ).toBe(1);
   });

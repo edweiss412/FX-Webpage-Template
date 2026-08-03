@@ -106,7 +106,7 @@
      specifically so the `display: "swap"` window does not reflow. Naming the
      literal skipped that face entirely, so first paint used a system font at
      native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
-     real string) on every route. The var() fallback keeps the literal pair for
+     real string) on every React-root route. The var() fallback keeps the literal pair for
      any surface without the generated class -- notably the standalone test
      harnesses, which compile this file with no Next runtime -- so the
      declaration is never invalid at computed-value time. DESIGN.md 2.1. */

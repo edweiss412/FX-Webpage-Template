@@ -118,7 +118,7 @@ Not in `app/layout.tsx`, because **Next 16 has two roots**. `app/global-error.ts
 
 **Both roots import it.** `app/layout.tsx` applies `inter.variable` to `<html>` (joining `h-full antialiased`); `app/global-error.tsx` applies it to its own `<html>`, which also needs `lang="en"` to match (WCAG 3.1.1; the sibling root has it).
 
-**EDIT `app/globals.css`.** `--font-sans` becomes `var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, …`. Naming the literal `"Inter"` skips next/font's generated metric-matched `Inter Fallback` face — built with `size-adjust`/`ascent-override` precisely so the `display: "swap"` window does not reflow — so first paint renders a system font at native metrics and then snaps ~10%. The `var()` **fallback list** is what makes this safe: where the token is undefined (the standalone harnesses, which compile this file with no Next runtime) it substitutes the literal pair rather than leaving the declaration invalid at computed-value time, which would drop `font-family` entirely.
+**EDIT `app/globals.css`.** `--font-sans` becomes `var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, …`. Naming the literal `"Inter"` skips next/font's generated metric-matched `Inter Fallback` face — built with `size-adjust`/`ascent-override` precisely so the `display: "swap"` window does not reflow — so first paint renders a system font at native metrics and then snaps ~10% on every React-root route. The `var()` **fallback list** is what makes this safe: where the token is undefined (the standalone harnesses, which compile this file with no Next runtime) it substitutes the literal pair rather than leaving the declaration invalid at computed-value time, which would drop `font-family` entirely.
 
 **Update `DESIGN.md` §2.1 in lockstep** (invariant 7): the pinned fallback stack gains `Inter Fallback`, and the line naming the load site is corrected.
 
@@ -176,7 +176,7 @@ Run `/impeccable critique` AND `/impeccable audit` on the diff, both with the ca
 
 ## T5 — Backlog graduation
 
-- Move `BL-HEADER-FONT-FALLBACK-WRAP` (`BACKLOG.md:249`) to `BACKLOG-archive.md` at its terminal state, carrying the probe table and the scoping statement (fixed for every Next-rendered surface; the standalone-harness residual is a documented limit).
+- Move `BL-HEADER-FONT-FALLBACK-WRAP` (`BACKLOG.md:249`) to `BACKLOG-archive.md` at its terminal state, carrying the probe table and the scoping statement (fixed for every React-root surface; the standalone-harness residual and the four hand-built auth error documents are documented limits).
 - File the successor entry `BL-HARNESS-FONT-FIDELITY` in `BACKLOG.md` per spec R4/§5.2.
 - Add a new leading segment to the `Last reconciled:` line at `BACKLOG.md:7`.
 - **Expect a rebase conflict:** two sibling panes are graduating other rows from the same file concurrently. Resolve by keeping BOTH sides — the entries are disjoint and the reconciliation line concatenates.
