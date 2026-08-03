@@ -18,7 +18,7 @@ import vitestConfig from "@/vitest.config";
 //      psql-per-assertion test plus an `afterEach` cleanup query fits in 5s on
 //      a quiet box and does not fit reliably on a loaded one. Pinned at the
 //      ROOT of vitest.config.ts, which both projects inherit via
-//      `extends: true`, so it covers every DB-touching file at once — the ~190
+//      `extends: true`, so it covers every DB-touching file at once — the 200
 //      that ride the defaults today plus any added later. A file that needs
 //      MORE (the 90s doc-scan in tests/scripts/validation-report-fixtures)
 //      still raises its own; `vi.setConfig` wins over the config file.
