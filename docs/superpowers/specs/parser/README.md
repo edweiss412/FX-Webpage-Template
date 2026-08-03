@@ -35,3 +35,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-15-geocode-cache-legacy-coords.md`](./2026-07-15-geocode-cache-legacy-coords.md) | 2026-07-15 |
 | [`2026-07-25-hotel-ambiguity-coverage-design.md`](./2026-07-25-hotel-ambiguity-coverage-design.md) | 2026-07-25 |
 | [`2026-07-27-inline-later-group-own-hotel-design.md`](./2026-07-27-inline-later-group-own-hotel-design.md) | 2026-07-27 |
+| [`2026-08-02-parser-determinism-pair.md`](./2026-08-02-parser-determinism-pair.md) | 2026-08-02 |
