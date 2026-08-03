@@ -338,7 +338,7 @@ PR #505 measured local realtime silently dropping ~9% of broadcast frames on an 
 
 ## BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT — refresh known-holes fingerprints after parser autocorrect field (2026-07-22)
 
-**Effort:** XS
+**Effort:** XS · **Status:** IN PROGRESS · **Branch:** chore/close-mutation-autocorrect-drift
 
 The `autocorrect` field populated at all 13 parser producers (`7295d794c`, merged via the
 warning-card-identity-placement chain, PR #543-era) changes parse output for corpus fixtures whose
