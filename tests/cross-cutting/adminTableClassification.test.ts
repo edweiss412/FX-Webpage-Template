@@ -297,75 +297,17 @@ function declaredCounts(): { prose: number; live: number; dropped: number } {
   return { prose: Number(prose[1]), live: Number(live[1]), dropped: Number(live[3]) };
 }
 
-describe("admin-table classification reconciled against the live catalog", () => {
-  test("A forward: every ADMIN_TABLES entry is admin-classified and exists live", () => {
-    const live = new Set(liveRelations());
-    const failures: string[] = [];
-    for (const table of ADMIN_TABLES) {
-      const row = PUBLIC_TABLE_CLASSIFICATION[table];
-      if (!row) {
-        failures.push(`${table}:unclassified`);
-        continue;
-      }
-      if (!ADMIN_POSTURES.has(row.posture)) failures.push(`${table}:bad-posture`);
-      if (!live.has(table)) failures.push(`${table}:missing-live`);
-    }
-    expect(failures).toEqual([]);
-  });
-
-  test("B reverse: every admin-classified relation is in ADMIN_TABLES", () => {
-    const adminTables = new Set<string>(ADMIN_TABLES);
-    const failures = Object.entries(PUBLIC_TABLE_CLASSIFICATION)
-      .filter(([name, row]) => ADMIN_POSTURES.has(row.posture) && !adminTables.has(name))
-      .map(([name]) => `${name}:admin-classified-but-not-in-ADMIN_TABLES`);
-    expect(failures).toEqual([]);
-  });
-
-  test("B reverse (catalog): every live admin_only policy table is known", () => {
-    const adminTables = new Set<string>(ADMIN_TABLES);
-    const failures = liveAdminOnlyPolicyTables()
-      .filter((t) => !adminTables.has(t) && !NON_ADMIN_TABLE_ALLOWLIST.has(t))
-      .map((t) => `${t}:admin_only-policy-but-unlisted`);
-    expect(failures).toEqual([]);
-  });
-
-  test("C total: every live public relation is classified", () => {
-    const failures = liveRelations()
-      .filter((name) => !PUBLIC_TABLE_CLASSIFICATION[name])
-      .map((name) => `${name}:unclassified`);
-    expect(failures).toEqual([]);
-  });
-
-  test("tripwire: ADMIN_TABLES length matches §4.3's declared counts", () => {
-    const { prose, live, dropped } = declaredCounts();
-    expect(ADMIN_TABLES.length).toBe(live);
-    expect(live + dropped).toBe(prose);
-  });
-});
-
 // =============================================================================
-// Mutation-family closure set (spec §4.5; plan Task 1).
-//
-// Each mutant trips exactly ONE reconciliation. A mutant that trips two proves
-// neither, which is why the inputs are pinned: (i) targets a NON-ADMIN_TABLES
-// table, because deleting an ADMIN_TABLES member's row trips A and C together;
-// (iii) classifies the injected name, so it trips only A's live-existence arm.
-//
-// The relkind mutants are the load-bearing ones. Today `public` is all-'r', so
-// an implementation that regressed to an `information_schema ... BASE TABLE`
-// query would still pass every other case here.
+// The reconciliations. ONE implementation each — the real tests and the mutants
+// below both call these, so weakening one of them fails BOTH. An earlier draft
+// had the mutants exercising parallel helper copies, which meant a regression in
+// production could not fail any mutant: the mutation suite was decorative.
 // =============================================================================
 
-/** Reconciliation C, evaluated against an arbitrary registry + live set. */
-function directionCFailures(registry: Record<string, Classification>, live: string[]): string[] {
-  return live.filter((name) => !registry[name]).map((name) => `${name}:unclassified`);
-}
-
-/** Reconciliation A, evaluated against arbitrary inputs. */
-function directionAFailures(
+function directionA(
   registry: Record<string, Classification>,
   adminTables: readonly string[],
-  live: string[],
+  live: readonly string[],
 ): string[] {
   const liveSet = new Set(live);
   const failures: string[] = [];
@@ -381,7 +323,84 @@ function directionAFailures(
   return failures;
 }
 
-/** Create a relation of the given kind inside a rolled-back transaction and read the live set. */
+function directionB(
+  registry: Record<string, Classification>,
+  adminTables: readonly string[],
+): string[] {
+  const known = new Set(adminTables);
+  return Object.entries(registry)
+    .filter(([name, row]) => ADMIN_POSTURES.has(row.posture) && !known.has(name))
+    .map(([name]) => `${name}:admin-classified-but-not-in-ADMIN_TABLES`);
+}
+
+function directionBCatalog(
+  adminTables: readonly string[],
+  livePolicyTables: readonly string[],
+): string[] {
+  const known = new Set(adminTables);
+  return livePolicyTables
+    .filter((t) => !known.has(t) && !NON_ADMIN_TABLE_ALLOWLIST.has(t))
+    .map((t) => `${t}:admin_only-policy-but-unlisted`);
+}
+
+function directionC(registry: Record<string, Classification>, live: readonly string[]): string[] {
+  return live.filter((name) => !registry[name]).map((name) => `${name}:unclassified`);
+}
+
+function tripwireFailures(
+  adminTables: readonly string[],
+  counts: { prose: number; live: number; dropped: number },
+): string[] {
+  const failures: string[] = [];
+  if (adminTables.length !== counts.live) {
+    failures.push(`length:${adminTables.length}!==declaredLive:${counts.live}`);
+  }
+  if (counts.live + counts.dropped !== counts.prose) {
+    failures.push(
+      `declaredLive+dropped:${counts.live + counts.dropped}!==declaredProse:${counts.prose}`,
+    );
+  }
+  return failures;
+}
+
+describe("admin-table classification reconciled against the live catalog", () => {
+  test("A forward: every ADMIN_TABLES entry is admin-classified and exists live", () => {
+    expect(directionA(PUBLIC_TABLE_CLASSIFICATION, ADMIN_TABLES, liveRelations())).toEqual([]);
+  });
+
+  test("B reverse: every admin-classified relation is in ADMIN_TABLES", () => {
+    expect(directionB(PUBLIC_TABLE_CLASSIFICATION, ADMIN_TABLES)).toEqual([]);
+  });
+
+  test("B reverse (catalog): every live admin_only policy table is known", () => {
+    expect(directionBCatalog(ADMIN_TABLES, liveAdminOnlyPolicyTables())).toEqual([]);
+  });
+
+  test("C total: every live public relation is classified", () => {
+    expect(directionC(PUBLIC_TABLE_CLASSIFICATION, liveRelations())).toEqual([]);
+  });
+
+  test("tripwire: ADMIN_TABLES length matches §4.3's declared counts", () => {
+    expect(tripwireFailures(ADMIN_TABLES, declaredCounts())).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Mutation-family closure set (spec §4.5; plan Task 1).
+//
+// Every mutant calls the SAME directionA/B/C/tripwire functions the production
+// tests above call, so weakening a reconciliation fails its mutant too. Each
+// mutant trips exactly ONE arm, by exact message — a mutant that trips two
+// proves neither, so the inputs are pinned: (i) targets a NON-ADMIN_TABLES
+// table, because deleting a member's row trips A and C together; (iii)
+// classifies the injected name so only A's live-existence arm fires.
+//
+// The relkind mutants are load-bearing: `public` is all-'r' today, so an
+// implementation that regressed to `information_schema ... BASE TABLE` would
+// still pass every other case here.
+// =============================================================================
+
+/** Create a relation inside a rolled-back transaction and read the live set through the real query. */
 function liveRelationsWithMutant(ddl: string): string[] {
   const out = runPsql(`
     begin;
@@ -401,8 +420,8 @@ describe("mutation-family closure set", () => {
     const mutated = { ...PUBLIC_TABLE_CLASSIFICATION };
     delete mutated.geocode_cache;
     const live = liveRelations();
-    expect(directionCFailures(mutated, live)).toEqual(["geocode_cache:unclassified"]);
-    expect(directionAFailures(mutated, ADMIN_TABLES, live)).toEqual([]);
+    expect(directionC(mutated, live)).toEqual(["geocode_cache:unclassified"]);
+    expect(directionA(mutated, ADMIN_TABLES, live)).toEqual([]);
   });
 
   test("(ii) reclassifying an admin table as crew_readable trips A only, never C", () => {
@@ -411,8 +430,8 @@ describe("mutation-family closure set", () => {
       sync_log: { posture: "crew_readable", reason: "mutant" },
     };
     const live = liveRelations();
-    expect(directionAFailures(mutated, ADMIN_TABLES, live)).toEqual(["sync_log:bad-posture"]);
-    expect(directionCFailures(mutated, live)).toEqual([]);
+    expect(directionA(mutated, ADMIN_TABLES, live)).toEqual(["sync_log:bad-posture"]);
+    expect(directionC(mutated, live)).toEqual([]);
   });
 
   test("(iii) an injected-but-classified ADMIN_TABLES name trips A's live-existence arm only", () => {
@@ -421,37 +440,69 @@ describe("mutation-family closure set", () => {
       fake_admin: { posture: "admin_only", reason: "mutant" },
     };
     const live = liveRelations();
-    expect(directionAFailures(mutated, [...ADMIN_TABLES, "fake_admin"], live)).toEqual([
+    expect(directionA(mutated, [...ADMIN_TABLES, "fake_admin"], live)).toEqual([
       "fake_admin:missing-live",
     ]);
-    expect(directionCFailures(mutated, live)).toEqual([]);
+    expect(directionC(mutated, live)).toEqual([]);
+  });
+
+  test("(iv) admin-classifying a relation absent from ADMIN_TABLES trips B only", () => {
+    const mutated: Record<string, Classification> = {
+      ...PUBLIC_TABLE_CLASSIFICATION,
+      geocode_cache: { posture: "admin_only", reason: "mutant" },
+    };
+    expect(directionB(mutated, ADMIN_TABLES)).toEqual([
+      "geocode_cache:admin-classified-but-not-in-ADMIN_TABLES",
+    ]);
+    expect(directionC(mutated, liveRelations())).toEqual([]);
+  });
+
+  test("(v) a live admin_only policy on an unlisted table trips B's catalog arm", () => {
+    expect(directionBCatalog(ADMIN_TABLES, ["sync_log", "rogue_admin_table"])).toEqual([
+      "rogue_admin_table:admin_only-policy-but-unlisted",
+    ]);
+    // The allowlisted ones must NOT trip it.
+    expect(directionBCatalog(ADMIN_TABLES, ["ignored_warnings", "admin_emails"])).toEqual([]);
   });
 
   test.each([
-    ["view", "create view public.v_probe as select 1 as x;", "v_probe"],
-    ["materialized view", "create materialized view public.m_probe as select 1 as x;", "m_probe"],
+    ["view", "create view public.zz_probe as select 1 as x;"],
+    ["materialized view", "create materialized view public.zz_probe as select 1 as x;"],
     [
       "partitioned parent",
-      "create table public.p_probe (id int, part int) partition by range (part);",
-      "p_probe",
+      "create table public.zz_probe (id int, part int) partition by range (part);",
     ],
-  ])(
-    "(iv-vi) an unclassified %s trips C — a BASE TABLE filter would miss it",
-    (_kind, ddl, name) => {
-      const live = liveRelationsWithMutant(ddl);
-      expect(live).toContain(name);
-      expect(directionCFailures(PUBLIC_TABLE_CLASSIFICATION, live)).toEqual([
-        `${name}:unclassified`,
-      ]);
-      expect(directionAFailures(PUBLIC_TABLE_CLASSIFICATION, ADMIN_TABLES, live)).toEqual([]);
-    },
-  );
+    [
+      // postgres_fdw is available-but-not-installed locally; creating it inside
+      // the transaction keeps the mutant self-contained and rolls it back.
+      "foreign table",
+      "create extension if not exists postgres_fdw; create server zz_srv foreign data wrapper postgres_fdw options (host 'localhost', dbname 'postgres'); create foreign table public.zz_probe (x text) server zz_srv options (table_name 'nope');",
+    ],
+  ])("(vi-ix) an unclassified %s trips C — a BASE TABLE filter would miss it", (_kind, ddl) => {
+    const live = liveRelationsWithMutant(ddl);
+    expect(live, "the mutant relation must actually be enumerated").toContain("zz_probe");
+    expect(directionC(PUBLIC_TABLE_CLASSIFICATION, live)).toEqual(["zz_probe:unclassified"]);
+    expect(directionA(PUBLIC_TABLE_CLASSIFICATION, ADMIN_TABLES, live)).toEqual([]);
+  });
 
-  test("(viii) a perturbed declared count trips the tripwire", () => {
-    const { live, dropped, prose } = declaredCounts();
-    expect(() => {
-      if (ADMIN_TABLES.length !== live + 1) throw new Error("tripwire: length mismatch");
-    }).toThrow(/tripwire/);
-    expect(live + dropped).toBe(prose);
+  test("(x) each tripwire arm is trippable in isolation", () => {
+    const real = declaredCounts();
+    expect(tripwireFailures(ADMIN_TABLES, real)).toEqual([]);
+
+    // Length arm alone: shift one table from live to dropped, so the sum stays
+    // consistent and only the length comparison can fire. Perturbing `live`
+    // alone would trip BOTH arms and prove neither.
+    expect(
+      tripwireFailures(ADMIN_TABLES, {
+        ...real,
+        live: real.live + 1,
+        dropped: real.dropped - 1,
+      }),
+    ).toEqual([`length:${ADMIN_TABLES.length}!==declaredLive:${real.live + 1}`]);
+
+    // Sum arm alone: bump the prose total only; length still matches.
+    expect(tripwireFailures(ADMIN_TABLES, { ...real, prose: real.prose + 1 })).toEqual([
+      `declaredLive+dropped:${real.live + real.dropped}!==declaredProse:${real.prose + 1}`,
+    ]);
   });
 });
