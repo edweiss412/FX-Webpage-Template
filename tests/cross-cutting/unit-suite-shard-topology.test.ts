@@ -345,12 +345,18 @@ const dbSteps = (): Step[] => {
 
 const runOf = (s: Step): string => (typeof s.run === "string" ? s.run : "");
 
-/** Body with blank lines and whole-line `#` comments dropped, each line trimmed. */
+/**
+ * Body with whole-line comments and blank lines dropped, each line trimmed.
+ * Comment removal goes through this file's existing `directives()` helper rather
+ * than a second local filter — `_metaStripCommentsSingleSource` forbids per-file
+ * comment idioms, and it caught exactly that when this started life as its own
+ * `startsWith("#")` filter.
+ */
 const normalizedBody = (s: Step): string =>
-  runOf(s)
+  directives(runOf(s))
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l !== "" && !l.startsWith("#"))
+    .filter((l) => l !== "")
     .join("\n");
 
 const combinedStep = (): Step => {
