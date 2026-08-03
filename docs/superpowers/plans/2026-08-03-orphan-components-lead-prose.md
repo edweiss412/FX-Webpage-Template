@@ -62,18 +62,32 @@ cleared keeps reading yesterday's call time under a stale tint indefinitely. Tod
 is pinned only against a component nothing renders.
 
 1. `git mv tests/components/RightNowCardRecovery.test.tsx tests/components/crew/rightNowHeroRecovery.test.tsx`.
-2. Swap the import to `@/components/crew/RightNowHero`, the JSX to `<RightNowHero context={…} />`,
-   and the root query from `right-now-card` to `right-now-hero`
-   (`components/crew/RightNowHero.tsx:467`). Every other selector
-   (`right-now-state`, `right-now-body`, `right-now-lead`, `right-now-detail`, `data-stale`) is
-   unchanged — the hero exposes all of them (`components/crew/RightNowHero.tsx:467-528`).
-3. Update the header block: keep the spec context, the driving strategy, and **all four
-   anti-tautology guarantees verbatim**, changing only the component name. The guarantee that the
-   recovery assertion uses a callTime absent from `lastGood` (15:30 vs 14:00) is the load-bearing
-   one — it is what makes a buggy implementation unable to pass by reusing `lastGood`.
-4. Run RED first: run the suite against the hero BEFORE any selector edit and record the failure;
-   then make it green. If it is green on the first run for a reason other than the retarget being
-   complete, that is a tautology and the assertion is strengthened before proceeding.
+2. Swap the import to `@/components/crew/RightNowHero` and the JSX to
+   `<RightNowHero context={…} />`. Both components take the identical prop
+   (`{ context: RightNowContext }` from `components/right-now/buildRightNowContext.ts`), so the
+   fixture builder ports unchanged.
+3. **Retarget the selectors per spec §3.4's table — this is NOT a testid swap** (spec R1). Root
+   `right-now-card` → `right-now-hero` (`components/crew/RightNowHero.tsx:467`).
+   `right-now-state`, `right-now-body`, `right-now-lead`, `data-stale` keep their names. But
+   `right-now-detail` has NO hero counterpart in `show_day_n`: the hero sets `detail: null` and
+   routes the call time into a `Show` stat (`components/crew/RightNowHero.tsx:158-178`) rendered as
+   `data-stat="Show"` inside `data-testid="right-now-stats"`
+   (`components/crew/RightNowHero.tsx:571-585`). The three `Call: <t>` assertions read
+   `[data-stat="Show"] dd` instead. **Scope the extraction to that node**, never the whole hero, so
+   the lead line cannot satisfy the assertion by accident.
+4. Update the header block: keep the spec context, the driving strategy, and **all four
+   anti-tautology guarantees**, changing the component name and the detail-vs-stat carrier. The
+   guarantee that the recovery assertion uses a callTime absent from `lastGood` (15:30 vs 14:00) is
+   the load-bearing one, and it SURVIVES the move: the suite's `makeContext` sets
+   `showAnchors: []`, which is exactly the hero's legacy fallback to `ctx.callTime`
+   (`components/crew/RightNowHero.tsx:158-161`), so the two values still render as different
+   strings and a render-`lastGood` bug still cannot produce `15:30`. Note that fact in the header
+   so the next reader does not "simplify" the fixture and silently defeat the pin.
+5. Run RED first, in two steps. (a) Point the suite at the hero with ONLY the root testid changed
+   and run it: it must fail on the missing `right-now-detail` node — that failure is the proof the
+   carrier really moved, and it is recorded in the closeout. (b) Apply the stat-carrier retarget
+   and watch it go green. A suite that is green at step (a) means the retarget was not exercised
+   and the assertion is tautological; strengthen it before proceeding.
 
 **Divergence rule:** if a hero copy or markup difference makes an assertion inapplicable, do NOT
 drop the assertion. Record the divergence in the closeout (§12) as a finding and adapt the
@@ -108,17 +122,32 @@ component.
    FAIL family (a) — proving the row is what was suppressing it — then delete the component and
    watch the same run go green via family (b)'s absence.
 2. Delete `components/right-now/RightNowCard.tsx`.
-3. Repair every citation (spec §5): `components/crew/RightNowHero.tsx` header + seven in-body
+3. **Repair the two EXECUTABLE citations first** (spec §5), because they turn the tree red rather
+   than merely stale: `tests/help/_metaServerTimeGuard.test.ts:123-138` `readFileSync`s the card to
+   prove its client-vs-server classifier separates a `'use client'` island from a server component
+   — repoint the island exemplar to `components/crew/RightNowHero.tsx`, which carries the same
+   directive, so the assertion keeps its meaning; and delete the card's row from
+   `tests/styles/_metaBgAccentInventory.test.ts:112`, which otherwise reports
+   `STALE REGISTRY ROW` (the hero's own row at `tests/styles/_metaBgAccentInventory.test.ts:110`
+   already covers the live surface).
+4. Repair every prose citation (spec §5): `components/crew/RightNowHero.tsx` header + seven in-body
    comments (rewrite as retirement-aware provenance naming commit `b327d5eb0`; drop the
    line range it carries into the deleted file, which can no longer be checked);
+   `lib/time/rightNow.ts:113`; `lib/a11y/usePrefersReducedMotion.ts:23-24`;
+   `app/globals.css:143` (comment only — no `@theme` token added, renamed, or removed);
+   `DESIGN.md:216`; `tests/setup.ts:61-64`; `tests/components/Header.test.tsx:8` and
+   `tests/components/Header.test.tsx:12`; `tests/components/crew/rightNowHero.test.tsx:5` and
+   `tests/components/crew/rightNowHero.test.tsx:7`;
    `components/right-now/buildRightNowContext.ts:4` and `components/right-now/buildRightNowContext.ts:8`;
    `app/help/_components/Callout.tsx:26-27` (repoint the `stale-tint` semantic to the hero's
    equivalent site); `components/layout/Header.tsx:4` and `components/layout/Header.tsx:8`;
    `components/layout/PageTransition.tsx:8`; the header prose of `tests/e2e/right-now.spec.ts` and
    `tests/e2e/right-now-transitions.spec.ts` (prose only — the specs drive the real page and their
    assertions are untouched).
-4. **Class sweep before finishing:** `rg -n "RightNowCard" --glob '!node_modules' .` must return
-   only this plan, the spec, and historical design records. Every code/test hit is repaired in THIS
+5. **Class sweep before finishing, UNSCOPED:**
+   `rg -n "RightNowCard" --glob '!node_modules' --glob '!.next' .` must return only this plan, the
+   spec, and historical records under `docs/`. Scoping the sweep to `app components lib tests` is
+   what hid the two executable hits from the draft (spec §5's sweep lesson). Every code/test hit is repaired in THIS
    commit, not one per review round.
 
 **Verify:** `pnpm test -- tests/components/_metaOrphanedComponents.test.ts tests/components/crew`
@@ -158,9 +187,13 @@ can reach, while five live files cite it as the pattern to copy.
 4. Exemplar comments (spec §5): `components/shared/AccentButton.tsx:7-8` and `components/shared/AccentButton.tsx:34`,
    `app/admin/settings/admins/RevokeRowButton.tsx:7`, `components/admin/RetryWatchButton.tsx:7`,
    `components/admin/PendingPanelDiscardButtons.tsx:59`, `tests/components/RetryWatchButton.test.tsx:11`.
-   Each repoints to a LIVE exemplar (`BellPanel`'s trailing ghost Dismiss,
-   `components/admin/BellPanel.tsx:224-312`, or another registry member) — a comment citing a
-   deleted file is the same defect class the orphan guard exists to catch.
+   plus `components/admin/ArchiveShowButton.tsx:9` and `tests/components/atoms/AccentButton.test.tsx:7`.
+   Each repoints to a LIVE exemplar — the bell panel's trailing ghost RESOLVE control
+   (`components/admin/BellPanel.tsx:377-388`, labelled `Confirm` / `Mark resolved` per
+   `lib/adminAlerts/resolveActionLabel.ts:73-76`), or another destructive-confirm registry member.
+   **Do NOT write "BellPanel's Dismiss"** (spec R1 LOW): that label does not exist, and writing it
+   would ship fresh stale prose while repairing stale prose. A comment citing a deleted file is the
+   same defect class the orphan guard exists to catch.
 5. Class sweep: `rg -n "ResolveAlertButton" app components lib tests` must be empty.
 
 **Verify:** `pnpm test -- tests/styles tests/components/RetryWatchButton.test.tsx tests/components/_metaOrphanedComponents.test.ts`
@@ -183,7 +216,10 @@ which reads as finalize coverage and is not.
 4. Comments: `components/shared/AccentButton.tsx:8`, `tests/onboarding/finalize-cas.test.ts:513`,
    `tests/components/atoms/AccentButton.test.tsx:7` — each repoints to `FinalizeButton`, the live
    renderer of the per-row block (`components/admin/FinalizeButton.tsx:827`).
-5. Class sweep: `rg -n "RunFinalCASButton" app components lib tests` must be empty.
+5. Class sweep, unscoped: `rg -n "RunFinalCASButton" --glob '!node_modules' --glob '!.next' .`
+   must return only this plan, the spec, `BACKLOG.md` (graduating in Task 10), and
+   `DEFERRED-archive.md` — the archive records what was true when its deferrals closed and is left
+   alone.
 
 **Verify:** `pnpm test -- tests/components/admin tests/styles tests/onboarding/finalize-cas.test.ts`
 **Commit:** `chore(admin): retire RunFinalCASButton, superseded by FinalizeButton's finish mode`
@@ -252,7 +288,14 @@ reader planning auth work from MI-9 would believe a sheet edit can confer admin 
    (`components/crew/sections/CrewSection.tsx:203`), and that neither capability flag grants admin
    access, naming `is_admin()`'s two arms. Record the provenance inline so the next reader does not
    re-derive it.
-3. **§12.4 lockstep check (must be performed, expected to be a no-op):** confirm the edit touches
+3. **Correct the second in-force instance in the SAME commit** (spec R1 MEDIUM):
+   `lib/sync/phase2.ts:291` says a new crew member holding a capability flag "would grant
+   ops/financial access silently". Drop the "ops" half — the financials half is true and the
+   sentence's real justification (the `crew_added` change-log image carries no `role_flags`, so the
+   grant would otherwise land unlogged) is unaffected. Widened sweep, re-run before the commit:
+   `rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib` must return zero
+   hits afterwards.
+4. **§12.4 lockstep check (must be performed, expected to be a no-op):** confirm the edit touches
    §6.8 only. If any §12.4 prose changed, `pnpm gen:spec-codes` + the matching `lib/messages/catalog.ts`
    row land in THIS commit (`tests/cross-cutting/codes.test.ts` blocks merge otherwise). Expected:
    no §12.4 change, no regen.
@@ -276,9 +319,13 @@ settled decision that reads as open work.
    (spec §4.1). Documentary only (no production consumer:
    `CAPABILITY_TRANSITION_MATRIX`'s sole reader is `tests/visibility/capabilityTransitions.test.ts`),
    effort M (10 → 15 rows plus tests), trigger = the next milestone touching scope-tile visibility.
-4. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
+4. File `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` — six comment lines in `components/admin/BellPanel.tsx`
+   (from `components/admin/BellPanel.tsx:224`) call the trailing ghost control "Dismiss"; it renders
+   `Confirm` / `Mark resolved`. Same class as this branch's subject, different shape, so filed
+   rather than swept (spec §7). Effort S, no product question.
+5. `BACKLOG.md:7` — new LEADING segment on `Last reconciled:` naming this branch and all three
    dispositions.
-5. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
+6. **Rebase conflict is EXPECTED** on `BACKLOG.md`: two sibling panes are graduating other rows
    from the same file concurrently. Resolve by keeping BOTH sides — the entries are disjoint and
    the reconciliation line concatenates. Do not drop a sibling's segment.
 
