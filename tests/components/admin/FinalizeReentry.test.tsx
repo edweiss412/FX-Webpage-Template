@@ -13,8 +13,10 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 // behavior now lives in the unified Step-3 footer (see
 // Step3ReviewWithFinalizeFooter.test.tsx, step3InfraFooter.test.tsx) and
 // useFinalizeRun's mode contract (FinalizeRunModes.test.tsx). The still-live
-// RunFinalCASButton + CleanupAbandonedFinalizeButton contracts remain here.
-import { RunFinalCASButton } from "@/components/admin/RunFinalCASButton";
+// The CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton
+// describe left with its component on 2026-08-03 (retired, zero production
+// importers); the live finalize-cas path is FinalizeButton's "finish" mode, covered
+// by tests/components/admin/FinalizeButton.test.tsx.
 import { CleanupAbandonedFinalizeButton } from "@/components/admin/CleanupAbandonedFinalizeButton";
 
 const refreshMock = vi.fn();
@@ -42,40 +44,6 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
-
-describe("RunFinalCASButton", () => {
-  test("POSTs to /api/admin/onboarding/finalize-cas and refreshes on success", async () => {
-    fetchMock.mockResolvedValue(
-      mockJsonResponse({
-        status: "finalize_complete",
-        wizard_session_id: SESSION_ID,
-        watched_folder_id: "folder-xyz",
-      }),
-    );
-    const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
-    await act(async () => {
-      fireEvent.click(getByTestId("run-final-cas-button"));
-    });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/onboarding/finalize-cas");
-    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
-  });
-
-  test("on 409 WIZARD_FINALIZE_CHECKPOINT_MISSING renders Doug-facing copy", async () => {
-    fetchMock.mockResolvedValue(
-      mockJsonResponse({ ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" }, { status: 409 }),
-    );
-    const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
-    await act(async () => {
-      fireEvent.click(getByTestId("run-final-cas-button"));
-    });
-    await waitFor(() => {
-      expect(getByTestId("run-final-cas-error").textContent ?? "").toContain(
-        MESSAGE_CATALOG.WIZARD_FINALIZE_CHECKPOINT_MISSING.dougFacing!,
-      );
-    });
-  });
-});
 
 describe("CleanupAbandonedFinalizeButton", () => {
   test("requires confirmation before POSTing", async () => {

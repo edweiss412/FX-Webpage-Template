@@ -52,11 +52,6 @@ export type AllowRow = { file: string; reason: string; backlog: string };
  */
 export const ORPHAN_ALLOWLIST: readonly AllowRow[] = [
   {
-    file: "components/admin/RunFinalCASButton.tsx",
-    reason: "Referenced only in the AccentButton header comment.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
     file: "components/shared/WrappedTile.tsx",
     reason: "Referenced only in sibling comments; also the sole hit of an all-importers probe.",
     backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",

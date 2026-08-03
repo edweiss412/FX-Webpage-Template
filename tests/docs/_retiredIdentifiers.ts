@@ -157,24 +157,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Live reference to a retired identifier; repaired by the named task.",
   },
   {
-    kind: "pending",
-    file: "components/admin/RunFinalCASButton.tsx",
-    text:
-      "* components/admin/RunFinalCASButton.tsx (M10 §B Task 10.1 §B / Phase 2)",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/RunFinalCASButton.tsx",
-    text:
-      "export function RunFinalCASButton({ sessionId }: Props) {",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
     kind: "line",
     file: "components/crew/RightNowHero.tsx",
     text:
@@ -281,15 +263,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Suggested-home note on a resolved deferral; history.",
   },
   {
-    kind: "pending",
-    file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md",
-    text:
-      "**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
     kind: "line",
     file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md",
     text:
@@ -330,148 +303,12 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Scope note describing what Phase A did not touch; a record of the boundary.",
   },
   {
-    kind: "pending",
-    file: "tests/components/_orphanedComponents.ts",
-    text:
-      "file: \"components/admin/RunFinalCASButton.tsx\",",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
+    kind: "line",
     file: "tests/components/admin/FinalizeReentry.test.tsx",
     text:
-      "// RunFinalCASButton + CleanupAbandonedFinalizeButton contracts remain here.",
-    repairedBy: "Task 8",
+      "// The CleanupAbandonedFinalizeButton contract remains here. The RunFinalCASButton",
     reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/FinalizeReentry.test.tsx",
-    text:
-      "const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/FinalizeReentry.test.tsx",
-    text:
-      "describe(\"RunFinalCASButton\", () => {",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/FinalizeReentry.test.tsx",
-    text:
-      "import { RunFinalCASButton } from \"@/components/admin/RunFinalCASButton\";",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RescanSheetButton.test.tsx",
-    text:
-      "const { getByTestId, queryByTestId } = render(<RunFinalCASButton sessionId={SESSION} />);",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RescanSheetButton.test.tsx",
-    text:
-      "import { RunFinalCASButton } from \"@/components/admin/RunFinalCASButton\";",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RescanSheetButton.test.tsx",
-    text:
-      "test(\"RunFinalCASButton: renders for an OUTDATED row, NOT for a corrupt row\", async () => {",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "* Pins the finalize-cas per_row contract on <RunFinalCASButton>: a 409",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "* tests/components/admin/RunFinalCASButton.test.tsx — WM-R3 regressions.",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "<RunFinalCASButton sessionId={SESSION_ID} />,",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "const { getByTestId, getByText } = render(<RunFinalCASButton sessionId={SESSION_ID} />);",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "const { getByTestId, queryByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "describe(\"RunFinalCASButton\", () => {",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/admin/RunFinalCASButton.test.tsx",
-    text:
-      "import { RunFinalCASButton } from \"@/components/admin/RunFinalCASButton\";",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
+      "Explains what left this file and where the live coverage moved; naming it is the pointer a reader needs.",
   },
   {
     kind: "line",
@@ -506,22 +343,12 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Explains why swapping the island exemplar preserves the classifier's contract; naming the source is the justification.",
   },
   {
-    kind: "pending",
-    file: "tests/onboarding/finalize-cas.test.ts",
-    text:
-      "// RunFinalCASButton renders per-row codes via messageFor().dougFacing — an",
-    repairedBy: "Task 8",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
+    kind: "line",
     file: "tests/styles/accent-button-atom.test.ts",
     text:
       "// RunFinalCASButton left the same way on 2026-08-03: both were retired as",
-    repairedBy: "Task 8",
     reason:
-      "Live reference to a retired identifier; repaired by the named task.",
+      "Second half of the de-migration justification; the names are what make the row removals checkable.",
   },
   {
     kind: "line",

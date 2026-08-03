@@ -633,7 +633,7 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 **Noted, not fixed (MEDIUMs from the same critique):** (a) outdated rows (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) self-heal on the next finalize click, but the per-row panel gives no "click publish again" hint; (b) the per-row panel uses the raw `drive_file_id` as the row identifier rather than a human-readable sheet/show name. Fold both into whatever milestone picks this entry up.
 
-**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).
+**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/FinalizeButton.tsx`, the surviving finalize-cas UI, per-row panels).
 
 ## ONBOARDING-FIXUPS-DEF-3 — Reject-discarded shadows lack completion provenance for the legacy preflight
 
