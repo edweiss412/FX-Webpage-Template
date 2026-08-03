@@ -55,6 +55,8 @@ The choice of an append-shaped region rests on two undoable rows being able to c
 
 **The reachable collision is across shows, and the layout channel is precisely what makes it reachable.** Summaries are built from the crew member's name alone, with no show, row id, or run discriminator (`lib/sync/changeLog/writeAutoApplyChanges.ts:98`, `writeAutoApplyChanges.ts:112`, `writeAutoApplyChanges.ts:126`). The dashboard strip groups undoable rows from *many shows* into one list (`lib/admin/loadRecentAutoApplied.ts:51`), and under §3.5 they all announce into a single layout-wide region. Two shows that both dropped a crew member of the same name each produce `Crew member Alice Chen removed`, both `applied`, both undoable, both announcing into the same channel. Crew working across concurrent shows is the normal case for this product, not a contrivance.
 
+**The cleanup that refutes the same-show case does not reach the cross-show one.** `cleanup_superseded_before_images(p_show_id)` is scoped to a single show by signature (`supabase/migrations/20260608000003_undo_change_rpc.sql:298`), and its supersession predicates match on `entity_ref` within that show. Two shows that each drop an Alice Chen produce two rows neither of which supersedes the other, both `applied`, both undoable, both announcing the same sentence into the one layout-wide channel. The strip renders a group per show (`lib/admin/loadRecentAutoApplied.ts:46`), so both are on screen at once.
+
 Under `role="status"` the second undo would be silent. Under `role="log"` both announce, because an identical *addition* always announces. The mechanism is additionally pinned by a passing test on the channel being extracted (`tests/components/admin/review/warningsPanelStatusMount.test.tsx:131`).
 
 ---
