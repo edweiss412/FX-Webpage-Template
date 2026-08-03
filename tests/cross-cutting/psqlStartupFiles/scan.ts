@@ -165,8 +165,76 @@ export function tokenSuppressesStartupFiles(token: string): boolean {
   return token.slice(1).includes("X");
 }
 
-function tokensSuppress(tokens: readonly string[]): boolean {
-  return tokens.some(tokenSuppressesStartupFiles);
+/** psql short options that CONSUME the next argument (`psql --help`). An `X`
+ * sitting in that slot is a value, not a flag. */
+const SHORT_WITH_ARG = new Set(["c", "d", "f", "v", "L", "o", "F", "P", "R", "T", "h", "p", "U"]);
+
+/** The long spellings of the same, in their separated (`--field-separator X`)
+ * form. The `--opt=value` form carries its own argument and is not listed. */
+const LONG_WITH_ARG = new Set([
+  "--command",
+  "--dbname",
+  "--file",
+  "--set",
+  "--variable",
+  "--log-file",
+  "--output",
+  "--field-separator",
+  "--pset",
+  "--record-separator",
+  "--table-attr",
+  "--host",
+  "--port",
+  "--username",
+]);
+
+/**
+ * Does this argv actually suppress startup-file reads?
+ *
+ * A membership test on the token list is not enough — three probe-backed ways it
+ * gets the answer wrong, all found in cross-model review:
+ *
+ * 1. **`X` consumed as another option's argument.** `psql -F` errors with
+ *    "option requires an argument -- F"; `psql -FX` and `psql -F -X` both
+ *    connect, because `X` IS the field separator. Neither suppresses anything.
+ * 2. **`X` after `--`.** Everything past `--` is positional.
+ * 3. **`-X` after the DSN, under `POSIXLY_CORRECT=1`.** GNU getopt stops
+ *    permuting at the first non-option, so `psql <DSN> -X …` reads `-X` as the
+ *    positional USERNAME and ignores every flag after it:
+ *
+ *        $ POSIXLY_CORRECT=1 psql 'postgresql://…' -X -v ON_ERROR_STOP=1 -qAt -c 'select 42'
+ *        psql: warning: extra command-line argument "-v" ignored
+ *        …
+ *
+ *    Startup files stay ENABLED. So suppression is only real when it appears
+ *    before the first positional argument — which is why every call site in this
+ *    repo passes its flags first and the DSN last.
+ */
+export function argvSuppressesStartupFiles(tokens: readonly string[]): boolean {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token === "--") return false; // rest is positional
+    if (token.startsWith("--")) {
+      const name = token.split("=", 1)[0]!;
+      if (name === "--no-psqlrc") return true;
+      if (LONG_WITH_ARG.has(name) && !token.includes("=")) i++; // eats the next token
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      for (const letter of token.slice(1)) {
+        if (letter === "X") return true;
+        if (SHORT_WITH_ARG.has(letter)) break; // rest of the cluster is its value
+      }
+      // A trailing arg-taking letter with nothing after it eats the next token.
+      const last = token.at(-1)!;
+      if (SHORT_WITH_ARG.has(last)) i++;
+      continue;
+    }
+    // A positional argument (DBNAME, then USERNAME). Under POSIXLY_CORRECT this
+    // ends option parsing, so anything after it cannot be relied on.
+    return false;
+  }
+  return false;
 }
 
 // ── exemption markers ────────────────────────────────────────────────────
@@ -180,10 +248,35 @@ function tokensSuppress(tokens: readonly string[]): boolean {
  */
 function commentStartIndex(line: string, style: CommentStyle): number {
   if (style === "hash") return hashCommentIndex(line);
-  const candidates = [line.indexOf("//"), line.indexOf("/*"), line.search(/^\s*\*/)].filter(
-    (at) => at !== -1,
-  );
-  return candidates.length === 0 ? -1 : Math.min(...candidates);
+  return jsCommentIndex(line);
+}
+
+/**
+ * Index of the `//` or `/*` that starts a JS comment, or -1. Quote- and
+ * escape-aware across all three string delimiters: a review probe used
+ * `const u = "http://x"` and a `/*` inside a string literal to make a marker
+ * elsewhere on the line look like it lived in a comment.
+ */
+function jsCommentIndex(line: string): number {
+  const jsdoc = line.search(/^\s*\*(?!\/)/);
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const character = line[i]!;
+    if (character === "\\") {
+      i++;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) return i;
+  }
+  return jsdoc;
 }
 
 type CommentStyle = "js" | "hash";
@@ -239,11 +332,21 @@ const NOT_AN_INVOCATION = new Set([
   "printf",
 ]);
 
-/** Index of the `#` that starts a comment, ignoring `#` inside quotes, or -1. */
+/**
+ * Index of the `#` that starts a comment, ignoring `#` inside quotes, or -1.
+ * Backslash escapes are honored inside double quotes (and unquoted), because a
+ * review probe used `\"` to close a string the scanner still thought was open,
+ * which made the rest of the line look like a comment and granted an exemption
+ * from a data value. Single quotes take no escapes, per POSIX.
+ */
 function hashCommentIndex(line: string): number {
   let quote: string | null = null;
   for (let i = 0; i < line.length; i++) {
     const character = line[i]!;
+    if (character === "\\" && quote !== "'") {
+      i++;
+      continue;
+    }
     if (quote !== null) {
       if (character === quote) quote = null;
       continue;
@@ -257,18 +360,73 @@ function hashCommentIndex(line: string): number {
   return -1;
 }
 
+/**
+ * The slice of `text` belonging to ONE command — up to the first UNQUOTED
+ * separator (`;`, `&&`, `||`, `|`, `&`, newline).
+ *
+ * Without this the token list ran to end of line, so an unrelated `-X` later on
+ * the line was read as this call's flag. Review probes:
+ *
+ *     psql $A -qAt; psql -X $B     -> first site reported SAFE
+ *     psql $A -qAt && echo -X      -> reported SAFE
+ *
+ * A lone `&` after `>` (or before one) is redirection — `2>&1`, `>&2` — not a
+ * separator.
+ */
+function firstCommandSegment(text: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const character = text[i]!;
+    if (character === "\\" && quote !== "'") {
+      i++;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "\n" || character === ";") return text.slice(0, i);
+    if (character === "|") return text.slice(0, i);
+    if (character === "&") {
+      const isRedirection = text[i - 1] === ">" || text[i + 1] === ">";
+      if (!isRedirection) return text.slice(0, i);
+    }
+  }
+  return text;
+}
+
 /** Drop a trailing `#` comment, ignoring `#` inside single or double quotes. */
 function stripShellComment(line: string): string {
   const at = hashCommentIndex(line);
   return at === -1 ? line : line.slice(0, at);
 }
 
-/** Whitespace tokenizer that keeps quoted runs together and unwraps them. */
+/** A redirection operator, which the shell consumes — it never reaches argv. */
+const REDIRECTION = /^(?:\d*(?:>>?|<)&?\d*|&>>?)$/;
+
+/** Whitespace tokenizer that keeps quoted runs together and unwraps them.
+ * Redirections (and the target of a bare one) are dropped so the token list is
+ * the argv psql actually receives. */
 function shellTokens(text: string): string[] {
-  const out: string[] = [];
+  const raw: string[] = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) out.push(m[1] ?? m[2] ?? m[3] ?? "");
+  while ((m = re.exec(text))) raw.push(m[1] ?? m[2] ?? m[3] ?? "");
+
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const token = raw[i]!;
+    if (!REDIRECTION.test(token)) {
+      out.push(token);
+      continue;
+    }
+    // `2>&1` names its target inline; a bare `>` / `<` / `2>` takes the next word.
+    if (!token.includes("&")) i++;
+  }
   return out;
 }
 
@@ -307,7 +465,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
       const before = logical.text.slice(0, wordAt).trimEnd();
       const previousWord = before.slice(before.lastIndexOf(" ") + 1).replace(/^["']|["']$/g, "");
       if (NOT_AN_INVOCATION.has(previousWord)) continue;
-      const after = logical.text.slice(wordAt + "psql".length);
+      const after = firstCommandSegment(logical.text.slice(wordAt + "psql".length));
       const tokens = shellTokens(after);
       let consumed = 0;
       let hitLine = logical.startLines[0]!;
@@ -330,7 +488,7 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
         form: "shell",
         tokens,
         hasDynamicTokens: tokens.some((t) => t.includes("$")),
-        suppressesStartupFiles: tokensSuppress(tokens),
+        suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
         exemptReason: exemptionOnLines(rawLines, hitLine + 1, "hash"),
       });
     }
@@ -340,11 +498,14 @@ function scanShellText(text: string, file: string, lineOffset: number): PsqlSite
 
 /** True when a JS/TS string literal is itself a shell command line running psql. */
 function shellStringSites(value: string, file: string, line: number, lines: string[]): PsqlSite[] {
-  return scanShellText(value, file, 0).map((site) => ({
-    ...site,
-    line,
-    exemptReason: exemptionOnLines(lines, line, "js"),
-  }));
+  // `line` is where the literal OPENS; a multi-line template puts psql further
+  // down, so the shell scanner's own relative line is ADDED rather than
+  // discarded. Reporting the opening line for every hit inside a multi-line
+  // literal was an R2 finding.
+  return scanShellText(value, file, 0).map((site) => {
+    const actualLine = line + site.line - 1;
+    return { ...site, line: actualLine, exemptReason: exemptionOnLines(lines, actualLine, "js") };
+  });
 }
 
 // ── JS/TS ────────────────────────────────────────────────────────────────
@@ -415,7 +576,7 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
           form: callee as PsqlSiteForm,
           tokens,
           hasDynamicTokens,
-          suppressesStartupFiles: tokensSuppress(tokens),
+          suppressesStartupFiles: argvSuppressesStartupFiles(tokens),
           exemptReason: exemptionOnLines(lines, line, "js"),
         });
       }

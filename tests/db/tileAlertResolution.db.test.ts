@@ -51,7 +51,7 @@ const OBSERVER_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const TILE = "crew:travel:transport";
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [LOCAL_URL, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", LOCAL_URL], {
     input: sql,
     encoding: "utf8",
   }).trim();

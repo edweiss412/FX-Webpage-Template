@@ -48,7 +48,7 @@ const REAL_CLAIM_EMAIL = "test.validation.user@gmail.com";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [DATABASE_URL, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", DATABASE_URL], {
     input: sql,
     encoding: "utf8",
   }).trim();

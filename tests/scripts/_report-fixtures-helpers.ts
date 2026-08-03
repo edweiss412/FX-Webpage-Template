@@ -41,7 +41,7 @@ export const TODAY = new Date().toISOString().slice(0, 10);
 const LOCAL_DB_GUARD = /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/;
 
 export function runPsql(sql: string): string {
-  return execFileSync("psql", [DATABASE_URL, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", DATABASE_URL], {
     input: sql,
     encoding: "utf8",
   }).trim();

@@ -30,6 +30,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   EXEMPTION_MARKER,
+  argvSuppressesStartupFiles,
   collectPsqlUsage,
   scanBinaryIndirection,
   scanSource,
@@ -49,6 +50,35 @@ function sitesIn(source: string, file: string) {
 }
 
 // ── flag-cluster parsing (the -qAtX trap) ───────────────────────────────
+
+// ── psql option grammar (R2 BLOCKING) ───────────────────────────────────
+
+describe("argvSuppressesStartupFiles — real psql option grammar", () => {
+  test.each([
+    [["-X"], true],
+    [["-qAtX"], true],
+    [["-XqAt"], true],
+    [["--no-psqlrc"], true],
+    [["-v", "ON_ERROR_STOP=1", "-X"], true],
+    [["-c", "select 1", "-X"], true],
+    [["-F", "\t", "-X"], true],
+    [["--field-separator=|", "-X"], true],
+    [["-X", "dsn"], true],
+    // `X` consumed as another option's ARGUMENT suppresses nothing. Probed
+    // against the installed binary: `psql -F` errors "option requires an
+    // argument -- F", while `psql -FX` and `psql -F -X` both connect.
+    [["-FX"], false],
+    [["-F", "-X"], false],
+    [["--field-separator", "-X"], false],
+    [["--", "-X"], false],
+    // After a positional, POSIXLY_CORRECT=1 stops option parsing entirely.
+    [["dsn", "-X"], false],
+    [["-qAt"], false],
+    [["-x"], false],
+  ])("%j -> %s", (argv, expected) => {
+    expect(argvSuppressesStartupFiles(argv)).toBe(expected);
+  });
+});
 
 describe("tokenSuppressesStartupFiles", () => {
   test.each([
@@ -179,6 +209,13 @@ describe("scanSource — JS/TS spawn family", () => {
     ).toBe(true);
   });
 
+  test("a multi-line literal reports the line psql is ON, not the opening line", () => {
+    const source = ["execSync(`echo ready", "psql $DSN -qAt", "`);"].join("\n");
+    const sites = sitesIn(source, "scripts/x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+  });
+
   test("a QUOTED command word inside a shell string", () => {
     const sites = sitesIn(`execSync("\\"psql\\" $DSN -qAt -c select");`, "scripts/x.mjs");
     expect(sites).toHaveLength(1);
@@ -225,9 +262,41 @@ describe("scanSource — shell", () => {
   });
 
   test("a # inside quotes does not truncate the flag list", () => {
-    const sites = sitesIn(`psql "$DSN" -c "select '# not a comment'" -X\n`, "scripts/x.sh");
+    const sites = sitesIn(`psql -c "select '# not a comment'" -X "$DSN"\n`, "scripts/x.sh");
     expect(sites).toHaveLength(1);
     expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // Review R2 probes. An unrelated `-X` later on the SAME LINE used to be read
+  // as this call's flag, so an unprotected invocation reported safe.
+  test.each([
+    ["psql $A -qAt; psql -X $B", "semicolon"],
+    ["psql $A -qAt && echo -X", "&&"],
+    ["psql $A -qAt || echo -X", "||"],
+    ["psql $A -qAt | echo -X", "pipe"],
+    ["psql $A -qAt & echo -X", "background &"],
+  ])("a -X after %j (%s) does not protect the first call", (source) => {
+    const first = sitesIn(`${source}\n`, "x.sh")[0]!;
+    expect(first.suppressesStartupFiles).toBe(false);
+    expect(first.tokens).not.toContain("-X");
+  });
+
+  test("a redirection & is not a separator, and a quoted ; is not either", () => {
+    // `2>&1` and `> out` are consumed by the shell, so they never reach argv.
+    expect(sitesIn("psql -qAt 2>&1 -X $A\n", "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+    expect(sitesIn("psql -qAt > out.txt -X $A\n", "x.sh")[0]!.suppressesStartupFiles).toBe(true);
+    expect(
+      sitesIn(`psql -X -c "select 1; select 2" "$A"\n`, "x.sh")[0]!.suppressesStartupFiles,
+    ).toBe(true);
+  });
+
+  test("an escaped quote cannot fake a comment and grant an exemption", () => {
+    const sites = sitesIn(
+      `psql -qAt -c "sel \\" # ${EXEMPTION_MARKER} unrelated value"\n`,
+      "scripts/x.sh",
+    );
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
   });
 
   test("a path-prefixed binary in shell text is a site", () => {
@@ -351,6 +420,22 @@ describe("exemptions", () => {
       "scripts/x.mjs",
     );
     expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test.each([
+    ["a URL's // inside a string", `const u = "http://x/${EXEMPTION_MARKER} unrelated";`],
+    ["a /* inside a string", `const t = "/* ${EXEMPTION_MARKER} unrelated";`],
+  ])("%s cannot fake a comment", (_name, tail) => {
+    const sites = sitesIn(`execFileSync("psql", ["-qAt", dbUrl]); ${tail}`, "scripts/x.mjs");
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  test("a genuine // comment on the same line still exempts", () => {
+    const sites = sitesIn(
+      `execFileSync("psql", ["-qAt", dbUrl]); // ${EXEMPTION_MARKER} a genuine documented reason`,
+      "scripts/x.mjs",
+    );
+    expect(sites[0]!.exemptReason).toBe("a genuine documented reason");
   });
 
   test("a marker with no reason does NOT exempt", () => {

@@ -52,7 +52,7 @@ function assertLoopback(url: string): string {
 function psql(sql: string): string {
   return execFileSync(
     "psql",
-    [assertLoopback(LOOPBACK_DB), "-X", "-v", "ON_ERROR_STOP=1", "-qAt"],
+    ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", assertLoopback(LOOPBACK_DB)],
     {
       input: sql,
       encoding: "utf8",

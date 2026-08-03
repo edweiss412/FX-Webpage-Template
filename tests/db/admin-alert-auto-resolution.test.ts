@@ -29,7 +29,7 @@ const MIGRATION_PATH = join(
 );
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();
@@ -38,7 +38,7 @@ function runPsql(sql: string): string {
 function applyMigrationFile(): string {
   return execFileSync(
     "psql",
-    [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-f", MIGRATION_PATH],
+    ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-f", MIGRATION_PATH, databaseUrl],
     { encoding: "utf8" },
   ).trim();
 }

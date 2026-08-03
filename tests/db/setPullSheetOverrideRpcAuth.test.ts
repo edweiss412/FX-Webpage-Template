@@ -21,7 +21,7 @@ import { describe, expect, test } from "vitest";
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl as string, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl as string], {
     input: sql,
     encoding: "utf8",
   }).trim();

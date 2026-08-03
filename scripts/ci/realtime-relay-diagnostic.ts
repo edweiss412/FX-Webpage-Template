@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
   const psql = (sql: string): string => {
     try {
-      return execFileSync("psql", [dbUrl, "-X", "-t", "-A", "-c", sql], {
+      return execFileSync("psql", ["-X", "-t", "-A", "-c", sql, dbUrl], {
         encoding: "utf8",
       }).trim();
     } catch (err) {

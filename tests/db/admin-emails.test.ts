@@ -22,7 +22,7 @@ import { describe, expect, test } from "vitest";
 
 function runPsqlAsync(sql: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At"]);
+    const proc = spawn("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl]);
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += String(d)));
@@ -45,7 +45,7 @@ function sqlString(value: string): string {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();

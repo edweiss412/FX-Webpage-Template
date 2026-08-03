@@ -14,7 +14,7 @@ function sqlString(value: string): string {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();

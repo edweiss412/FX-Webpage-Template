@@ -43,7 +43,7 @@ if (!LOCAL_DB_URL_REGEX.test(DATABASE_URL)) {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [DATABASE_URL, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", DATABASE_URL], {
     input: sql,
     encoding: "utf8",
   }).trim();

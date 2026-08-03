@@ -19,7 +19,7 @@ const databaseUrl =
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function q(sql: string): string[] {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAtX"], {
+  return execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-qAtX", databaseUrl], {
     input: sql,
     encoding: "utf8",
   })

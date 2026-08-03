@@ -21,7 +21,7 @@ const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F\t"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F\t", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();
@@ -31,7 +31,7 @@ function runPsql(sql: string): string {
 // runPsql execFileSync pattern but uses -f for whole-file application
 // instead of stdin/-c.
 function runPsqlFile(filePath: string): string {
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-f", filePath], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-f", filePath, databaseUrl], {
     encoding: "utf8",
   });
 }
@@ -52,7 +52,7 @@ function runPsqlWithSnapshot(snapshot: Record<string, unknown>): string {
       SELECT * FROM jsonb_populate_record(NULL::public.validation_state, '${escaped}'::jsonb);
     COMMIT;
   `;
-  return execFileSync("psql", [databaseUrl, "-X", "-v", "ON_ERROR_STOP=1", "-At", "-F\t"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-F\t", databaseUrl], {
     input: sql,
     encoding: "utf8",
   });

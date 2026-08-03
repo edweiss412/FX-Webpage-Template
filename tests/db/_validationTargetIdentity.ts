@@ -54,7 +54,7 @@ export function withValidationIdentityGuard(sql: string): string {
  */
 export function execPsqlRedacted(dbUrl: string, args: string[], input?: string): string {
   try {
-    return execFileSync("psql", [dbUrl, "-X", "-v", "ON_ERROR_STOP=1", ...args], {
+    return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", ...args, dbUrl], {
       encoding: "utf8",
       timeout: PSQL_PROCESS_TIMEOUT_MS,
       env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
