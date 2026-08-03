@@ -3694,3 +3694,126 @@ describe("R38 escaping mutants — POSIX is proved, not assumed", () => {
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R39 escaping mutants — a wrapper is not its own interpreter", () => {
+  const WF = ".github/workflows/x.yml";
+  function caught(source: string, file = WF) {
+    const sites = sitesIn(source, file);
+    return {
+      certified: sites.filter((s) => s.suppressesStartupFiles).length,
+      unprotected: sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+      hits: [...scanWorkflowIndirection(source, file), ...scanShellIndirection(source, file)]
+        .length,
+    };
+  }
+  const PY = ["import subprocess", 'subprocess.run(["psql", "-qAt", "mydb"])'];
+
+  // `bash` as the command word does NOT prove the BODY is shell: a custom
+  // template may hand `{0}` to another interpreter. The proof has to be that
+  // `{0}` is a DIRECT argument of bash/sh — the template's words before it
+  // being the shell name and dash-flags only — not that the line begins with
+  // one.
+  test.each([
+    ['bash -c "python3 {0}"', 'bash -c "python3 {0}"'],
+    ["sh -c 'python3 {0}'", "sh -c 'python3 {0}'"],
+    ['bash -lc "uv run {0}"', 'bash -lc "uv run {0}"'],
+  ])("`shell: %s` is not proof of POSIX", (_label, shell) => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - shell: ${shell}`,
+      "        run: |",
+      ...PY.map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // An unset `shell:` is bash only on non-Windows. On a Windows runner it is
+  // PowerShell Core, where splatting an EMPTY array removes the word entirely:
+  // `psql -F @opts -X mydb` really runs `psql -F -X mydb`, so `-X` is `-F`'s
+  // VALUE and suppresses nothing — and the body was read as POSIX shell and
+  // CERTIFIED.
+  test.each([["windows-latest"], ["windows-2022"], ["${{ matrix.os }}"]])(
+    "an unset shell on `runs-on: %s` is not certified",
+    (runner) => {
+      const source = [
+        "jobs:",
+        "  x:",
+        `    runs-on: ${runner}`,
+        "    steps:",
+        "      - run: |",
+        "          $opts = @()",
+        "          psql -F @opts -X mydb",
+        "",
+      ].join("\n");
+      expect(caught(source).certified).toBe(0);
+    },
+  );
+
+  test("an unset shell on an explicit ubuntu runner still certifies", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: psql -X -qAt mydb",
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.certified).toBe(1);
+    expect(result.unprotected + result.hits).toBe(0);
+  });
+
+  // Windows executable spellings are ordinary names, not adversarial ones.
+  test.each([
+    [
+      "a workflow command",
+      "jobs:\n  x:\n    steps:\n      - shell: pwsh\n        run: PSQL.EXE -qAt mydb\n",
+      WF,
+    ],
+    ["a shell command", "PSQL.EXE -qAt mydb\n", "x.sh"],
+    ["a mixed-case name", "Psql -qAt mydb\n", "x.sh"],
+    ["a path-prefixed exe", "C:/pg/bin/psql.exe -qAt mydb\n", "x.sh"],
+  ])("%s is caught", (_label, source, file) => {
+    const result = caught(source, file);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  test("a JS spawn of psql.exe is caught", () => {
+    const source = 'execFileSync("psql.exe", ["-qAt", "mydb"]);\n';
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites.length + scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+    expect(sites.filter((s) => s.suppressesStartupFiles)).toEqual([]);
+  });
+
+  test("a psql.exe spawn that suppresses still certifies", () => {
+    const sites = sitesIn('execFileSync("psql.exe", ["-X", "-qAt", "mydb"]);\n', "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+
+  // PRECISION: names that merely CONTAIN psql are still not psql.
+  test.each([["notpsql -qAt mydb\n"], ["psqlodbc --version\n"], ["mypsql.exe -qAt mydb\n"]])(
+    "`%s` is not a psql site",
+    (source) => {
+      expect(sitesIn(source, "x.sh")).toEqual([]);
+    },
+  );
+
+  test(
+    "the wrapper, platform, and case fixes leave the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});

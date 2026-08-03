@@ -969,13 +969,20 @@ function basename(word: string): string {
  * an exact-name test missed it and neither tripwire fired. The boundary before
  * `psql` must be a separator (`/`, `}`, `)`) so `$HOME/notpsql` stays out.
  */
+/** `psql`, `psql.exe`, `PSQL.EXE`, `Psql` — Windows filenames are
+ * case-insensitive and carry an extension. Ordinary names, not adversarial
+ * spellings, and `notpsql` / `psqlodbc` / `mypsql.exe` still are not psql. */
+function isPsqlName(name: string): boolean {
+  return /^psql(?:\.exe)?$/i.test(name);
+}
+
 function isPsqlCommandWord(word: string): boolean {
-  if (basename(word) === "psql") return true;
+  if (isPsqlName(basename(word))) return true;
   // `"${PSQL_DIR}psql"` — an expansion carrying the directory.
-  if (word.includes("$") && /(?:\}|\))psql$/.test(word)) return true;
+  if (word.includes("$") && /(?:\}|\))psql(?:\.exe)?$/i.test(word)) return true;
   // `"${PSQL:-psql}"` used DIRECTLY as the command word: the whole word is one
   // expansion whose default supplies the command name.
-  return /^\$\{[^}]*\bpsql\b[^}]*\}$/.test(word);
+  return /^\$\{[^}]*\bpsql\b[^}]*\}$/i.test(word);
 }
 
 /** argv[0] values whose FLAGS may also deny (`command -v psql`). */
@@ -1576,9 +1583,9 @@ function composedText(node: ts.Node, sourceFile: ts.SourceFile): Composed | null
 }
 
 function isPsqlBinary(text: string): boolean {
-  if (text === "psql" || text.endsWith("/psql")) return true;
+  if (isPsqlName(text) || isPsqlName(text.slice(text.lastIndexOf("/") + 1))) return true;
   // `execFileSync(`${binDir}psql`, …)` — the same trailing-slash pattern.
-  return text.includes("$") && /(?:\}|\))psql$/.test(text);
+  return text.includes("$") && /(?:\}|\))psql(?:\.exe)?$/i.test(text);
 }
 
 /**
@@ -2221,7 +2228,7 @@ const BINDING_WORKFLOW_KEYS = new Set(["env", "matrix", "inputs"]);
  * cannot read — refuse to certify, fail loudly, let a human resolve it.
  */
 function nonPosixBodyMentionsPsql(body: string): boolean {
-  return /\bpsql\b/.test(body);
+  return /\bpsql(?:\.exe)?\b/i.test(body);
 }
 
 /**
@@ -2238,6 +2245,28 @@ function nonPosixBodyMentionsPsql(body: string): boolean {
  */
 const POSIX_SHELLS = new Set(["bash", "sh"]);
 
+/** Stands in for "no `shell:` and no proof of the platform". It is deliberately
+ * a value `shellIsPosix` rejects, so an unresolved runner fails closed. */
+const UNPROVED_SHELL = "<unproved>";
+
+/** GitHub's default shell is bash everywhere EXCEPT Windows, where it is
+ * PowerShell Core. A label this reader cannot resolve — an expression, a
+ * matrix value, a self-hosted tag — proves nothing either way, so only an
+ * explicitly non-Windows runner counts. */
+function platformIsProvablyNonWindows(runsOn: string | null): boolean {
+  // ABSENT is not the same as UNRESOLVABLE. `runs-on` is required on a real
+  // job, so a fragment without one is not a Windows job — it is a fragment,
+  // and the ordinary default applies. What proves nothing is a label the
+  // reader cannot read: an expression, a matrix value, a self-hosted tag.
+  if (runsOn === null || runsOn.trim() === "") return true;
+  if (runsOn.includes("$")) return false;
+  const labels = runsOn.toLowerCase().split(/\s+/).filter(Boolean);
+  if (labels.some((label) => label.includes("windows") || label.includes("win-"))) return false;
+  return labels.some(
+    (label) => label.includes("ubuntu") || label.includes("macos") || label.includes("linux"),
+  );
+}
+
 /**
  * A `shell:` value names a POSIX shell — as a bare KEYWORD (`bash`), or as a
  * custom TEMPLATE whose command word is one (`bash -e {0}`, `/bin/bash {0}`).
@@ -2245,9 +2274,25 @@ const POSIX_SHELLS = new Set(["bash", "sh"]);
  * to supply, since "unset" and "unreadable" must not be the same answer.
  */
 function shellIsPosix(shell: string): boolean {
-  const head = shell.trim().split(/\s+/)[0] ?? "";
+  const words = shell.trim().split(/\s+/).filter(Boolean);
+  const head = words[0] ?? "";
   if (head === "" || head.includes("$")) return false; // an expression proves nothing
-  return POSIX_SHELLS.has(head.slice(head.lastIndexOf("/") + 1));
+  if (!POSIX_SHELLS.has(head.slice(head.lastIndexOf("/") + 1))) return false;
+  // Beginning with `bash` proves nothing about the BODY: a template may hand
+  // `{0}` to another interpreter — `bash -c "python3 {0}"` runs Python. The
+  // proof is that `{0}` is a DIRECT ARGUMENT of the shell, so every word
+  // before it must be a dash-flag, and none of them may be a `-c`-family flag
+  // whose operand is a command string rather than a script path.
+  const rest = words.slice(1);
+  const placeholder = rest.findIndex((word) => word.includes("{0}"));
+  const leading = placeholder === -1 ? rest : rest.slice(0, placeholder);
+  if (leading.some((word) => !word.startsWith("-"))) return false;
+  if (leading.some((word) => /^-[a-z]*c/.test(word))) return false;
+  // A template with no `{0}` at all is a bare keyword (`bash`), which is fine;
+  // one WITH it must carry it as a whole word, not embedded in a quoted
+  // command string.
+  if (placeholder !== -1 && !/^["']?\{0\}["']?$/.test(rest[placeholder] ?? "")) return false;
+  return true;
 }
 
 /**
@@ -2300,23 +2345,42 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
     node: unknown,
     inherited: string | null,
     seen: Map<unknown, Set<string>>,
+    inheritedPlatform: string | null,
   ): void => {
     const resolved = resolveNode(node);
     if (resolved === null || resolved === undefined) return;
     // Keyed by (node, inherited default): a shared anchor reached under two
     // different defaults is two different readings, not a repeat visit.
     const contexts = seen.get(resolved) ?? new Set<string>();
-    if (contexts.has(inherited ?? "")) return;
-    contexts.add(inherited ?? "");
+    const context = `${inherited ?? ""}\u0000${inheritedPlatform ?? ""}`;
+    if (contexts.has(context)) return;
+    contexts.add(context);
     seen.set(resolved, contexts);
     const items = (resolved as { items?: unknown[] } | undefined)?.items;
     if (!Array.isArray(items)) return;
     const defaultsRun = pairIn(pairIn(resolved, "defaults")?.value, "run");
+    // `runs-on` decides what an UNSET shell means: GitHub documents bash on
+    // every platform EXCEPT Windows, where it is PowerShell Core. A Windows
+    // job's body was read as POSIX shell and CERTIFIED — and PowerShell
+    // splatting removes an empty array, so `psql -F @opts -X mydb` really runs
+    // `psql -F -X mydb`, where `-X` is `-F`'s value and suppresses nothing.
+    // A runner this reader cannot resolve (an expression, a matrix value) is
+    // not proof of anything, so it is treated as unproved too.
+    const runsOnNode = pairIn(resolved, "runs-on")?.value;
+    const runsOn =
+      scalarOf(runsOnNode) ??
+      ((resolveNode(runsOnNode) as { items?: unknown[] } | undefined)?.items ?? [])
+        .map((item) => scalarOf(item))
+        .filter((label): label is string => label !== null)
+        .join(" ");
+    const platform = runsOn === "" || runsOn === null ? inheritedPlatform : runsOn;
     const scoped = scalarOf(pairIn(defaultsRun?.value, "shell")?.value) ?? inherited;
     const ownShell = scalarOf(pairIn(resolved, "shell")?.value);
     const runPair = pairIn(resolved, "run");
     if (runPair !== undefined) {
-      const effective = ownShell ?? scoped;
+      // An unset shell is only PROVABLY bash on a runner proved non-Windows.
+      const effective =
+        ownShell ?? scoped ?? (platformIsProvablyNonWindows(platform) ? "bash" : UNPROVED_SHELL);
       if (effective !== null) {
         const seenShells = allShells.get(runPair) ?? new Set<string>();
         seenShells.add(effective);
@@ -2325,13 +2389,13 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
     }
     for (const item of items) {
       if (isPair(item as YamlNode as never)) {
-        descend((item as { value?: unknown }).value, scoped, seen);
+        descend((item as { value?: unknown }).value, scoped, seen, platform);
         continue;
       }
-      descend(item, scoped, seen);
+      descend(item, scoped, seen, platform);
     }
   };
-  descend(document.contents, null, new Map());
+  descend(document.contents, null, new Map(), null);
   for (const [pair, shells] of allShells) {
     // Prefer a non-POSIX reading when the contexts disagree — that is the
     // fail-loud direction, and the only one that cannot certify wrongly.
