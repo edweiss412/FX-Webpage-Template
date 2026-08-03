@@ -18,7 +18,7 @@
 - Invariant 11: all work in the worktree `FX-worktrees/staged-identitylink-rename-identity`, branch `feat/staged-identitylink-rename-identity`.
 - Meta-test inventory (writing-plans rule): this plan CREATES no structural meta-test and EXTENDS none. Reasons: no new Supabase client call sites (invariant-9 registry untouched), no lock-topology change (existing deadlock guard pins it; re-run only), no admin alert codes, no mutation surfaces (`tests/log/_metaMutationSurfaceObservability.test.ts` discovers routes/actions; none added), no UI.
 - New test files auto-match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) — no testMatch or workflow wiring task needed; db tests under `tests/db/` follow their siblings' environment expectations (local Supabase; CI provides `TEST_DATABASE_URL`).
-- No placeholders. Every snippet below was MATERIALIZED in this worktree at plan time and passed `pnpm exec tsc --noEmit` (0 errors) plus the unit runs noted per task; the materialization was then reverted so each task's red phase is real. Copy snippets verbatim; if a helper name drifted since plan time, verify with grep and adjust mechanically.
+- No placeholders. Every snippet below was MATERIALIZED in this worktree at plan time and passed `pnpm exec tsc --noEmit` (0 errors) plus the unit runs noted per task, AND the db suite was EXECUTED against local Supabase (TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres): pre-threading red set observed exactly as Step 5 predicts (identity case failed on the fresh-id assertion, notice case A failed on the present notice; independent + held rails passed), post-threading 4/4 green plus the staged undo round-trip 10/10 in its file. The materialization was then reverted so each task's red phase is real. Copy snippets verbatim; if a helper name drifted since plan time, verify with grep and adjust mechanically.
 
 ---
 
@@ -191,7 +191,7 @@ export function computeStagedIdentityLinkRenames(
 
 ---
 
-### Task 2: Thread through `applyStagedCore` — tests first (unit + db + undo), then implementation + seven-site comment reconciliation
+### Task 2: Thread through `applyStagedCore` — tests first (unit + db + undo), then implementation + eight-site comment reconciliation
 
 All pins are authored BEFORE the implementation so the red set is genuinely red: pre-threading, a staged rename applies as delete+insert, so the identity, notice-case-A, and undo pins fail; the pins of UNCHANGED behavior (independent, held, spread-absent) pass before AND after — regression rails; the red set carries the TDD cycle.
 
@@ -283,7 +283,7 @@ test("no rename choices: runPhase2 args carry NO identityLinkRenames key (length
 
 Failure modes caught: the threading regression itself (the exact bug of `BL-STAGED-IDENTITYLINK-RENAME-IDENTITY`), an unvouched `independent` pair linking (exact-array assertion), spread-when-empty drift from the cron idiom.
 
-- [ ] **Step 2: db harness** — in `tests/db/_holdsHelpers.ts`: (a) add `role_flags?: RoleFlag[]` to `CrewSeed` (import `RoleFlag` from `@/lib/parser/types`), thread it in `seedShowWithCrew`'s INSERT (`${member.role_flags ?? ["A1"]}`) and in `toCrewRow` (`...(member.role_flags ? { role_flags: member.role_flags } : {})`); (b) add imports `applyStagedCore`, `type ApplyStagedCoreResult`, `type ReviewerChoice` from `@/lib/sync/applyStagedCore` and `adoptShowLockHeld` from `@/lib/sync/lockedShowTx`; (c) add beside `runAutoApply`:
+- [ ] **Step 2: db harness** — in `tests/db/_holdsHelpers.ts`: (a) add `role_flags?: RoleFlag[]` to `CrewSeed` (import `RoleFlag` from `@/lib/parser/types`), thread it in `seedShowWithCrew`'s INSERT (`${member.role_flags ?? ["A1"]}`) and in `toCrewRow` (`...(member.role_flags ? { role_flags: member.role_flags } : {})`); (b) add imports `applyStagedCore`, `type ApplyStagedCoreResult`, `type ReviewerChoice` from `@/lib/sync/applyStagedCore`, `adoptShowLockHeld` from `@/lib/sync/lockedShowTx`, and `makeSyncPipelineTx` from `@/lib/sync/runScheduledCronSync` (the PRODUCTION SyncPipelineTx: it carries `queryOne` — required by the lock-adoption probe, the core's audit insert, and the live pending_syncs delete — plus `holdPort`; the testkit `phase2Tx` double has NO `queryOne` and would throw at adoption, review R6 finding 1); (c) add beside `runAutoApply`:
 
 ```ts
 export type StagedApplyInput = {
@@ -306,8 +306,10 @@ export async function runStagedApply(
   const next: ParseResult = buildParseResult(input.crew.map(toCrewRow));
   return await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(hashtext(${"show:" + driveFileId}))`;
-    const pipelineTx = phase2Tx(tx as unknown as Sql);
-    const locked = await adoptShowLockHeld(pipelineTx as never, driveFileId);
+    // Production pipeline tx (queryOne + holdPort); `tx as never` is the established idiom for
+    // handing a postgres.js TransactionSql to makeSyncPipelineTx in tests (_holdAwareTestkit).
+    const pipelineTx = makeSyncPipelineTx(tx as never);
+    const locked = await adoptShowLockHeld(pipelineTx, driveFileId);
     const [show] = (await tx`
       select id, last_seen_modified_time, diagrams
         from public.shows where drive_file_id = ${driveFileId}`) as unknown as Array<{
@@ -319,7 +321,7 @@ export async function runStagedApply(
       show!.last_seen_modified_time === null
         ? null
         : new Date(show!.last_seen_modified_time).toISOString();
-    return await applyStagedCore(locked as never, {
+    return await applyStagedCore(locked, {
       sourceScope: "live",
       driveFileId,
       show: { showId: show!.id, lastSeenModifiedTime: lastSeen, diagrams: show!.diagrams },
