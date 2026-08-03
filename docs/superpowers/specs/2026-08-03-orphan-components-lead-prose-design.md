@@ -37,7 +37,19 @@ than re-deriving the decision.
    live successor (§3.1-§3.4). "Nothing imports it" is the guard's finding, not this spec's
    argument; the argument is the successor.
 
-7. **Keeping `WrappedTile` is a DECIDED terminal state, not unfinished work** (§3.5). The entry
+7. **`WrappedTile`'s retention was independently confirmed at spec R1** and is not a live question.
+   The reviewer verified the cascade (`components/shared/WrappedTile.tsx:12-13` is the sole importer
+   of both ratified-KEEP dependencies) and the pinned dormancy
+   (`tests/crew/_metaTileProducerTopology.test.ts:169-175`), and recorded that the KEEP's ORIGINAL
+   rationale was indeed invalidated by `components/crew/WrappedSection.tsx` implementing a
+   synchronous analogue — the retention rests on the later dormancy contract, not on the original
+   rationale. Recorded here so a later round does not re-derive it.
+
+8. **`RunFinalCASButton`'s coverage redundancy was independently confirmed at spec R1**:
+   `tests/components/admin/FinalizeButton.test.tsx:524-903` covers the per-row families and
+   `tests/components/admin/FinalizeRunModes.test.tsx:101-109` pins finish-only routing.
+
+9. **Keeping `WrappedTile` is a DECIDED terminal state, not unfinished work** (§3.5). The entry
    shrinks from five rows to one and stays open by design; `BACKLOG.md:661` explicitly admits
    "record the blocking dependency in the row's reason" as a resolution.
 
@@ -101,7 +113,15 @@ allowlist row, and repair the two registries that name it (§5).
 ### 3.2 `components/admin/ResolveAlertButton.tsx` — RETIRED
 
 Superseded at `67ce6d082` (2026-07-05, "mount bell in both chromes; retire AlertBanner"). The live
-dismiss affordance is the trailing ghost Dismiss in `components/admin/BellPanel.tsx:224-312`. The
+affordance is the bell panel's trailing ghost RESOLVE control
+(`components/admin/BellPanel.tsx:377-388`), whose rendered label is `Confirm` or `Mark resolved`
+depending on the code's intent (`lib/adminAlerts/resolveActionLabel.ts:73-76`;
+`ROLE_FLAGS_NOTICE` maps to `confirm` at `lib/adminAlerts/resolveActionLabel.ts:49`). It is NOT
+labelled "Dismiss" — spec R1 caught the draft calling it that, which would have shipped fresh
+stale prose while repairing stale prose. `components/admin/BellPanel.tsx` still calls it Dismiss in
+its OWN comments (six lines beginning at `components/admin/BellPanel.tsx:224`); that is a real instance of the
+same defect class but a DIFFERENT shape (a label that was renamed, not a citation to a deleted
+file), so it is filed as `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` rather than swept into this diff. The
 button's confirm testid `admin-alert-confirm-resolve-button` appears nowhere but the component and
 its own test, so the destructive-confirm registry row at
 `tests/styles/_metaDestructiveConfirm.test.ts:85` is pinning a surface no user can reach.
@@ -155,10 +175,31 @@ code is what got carried into the hero:
 stat guards, and the clock freeze — **not** either of these two behaviors. Deleting the card and
 its tests would therefore delete the only coverage of two live regressions.
 
-**Action:** retarget both suites onto `RightNowHero` BEFORE deleting the card. The hero exposes
-every DOM hook the suites use (`data-stale`, `data-prefers-reduced-motion`, `right-now-state`,
-`right-now-body`, `right-now-lead`, `right-now-detail` — `components/crew/RightNowHero.tsx:467-528`);
-only the root testid differs (`right-now-hero` vs `right-now-card`). Expected strings stay derived
+**Action:** retarget both suites onto `RightNowHero` BEFORE deleting the card. Both components take
+the identical prop (`{ context: RightNowContext }` from
+`components/right-now/buildRightNowContext.ts`), so the fixture builder ports unchanged.
+
+**The retarget is NOT a testid swap** — spec R1 refuted the draft's claim that it was. In the
+`show_day_n` state the hero sets `detail: null` and routes the call time into a `Show` STAT
+(`components/crew/RightNowHero.tsx:158-178`), rendered as `data-stat="Show"` inside
+`data-testid="right-now-stats"` (`components/crew/RightNowHero.tsx:571-585`), so the conditional
+`right-now-detail` node the card's recovery suite reads
+(`tests/components/RightNowCardRecovery.test.tsx:143-150` and the two later assertions in the same suite) is ABSENT. Retarget
+contract:
+
+| Card hook | Hero hook | Note |
+| --- | --- | --- |
+| `right-now-card` (root) | `right-now-hero` (`components/crew/RightNowHero.tsx:467`) | root only |
+| `right-now-detail` → `Call: <t>` | `[data-stat="Show"] dd` | the call-time carrier in `show_day_n` |
+| `data-stale`, `data-prefers-reduced-motion`, `right-now-state`, `right-now-body`, `right-now-lead` | same names | unchanged (`components/crew/RightNowHero.tsx:467-528`) |
+
+The anti-`lastGood` guarantee survives the move intact: the suite's `makeContext` sets
+`showAnchors: []`, which is exactly the legacy single-anchor case where the hero falls back to
+`ctx.callTime` (`components/crew/RightNowHero.tsx:158-161`), so the pre-degradation `14:00` and the
+post-recovery `15:30` still render as DIFFERENT values in the `Show` stat and a buggy
+render-`lastGood` implementation still cannot produce `15:30`. Scope the extraction to the
+`data-stat="Show"` node — never the whole hero — so the lead line cannot satisfy the assertion by
+accident. Expected strings stay derived
 from fixture inputs, never hardcoded and never imported from the production render helper
 (the existing anti-tautology guarantees in each file's header are preserved verbatim, with the
 component name updated). If a hero copy or markup difference makes an assertion inapplicable, that
@@ -272,6 +313,17 @@ instance outside this spec and its plan, dispositioned:
 `rg -n "admin/ops" lib app components tests` returns **zero** hits: no production code, no rendered
 copy, and no test carries the claim. That is the post-condition this branch preserves.
 
+**A second in-force instance, found by spec R1 and NOT by the literal sweep.**
+`lib/sync/phase2.ts:291` reads "a brand-new crew member WHOSE APPLIED role_flags include a
+CAPABILITY flag (LEAD or FINANCIALS) would grant ops/financial access silently" — the same
+contradicted claim in a semantic variant the `admin/ops` string could not see, and it sits in
+PRODUCTION source rather than a spec table. It is corrected in the same commit as MI-9: the
+sentence's real justification is that the `crew_added` change-log image carries no `role_flags`, so
+a capability grant would otherwise land unlogged; "ops" is the only wrong word in it, and the
+financials half is true. Widened sweep, run 2026-08-03:
+`rg -n "ops access|ops/financial|grants? [^.]{0,40}admin" app components lib` returns exactly this
+one hit outside `docs/`.
+
 **Fix:** correct the clause in place to state what LEAD additionally does (unlocks the
 audio/video/lighting scope tiles per `lib/visibility/scopeTiles.ts:86`,
 `lib/visibility/scopeTiles.ts:97`, and `lib/visibility/scopeTiles.ts:114`, and renders the
@@ -294,8 +346,40 @@ Every reference below is a comment or registry naming a file this branch deletes
 citations are stale by construction; leaving them is the same defect class the orphan guard exists
 to catch.
 
+**Spec R1 rebuilt this table.** The draft's inventory was incomplete, and two of the omissions were
+EXECUTABLE rather than cosmetic — following the draft literally would have left the tree red:
+
+- `tests/help/_metaServerTimeGuard.test.ts:123-138` `readFileSync`s
+  `components/right-now/RightNowCard.tsx` to prove its client-vs-server classifier separates a
+  `'use client'` island from a server component. Deleting the file throws `ENOENT`. **Action:**
+  repoint the island exemplar to `components/crew/RightNowHero.tsx`, which carries the same
+  `'use client'` directive; the assertion's meaning is preserved because the classifier's contract
+  is about the DIRECTIVE, not about which island.
+- `tests/styles/_metaBgAccentInventory.test.ts:112` holds a registry row for the card; the suite
+  reports `STALE REGISTRY ROW` for any row with no matching hit
+  (`tests/styles/_metaBgAccentInventory.test.ts:159-164`). **Action:** delete the row. The hero's
+  own row (`tests/styles/_metaBgAccentInventory.test.ts:110`) already covers the live surface, so
+  the inventory loses no coverage.
+
+The full table, from a bare-string sweep of all four retired identifiers run 2026-08-03
+(`rg -n "<identifier>" --glob '!node_modules' --glob '!docs/**' .`):
+
 | Site | Today | Action |
 | --- | --- | --- |
+| `tests/help/_metaServerTimeGuard.test.ts:123-138` | reads the card's source; ENOENT on delete | **Executable** — repoint to `components/crew/RightNowHero.tsx` |
+| `tests/styles/_metaBgAccentInventory.test.ts:112` | registry row → `STALE REGISTRY ROW` | **Executable** — delete the row |
+| `lib/time/rightNow.ts:113` | a cached-formatter comment pointing at `components/right-now/RightNowCard.tsx` | Repoint to the hero |
+| `lib/a11y/usePrefersReducedMotion.ts:23-24` | "Extracted from PageTransition.tsx so RightNowCard and …" | Repoint to the hero |
+| `app/globals.css:143` | `--tracking-eyebrow-strong` comment names the card | Repoint to the hero. Comment-only: no `@theme` token is added, renamed, or removed |
+| `DESIGN.md:216` | prose naming the card | Repoint to the hero |
+| `tests/setup.ts:61-64` | comment naming the card among mocked-island consumers | Repoint to the hero |
+| `tests/components/Header.test.tsx:8`, `tests/components/Header.test.tsx:12` | header rationale prose cites the card as the hero spot | Repoint to the hero |
+| `tests/components/crew/rightNowHero.test.tsx:5`, `tests/components/crew/rightNowHero.test.tsx:7` | provenance prose | Rewrite as retirement-aware provenance |
+| `tests/e2e/right-now-transitions.spec.ts` (3 hits) | header prose names the card | Prose only; assertions untouched |
+| `components/admin/ArchiveShowButton.tsx:9` | cites `ResolveAlertButton` as a pattern exemplar | Repoint to a live exemplar |
+| `tests/components/atoms/AccentButton.test.tsx:7` | lists both retired buttons | Repoint to live call sites |
+| `DEFERRED-archive.md` (3 hits, `RunFinalCASButton`) | archived deferrals naming the button | **History — left alone.** An archive records what was true when it closed |
+| `BACKLOG.md` (rows for all four) | the entry being worked | Graduates with the entry (§7) |
 | `tests/cross-cutting/no-load-show-crew-with-auth.test.ts:5-8` | `FILES` lists the component + its test | Drop both rows; the surviving row (`app/admin/show/[slug]/page.tsx`) keeps the guard non-vacuous |
 | `tests/help/forbidden-prose-registry.test.ts:80` | reason prose: "No copy-URL affordance ships in PerShowCrewSection" | Reword to name the live surface; the registry's assertion is unchanged |
 | `tests/styles/_metaDestructiveConfirm.test.ts:85` | `R("components/admin/ResolveAlertButton.tsx", …)` | Delete the row |
@@ -320,9 +404,16 @@ to catch.
 `WrappedSection` — live files, no edit.
 
 **Class sweep (AGENTS.md).** After the deletions, a bare-string `rg` for each retired identifier
-across the whole tree must return only intentional history (this spec, the backlog archive, closed
-plan/spec documents). Any other hit is the same bug shape and is fixed in the same commit as its
-sibling, not one per review round.
+across the whole tree must return only intentional history (this spec, its plan, `DEFERRED-archive.md`,
+`BACKLOG-archive.md`, and closed plan/spec documents under `docs/`). Any other hit is the same bug
+shape and is fixed in the same commit as its sibling, not one per review round.
+
+**Sweep lesson from R1, recorded so it is not re-learned:** the draft's inventory was assembled from
+greps scoped to `app components lib tests` with a per-file eyeball, and it missed the two
+`readFileSync`/registry hits because those name the path as a STRING inside a test helper rather
+than as an import. The sweep that must be run before each deletion commit is unscoped
+(`--glob '!node_modules' --glob '!.next'`), and a hit is triaged as executable / prose / history —
+never skipped because the file "isn't a UI file".
 
 ---
 
@@ -354,6 +445,13 @@ fixture inputs; neither imports the production render helper.
   as unfinished work.
 - **`BL-LEAD-CAPABILITY-PROSE-STALE` — ARCHIVED.** Both claims settled and corrected; the entry
   moves whole to `BACKLOG-archive.md` per `BACKLOG.md:5`.
+- **`BL-BELLPANEL-DISMISS-COMMENT-DRIFT` — FILED (new).** Six comment lines in
+  `components/admin/BellPanel.tsx` (from `components/admin/BellPanel.tsx:224`) call the trailing
+  ghost control "Dismiss"; it renders `Confirm` / `Mark resolved`
+  (`lib/adminAlerts/resolveActionLabel.ts:73-76`). Same defect class as this branch's subject
+  (prose asserting something the code does not do) but a different SHAPE — a renamed label, not a
+  citation to a deleted file — so it is filed rather than swept in, keeping this diff's scope
+  honest. Effort S, no product question, trigger = the next branch touching `BellPanel`.
 - **`BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` — FILED (new).** The `hasFinancials` predicate gap
   from §4.1: documentary only (no production consumer), effort M (10 → 15 matrix rows plus tests),
   trigger = the next milestone touching scope-tile visibility or the matrix.
