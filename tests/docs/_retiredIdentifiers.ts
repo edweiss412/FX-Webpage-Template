@@ -185,42 +185,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "pending",
-    file: "components/admin/PerShowCrewSection.tsx",
-    text:
-      "* components/admin/PerShowCrewSection.tsx",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/PerShowCrewSection.tsx",
-    text:
-      "crew: PerShowCrewRow[];",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/PerShowCrewSection.tsx",
-    text:
-      "export function PerShowCrewSection({",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "components/admin/PerShowCrewSection.tsx",
-    text:
-      "export type PerShowCrewRow = {",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
     file: "components/admin/ResolveAlertButton.tsx",
     text:
       "* components/admin/ResolveAlertButton.tsx (M9 C4 / M5-D3, hardened M9-D-C4-1)",
@@ -341,15 +305,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "The canonical file map points at the live hero; the retired path survives only as the supersession note that makes the change legible.",
   },
   {
-    kind: "pending",
-    file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md",
-    text:
-      "- `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; existing `PerShowCrewSection.test.tsx` is admin-side, not equivalent)",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
     kind: "line",
     file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md",
     text:
@@ -455,15 +410,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "- **Why deferred (NOT Phase A's surface):** Phase A does not touch `components/show/`, `components/atoms/`, or `app/show/[slug]/`. The M3 LodgingTile + tile-grid render path is owned by the M3/M4 plan tree. WebServer logs surface an incidental hydration drift on `<RightNowCard data-prefers-reduced-motion>` (\"unknown\" → \"false\"), but RightNowCard is outside the screenshotted `tile-grid` element.",
     reason:
       "Scope note describing what Phase A did not touch; a record of the boundary.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/_orphanedComponents.ts",
-    text:
-      "file: \"components/admin/PerShowCrewSection.tsx\",",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
   },
   {
     kind: "pending",
@@ -654,87 +600,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "* tests/components/PerShowCrewSection.test.tsx (M11.5 §B Task F1)",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "const { container } = render(<PerShowCrewSection showId=\"show-1\" crew={[makeRow()]} />);",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "describe(\"PerShowCrewSection (post-F1: picker pivot)\", () => {",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "function makeRow(overrides: Partial<PerShowCrewRow> = {}): PerShowCrewRow {",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "import { PerShowCrewSection, type PerShowCrewRow } from \"@/components/admin/PerShowCrewSection\";",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "render(<PerShowCrewSection showId=\"show-1\" crew={[]} />);",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "render(<PerShowCrewSection showId=\"show-1\" crew={[makeRow()]} crewLookupFailed />);",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "render(<PerShowCrewSection showId=\"show-1\" crew={[makeRow({ role: null })]} />);",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/components/PerShowCrewSection.test.tsx",
-    text:
-      "render(<PerShowCrewSection showId=\"show-1\" crew={crew} />);",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
     file: "tests/components/ResolveAlertButton.test.tsx",
     text:
       "* tests/components/ResolveAlertButton.test.tsx — two-tap confirmation",
@@ -815,39 +680,12 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "Live reference to a retired identifier; repaired by the named task.",
   },
   {
-    kind: "pending",
-    file: "tests/cross-cutting/no-load-show-crew-with-auth.test.ts",
-    text:
-      "\"components/admin/PerShowCrewSection.tsx\",",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
-    kind: "pending",
-    file: "tests/cross-cutting/no-load-show-crew-with-auth.test.ts",
-    text:
-      "\"tests/components/PerShowCrewSection.test.tsx\",",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
-  },
-  {
     kind: "line",
     file: "tests/help/_metaServerTimeGuard.test.ts",
     text:
       "// 'use client' directive over from the retired RightNowCard verbatim, so the",
     reason:
       "Explains why swapping the island exemplar preserves the classifier's contract; naming the source is the justification.",
-  },
-  {
-    kind: "pending",
-    file: "tests/help/forbidden-prose-registry.test.ts",
-    text:
-      "\"R14 finding 1 (tour.mdx:68). No copy-URL affordance ships in PerShowCrewSection. The retired signed-link controls did not expose a copyable URL. Until a one-tap copy button ships, Doug shares URLs through his usual channel — prose must reflect that.\",",
-    repairedBy: "Task 6",
-    reason:
-      "Live reference to a retired identifier; repaired by the named task.",
   },
   {
     kind: "pending",

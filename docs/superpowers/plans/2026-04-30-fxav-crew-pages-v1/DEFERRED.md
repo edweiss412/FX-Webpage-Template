@@ -87,7 +87,7 @@ When picking up a deferred item:
   - `tests/e2e/status-financials.spec.ts:72` ShowStatusTile (COI status rendering, ~2h)
   - `tests/e2e/crew-page.spec.ts:559` LodgingTile (~2h)
   - `tests/e2e/crew-page.spec.ts:596` VenueTile (~2h)
-  - `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; existing `PerShowCrewSection.test.tsx` is admin-side, not equivalent)
+  - `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; no equivalent component coverage — the admin-side suite that was cited here was retired with its component on 2026-08-03, which strengthens rather than weakens this deferral)
   - `tests/e2e/crew-page.spec.ts:652` ContactsTile (~2h)
   - `tests/e2e/schedule-tile.spec.ts:123` ScheduleTile (date_restriction.kind branches, ~3h)
   - `tests/e2e/notes-tile.spec.ts:144` NotesTile (4-source aggregation + truncation + cardinality, ~4h)
