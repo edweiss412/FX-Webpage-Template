@@ -1,4 +1,11 @@
-import { Node, Project, type ObjectLiteralExpression, type Type } from "ts-morph";
+import {
+  Node,
+  Project,
+  SyntaxKind,
+  VariableDeclarationKind,
+  type ObjectLiteralExpression,
+  type Type,
+} from "ts-morph";
 import { resolve } from "node:path";
 
 /**
@@ -37,6 +44,8 @@ export type ParseWarningCodeScan = {
   sites: ParseWarningCodeSite[];
   unresolved: UnresolvedCodeSite[];
   nonLiteral: NonLiteralConstruction[];
+  /** `file:line` of any scanned file importing a warning factory from the fixture tree. */
+  fixtureFactoryImporters: string[];
 };
 
 const ROOT = resolve(__dirname, "../../..");
@@ -104,6 +113,11 @@ function resolveStringConst(identifier: Node): string | undefined {
   }
   for (const declaration of symbol?.getDeclarations() ?? []) {
     if (!Node.isVariableDeclaration(declaration)) continue;
+    // Declaration KIND matters: a `let`/`var` binding whose initializer is a
+    // literal is not a constant, and certifying its initial value would emit a
+    // code the runtime never persists once the binding is reassigned.
+    const statement = declaration.getVariableStatement();
+    if (statement?.getDeclarationKind() !== VariableDeclarationKind.Const) continue;
     const value = unwrapAsExpressions(declaration.getInitializer());
     if (value && Node.isStringLiteral(value)) return value.getLiteralValue();
   }
@@ -202,9 +216,15 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
         // which cannot, so a mere "something follows" test false-positives.
         const overwrittenAfterwards =
           lastWarningSpread >= 0 &&
-          spreads
-            .slice(lastWarningSpread + 1)
-            .some((p) => p.getExpression().getType().getProperty("code") !== undefined);
+          spreads.slice(lastWarningSpread + 1).some((p) => {
+            const t = p.getExpression().getType();
+            // A named `code` property is the obvious carrier, but an index
+            // signature or `any` can supply one at runtime while exposing no
+            // named property — so both count as able to overwrite.
+            if (t.isAny() || t.isUnknown()) return true;
+            if (t.getStringIndexType() !== undefined) return true;
+            return t.getProperty("code") !== undefined;
+          });
         if (lastWarningSpread >= 0 && !overwrittenAfterwards) return; // propagation, not emission
         unresolved.push({
           file,
@@ -288,8 +308,27 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
 
         let callSites = 0;
         for (const reference of enclosing.findReferencesAsNodes()) {
-          const call = reference.getParent();
-          if (!call || !Node.isCallExpression(call)) continue;
+          // The reference is not always the callee itself: `ns.warning("X")`
+          // and `const alias = warning; alias("X")` put the identifier under a
+          // PropertyAccess or a VariableDeclaration. Walk up to the nearest
+          // enclosing call and confirm the reference is in its callee position,
+          // so an argument that merely mentions the factory is not miscounted.
+          const call = reference.getFirstAncestor(Node.isCallExpression);
+          if (!call) {
+            unresolved.push({
+              file: rel(reference.getSourceFile().getFilePath()),
+              line: reference.getStartLineNumber(),
+              why: `factory ${factoryName}: reference is not a call (aliased or re-exported)`,
+            });
+            continue;
+          }
+          // The reference must be in the CALLEE position — an argument that
+          // merely mentions the factory is not a call of it.
+          const callee = call.getExpression();
+          const inCallee =
+            callee === reference ||
+            callee.getDescendantsOfKind(SyntaxKind.Identifier).some((n) => n === reference);
+          if (!inCallee) continue;
           // findReferencesAsNodes searches the WHOLE program, so the predicate
           // must be re-applied here. Without this, a test calling an exported
           // factory with a literal mints that code into the production manifest.
@@ -342,5 +381,23 @@ export function collectParseWarningCodeSites(): ParseWarningCodeScan {
     });
   }
 
-  return { sites, unresolved, nonLiteral };
+  // Assertion 5's data, computed in-process. The former implementation shelled
+  // out to `rg`, which scanned Markdown (a historical plan snippet read as a
+  // production import) and, under a shell without `rg` on PATH, returned empty
+  // through its `|| true` and asserted nothing at all.
+  const fixtureFactoryImporters: string[] = [];
+  const FIXTURE_FACTORIES = new Set(["buildWarning", "crewScopedWarning"]);
+  for (const sourceFile of project.getSourceFiles()) {
+    const absolute = sourceFile.getFilePath();
+    if (!isScannedFile(absolute)) continue;
+    for (const declaration of sourceFile.getImportDeclarations()) {
+      if (!declaration.getModuleSpecifierValue().includes("lib/dev/attentionScenarios")) continue;
+      const named = declaration.getNamedImports().map((n) => n.getName());
+      if (named.some((n) => FIXTURE_FACTORIES.has(n))) {
+        fixtureFactoryImporters.push(`${rel(absolute)}:${declaration.getStartLineNumber()}`);
+      }
+    }
+  }
+
+  return { sites, unresolved, nonLiteral, fixtureFactoryImporters };
 }

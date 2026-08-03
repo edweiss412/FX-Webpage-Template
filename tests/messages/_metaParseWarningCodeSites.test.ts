@@ -1,5 +1,3 @@
-import { execSync } from "node:child_process";
-
 import { describe, expect, it } from "vitest";
 
 import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
@@ -289,16 +287,16 @@ describe("parse-warning code sites", () => {
   it(
     "keeps warning factories out of production imports",
     () => {
-      // Assertion 5, the mirror class the fixture-tree exclusion opens: a factory
-      // whose BODY lives in an excluded tree would have its production call sites
-      // silently dropped. Narrowed to FACTORIES because ten production files
-      // legitimately import types and scenario data from that tree.
-      const offenders = execSync(
-        "rg -l --glob '!tests/**' --glob '!lib/dev/attentionScenarios/**' " +
-          '"import[^;]*\\b(buildWarning|crewScopedWarning)\\b[^;]*from .@/lib/dev/attentionScenarios" . || true',
-        { cwd: process.cwd(), encoding: "utf8" },
-      ).trim();
-      expect(offenders).toBe("");
+      // Assertion 5 — the mirror class the fixture-tree exclusion opens: a
+      // factory whose BODY lives in an excluded tree would have its production
+      // call sites silently dropped. Narrowed to FACTORIES because ten
+      // production files legitimately import types and scenario data there.
+      //
+      // Computed from the TypeScript program, not by shelling out to `rg`. The
+      // shell version was wrong twice over: it scanned Markdown and read a
+      // historical plan snippet as a production import, and its `|| true`
+      // turned any shell/PATH failure into a silent pass that asserted nothing.
+      expect(scan().fixtureFactoryImporters).toEqual([]);
     },
     SCAN_TIMEOUT_MS,
   );

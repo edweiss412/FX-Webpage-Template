@@ -6,6 +6,8 @@
 
 impeccable-gate: N/A — no UI surface
 
+**Shipped result: 58 codes, 77 sites, mutation families M1-M9.** Post-implementation cross-model review moved these numbers; spec §2.6 records why.
+
 **Revision history:** R1 returned BLOCKING (2 P0, 2 P1, 1 P2) and R2 returned BLOCKING (2 P0, 2 P1, 1 P2). All ten confirmed by independent probe. R2 forced three structural changes: Tasks 7 and 8 merge (their split left Task 8 with no possible RED), the exemption mechanism is deleted rather than repaired (two schemas, two escaping mutants), and **set equality is conceded not to close M5** — the guard needs an independent anchor. The first anchor tried, an emitter-file set, was then refuted by a within-file narrowing and replaced with `EXPECTED_PARSE_WARNING_CODES`, a golden snapshot of the code set. Task counts: 9 → 8 (R1) → 7 (R2).
 
 ---
@@ -250,4 +252,4 @@ Stage 4.4 then has no ledger work for this branch.
 | `checker.isTypeAssignableTo` is a TypeScript-internal API | `typescript@^5` and `ts-morph@^28` are already dependencies. The call sits behind one function in one module; the `OrThrow` posture makes a break loud. |
 | Recognizer and generator drift apart | Structurally impossible — same exported function. This is the design's central property. |
 | Set equality makes the guard brittle against legitimate churn | Intended. A new emitter changes the recognized set; regenerating the manifest is one command. |
-| `EXPECTED_PARSE_WARNING_CODES` is a hand-maintained list, the very thing this change deletes elsewhere | Stated as a trade, not hidden: 4 hand-maintained codes out, 57 in. The justification is failure mode, not size — the residue rotted silently (a code absorbed into the bucket left a dead row no test could see), whereas a golden set fails loud in both directions and its diff is the review artifact. R2 proved no artifact-derived check can replace it, and the cheaper emitter-file variant was probed and rejected. |
+| `EXPECTED_PARSE_WARNING_CODES` is a hand-maintained list, the very thing this change deletes elsewhere | Stated as a trade, not hidden: 4 hand-maintained codes out, 57 in. The justification is failure mode, not size — the residue could not be checked by any test (spec §2.3 corrects the "rotted" framing: it had NOT rotted — the gallery and the observe CLI simply disagreed about membership), whereas a golden set fails loud in both directions and its diff is the review artifact. R2 proved no artifact-derived check can replace it, and the cheaper emitter-file variant was probed and rejected. |

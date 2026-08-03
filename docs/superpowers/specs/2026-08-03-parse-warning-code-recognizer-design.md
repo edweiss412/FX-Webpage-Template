@@ -7,6 +7,8 @@
 
 <!-- spec-lint: not-ui — no rendered surface; the components/ and app/ paths cited here are probe evidence about existing code, not files this change touches -->
 
+**Result as shipped: 58 codes, 77 sites, 0 unresolved.** A whole-diff cross-model review after implementation found the recognizer was missing a live persisted code and several escaping mutants; §2.6 records what changed and why the numbers below moved.
+
 **Revision history:** R1 returned NEEDS-ATTENTION (4 findings) and R2 returned NEEDS-ATTENTION (3 HIGH). All seven were confirmed by independent probe and repaired. Two of them overturned claims this document made: R1 finding 1 inverted §2.3's central claim, and R2 finding 2 refuted the assertion-5 clean-tree claim. §2.5 records both, plus the M5 concession forced by the plan's R2.
 
 ---
@@ -92,8 +94,8 @@ A ts-morph prototype using assignability to `ParseWarning` plus the resolution r
 | --- | --- |
 | Candidate object literals (syntactic pre-filter) | 118 |
 | Candidates accepted by assignability | 56 |
-| Recognized emit sites | 73 |
-| Distinct codes | **57** |
+| Recognized emit sites (at spec time; **77** as shipped) | 73 |
+| Distinct codes (at spec time; **58** as shipped, see §2.6) | **57** |
 | Unresolved sites | **0** |
 | Wall clock, AST walk only | ~4.5 s |
 | Wall clock, end to end incl. program construction | **~19 s** (see §5 limit 8) |
@@ -113,6 +115,20 @@ Recorded so no later round re-derives them, per the AGENTS.md triage-record rule
 | "The recognizer costs ~2.1 s" | Off by ~9x. That timer started after `new Project()` returned. End-to-end is ~19 s: ~11.7 s program construction, ~2.8 s checker warm-up, ~4.5 s walk, over a 2882-file program. |
 | "10 codes enter the bucket" | 13 enter the manifest bucket (46 → 57, with 2 leaving). The 10 figure counted additions against the gallery's *union* of manifest and residue, not against the bucket. The gallery separately gains 10 net scenarios, 47 → 57. Both numbers are real and §4.1 now labels them distinctly. |
 | "Set equality closes M5" | It does not. The generator and the guard share the collector, so a narrowed collector plus its normally-regenerated manifest stay equal and both pass. This is the cost of the shared-recognizer design, and §3.6 is the independent anchor it forces. |
+
+### 2.6 What the post-implementation review changed
+
+Two whole-diff cross-model rounds ran after the tasks landed. Both returned BLOCKING, and both were right. Recorded here because the numbers in §2.4 and §4 are spec-time values that the repairs moved.
+
+| Finding | Consequence |
+| --- | --- |
+| A literal factory call site masked its dynamic siblings — rule 4 only reported "unresolved" when a factory had ZERO literal calls | `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` reached `shows_internal.parse_warnings` with no provenance and no gallery scenario. Call sites are now judged **per site**; const-identifier and union-typed arguments resolve. **+1 code** |
+| The M8 spread discriminator asked whether ANY spread was a warning | `{...priorWarning, ...codePart}` skipped as propagation while overwriting `code`. Now positional, and "can carry `code`" includes index signatures and `any`, not just a named property |
+| `resolveStringConst` accepted any variable declaration | a `let` rebound after its initializer was certified at its initial value. Now requires `const` |
+| Factory references reached only through `getParent()` | namespace-import and aliased calls were invisible. Now resolved through the nearest enclosing call, with the reference confirmed in callee position |
+| Assertion 5 shelled out to `rg` | it scanned Markdown (reading a historical plan snippet as a production import) and its `\|\| true` turned any shell/PATH failure into a silent pass. Now computed in-process from the TypeScript program |
+
+**Shipped totals: 58 codes, 77 sites, 0 unresolved, 0 non-literal constructions.** Mutation families M1-M9.
 
 ---
 
