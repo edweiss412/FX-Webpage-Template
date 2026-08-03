@@ -17,9 +17,12 @@
 //   horizon-expired     → reports (created_at=-25h — live path can't reach this state)
 //   orphaned-lost-lease → admin_alerts (REPORT_ORPHANED_LOST_LEASE, full context shape)
 //
-// Producer tables reports / report_rate_limits / admin_alerts are NOT in the
-// RPC_GATED_TABLES registry (no table-level REVOKE) — service-role writes are
-// the normal production path (lib/reports/* writes via service-role). No
+// Producer tables: as of the DB-lockdown-trio cluster, reports and
+// report_rate_limits ARE in the RPC_GATED_TABLES registry (table-level REVOKE,
+// supabase/migrations/20260803000000_lockdown_admin_only_tables.sql); only
+// admin_alerts is not, as a documented class-(c) exemption. This script is
+// unaffected either way — it writes via service-role, which the REVOKE does not
+// touch (lib/reports/* does the same in production). No
 // advisory lock required (none of these tables are in the per-show lock set
 // per plan-wide invariant 2). Real-identity outcomes (rate-limit-{admin,crew})
 // use snapshot+restore (R35 F34 / R39 F36) so prod rate-limit state in OTHER

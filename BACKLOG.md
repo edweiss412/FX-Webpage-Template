@@ -851,19 +851,21 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 **Promotion prerequisite:** Doug-workflow observation from a live v1 deployment (need real data on which staging events Doug actually misses) + email-provider integration decision + spec amendment formalizing the notification design memo.
 
-### BL-RLS-COVERAGE-CROSSCUTTING — Promote M9 C9 admin-RLS runtime probe to a cross-cutting meta-test
+### BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest
 
-**Origin:** Surfaced 2026-05-19 during the X.5 seed-handoff drafting. AC-X.5 in spec §17.2 body specifies email canonicalization (matches plan Task X.5), but AC-X.6's required-checks list names the X.5 gate `x5-rls-coverage` — an internal spec inconsistency. The drift will be surfaced by X.5 (in its convergence log) + audited by X.6 (cross-cutting parity assertion). This BACKLOG entry tracks the deferred decision about whether to promote the M9 C9-era `tests/db/admin-rls-runtime.test.ts` runtime probe to a cross-cutting meta-test under a new AC.
+**Filed:** 2026-08-03, during the DB-lockdown-trio cluster (`docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md` §5.3). **Class:** X.5 coverage completeness. **Effort:** S.
 
-**Scope:** M9 C9 shipped `tests/db/admin-rls-runtime.test.ts` covering all 21 §4.3 admin-only tables × behavioral SELECT + structural qual/with_check predicate-equivalence. It runs under the existing `tests/db/` test suite, no dedicated CI check name. Promotion would mean:
+`role_token_mappings.decided_by` stores a canonical admin email and carries a DB CHECK (`role_token_mappings_decided_by_canonical`, `supabase/migrations/20260716000000_role_token_mappings.sql:8`). Both write paths canonicalize correctly today — `app/admin/show/[slug]/_actions/roleToken.ts:57` and `app/admin/settings/_actions/roleTokenMappings.ts:38` both call `canonicalize(email)` before the write.
 
-- Relocate / extend to `tests/cross-cutting/rls-coverage.test.ts` under the X.\* lineage pattern (regression fixtures, audit-derives-from-spec, CI gate exposure).
-- Add a dedicated CI gate name (e.g., `x7-rls-coverage` if X.5/X.6 keep their existing assignments, or absorb into an X.5 reframing).
-- Author a spec amendment defining the new AC (placement TBD — new AC-X.7, or reframing AC-X.5 to split email-canon + RLS-coverage into two ACs).
+**The gap is coverage, not behavior.** The boundary is absent from `lib/audit/email-boundaries.generated.ts`, which derives from master spec AC-X.5 prose (`scripts/extract-email-boundaries.ts:87`). So deleting either `canonicalize()` call would NOT fail the `x5-email-canonicalization` gate — only the DB CHECK would catch it, and only at write time.
 
-**Why backlog, not deferred:** The M9 C9 probe works today; behaviorally there's no coverage gap. Promotion is polish work (move from per-domain test to cross-cutting meta-test for discoverability + CI gate naming consistency). Promotion requires (a) a spec amendment decision about AC placement, (b) a ROUTING.md decision about whether the new AC gets a check name, (c) a brainstorming session to confirm the promotion is worth the spec churn vs leaving the probe in `tests/db/`.
+**Why not fixed in the lockdown cluster:** registering the boundary requires a master spec §17.2 AC-X.5 amendment, which has lockstep consequences for `pnpm gen:email-boundaries`, the `x5-email-canonicalization` gate, and traceability. That is its own review cycle, not a rider on a lockdown cluster. The cluster pins the CHECK's existence via the new `CATALOG_CANONICAL_CHECKS` registry, so the constraint cannot be dropped silently.
 
-**Promotion prerequisite:** spec amendment defining the new AC, OR a decision to reframe AC-X.5/X.6 to absorb RLS coverage. Either path is a real spec-amendment cycle with adversarial review, not a casual edit.
+**Scope of a fix:** amend master spec §17.2 AC-X.5 to name `role_token_mappings.decided_by`; regenerate; confirm the x5 gate covers both write paths. Two sibling constraints (`admin_emails.email`, `ignored_warnings.ignored_by`) are pinned elsewhere (`tests/db/admin-emails.test.ts:135`, `tests/db/ignored-warnings-schema.test.ts:39`) and may warrant the same treatment in the same amendment.
+
+**Promotion prerequisite:** any milestone already amending master spec §17.2, OR a decision that unpoliced canonicalization on this boundary is a real risk.
+
+**Status:** OPEN.
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
@@ -891,29 +893,6 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 **Why backlog, not deferred:** None of the four shortcuts close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (`Re-sync` directly; the others by navigation). This is pure surfacing/convenience. `Archive` is the only one with a schema implication; the others are pure UI work.
 
 **Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
-
-### BL-ADMIN-POSTGREST-DML-LOCKDOWN — Revoke table-level DML on remaining admin-only tables so SECURITY DEFINER RPCs are the sole mutation gate
-
-**Partial closure (2026-06-18, crew-page redesign Phase 2 spec R16-HIGH):** the **`shows_internal`** portion is being closed by Phase 2 — the AGENDA `run_of_show` spec adds a `revoke insert,update,delete on public.shows_internal from anon,authenticated` migration + a `RPC_GATED_TABLES` registry row (`tests/db/postgrest-dml-lockdown.test.ts:124`), making the locked service-role sync the single serialized writer (the read-modify-merge would otherwise race an unlocked admin PostgREST write). Verified the only writer is the service-role sync (`runScheduledCronSync.ts:1278`); no authenticated app code mutates the table, so the REVOKE is functionally inert. This locks down `financials`/`parse_warnings`/`raw_unrecognized` on the same table as a side effect (intended). The REMAINING scope below is the OTHER admin-only tables.
-
-**Origin:** Surfaced 2026-05-21 during M9.5 adversarial review R5+R6 (HIGH). The new `revoke_all_links` and `issue_new_link` RPCs correctly held the per-show advisory lock + did the active-roster `EXISTS` gate inside the RPC body, but `crew_member_auth` and `crew_members` retained `INSERT`/`UPDATE`/`DELETE` for the `authenticated` role — meaning any authenticated caller could bypass the RPC entirely by calling the table directly via PostgREST's `from('<table>').insert/update/delete` builder. M9.5 closed the hole for the two tables it touched (REVOKE migration + structural meta-test pinning the invariant). The same vector exists for every other admin-only table whose intended mutation gate is a SECURITY DEFINER RPC but whose DML grants were never explicitly revoked.
-
-**Scope (audit at promotion time, not from this snapshot):** candidates surfaced during R7 prep included `shows`, `pending_syncs`, `pending_ingestions`, `sync_audit`. The actual list MUST derive from the live spec §4.3 admin-only-tables enumeration AT promotion time (per `feedback_audit_derives_from_spec_not_handoff.md`), not from this BACKLOG snapshot — admin-only tables have been amended multiple times (e.g., X.3 caught §4.3 going from 19→21 tables post-handoff). The promotion plan must:
-
-- Walk every admin-only table from spec §4.3 at audit time.
-- For each table, determine whether its intended mutation gate is (a) a SECURITY DEFINER RPC (lockdown needed), (b) admin-only RLS with no service-role bypass needed (lockdown also reasonable as defense-in-depth), or (c) intentionally writable by some non-service role (NOT a lockdown candidate; document why).
-- For (a) and (b) candidates: ship a `REVOKE INSERT, UPDATE, DELETE ON <table> FROM authenticated` migration + extend the structural meta-test from M9.5 R5+R6 to pin the invariant. The meta-test pattern is the load-bearing defense; a one-line `GRANT` in a future migration silently re-opens the hole without it.
-- Audit: write a runtime probe that derives the candidate list from §4.3 + the SECURITY DEFINER function inventory, asserts each candidate table has the expected REVOKEs, and surfaces named diffs.
-
-**Why backlog, not deferred:** The exposure is real but not actively exploited (the M9.5 holes were caught at adversarial review, not in production), and the FXAV product surface is small — `authenticated` callers who could bypass the RPC are FXAV admins or signed-in crew members, not arbitrary internet users. No concrete trigger exists. Picking it up is genuine security-hardening polish; it requires a spec amendment ratifying the "all admin-only-table mutations flow through SECURITY DEFINER RPCs" contract OR a brainstorming session to define the gate-classification matrix table-by-table. Not in-scope for any currently planned milestone.
-
-**Promotion prerequisite:** Either (a) FXAV ops feedback or a security review surfaces an actual exposure path that warrants the work, OR (b) a v1.x security-hardening milestone bundles this with related lockdown work (e.g., RLS-coverage promotion under BL-RLS-COVERAGE-CROSSCUTTING). The structural meta-test pattern shipped at M9.5 R5+R6 is the template; extend the existing meta-test, don't write a parallel one.
-
-**Cross-references:**
-
-- Memory: `feedback_postgrest_dml_lockdown_for_rpc_gated_tables.md` documents the bug class + the planning-time checklist.
-- M9.5 R5+R6 commits (full SHAs in M9.5 §13 convergence log).
-- Related backlog: `BL-RLS-COVERAGE-CROSSCUTTING` covers the row-level half of the contract; this entry covers the statement-level half. A future v1.x security milestone may bundle both.
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
