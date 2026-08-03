@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
@@ -69,17 +70,76 @@ const runtimeConfig = (
   }
 ).__vitest_worker__?.config;
 
-// A vitest test/suite options object carrying a `timeout`. Covers the plain
-// `test("name", { timeout: N }, fn)` and `describe("name", { timeout: N }, fn)`
-// forms, the multi-line spelling, the chained-modifier one (`test.skipIf(x)(…)`,
-// `it.each(…)(…)`), and an identifier rather than a literal for the name. It
-// deliberately does NOT match `sql.end({ timeout: 5 })`, postgres.js
-// `idle_timeout`/`connect_timeout`, or an `execFileSync` options bag — those are
-// not test budgets, and there are many of them.
-const TEST_TIMEOUT_OPTION =
-  /\b(?:test|it|describe)(?:\.[A-Za-z]+)*\s*(?:\([^()]*\)\s*)?\(\s*(?:`[^`]*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[A-Za-z_$][\w$]*)\s*,\s*\{[^{}]*?\btimeout\s*:\s*([0-9][0-9_]*)/g;
-
 const EXEMPT_MARKER = "timeout-floor-exempt:";
+
+// Test budgets are found through the TypeScript AST, not a regex over source.
+// The first version of this guard did use a regex, matched only the options-bag
+// spelling, and missed all ten live cases of vitest's OTHER supported form — the
+// trailing numeric argument, `test(name, fn, 15000)`, which vitest converts to
+// `options.timeout` just the same. A regex able to see that one has to skip a
+// function body to reach the argument after it, which is precisely what regex
+// cannot do. The AST reads both spellings for free and, because it looks at
+// argument POSITIONS of a test call rather than at the text `timeout:`, it also
+// cannot mistake `sql.end({ timeout: 5 })`, postgres.js
+// `idle_timeout`/`connect_timeout`, or an `execFileSync` options bag for a test
+// budget — the over-selection risk the regex had to enumerate its way around.
+type Budget = { line: number; ms: number };
+
+function testBudgets(file: string, body: string): Budget[] {
+  const source = ts.createSourceFile(
+    file,
+    body,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const found: Budget[] = [];
+
+  // The callee's root identifier, through property access and call chains, so
+  // `test`, `test.skipIf(x)`, `it.each(rows)`, and `describe.sequential` all
+  // resolve to their base name.
+  const rootName = (expr: ts.Expression): string | null => {
+    let cur: ts.Node = expr;
+    for (;;) {
+      if (ts.isIdentifier(cur)) return cur.text;
+      if (ts.isPropertyAccessExpression(cur) || ts.isCallExpression(cur)) {
+        cur = cur.expression;
+        continue;
+      }
+      return null;
+    }
+  };
+
+  const record = (node: ts.Node): void => {
+    found.push({
+      line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+      ms: Number(node.getText(source).replaceAll("_", "")),
+    });
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const name = rootName(node.expression);
+      if (name === "test" || name === "it" || name === "describe") {
+        for (const arg of node.arguments) {
+          if (!ts.isObjectLiteralExpression(arg)) continue;
+          for (const prop of arg.properties) {
+            if (!ts.isPropertyAssignment(prop)) continue;
+            if (prop.name.getText(source) !== "timeout") continue;
+            if (ts.isNumericLiteral(prop.initializer)) record(prop.initializer);
+          }
+        }
+        // The numeric-final-argument overload: test(name, fn, 15000).
+        const last = node.arguments.at(-1);
+        if (last && ts.isNumericLiteral(last)) record(last);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(source);
+  return found;
+}
 
 function testFiles(): string[] {
   const out: string[] = [];
@@ -146,24 +206,18 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
       const body = readFileSync(file, "utf8");
       if (!DB_MARKERS.some((marker) => marker.test(body))) continue;
 
-      const code = stripCommentsForFile(body, file);
-      // Line numbers come from the STRIPPED text and the exemption is read from
-      // the RAW line at the same index: stripCommentsForFile blanks comment
-      // content in place rather than deleting lines, so the two stay aligned.
       const rawLines = body.split("\n");
-      TEST_TIMEOUT_OPTION.lastIndex = 0;
-      for (let m = TEST_TIMEOUT_OPTION.exec(code); m; m = TEST_TIMEOUT_OPTION.exec(code)) {
-        const ms = Number(m[1]!.replaceAll("_", ""));
-        if (ms >= TIMEOUT_FLOOR_MS) continue;
-        const line = code.slice(0, m.index + m[0].length).split("\n").length;
-        if (rawLines[line - 1]?.includes(EXEMPT_MARKER)) continue;
-        offenders.push(`${relative(ROOT, file)}:${line} — ${ms}ms`);
+      for (const budget of testBudgets(file, body)) {
+        if (budget.ms >= TIMEOUT_FLOOR_MS) continue;
+        if (rawLines[budget.line - 1]?.includes(EXEMPT_MARKER)) continue;
+        offenders.push(`${relative(ROOT, file)}:${budget.line} — ${budget.ms}ms`);
       }
     }
 
     expect(
       offenders,
-      "a per-test or per-suite `{ timeout: N }` wins over the config's testTimeout, so an " +
+      "a per-test or per-suite budget — `{ timeout: N }` or the trailing-numeric overload " +
+        "`test(name, fn, N)` — wins over the config's testTimeout, so an " +
         "override below the floor keeps the exposure the floor exists to remove. Every one of " +
         "these was written to RAISE a budget over vitest's old 5s default, which the root " +
         `config now does — drop the option, or raise it to at least ${TIMEOUT_FLOOR_MS}ms. If ` +

@@ -91,7 +91,7 @@ describe("admin-mgmt cross-demotion race (upsert/revoke post-lock re-check isola
 
     // cleanup
     await psql(`delete from public.admin_emails where email in ('${a}','${b}','${target}');`);
-  }, 15000); // 2s pg_sleep hold window exceeds vitest's 5s default; raise per-test timeout.
+  });
 
   test("revoke: A demotes developer-actor B; B passes pre-lock then the POST-lock re-check rejects its revoke (42501) → target stays active", async () => {
     const a = `race-a-${randomUUID()}@example.com`;
@@ -143,5 +143,5 @@ describe("admin-mgmt cross-demotion race (upsert/revoke post-lock re-check isola
 
     // cleanup
     await psql(`delete from public.admin_emails where email in ('${a}','${b}','${target}');`);
-  }, 15000);
+  });
 });
