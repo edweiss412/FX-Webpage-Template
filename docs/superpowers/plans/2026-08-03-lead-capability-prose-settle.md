@@ -110,11 +110,11 @@ This enumeration **is the closure set the review converges against.** A reviewer
 
 M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and M19 are why nothing about *which* functions to check or *how* to call them is hand-maintained — both hand lists in the R1 draft (`INVOKERS`, `TAKES_IS_ADMIN`) were themselves instances of the class under settlement, and R2 produced an escaping mutant for each.
 
-**Stated limit on the closure claim — narrowed at R6, narrowed again at R7.** An early draft claimed closure "by exhaustion" so that no predicate body could escape. R6 refuted that (the bitmask emits one ordering per subset, so `flags[0] === "L1" && flags[1] === "V1"` survived). The sweep now also evaluates the reverse of every subset — but R7 refuted the follow-on claim too, with a three-element permutation (`["L1","V1","GS"]`) that neither the canonical order nor its reverse reaches.
+**Stated limit on the closure claim — narrowed at R6, and again at R7 and R8.** An early draft claimed closure "by exhaustion" so that no predicate body could escape. R6 refuted it (one ordering per subset), R7 refuted the follow-on claim that reversal catches any position-dependence, and R8 additionally refuted a supporting claim this plan had made about production ordering: `extractRoleFlags` emits a canonical order, NOT token-appearance order (probed: `LEAD / CONTENT CREATION / A1` yields `["LEAD","A1","CONTENT_CREATION"]`).
 
-**So the claim is exactly this, and no more: the guard checks every SUBSET of the flag universe, at two orderings each, against both `isAdmin` values.** It does not establish order-insensitivity — 20! is not enumerable and no sampling strategy short of it would. What makes that acceptable rather than a hole: the live predicates are `Array.includes` disjunctions, order-insensitive by construction, and a permutation-sensitive rewrite of one is not a drift a comment could silently outlive — it is a conspicuous code change. The guard's job is catching comment/predicate divergence, and for the disjunctive bodies that actually exist it is total. With the powerset sweep the family list is closed **by exhaustion, not by enumeration**: for a documented pure disjunction over 20 flags, every possible predicate body over that input domain is checked at every input, so no branch of any shape or arity can escape. A further mutation family in this guard is not merely unadmitted, it is unconstructible.
+**The claim, exactly and finally:** the guard checks every SUBSET of the 20-flag universe, at two orderings each (canonical and reversed), against both `isAdmin` values. It does NOT establish order-insensitivity: R7 demonstrated a three-element permutation (`["L1","V1","GS"]`) that neither ordering reaches, and 20! is not enumerable.
 
-**Explicitly outside the closure set** (stated so it is not re-proposed as a gap): free-text prose in either module remains unguarded — spec §2.3's named accepted limit. The guards cover predicate *expressions* and matrix *completeness*, not sentences about them.
+That is acceptable rather than a hole because the live predicates are `Array.includes` disjunctions, order-insensitive by construction, and a permutation-sensitive rewrite of one is a conspicuous code change rather than the silent comment drift this guard exists to catch. **Producing a further permutation the sweep misses restates this limit; it is not a new finding.**
 
 ## 3. N/A declarations
 
@@ -130,7 +130,9 @@ M16 and M17 are why the sweep is exhaustive rather than singleton-based; M18 and
 
 ## 4. Tasks
 
-Each task is TDD: failing test → minimal implementation → passing test → commit. One commit per task, conventional-commits style.
+Tasks that change behavior are TDD: failing test → minimal implementation → passing test → commit. One commit per task, conventional-commits style.
+
+**Tasks 3 and 4 are documentation corrections and have no failing test**, by the disposition ratified at R6 and restated in their bodies: a sentence is not machine-verifiable, and three rounds of probes (R4/R5/R6) showed prose pins do not enforce semantics. Task 4 additionally ships a DB contract test that is green on the current schema — it pins the fact MI-9 reports, and is deliberately not that task's RED. Do not manufacture a failing test for either; do not stop looking for one.
 
 ### Task 1 — the parity guard, and the comment fix that turns it green (instances A + D-neighbour)
 
@@ -176,7 +178,7 @@ M17 (admin suppressed when flags non-empty):
   exhaustive sweep reports: ([A1], isAdmin=true): documented true, live false
 ```
 
-The middle result is the whole argument for exhaustion: the mutant R1 found escapes a singleton sweep with **zero** mismatches and is caught by the powerset sweep at `[V1,L1]`.
+The middle result is the whole argument for sweeping the full subset space: the mutant R1 found escapes a singleton sweep with **zero** mismatches and is caught at `[V1,L1]`. (Subset space, not permutation space — see the limit stated in §2.)
 
 #### 1a. `tests/visibility/_metaDocumentedPredicateParity.test.ts` (new)
 
@@ -368,13 +370,13 @@ describe("documented predicate lines match live scopeTiles behavior", () => {
             if (mask & (1 << i)) subset.push(ALL_ROLE_FLAGS[i]!);
           }
           const expected = (isAdmin && adminGrants) || (mask & tokenMask) !== 0;
-          // R6: the bitmask emits ONE canonical ordering per subset, so an
-          // order-sensitive branch (`flags[0] === "L1" && flags[1] === "V1"`)
-          // could hide. Production order is token-appearance order
-          // (lib/parser/personalization.ts extractRoleFlags), so ordering is
-          // not fixed. Check the reverse of every subset too; that is not the
-          // full permutation space (20! is not enumerable) but it catches any
-          // predicate whose answer depends on position at all.
+          // The bitmask emits ONE canonical ordering per subset, so a
+          // position-dependent branch can hide. Checking the reverse too
+          // widens that, but does NOT close it: R7 showed a three-element
+          // permutation (["L1","V1","GS"]) that neither ordering reaches,
+          // and 20! is not enumerable. This is a widened spot-check, not a
+          // proof of order-insensitivity. It is enough because the live
+          // predicates are Array.includes disjunctions.
           const reversed = [...subset].reverse();
           if (callPredicate(fn, reversed, isAdmin) !== expected) {
             mismatches.push(
@@ -552,7 +554,10 @@ with:
 
 Constraints: the row is a single markdown table cell, so the replacement must contain no newline; the file's line count must not change. **Never run prettier on the master spec** (the condensed-alert-copy plan records the same constraint at `docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:409`).
 
-**RED first — but on the CONTRACT, not the sentence.** Create `tests/db/isAdminRoleFlagsContract.test.ts`. R6 refuted the lexical approach with a probe: slicing one historical migration between two string literals passes even when the `admin_emails` arm is deleted (an unmatched closing literal makes `indexOf` return `-1`, and `slice(a, -1)` then swallows the rest of the file), and a LATER migration redefining `is_admin()` through `role_flags` is invisible to it entirely. Ask the database for the resolved definition instead:
+**Ships a contract test, NOT a RED.** Create `tests/db/isAdminRoleFlagsContract.test.ts`. Two rounds shaped it:
+
+- **R6** refuted scanning a migration file: slicing one historical migration between two string literals passes even when the `admin_emails` arm is deleted (an unmatched closing literal makes `indexOf` return `-1`, so `slice(a, -1)` swallows the rest of the file), and a LATER migration redefining `is_admin()` is invisible to it entirely. So ask the database, not the filesystem.
+- **R7** refuted asking the database *lexically*: a definition gutted to `select false` that retains `app_metadata` and `admin_emails` as dead strings satisfies every containment assertion. So CALL the function; only the `role_flags` absence stays textual, because behavior cannot demonstrate an absence.
 
 ```ts
 /**
