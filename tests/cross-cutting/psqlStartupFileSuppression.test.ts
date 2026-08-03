@@ -3546,3 +3546,151 @@ describe("R37 escaping mutants — a non-POSIX body is REPORTED, never certified
     WALK_TIMEOUT_MS,
   );
 });
+
+describe("R38 escaping mutants — POSIX is proved, not assumed", () => {
+  const WF = ".github/workflows/x.yml";
+  function caught(source: string) {
+    const sites = sitesIn(source, WF);
+    return {
+      certified: sites.filter((s) => s.suppressesStartupFiles).length,
+      unprotected: sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null).length,
+      hits: [...scanWorkflowIndirection(source, WF), ...scanShellIndirection(source, WF)].length,
+    };
+  }
+  const PY_BODY = ["import subprocess", 'subprocess.run(["psql", "-qAt", "mydb"])'];
+  const step = (shell: string): string =>
+    [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      `      - shell: ${shell}`,
+      "        run: |",
+      ...PY_BODY.map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+
+  // Enumerating the non-POSIX shells is enumerating an OPEN SET: a version
+  // suffix, a `.exe`, an `env` wrapper, or a `${{ }}` expression each names an
+  // interpreter the list does not hold, and every one of them was then read as
+  // POSIX shell. The test is inverted — a body is lexed as shell only when its
+  // shell is PROVABLY `bash`/`sh` (or absent, which is GitHub's bash default);
+  // anything else is reported. That is closed by construction rather than by
+  // list maintenance.
+  test.each([
+    ["a versioned interpreter", "python3.12 -u {0}"],
+    ["a windows executable", "pwsh.exe -File {0}"],
+    ["an env wrapper", "env python {0}"],
+    ["an expression", "${{ matrix.shell }}"],
+    ["an unknown interpreter", "deno run {0}"],
+    ["an absolute versioned path", "/usr/local/bin/python3.11 {0}"],
+  ])("%s is treated as non-POSIX and reported", (_label, shell) => {
+    const result = caught(step(shell));
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  test("a matrix-derived default is reported", () => {
+    const source = [
+      "jobs:",
+      "  x:",
+      "    strategy:",
+      "      matrix:",
+      "        shell: [python]",
+      "    defaults:",
+      "      run:",
+      "        shell: ${{ matrix.shell }}",
+      "    steps:",
+      "      - run: |",
+      ...PY_BODY.map((l) => `          ${l}`),
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // An aliased `run:` body was read straight off the alias node, which has no
+  // `.value`, so the tripwire saw an empty body.
+  test("an aliased `run:` body under a non-POSIX shell is reported", () => {
+    const source = [
+      "py: &py |",
+      "  import subprocess",
+      '  subprocess.run(["psql", "-qAt", "mydb"])',
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - shell: python",
+      "        run: *py",
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // An ANCHORED step list reused under two different job defaults resolves to
+  // two different effective shells for ONE pair node. Storing one shell, and a
+  // visited-set that skipped the second context, hid the non-POSIX reading.
+  test("an anchored step list reused under two defaults is reported", () => {
+    const source = [
+      "steps: &steps",
+      "  - run: |",
+      "      import subprocess",
+      '      subprocess.run(["psql", "-qAt", "mydb"])',
+      "jobs:",
+      "  bashjob:",
+      "    defaults:",
+      "      run:",
+      "        shell: bash",
+      "    steps: *steps",
+      "  pyjob:",
+      "    defaults:",
+      "      run:",
+      "        shell: python",
+      "    steps: *steps",
+      "",
+    ].join("\n");
+    const result = caught(source);
+    expect(result.certified).toBe(0);
+    expect(result.unprotected + result.hits).toBeGreaterThan(0);
+  });
+
+  // PRECISION: the POSIX shells and the default must still be read as shell,
+  // or every ordinary workflow in this repo becomes a tripwire hit.
+  test.each([
+    ["no shell key", "jobs:\n  x:\n    steps:\n      - run: psql -X -qAt mydb\n"],
+    [
+      "shell: bash",
+      "jobs:\n  x:\n    steps:\n      - shell: bash\n        run: psql -X -qAt mydb\n",
+    ],
+    ["shell: sh", "jobs:\n  x:\n    steps:\n      - shell: sh\n        run: psql -X -qAt mydb\n"],
+    [
+      "a bash template",
+      "jobs:\n  x:\n    steps:\n      - shell: bash -e {0}\n        run: psql -X -qAt mydb\n",
+    ],
+    [
+      "an absolute bash path",
+      "jobs:\n  x:\n    steps:\n      - shell: /bin/bash -e {0}\n        run: psql -X -qAt mydb\n",
+    ],
+    [
+      "a bash default",
+      "defaults:\n  run:\n    shell: bash\njobs:\n  x:\n    steps:\n      - run: psql -X -qAt mydb\n",
+    ],
+  ])("%s still reads as shell and certifies", (_label, source) => {
+    const result = caught(source);
+    expect(result.certified).toBe(1);
+    expect(result.unprotected + result.hits).toBe(0);
+  });
+
+  test(
+    "the proved-POSIX reading leaves the tree certified",
+    () => {
+      const usage = liveTreeUsage();
+      expect(
+        usage.sites.filter((s) => !s.suppressesStartupFiles && s.exemptReason === null),
+      ).toEqual([]);
+      expect(usage.indirections).toEqual([]);
+    },
+    WALK_TIMEOUT_MS,
+  );
+});

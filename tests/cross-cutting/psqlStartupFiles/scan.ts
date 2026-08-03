@@ -2205,14 +2205,6 @@ function shellQuoteWord(word: string): string {
 const BINDING_WORKFLOW_KEYS = new Set(["env", "matrix", "inputs"]);
 
 /**
- * GitHub's standard `shell:` keywords that are NOT a POSIX shell. A `run:` body
- * under one of these is PYTHON or POWERSHELL source, and lexing it as shell
- * text made every ordinary `subprocess.run(["psql", …])` invisible — the body
- * contains no shell command at all, so the reader found nothing and said so.
- */
-const NON_POSIX_SHELLS = new Set(["python", "python3", "pwsh", "powershell", "cmd", "node"]);
-
-/**
  * A non-POSIX `run:` body is PYTHON or POWERSHELL source, not shell text, and
  * the reader does not parse either language.
  *
@@ -2233,30 +2225,29 @@ function nonPosixBodyMentionsPsql(body: string): boolean {
 }
 
 /**
- * The effective shell for a `run:` body: the step's own `shell`, else the
- * nearest enclosing `defaults.run.shell`, resolving YAML aliases.
+ * The shells whose `run:` body IS POSIX shell text. Deliberately a proof, not a
+ * denylist.
  *
- * SCOPED, not document-wide. One shared variable let a job-level `bash`
- * default overwrite the workflow-level `python` default for unrelated jobs,
- * so their python bodies were read as shell and their psql calls vanished.
+ * R37 enumerated the non-POSIX interpreters, and R38 showed that to be an OPEN
+ * SET: `python3.12 -u {0}`, `pwsh.exe -File {0}`, `env python {0}` and
+ * `${{ matrix.shell }}` each name an interpreter no list holds, and every one
+ * of them was then read as shell. Inverting it closes the class by
+ * construction: a body is lexed as shell only when its shell is PROVABLY bash
+ * or sh, and everything else — including anything the reader cannot resolve at
+ * all, such as an expression — is reported instead.
  */
-const NON_POSIX_INTERPRETERS = new Set([
-  "python",
-  "python3",
-  "pwsh",
-  "powershell",
-  "cmd",
-  "node",
-  "perl",
-  "ruby",
-]);
+const POSIX_SHELLS = new Set(["bash", "sh"]);
 
-/** A `shell:` value names a non-POSIX language, as a bare KEYWORD (`python`)
- * or as a custom TEMPLATE whose command word is one (`python -u {0}`, an
- * absolute path). */
-function shellIsNonPosix(shell: string): boolean {
+/**
+ * A `shell:` value names a POSIX shell — as a bare KEYWORD (`bash`), or as a
+ * custom TEMPLATE whose command word is one (`bash -e {0}`, `/bin/bash {0}`).
+ * An unset shell is GitHub's default, which is bash; that is the caller's job
+ * to supply, since "unset" and "unreadable" must not be the same answer.
+ */
+function shellIsPosix(shell: string): boolean {
   const head = shell.trim().split(/\s+/)[0] ?? "";
-  return NON_POSIX_INTERPRETERS.has(head.slice(head.lastIndexOf("/") + 1));
+  if (head === "" || head.includes("$")) return false; // an expression proves nothing
+  return POSIX_SHELLS.has(head.slice(head.lastIndexOf("/") + 1));
 }
 
 /**
@@ -2273,6 +2264,14 @@ function shellIsNonPosix(shell: string): boolean {
  * language a body is in.
  */
 function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unknown, string> {
+  // A pair may resolve to MORE THAN ONE effective shell: an anchored step list
+  // reused under two job defaults is ONE pair node in two contexts. Storing a
+  // single shell kept whichever context was walked first, and a visited-set
+  // keyed on the node alone skipped the second entirely — so the python
+  // reading of a shared step vanished behind its bash reading. Every context is
+  // recorded, and a pair that is non-POSIX in ANY of them is treated as
+  // non-POSIX: the guard may not certify a body it cannot prove is shell.
+  const allShells = new Map<unknown, Set<string>>();
   const runShell = new Map<unknown, string>();
   const resolveNode = (n: unknown): unknown => {
     let node = n;
@@ -2297,10 +2296,19 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
         (item as { key?: { value?: unknown } }).key?.value === name,
     ) as { value?: unknown } | undefined;
   };
-  const descend = (node: unknown, inherited: string | null, seen: Set<unknown>): void => {
+  const descend = (
+    node: unknown,
+    inherited: string | null,
+    seen: Map<unknown, Set<string>>,
+  ): void => {
     const resolved = resolveNode(node);
-    if (resolved === null || resolved === undefined || seen.has(resolved)) return;
-    seen.add(resolved);
+    if (resolved === null || resolved === undefined) return;
+    // Keyed by (node, inherited default): a shared anchor reached under two
+    // different defaults is two different readings, not a repeat visit.
+    const contexts = seen.get(resolved) ?? new Set<string>();
+    if (contexts.has(inherited ?? "")) return;
+    contexts.add(inherited ?? "");
+    seen.set(resolved, contexts);
     const items = (resolved as { items?: unknown[] } | undefined)?.items;
     if (!Array.isArray(items)) return;
     const defaultsRun = pairIn(pairIn(resolved, "defaults")?.value, "run");
@@ -2309,7 +2317,11 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
     const runPair = pairIn(resolved, "run");
     if (runPair !== undefined) {
       const effective = ownShell ?? scoped;
-      if (effective !== null) runShell.set(runPair, effective);
+      if (effective !== null) {
+        const seenShells = allShells.get(runPair) ?? new Set<string>();
+        seenShells.add(effective);
+        allShells.set(runPair, seenShells);
+      }
     }
     for (const item of items) {
       if (isPair(item as YamlNode as never)) {
@@ -2319,7 +2331,13 @@ function resolveRunShells(document: ReturnType<typeof parseDocument>): Map<unkno
       descend(item, scoped, seen);
     }
   };
-  descend(document.contents, null, new Set());
+  descend(document.contents, null, new Map());
+  for (const [pair, shells] of allShells) {
+    // Prefer a non-POSIX reading when the contexts disagree — that is the
+    // fail-loud direction, and the only one that cannot certify wrongly.
+    const nonPosix = [...shells].find((shell) => !shellIsPosix(shell));
+    runShell.set(pair, nonPosix ?? [...shells][0]!);
+  }
   return runShell;
 }
 
@@ -2424,7 +2442,7 @@ export function scanWorkflowSource(source: string, file: string): PsqlSite[] {
         const effective = runShell.get(pair);
         // A body in a language this reader does not parse produces NO site —
         // never a certified one — and is reported instead.
-        if (effective !== undefined && shellIsNonPosix(effective)) {
+        if (effective !== undefined && !shellIsPosix(effective)) {
           return;
         }
       }
@@ -2645,8 +2663,20 @@ export function scanWorkflowIndirection(source: string, file: string): Indirecti
       // this it would be silent — and silence is the one outcome a guard may
       // never give a command it cannot read.
       const effectiveShell = runShellFor.get(pair);
-      if (effectiveShell !== undefined && shellIsNonPosix(effectiveShell)) {
-        const body = (node.value as { value?: unknown } | undefined)?.value;
+      if (effectiveShell !== undefined && !shellIsPosix(effectiveShell)) {
+        // `run: *py` is an ALIAS node, which has no `.value` of its own —
+        // reading it directly gave an empty body and the tripwire stayed
+        // silent on documented configuration reuse.
+        const bodyNode = node.value as { resolve?: unknown; value?: unknown } | undefined;
+        const body = (
+          typeof bodyNode?.resolve === "function"
+            ? ((bodyNode as { resolve: (d: unknown) => unknown }).resolve(document) as
+                | {
+                    value?: unknown;
+                  }
+                | undefined)
+            : bodyNode
+        )?.value;
         if (typeof body === "string" && nonPosixBodyMentionsPsql(body)) {
           const at = (node.key as { range?: [number, number, number] } | undefined)?.range;
           hits.push({
