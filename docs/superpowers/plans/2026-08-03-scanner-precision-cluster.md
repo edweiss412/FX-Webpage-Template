@@ -68,7 +68,12 @@ while PASSING the type-aware one:**
 | A-h | `Object.assign({severity},{code},{message})` — no single argument assignable | call-expression site kind | AC-A5 |
 | A-i | Warning passed where the contextual type is a UNION (`ParseWarning \| Alert`) | contextual-OR-intrinsic assignability | AC-A6 |
 | A-j | Class construction (`new WarningClass()`) | `new` site kind; signals, never silent | AC-A7 |
-| A-k | Warning COPY (`{...w, message}`) with no own `code` | copy-vs-definition clause — skipped, not signalled | AC-A1 |
+| A-k | Warning COPY (`{...w, message}`) with no own `code` | COPY classification | AC-A1 |
+| A-l | Spread whose RESULT type preserves a literal code | code read off the OWN type | AC-A5 |
+| A-m | Declaration-only `const` factory / callback-parameter factory | USE test requires a body — signals | AC-A7 |
+| A-n | `await asyncFactory()` | `await` is a site kind | AC-A7 |
+| A-o | Object spread INTO a warning (contextual-only selection) | FRAGMENT classification | AC-A1 |
+| **A-Z** | **Any shape not listed above** | **fail-closed default: SIGNALS.** This row is the closure — the recognizer cannot silently miss a shape, only loudly fail on one | AC-A7 |
 | A-b | Factory whose return type is spelled indirectly (`Alias["warnings"][number]`) | type-based site recognition | **AC-A5** |
 | A-c | `severity` supplied by a typed const rather than a literal | type-based site recognition | **AC-A6** |
 | A-d | Shorthand `code` whose type is a union of string literals | code extraction reads the *type* | AC-A5 |

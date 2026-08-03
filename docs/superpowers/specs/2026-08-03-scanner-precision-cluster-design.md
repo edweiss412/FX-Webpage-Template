@@ -204,50 +204,52 @@ strong-lead + stop-at-first-heading  :  8 ids  (exactly the intended eight)
 
 ## 3. Item A — design
 
-### 3.1 The rule: type-aware ParseWarning construction sites
+### 3.1 The rule: fail-closed, type-aware ParseWarning recognition
 
-A code is a `parse_warnings.code` producer if and only if it is defined at an expression **whose
-type is assignable to `ParseWarning`**, as resolved by the TypeScript checker. No rule keys on a
-spelling. Six clauses, each forced by a measured escape (R2a):
+**Comprehensive re-analysis (three-round rule).** R1, R2a and R3a each landed a finding on one
+vector — *the recognizer misses a construction shape*. Enumerating shapes one round at a time is
+the unbounded-attack-space failure the guard rules warn about, and "the reviewer imagines no
+further mutant" is not a fixed point. So the rule is inverted: **the default is SIGNAL.**
 
-1. **Site kinds.** Object literals, **call expressions, and `new` expressions**. Restricting to
-   object literals missed `Object.assign({severity},{code},{message})` — no single argument is
-   assignable while the call's result is — and class construction entirely.
-2. **Assignability is contextual OR intrinsic.** A "contextual else intrinsic" rule *rejects* a
-   valid warning passed to `sink(x: ParseWarning | Alert)`: the contextual type is the union (not
-   assignable) while the fresh literal type is. Either one assignable makes it a site.
-3. **`any` / `never` / `unknown` are excluded.** All three satisfy the assignability test trivially
-   and selected 13 production object literals that are not warnings.
-4. **The code is read off the node's OWN type**, following unions — never off the contextual type,
-   which reports the *declared* property type `string` and loses every literal. Falls back to the
-   property initializer's type. This handles shorthand `code`, `Object.assign` intersections, and
-   union-typed parameters (`ReelWarningCode`) with no separate rule.
-5. **Copy is not definition.** An object literal with **no own `code` property** (`{...w, message}`)
-   propagates a code rather than defining one, and is skipped. Six such sites exist
-   (`lib/parser/dataGaps.ts`, `lib/parser/blocks/crew.ts`). Without this clause the stated rule
-   reports them as unresolved and fails its own guard.
-6. **Use is not definition.** A call with no literal argument whose callee is declared **inside the
-   scanned tree** is a *use* of a factory whose body is scanned separately and defines the code
-   there. A callee outside the scanned tree, and every `new` expression (a class has no scanned
-   factory body), **signals** instead.
+A site is any expression whose type — or whose awaited type — is assignable to `ParseWarning`
+(`lib/parser/types.ts:67`), where "assignable" ignores `any` / `never` / `unknown` (all three
+satisfy the test trivially and selected 13 non-warnings). Contextual **or** intrinsic assignability
+qualifies, because a warning passed to `sink(x: ParseWarning | Alert)` has a non-assignable
+contextual type and an assignable own type. Site kinds are object literals, calls, `new`
+expressions, **and `await` expressions**.
 
-Where a site's code still resolves to no literal, it is **reported by name and fails the guard** —
-never dropped (AC-A7).
+The code is resolved, in order, from: the node's OWN type's `code` property following unions
+(this covers literals, shorthand, `Object.assign` intersections, spreads of literal-typed objects,
+and union-typed parameters such as `ReelWarningCode`); then the object-literal initializer; then
+the literal arguments of the call itself.
+
+**If that fails, the site FAILS THE GUARD — unless it matches one of exactly four enumerated,
+machine-checkable classifications.** Each is a positive statement about the code, not an exemption
+list of names:
+
+| # | Classification | Test | Live count |
+| --- | --- | --- | --- |
+| FRAGMENT | An object spread INTO a warning, not a warning | selected only via contextual type (own type not assignable) **and** no own `code` | 2 |
+| COPY | Propagates another warning's code | object literal, no own `code`, and the type's `code` is non-literal | 4 |
+| FACTORY_BODY | Defines by delegation | `code` is a PARAMETER of the enclosing function, and **every** call site of that function resolves to a literal (those literals ARE captured) | 4 |
+| USE | Calls a factory whose body is a site in its own right | callee resolves — through import aliases — to a function-like declaration **with a body** inside the scanned tree | 12 |
+
+A declaration-only `const` factory, a callback parameter, an out-of-tree callee, and every `new`
+expression all fail the USE test and therefore signal. A `FACTORY_BODY` whose call sites do not all
+resolve signals rather than partially capturing.
 
 Roots are `["lib", "app"]` minus `lib/dev/**`, `lib/messages/__generated__/**`, and
-`lib/messages/catalog.ts` — the gallery builds *synthetic* ParseWarnings
-(`lib/dev/attentionScenarios/tier1.ts:152`) and would otherwise define its own universe.
+`lib/messages/catalog.ts`.
 
 **Mechanism.** ts-morph over `tsconfig.json`, matching `lib/audit/noGlobalCursor.ts` and
-`tests/cross-cutting/no-raw-codes-audit.ts:247`. **Single compiler world**: ts-morph wrappers and
-its exported `ts` namespace only
+`tests/cross-cutting/no-raw-codes-audit.ts:247`. **Single compiler world**
 (`docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md:218`).
 
 <!-- spec-lint: ignore — new file introduced by this change; not tracked until implementation -->
 The recognizer lands as `lib/messages/__internal__/parseWarningSites.ts`.
 
-**Measured with all six clauses (2026-08-03):** 58 codes · **0 unresolved** · 0 sites outside the
-roots anywhere in the production tree · 6 copy-sites correctly skipped.
+**Measured (2026-08-03):** **58 codes · 0 signalled · 22 classified skips** (2 FRAGMENT, 4 COPY,
+4 FACTORY_BODY, 12 USE). Every skip is one of the four tests above; nothing is skipped by name.
 
 ### 3.2 Consumer change
 
@@ -496,6 +498,7 @@ entries are disjoint and the `Last reconciled:` line concatenates.
 | B3 | HIGH (R3b) — Task 3 cannot literally move the entries: archives may not hold `IN PROGRESS`, and stripping the marker removes the branch provenance `BACKLOG_GRADUATED` asserts. | **Accepted in full.** AC-B5 specifies the meta-line rewrite that satisfies both guards. **My R3b-round refutation of the third claim was itself WRONG and is retracted:** I read `BACKLOG.md:86` as preceding the second heading, but the headings were at `BACKLOG.md:71` and `BACKLOG.md:90`, so `BACKLOG.md:86` sat INSIDE the first entry and `BACKLOG.md:102` inside the second. R4b caught the error. Root cause fixed rather than papered over — the added marker was a SECOND status line per entry; each entry's own `**Status:** OPEN.` is now the in-flight marker, so there is exactly one status per entry (`_metaLedgerInProgress.test.ts` 14/14). |
 | B4 | HIGH (R4b) — P5-live pins results, not the default; a default widened with a currently-harmless plan path survives every declared assertion. | **Accepted.** P5-live now asserts EXACT membership of the default list (§4.2). |
 | B5 | HIGH (R4b) — the plan never schedules P5-live; Tasks 2-3 say "P1-P8" throughout, so an implementer could omit the accepted regression test. | **Accepted.** The plan names the family "P1-P8 plus P5-live" at every site. |
+| A6 | BLOCKING (R3a) — clauses 1/5/6 still permit three escape classes: a spread whose result preserves a literal code, declaration-only and callback factories treated as scanned uses, and `await asyncFactory()` outside the site kinds. | **Accepted, and answered structurally rather than by adding three more clauses.** This was round 3 on one vector, so §3.1 was INVERTED to fail-closed: the default is now SIGNAL, and a skip requires one of four machine-checkable classifications. `await` is a site kind; the USE test now requires a function-like declaration WITH A BODY (following import aliases), so declaration-only and callback factories signal; spread-preserved literals are captured by reading the OWN type. Re-measured 58 codes, 0 signalled, 22 classified skips. |
 | B1 | HIGH (R2b) — P5 is not behaviorally testable through the declared API: `bodyDefinedIds(text, opts)` cannot distinguish a ledger from a plan, and the only discriminator (`LEDGERS` / `definedIds`) is module-local. | **Accepted.** `definedIds` is exported with injectable `(ledgers, read)`, mirroring `citedIds`. P5 gains a paired control. Every other R2b probe supported the design and independently reproduced the arithmetic (43/46/47/58, 11 gained / 0 lost, 10 syntactic false positives, 11→8 body ids). |
 | 4 | MEDIUM — false-positive arithmetic disagrees with the live sets; the "zero duplicate bindings" claim is false | **Accepted.** §2.3(a) now states one baseline and lists all ten. The duplicate-bindings limit is **deleted along with its mechanism** — type-aware resolution has no const map — and the false R1 claim is recorded in §3.6 rather than quietly dropped. |
 
