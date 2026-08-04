@@ -8,6 +8,45 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-INTER-NUMERAL-DISAMBIGUATION — RESOLVED (2026-08-03, `feat/inter-numeral-disambiguation`)
+
+**Resolved by changing the font, not the CSS — the entry's premise was false.**
+
+The row asked for `"zero" 1, "cv05" 1` on the tabular rule. Probing the actual binaries first showed
+those features do not exist in the Inter build Google Fonts serves: measured live, the latin subset
+carries `calt ccmp dnom frac kern locl mark mkmk numr pnum tnum` and a `wght` axis, nothing more. The
+requested change would have rendered nothing — exactly as the `"cv11" 1` beside it had been rendering
+nothing since `78662acb5` (2026-05-03), silently, on every route, for three months.
+
+Two further defects in the row itself, independent of availability: `cv05` moves lowercase `l` only and
+never touches capital `I`, so the pair named in the row's own title was incomplete; and `ss04` is
+Inter's own "disambiguation without zero", which covers both letterforms in one tag.
+
+**Shipped:** a latin + latin-ext SUBSET of the upstream `rsms/inter` v4.1 release at
+`assets/fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
+checksum-pinned input, OFL text alongside) and loaded via `next/font/local`. The verbatim 344 KB
+release was the decision at the gate; the impeccable audit then measured it costing FCP +136-164ms
+and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. CSS: `ss04` at
+`html`, `ss04`/`tnum` on the tabular rule, and `zero` on a narrower `.code-value` — `.tabular-nums`
+turned out to sit on whole prose sentences, including the Right Now hero's 30px bold `<h2>`, so the
+slash was landing mid-sentence. `ss04` is repeated on each rule because `font-feature-settings`
+inherits as a whole value rather than a merged list. The generated-artifact objection that
+argued for verbatim is answered by asserting the binary SEMANTICALLY — the guard checks the
+declared tags and both axes against whatever the loader points at — rather than by byte-equality,
+so no pinned-image gate is owed. The `opsz` axis survives the subset, making `DESIGN.md` §2.1's
+long-standing optical-sizing claim true for the first time.
+
+**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and eight source
+comments — including that plan's own P3 disposition, which had recorded "now deterministically activates
+Inter's alternates … for the first time" as an accepted consequence. It activated nothing.
+
+**The guard is the real deliverable.** `tests/styles/fontFeatureAvailability.test.ts` derives the font
+path from `app/fonts.ts` and asserts every tag `app/globals.css` declares exists in that binary, so this
+class of silent failure fails the build instead. It carries a regression proof against the committed
+Google-served binary showing it would have caught the dead `cv11` on the day it was written. In the
+browser, `zero` is proven by a PIXEL oracle rather than a width one: `zero` and `zero.slash` share an
+xAdvance of 1292 units, so a width assertion can never see the feature work.
+
 ## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
 
 ### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
