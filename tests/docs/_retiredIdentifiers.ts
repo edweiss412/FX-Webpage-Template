@@ -59,6 +59,12 @@ export const ARCHIVE_GLOBS = [
   "docs/superpowers/plans/",
   "docs/audits/",
   "docs/superpowers/artifacts/",
+  // A committed COPY of the ledgers as they stood on a named date, carried so
+  // the `ledger:mass` oracle pins against a frozen tree rather than a moving
+  // one. It is a dated record in the strongest sense: correcting a reference
+  // inside it would silently re-base the numbers it exists to hold, which is
+  // the one failure its own README forbids.
+  "tests/fixtures/ledger-mass/",
 ] as const;
 
 /** Whole files that are archives by name rather than by directory. */
