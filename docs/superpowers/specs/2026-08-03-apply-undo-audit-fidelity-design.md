@@ -58,7 +58,7 @@ export type ApplyParseResultOutcome = {
 };
 ```
 
-`UnlandedRenameReason` is a closed union over the five existing `continue` guards in the loop at `lib/sync/applyParseResult.ts:175-186`, plus the newly observable A1 case:
+`UnlandedRenameReason` is a closed union with **five** members: the four REACHABLE `continue` guards in the loop at `lib/sync/applyParseResult.ts:175-186` (the loop has five guards, but one is unreachable — see the struck row), plus the newly observable A1 case.
 
 | Reason | Guard | Line |
 |---|---|---|
@@ -125,12 +125,18 @@ A new forensic emitter modeled exactly on `lib/log/emitLeadRoleApplied.ts`, whic
   | cron/manual result | `lib/sync/runScheduledCronSync.ts:396` | `unlandedRenames` |
   | staged core result | `lib/sync/applyStagedCore.ts:474` | `unlandedRenames` |
   | staged result | `lib/sync/applyStaged.ts:265` | `unlandedRenames` |
+  | **wizard per-row result** — `ShadowApplyResult` (`app/api/admin/onboarding/finalize-cas/route.ts:82-115`) | Unit C adds `roleFlagsNotice` here; Unit B must add its own field | `unlandedRenames` (stripped from the HTTP response with `roleFlagsNotice`, per §2.3) |
+  | **first-seen manual result** (`lib/sync/runManualStageForFirstSeen.ts:170`) | returns `{ outcome, showId }` — carries neither | `unlandedRenames` |
 
-  Each of the three post-commit sinks (cron/manual, dashboard staged, finalize-cas) gets an **integration** assertion that the event fires end-to-end, not merely a unit test of the emitter in isolation. A unit test on the emitter proves nothing about whether the field survived four hops.
-- **Cardinality: one event per unlanded pair per apply attempt.** No dedup, no coalescing — matching the precedent, which emits per capability change per apply (`lib/log/emitLeadRoleApplied.ts:52-68`). All six `reason` values emit, including `name_held`, which is an ordinary operator-initiated state rather than a fault.
+  **One sink is reachable by a path that bypasses all of the above.** The pending-ingestion retry calls `runManualSyncForShowUnlocked`, which routes around `processOneFile`'s post-commit tail (`lib/sync/runManualSyncForShow.ts:287-288`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:405-427`), and the route retains only `showId`/outcome telemetry. That path needs its own carrier and its own emit point; it is not covered by widening the four core hops. This is the same bypass that makes it a Unit C site.
+
+  Each post-commit sink gets an **integration** assertion that the event fires end-to-end, not merely a unit test of the emitter in isolation. A unit test on the emitter proves nothing about whether the field survived the hops.
+- **Cardinality: one event per unlanded pair per apply attempt.** No dedup, no coalescing — matching the precedent, which emits per capability change per apply (`lib/log/emitLeadRoleApplied.ts:52-68`). All five `reason` values emit, including `name_held`, which is an ordinary operator-initiated state rather than a fault.
 - **Volume is NOT bounded by an accept gate.** `computeIdentityLinkRenames` gates only MI-13 and MI-14 on `acceptedThisVersion`; **MI-12 pairs are emitted unconditionally** (`lib/sync/identityLinkRenames.ts:20-23`), and `computeStagedIdentityLinkRenames` (`lib/sync/identityLinkRenames.ts:39-59`) has no accept gate at all. So a standing hold on an MI-12 pair DOES re-request, and therefore re-emit, on every pass until the hold clears. This is accepted — see §8 for why filtering belongs in the read path — but it must not be justified by a gate that does not cover the common case.
 
 ### 2.3 Unit C — one emit helper, three callers
+
+**The filed entry named one instance of a four-instance class.** `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` describes the finalize-cas discard. A sweep for the shape — *a path that obtains a real `roleFlagsNotice` and never emits it* — finds three more: the first-seen onboarding finalize, `runManualStageForFirstSeen` (which builds the notice and then returns a shape without it), and the pending-ingestion retry, which bypasses `processOneFile`'s post-commit tail entirely. All four are repaired here under the class-sweep disposition default; none qualifies for a deferral exception, since each is the same defect in code this PR is already touching.
 
 **The helper already exists; this unit adopts it rather than creating one.** `emitDeferredRoleFlagsNotice` (`lib/sync/runScheduledCronSync.ts:2318-2331`) is already precisely the intended shape — same applied-and-notice-present guard, same `emitLeadRoleApplied` then `upsertAdminAlert` ordering, same rationale comment — and `lib/sync/applyStaged.ts:1993-2002` is a near-verbatim duplicate of it. The duplication this unit was written to prevent is therefore already present. The work is to **export it, relocate it to a shared module under `lib/sync/`, collapse the `applyStaged` copy into it, and add finalize-cas as a third caller.**
 
@@ -140,6 +146,9 @@ One signature change: the existing function takes a `ProcessOneFileResult` envel
 |---|---|---|
 | `lib/sync/runScheduledCronSync.ts:2318-2331` | **owns** `emitDeferredRoleFlagsNotice` (private) | exported + relocated; calls the shared form |
 | `lib/sync/applyStaged.ts:1993-2002` | near-verbatim duplicate | calls the shared form |
+| `app/api/admin/onboarding/finalize/route.ts:1266` | **discards** — calls `applyStagedCore`, zero `roleFlagsNotice` references in the file | surfaces + emits post-commit |
+| `lib/sync/runManualStageForFirstSeen.ts:139` | **builds it, then drops it** — sets `applied.roleFlagsNotice` at `lib/sync/runManualStageForFirstSeen.ts:139` and returns `{ outcome, showId }` at `lib/sync/runManualStageForFirstSeen.ts:170` | carries it on the return; caller emits |
+| `app/api/admin/pending-ingestions/[id]/retry/route.ts:405` | **bypasses the sink** — calls `runManualSyncForShowUnlocked`, which routes around `processOneFile`'s post-commit tail (`lib/sync/runManualSyncForShow.ts:287-288`) | emits at the route's own post-commit point |
 | `app/api/admin/onboarding/finalize-cas/route.ts` | **discards `core.roleFlagsNotice`** (`app/api/admin/onboarding/finalize-cas/route.ts:619` returns without it) | surfaces it on the per-row result, caller emits post-commit |
 
 The emit ordering (durable audit **before** the throwing `upsertAdminAlert`) moves into the helper unchanged — it is load-bearing per `applyStaged.ts:1995-1999`.
@@ -166,7 +175,7 @@ Three places drop the column; all three are repaired.
 | D2 | `undo_change` Direction A INSERT column list — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:175-179` (12 columns) and the values list `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:181-188` | add the column, cast `(v_before->>'selections_reset_at')::timestamptz` |
 | D3 | the same function's `ON CONFLICT (show_id, name) DO UPDATE SET` list — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:189-198` | `selections_reset_at = greatest(crew_members.selections_reset_at, excluded.selections_reset_at)` — **not** a bare `excluded.` assignment |
 | D4 | the successor `select … for update` — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:151-153` | also capture `selections_reset_at` into a new local, and feed the INSERT `greatest((v_before->>'selections_reset_at')::timestamptz, v_succ_reset)` |
-| D5 | `mi11_approve_hold`'s crew `before_image` builder — `supabase/migrations/20260608000002_mi11_gate_rpcs.sql:336` | add `selections_reset_at`; it is the **second** production builder and `crewImage` is not the only one |
+| D5 | `mi11_approve_hold`'s crew `before_image` builder — defined at `supabase/migrations/20260608000002_mi11_gate_rpcs.sql:217`, builder at `supabase/migrations/20260608000002_mi11_gate_rpcs.sql:336` | add `selections_reset_at`. **Ships as a `CREATE OR REPLACE FUNCTION public.mi11_approve_hold` in the NEW migration**, NOT as an edit to `20260608000002` — see below |
 
 **D3 alone is not enough — it guards the branch that almost never runs.** The ON CONFLICT branch is documented as defensive (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:172-174` calls the clean-INSERT path "the reachable one"). A normal `crew_renamed` undo **deletes the live successor first** (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:150-163`) precisely so the INSERT slot is free, so it takes the clean-INSERT path. Any reset stamped on that successor *after* the rename is destroyed by the delete, and `greatest(...)` in the conflict branch never sees it. D3 without D4 leaves the common case exactly as broken as it is today.
 
@@ -195,6 +204,8 @@ Postgres `greatest` ignores NULL arguments and returns NULL only when all are NU
 The branch is documented as defensive and hard to reach (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:172-174` calls the clean-INSERT path "the reachable one"), but "hard to reach" is not "unreachable", and the failure mode is a silent security-relevant regression. §7 carries a D3 test that drives the conflict branch directly.
 
 Delivered as a new migration using `CREATE OR REPLACE FUNCTION`, matching how `20260719000001` itself superseded `20260608000003_undo_change_rpc.sql:89`. The `ROW_COUNT` fail-safe at `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:199-200` is preserved verbatim.
+
+**The new migration replaces TWO functions, not one.** `20260608000002` is already applied everywhere — both `mi11_approve_hold` and `undo_change` are live in the local DB — so editing that file in place changes nothing on any deployed database; the runner will not re-run it. D5 therefore ships as a second `CREATE OR REPLACE FUNCTION public.mi11_approve_hold(...)` inside the SAME new migration as D2/D3/D4, carrying the full current body with `selections_reset_at` added to its `jsonb_build_object` at `supabase/migrations/20260608000002_mi11_gate_rpcs.sql:336`. The §5.1 surgical-apply step covers **both** replaced functions; anywhere this spec names only `undo_change` it is scoped to D2/D3/D4 and does not narrow D5.
 
 **Historical `before_image` rows cast cleanly — which is a statement about types, not about safety.** Rows written before D1 have no `selections_reset_at` key. The new INSERT reads it as `(v_before->>'selections_reset_at')::timestamptz`, and an absent jsonb key yields SQL NULL, which casts to a NULL `timestamptz` without error:
 
@@ -315,7 +326,7 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 | A | `renamedAway` survival split: an unlanded pair whose `removedName` IS in `deleteKeepNames` produces **no** loss notice; one whose `removedName` is NOT produces one (capability-flagged prior) | The §4 item 9 / item 10 pair. A single-set implementation cannot satisfy both, so this test is what forces the split. |
 | A | A `name_held` pair whose hold kind did **not** delete-protect it still produces a loss notice | The reason-based proxy. A `reason ∈ {name_held, …}` implementation passes the row above and fails only here — which is exactly the case that would hide a real capability loss. |
 | A | `renameCrewMember` returns `false` on target collision and on missing source; the pair surfaces as `rename_no_op` | The second silent layer — a pair clearing all five guards can still no-op. Existing tests (`tests/sync/applyParseResult.identityLink.db.test.ts:64` and `tests/sync/applyParseResult.identityLink.db.test.ts:80`) assert DB state only and pass today. |
-| A | Each of the five guards maps to its distinct `reason` | A collapsed union that reports every skip identically |
+| A | Each of the four REACHABLE guards maps to its distinct `reason` (the fifth union member is `rename_no_op`) | A collapsed union that reports every skip identically. Deliberately does NOT assert `source_delete_protected` — §2.1 establishes it is unreachable, so a test for it would have to mock an impossible planner state. |
 | A | An **accepted** rename that lands still produces its notice entry and `crew_renamed` row | Over-correction — the fix silencing legitimate renames |
 | A | `field_changed` attribution follows landed pairs: an unlanded pair emits no `field_changed` row mapped through the prior name | §4 item 2. The rename/add/remove assertions all pass while this row is still mis-attributed. |
 | B | One unlanded pair emits exactly one event carrying `reason`; `{ ok: false }` escalates via `log.error` | Silent omission degrading into silent-everything |
@@ -326,12 +337,15 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 | C | `_metaLeadRoleAppliedTopology` expects **one** site | A fourth emit site added off-helper |
 | C | finalize-cas admin behavioral coverage still passes (`tests/log/adminOutcomeBehavior.test.ts`); route stays in `AUDITABLE_MUTATIONS` (`tests/log/_auditableMutations.ts:35`) | Invariant 10 regression on an admin mutation surface |
 | C | A throwing `upsertAdminAlert` on the finalize-cas path still reaches `markFinalCasDone` | Importing a throw into a fail-open loop and aborting the outer tx post-commit |
-| C | **Response shape:** `per_row` contains no `roleFlagsNotice` key | Leaking crew names and capability flags into the public API response |
+| C | **Response shape:** `per_row` contains no `roleFlagsNotice` and no `unlandedRenames` key | Leaking crew names and capability flags into the public API response |
+| C | **One test per discard site**, each asserting a LEAD-bit change co-emits: first-seen finalize (`app/api/admin/onboarding/finalize/route.ts:1266`), `runManualStageForFirstSeen`, pending-ingestion retry | The three sites the filed entry did not name. A test covering only finalize-cas passes with all three still dark — which is exactly how the class survived until now. |
+| C | A structural assertion that every `applyStagedCore` production caller consumes `roleFlagsNotice` on its applied branch | The class recurring. Enumerating four callers today does not stop a fifth; this is the guard whose absence is filed as `BL-ROLEFLAGSNOTICE-DROP-GUARD`, and if it lands here that row closes instead. |
 | D | **db test:** seed a crew member, stamp `selections_reset_at`, record a change, undo it, assert the column round-trips **and** that `resolvePickerSelection` still returns `selection_reset` for a cookie stamped before the reset | The security-adjacent revalidation. Asserting the column alone would miss a reader-side regression. |
 | D | **db test on the CLEAN-INSERT path (the reachable one):** rename, stamp a reset on the successor, undo, assert the marker survives | **The D3-only failure.** This is the common path; a `greatest()` that lives solely in the ON CONFLICT branch fails here while every other D test passes. |
 | D | **db test driving the ON CONFLICT branch:** a live row whose `selections_reset_at` is NEWER than `before_image`'s keeps the newer value through an undo | D3 written as a bare `excluded.` assignment |
 | D | **historical-row test:** a `before_image` with no `selections_reset_at` key, undone against a successor carrying one, keeps the successor's | D4's fall-through. Pins that old rows are rescued by capture rather than by backfill. |
 | D | `mi11_approve_hold`'s `before_image` carries `selections_reset_at`, and an undo of an MI-11-applied removal round-trips it | D5. The second producer — invisible to any test that only exercises `crewImage`. |
+| D | The new migration's `mi11_approve_hold` body is asserted against the **live** `pg_proc.prosrc`, not against a migration file | D5 shipped as an edit to the already-applied `20260608000002`, which never reaches a deployed database. A file-reading test passes on a change that was never deployed. |
 | D | `undo-change-no-phantom-columns` reads the **live** migration and `REAL_CREW_COLUMNS` includes the column | The blind guard that let this land |
 | D | `_holdsHelpers` seed + `readCrew` carry the column | Otherwise no D test can observe anything |
 
